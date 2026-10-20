@@ -1820,7 +1820,7 @@ test("11/12: local script and CSS imports, font weights, woff2 and adjacent OFL 
 });
 
 // Moving an example changes this list alone: new rules become a test, old rules leave.
-const migrated = new Set<string>(["voxel"]);
+const migrated = new Set<string>(["voxel", "post-processing"]);
 
 for (const example of await readdir("examples")) {
     (migrated.has(example) ? test : test.todo)(`${example} follows example-controls`, async () => {

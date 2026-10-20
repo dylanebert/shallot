@@ -155,6 +155,83 @@ test("a slider for each effect changes captured pixels and the panel stays insid
     }
 });
 
+for (const viewport of [
+    { width: 1280, height: 720 },
+    { width: 390, height: 844 },
+]) {
+    test(`controls retain geometry, values and keyboard access at ${viewport.width}px`, async ({
+        page,
+    }) => {
+        await page.setViewportSize(viewport);
+        await page.goto("/");
+        const panel = page.getByRole("region", { name: "Post-processing controls" });
+        await panel.waitFor();
+        await page.evaluate(() => document.fonts.ready);
+        expect(
+            await page.evaluate(() => [
+                document.fonts.check('400 13px "IBM Plex Sans"'),
+                document.fonts.check('400 12px "JetBrains Mono"'),
+                document.fonts.check('700 15px "JetBrains Mono"'),
+            ]),
+        ).toEqual([true, true, true]);
+        const bounds = (await panel.boundingBox())!;
+        const inset = viewport.width === 390 ? 16 : 24;
+        expect(bounds.x).toBe(viewport.width - inset - bounds.width);
+        expect(bounds.y).toBe(inset);
+        expect(bounds.width).toBe(Math.min(360, viewport.width - 32));
+        const rows = panel.locator(".row, .section-title");
+        for (const row of await rows.all())
+            expect((await row.boundingBox())!.height).toBe(viewport.width === 390 ? 44 : 32);
+        expect(await panel.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+        const slider = page
+            .getByRole("group", { name: names[0], exact: true })
+            .getByRole("slider")
+            .first();
+        const output = page.locator(`output[for='${await slider.getAttribute("id")}']`);
+        const initial = Number(await slider.inputValue());
+        await slider.focus();
+        await page.keyboard.press("ArrowRight");
+        await expect(slider).toHaveValue(String(initial + 0.01));
+        await expect(output).toHaveText((initial + 0.01).toFixed(2));
+        const retained = await slider.inputValue();
+        const toggle = page.getByRole("checkbox", { name: names[0], exact: true });
+        await toggle.uncheck();
+        await expect(slider).toBeDisabled();
+        await slider.click({ force: true });
+        await slider.evaluate((el) => el.focus());
+        await page.keyboard.press("ArrowRight");
+        await expect(slider).toHaveValue(retained);
+        await expect(output).toHaveText(Number(retained).toFixed(2));
+        expect(await panel.boundingBox()).toEqual(bounds);
+        await toggle.check();
+        await expect(slider).toBeEnabled();
+        await expect(slider).toHaveValue(retained);
+        const title = panel.locator("summary");
+        await title.focus();
+        await page.keyboard.press("Enter");
+        await expect(panel).not.toHaveAttribute("open", "");
+        const collapsed = (await panel.boundingBox())!;
+        expect({ x: collapsed.x, y: collapsed.y, width: collapsed.width }).toEqual({
+            x: bounds.x,
+            y: bounds.y,
+            width: bounds.width,
+        });
+        await page.keyboard.press("Space");
+        await expect(panel).toHaveAttribute("open", "");
+        if (process.env.SHALLOT_CAPTURE_DIR) {
+            await page.evaluate(() => (document.querySelector(".controls")!.scrollTop = 0));
+            await mkdir(process.env.SHALLOT_CAPTURE_DIR, { recursive: true });
+            await page.screenshot({
+                path: `${process.env.SHALLOT_CAPTURE_DIR}/${viewport.width}-all-on.png`,
+            });
+            await toggle.uncheck();
+            await page.screenshot({
+                path: `${process.env.SHALLOT_CAPTURE_DIR}/${viewport.width}-lens-off.png`,
+            });
+        }
+    });
+}
+
 test("dragging the canvas orbits the camera", async ({ page }) => {
     await page.goto("http://127.0.0.1:4266/tests/stepped.html");
     await page.waitForFunction(() => (window as SteppedWindow).captureScene !== undefined);
