@@ -332,7 +332,9 @@ test("create declares each package a template imports, Svelte components include
     expect(manifest.devDependencies["svelte-check"]).toBe("^4.0.0");
     const workflow = readFileSync(join(destination, ".github/workflows/test.yml"), "utf8");
     const cheap = workflow.slice(workflow.indexOf("  cheap:"));
-    expect(cheap).toContain("      - name: typecheck\n        run: bun run typecheck\n");
+    expect(cheap).toContain(
+        "      - name: typecheck\n        run: |\n          bun run typecheck\n",
+    );
     expect(cheap).not.toContain("bun test");
 });
 

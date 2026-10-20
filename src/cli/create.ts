@@ -220,39 +220,47 @@ function tierJob(tier: string, tiers: Record<string, boolean>, typecheck: boolea
         job += `      - uses: actions/setup-node@v6
         with:
           node-version: "${nodeVersion}"
-      - run: bun install
+      - run: |
+          bun install
 `;
         job += windowsGpuSetup();
         const suffix = tier === "gpu" ? "gpu.test.ts" : "node.ts";
         const command = `bun test $(find ./src ./tests -name '*.${suffix}' -print | sort)`;
         job += `      - name: ${tier} tier
         if: matrix.os != 'windows-latest'
-        run: ${command}
+        run: |
+          ${command}
 `;
         const argv = tier === "gpu" ? "'*.gpu.test.ts'" : "'*.node.ts'";
         job += `      - name: ${tier} tier on WARP
         if: matrix.os == 'windows-latest'
-        run: node -e "const child = Bun.spawn([process.execPath, 'test', ...process.argv.slice(1)], { argv0: 'bun.exe', env: { ...process.env, PATH: process.env.SHALLOT_REAL_NODE_DIR + ';' + process.env.PATH }, stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' }); child.exited.then((code) => process.exit(code));" -- $(find ./src ./tests -name ${argv} -print | sort)
+        run: |
+          node -e "const child = Bun.spawn([process.execPath, 'test', ...process.argv.slice(1)], { argv0: 'bun.exe', env: { ...process.env, PATH: process.env.SHALLOT_REAL_NODE_DIR + ';' + process.env.PATH }, stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' }); child.exited.then((code) => process.exit(code));" -- $(find ./src ./tests -name ${argv} -print | sort)
 `;
         return job;
     }
 
     if (tier === "browser") job += mesaSetup();
-    job += `      - run: bun install
+    job += `      - run: |
+          bun install
 `;
     if (tier === "cheap" && typecheck)
         job += `      - name: typecheck
-        run: bun run typecheck
+        run: |
+          bun run typecheck
 `;
     if (tier === "cheap" && tiers.cheap)
         job += `      - name: cheap tier
-        run: bun test --path-ignore-patterns '**/*.gpu.test.ts'
+        run: |
+          bun test --path-ignore-patterns '**/*.gpu.test.ts'
 `;
     else if (tier === "browser")
         job += `      - name: Install Playwright Chromium
-        run: bunx playwright install chromium
+        run: |
+          bunx playwright install chromium
       - name: browser tier
-        run: bunx playwright test
+        run: |
+          bunx playwright test
 `;
     return job;
 }
