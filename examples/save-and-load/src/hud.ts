@@ -10,6 +10,7 @@ export function hud(container: HTMLElement, world: World): () => void {
     buttons[0]!.onclick = () => newGame(world);
     buttons[1]!.onclick = () => saveGame(world);
     buttons[2]!.onclick = () => loadGame(world);
+    const keys = root.querySelectorAll("kbd");
     const coins = root.querySelector("output")!;
     const label = buttons[1]!.querySelector("span")!;
     const read: System = {
@@ -17,6 +18,7 @@ export function hud(container: HTMLElement, world: World): () => void {
         group: "draw",
         update(world) {
             const game = world.resource(Game);
+            for (const key of keys) key.hidden = game.touch;
             coins.textContent = `${count(world)} coins`;
             buttons[2]!.disabled = !game.saved;
             label.textContent = saveLabel(world);

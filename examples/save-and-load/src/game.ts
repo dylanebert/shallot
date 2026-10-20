@@ -33,6 +33,7 @@ import {
 export const Cube = component("Cube", {});
 export const Game = {
     create: () => ({
+        touch: false,
         camera: 0,
         cube: 0,
         label: 0,
@@ -110,6 +111,7 @@ export const Play: System = {
         const game = world.resource(Game);
         const input = world.resource(Devices);
         const pointer = input.pointer;
+        if (input.touch.pressed.size) game.touch = true;
         game.feedback = Math.max(0, game.feedback - world.time.deltaTime);
         if (input.enabled) {
             if (input.keys.pressed.has("KeyN")) newGame(world);
@@ -145,7 +147,11 @@ export const Play: System = {
                     game.label,
                     internText(
                         world,
-                        count(world) >= COIN_CAP ? "The pile is full" : "Click for a coin",
+                        count(world) >= COIN_CAP
+                            ? "The pile is full"
+                            : game.touch
+                              ? "Tap for a coin"
+                              : "Click for a coin",
                     ),
                 );
         if (input.enabled && pointer.hover && hitsCube(world, pointer.x, pointer.y)) {

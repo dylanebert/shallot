@@ -27,7 +27,7 @@ import {
 } from "@dylanebert/shallot";
 import { internText, Justify, Text, TextPlugin } from "@dylanebert/shallot/extras";
 import { Anchor } from "@dylanebert/shallot/rendering";
-import { LocalPlayer, Player, PlayerPlugin } from "./player";
+import { LocalPlayer, Player, PlayerPlugin, TouchControls } from "./player";
 
 type Vec3 = readonly [number, number, number];
 type Vec4 = readonly [number, number, number, number];
@@ -137,6 +137,7 @@ export const Lift = component("Lift", {});
 const TRAVEL = 1.5;
 const RATE = 0.65;
 const RECIPE_STATE: Resource<DemoBag> = { create: createBag };
+const Hint: Resource<{ touch: boolean | null }> = { create: () => ({ touch: false }) };
 type DemoBag = {
     // Each lift eid has a base position at slot * 3 in liftBases.
     liftEids: number[];
@@ -196,6 +197,7 @@ export const Demo = {
         },
         restore(saved: Pick<DemoBag, "liftEids" | "liftBases" | "liftCount">) {
             const bag = stateBag(world);
+            world.resource(Hint).touch = null;
             bag.liftEids = saved.liftEids.slice();
             bag.liftBases = saved.liftBases.slice();
             bag.liftCount = saved.liftCount;
@@ -226,5 +228,30 @@ export const Demo = {
             bag.liftCount++;
         }
     },
-    systems: [lift],
+    systems: [
+        lift,
+        {
+            name: "Demo/Controls",
+            group: "draw",
+            update(world) {
+                const controls = world.resource(Route).entities?.controls;
+                if (controls === undefined || !world.has(controls, Text)) return;
+                const touch = world.resource(TouchControls).used;
+                const hint = world.resource(Hint);
+                if (hint.touch === touch) return;
+                hint.touch = touch;
+                const text = world.storage(Text);
+                text.content.set(
+                    controls,
+                    internText(
+                        world,
+                        touch
+                            ? "STICK  Move\nDRAG  Look\nJump"
+                            : "WASD  Move\nSPACE  Jump\nMOUSE  Look",
+                    ),
+                );
+                text.fontSize.set(controls, touch ? 0.3 : 0.5);
+            },
+        },
+    ],
 } satisfies Plugin;

@@ -1,0 +1,8 @@
+<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="../src/hud.css"><style>body{margin:0;background:#191816}canvas{display:block;width:100vw;height:100vh}</style></head><body><canvas></canvas><script type="module">
+import { runApp, Text, internText } from '@dylanebert/shallot';
+import { Scene } from '../src/scene';
+import { Game } from '../src/game';
+import { hud } from '../src/hud';
+const app = await runApp({plugins:[Scene], ui: hud});
+window.hint = (value) => app.world.storage(Text).content.get(app.world.resource(Game).label) === internText(app.world, value);
+</script></body></html>

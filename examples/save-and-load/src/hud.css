@@ -5,4 +5,5 @@
 .save-hud button:hover:not(:disabled) { background: #454440; }
 .save-hud button:focus-visible { outline: 1px solid #eee9df; outline-offset: 0; }
 .save-hud button:disabled { color: #797369; cursor: default; }
+.save-hud kbd[hidden] { display: none; }
 .save-hud kbd { order: -1; display: grid; place-items: center; box-sizing: border-box; flex: 0 0 24px; height: 24px; background: #191816; border: 0; border-radius: 2px; font: 400 14px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }

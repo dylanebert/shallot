@@ -2,8 +2,11 @@
 import { runApp, Transform, Devices } from '@dylanebert/shallot';
 import { Player, PlayerInput } from '../src/player';
 import { AppPlugin } from '../src/app';
+import { Route } from '../src/demo';
+import { Text, internText } from '@dylanebert/shallot/extras';
 
 const app = await runApp({plugins:[AppPlugin], });
+window.hint = (value) => app.world.storage(Text).content.get(app.world.resource(Route).entities.controls) === internText(app.world, value);
 window.sample = () => {
  const world = app.world;
  const eid = [...world.query([Player])][0];

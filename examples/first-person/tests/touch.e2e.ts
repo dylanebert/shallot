@@ -2,6 +2,21 @@ import { expect, test } from "playwright/test";
 
 test.use({ baseURL: "http://127.0.0.1:4176" });
 
+test("desktop instructions name keyboard and mouse", async ({ page }) => {
+    await page.goto("/tests/touch.html");
+    await expect
+        .poll(() =>
+            page.evaluate(
+                () =>
+                    "hint" in window &&
+                    (window as unknown as { hint(value: string): boolean }).hint(
+                        "WASD  Move\nSPACE  Jump\nMOUSE  Look",
+                    ),
+            ),
+        )
+        .toBe(true);
+});
+
 test("phone fingers move, look and jump through the example's controls", async ({
     browser,
 }, testInfo) => {
@@ -28,6 +43,26 @@ test("phone fingers move, look and jump through the example's controls", async (
     const send = (type: "touchStart" | "touchMove" | "touchEnd") =>
         session.send("Input.dispatchTouchEvent", { type, touchPoints: points });
     await expect(page.getByRole("button", { name: "Jump", exact: true })).toBeHidden();
+    await expect
+        .poll(() =>
+            page.evaluate(() =>
+                (window as unknown as { hint(value: string): boolean }).hint(
+                    "WASD  Move\nSPACE  Jump\nMOUSE  Look",
+                ),
+            ),
+        )
+        .toBe(true);
+    await page.touchscreen.tap(30, 500);
+    await expect
+        .poll(() =>
+            page.evaluate(() =>
+                (window as unknown as { hint(value: string): boolean }).hint(
+                    "STICK  Move\nDRAG  Look\nJump",
+                ),
+            ),
+        )
+        .toBe(true);
+    await page.screenshot({ path: testInfo.outputPath("first-person-phone.png") });
     const before = await sample();
     points = [{ id: 1, x: 90, y: 620 }];
     await send("touchStart");
@@ -42,6 +77,15 @@ test("phone fingers move, look and jump through the example's controls", async (
             );
         })
         .toBeGreaterThan(0.1);
+    await expect
+        .poll(() =>
+            page.evaluate(() =>
+                (window as unknown as { hint(value: string): boolean }).hint(
+                    "STICK  Move\nDRAG  Look\nJump",
+                ),
+            ),
+        )
+        .toBe(true);
     points.push({ id: 2, x: 280, y: 450 });
     await send("touchStart");
     points[1].x = 330;
