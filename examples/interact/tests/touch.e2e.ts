@@ -17,7 +17,13 @@ for (const claim of ["move and look", "jump", "use"]) {
             page.evaluate(() =>
                 (
                     window as unknown as {
-                        sample(): { position: number[]; yaw: number; jumps: number; use: boolean };
+                        sample(): {
+                            grounded: boolean;
+                            position: number[];
+                            yaw: number;
+                            jumps: number;
+                            use: boolean;
+                        };
                     }
                 ).sample(),
             );
@@ -57,6 +63,7 @@ for (const claim of ["move and look", "jump", "use"]) {
             const jump = await page
                 .getByRole("button", { name: "Jump", exact: true })
                 .boundingBox();
+            await expect.poll(async () => (await sample()).grounded).toBe(true);
             const grounded = await sample();
             points.push({ id: 2, x: jump!.x + 32, y: jump!.y + 32 });
             await send("touchStart");

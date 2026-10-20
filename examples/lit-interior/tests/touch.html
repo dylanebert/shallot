@@ -1,5 +1,5 @@
 <!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{margin:0;background:#191816}canvas{display:block;width:100vw;height:100vh}</style></head><body><canvas></canvas><script type="module">
-import { runApp, Transform, Devices } from '@dylanebert/shallot';
+import { runApp, Transform, Devices, Character, GroundState } from '@dylanebert/shallot';
 import { Player, PlayerInput } from '../src/player';
 import { AppPlugin } from '../src/app';
 
@@ -9,6 +9,6 @@ window.sample = () => {
  const eid = [...world.query([Player])][0];
  const t = world.storage(Transform).translation.column;
  const input = world.storage(PlayerInput);
- return {position: Array.from(t.slice(eid*4,eid*4+3)), yaw:input.yaw.get(eid), jumps:input.jumpPresses.get(eid), use:world.resource(Devices).keys.held.has('KeyE')};
+ return {grounded: world.storage(Character).groundState.get(eid) === GroundState.OnGround, position: Array.from(t.slice(eid*4,eid*4+3)), yaw:input.yaw.get(eid), jumps:input.jumpPresses.get(eid), use:world.resource(Devices).keys.held.has('KeyE')};
 };
 </script></body></html>
