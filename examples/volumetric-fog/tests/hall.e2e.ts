@@ -9,7 +9,7 @@ declare global {
             evidence(regions: number[][]): Promise<number[]>;
             contributions(regions: number[][]): Promise<number[]>;
             sunColumns(region: number[]): Promise<number[]>;
-            walk(count: number): { before: number; after: number };
+            walk(count: number): Promise<{ before: number; after: number }>;
         };
     }
 }
@@ -28,12 +28,12 @@ test("the window shaft, spot cone and point glow brighten haze beside their shad
     // Fog-on minus fog-off isolates air light from the lit wall behind each patch.
     const evidence = await page.evaluate(() =>
         window.hall.evidence([
-            [575, 595, 325, 345],
-            [625, 645, 325, 345],
-            [735, 760, 210, 280],
-            [820, 845, 210, 280],
-            [510, 545, 215, 245],
-            [440, 470, 215, 245],
+            [144, 149, 81, 86],
+            [156, 161, 81, 86],
+            [184, 190, 52, 70],
+            [205, 211, 52, 70],
+            [128, 136, 54, 61],
+            [110, 118, 54, 61],
         ]),
     );
     console.log("shaft / shade, cone / shade, glow / shade", evidence);
@@ -42,25 +42,31 @@ test("the window shaft, spot cone and point glow brighten haze beside their shad
     }
     const contributions = await page.evaluate(() =>
         window.hall.contributions([
-            [575, 595, 325, 345],
-            [735, 760, 210, 280],
-            [510, 545, 215, 245],
+            [144, 149, 81, 86],
+            [184, 190, 52, 70],
+            [128, 136, 54, 61],
         ]),
     );
     console.log("isolated shaft, cone, glow contributions", contributions);
     for (const value of contributions) expect(value).toBeGreaterThan(2);
-    async function capture(name: string) {
-        const image = await page.evaluate(() => window.hall.image());
-        const directory = process.env.SHALLOT_CAPTURE_DIR;
-        if (directory) {
-            mkdirSync(directory, { recursive: true });
-            writeFileSync(`${directory}/${name}.png`, Buffer.from(image.split(",")[1]!, "base64"));
-        }
-    }
-    await capture("entrance-shaft-cone-glows");
     const walk = await page.evaluate(() => window.hall.walk(60));
     expect(walk.after).toBeLessThan(walk.before - 3);
-    await capture("walked-shaft-cone");
+    // Captures for a person's judgment show the game's full-size view, outside the claims' frame.
+    const directory = process.env.SHALLOT_CAPTURE_DIR;
+    if (directory) {
+        const view = await page.context().newPage();
+        await view.goto("/tests/stepped.html?captures");
+        await view.waitForFunction(() => window.hall);
+        mkdirSync(directory, { recursive: true });
+        const save = async (name: string) => {
+            const image = await view.evaluate(() => window.hall.image());
+            writeFileSync(`${directory}/${name}.png`, Buffer.from(image.split(",")[1]!, "base64"));
+        };
+        await save("entrance-shaft-cone-glows");
+        await view.evaluate(() => window.hall.walk(60));
+        await save("walked-shaft-cone");
+        await view.close();
+    }
     expect(errors).toEqual([]);
 });
 
@@ -71,8 +77,8 @@ test("the far wall's top seam takes no sunlight from the air above the hall", as
     await page.waitForFunction(() => window.hall);
     // Ceiling columns at the seam end metres short of the far wall their neighbours see, and the cells between
     // lie in the sunlit air above the hall. Lit there, they streaked the seam's haze column by column: the
-    // brightest pixel column took 2.2 of sunlight at b8718d34.
-    const seam = await page.evaluate(() => window.hall.sunColumns([600, 830, 240, 270]));
+    // brightest pixel column took 1.6 of sunlight at b8718d34.
+    const seam = await page.evaluate(() => window.hall.sunColumns([150, 208, 60, 68]));
     console.log("far seam sunlight, brightest column", Math.max(...seam));
     expect(Math.max(...seam)).toBeLessThan(0.5);
     expect(errors).toEqual([]);
