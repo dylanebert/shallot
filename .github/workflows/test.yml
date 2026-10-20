@@ -16,6 +16,7 @@ on:
         options:
           - ubuntu-latest
           - macos-15
+          - macos-26
           - windows-latest
       tier:
         description: One CI job to run; cargo and checked-kernel require Ubuntu
@@ -366,8 +367,8 @@ jobs:
           if-no-files-found: warn
 
   mac-native:
-    if: ${{ github.event_name != 'workflow_dispatch' || (inputs.tier == 'mac-native' && inputs.os == 'macos-15') }}
-    runs-on: macos-15
+    if: ${{ github.event_name != 'workflow_dispatch' || (inputs.tier == 'mac-native' && inputs.os == 'macos-26') }}
+    runs-on: macos-26
     timeout-minutes: 60 # CEF download and native compilation; launch waits use CEILING.startup
     defaults:
       run:
