@@ -7,17 +7,19 @@
         <link rel="icon" type="image/svg+xml" href="/icon.svg" />
         <title>loading-screen</title>
         <style>
+@font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/plex/IBMPlexSans-Regular-Latin1.woff2') format('woff2'); }
+@font-face { font-family: 'JetBrains Mono'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/mono/JetBrainsMono-Regular.woff2') format('woff2'); }
             * { box-sizing: border-box; margin: 0; }
             html, body, canvas { width: 100%; height: 100%; }
-            body { overflow: hidden; background: #191816; }
+            body { overflow: hidden; background: #141210; }
             canvas { display: block; }
-            .title-card { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; background: #191816; color: #eee9df; font: 400 14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+            .title-card { position: fixed; inset: 0; z-index: 1; display: grid; place-items: center; background: #141210; color: #f0e6d6; font: 400 13px/20px 'IBM Plex Sans', system-ui, sans-serif; }
             .lockup { width: min(80%, 420px); text-align: center; }
-            h1 { margin-bottom: 8px; font-size: 24px; font-weight: 400; }
-            .track { width: 100%; height: 3px; overflow: hidden; background: #282622; }
-            .progress { width: 0; height: 100%; background: #ddaa3f; }
-            .notice { margin-top: 8px; font-size: 14px; }
-            .error { margin-top: 8px; padding: 8px; background: #282622; border: 1px solid #797369; white-space: pre-wrap; text-align: left; line-height: 1.6; }
+            h1 { margin-bottom: 8px; font: 400 24px/20px 'JetBrains Mono', ui-monospace, monospace; }
+            .track { width: 100%; height: 4px; overflow: hidden; background: #1c1917; }
+            .progress { width: 0; height: 100%; background: #d49560; }
+            .notice { margin-top: 8px; }
+            .error { margin-top: 8px; padding: 8px; background: #1c1917; border: 1px solid #2a2420; white-space: pre-wrap; text-align: left; }
         </style>
     </head>
     <body>

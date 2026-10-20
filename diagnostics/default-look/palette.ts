@@ -18,30 +18,6 @@ export interface LookPalette {
         routePerch?: Rgba;
     };
     textColor: number;
-    ui: {
-        panel: string;
-        ink: string;
-        border: string;
-        fontFamily: string;
-        fontSizes: readonly string[];
-        fontWeight: string;
-        spacing: { base: number; group: number };
-        controls: {
-            row: number;
-            width: number;
-            track: string;
-            fill: string;
-            checkbox: number;
-            indent: number;
-            rest: string;
-            hover: string;
-            selected: string;
-            focus: string;
-        };
-        radius: string;
-        /** A round mark, such as a reticle. */
-        circle: string;
-    };
 }
 
 export const EXAMPLE_CONTROLS = {
@@ -102,28 +78,6 @@ export const EXAMPLE_CONTROLS = {
     },
 } as const;
 
-const uiType = {
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
-    fontSizes: ["14px", "24px"],
-    fontWeight: "400",
-    // lil-gui's 20px widget plus 4px spacing fits the UI's 20px text line.
-    spacing: { base: 4, group: 8 },
-    controls: {
-        row: 24,
-        width: 112,
-        track: "#3a3835",
-        fill: "#454440",
-        checkbox: 20,
-        indent: 8,
-        rest: "#191816",
-        hover: "#454440",
-        selected: "#797369",
-        focus: "#eee9df",
-    },
-    radius: "2px",
-    circle: "50%",
-};
-
 // Comparison scenes hold lighting fixed: warm sun and cool ambient.
 const current = {
     current: {
@@ -140,12 +94,6 @@ const current = {
             embedded: [0.85, 0.55, 0.35, 0.72],
         },
         textColor: 0xffffff,
-        ui: {
-            ...uiType,
-            panel: "rgba(14, 17, 20, 0.72)",
-            ink: "#ffffff",
-            border: "rgba(255, 255, 255, 0.16)",
-        },
     },
 } satisfies Record<string, LookPalette>;
 
@@ -249,7 +197,6 @@ function candidate(hues: (typeof CANDIDATES)[keyof typeof CANDIDATES]): LookPale
             routePerch: linearFromOklch(colors.routePerch),
         },
         textColor: Number.parseInt(ink.slice(1), 16),
-        ui: { ...uiType, panel: colorHex(dark), ink, border: colorHex(ground) },
     };
 }
 
@@ -290,7 +237,6 @@ function currentInRange(): LookPalette {
             orange: repairAlbedo(baseline.materials.orange),
         },
         textColor: Number.parseInt(ink.slice(1), 16),
-        ui: { ...baseline.ui, ink },
     };
 }
 
@@ -336,7 +282,6 @@ export const PALETTES = {
             routePerch: [0.11, 0.105, 0.095, 1],
         },
         textColor: 0xeee9df,
-        ui: { ...uiType, panel: "#282622", ink: "#eee9df", border: "#797369" },
     } satisfies LookPalette,
     "current-in-range": currentInRange(),
     "dev-orange-neutral": devOrangeNeutral(),

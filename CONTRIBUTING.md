@@ -283,8 +283,8 @@ A choice the pillars leave open is taste, and goes to the person.
 - A lone-subject example follows `minimal` and is added to `scripts/check-cube-scenes.node.ts`
 - In every example the subject accent is the brightest, most saturated thing in frame, lit and shaded faces separate, and a cast shadow reads as shade, not as the clear
 - Examples use `PALETTES["aperture-carbon"]` from `diagnostics/default-look/palette.ts`, with shadow-casting warm suns and cool ambient lighting
-- A panel's label column fits every label it holds, a toggle's dependents sit beneath it, a toggle moves neither the panel's width nor its top-left, and changing text moves no control
-- Copy UI values from the `ui` tokens in `diagnostics/default-look/palette.ts`; copied user projects never import from `diagnostics/`
+- A panel's fixed label column fits every label it holds, a toggle's dependents stay visible beneath it and are disabled when inactive, a toggle moves neither the panel's bounds nor its top-left, and changing text moves no control
+- Copy UI values from `EXAMPLE_CONTROLS` in `diagnostics/default-look/palette.ts`; copied user projects never import from `diagnostics/`
 
 ## Heavy work
 

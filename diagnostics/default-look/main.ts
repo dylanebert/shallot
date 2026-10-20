@@ -1,5 +1,5 @@
 import { type Plugin, runApp } from "@dylanebert/shallot";
-import { PALETTES, type PaletteName } from "./palette";
+import { EXAMPLE_CONTROLS, PALETTES, type PaletteName } from "./palette";
 import { DIAGNOSTIC_PLUGINS, SCENES, type SceneDefinition } from "./scenes";
 
 const query = new URLSearchParams(location.search);
@@ -15,22 +15,23 @@ function mountUi(container: HTMLElement): () => void {
     const panel = document.createElement("section");
     panel.dataset.defaultLookUi = "";
     panel.style.cssText =
-        "position:absolute;right:32px;top:32px;width:248px;padding:18px 20px;" +
-        "display:grid;gap:10px;border:1px solid;border-radius:6px;backdrop-filter:blur(8px);" +
-        "font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;";
-    panel.style.background = palette.ui.panel;
-    panel.style.borderColor = palette.ui.border;
-    panel.style.color = palette.ui.ink;
+        "position:absolute;right:24px;top:24px;width:360px;padding:16px;" +
+        "display:grid;gap:8px;border:1px solid;border-radius:2px;" +
+        `font:400 13px/20px ${EXAMPLE_CONTROLS.tokens.sans};`;
+    panel.style.background = EXAMPLE_CONTROLS.dark.bg2;
+    panel.style.borderColor = EXAMPLE_CONTROLS.dark.line;
+    panel.style.color = EXAMPLE_CONTROLS.dark.ink;
 
     const eyebrow = document.createElement("div");
     eyebrow.textContent = `DEFAULT LOOK / ${paletteName.toUpperCase()}`;
-    eyebrow.style.opacity = "0.65";
+    eyebrow.style.color = EXAMPLE_CONTROLS.dark.muted;
+    eyebrow.style.font = `400 12px/20px ${EXAMPLE_CONTROLS.tokens.mono}`;
+    eyebrow.style.letterSpacing = ".08em";
     const heading = document.createElement("strong");
     heading.textContent = scene.title;
-    heading.style.fontSize = "15px";
+    heading.style.font = `700 15px/20px ${EXAMPLE_CONTROLS.tokens.mono}`;
     const description = document.createElement("div");
     description.textContent = scene.description;
-    description.style.opacity = "0.8";
     panel.append(eyebrow, heading, description);
     container.append(panel);
     return () => panel.remove();

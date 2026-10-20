@@ -11,8 +11,8 @@ declare global {
 const entry = "**/assets/index-*.js";
 const bootstrapSelector = "[data-shallot-bootstrap]";
 const loadingOverlay = "[data-title-card]";
-const lightBackground = [25, 24, 22];
-const lightTrack = [40, 38, 34];
+const lightBackground = [20, 18, 16];
+const lightTrack = [28, 25, 23];
 
 async function holdEntry(page: Page): Promise<() => void> {
     let release!: () => void;
@@ -213,7 +213,7 @@ test("the game title bootstrap hands off without a jump to its own progress trac
     expect(await page.title()).toBe("Copied game");
     await expect(page.locator(`${bootstrapSelector} h1`)).toHaveText(await page.title());
     await expect(page.locator(`${bootstrapSelector} h1`)).toHaveCSS("font-size", "24px");
-    await expect(page.locator(`${bootstrapSelector} .notice`)).toHaveCSS("font-size", "14px");
+    await expect(page.locator(`${bootstrapSelector} .notice`)).toHaveCSS("font-size", "13px");
     releaseEntry();
     await expect(page.locator(bootstrapSelector)).toHaveCount(0);
     await expect(page.locator(loadingOverlay)).toBeVisible();
@@ -222,6 +222,8 @@ test("the game title bootstrap hands off without a jump to its own progress trac
         document.querySelector<HTMLElement>(".progress")!.style.width = "38%";
     });
     if (process.env.SHALLOT_CAPTURE_DIR) {
+        await page.evaluate(() => document.fonts.ready);
+        await page.mouse.move(0, 0);
         await page.locator(`${loadingOverlay} h1`).evaluate(async (title) => {
             await Promise.all(title.getAnimations().map((animation) => animation.finished));
         });
@@ -231,10 +233,10 @@ test("the game title bootstrap hands off without a jump to its own progress trac
         document.querySelector<HTMLElement>(".progress")!.style.width = "0";
     });
     const runtimeTrack = await loadingTrackPixels(page);
-    expect(runtimeTrack.background).toBe("rgb(25, 24, 22)");
-    expect(runtimeTrack.track).toBe("rgb(40, 38, 34)");
+    expect(runtimeTrack.background).toBe("rgb(20, 18, 16)");
+    expect(runtimeTrack.track).toBe("rgb(28, 25, 23)");
     expect(runtimeTrack.width).toBe(420);
-    expect(runtimeTrack.height).toBe(3);
+    expect(runtimeTrack.height).toBe(4);
     expect(
         runtimeTrack.pixels,
         "the held runtime screenshot contains contrasting title-card track pixels inside its bounds",
@@ -359,4 +361,12 @@ test("a missing browser adapter offers the browser-specific remedy", async ({ pa
         "No WebGPU adapter is available in Browser. In a browser, enable hardware acceleration or use a browser with WebGPU support.",
     );
     await expect(failure).toContainText("WebGPU not supported.");
+    if (process.env.SHALLOT_CAPTURE_DIR) {
+        await page.evaluate(() => document.fonts.ready);
+        await page.mouse.move(0, 0);
+        await page.locator(`${loadingOverlay} h1`).evaluate(async (title) => {
+            await Promise.all(title.getAnimations().map((animation) => animation.finished));
+        });
+        await page.screenshot({ path: `${process.env.SHALLOT_CAPTURE_DIR}/card-error.png` });
+    }
 });

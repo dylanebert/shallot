@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { oklchFromLinear, PALETTES, srgbChannel } from "./palette";
+import { EXAMPLE_CONTROLS, oklchFromLinear, PALETTES, srgbChannel } from "./palette";
 import { reportHtml } from "./report";
 import { SCENES } from "./scenes";
 
@@ -20,9 +20,6 @@ test("current-in-range repairs only overflowing albedo and ink, preserving hue a
         } else expect(after).toEqual(before);
     }
     expect(repaired.clearColor).toBe(baseline.clearColor);
-    expect(repaired.ui.panel).toBe(baseline.ui.panel);
-    expect(repaired.ui.border).toBe(baseline.ui.border);
-    expect(repaired.ui.ink).toBe("#f1f1f1");
     expect(repaired.textColor).toBe(0xf1f1f1);
 });
 
@@ -43,7 +40,6 @@ test("dev-orange-neutral keeps accents but gives large surfaces current's mid-ne
         expect(c).toBeLessThanOrEqual(0.0120001);
     }
     expect(palette.materials.trim).toEqual(orange.materials.greyboxTower);
-    expect(palette.ui).toEqual(orange.ui);
 });
 
 test("dev-orange route neutrals keep the palette hue and distinguish each route surface from ground", () => {
@@ -88,4 +84,7 @@ test("all candidates meet hard bounds while the report retains theme-reference v
     expect(html.match(/<img /g)).toHaveLength(Object.keys(PALETTES).length * SCENES.length);
     expect(html).toContain("Theme reference");
     expect(html).toContain("outside");
+    expect(html).toContain(`background:${EXAMPLE_CONTROLS.dark.bg}`);
+    expect(html).toContain(`color:${EXAMPLE_CONTROLS.dark.ink}`);
+    expect(html).not.toContain("ui.panel");
 });

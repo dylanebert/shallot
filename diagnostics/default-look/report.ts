@@ -1,6 +1,7 @@
 import {
     type ColorRole,
     colorHex,
+    EXAMPLE_CONTROLS,
     MATERIAL_ROLES,
     oklchFromLinear,
     PALETTES,
@@ -47,7 +48,7 @@ function row(
     const safe = value
         .slice(0, 3)
         .every((channel) => srgbChannel(channel) >= 50 && srgbChannel(channel) <= 240);
-    const ink = name === "textColor" || name === "ui.ink";
+    const ink = name === "textColor";
     const hardInside = surface ? safe : ink ? l <= 0.96 : true;
     if (enforce && !hardInside) throw new Error(`${name} is outside its candidate hard bounds`);
     return `<tr><td>${name}</td><td>${role ?? "non-surface"}</td><td style="background:${colorHex(value)};width:3em"></td><td>${l.toFixed(5)}, ${c.toFixed(5)}, ${h.toFixed(2)}°</td><td>${colorHex(value)}</td><td>[${value.map((v) => v.toFixed(7)).join(", ")}]</td><td>${role ? (roleInside ? "inside" : "outside") : "exempt"}</td><td>${surface ? (safe ? "inside" : "outside") : "exempt (non-albedo)"}</td><td>${surface || ink ? (hardInside ? "inside" : "outside") : "exempt"}</td></tr>`;
@@ -74,13 +75,6 @@ export function reportHtml(): string {
             rows.push(
                 row("textColor", displayColor(palette.textColor), "foreground", false, enforce),
             );
-            rows.push(
-                row("ui.panel", displayColor(palette.ui.panel), "background", false, enforce),
-            );
-            rows.push(row("ui.ink", displayColor(palette.ui.ink), "foreground", false, enforce));
-            rows.push(
-                row("ui.border", displayColor(palette.ui.border), "foreground", false, enforce),
-            );
             rows.push(row("clear", displayColor(palette.clearColor), undefined, false, false));
             rows.push(
                 row("warm sun / point / spot", displayColor(0xffe8cc), undefined, false, false),
@@ -91,5 +85,6 @@ export function reportHtml(): string {
             return `<h2>${name}</h2><table><thead><tr><th>Value</th><th>Role</th><th>Swatch</th><th>OKLCH (L, C, hue)</th><th>sRGB hex</th><th>Linear RGBA</th><th>Theme reference</th><th>sRGB 50–240</th><th>Hard bound</th></tr></thead><tbody>${rows.join("")}</tbody></table>`;
         })
         .join("");
-    return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Shallot default-look candidates</title><style>body{background:#1c1917;color:#ebdbb2;font:16px system-ui;margin:24px}h1,h2{font-weight:500}.captures{display:grid;grid-template-columns:repeat(6,minmax(240px,1fr));gap:12px;overflow-x:auto}figure{margin:0}img{width:100%}figcaption{margin-bottom:8px}table{border-collapse:collapse;font:13px monospace;width:100%}td,th{padding:8px;text-align:left;border:1px solid #665c54}p{max-width:1000px}</style><h1>Shallot default-look candidates</h1><p>Same scenes, landed renderer defaults, warm sun, cool constant ambient. Click a capture for its full 1280×720 image. Current is the unchanged examples baseline; its outside values are reported, not repaired.</p><p>Theme reference (not a bound): background L 0.16–0.34, C ≤ 0.012; foreground L 0.55–0.96, C 0.02–0.06; accents L 0.55–0.83, C 0.07–0.22. Hard candidate bounds: lit surfaces have every sRGB channel in 50–240 (checked before rounding); text and UI ink have OKLab L ≤ 0.96. Other UI values are non-albedo; clear and lights are exempt from both. Linear RGBA is the tuple StandardMaterial takes; for text, UI and lights it is a conversion for comparison, not their authoring API. Hex omits alpha; the tuple retains it.</p><p>Aperture carbon is the examples’ palette: darker warm carbon room and ground neutrals, amber, cyan and red accents, and warm pale ink. Dev orange remains for the previous-palette comparison and the neutral and albedo repair tests. Its grey blockout uses orange 55°, blue 250°, yellow-green 100° and red-orange 25°.</p><p>Current-in-range changes only blue and orange albedo above sRGB 240, lowering OKLCH lightness at fixed hue/chroma to the ceiling, and lowers text/UI ink to the brightest encoded grey at L ≤ 0.96. All other baseline values, including alpha, are unchanged. Dev-orange-neutral retains dev-orange accents and ink, uses current's neutral lightness/hues with C capped at 0.012, and reserves its dark neutral for the thin tower cap and exterior stems. Walls and boulders are mid neutrals, not dark.</p>${scenes}<h1>Colour values</h1>${tables}</html>`;
+    const { dark, tokens } = EXAMPLE_CONTROLS;
+    return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Shallot default-look candidates</title><style>body{background:${dark.bg};color:${dark.ink};font:400 13px/20px ${tokens.sans};margin:24px}h1,h2{font:700 15px/20px ${tokens.mono}}.captures{display:grid;grid-template-columns:repeat(6,minmax(240px,1fr));gap:12px;overflow-x:auto}figure{margin:0}img{width:100%}figcaption{margin-bottom:8px}table{border-collapse:collapse;font:400 12px/20px ${tokens.mono};width:100%}td,th{padding:8px;text-align:left;border:1px solid ${dark.line}}p{max-width:1000px}</style><h1>Shallot default-look candidates</h1><p>Same scenes, landed renderer defaults, warm sun, cool constant ambient. Click a capture for its full 1280×720 image. Current is the unchanged examples baseline; its outside values are reported, not repaired.</p><p>Theme reference (not a bound): background L 0.16–0.34, C ≤ 0.012; foreground L 0.55–0.96, C 0.02–0.06; accents L 0.55–0.83, C 0.07–0.22. Hard candidate bounds: lit surfaces have every sRGB channel in 50–240 (checked before rounding); text ink has OKLab L ≤ 0.96. Clear and lights are exempt from both. Linear RGBA is the tuple StandardMaterial takes; for text and lights it is a conversion for comparison, not their authoring API. Hex omits alpha; the tuple retains it.</p><p>Aperture carbon is the examples’ palette: darker warm carbon room and ground neutrals, amber, cyan and red accents, and warm pale ink. Dev orange remains for the previous-palette comparison and the neutral and albedo repair tests. Its grey blockout uses orange 55°, blue 250°, yellow-green 100° and red-orange 25°.</p><p>Current-in-range changes only blue and orange albedo above sRGB 240, lowering OKLCH lightness at fixed hue/chroma to the ceiling, and lowers text ink to the brightest encoded grey at L ≤ 0.96. All other baseline values, including alpha, are unchanged. Dev-orange-neutral retains dev-orange accents and ink, uses current's neutral lightness/hues with C capped at 0.012, and reserves its dark neutral for the thin tower cap and exterior stems. Walls and boulders are mid neutrals, not dark.</p>${scenes}<h1>Colour values</h1>${tables}</html>`;
 }
