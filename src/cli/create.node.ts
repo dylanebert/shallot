@@ -229,6 +229,15 @@ test("create writes exactly the 16-file minimal project", () => {
     assertProject(destination, MINIMAL_TEMPLATE_FILES);
 });
 
+test("generated agent rules equal the skill body without frontmatter", () => {
+    const destination = join(SCRATCH, "agent-rules");
+    expect(runCreate([destination])).toBe(0);
+    const skill = readFileSync(join(ROOT, "src/cli/skill.md"), "utf8");
+    const body = skill.split("\n---\n\n")[1];
+    expect(body).toBeDefined();
+    expect(readFileSync(join(destination, "AGENTS.md"), "utf8")).toBe(body!);
+});
+
 test("create copies each first-person template file unchanged except the project's index.html title", () => {
     const destination = join(SCRATCH, "my-game");
     const templateDir = join(ROOT, "examples/first-person");

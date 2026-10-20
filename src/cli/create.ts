@@ -301,21 +301,10 @@ bun run preview
 }
 
 function projectAgents(): string {
-    return `# Shallot project
-
-Explore this project's entry, plugins and checks first. Your training may predate this Shallot version; learn its API from the installed package, not memory.
-
-- After \`bun install\`, use \`node_modules/@dylanebert/shallot/\`: \`examples/\` holds working projects and their checks; \`src/\` holds the API contracts in JSDoc; \`package.json\` lists public exports.
-- Run \`bunx shallot create --help\` to find the nearest example by its description. Read its implementation and checks, then the source for the APIs you use before writing code. Import public exports, not package-internal files.
-- Check gameplay by driving the composed world through \`World.tick\` / \`World.step\` and asserting state, as in \`examples/first-person/tests/ascent.node.ts\`. Drive inputs and observe results through the public APIs those checks use. For frame claims, use state first, then capture/readback, then browser pixels when needed.
-
-## Loop
-
-- \`bun run dev\` runs the game; \`bun run build\` and \`bun run preview\` build and serve the web app.
-- \`bun test\` discovers cheap \`*.test.ts\` and GPU \`*.gpu.test.ts\` checks, not Node or browser checks. Run Node \`*.node.ts\` checks by path: \`bun test ./<file>\`.
-- Run \`bunx playwright install chromium\` once, then \`bunx playwright test\` for browser \`*.e2e.ts\` checks; the project's Playwright config starts its server.
-- Run the checks covering your change; a build alone does not prove gameplay or presentation. \`bunx shallot --skill\` explains file layout and test setup; \`bunx shallot --help\` lists commands.
-`;
+    return readFileSync(new URL("./skill.md", import.meta.url), "utf8").replace(
+        /^---\r?\n[\s\S]*?\r?\n---\r?\n\r?\n/,
+        "",
+    );
 }
 
 /** Copies an installed example and generates project metadata. */
