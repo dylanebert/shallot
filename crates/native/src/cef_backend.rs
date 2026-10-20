@@ -63,6 +63,18 @@ fn start_asset_server() -> String {
     origin
 }
 
+/// Switches every CEF process receives unconditionally.
+fn fixed_switches() -> impl Iterator<Item = &'static str> {
+    // enable-unsafe-webgpu lifts the WebGPU adapter blocklist; ignore-gpu-blocklist lifts the broader
+    // GPU software-rendering list — without both, requestAdapter() returns null on otherwise-capable
+    // GPUs. On macOS, Chromium keeps its cookie key in the login keychain under an ACL for the signature
+    // that created it, so each ad-hoc-signed rebuild would block its first page load on a keychain
+    // password prompt.
+    ["enable-unsafe-webgpu", "ignore-gpu-blocklist"]
+        .into_iter()
+        .chain(cfg!(target_os = "macos").then_some("use-mock-keychain"))
+}
+
 wrap_app! {
     pub struct ShallotApp;
 
@@ -77,12 +89,11 @@ wrap_app! {
             command_line: Option<&mut CommandLine>,
         ) {
             if let Some(cmd) = command_line {
-                // enable-unsafe-webgpu lifts the WebGPU adapter blocklist; ignore-gpu-blocklist lifts
-                // the broader GPU software-rendering list — without both, requestAdapter() returns
-                // null on otherwise-capable GPUs. allow_unsafe_apis exposes the unsafe Dawn features
-                // an engine plugin may require (timestamp-query, which ProfilePlugin declares).
-                cmd.append_switch(Some(&CefString::from("enable-unsafe-webgpu")));
-                cmd.append_switch(Some(&CefString::from("ignore-gpu-blocklist")));
+                for switch in fixed_switches() {
+                    cmd.append_switch(Some(&CefString::from(switch)));
+                }
+                // allow_unsafe_apis exposes the unsafe Dawn features an engine plugin may require
+                // (timestamp-query, which ProfilePlugin declares).
                 let dawn = CefString::from("enable-dawn-features");
                 let value = CefString::from(&cmd.switch_value(Some(&dawn))).to_string();
                 if !value.split(',').any(|feature| feature == "allow_unsafe_apis") {
@@ -483,6 +494,14 @@ mod tests {
                 if cfg!(debug_assertions) { "0" } else { "" }
             );
         }
+    }
+
+    #[test]
+    fn only_mac_keeps_cookie_encryption_out_of_the_login_keychain() {
+        assert_eq!(
+            fixed_switches().any(|switch| switch == "use-mock-keychain"),
+            cfg!(target_os = "macos")
+        );
     }
 
     #[cfg(target_os = "linux")]
