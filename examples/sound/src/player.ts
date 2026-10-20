@@ -141,8 +141,10 @@ export const PlayerInput = component(
 export const LocalPlayer = component(
     "LocalPlayer",
     {
-        /** look radians per mouse or touch CSS pixel at the fixed 1080px reference height */
+        /** look radians per mouse CSS pixel at the fixed 1080px reference height */
         sensitivity: f32,
+        /** touch look degrees per CSS pixel of drag */
+        touchSensitivity: f32,
         /** locally accumulated view yaw in radians */
         viewYaw: f32,
         /** locally accumulated view pitch in radians */
@@ -150,7 +152,15 @@ export const LocalPlayer = component(
         /** whether the view angles have been seeded from Player */
         initialized: u8,
     },
-    { defaults: () => ({ sensitivity: 1.5, viewYaw: 0, viewPitch: 0, initialized: 0 }) },
+    {
+        defaults: () => ({
+            sensitivity: 1.5,
+            touchSensitivity: 0.5,
+            viewYaw: 0,
+            viewPitch: 0,
+            initialized: 0,
+        }),
+    },
 );
 
 const LOCAL_PLAYERS = [LocalPlayer, Player];
@@ -260,7 +270,7 @@ const LocalPlayerInputSystem: System = {
             }
 
             if (active && look) {
-                const sensitivity = local.sensitivity.get(eid) / LOOK_REFERENCE_HEIGHT;
+                const sensitivity = (local.touchSensitivity.get(eid) * Math.PI) / 180;
                 yaw -= look.deltaX * sensitivity;
                 pitch = clamp(pitch - look.deltaY * sensitivity, -MAX_PITCH, MAX_PITCH);
                 local.viewYaw.set(eid, yaw);

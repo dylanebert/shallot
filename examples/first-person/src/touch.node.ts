@@ -26,7 +26,7 @@ test("floating stick clamps, ignores its dead zone, and coexists with right drag
     );
     const eid = world.create();
     world.add(eid, Player);
-    world.add(eid, LocalPlayer, { sensitivity: 1.5 });
+    world.add(eid, LocalPlayer, { sensitivity: 1.5, touchSensitivity: 0.5 });
     focusCanvas(world);
     resizeViewport(world, 0, 390, 844, 1);
     pointerLockChanged(world, true);
@@ -43,13 +43,13 @@ test("floating stick clamps, ignores its dead zone, and coexists with right drag
     touchPoint(world, 2, 330, 520);
     world.step(0);
     expect(Array.from(input.move.column.slice(eid * 2, eid * 2 + 2))).toEqual([0, 1]);
-    expect(input.yaw.get(eid)).toBeCloseTo((-30 * 1.5) / 1080);
-    expect(input.pitch.get(eid)).toBeCloseTo((-20 * 1.5) / 1080);
+    expect(input.yaw.get(eid)).toBeCloseTo((-30 * 0.5 * Math.PI) / 180);
+    expect(input.pitch.get(eid)).toBeCloseTo((-20 * 0.5 * Math.PI) / 180);
     touchPoint(world, 1, 300, 600);
     touchPoint(world, 2, 100, 520);
     world.step(0);
     expect(Array.from(input.move.column.slice(eid * 2, eid * 2 + 2))).toEqual([1, 0]);
-    expect(input.yaw.get(eid)).toBeCloseTo((200 * 1.5) / 1080);
+    expect(input.yaw.get(eid)).toBeCloseTo((200 * 0.5 * Math.PI) / 180);
     touchPoint(world, 1, 300, 600, false);
     world.step(0);
     expect(Array.from(input.move.column.slice(eid * 2, eid * 2 + 2))).toEqual([0, 0]);
@@ -127,7 +127,7 @@ for (const transition of ["blur", "disable"] as const) {
         );
         const eid = world.create();
         world.add(eid, Player);
-        world.add(eid, LocalPlayer, { sensitivity: 1.5 });
+        world.add(eid, LocalPlayer, { sensitivity: 1.5, touchSensitivity: 0.5 });
         focusCanvas(world);
         resizeViewport(world, 0, 390, 844, 1);
         touchPoint(world, 1, 80, 600);
