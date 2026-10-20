@@ -60,6 +60,12 @@ const MINIMAL_TEMPLATE_FILES = [
     "vite.config.ts",
 ];
 const FIRST_PERSON_TEMPLATE_FILES = [
+    "public/fonts/mono/JetBrainsMono-Bold.woff2",
+    "public/fonts/mono/JetBrainsMono-Regular.woff2",
+    "public/fonts/mono/OFL.txt",
+    "public/fonts/plex/IBMPlexSans-Regular-Latin1.woff2",
+    "public/fonts/plex/OFL.txt",
+    "src/touch.css",
     "browser.e2e.ts",
     "index.html",
     "playwright.config.ts",
@@ -386,7 +392,7 @@ test("create help lists the same installed templates and descriptions as an unkn
         console.error = error;
     }
     expect(help.join("\n").split("\n  Templates\n")[1]).toBe(
-        refusal.join("\n").split("Installed templates:\n")[1]?.replace(/^  /gm, "    "),
+        refusal.join("\n").split("Installed templates:\n")[1]?.replace(/^ {2}/gm, "    "),
     );
     expect(help.join("\n")).toContain("minimal —");
 });

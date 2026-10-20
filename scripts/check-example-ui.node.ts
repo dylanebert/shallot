@@ -916,7 +916,7 @@ function controlViolations(css: Css, light = false): string[] {
     for (const rule of rules) {
         const { selector: s, media } = rule;
         const gameplay =
-            /^(?:gameplay)$|\.reticle\b|\.reticle-dot\b|\[data-touch-(?:stick|action)\]|\.hint\b|\.key-slot\b|\.hold-ring\b|\.track\b|\.progress\b/.test(
+            /^(?:gameplay|\[data-touch-stick\]|button\[data-touch-action\](?:\[[^\]]+\]|:[\w():-]+)*|\.reticle(?:-dot)?(?:\[hidden\])?|\.hint(?:\[hidden\])?|\.key-slot(?:\s+(?:>\s*)?(?:\*|kbd))?|\.hold-ring|\.track|\.progress)$/.test(
                 s,
             );
         const passive = gameplay && !/\bbutton\b/.test(s);
@@ -1110,7 +1110,7 @@ function controlViolations(css: Css, light = false): string[] {
             )
                 fail("disabled priority");
             // Gameplay stick, touch buttons and reticles retain their geometry outside the panel kit.
-            if (gameplay || /\bcanvas\b/.test(s)) continue;
+            if (gameplay || /(?:^|\s)canvas$/.test(s)) continue;
             if (
                 /^(?:transform(?:-.+)?|translate|rotate|scale|perspective(?:-.+)?)$/.test(p) &&
                 v !== "none" &&
@@ -1170,7 +1170,7 @@ function controlViolations(css: Css, light = false): string[] {
                         : /\.name\b/.test(s)
                           ? ["360px", "64px", "16px"]
                           : /button/.test(s)
-                            ? ["44px", ...(/\.save-hud button/.test(s) ? ["144px"] : [])]
+                            ? ["44px"]
                             : ["360px", "16px", "32px"];
             else if (/^(?:min-|max-)?height$/.test(p))
                 sizes =
@@ -1741,8 +1741,22 @@ test("gameplay geometry stays outside the panel kit without exempting its type o
         "button[data-touch-action] { width: 64px; height: 64px; border-radius: 50%; }", // Missing button states
         ".save-hud button { width: 132px; }",
         ".other { width: 144px; }",
+        ".hint button { height: 64px; }",
+        "canvas .controls { border-radius: 50%; }",
     ])
         expect(controlViolations({ sheets: [css + extra], lists: [] }).length).toBeGreaterThan(0);
+});
+
+test("touch action geometry does not excuse missing button states", async () => {
+    const sheet = await readFile("examples/first-person/src/touch.css", "utf8");
+    expect(controlViolations({ sheets: [sheet], lists: [] })).toEqual([]);
+    for (const state of ["hover", "active", "focus-visible", "disabled"]) {
+        const missing = sheet.replaceAll(
+            `button[data-touch-action]:${state}`,
+            `.not-an-action:${state}`,
+        );
+        expect(controlViolations({ sheets: [missing], lists: [] }).length).toBeGreaterThan(0);
+    }
 });
 
 test("1: embedded host uses light counterparts without allowing scene materials", () => {
