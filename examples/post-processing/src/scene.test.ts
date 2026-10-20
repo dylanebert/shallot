@@ -10,13 +10,13 @@ function scene(): World {
     return world;
 }
 
-test("the scene starts with a single camera and no post-processing", () => {
+test("the scene starts with a single camera and every post-processing effect", () => {
     const world = scene();
     try {
         const camera = world.resource(Scene).camera;
         expect([...world.query([Camera])]).toEqual([camera]);
         expect(world.has(camera, Orbit)).toBe(true);
-        for (const effect of effects) expect(world.has(camera, effect.component)).toBe(false);
+        for (const effect of effects) expect(world.has(camera, effect.component)).toBe(true);
     } finally {
         world.dispose();
     }
@@ -27,14 +27,11 @@ test("each control adds and removes only its own camera effect", () => {
     try {
         const camera = world.resource(Scene).camera;
         for (let index = 0; index < effects.length; index++) {
-            setEffect(world, index, true);
-            for (let other = 0; other < effects.length; other++)
-                expect(world.has(camera, effects[other].component)).toBe(other <= index);
-        }
-        for (let index = 0; index < effects.length; index++) {
             setEffect(world, index, false);
             for (let other = 0; other < effects.length; other++)
-                expect(world.has(camera, effects[other].component)).toBe(other > index);
+                expect(world.has(camera, effects[other].component)).toBe(other !== index);
+            setEffect(world, index, true);
+            for (const effect of effects) expect(world.has(camera, effect.component)).toBe(true);
         }
     } finally {
         world.dispose();
@@ -43,10 +40,10 @@ test("each control adds and removes only its own camera effect", () => {
 
 for (const [effect, controls] of settings.entries()) {
     for (const [index, control] of controls.entries()) {
-        test(`${effects[effect].name} ${control.label} writes its camera field`, () => {
+        test(`${effects[effect].name} ${control.label} writes its camera field while off`, () => {
             const world = scene();
             try {
-                setEffect(world, effect, true);
+                setEffect(world, effect, false);
                 const camera = world.resource(Scene).camera;
                 const value = (control.min + control.max) / 2;
                 setSetting(world, effect, index, value);

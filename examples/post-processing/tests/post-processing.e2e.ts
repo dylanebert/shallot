@@ -4,7 +4,6 @@ import { expect, type Page, test } from "playwright/test";
 type SteppedWindow = Window & {
     captureScene?: () => Promise<number[]>;
     baseline?: number[];
-    combined?: number[];
     previous?: number[];
 };
 const names = ["Lens distortion", "Chromatic aberration", "Vignette"];
@@ -42,11 +41,9 @@ async function capture(page: Page, name: string) {
             }
             const previous = win.previous ? difference(win.previous) : 0;
             win.previous = rgba;
-            if (name === "all") win.combined = rgba;
             return {
                 previous,
                 baseline: difference(win.baseline),
-                combined: win.combined ? difference(win.combined) : 0,
                 colors: new Set(rgba).size,
                 png,
             };
@@ -75,50 +72,50 @@ test("the built page presents the scene and keeps its HUD inside the canvas", as
     expect(bounds.x + bounds.width).toBeLessThanOrEqual(canvas.x + canvas.width);
     expect(bounds.y + bounds.height).toBeLessThanOrEqual(canvas.y + canvas.height);
     for (const name of names)
-        await expect(page.getByRole("checkbox", { name, exact: true })).not.toBeChecked();
+        await expect(page.getByRole("checkbox", { name, exact: true })).toBeChecked();
+    if (process.env.SHALLOT_CAPTURE_DIR) {
+        await mkdir(process.env.SHALLOT_CAPTURE_DIR, { recursive: true });
+        await page.screenshot({
+            path: `${process.env.SHALLOT_CAPTURE_DIR}/panel-start-all-on.png`,
+        });
+    }
     expect(errors).toEqual([]);
 });
 
-test("each HUD toggle changes the captured scene alone, reversibly and in the combined stack", async ({
+test("each HUD toggle changes the all-on scene reversibly without moving or resizing the panel", async ({
     page,
 }) => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await page.goto("http://127.0.0.1:4266/tests/stepped.html");
     await page.waitForFunction(() => (window as SteppedWindow).captureScene !== undefined);
-    expect((await capture(page, "none")).colors).toBeGreaterThan(100);
+    expect((await capture(page, "all")).colors).toBeGreaterThan(100);
     const panel = page.getByRole("region", { name: "Post-processing controls" });
     const bounds = await panel.boundingBox();
-    for (const [index, name] of names.entries()) {
+    for (const name of names) {
         const toggle = page.getByRole("checkbox", { name, exact: true });
-        await toggle.click();
-        await expect(toggle).toBeChecked();
-        const changed = await capture(
-            page,
-            ["lens-distortion", "chromatic-aberration", "vignette"][index],
-        );
-        expect(changed.baseline, `${name} must change scene pixels`).toBeGreaterThan(0.25);
-        const expanded = (await panel.boundingBox())!;
-        expect(expanded.x).toBe(bounds!.x);
-        expect(expanded.y).toBe(bounds!.y);
-        expect(expanded.width).toBe(bounds!.width);
-        await toggle.click();
+        await toggle.uncheck();
         await expect(toggle).not.toBeChecked();
+        expect(await panel.boundingBox(), `${name} must preserve the panel bounding box`).toEqual(
+            bounds,
+        );
+        expect((await capture(page, "without")).baseline, name).toBeGreaterThan(0.25);
+        await toggle.check();
+        expect(await panel.boundingBox()).toEqual(bounds);
         // Tonemapping dithering changes sub-byte averages between otherwise identical frames.
         expect((await capture(page, "reset")).baseline).toBeLessThan(0.1);
     }
-    for (const name of names) await page.getByRole("checkbox", { name, exact: true }).click();
-    expect((await capture(page, "all")).baseline).toBeGreaterThan(0.25);
     for (const name of names) {
-        const toggle = page.getByRole("checkbox", { name, exact: true });
-        await toggle.click();
-        expect((await capture(page, "without")).combined, name).toBeGreaterThan(0.25);
-        await toggle.click();
+        await page.getByRole("checkbox", { name, exact: true }).uncheck();
+        expect(await panel.boundingBox()).toEqual(bounds);
+        await expect(
+            page.getByRole("group", { name, exact: true }).getByRole("slider").first(),
+        ).toBeVisible();
     }
     expect(errors).toEqual([]);
 });
 
-test("each slider changes captured pixels and the expanded panel stays inside the canvas", async ({
+test("each slider changes captured pixels and the panel stays inside the canvas", async ({
     page,
 }) => {
     await page.goto("http://127.0.0.1:4266/tests/stepped.html");

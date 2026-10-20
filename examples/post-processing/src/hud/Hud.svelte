@@ -3,7 +3,7 @@
     import { effects, setEffect } from "../scene";
     import { settings, setSetting } from "../settings";
     let { world }: { world: World } = $props();
-    let enabled = $state([false, false, false]);
+    let enabled = $state([true, true, true]);
     let values = $state(settings.map(group => group.map(control => Number(control.value))));
     function toggle(index: number) {
         enabled[index] = !enabled[index];
@@ -21,16 +21,14 @@
         {#each effects as effect, index}
             <div class="group">
                 <label class="toggle"><span>{effect.name}</span><input type="checkbox" checked={enabled[index]} onchange={() => toggle(index)} /></label>
-                {#if enabled[index]}
-                    <div class="dependents" role="group" aria-label={effect.name}>
-                        {#each settings[index] as control, setting}
-                            <div class="group">
-                                <label for={`control-${index}-${setting}`}>{control.label}</label>
-                                <input id={`control-${index}-${setting}`} type="range" min={control.min} max={control.max} step="0.01" value={values[index][setting]} style:--fill={`${100 * (values[index][setting] - control.min) / (control.max - control.min)}%`} oninput={(event) => update(index, setting, Number(event.currentTarget.value))} />
-                            </div>
-                        {/each}
-                    </div>
-                {/if}
+                <div class="dependents" role="group" aria-label={effect.name}>
+                    {#each settings[index] as control, setting}
+                        <div class="group">
+                            <label for={`control-${index}-${setting}`}>{control.label}</label>
+                            <input id={`control-${index}-${setting}`} type="range" min={control.min} max={control.max} step="0.01" value={values[index][setting]} style:--fill={`${100 * (values[index][setting] - control.min) / (control.max - control.min)}%`} oninput={(event) => update(index, setting, Number(event.currentTarget.value))} />
+                        </div>
+                    {/each}
+                </div>
             </div>
         {/each}
     </div>

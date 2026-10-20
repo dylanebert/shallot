@@ -63,6 +63,7 @@ function makeScene(world: World): void {
         pitch: Math.atan2(2.1, 10),
     });
     world.add(camera, Transform);
+    for (const index of effects.keys()) setEffect(world, index, true);
 
     const materials = world.resource(Materials);
     const carbon = materials.add(
