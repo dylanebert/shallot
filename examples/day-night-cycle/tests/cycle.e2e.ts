@@ -163,6 +163,22 @@ test.describe("one stepped app", () => {
         await page.getByRole("slider", { name: "Hour" }).fill("0");
         const night = await frame(page);
         expect(await night.evaluate((frame) => frame.hour)).toBe(0);
+        await expect(page.locator('output[for="hour"]')).toHaveText("00:00");
+        const slider = page.getByRole("slider", { name: "Hour" });
+        await slider.focus();
+        await page.keyboard.press("ArrowRight");
+        await expect(slider).toHaveValue("0.01");
+        await frame(page);
+        await expect(page.locator('output[for="hour"]')).toHaveText("00:00");
+        for (const [hour, time] of [
+            [7.5, "07:30"],
+            [12, "12:00"],
+            [23.99, "23:59"],
+        ] as const) {
+            await page.getByRole("slider", { name: "Hour" }).fill(String(hour));
+            await frame(page);
+            await expect(page.locator('output[for="hour"]')).toHaveText(time);
+        }
         expect(await mean(noon, 0.1, 0.05, 0.9, 0.25)).toBeGreaterThan(
             (await mean(night, 0.1, 0.05, 0.9, 0.25)) + 30,
         );

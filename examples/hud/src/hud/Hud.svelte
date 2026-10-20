@@ -2,6 +2,7 @@
     import { Materials, type System, type World } from "@dylanebert/shallot";
     import { onMount, untrack } from "svelte";
     import { CubeMaterial, Turn } from "../turntable";
+    import "./controls.css";
 
     let { world }: { world: World } = $props();
     let degrees = $state(0);
@@ -40,40 +41,21 @@
     });
 </script>
 
-<section class="hud" aria-label="Cube controls">
+<section class="ec controls hud" aria-label="Cube controls">
+  <div class="fields">
     <div class="swatches" aria-label="Cube colour">
         {#each swatches as swatch, index}
             <button aria-label={swatch.name} aria-pressed={selected === index}
-                style:background={srgb(swatch.color)} onclick={() => recolor(index)}></button>
+                onclick={() => recolor(index)}><span class="swatch" style:background={srgb(swatch.color)}></span></button>
         {/each}
     </div>
-    <input id="speed" aria-label="Turn speed" type="range" style:--fill={`${100 * speed / 3}%`} min="0" max="3" step="0.1" bind:value={speed} />
-    <span class="angle" data-hud="angle">{degrees}<small>°</small></span>
+    <div class="row">
+        <label for="speed">Turn speed</label>
+        <div class="slider">
+            <input id="speed" type="range" min="0" max="3" step="0.1" bind:value={speed} />
+            <output for="speed">{speed.toFixed(1)}</output>
+        </div>
+    </div>
+    <div class="row"><span id="angle-label">Angle</span><output aria-labelledby="angle-label" data-hud="angle">{degrees}°</output></div>
+  </div>
 </section>
-
-<style>
-    .hud {
-        pointer-events: auto;
-        position: absolute;
-        bottom: 16px;
-        left: 50%;
-        transform: translateX(-50%);
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 4px;
-        border-radius: 2px;
-        background: #282622;
-    }
-    .swatches { display: flex; gap: 8px; }
-    button { width: 24px; height: 24px; border: 2px solid transparent; border-radius: 2px; cursor: pointer; }
-    button[aria-pressed="true"] { border-color: #797369; }
-    .angle { min-width: 4ch; color: #eee9df; font: 400 14px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; text-align: right; }
-    small { font-size: 14px; vertical-align: top; }
-    input { appearance: none; width: 112px; height: 24px; margin: 0; border-radius: 2px; background: linear-gradient(to right, #454440 var(--fill), #3a3835 var(--fill)); cursor: ew-resize; }
-    input:hover { background: linear-gradient(to right, #52504c var(--fill), #454440 var(--fill)); }
-    input::-webkit-slider-thumb { appearance: none; width: 2px; height: 24px; background: #eee9df; }
-    input::-moz-range-thumb { width: 2px; height: 24px; border: 0; background: #eee9df; }
-    button:hover { box-shadow: inset 0 0 0 2px #454440; }
-    button:focus-visible, input:focus-visible { outline: 1px solid #eee9df; outline-offset: 0; }
-</style>

@@ -2,6 +2,12 @@
     import { type System, type World } from "@dylanebert/shallot";
     import { onMount, untrack } from "svelte";
     import { Clock } from "../cycle";
+    import "./controls.css";
+
+    function time(hour: number) {
+        const minutes = Math.floor(hour * 60);
+        return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+    }
     let { world }: { world: World } = $props();
     let hour = $state(untrack(() => world.resource(Clock).hour));
     onMount(() => {
@@ -11,12 +17,15 @@
     });
 </script>
 
-<section aria-label="Time of day">
-    <input aria-label="Hour" type="range" min="0" max="23.99" step="0.01" value={hour}
-        oninput={(event) => { world.resource(Clock).hour = Number(event.currentTarget.value); }} />
+<section class="ec controls hud" aria-label="Time of day">
+    <div class="fields">
+        <div class="row">
+            <label for="hour">Hour</label>
+            <div class="slider">
+                <input id="hour" type="range" min="0" max="23.99" step="0.01" value={hour}
+                    oninput={(event) => { world.resource(Clock).hour = Number(event.currentTarget.value); }} />
+                <output for="hour">{time(hour)}</output>
+            </div>
+        </div>
+    </div>
 </section>
-
-<style>
-    section { pointer-events: auto; position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); padding: 8px; border-radius: 2px; background: #282622; }
-    input { width: 240px; margin: 0; accent-color: #eee9df; }
-</style>

@@ -1105,7 +1105,7 @@ function controlViolations(css: Css, light = false): string[] {
                 v !== "none" &&
                 !(
                     p === "transform" &&
-                    /\.picker\b|\.scenes\b/.test(s) &&
+                    /\.picker\b|\.scenes\b|\.hud\b/.test(s) &&
                     ["translateX(calc(0px - 50%))", "translateX(-50%)"].some((center) =>
                         has(v, center),
                     )
@@ -1648,6 +1648,7 @@ test("audited screen queries, explicit type longhands and nested safe fallbacks 
     for (const sheet of [
         controlFixture.replaceAll("@media", "@MEDIA").replaceAll("@font-face", "@FONT-FACE"),
         controlFixture + `.ec::before { content: "var(--not-a-variable), red"; }`,
+        controlFixture + `.ec.hud { transform: translateX(-50%); }`,
         controlFixture + `.ec::before { content: 'it\\'s red'; }`,
         controlFixture.replace("(pointer: coarse)", "screen and (pointer: coarse)"),
         controlFixture.replaceAll(
@@ -1670,6 +1671,7 @@ test("audited screen queries, explicit type longhands and nested safe fallbacks 
         expect(controlViolations({ sheets: [sheet], lists: [] })).toEqual([]);
     for (const extra of [
         ".ec.controls { transform: translateX(-17px); }",
+        ".ec.hud { transform: translateX(-17px); }",
         ".ec { color: var(--computed, #ff0000); }",
     ])
         expect(
@@ -1826,7 +1828,7 @@ test("11/12: local script and CSS imports, font weights, woff2 and adjacent OFL 
 });
 
 // Moving an example changes this list alone: new rules become a test, old rules leave.
-const migrated = new Set<string>(["voxel", "post-processing", "physics"]);
+const migrated = new Set<string>(["voxel", "post-processing", "physics", "hud", "day-night-cycle"]);
 
 for (const example of await readdir("examples")) {
     (migrated.has(example) ? test : test.todo)(`${example} follows example-controls`, async () => {
