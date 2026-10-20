@@ -1,0 +1,2 @@
+stage: 4
+finding: Browser integration fails: sh scripts/browser.sh --check-only reports Orphan browser test: scripts/first-person-touch.e2e.ts. Its custom config filename is not discovered by the normal subject sweep. Core canvasClick also relies exclusively on click.pointerType: undefined or incorrectly reported mouse values request pointer lock for touch clicks; WebKit bug 282988 documents the latter and remains reopened. The new test fabricates the ideal touch value and does not cover this host boundary. Current real-iPhone behavior is unverified.
