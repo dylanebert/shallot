@@ -13,20 +13,53 @@ async function step(page: Page, steps: number): Promise<Turn> {
     return page.evaluate((count) => (window as SteppedWindow).stepHud!(count), steps);
 }
 
-test("the controls float centred along the canvas's bottom edge", async ({ page }) => {
+test.describe("the built game's overlay", () => {
+    test.describe.configure({ mode: "serial" });
+    let page: Page;
     const errors: string[] = [];
-    page.on("pageerror", (error) => errors.push(error.message));
-    await page.goto("/");
+    test.beforeAll(async ({ browser }) => {
+        page = await browser.newPage({
+            viewport: { width: 1280, height: 720 },
+            hasTouch: true,
+        });
+        page.on("pageerror", (error) => errors.push(error.message));
+        await page.goto("/");
+        await page.getByRole("region", { name: "Cube controls" }).waitFor();
+    });
+    test.afterAll(() => page.close());
 
-    const controls = page.getByRole("region", { name: "Cube controls" });
-    await controls.waitFor();
-    const canvas = await page.locator("canvas").boundingBox();
-    const hud = await controls.boundingBox();
-    expect(canvas && hud).toBeTruthy();
-    expect(hud!.x + hud!.width / 2).toBeCloseTo(canvas!.x + canvas!.width / 2, 0);
-    expect(hud!.y).toBeGreaterThan(canvas!.y + canvas!.height / 2);
-    expect(hud!.y + hud!.height).toBeLessThanOrEqual(canvas!.y + canvas!.height);
-    expect(errors).toEqual([]);
+    test("the controls float centred along the canvas's bottom edge", async () => {
+        const controls = page.getByRole("region", { name: "Cube controls" });
+        await controls.waitFor();
+        const canvas = await page.locator("canvas").boundingBox();
+        const hud = await controls.boundingBox();
+        expect(canvas && hud).toBeTruthy();
+        expect(hud!.x + hud!.width / 2).toBeCloseTo(canvas!.x + canvas!.width / 2, 0);
+        expect(hud!.y).toBeGreaterThan(canvas!.y + canvas!.height / 2);
+        expect(hud!.y + hud!.height).toBeLessThanOrEqual(canvas!.y + canvas!.height);
+        expect(errors).toEqual([]);
+    });
+
+    test("every overlay control fits a 390x844 touch viewport", async () => {
+        await page.setViewportSize({ width: 390, height: 844 });
+        const controls = page.getByRole("region", { name: "Cube controls" });
+        await expect(controls).toBeVisible();
+        const bounds = await controls.evaluate((element) =>
+            [element, ...element.querySelectorAll("*")]
+                .filter((element) => element.checkVisibility())
+                .map((element) => {
+                    const { left, top, right, bottom } = element.getBoundingClientRect();
+                    return { left, top, right, bottom };
+                }),
+        );
+        expect(bounds.length).toBeGreaterThan(0);
+        for (const rect of bounds) {
+            expect(rect.left).toBeGreaterThanOrEqual(0);
+            expect(rect.top).toBeGreaterThanOrEqual(0);
+            expect(rect.right).toBeLessThanOrEqual(390);
+            expect(rect.bottom).toBeLessThanOrEqual(844);
+        }
+    });
 });
 
 test("the angle the HUD shows is the game's own Turn after each step", async ({ page }) => {

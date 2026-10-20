@@ -236,6 +236,33 @@ test("host paints contained semantic startup feedback before application entry, 
     });
 });
 
+test.describe("phone host layout", () => {
+    test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+    test("the host and startup overlay fit a 390x844 touch viewport before entry", async ({
+        page,
+    }) => {
+        await page.route("**/assets/index-*.js", () => {});
+        await page.goto("/", { waitUntil: "commit" });
+        await expect(page.locator("[data-shallot-bootstrap]")).toBeVisible();
+        const bounds = await page.locator("body *").evaluateAll((elements) =>
+            elements
+                .filter((element) => element.checkVisibility())
+                .map((element) => {
+                    const { left, top, right, bottom } = element.getBoundingClientRect();
+                    return { left, top, right, bottom };
+                }),
+        );
+        expect(bounds.length).toBeGreaterThan(0);
+        for (const rect of bounds) {
+            expect(rect.left).toBeGreaterThanOrEqual(0);
+            expect(rect.top).toBeGreaterThanOrEqual(0);
+            expect(rect.right).toBeLessThanOrEqual(390);
+            expect(rect.bottom).toBeLessThanOrEqual(844);
+        }
+    });
+});
+
 test("without WebGPU the engine overlay shows the unsupported error and the host draws no second line", async ({
     page,
 }) => {
