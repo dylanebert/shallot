@@ -5,7 +5,7 @@ export function hud(container: HTMLElement, world: World): () => void {
     const root = document.createElement("section");
     root.className = "save-hud";
     root.setAttribute("aria-label", "Game controls");
-    root.innerHTML = `<h1><output aria-label="Coins">0 coins</output></h1><div class="controls"><button>New game <kbd>N</kbd></button><button><span>Save</span> <kbd>S</kbd></button><button>Load <kbd>L</kbd></button></div>`;
+    root.innerHTML = `<h1><output aria-label="Coins">0 coins</output></h1><div class="hud"><button>New game <kbd>N</kbd></button><button><span>Save</span> <kbd>S</kbd></button><button>Load <kbd>L</kbd></button></div>`;
     const buttons = root.querySelectorAll("button");
     buttons[0]!.onclick = () => newGame(world);
     buttons[1]!.onclick = () => saveGame(world);

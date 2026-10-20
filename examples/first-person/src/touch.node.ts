@@ -68,6 +68,7 @@ for (const captureThrows of [false, true]) {
     test(`button cancel releases its key and a tap jumps once when capture ${captureThrows ? "throws" : "succeeds"}`, () => {
         class Button extends EventTarget {
             textContent = "";
+            dataset: Record<string, string> = {};
             style = { cssText: "" };
             pressedAtCapture = false;
             setPointerCapture() {

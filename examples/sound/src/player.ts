@@ -1,3 +1,5 @@
+import "./touch.css";
+
 import {
     Body,
     Character,
@@ -104,10 +106,10 @@ function setupLocalControls(world: World): void {
         const stick = document.createElement("div");
         stick.dataset.touchStick = "";
         stick.style.cssText =
-            "display:none;position:absolute;width:140px;height:140px;border:1px solid #797369;border-radius:50%;background:#282622cc;pointer-events:none;transform:translate(-50%,-50%)";
+            "display:none;position:absolute;width:140px;height:140px;border:1px solid #2a2420;border-radius:50%;background:#141210;pointer-events:none;transform:translate(-50%,-50%)";
         const knob = document.createElement("div");
         knob.style.cssText =
-            "position:absolute;left:50%;top:50%;width:48px;height:48px;border-radius:50%;background:#eee9df80";
+            "position:absolute;left:50%;top:50%;width:48px;height:48px;border-radius:50%;background:#a08c78";
         stick.append(knob);
         overlay.append(stick);
         Object.assign(world.resource(TouchControls), { stick, knob });
@@ -182,7 +184,8 @@ export function mountTouchButton(
     const controls = world.resource(TouchControls);
     const button = document.createElement("button");
     button.textContent = label;
-    button.style.cssText = `display:none;position:absolute;right:24px;bottom:${key === "Space" ? 32 : 104}px;width:64px;height:64px;border-radius:50%;border:1px solid #797369;background:#282622cc;color:#eee9df;font:400 14px/1.3 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;pointer-events:auto;touch-action:none`;
+    button.dataset.touchAction = "";
+    button.style.cssText = `display:none;position:absolute;right:24px;bottom:${key === "Space" ? 32 : 104}px;width:64px;height:64px;border-radius:50%;pointer-events:auto;touch-action:none`;
     button.addEventListener("pointerdown", (event) => {
         event.stopPropagation();
         event.preventDefault();

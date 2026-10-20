@@ -111,7 +111,9 @@ async function htmlCss(source: string): Promise<Css> {
         })
         .on("[style]", {
             element(element) {
-                css.lists.push(element.getAttribute("style")!);
+                if (element.tagName === "canvas")
+                    css.sheets.push(`canvas{${element.getAttribute("style")!}}`);
+                else css.lists.push(element.getAttribute("style")!);
             },
         })
         .transform(new Response(source))
@@ -730,7 +732,10 @@ function targetsControl(selector: string, kind: string): boolean {
             branch.children.at(-1).selectors.every((node: any) => {
                 if (node.type === "TypeSelector") return node.name === tag || node.name === "*";
                 if (node.type === "AttributeSelector")
-                    return node.name === "type" && node.matcher === "=" && node.value === kind;
+                    return (
+                        (node.name === "type" && node.matcher === "=" && node.value === kind) ||
+                        (kind === "button" && node.name === "data-touch-action")
+                    );
                 if (node.type !== "PseudoClassSelector") return false;
                 if (node.name === "focus-visible") return true;
                 if (node.name === "is" || node.name === "where") return covers(node.args);
@@ -910,10 +915,15 @@ function controlViolations(css: Css, light = false): string[] {
     const types = new Map<string, Declaration[]>();
     for (const rule of rules) {
         const { selector: s, media } = rule;
-        const gameplay = /^(?:gameplay)$|\.reticle\b|\.reticle-dot\b|\[data-touch-stick\]/.test(s);
+        const gameplay =
+            /^(?:gameplay)$|\.reticle\b|\.reticle-dot\b|\[data-touch-(?:stick|action)\]|\.hint\b|\.key-slot\b|\.hold-ring\b|\.track\b|\.progress\b/.test(
+                s,
+            );
+        const passive = gameplay && !/\bbutton\b/.test(s);
         const modes = mediaModes(media);
         const touch = modes.includes("coarse") || modes.includes("phone");
         if (
+            !gameplay &&
             rowSelector(s) &&
             !/:hover|:active|:focus|:disabled|:is|aria-/.test(s) &&
             !heights.has(s)
@@ -1079,6 +1089,7 @@ function controlViolations(css: Css, light = false): string[] {
             if (p === "outline-offset" && v !== "2px") fail("focus role");
             if (
                 role &&
+                !passive &&
                 !has(
                     v,
                     border && !p.endsWith("color") ? `1px solid ${palette[role]}` : palette[role],
@@ -1099,7 +1110,7 @@ function controlViolations(css: Css, light = false): string[] {
             )
                 fail("disabled priority");
             // Gameplay stick, touch buttons and reticles retain their geometry outside the panel kit.
-            if (gameplay) continue;
+            if (gameplay || /\bcanvas\b/.test(s)) continue;
             if (
                 /^(?:transform(?:-.+)?|translate|rotate|scale|perspective(?:-.+)?)$/.test(p) &&
                 v !== "none" &&
@@ -1130,6 +1141,7 @@ function controlViolations(css: Css, light = false): string[] {
                 ...(p === "transform" ? ["-50%"] : []),
                 "100dvh",
                 "60dvh",
+                ...(p === "order" && /\bkbd\b/.test(s) ? ["-1"] : []),
             ]);
             let sizes: string[] = [];
             if (/radius/.test(p) || /^outline/.test(p)) sizes = ["2px"];
@@ -1145,7 +1157,9 @@ function controlViolations(css: Css, light = false): string[] {
                                 ? ["280px", "44px", "4px"]
                                 : ["296px"]
                             : ["360px"]
-                        : [];
+                        : /\.save-hud button/.test(s)
+                          ? ["144px"]
+                          : [];
             else if (/width/.test(p))
                 sizes = check
                     ? ["16px"]
@@ -1156,7 +1170,7 @@ function controlViolations(css: Css, light = false): string[] {
                         : /\.name\b/.test(s)
                           ? ["360px", "64px", "16px"]
                           : /button/.test(s)
-                            ? ["44px"]
+                            ? ["44px", ...(/\.save-hud button/.test(s) ? ["144px"] : [])]
                             : ["360px", "16px", "32px"];
             else if (/^(?:min-|max-)?height$/.test(p))
                 sizes =
@@ -1715,12 +1729,18 @@ test("scene backgrounds keep the stepped-page and voxel exceptions, not an overl
 
 test("gameplay geometry stays outside the panel kit without exempting its type or colours", () => {
     const css =
-        ".reticle { width: 12px; height: 12px; border-radius: 50%; color: #f0e6d6; } gameplay { width: 140px; height: 140px; border-radius: 50%; }";
+        ".reticle { width: 12px; height: 12px; border-radius: 50%; border: 1px solid #f0e6d6; } .key-slot kbd { min-width: 28px; height: 28px; } .progress { stroke: #f0e6d6; } gameplay { width: 140px; height: 140px; border-radius: 50%; } canvas { width: 640px; height: 360px; }";
     expect(controlViolations({ sheets: [css], lists: [] })).toEqual([]);
     for (const extra of [
         "gameplay { color: #ff0000; }",
         "gameplay { font-size: 14px; }",
         ".controls { border-radius: 50%; }",
+        ".hint { color: #ff0000; }",
+        ".key-slot kbd { font-size: 14px; }",
+        "canvas { color: #ff0000; }",
+        "button[data-touch-action] { width: 64px; height: 64px; border-radius: 50%; }", // Missing button states
+        ".save-hud button { width: 132px; }",
+        ".other { width: 144px; }",
     ])
         expect(controlViolations({ sheets: [css + extra], lists: [] }).length).toBeGreaterThan(0);
 });
@@ -1828,7 +1848,20 @@ test("11/12: local script and CSS imports, font weights, woff2 and adjacent OFL 
 });
 
 // Moving an example changes this list alone: new rules become a test, old rules leave.
-const migrated = new Set<string>(["voxel", "post-processing", "physics", "hud", "day-night-cycle"]);
+const migrated = new Set<string>([
+    "voxel",
+    "post-processing",
+    "physics",
+    "hud",
+    "day-night-cycle",
+    "save-and-load",
+    "interact",
+    "sound",
+    "first-person",
+    "lit-interior",
+    "particles",
+    "view-model",
+]);
 
 for (const example of await readdir("examples")) {
     (migrated.has(example) ? test : test.todo)(`${example} follows example-controls`, async () => {
