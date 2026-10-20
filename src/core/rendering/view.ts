@@ -127,10 +127,12 @@ export interface View {
     viewFromWorld?: Float32Array;
     slot: number;
     camera: EntityRef;
-    /** @internal World-local identity of the canvas or texture this view shares; 0 for depth-only views. */
-    target: number;
-    /** @internal Index among this frame's cameras on `target`, bottom to top by Camera.order then eid. */
-    sortedIndexForTarget: number;
+    /** @internal World-local identity of the canvas or texture this view shares; 0 or absent for a
+     * depth-only or hand-built view, which shares nothing. */
+    target?: number;
+    /** @internal Index among this frame's cameras on `target`, bottom to top by Camera.order then eid;
+     * 0 or absent for the bottom or a lone view. */
+    sortedIndexForTarget?: number;
     /** @internal Whether this view's order tie on its target has been warned. */
     orderTieWarned?: boolean;
 }
@@ -438,7 +440,7 @@ export function sizeView(world: World, eid: number, view: View): void {
     const ratio =
         world.pixelRatio === "auto" ? Math.min(Math.max(viewport.dpr, 1), 2) : world.pixelRatio;
     const pinned = world.has(eid, Resolution);
-    const bottom = view.sortedIndexForTarget === 0;
+    const bottom = !view.sortedIndexForTarget;
     if (!bottom && !pinned) {
         view.width = canvas.width;
         view.height = canvas.height;

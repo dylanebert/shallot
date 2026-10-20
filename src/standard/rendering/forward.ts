@@ -761,7 +761,7 @@ function renderColor(
     // per-camera AA: 4× MSAA when `Camera.antialias` is on (the Camera component default), else
     // single-sample. `world.storage(Camera).antialias.set(eid, 0)` flips it live
     const aa = world.storage(Camera).antialias.get(eid) !== 0;
-    const stacked = aa && view.sortedIndexForTarget !== 0;
+    const stacked = aa && !!view.sortedIndexForTarget;
 
     const shadow = shadowGroup(world);
     // Each phase has its own bundle: opaque plus backdrop, or blend. Building it reads only cached

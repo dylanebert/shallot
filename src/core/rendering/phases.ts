@@ -334,7 +334,7 @@ function recordMainPass(this: World, view: View, eid: number): void {
     );
     const pass = beginRenderPass(
         encoder,
-        colorPassDescriptor(this, eid, targets, view.framebuffer, view.sortedIndexForTarget === 0),
+        colorPassDescriptor(this, eid, targets, view.framebuffer, !view.sortedIndexForTarget),
     );
     for (let i = 0; i < renderers.length; i++) renderers[i].opaque?.(this, eid, view, pass);
     for (let i = 0; i < renderers.length; i++) renderers[i].afterOpaque?.(this, eid, view, pass);

@@ -285,7 +285,9 @@ function targetBelow(
     b: number,
     viewB: ViewSlot,
 ): boolean {
-    if (viewA.target !== viewB.target) return viewA.target < viewB.target;
+    const targetA = viewA.target ?? 0;
+    const targetB = viewB.target ?? 0;
+    if (targetA !== targetB) return targetA < targetB;
     const order = world.storage(Camera).order;
     const orderA = order.get(a);
     const orderB = order.get(b);
@@ -310,12 +312,13 @@ function sortTargets(world: World, eids: number[], views: ViewSlot[]): void {
     const order = world.storage(Camera).order;
     for (let i = 0; i < eids.length; i++) {
         const view = views[i]!;
-        const below = i > 0 ? views[i - 1]! : undefined;
-        if (below?.target !== view.target) {
+        const below = i > 0 ? views[i - 1] : undefined;
+        // A view without a target shares nothing, so it is the bottom of its own.
+        if (!view.target || !below || below.target !== view.target) {
             view.sortedIndexForTarget = 0;
             continue;
         }
-        view.sortedIndexForTarget = below.sortedIndexForTarget + 1;
+        view.sortedIndexForTarget = (below.sortedIndexForTarget ?? 0) + 1;
         if (!view.orderTieWarned && order.get(eids[i - 1]!) === order.get(eids[i]!)) {
             view.orderTieWarned = true;
             console.warn(
@@ -402,7 +405,7 @@ export const BeginFrameSystem: System = {
                 view.surfaceTexture = texture;
                 view.surfaceView = texture.createView();
             }
-            if (view.sortedIndexForTarget === 0) {
+            if (!view.sortedIndexForTarget) {
                 releaseStacked(world, eid);
                 view.present = view.surfaceView!;
             } else view.present = stacked(world, eid, view.width, view.height);

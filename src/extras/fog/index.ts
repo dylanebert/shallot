@@ -735,7 +735,7 @@ export const FogPlugin: Plugin = {
             afterOpaque(world, eid, view, pass) {
                 const cam = fogState(world).views.get(eid);
                 if (!cam) return;
-                const stacked = view.sortedIndexForTarget !== 0;
+                const stacked = !!view.sortedIndexForTarget;
                 if (stacked && !cam.stackedPipeline) {
                     cam.stackedPipeline = applyPipeline(
                         world,

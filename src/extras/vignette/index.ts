@@ -205,7 +205,7 @@ export const VignettePlugin: Plugin = {
                     b[4] = s.center.x.get(eid);
                     b[5] = s.center.y.get(eid);
                     b[6] = s.edgeCompensation.get(eid);
-                    camera.words[7] = views.get(eid)!.sortedIndexForTarget === 0 ? 0 : 1;
+                    camera.words[7] = views.get(eid)!.sortedIndexForTarget ? 1 : 0;
                     const color = s.color.get(eid);
                     b[8] = ((color >> 16) & 0xff) / 255;
                     b[9] = ((color >> 8) & 0xff) / 255;

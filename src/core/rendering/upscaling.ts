@@ -71,7 +71,7 @@ export function encodeUpscaling(world: World, views: readonly View[]): void {
     let state: ReturnType<typeof createUpscaling> | undefined;
     for (let i = 0; i < views.length; i++) {
         const view = views[i]!;
-        if (view.sortedIndexForTarget === 0 || !view.present || !view.surfaceView) continue;
+        if (!view.sortedIndexForTarget || !view.present || !view.surfaceView) continue;
         state ??= world.resource(upscalingKey);
         let group = state.groups.get(view.present);
         if (!group) {

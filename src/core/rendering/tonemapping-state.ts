@@ -200,7 +200,7 @@ export const TonemappingSystem: System = {
             }
             state.words[5] = world.has(eid, Tonemapping) ? methods.method.get(eid) : 0;
             state.words[28] = world.has(eid, DebandDither) ? dither.enabled.get(eid) : 1;
-            state.words[29] = view.sortedIndexForTarget === 0 ? 0 : 1;
+            state.words[29] = view.sortedIndexForTarget ? 1 : 0;
             device.queue.writeBuffer(state.buffers[view.slot], 0, b);
             let cached = state.groups.get(view);
             if (!cached || cached.input !== input || cached.slot !== view.slot) {
