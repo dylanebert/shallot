@@ -109,7 +109,8 @@ export async function createPool(
     stackTop: number,
     stackSize: number,
     scheduler: SchedulerExports,
-    faultWorker?: number,
+    /** Arm every worker to trap on its first task wake: the caller can finish a step without any one worker. */
+    testFault = false,
 ): Promise<Pool> {
     scheduler.schedulerStart();
     // The flag lives in the module's static data; this view remains valid when shared memory grows.
@@ -123,7 +124,7 @@ export async function createPool(
                 index: i,
                 stackTop: base + (i + 2) * SLICE,
                 tlsBase: base + (i + 1) * SLICE,
-                testFault: i === faultWorker,
+                testFault,
             }),
         ),
     );

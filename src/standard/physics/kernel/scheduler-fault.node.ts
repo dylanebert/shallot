@@ -11,7 +11,7 @@ import { createPool } from "./pool";
 setDefaultTimeout(TIMEOUT.node);
 
 if (process.env.PHYSICS_SCHEDULER_FAULT === "1") {
-    test("a wasm worker trap throws from the step and poisons further steps", async () => {
+    test("a wasm worker trap throws from the step that observes it and poisons further steps", async () => {
         await init(undefined, { threads: 4 });
         await shutdown(undefined);
         const k = kernel(undefined);
@@ -25,7 +25,7 @@ if (process.env.PHYSICS_SCHEDULER_FAULT === "1") {
             stack.value as number,
             SHARED_STACK_SIZE,
             k,
-            0,
+            true,
         );
         state.resolved = 4;
         const world = createTestWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
@@ -39,7 +39,21 @@ if (process.env.PHYSICS_SCHEDULER_FAULT === "1") {
                 radius: 0.6,
             });
         }
-        expect(() => stepTestWorld(world, 1 / 60, 1)).toThrow("a physics worker faulted");
+        // The step's first post wakes some worker, which traps, but the step may finish before it does.
+        const fault = new Int32Array(k.memory.buffer, k.schedulerFaultPtr(), 1);
+        const step = (): unknown => {
+            try {
+                stepTestWorld(world, 1 / 60, 1);
+            } catch (e) {
+                return e;
+            }
+        };
+        let error = step();
+        if (error === undefined) {
+            while (Atomics.load(fault, 0) === 0) await Bun.sleep(1);
+            error = step();
+        }
+        expect(String(error)).toContain("a physics worker faulted");
         expect(state.dead).toBe(true);
         expect(() => stepTestWorld(world, 1 / 60, 1)).toThrow();
         await state.pool.terminate();
