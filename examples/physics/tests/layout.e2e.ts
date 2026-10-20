@@ -2,50 +2,52 @@ import { expect, test } from "playwright/test";
 import { formatValue } from "../src/control-format";
 import { categories, type Scene, scenes } from "../src/scenes";
 
-test("distinct control kinds render only shipped fonts", async ({ page, context }) => {
-    await page.goto("/");
-    const trigger = page.getByRole("button", { name: "Scene", exact: true });
-    await trigger.click();
-    await page.getByRole("button", { name: "Wheel", exact: true }).click();
-    await trigger.click();
-    await page.evaluate(() => document.fonts.ready);
-    const cdp = await context.newCDPSession(page);
-    await cdp.send("DOM.enable");
-    await cdp.send("CSS.enable");
-    async function shippedFont(selector: string) {
-        const { root } = await cdp.send("DOM.getDocument");
-        const { nodeId } = await cdp.send("DOM.querySelector", { nodeId: root.nodeId, selector });
-        expect(nodeId, selector).not.toBe(0);
-        const { fonts } = await cdp.send("CSS.getPlatformFontsForNode", { nodeId });
-        expect(fonts.length, selector).toBeGreaterThan(0);
-        for (const font of fonts) {
-            expect(font.isCustomFont, `${selector}: ${font.familyName}`).toBe(true);
-            expect(["IBM Plex Sans", "JetBrains Mono"]).toContain(font.familyName);
-        }
-    }
-    for (const selector of [
-        ".panel-title",
-        ".section-title",
-        ".row > label",
-        ".toggle span",
-        "output",
-        "nav button",
-        "nav .name",
-        ".categories h2",
-        ".categories button",
-    ])
-        await shippedFont(selector);
-    await trigger.click();
-    for (const [scene, selector] of [
-        ["Contact", ".input-help"],
-        ["Motor Joint", ".fields button"],
-    ]) {
+for (const [scene, selectors] of [
+    [
+        "Wheel",
+        [
+            ".panel-title",
+            ".section-title",
+            ".row > label",
+            ".toggle span",
+            "output",
+            "nav button",
+            "nav .name",
+            ".categories h2",
+            ".categories button",
+        ],
+    ],
+    ["Contact", [".input-help"]],
+    ["Motor Joint", [".fields button"]],
+] as const) {
+    test(`${scene} control kinds render only shipped fonts`, async ({ page, context }) => {
+        await page.goto("/");
+        const trigger = page.getByRole("button", { name: "Scene", exact: true });
         await trigger.click();
         await page.getByRole("button", { name: scene, exact: true }).click();
-        await shippedFont(selector!);
-    }
-    await cdp.detach();
-});
+        if (scene === "Wheel") await trigger.click();
+        await page.evaluate(() => document.fonts.ready);
+        const cdp = await context.newCDPSession(page);
+        await cdp.send("DOM.enable");
+        await cdp.send("CSS.enable");
+        const { root } = await cdp.send("DOM.getDocument");
+        async function shippedFont(selector: string) {
+            const { nodeId } = await cdp.send("DOM.querySelector", {
+                nodeId: root.nodeId,
+                selector,
+            });
+            expect(nodeId, selector).not.toBe(0);
+            const { fonts } = await cdp.send("CSS.getPlatformFontsForNode", { nodeId });
+            expect(fonts.length, selector).toBeGreaterThan(0);
+            for (const font of fonts) {
+                expect(font.isCustomFont, `${selector}: ${font.familyName}`).toBe(true);
+                expect(["IBM Plex Sans", "JetBrains Mono"]).toContain(font.familyName);
+            }
+        }
+        for (const selector of selectors) await shippedFont(selector);
+        await cdp.detach();
+    });
+}
 
 for (const viewport of [
     { width: 1280, height: 720 },
@@ -55,8 +57,8 @@ for (const viewport of [
         const phone = viewport.width === 390;
         test.use({ viewport, hasTouch: phone });
         const samples = categories.flatMap((category) => category.scenes);
-        for (let start = 0; start < samples.length; start += 3) {
-            const group = samples.slice(start, start + 3);
+        for (let start = 0; start < samples.length; start += 2) {
+            const group = samples.slice(start, start + 2);
             test(`${group.map((sample) => sample.name).join(", ")}: fixed allocations and label fit`, async ({
                 page,
             }) => {
