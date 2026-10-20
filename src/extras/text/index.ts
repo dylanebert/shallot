@@ -12,6 +12,7 @@ import {
     globalTransformTable,
     PrepassSystem,
     RenderContext,
+    RenderLayers,
     RenderPhases,
     type TransparentPhase,
     type View,
@@ -403,13 +404,17 @@ const TextSystem: System = {
 };
 
 const ASCII_CACHE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,!?-:;'\"()";
-function queueText(world: World, _eid: number, _view: View, phase: TransparentPhase): void {
+function queueText(world: World, eid: number, _view: View, phase: TransparentPhase): void {
     const state = world.resource(textStateKey);
     if (!state.glyphBuf || !state.quad) return;
     const position = phase.positionScratch;
+    const layers = world.storage(RenderLayers).mask;
+    const cameraLayers = world.has(eid, RenderLayers) ? layers.get(eid) : 1;
     for (let i = 0; i < state.labelDraws.length; i++) {
         const label = state.labelDraws[i];
         if (!label.count || !world.exists(label.eid) || !world.has(label.eid, GlobalTransform))
+            continue;
+        if (!((world.has(label.eid, RenderLayers) ? layers.get(label.eid) : 1) & cameraLayers))
             continue;
         composeGlobalTransform(world, label.eid, state.transformScratch);
         const transform = state.transformScratch;

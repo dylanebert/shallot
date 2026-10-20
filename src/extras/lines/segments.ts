@@ -14,6 +14,7 @@ export interface SegmentState {
     u32: Uint32Array;
     stableIds: Uint32Array;
     stableParts: Uint32Array;
+    layers: Uint32Array;
     capacity: number;
     count: number;
     publishedCount: number;
@@ -30,6 +31,7 @@ function createSegmentState(capacity = INITIAL): SegmentState {
         u32: new Uint32Array(staging),
         stableIds: new Uint32Array(capacity),
         stableParts: new Uint32Array(capacity),
+        layers: new Uint32Array(capacity),
         capacity,
         count: 0,
         publishedCount: 0,
@@ -67,6 +69,9 @@ export function grow(state: SegmentState, min: number): void {
     const stableParts = new Uint32Array(cap);
     stableIds.set(state.stableIds.subarray(0, state.count));
     stableParts.set(state.stableParts.subarray(0, state.count));
+    const layers = new Uint32Array(cap);
+    layers.set(state.layers.subarray(0, state.count));
+    state.layers = layers;
     state.staging = next;
     state.f32 = new Float32Array(next);
     state.u32 = new Uint32Array(next);
@@ -88,6 +93,7 @@ export function push(
     stableId = 0,
     stablePart?: number,
     depthBias = 0,
+    renderLayers = 1,
 ): void {
     if (state.count >= state.capacity) grow(state, state.count + 1);
     const index = state.count;
@@ -102,6 +108,7 @@ export function push(
     state.u32[o + 7] = color;
     state.u32[o + 11] = 0;
     state.f32[o + 12] = depthBias;
+    state.layers[index] = renderLayers;
     state.stableIds[index] = stableId;
     state.stableParts[index] = stablePart ?? index;
     state.count++;
@@ -151,6 +158,7 @@ export function head(state: SegmentState, tipLength: number, normal: ArrayLike<n
     state.f32[o + 5] = ty - dy * back + sy;
     state.f32[o + 6] = tz - dz * back + sz;
     state.u32[o + 7] = state.u32[shaft + 7];
+    state.layers[index] = state.layers[index - 1];
     state.stableIds[index] = state.stableIds[index - 1];
     state.stableParts[index] = state.stableParts[index - 1] + 1;
     state.f32[o + 8] = tx - dx * back - sx;
@@ -162,6 +170,8 @@ export function head(state: SegmentState, tipLength: number, normal: ArrayLike<n
 }
 
 export interface LineOptions {
+    /** Layer mask intersected with each camera's RenderLayers.mask; defaults to 1 (layer 0). */
+    renderLayers?: number;
     /** Constant screen width in pixels; defaults to 1. */
     width?: number;
     /** Clip-depth bias, clamped to [-1, 1]: 0 (default) depth-tests normally, -1 draws on top, 1 moves to the far plane. Negative intermediate values bias exponentially toward the camera. */
@@ -204,6 +214,7 @@ export function drawLine(
         0,
         undefined,
         world instanceof GizmoAsset ? 0 : (options.depthBias ?? 0),
+        options.renderLayers ?? 1,
     );
 }
 
@@ -255,6 +266,7 @@ export function drawWireBox(
             0,
             undefined,
             depthBias,
+            options.renderLayers ?? 1,
         );
     }
 }
@@ -305,6 +317,7 @@ export function drawArrow(
         0,
         undefined,
         world instanceof GizmoAsset ? 0 : (options.depthBias ?? 0),
+        options.renderLayers ?? 1,
     );
     head(state, tipLength, normal);
 }
@@ -348,6 +361,7 @@ export function warmSegments(world: World): void {
     segmentState(world).u32 = new Uint32Array(segmentState(world).staging);
     segmentState(world).stableIds = new Uint32Array(INITIAL);
     segmentState(world).stableParts = new Uint32Array(INITIAL);
+    segmentState(world).layers = new Uint32Array(INITIAL);
     segmentState(world).count = 0;
     segmentState(world).publishedCount = 0;
     const resources = segmentState(world);

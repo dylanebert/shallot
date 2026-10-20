@@ -4,6 +4,7 @@ import {
     CorePipelinePlugin,
     PrepassSystem,
     RenderContext,
+    RenderLayers,
     RenderPhases,
     type TransparentPhase,
     type View,
@@ -63,6 +64,7 @@ function expandRetained(world: World): void {
     const gizmos = world.storage(Gizmo);
     const assets = world.resource(gizmoAssets);
     const target = segmentState(world);
+    const layers = world.storage(RenderLayers).mask;
     for (const eid of world.query(RETAINED_LINES_QUERY)) {
         const asset = assets[gizmos.handle.get(eid) - 1];
         if (!asset) continue;
@@ -92,6 +94,7 @@ function expandRetained(world: World): void {
             target.u32[out + 7] = (source.u32[at + 7] & 0xffffff) | alpha;
             target.u32[out + 11] = triangle;
             target.f32[out + 12] = gizmos.depthBias.get(eid);
+            target.layers[index] = world.has(eid, RenderLayers) ? layers.get(eid) : 1;
             target.stableIds[index] = eid;
             target.stableParts[index] = i;
         }
@@ -121,14 +124,18 @@ const lineRendererKey = {
     }),
 };
 
-function queueLines(world: World, _eid: number, _view: View, phase: TransparentPhase): void {
+function queueLines(world: World, eid: number, _view: View, phase: TransparentPhase): void {
     const count = lineCount(world);
     if (!count || !world.resource(Lines).buffer) return;
     const values = lineStaging(world);
     const stableIds = lineStableIds(world);
     const stableParts = lineStableParts(world);
     const position = phase.positionScratch;
+    const layers = world.storage(RenderLayers).mask;
+    const cameraLayers = world.has(eid, RenderLayers) ? layers.get(eid) : 1;
+    const segmentLayers = segmentState(world).layers;
     for (let i = 0; i < count; i++) {
+        if (!(segmentLayers[i]! & cameraLayers)) continue;
         const at = i * SEGMENT_FLOATS;
         position[0] = (values[at]! + values[at + 4]!) * 0.5;
         position[1] = (values[at + 1]! + values[at + 5]!) * 0.5;
