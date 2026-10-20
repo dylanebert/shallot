@@ -1,9 +1,16 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+    chmodSync,
+    copyFileSync,
+    existsSync,
+    mkdtempSync,
+    readFileSync,
+    writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import {
     assertCanvasImage,
@@ -21,6 +28,8 @@ import {
     stopMainShell,
     streamLines,
     terminateProcessGroup,
+    windowsOutput,
+    windowsSmokePids,
     withoutProject,
 } from "./native-smoke";
 import { removeTestDirectory } from "./test-directory";
@@ -50,13 +59,13 @@ test("the final inventory refuses leftover smoke processes", async () => {
 
 test("Mac bundle paths distinguish backend, profile and dev assets", () => {
     expect(macApp("/scratch/game", false, false)).toBe(
-        "/scratch/game/build/mac/debug-system/game.app",
+        resolve("/scratch/game/build/mac/debug-system/game.app"),
     );
     expect(macApp("/scratch/game", true, true)).toBe(
-        "/scratch/game/build/mac/release-portable/game.app",
+        resolve("/scratch/game/build/mac/release-portable/game.app"),
     );
     expect(macApp("/scratch/game", true, false, true)).toBe(
-        "/scratch/game/build/mac/debug-portable-dev/game.app",
+        resolve("/scratch/game/build/mac/debug-portable-dev/game.app"),
     );
 });
 
@@ -66,9 +75,9 @@ test("a missing-asset diagnosis checks the launched bundle on each host", () => 
         standaloneIndex("/scratch/game", "debug-preview", {
             executable: `${app}/Contents/MacOS/game`,
         }),
-    ).toBe(`${app}/Contents/Resources/dist/index.html`);
+    ).toBe(resolve(app, "Contents/Resources/dist/index.html"));
     expect(standaloneIndex("/scratch/game", "debug-preview")).toBe(
-        "/scratch/game/build/linux/debug-portable/dist/index.html",
+        resolve("/scratch/game/build/linux/debug-portable/dist/index.html"),
     );
     expect(standaloneIndex("/scratch/game", "release-preview")).toBeNull();
 });
@@ -277,7 +286,24 @@ while True: time.sleep(1)
     });
 }
 
+test("Windows output paths distinguish backend, profile and dev", () => {
+    expect(windowsOutput("/scratch/game", true, false, true)).toBe(
+        resolve("/scratch/game/build/windows/debug-portable-dev"),
+    );
+    expect(windowsOutput("/scratch/game", false, true)).toBe(
+        resolve("/scratch/game/build/windows/release-system"),
+    );
+});
+
 function running(pid: number): boolean {
+    if (process.platform === "win32") {
+        try {
+            process.kill(pid, 0);
+            return true;
+        } catch {
+            return false;
+        }
+    }
     if (process.platform === "darwin") return spawnSync("ps", ["-p", String(pid)]).status === 0;
     try {
         const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
@@ -324,15 +350,26 @@ test("native smoke cleanup terminates the whole detached process group", async (
 
 test("shell cleanup finds the copied executable even outside the launcher group on Mac", async () => {
     const scratch = mkdtempSync(join(tmpdir(), "shallot-shell-"));
-    const executable = join(scratch, "smoke-sleeper");
+    const executable = join(
+        scratch,
+        process.platform === "win32" ? "smoke-sleeper.exe" : "smoke-sleeper",
+    );
     const source = join(scratch, "sleeper.c");
     writeFileSync(
         source,
         '#include <unistd.h>\nint main(void) { write(1, "ready\\n", 6); for (;;) pause(); }\n',
     );
-    const compiled = spawnSync("cc", [source, "-o", executable], { encoding: "utf8" });
-    if (compiled.status !== 0) throw new Error(`fixture compilation failed: ${compiled.stderr}`);
-    const child = spawn(executable, [], { detached: true, stdio: ["ignore", "pipe", "pipe"] });
+    if (process.platform === "win32") copyFileSync(process.execPath, executable);
+    else {
+        const compiled = spawnSync("cc", [source, "-o", executable], { encoding: "utf8" });
+        if (compiled.status !== 0)
+            throw new Error(`fixture compilation failed: ${compiled.stderr}`);
+    }
+    const child = spawn(
+        executable,
+        process.platform === "win32" ? ["-e", 'console.log("ready");setInterval(()=>{},1000)'] : [],
+        { detached: true, stdio: ["ignore", "pipe", "pipe"] },
+    );
     const ready = once(child.stdout!, "data");
     const exited = once(child, "close");
     try {
@@ -340,6 +377,12 @@ test("shell cleanup finds the copied executable even outside the launcher group 
         const result = await Promise.race([ready.then(() => "ready"), exited.then(() => "exited")]);
         expect(result).toBe("ready");
         expect(running(child.pid)).toBe(true);
+        if (process.platform === "win32") {
+            expect(windowsSmokePids(scratch)).toContain(child.pid);
+            expect(() => assertNoSmokeProcesses(windowsSmokePids(scratch))).toThrow(
+                "smoke processes still running",
+            );
+        }
         if (process.platform === "darwin") {
             expect(macSmokePids(scratch)).toContain(child.pid);
             expect(() => assertNoSmokeProcesses(macSmokePids(scratch))).toThrow(

@@ -226,8 +226,10 @@ function groupExists(pid: number): boolean {
 
 /** Terminate a detached POSIX process group, escalating after a bounded grace period. */
 export async function terminateProcessGroup(pid: number, graceMs = 500): Promise<void> {
-    if (process.platform === "win32")
-        throw new Error("POSIX process groups are required by the native smoke");
+    if (process.platform === "win32") {
+        spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
+        return;
+    }
     try {
         process.kill(-pid, "SIGTERM");
     } catch (error) {
@@ -306,6 +308,15 @@ async function stopMacOwnedProcesses(consumer: string): Promise<void> {
 }
 
 export function mainShellPid(group: number, executable: string): number | null {
+    if (process.platform === "win32") {
+        return (
+            windowsProcesses().find(
+                (row) =>
+                    row.executablePath?.toLowerCase() === executable.toLowerCase() &&
+                    !row.commandLine?.includes("--type="),
+            )?.processId ?? null
+        );
+    }
     if (process.platform === "darwin") {
         if (!existsSync(executable)) return null;
         const expected = realpathSync.native(executable);
@@ -342,6 +353,7 @@ export async function stopMainShell(group: number, executable: string): Promise<
         if ((error as NodeJS.ErrnoException).code === "ESRCH") return;
         throw error;
     }
+    if (process.platform === "win32") return;
     const deadline = Date.now() + 1000;
     while (processGroup(pid) !== null && Date.now() < deadline) await Bun.sleep(25);
     if (processGroup(pid) !== null) {
@@ -832,7 +844,14 @@ async function launchAndObserve(
     viteOrigin: string | null,
     expected: "vite" | "asset-server",
     hardware = false,
-    mac?: { executable: string; app?: string; portable: boolean; cwd?: string },
+    mac?: {
+        executable: string;
+        app?: string;
+        portable: boolean;
+        cwd?: string;
+        windows?: boolean;
+        direct?: boolean;
+    },
 ): Promise<LaunchResult> {
     const logPath = resolve(logs, `${slug(step)}.log`);
     const log = createWriteStream(logPath);
@@ -848,7 +867,7 @@ async function launchAndObserve(
     // Register before spawn: the page can report before the CLI emits its launch line.
     const marker = observer.wait(nonce);
     const nativeLog = resolve(logs, `${slug(step)}-app.log`);
-    if (mac) {
+    if (mac && !mac.windows) {
         writeFileSync(nativeLog, "");
         const bin = resolve(logs, "launch-bin");
         mkdirSync(bin, { recursive: true });
@@ -865,14 +884,16 @@ async function launchAndObserve(
         };
     }
     const child = spawn(
-        mac?.app ? "open" : "bunx",
-        mac?.app
-            ? ["-n", "-W", "--stdout", nativeLog, "--stderr", nativeLog, mac.app]
-            : ["shallot", ...args],
+        mac?.direct ? mac.executable : mac?.app ? "open" : "bunx",
+        mac?.direct
+            ? []
+            : mac?.app
+              ? ["-n", "-W", "--stdout", nativeLog, "--stderr", nativeLog, mac.app]
+              : ["shallot", ...args],
         {
             cwd: mac?.cwd ?? project,
             env: environment,
-            detached: true,
+            detached: process.platform !== "win32",
             stdio: ["ignore", "pipe", "pipe"],
         },
     );
@@ -892,7 +913,7 @@ async function launchAndObserve(
     child.once("error", (error) => {
         spawnError = error;
     });
-    if (mac?.app) {
+    if (mac?.app || mac?.direct) {
         started = true;
         shellStartedAt = performance.now();
         resolveStarted();
@@ -968,10 +989,11 @@ async function launchAndObserve(
             }
         } finally {
             if (child.pid) await terminateProcessGroup(child.pid);
-            if (mac) await stopMacOwnedProcesses(dirname(project));
+            if (mac?.windows) await stopWindowsProcesses(dirname(project));
+            else if (mac) await stopMacOwnedProcesses(dirname(project));
             await Promise.race([exited, Bun.sleep(1500)]);
             lines.flush();
-            if (mac) log.write(readFileSync(nativeLog, "utf8"));
+            if (mac && !mac.windows) log.write(readFileSync(nativeLog, "utf8"));
             await new Promise<void>((resolveEnd) => log.end(resolveEnd));
         }
     }
@@ -1015,7 +1037,10 @@ async function launchAndObserve(
             );
     } else {
         try {
-            if (mac && !mac.portable) assertSystemOrigin(report.href);
+            if (mac?.windows && !mac.portable) {
+                if (new URL(report.href).origin !== "http://shallot.localhost")
+                    throw new Error(`unexpected WebView2 origin: ${report.href}`);
+            } else if (mac && !mac.portable) assertSystemOrigin(report.href);
             else assertStandaloneOrigin(report.href, origin, viteOrigin);
         } catch (error) {
             throw new SmokeFailure(
@@ -1230,7 +1255,7 @@ async function createConsumer(
     const targetLink = resolve(nativeCrate, "target");
     rmSync(targetLink, { recursive: true, force: true });
     mkdirSync(targetDir, { recursive: true });
-    symlinkSync(targetDir, targetLink, "dir");
+    symlinkSync(targetDir, targetLink, process.platform === "win32" ? "junction" : "dir");
     console.info(`Cargo target cache: ${targetDir}`);
     return { project, targetDir };
 }
@@ -1668,6 +1693,175 @@ async function runMacSmoke(options: ReturnType<typeof parseArgs>): Promise<void>
     );
 }
 
+interface WindowsProcess {
+    processId: number;
+    executablePath?: string;
+    commandLine?: string;
+}
+
+function windowsProcesses(): WindowsProcess[] {
+    const result = spawnSync(
+        "powershell.exe",
+        [
+            "-NoProfile",
+            "-Command",
+            "ConvertTo-Json -Compress -InputObject @(Get-CimInstance Win32_Process | Select-Object processId,executablePath,commandLine)",
+        ],
+        { encoding: "utf8" },
+    );
+    if (result.status !== 0)
+        throw new Error(`cannot inventory Windows processes: ${result.stderr}`);
+    return JSON.parse(result.stdout);
+}
+
+export function windowsSmokePids(consumer: string): number[] {
+    const root = `${normalizePath(resolve(consumer)).toLowerCase()}/`;
+    return windowsProcesses()
+        .filter((row) => {
+            const executable = normalizePath(row.executablePath ?? "").toLowerCase();
+            const command = normalizePath(row.commandLine ?? "").toLowerCase();
+            return (
+                row.processId !== process.pid &&
+                (executable.startsWith(root) || command.includes(root))
+            );
+        })
+        .map((row) => row.processId);
+}
+
+async function stopWindowsProcesses(consumer: string): Promise<void> {
+    for (const pid of windowsSmokePids(consumer)) await terminateProcessGroup(pid);
+    const deadline = Date.now() + 5000;
+    while (windowsSmokePids(consumer).length && Date.now() < deadline) await Bun.sleep(100);
+    assertNoSmokeProcesses(windowsSmokePids(consumer));
+}
+
+export function windowsOutput(
+    project: string,
+    portable: boolean,
+    release: boolean,
+    dev = false,
+): string {
+    return resolve(
+        project,
+        "build/windows",
+        `${release ? "release" : "debug"}-${portable ? "portable" : "system"}${dev ? "-dev" : ""}`,
+    );
+}
+
+async function runWindowsSmoke(options: ReturnType<typeof parseArgs>): Promise<void> {
+    if (process.arch !== "x64") throw new Error("Windows smoke requires x86_64-pc-windows-msvc");
+    if (options.plantStale || options.staleRuntime)
+        throw new Error("stale fixtures are Linux-only");
+    const consumer = resolve(options.consumer!);
+    const rel = normalizePath(relative(ROOT, consumer));
+    if (!rel || (!isAbsolute(rel) && rel !== ".." && !rel.startsWith("../")))
+        throw new Error("--consumer must be outside the checkout");
+    const logs = resolve(options.logs ?? resolve(consumer, "logs"));
+    mkdirSync(logs, { recursive: true });
+    const env = cleanEnvironment(process.env, { SHALLOT_ALLOW_SOFTWARE_GPU: "1" });
+    console.info(
+        "Windows native: software GPU explicitly allowed (SHALLOT_ALLOW_SOFTWARE_GPU=1); adapter identity follows each marker.",
+    );
+    const tarball = await prepareTarball(consumer, logs, options.tarball, env);
+    const { project } = await createConsumer(consumer, logs, tarball, env);
+    const observer = await startObserver(logs);
+    try {
+        if (options.portableOnly) console.info("WebView2: not run (--portable-only)");
+        for (const portable of options.portableOnly ? [true] : [false, true]) {
+            const backend = portable ? "CEF" : "WebView2";
+            const flags = ["--target", "windows", ...(portable ? ["--portable"] : [])];
+            let viteOrigin: string | null = null;
+            for (const mode of ["dev", "debug-preview", "release-preview"] as const) {
+                const nonce = randomUUID();
+                writePage(project, observer.origin, mode, nonce);
+                if (process.env.SHALLOT_SMOKE_WITHHOLD_MARKER === "1")
+                    writeFileSync(
+                        resolve(project, "index.html"),
+                        "<!doctype html><title>Withheld marker</title>",
+                    );
+                const release = mode === "release-preview";
+                if (mode !== "dev") {
+                    const build = await runLogged(
+                        `${backend} build ${mode}`,
+                        "bunx",
+                        ["shallot", "build", ...flags, ...(release ? ["--release"] : [])],
+                        project,
+                        env,
+                        logs,
+                    );
+                    if (
+                        release &&
+                        !/prebuilt:\s+(?:no matching release|offline|source checkout|checksum mismatch|extract failed|cache error)/i.test(
+                            build.output,
+                        )
+                    )
+                        throw new Error("release did not prove a source fallback");
+                }
+                const output = windowsOutput(project, portable, release, mode === "dev");
+                const executable = resolve(output, `${basename(project)}.exe`);
+                const result = await launchAndObserve(
+                    `${backend} launch ${mode}`,
+                    project,
+                    logs,
+                    observer,
+                    env,
+                    mode,
+                    nonce,
+                    [
+                        mode === "dev" ? "dev" : "preview",
+                        ...flags,
+                        ...(release ? ["--release"] : []),
+                    ],
+                    viteOrigin,
+                    mode === "dev" ? "vite" : "asset-server",
+                    false,
+                    { executable, portable, windows: true },
+                );
+                if (mode === "dev") viteOrigin = result.viteOrigin;
+                if (release) {
+                    const copy = resolve(consumer, `installed-${backend}`);
+                    rmSync(copy, { recursive: true, force: true });
+                    cpSync(output, copy, { recursive: true });
+                    const cwd = resolve(consumer, "unrelated-launch-directory");
+                    mkdirSync(cwd, { recursive: true });
+                    await withoutProject(project, async () => {
+                        console.info(
+                            `${backend} copied release: source project unavailable; cwd=${cwd}`,
+                        );
+                        await launchAndObserve(
+                            `${backend} copied release`,
+                            project,
+                            logs,
+                            observer,
+                            env,
+                            mode,
+                            nonce,
+                            [],
+                            viteOrigin,
+                            "asset-server",
+                            false,
+                            {
+                                executable: resolve(copy, `${basename(project)}.exe`),
+                                portable,
+                                windows: true,
+                                direct: true,
+                                cwd,
+                            },
+                        );
+                    });
+                }
+            }
+        }
+    } finally {
+        await stopWindowsProcesses(consumer);
+        await observer.close();
+        assertNoSmokeProcesses(windowsSmokePids(consumer));
+    }
+    console.info(
+        "Windows packed native smoke passed: dev, debug/release preview and copied release with source unavailable.",
+    );
+}
+
 function usage(): string {
     return `Usage: bun scripts/native-smoke.ts --consumer <directory> [options]\n\nOptions:\n  --consumer <directory>  Scratch consumer/cache root, outside the checkout (required)\n  --logs <directory>      Retained step logs (default: <consumer>/logs)\n  --tarball <path>        Test an existing Shallot npm tarball instead of packing this checkout\n  --hardware              Require hardware on Linux's owned Xvfb display (Mac always requires hardware)\n  --portable-only         Mac: run CEF alone; the log says WKWebView was not run\n  --plant-stale           Plant stale runtimes and bundles to exercise warm-cache selection\n  --stale-runtime <path>  Copy an older libcef.so tree into the release-profile Cargo output\n  --help                  Show this help\n\nLinux setup: ${SETUP_COMMAND}\nMac: Apple Silicon; system WKWebView and portable CEF, copied release via open, quarantined Gatekeeper assessment.\nSet SHALLOT_SMOKE_WITHHOLD_MARKER=1 on Mac to plant a missing-marker failure.\n`;
 }
@@ -1686,6 +1880,10 @@ async function main(): Promise<void> {
         return;
     }
     try {
+        if (process.platform === "win32") {
+            await runWindowsSmoke(options);
+            return;
+        }
         if (process.platform === "darwin") {
             await runMacSmoke(options);
             return;

@@ -31,6 +31,7 @@ on:
           - checked-kernel
           - linux-native
           - mac-native
+          - windows-native
 
 concurrency:
   group: test-${{ github.event_name }}-${{ inputs.os || 'all' }}-${{ inputs.tier || 'all' }}-${{ github.event.pull_request.number || github.sha }}
@@ -396,6 +397,43 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: mac-native-smoke-logs
+          path: ${{ runner.temp }}/native-runtime-pair/logs
+          if-no-files-found: warn
+
+  windows-native:
+    if: ${{ github.event_name != 'workflow_dispatch' || (inputs.tier == 'windows-native' && inputs.os == 'windows-latest') }}
+    runs-on: windows-latest
+    timeout-minutes: 90 # CEF download and native compilation; launch waits use CEILING.startup
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+      - name: install checkout dependencies
+        run: bun install --frozen-lockfile
+      - name: exercise native smoke driver assertions on Windows
+        run: bun test ./scripts/native-smoke.oracle.ts
+      - name: packed Windows native smoke
+        env:
+          SHALLOT_ALLOW_SOFTWARE_GPU: "1"
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'native-runtime-pair'
+          New-Item -ItemType Directory -Force -Path "$root/logs" | Out-Null
+          Write-Output 'Windows native smoke permits WARP; each page marker records its adapter and runtime.'
+          Get-ChildItem 'C:/Program Files (x86)/Microsoft/EdgeWebView/Application' -Directory | Select-Object Name
+          bun scripts/native-smoke.ts --consumer "$root/consumer" --logs "$root/logs" 2>&1 | Tee-Object "$root/logs/driver.log"
+          exit $LASTEXITCODE
+      - name: retain Windows native smoke logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-native-smoke-logs
           path: ${{ runner.temp }}/native-runtime-pair/logs
           if-no-files-found: warn
 
