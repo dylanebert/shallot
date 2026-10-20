@@ -13,7 +13,7 @@ async function capture(page: Page, name: string) {
         Boolean(process.env.SHALLOT_CAPTURE_DIR) &&
         ["none", "lens-distortion", "chromatic-aberration", "vignette", "all"].includes(name);
     const result = await page.evaluate(
-        async ({ name, save }) => {
+        async ({ save }) => {
             const win = window as SteppedWindow;
             const rgba = await win.captureScene!();
             win.baseline ??= rgba;
