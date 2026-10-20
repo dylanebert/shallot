@@ -94,6 +94,7 @@
         "!examples/*/test-results",
         "!src/standard/physics/solver/fixtures",
         "!src/standard/physics/oracle/**",
+        "!src/extras/effect-stack/bevy/**",
         "!src/**/*.test.ts",
         "!**/*.oracle.ts",
         "!src/**/*.node.ts",

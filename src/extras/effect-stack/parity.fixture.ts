@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import {
     attachTexture,
     Camera,
@@ -182,10 +181,6 @@ export function parityCapture(): {
             }
         },
     };
-}
-export function gold(c: Case): Uint16Array {
-    const b = readFileSync(new URL(`./bevy/${c.name}.gold.bin`, import.meta.url));
-    return new Uint16Array(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength));
 }
 export function compare(actual: Uint16Array, expected: Uint16Array, name: string): void {
     if (actual.length !== expected.length) throw new Error(`${name}: length mismatch`);

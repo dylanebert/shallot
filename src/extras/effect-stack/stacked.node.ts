@@ -1,4 +1,4 @@
-import { expect, setDefaultTimeout, test } from "bun:test";
+import { beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { Vignette as LegacyVignette, VignettePlugin } from "@dylanebert/shallot/vignette";
 import { gpuApps } from "../../../scripts/gpu.fixture";
@@ -27,12 +27,42 @@ import {
 import { corners, LOWER, pixel, SIZE, stackedFrame, stackedScene } from "../stacked-camera.fixture";
 import { ChromaticAberration, EffectStackPlugin, LensDistortion, Vignette } from ".";
 
+import { bevyPipeline, renderBevy } from "./bevy.fixture";
+import { cases, compare, inputTexture, parityCapture, texture } from "./parity.fixture";
+
 setDefaultTimeout(TIMEOUT.node);
 
+const parity = parityCapture();
 const subjects = gpuApps(import.meta.path, [
-    { defaults: false, plugins: [...DEFAULT_PLUGINS, VignettePlugin] },
+    { defaults: false, plugins: [...DEFAULT_PLUGINS, VignettePlugin, parity.plugin] },
     { defaults: false, plugins: [...DEFAULT_PLUGINS, EffectStackPlugin] },
 ]);
+
+let referencePipeline: GPURenderPipeline;
+let referenceInput: GPUTexture;
+let referenceOutput: GPUTexture;
+beforeAll(async () => {
+    const world = subjects()[0].world;
+    referencePipeline = await bevyPipeline(world);
+    referenceInput = inputTexture(world);
+    referenceOutput = texture(world, "rgba16float");
+});
+
+// Full default-renderer composition shares this Node file's prepared world. Compare on
+// one adapter: bilinear weights differ between adapters even for Bevy's own shader.
+for (const c of cases) {
+    test(`${c.name} matches live Bevy within one half-float step`, async () => {
+        const world = subjects()[0].world;
+        const reference = await renderBevy(
+            world,
+            referencePipeline,
+            c,
+            referenceInput,
+            referenceOutput,
+        );
+        compare(await parity.render(world, c), reference, c.name);
+    });
+}
 
 test("the deprecated vignette imports still shade only what their stacked camera drew", async () => {
     expect(VignettePlugin).toBe(EffectStackPlugin);
