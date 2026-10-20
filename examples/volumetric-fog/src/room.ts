@@ -25,6 +25,7 @@ import {
     type World,
 } from "@dylanebert/shallot";
 import { DiagnosticsOverlayPlugin, Fog, FogPlugin } from "@dylanebert/shallot/extras";
+import { PointShadows } from "@dylanebert/shallot/standard/rendering";
 import { LocalPlayer, Player, PlayerPlugin } from "./player";
 
 type Color = readonly [number, number, number, number];
@@ -68,6 +69,7 @@ export const Room: Resource<{
 };
 function room(world: World): void {
     const scene = world.resource(Room);
+    world.resource(PointShadows).atlas = 1024;
     const ambient = world.resource(GlobalAmbientLight);
     ambient.color = 0xd8e4ff;
     ambient.brightness = 12;
@@ -75,8 +77,20 @@ function room(world: World): void {
     block(world, [0, 5.25, 0], [9, 0.5, 24], [0.11, 0.105, 0.095, 1]);
     for (const [position, size] of [
         [
-            [-4.5, 2.5, 0],
-            [0.4, 5, 24],
+            [-4.5, 2.5, 5],
+            [0.4, 5, 14],
+        ],
+        [
+            [-4.5, 2.5, -8],
+            [0.4, 5, 8],
+        ],
+        [
+            [-4.5, 1, -3],
+            [0.4, 2, 2],
+        ],
+        [
+            [-4.5, 4.25, -3],
+            [0.4, 1.5, 2],
         ],
         [
             [4.5, 2.5, 0],
@@ -87,25 +101,13 @@ function room(world: World): void {
             [9, 5, 0.4],
         ],
         [
-            [-3.25, 2.5, -12],
-            [2.5, 5, 0.4],
-        ],
-        [
-            [3.25, 2.5, -12],
-            [2.5, 5, 0.4],
-        ],
-        [
-            [0, 0.75, -12],
-            [4, 1.5, 0.4],
-        ],
-        [
-            [0, 4.75, -12],
-            [4, 0.5, 0.4],
+            [0, 2.5, -12],
+            [9, 5, 0.4],
         ],
     ] as const)
         block(world, position, size, [0.15, 0.14, 0.125, 1]);
     scene.sun = world.create();
-    world.add(scene.sun, Transform, { rotation: lookAtRotation(0, 8, -12, 0, 0, 0) });
+    world.add(scene.sun, Transform, { rotation: lookAtRotation(-8, 6, 0, 0, 0, 0) });
     world.add(scene.sun, DirectionalLight, {
         color: 0xffe8cc,
         illuminance: 70000,

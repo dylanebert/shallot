@@ -23,12 +23,12 @@ test("the window shaft, spot cone and point glow brighten haze beside their shad
     await page.goto("/tests/stepped.html");
     await page.waitForFunction(() => window.hall);
     console.log("hall adapter", await page.evaluate(() => window.hall.adapter));
-    // Paired patches below the window, below the spot fixture and below the far pendant.
+    // Paired mid-air patches across the side-on shaft, below the spot and below the far pendant.
     // Fog-on minus fog-off isolates air light from the lit wall behind each patch.
     const evidence = await page.evaluate(() =>
         window.hall.evidence([
-            [680, 730, 340, 365],
-            [600, 630, 340, 365],
+            [575, 595, 325, 345],
+            [625, 645, 325, 345],
             [735, 760, 210, 280],
             [820, 845, 210, 280],
             [510, 545, 215, 245],
@@ -41,7 +41,7 @@ test("the window shaft, spot cone and point glow brighten haze beside their shad
     }
     const contributions = await page.evaluate(() =>
         window.hall.contributions([
-            [680, 730, 340, 365],
+            [575, 595, 325, 345],
             [735, 760, 210, 280],
             [510, 545, 215, 245],
         ]),
