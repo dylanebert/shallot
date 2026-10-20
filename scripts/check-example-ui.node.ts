@@ -6,6 +6,7 @@ import { parse } from "@babel/parser";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { parseCss, parse as parseSvelte } from "svelte/compiler";
 import { colorHex, EXAMPLE_CONTROLS, PALETTES } from "../diagnostics/default-look/palette";
+import { normalizePath } from "../src/project/paths";
 import { removeTestDirectory } from "./test-directory";
 
 setDefaultTimeout(TIMEOUT.node);
@@ -572,7 +573,7 @@ async function exampleCss(root: string): Promise<Css> {
         const source = await readFile(path, "utf8");
         const css = sceneBackgrounds(await cssOf(path, source), {
             example: basename(root),
-            stepped: steppedPage(relative(process.cwd(), path)),
+            stepped: steppedPage(normalizePath(relative(process.cwd(), path))),
         });
         result.sheets.push(
             ...css.sheets.map((sheet) =>
@@ -580,10 +581,9 @@ async function exampleCss(root: string): Promise<Css> {
                     /url\(\s*['"]?([^)'"\s]+\.woff2)['"]?\s*\)/g,
                     (whole, url: string) => {
                         if (/^(?:\/|[a-z]+:)/i.test(url)) return whole;
-                        const asset = relative(
-                            resolve(root, "public"),
-                            resolve(dirname(path), url),
-                        ).replaceAll("\\", "/");
+                        const asset = normalizePath(
+                            relative(resolve(root, "public"), resolve(dirname(path), url)),
+                        );
                         return `url('/${asset}')`;
                     },
                 ),
@@ -1294,7 +1294,7 @@ async function fontViolations(root: string, css: Css): Promise<string[]> {
             }
             const path = resolve(root, "public", `.${url}`);
             try {
-                if (relative(resolve(root, "public"), path).startsWith(".."))
+                if (normalizePath(relative(resolve(root, "public"), path)).startsWith(".."))
                     throw new Error("outside public");
                 const data = await readFile(path);
                 if (
