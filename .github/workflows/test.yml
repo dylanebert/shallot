@@ -29,6 +29,7 @@ on:
           - cargo
           - checked-kernel
           - linux-native
+          - mac-native
 
 concurrency:
   group: test-${{ github.event_name }}-${{ inputs.os || 'all' }}-${{ inputs.tier || 'all' }}-${{ github.event.pull_request.number || github.sha }}
@@ -361,6 +362,38 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: linux-native-smoke-logs
+          path: ${{ runner.temp }}/native-runtime-pair/logs
+          if-no-files-found: warn
+
+  mac-native:
+    if: ${{ github.event_name != 'workflow_dispatch' || (inputs.tier == 'mac-native' && inputs.os == 'macos-15') }}
+    runs-on: macos-15
+    timeout-minutes: 60 # CEF download and native compilation; launch waits use CEILING.startup
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+      - name: install checkout dependencies
+        run: bun install --frozen-lockfile
+      - name: exercise native smoke driver assertions
+        run: bun test ./scripts/native-smoke.oracle.ts
+      - name: packed Mac native smoke
+        run: |
+          mkdir -p "$RUNNER_TEMP/native-runtime-pair/consumer" "$RUNNER_TEMP/native-runtime-pair/logs"
+          echo 'Mac native smoke: hardware adapter required; no software GPU override.'
+          /usr/bin/time -p bun scripts/native-smoke.ts --consumer "$RUNNER_TEMP/native-runtime-pair/consumer" --logs "$RUNNER_TEMP/native-runtime-pair/logs" 2>&1 | tee "$RUNNER_TEMP/native-runtime-pair/logs/driver.log"
+      - name: retain Mac native smoke logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mac-native-smoke-logs
           path: ${{ runner.temp }}/native-runtime-pair/logs
           if-no-files-found: warn
 
