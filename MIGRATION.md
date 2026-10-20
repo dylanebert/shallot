@@ -6,7 +6,7 @@ Code fragments assume an owning `world`, an existing entity `eid`, and the impor
 
 ## Effect stack replaces vignette
 
-Replace imports from `@dylanebert/shallot/vignette` with `@dylanebert/shallot/effect-stack`, and replace `VignettePlugin` with `EffectStackPlugin` (also in root and extras imports). `Vignette` keeps its fields and defaults. The same plugin now supports camera components `LensDistortion` and `ChromaticAberration`, fused with vignette into one pass before tonemapping.
+`@dylanebert/shallot/vignette` and `VignettePlugin` still work as deprecated aliases and are removed in 0.11. Switch imports to `@dylanebert/shallot/effect-stack` and use `EffectStackPlugin` (also in root and extras imports). Both plugin names refer to the same plugin. `Vignette` keeps its fields and defaults. The plugin now also supports camera components `LensDistortion` and `ChromaticAberration`, fused with vignette into one pass before tonemapping.
 
 ## A second camera and the first canvas
 

@@ -1,5 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { Vignette as LegacyVignette, VignettePlugin } from "@dylanebert/shallot/vignette";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
 import {
@@ -27,15 +28,16 @@ import { ChromaticAberration, EffectStackPlugin, LensDistortion, Vignette } from
 setDefaultTimeout(TIMEOUT.node);
 
 const subjects = gpuApps(import.meta.path, [
-    { defaults: false, plugins: [...DEFAULT_PLUGINS, EffectStackPlugin] },
+    { defaults: false, plugins: [...DEFAULT_PLUGINS, VignettePlugin] },
     { defaults: false, plugins: [...DEFAULT_PLUGINS, EffectStackPlugin] },
 ]);
 
-test("a vignette on a camera stacked over another shades only what that camera drew", async () => {
+test("the deprecated vignette imports still shade only what their stacked camera drew", async () => {
+    expect(VignettePlugin).toBe(EffectStackPlugin);
     const { world } = subjects()[0];
     const { lower, upper, cube } = stackedScene(world, 1);
     const plain = pixel(await stackedFrame(world, lower), SIZE / 2, SIZE / 2 + 6);
-    world.add(upper, Vignette, { radius: 0.2 });
+    world.add(upper, LegacyVignette, { radius: 0.2 });
     const rgba = await stackedFrame(world, lower);
     expect(new Set(corners(rgba).map(String))).toEqual(new Set([String(LOWER)]));
     const shaded = pixel(rgba, SIZE / 2, SIZE / 2 + 6);

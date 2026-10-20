@@ -402,3 +402,6 @@ export const EffectStackPlugin: Plugin = {
         state.sampler = null;
     },
 };
+
+/** @deprecated Use EffectStackPlugin instead. Removed in 0.11. */
+export const VignettePlugin = EffectStackPlugin;
