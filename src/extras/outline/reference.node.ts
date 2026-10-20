@@ -1,239 +1,156 @@
-import { beforeAll, expect, setDefaultTimeout, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import * as d from "typegpu/data";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { Meshes, MeshInstance } from "../../core/mesh";
+import { attachTexture, Camera, CameraMode } from "../../core/rendering";
+import { Transform } from "../../core/transform";
 import { probeTexture } from "../../engine/runtime";
-import { DEFAULT_PLUGINS } from "../../standard";
-import { OutlinePlugin } from ".";
+import { StandardRenderer } from "../../standard/rendering";
+import { Outline } from ".";
 import {
-    compositeKernel,
-    compositeLayout,
-    fullscreenVs,
-    jfaFs,
-    jfaLayout,
-    jfaPassCount,
-    jfaStep,
-    MAX_JFA_PASSES,
-    WORKGROUP,
-} from "./passes";
+    coverage,
+    initialSeeds,
+    jumpFlood,
+    masks,
+    render,
+    size,
+    squaredDistance,
+    subjects,
+    widths,
+} from "./reference.fixture";
 
 setDefaultTimeout(TIMEOUT.node);
-const size = 32;
-const subjects = gpuApps(import.meta.path, [
-    { defaults: false, plugins: [...DEFAULT_PLUGINS, OutlinePlugin] },
-]);
-type Pixel = readonly [number, number];
-const masks: { name: string; pixels: Pixel[] }[] = [
-    { name: "thin line", pixels: Array.from({ length: 18 }, (_, i) => [15, i + 7]) },
-    {
-        name: "concave corner",
-        pixels: Array.from(
-            { length: size * size },
-            (_, i) => [i % size, Math.floor(i / size)] as const,
-        ).filter(([x, y]) => x >= 8 && x < 24 && y >= 8 && y < 24 && (x < 12 || y >= 20)),
-    },
-    {
-        name: "nearby silhouettes",
-        pixels: [
-            ...Array.from({ length: 12 }, (_, i) => [12, i + 9] as const),
-            ...Array.from({ length: 12 }, (_, i) => [17, i + 11] as const),
-        ],
-    },
-];
-let render: (
-    pixels: Pixel[],
-    width: number,
-) => Promise<{
-    coverage: Uint16Array;
-    nearest: Uint16Array;
-}>;
-beforeAll(() => {
-    const { world } = subjects()[0];
-    const { device, root } = world.gpu;
-    const info = device.adapterInfo;
-    console.info(
-        JSON.stringify({
-            adapter: {
-                vendor: info.vendor,
-                architecture: info.architecture,
-                device: info.device,
-                description: info.description,
-                isFallbackAdapter: info.isFallbackAdapter,
-            },
-        }),
-    );
-    const texture = (format: GPUTextureFormat) => {
-        const t = device.createTexture({
-            size: [size, size],
-            format,
-            usage:
-                GPUTextureUsage.TEXTURE_BINDING |
-                GPUTextureUsage.RENDER_ATTACHMENT |
-                GPUTextureUsage.STORAGE_BINDING |
-                GPUTextureUsage.COPY_DST |
-                GPUTextureUsage.COPY_SRC,
-        });
-        world.own(t);
-        return t;
-    };
-    // rg16uint cannot be a storage attachment.
-    const seed = [0, 1].map(() => {
-        const t = device.createTexture({
-            size: [size, size],
-            format: "rg16uint",
-            usage:
-                GPUTextureUsage.TEXTURE_BINDING |
-                GPUTextureUsage.RENDER_ATTACHMENT |
-                GPUTextureUsage.COPY_DST |
-                GPUTextureUsage.COPY_SRC,
-        });
-        world.own(t);
-        return t;
-    });
-    const attr = texture("rgba16float");
-    const scene = texture("rgba16float");
-    const output = texture("rgba16float");
-    device.queue.writeTexture(
-        { texture: scene },
-        new Uint16Array(size * size * 4),
-        { bytesPerRow: size * 8 },
-        [size, size],
-    );
-    const jfa = root.unwrap(
-        root.createRenderPipeline({
-            vertex: fullscreenVs,
-            fragment: jfaFs,
-            targets: { format: "rg16uint" },
-            primitive: { topology: "triangle-list", cullMode: "none" },
-        }),
-    );
-    const composite = root.unwrap(root.createComputePipeline({ compute: compositeKernel }));
-    const groups = Array.from({ length: MAX_JFA_PASSES }, (_, k) =>
-        root.unwrap(
-            root.createBindGroup(jfaLayout, {
-                seed: seed[k % 2]!.createView(),
-                step: root.createBuffer(d.f32, jfaStep(k)).$usage("uniform"),
-            }),
-        ),
-    );
-    const compositeGroup = root.unwrap(
-        root.createBindGroup(compositeLayout, {
-            scene: scene.createView(),
-            seed: seed[MAX_JFA_PASSES % 2]!.createView(),
-            attr: attr.createView(),
-            output: output.createView(),
-        }),
-    );
-    render = async (pixels, width) => {
-        const seeds = new Uint16Array(size * size * 2).fill(30000);
-        const attrs = new Uint16Array(size * size * 4);
-        for (const [x, y] of pixels) {
-            const at = y * size + x;
-            seeds[at * 2] = x;
-            seeds[at * 2 + 1] = y;
-            attrs[at * 4] = 0x3c00;
-            // All fixed widths are exactly representable half floats.
-            attrs[at * 4 + 3] = new Uint16Array(new Float16Array([width]).buffer)[0]!;
-        }
-        const offset = MAX_JFA_PASSES - jfaPassCount(width);
-        device.queue.writeTexture(
-            { texture: seed[offset % 2]! },
-            seeds,
-            { bytesPerRow: size * 4 },
-            [size, size],
-        );
-        device.queue.writeTexture({ texture: attr }, attrs, { bytesPerRow: size * 8 }, [
-            size,
-            size,
-        ]);
-        const encoder = device.createCommandEncoder();
-        for (let k = offset; k < MAX_JFA_PASSES; k++) {
-            const pass = encoder.beginRenderPass({
-                colorAttachments: [
-                    {
-                        view: seed[1 - (k % 2)]!.createView(),
-                        loadOp: "clear",
-                        storeOp: "store",
-                        clearValue: { r: 30000, g: 30000, b: 0, a: 0 },
-                    },
-                ],
-            });
-            pass.setPipeline(jfa);
-            pass.setBindGroup(0, groups[k]!);
-            pass.draw(3);
-            pass.end();
-        }
-        const pass = encoder.beginComputePass();
-        pass.setPipeline(composite);
-        pass.setBindGroup(0, compositeGroup);
-        pass.dispatchWorkgroups(Math.ceil(size / WORKGROUP), Math.ceil(size / WORKGROUP));
-        pass.end();
-        device.queue.submit([encoder.finish()]);
-        return {
-            coverage: new Uint16Array((await probeTexture(world, output)).bytes as ArrayBuffer),
-            nearest: new Uint16Array(
-                (await probeTexture(world, seed[MAX_JFA_PASSES % 2]!)).bytes as ArrayBuffer,
-            ),
-        };
-    };
-});
 
-// Rong and Tan, "Jump Flooding in GPU with Applications to Voronoi Diagram and
-// Distance Transform" (2006), describes errors where seed regions meet. Nearby
-// silhouettes and the concave corner exercise those meetings; no pixels are exempt.
-function smoothstep(low: number, high: number, value: number): number {
-    const t = Math.max(0, Math.min(1, (value - low) / (high - low)));
-    return t * t * (3 - 2 * t);
-}
-
-// Coverage is alpha, not sRGB: one display code is 1/255 of linear coverage.
-const halfBits = new Uint16Array(1);
-const halfValue = new Float16Array(halfBits.buffer);
 for (const mask of masks)
-    for (const width of [2.5, 4, 5.5, 9.5]) {
-        test(`${mask.name}, width ${width}: exact band geometry and coverage within one display code`, async () => {
+    for (const width of widths) {
+        test(`${mask.name}, width ${width}: exact CPU jump flood and coverage within one display code`, async () => {
             const actual = await render(mask.pixels, width);
-            const mismatches: {
-                pixel: Pixel;
-                squaredDistance: number;
-                floodSquaredDistance: number;
-                expected: number;
-                actual: number;
-            }[] = [];
+            const expected = jumpFlood(mask.pixels, width);
+            expect(actual.nearest).toEqual(expected);
+            const values = new Float16Array(actual.coverage.buffer);
             let maxCoverageError = 0;
             for (let y = 0; y < size; y++)
                 for (let x = 0; x < size; x++) {
-                    // maskFragment seeds integer pixel coordinates, not subpixel edge estimates.
-                    // Exhaustive reference, independent of the jump ladder and chosen seed.
-                    const squaredDistance = Math.min(
-                        ...mask.pixels.map(([sx, sy]) => (x - sx) ** 2 + (y - sy) ** 2),
+                    const distance = Math.sqrt(squaredDistance(expected, x, y));
+                    maxCoverageError = Math.max(
+                        maxCoverageError,
+                        Math.abs(values[(y * size + x) * 4 + 3]! - coverage(distance, width)),
                     );
-                    const distance = Math.sqrt(squaredDistance);
-                    // Shallot's composite, not a binary dilation or Golus's different edge fade.
-                    const expected =
-                        smoothstep(0, 1, distance) * (1 - smoothstep(width - 1, width, distance));
-                    const at = y * size + x;
-                    const floodSquaredDistance =
-                        (x - actual.nearest[at * 2]!) ** 2 + (y - actual.nearest[at * 2 + 1]!) ** 2;
-                    halfBits[0] = actual.coverage[at * 4 + 3]!;
-                    const coverage = halfValue[0]!;
-                    const error = Math.abs(coverage - expected);
-                    maxCoverageError = Math.max(maxCoverageError, error);
-                    // The ladder only promises distances in band range. Even where the fade
-                    // saturates, those distances must be exact; coverage tolerance hides no JFA error.
-                    const wrongGeometry =
-                        Math.min(squaredDistance, floodSquaredDistance) < width ** 2 &&
-                        squaredDistance !== floodSquaredDistance;
-                    if (wrongGeometry || coverage > 0 !== expected > 0 || error > 1 / 255)
-                        mismatches.push({
-                            pixel: [x, y],
-                            squaredDistance,
-                            floodSquaredDistance,
-                            expected,
-                            actual: coverage,
-                        });
                 }
-            console.info(JSON.stringify({ mask: mask.name, width, maxCoverageError, mismatches }));
-            expect(mismatches).toEqual([]);
+            console.info(JSON.stringify({ mask: mask.name, width, maxCoverageError }));
+            // Alpha is linear coverage, not sRGB.
+            expect(maxCoverageError).toBeLessThanOrEqual(1 / 255);
+            if (mask.name === "three-seed meeting" && width === 5.5) {
+                // The jump flood is not an exact distance transform: preserve this known error.
+                expect(squaredDistance(actual.nearest, 16, 15)).toBe(29);
+                expect(
+                    Math.min(...mask.pixels.map(([x, y]) => (16 - x) ** 2 + (15 - y) ** 2)),
+                ).toBe(25);
+                expect(coverage(Math.sqrt(29), width)).toBeCloseTo(0.037, 3);
+                expect(coverage(5, width)).toBe(0.5);
+            }
         });
     }
+
+for (const mask of masks) {
+    test(`${mask.name}: the real orthographic mesh mask seeds exactly the covered pixels before flooding`, async () => {
+        const { world } = subjects()[0];
+        const { device } = world.gpu;
+        const snapshot = device.createTexture({
+            size: [size, size],
+            format: "rg16uint",
+            usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC,
+        });
+        world.own(snapshot);
+        const camera = world.create();
+        world.add(camera, Transform, { translation: [0, 0, 5] });
+        world.add(camera, Camera, { mode: CameraMode.Orthographic, size: size / 2, antialias: 0 });
+        world.add(camera, StandardRenderer);
+        attachTexture(world, camera, { width: size, height: size });
+        // One world unit is one pixel. Quad edges fall on pixel boundaries.
+        const vertices: number[] = [],
+            indices: number[] = [];
+        for (const [x, y] of mask.pixels) {
+            const base = vertices.length / 8;
+            for (const [dx, dy] of [
+                [0, 1],
+                [1, 1],
+                [1, 0],
+                [0, 0],
+            ])
+                vertices.push(x + dx! - size / 2, size / 2 - y - dy!, 0, 0, 0, 0, 1, 0);
+            indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+        }
+        const meshes = world.resource(Meshes);
+        const mesh = meshes.add({
+            name: mask.name,
+            vertices: new Float32Array(vertices),
+            indices: new Uint32Array(indices),
+        });
+        const entity = world.create();
+        world.add(entity, Transform);
+        world.add(entity, MeshInstance, { mesh });
+        world.add(entity, Outline, { width: 5.5 });
+        const views = new WeakMap<GPUTextureView, GPUTexture>();
+        const createTexture = device.createTexture.bind(device);
+        const createEncoder = device.createCommandEncoder.bind(device);
+        let finalSeed: GPUTexture | undefined;
+        let copies = 0;
+        device.createTexture = (descriptor) => {
+            if (!descriptor.label?.startsWith("outline-seed")) return createTexture(descriptor);
+            const texture = createTexture({
+                ...descriptor,
+                usage: descriptor.usage | GPUTextureUsage.COPY_SRC,
+            });
+            // The production seven-slot ladder always finishes in seed B.
+            if (descriptor.label === `outline-seedB-${camera}`) finalSeed = texture;
+            const createView = texture.createView.bind(texture);
+            texture.createView = (descriptor) => {
+                const view = createView(descriptor);
+                views.set(view, texture);
+                return view;
+            };
+            return texture;
+        };
+        device.createCommandEncoder = (descriptor) => {
+            const encoder = createEncoder(descriptor);
+            const begin = encoder.beginRenderPass.bind(encoder);
+            encoder.beginRenderPass = (descriptor) => {
+                const pass = begin(descriptor);
+                if (descriptor.label !== `outline-mask/${camera}`) return pass;
+                const source = views.get(
+                    Array.from(descriptor.colorAttachments)[0]!.view as GPUTextureView,
+                )!;
+                const end = pass.end.bind(pass);
+                pass.end = () => {
+                    end();
+                    encoder.copyTextureToTexture({ texture: source }, { texture: snapshot }, [
+                        size,
+                        size,
+                    ]);
+                    copies++;
+                };
+                return pass;
+            };
+            return encoder;
+        };
+        try {
+            world.step(0);
+            expect(copies).toBe(1);
+            const actual = new Uint16Array(
+                (await probeTexture(world, snapshot)).bytes as ArrayBuffer,
+            );
+            expect(actual).toEqual(initialSeeds(mask.pixels));
+            const flooded = new Uint16Array(
+                (await probeTexture(world, finalSeed!)).bytes as ArrayBuffer,
+            );
+            expect(flooded).toEqual(jumpFlood(mask.pixels, 5.5));
+        } finally {
+            device.createTexture = createTexture;
+            device.createCommandEncoder = createEncoder;
+            world.destroy(entity);
+            world.destroy(camera);
+            meshes.remove(mesh);
+            world.step(0);
+        }
+    });
+}
