@@ -9,7 +9,6 @@ import {
     createTestGpuApp,
     expectAdapterNotice,
 } from "../../../scripts/gpu.fixture";
-import { expectError } from "../../../scripts/test-console";
 import { Meshes, MeshInstance } from "../../core/mesh";
 import {
     AmbientLight,
@@ -200,7 +199,6 @@ test("pipeline creation refuses the ten-binding light-compact mutation and build
             'Plugin "StandardRendering" pipeline "shallot-light-compact" uses 10 compute storage-buffer bindings; maxStorageBuffersPerShaderStage is 8',
         );
     } finally {
-        expectError(/GPU device lost destroyed: device was destroyed/);
         device.destroy();
     }
 });
@@ -617,7 +615,6 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
         app?.dispose();
         const finalError = await device.popErrorScope();
         expect(finalError, finalError?.message).toBeNull();
-        expectError(/GPU device lost destroyed: device was destroyed/);
         device.destroy();
         Object.assign(globalThis, previousGlobals);
     }

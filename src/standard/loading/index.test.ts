@@ -1,7 +1,33 @@
 import { expect, test } from "bun:test";
+import * as engine from "../../engine";
 import { UnsupportedError } from "../../engine";
 import { requestGPU } from "../../engine/runtime/gpu";
 import { shallotDark } from "./index";
+
+for (const [kind, heading] of [
+    ["validation", "Something went wrong"],
+    ["out-of-memory", "GPU memory exhausted"],
+    ["internal", "GPU interrupted"],
+    ["device-lost", "GPU interrupted"],
+] as const) {
+    test(`loading renders ${kind} by class`, () => {
+        withDocument((body) => {
+            const screen = shallotDark();
+            screen.show();
+            screen.error?.(new engine.GpuError(kind, "controlled failure"));
+            const card = body.children[0]!.children[0]!;
+            expect(card.children[0]!.innerHTML).toContain(heading);
+            if (kind !== "validation") {
+                expect(card.children[0]!.style.cssText).toContain("color: #d49560");
+                expect(text(card)).toContain(
+                    kind === "out-of-memory"
+                        ? "Close other tabs or apps using the GPU, then reload."
+                        : "Reload to try again.",
+                );
+            }
+        });
+    });
+}
 
 class Element {
     style = { cssText: "", width: "", transition: "", opacity: "", background: "" };

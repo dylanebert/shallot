@@ -64,6 +64,8 @@ export {
     checkTgsl,
     deviceLost,
     drainLog,
+    GpuError,
+    type GpuErrorKind,
     type GpuLog,
     type GpuRequirements,
     type NamedGpuRequirements,

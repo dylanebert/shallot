@@ -1,7 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { createTestGpuApp } from "../../../scripts/gpu.fixture";
-import { expectError } from "../../../scripts/test-console";
 import type { createApp } from "../../engine/app";
 import { CanvasContext } from "../../engine/app/canvas.fixture";
 import { probeTexture } from "../../engine/runtime";
@@ -177,7 +176,6 @@ test("standard composition, vignette, after-tonemap and points present and captu
     } finally {
         app?.dispose();
         expect(await device.popErrorScope()).toBeNull();
-        expectError(/GPU device lost destroyed: device was destroyed/);
         device.destroy();
     }
 });

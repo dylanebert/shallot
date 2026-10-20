@@ -2,7 +2,6 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { rawDevice } from "../src/engine/runtime";
 import { compileGpuFile, createTestGpuApp, disposeGpuApps } from "./gpu.fixture";
-import { expectError } from "./test-console";
 
 setDefaultTimeout(TIMEOUT.gpu);
 const subject = compileGpuFile(import.meta.path, async () => {
@@ -72,8 +71,6 @@ test("fixture release fences consumers, preserves borrowed devices and remembers
         destroy();
     };
     const apps = [owner, consumer];
-    // The supplied proxy has its own device-loss observer.
-    expectError(/^GPU device lost destroyed: device was destroyed$/);
     const pending = disposeGpuApps(apps);
     await Promise.resolve();
     expect(destroys).toBe(0);

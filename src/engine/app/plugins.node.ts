@@ -1,7 +1,6 @@
 import { beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { createTestGpuApp } from "../../../scripts/gpu.fixture";
-import { expectError } from "../../../scripts/test-console";
 
 setDefaultTimeout(TIMEOUT.node);
 
@@ -954,11 +953,9 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
             prebuildBuffer?.destroy();
         } finally {
             firstDevice.watch.dispose();
-            expectError(/GPU device lost destroyed: device was destroyed/);
             firstDevice.device.destroy();
             if (!sharedDevice) {
                 secondDevice.watch.dispose();
-                expectError(/GPU device lost destroyed: device was destroyed/);
                 secondDevice.device.destroy();
             }
         }
@@ -979,7 +976,6 @@ for (const content of [FIRST_CONTENT, SECOND_CONTENT]) {
             );
         } finally {
             tracked.watch.dispose();
-            expectError(/GPU device lost destroyed: device was destroyed/);
             tracked.device.destroy();
         }
         expect(tracked.live.size).toBe(0);

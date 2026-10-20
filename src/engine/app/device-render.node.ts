@@ -12,7 +12,6 @@ import "../../standard";
 
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { createTestGpuApp, expectAdapterNotice } from "../../../scripts/gpu.fixture";
-import { expectError } from "../../../scripts/test-console";
 import { Transform } from "../../core/transform";
 import { stampAdapter, Time, type World } from "../index";
 import type { createApp } from "./index";
@@ -218,10 +217,8 @@ for (const sharedDevice of [true, false]) {
             await exercise(first.device, second.device, first.live);
             expect(second.live.size).toBe(0);
         } finally {
-            expectError(/GPU device lost destroyed: device was destroyed/);
             first.device.destroy();
             if (!sharedDevice) {
-                expectError(/GPU device lost destroyed: device was destroyed/);
                 second.device.destroy();
             }
         }

@@ -1,7 +1,6 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { compileGpuFile, createTestGpuApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
-import { expectError } from "../../../scripts/test-console";
 import type { createApp } from "../app";
 import { rawDevice } from "./gpu";
 
@@ -30,8 +29,6 @@ const subject = compileGpuFile(import.meta.path, async () => {
     return { app, reads: () => reads };
 });
 afterAll(() => {
-    // The supplied proxy has its own device-loss observer.
-    expectError(/^GPU device lost destroyed: device was destroyed$/);
     return disposeGpuApps(apps);
 });
 

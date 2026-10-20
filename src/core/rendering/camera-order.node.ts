@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { createTestGpuApp, disposeGpuApps, gpuApps } from "../../../scripts/gpu.fixture";
-import { expectError, expectWarning } from "../../../scripts/test-console";
+import { expectWarning } from "../../../scripts/test-console";
 import type { World } from "../../engine";
 import { CanvasContext } from "../../engine/app/canvas.fixture";
 import { Transform } from "../transform";
@@ -280,6 +280,5 @@ test("a despawned stacked camera releases its textures with its frame, and a dis
         await disposeGpuApps([app]);
     }
     expect([...live].map((texture) => texture.label)).toEqual([]);
-    expectError(/^GPU device lost destroyed: device was destroyed$/);
     device.destroy();
 });

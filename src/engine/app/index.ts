@@ -6,6 +6,7 @@ import {
     deviceLost,
     type GpuRequirements,
     now,
+    observeDevice,
     PLUGIN_HOOK_MEASURE_PREFIX,
     precompileAll,
     Runtime,
@@ -442,8 +443,8 @@ export function mountOverlay(canvas: HTMLElement | null, world?: World): HTMLDiv
  * build the app and start the `requestAnimationFrame` frame loop, mounting `config.ui` (web only). the
  * loop drives `world.step(dt)` each frame, GPU-fence backpressured so it never runs far ahead of the GPU.
  * system setup/update errors are logged and the system pauses until the page reloads or it is removed and
- * added again, which reruns its setup; the frame finishes. A non-destroyed device loss stops the loop and
- * reaches the loading screen, without recovery.
+ * added again, which reruns its setup; the frame finishes. A GPU failure stops the loop and
+ * reaches the loading screen with its settled class, without recovery.
  */
 export async function runApp(config: AppConfig): Promise<App> {
     const loading = config.loading ?? _defaultLoading?.();
@@ -463,18 +464,10 @@ export async function runApp(config: AppConfig): Promise<App> {
         }
 
         let disposed = false;
-        let stopped = false;
-        if (device) {
-            void device.lost.then((info) => {
-                if (disposed || info.reason === "destroyed") return;
-                stopped = true;
-                loading?.error?.(
-                    new Error(
-                        `GPU device lost ${info.reason}: ${info.message}\nReloading the page may resolve this issue.`,
-                    ),
-                );
-            });
-        }
+        const failure = device && observeDevice(device);
+        void failure?.error.then((error) => {
+            if (!disposed) loading?.error?.(error);
+        });
         // Direct world.dispose() must stop the loop too.
         world.onDispose(() => {
             disposed = true;
@@ -503,7 +496,7 @@ export async function runApp(config: AppConfig): Promise<App> {
             frame(timestamp?: number): void {
                 if (
                     disposed ||
-                    stopped ||
+                    failure?.stopped ||
                     (device !== undefined && deviceLost(device)) ||
                     world.gpuIfAvailable?.sync !== sync
                 )

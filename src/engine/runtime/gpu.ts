@@ -20,6 +20,31 @@ export class UnsupportedError extends Error {
     }
 }
 
+export type GpuErrorKind = "validation" | "out-of-memory" | "internal" | "device-lost";
+
+const GPU_ERROR_NAMES = {
+    validation: "GpuValidationError",
+    "out-of-memory": "GpuOutOfMemoryError",
+    internal: "GpuInternalError",
+    "device-lost": "GpuDeviceLostError",
+} as const;
+const GPU_ERROR_PRIORITY: Record<GpuErrorKind, number> = {
+    validation: 0,
+    "device-lost": 1,
+    internal: 2,
+    "out-of-memory": 3,
+};
+
+/** A terminal device failure. `name` remains stable in minified builds for error monitoring. */
+export class GpuError extends Error {
+    readonly kind: GpuErrorKind;
+    constructor(kind: GpuErrorKind, message: string) {
+        super(message);
+        this.kind = kind;
+        this.name = GPU_ERROR_NAMES[kind];
+    }
+}
+
 export interface PipelineStorageBindingCounts {
     vertex: number;
     fragment: number;
@@ -592,7 +617,11 @@ function endArtifactScope(scope: ArtifactScope | undefined): void {
     scope.artifacts.clear();
 }
 
-const _observedDevices = new WeakSet<GPUDevice>();
+interface DeviceFailure {
+    stopped: boolean;
+    error: Promise<GpuError>;
+}
+const _observedDevices = new WeakMap<GPUDevice, DeviceFailure>();
 const _lostDevices = new WeakSet<GPUDevice>();
 const _rawDevices = new WeakMap<GPUDevice, GPUDevice>();
 interface PipelineGuardState {
@@ -696,22 +725,57 @@ export async function validateGpu<T>(
     return value as T;
 }
 
-/** install the device-wide failure channel without replacing a host's listener. @internal */
-export function observeDevice(
-    device: GPUDevice,
-    report: (message: string) => void = (message) => console.error(message),
-): void {
-    if (_observedDevices.has(device)) return;
-    _observedDevices.add(device);
-
+/** Observe once per native device. Stop immediately; select a verdict 250 ms after the first failure.
+ * Queue fences do not order error delivery across host task sources. This fixed window covers the
+ * recorded Firefox cascade (out-of-memory at +2 ms, loss at +143 ms), not all possible delivery delays.
+ * @internal */
+export function observeDevice(device: GPUDevice): DeviceFailure {
+    device = rawDevice(device);
+    const prior = _observedDevices.get(device);
+    if (prior) return prior;
+    let resolve!: (error: GpuError) => void;
+    const state: DeviceFailure = {
+        stopped: false,
+        error: new Promise((yes) => {
+            resolve = yes;
+        }),
+    };
+    _observedDevices.set(device, state);
+    let candidate: GpuError | undefined;
+    let raised = false;
+    const finish = () => {
+        if (raised) return;
+        raised = true;
+        console.error(candidate!);
+        resolve(candidate!);
+    };
+    const accept = (error: GpuError) => {
+        if (raised) {
+            console.warn(error);
+            return;
+        }
+        if (!candidate || GPU_ERROR_PRIORITY[error.kind] > GPU_ERROR_PRIORITY[candidate.kind])
+            candidate = error;
+        if (state.stopped) return;
+        state.stopped = true;
+        setTimeout(finish, 250);
+    };
     void device.lost?.then((info) => {
         _lostDevices.add(device);
-        report(`GPU device lost ${info.reason}: ${info.message}`);
+        if (info.reason === "destroyed") return;
+        accept(new GpuError("device-lost", `GPU device lost ${info.reason}: ${info.message}`));
     });
 
     const uncaptured = (event: GPUUncapturedErrorEvent) => {
+        event.preventDefault();
         const error = failure(event.error);
-        report(`GPU uncaptured ${error.errorClass}: ${error.message}`);
+        const kind =
+            error.errorClass === "GPUOutOfMemoryError"
+                ? "out-of-memory"
+                : error.errorClass === "GPUInternalError"
+                  ? "internal"
+                  : "validation";
+        accept(new GpuError(kind, error.message));
     };
     if (typeof device.addEventListener === "function") {
         device.addEventListener("uncapturederror", uncaptured);
@@ -722,6 +786,7 @@ export function observeDevice(
             uncaptured(event);
         };
     }
+    return state;
 }
 
 /** GPU capabilities declared by a plugin that uses the device. Presence of this value, including `{}`, requires a device. */

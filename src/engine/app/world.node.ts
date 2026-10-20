@@ -5,7 +5,6 @@ import {
     disposeGpuApps,
     expectAdapterNotice,
 } from "../../../scripts/gpu.fixture";
-import { expectError } from "../../../scripts/test-console";
 import { component } from "../ecs";
 import { classifyAdapter } from "../runtime/adapter";
 
@@ -286,7 +285,6 @@ test("world-owned GPU resources are isolated and released on dispose", async () 
     apps = apps.filter((app) => app !== second);
     expect(liveBuffers.size).toBe(0);
     expect(liveTextures.size).toBe(0);
-    expectError(/GPU device lost destroyed: device was destroyed/);
     device.destroy();
 });
 

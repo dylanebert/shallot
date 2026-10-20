@@ -281,7 +281,6 @@ test("report no-shadow city poses and shadowed street, rejecting shadows in no-s
         querySet.destroy();
         resolve.destroy();
         readback.destroy();
-        expectError(/GPU device lost destroyed: device was destroyed/);
         device.destroy();
         await device.lost;
     }

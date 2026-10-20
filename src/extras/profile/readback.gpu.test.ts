@@ -1,7 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { compileGpuFile, createTestGpuApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
-import { expectError } from "../../../scripts/test-console";
 import { DiagnosticsStore } from "../../engine";
 import { ProfilePlugin } from "./index";
 
@@ -43,7 +42,6 @@ test("a profiler without timestamp-query runs and distinguishes missing GPU timi
         expect(stats.get("memory/bufferBytes")?.value()).toBe(before);
     } finally {
         await disposeGpuApps([app]);
-        expectError(/GPU device lost destroyed: device was destroyed/);
         device.destroy();
     }
 });

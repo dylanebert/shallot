@@ -8,7 +8,7 @@ import { rawDevice } from "../src/engine/runtime";
 import type { AdapterVerdict } from "../src/engine/runtime/adapter";
 import { adapterNotice } from "../src/engine/runtime/gpu";
 import { normalizePath } from "../src/project/paths";
-import { expectError, expectWarning } from "./test-console";
+import { expectWarning } from "./test-console";
 
 // On llvmpipe the first camera frame a process draws pays the driver's first-draw cost, below the
 // engine: a core camera drawn first took 593 ms, an MSAA camera next 63 ms and a third 4 ms (run
@@ -133,7 +133,6 @@ export async function disposeGpuApps(apps: GpuApp[]): Promise<void> {
         for (const app of apps) {
             const device = ownedDevices.get(app);
             if (!device) continue;
-            expectError(/^GPU device lost destroyed: device was destroyed$/);
             device.destroy();
             ownedDevices.delete(app);
             await device.lost;

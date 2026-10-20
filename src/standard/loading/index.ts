@@ -1,7 +1,7 @@
 // Keep the JSON attribute and default import: Node ≥26 refuses this module without the attribute,
 // and Node JSON modules expose only a default export, not named exports (Bun adds named exports).
 import pkg from "../../../package.json" with { type: "json" };
-import { UnsupportedError } from "../../engine";
+import { GpuError, UnsupportedError } from "../../engine";
 import type { Loading } from "../../engine/app";
 import type { AdapterVerdict } from "../../engine/runtime";
 import { DARK, END_TICK, type Palette, type Splash, splash, toSvg } from "./brand";
@@ -289,14 +289,25 @@ function renderEngineError(overlay: HTMLDivElement, error: Error, theme: Theme):
     card.style.borderRadius = "6px";
 
     const head = document.createElement("div");
-    head.style.cssText = `display: flex; align-items: center; gap: 12px; color: ${theme.red};`;
-    head.innerHTML = `${ERROR_ICON}<div style="font: 600 18px/1.2 ${fontStack()};">Something went wrong</div>`;
+    const limitation = error instanceof GpuError && error.kind !== "validation";
+    const exhausted = error instanceof GpuError && error.kind === "out-of-memory";
+    const accent = limitation ? theme.amber : theme.red;
+    const heading = limitation
+        ? exhausted
+            ? "GPU memory exhausted"
+            : "GPU interrupted"
+        : "Something went wrong";
+    head.style.cssText = `display: flex; align-items: center; gap: 12px; color: ${accent};`;
+    head.innerHTML = `${limitation ? WARNING_ICON : ERROR_ICON}<div style="font: 600 18px/1.2 ${fontStack()};">${heading}</div>`;
     card.appendChild(head);
 
     const body = document.createElement("p");
     body.style.cssText = `margin: 0; color: ${theme.text}; font: 14px/1.5 ${fontStack()};`;
-    body.textContent =
-        "An error occurred in the app. The details below can help identify the cause.";
+    body.textContent = limitation
+        ? exhausted
+            ? "GPU memory is unavailable. Close other tabs or apps using the GPU, then reload."
+            : "The GPU stopped unexpectedly. Reload to try again."
+        : "An error occurred in the app. The details below can help identify the cause.";
     card.appendChild(body);
 
     const detail = document.createElement("pre");
@@ -318,7 +329,7 @@ function renderEngineError(overlay: HTMLDivElement, error: Error, theme: Theme):
     const actions = document.createElement("div");
     actions.style.cssText = `display: flex; gap: 8px; margin-top: 4px; flex-wrap: wrap;`;
 
-    const copy = createButton("Copy details", theme.red);
+    const copy = createButton("Copy details", accent);
     let resetTimer: ReturnType<typeof setTimeout> | null = null;
     copy.addEventListener("click", async () => {
         try {

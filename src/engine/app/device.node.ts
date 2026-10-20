@@ -11,7 +11,7 @@ import "../../standard";
 
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { globalTransformTable } from "../../core/rendering";
-import { type Plugin, Time, type World } from "../index";
+import { GpuError, type Plugin, Time, type World } from "../index";
 import { createApp, runApp } from "./index";
 
 await setupGlobals();
@@ -108,7 +108,6 @@ test("native startup admits hardware identity, explicit software and non-native 
         }
     } finally {
         Reflect.deleteProperty(globalThis, "__shallotRequireHardwareGpu");
-        expectError(/GPU device lost destroyed: device was destroyed/);
         device.destroy();
         await device.lost;
     }
@@ -141,7 +140,6 @@ test("a destroyed device before the first frame does not reach the loading error
     if (!adapter) throw new Error("runApp device-loss test has no adapter");
     const device = await adapter.requestDevice();
     expectWarning(/adapter with no identity/);
-    expectError(/GPU device lost destroyed: device was destroyed/);
     let failure: unknown;
     live = await runApp({
         defaults: false,
@@ -178,7 +176,7 @@ test("a supplied device lost after completed frames reaches the loading error an
         },
     }) as GPUDevice;
     expectWarning(/adapter with no identity/);
-    expectError(/GPU device lost unknown: controlled device loss/);
+    expectError(/GpuDeviceLostError.*GPU device lost unknown: controlled device loss/);
     let failure: unknown;
     let frames = 0;
     let running: Awaited<ReturnType<typeof runApp>> | undefined;
@@ -214,12 +212,13 @@ test("a supplied device lost after completed frames reaches the loading error an
         await running.world.frameFence;
         await Promise.resolve();
         resolveLost({ reason: "unknown", message: "controlled device loss" } as GPUDeviceLostInfo);
-        await new Promise<void>((resolve) => setTimeout(resolve, 25));
-        expect(failure).toBeInstanceOf(Error);
+        await waitFor(() => failure !== undefined);
+        expect(failure).toBeInstanceOf(GpuError);
+        expect((failure as GpuError).kind).toBe("device-lost");
         expect((failure as Error).message).toContain(
             "GPU device lost unknown: controlled device loss",
         );
-        expect((failure as Error).message).toContain("Reloading the page may resolve this issue.");
+        expect((failure as Error).name).toBe("GpuDeviceLostError");
         const lostFrames = frames;
         await new Promise<void>((resolve) => setTimeout(resolve, 25));
         expect(frames).toBe(lostFrames);
