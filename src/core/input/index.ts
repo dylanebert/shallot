@@ -188,7 +188,8 @@ interface BrowserAdapter {
     visibilityChange: () => void;
     pointerLockChange: () => void;
     pointerLockError: () => void;
-    canvasClick: (e: PointerEvent) => void;
+    canvasClick: (e: Event) => void;
+    readonly pointerTypes: WeakMap<HTMLCanvasElement, string>;
     lockMove: (e: MouseEvent) => void;
 }
 
@@ -323,6 +324,7 @@ function adapter(world: World, host: InputHost): BrowserAdapter {
         pointerLockChange: null!,
         pointerLockError: null!,
         canvasClick: null!,
+        pointerTypes: new WeakMap(),
         lockMove: null!,
     };
     adapters.set(world, created);
@@ -719,6 +721,7 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, world: World): void 
         const target = e.target as HTMLCanvasElement;
         const canvasIndex = a.canvases.get(target);
         if (canvasIndex === undefined) return;
+        a.pointerTypes.set(target, e.pointerType);
         window.focus();
         if (e.pointerType === "touch") {
             if (d.touchPoints.size === 0) {
@@ -784,7 +787,8 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, world: World): void 
         }
     };
     a.canvasClick = (e) => {
-        if (d.requireLock && e.pointerType !== "touch") requestPointerLock(world);
+        if (d.requireLock && a.pointerTypes.get(e.target as HTMLCanvasElement) !== "touch")
+            requestPointerLock(world);
     };
     a.lockMove = (e) => {
         if (d.pointer.lock.status !== "locked") return;

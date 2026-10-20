@@ -212,8 +212,23 @@ test("touch clicks never request pointer lock but mouse clicks still do", () => 
     try {
         world.step(0);
         requirePointerLock(world, true);
-        fixture.emitCanvas("click", { pointerType: "touch" });
+        const down = (pointerType: string) =>
+            fixture.emitCanvas("pointerdown", {
+                pointerId: 1,
+                pointerType,
+                button: 0,
+                buttons: 1,
+                clientX: 30,
+                clientY: 50,
+                preventDefault() {},
+            });
+        down("touch");
+        fixture.emitCanvas("click");
         expect(fixture.requestCount).toBe(0);
+        down("touch");
+        fixture.emitCanvas("click", { pointerType: "mouse" });
+        expect(fixture.requestCount).toBe(0);
+        down("mouse");
         fixture.emitCanvas("click", { pointerType: "mouse" });
         expect(fixture.requestCount).toBe(1);
     } finally {
