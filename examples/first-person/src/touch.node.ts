@@ -64,50 +64,58 @@ test("floating stick clamps, ignores its dead zone, and coexists with right drag
     world.dispose();
 });
 
-test("button cancel releases its key and a button tap between frames still jumps once", () => {
-    class Button extends EventTarget {
-        textContent = "";
-        style = { cssText: "" };
-        setPointerCapture() {}
-        remove() {}
-    }
-    const prior = Object.getOwnPropertyDescriptor(globalThis, "document");
-    const button = new Button();
-    Object.defineProperty(globalThis, "document", {
-        configurable: true,
-        value: { createElement: () => button },
+for (const captureThrows of [false, true]) {
+    test(`button cancel releases its key and a tap jumps once when capture ${captureThrows ? "throws" : "succeeds"}`, () => {
+        class Button extends EventTarget {
+            textContent = "";
+            style = { cssText: "" };
+            pressedAtCapture = false;
+            setPointerCapture() {
+                this.pressedAtCapture = world.resource(Devices).keys.pressed.has("Space");
+                if (captureThrows) throw new DOMException("Unknown pointer", "NotFoundError");
+            }
+            remove() {}
+        }
+        const prior = Object.getOwnPropertyDescriptor(globalThis, "document");
+        const button = new Button();
+        Object.defineProperty(globalThis, "document", {
+            configurable: true,
+            value: { createElement: () => button },
+        });
+        const world = new World();
+        try {
+            for (const system of InputPlugin.systems ?? [])
+                world.addSystem(system, InputPlugin.name);
+            world.addSystem(
+                PlayerPlugin.systems!.find((system) => system.name === "local-input")!,
+                "Player",
+            );
+            const eid = world.create();
+            world.add(eid, Player);
+            world.add(eid, LocalPlayer);
+            mountTouchButton({ append() {} } as unknown as HTMLElement, world, "Jump", "Space");
+            button.dispatchEvent(new Event("pointerdown"));
+            expect(button.pressedAtCapture).toBe(true);
+            expect(world.resource(Devices).keys.held.has("Space")).toBe(true);
+            button.dispatchEvent(new Event("pointercancel"));
+            expect(world.resource(Devices).keys.held.has("Space")).toBe(false);
+            world.step(0);
+            const input = world.storage(PlayerInput);
+            const before = input.jumpPresses.get(eid);
+            button.dispatchEvent(new Event("pointerdown"));
+            button.dispatchEvent(new Event("pointerup"));
+            expect(world.resource(Devices).keys.held.has("Space")).toBe(false);
+            world.step(0);
+            expect(input.jumpPresses.get(eid)).toBe(before + 1);
+            world.step(0);
+            expect(input.jumpPresses.get(eid)).toBe(before + 1);
+        } finally {
+            world.dispose();
+            if (prior) Object.defineProperty(globalThis, "document", prior);
+            else Reflect.deleteProperty(globalThis, "document");
+        }
     });
-    const world = new World();
-    try {
-        for (const system of InputPlugin.systems ?? []) world.addSystem(system, InputPlugin.name);
-        world.addSystem(
-            PlayerPlugin.systems!.find((system) => system.name === "local-input")!,
-            "Player",
-        );
-        const eid = world.create();
-        world.add(eid, Player);
-        world.add(eid, LocalPlayer);
-        mountTouchButton({ append() {} } as unknown as HTMLElement, world, "Jump", "Space");
-        button.dispatchEvent(new Event("pointerdown"));
-        expect(world.resource(Devices).keys.held.has("Space")).toBe(true);
-        button.dispatchEvent(new Event("pointercancel"));
-        expect(world.resource(Devices).keys.held.has("Space")).toBe(false);
-        world.step(0);
-        const input = world.storage(PlayerInput);
-        const before = input.jumpPresses.get(eid);
-        button.dispatchEvent(new Event("pointerdown"));
-        button.dispatchEvent(new Event("pointerup"));
-        expect(world.resource(Devices).keys.held.has("Space")).toBe(false);
-        world.step(0);
-        expect(input.jumpPresses.get(eid)).toBe(before + 1);
-        world.step(0);
-        expect(input.jumpPresses.get(eid)).toBe(before + 1);
-    } finally {
-        world.dispose();
-        if (prior) Object.defineProperty(globalThis, "document", prior);
-        else Reflect.deleteProperty(globalThis, "document");
-    }
-});
+}
 
 for (const transition of ["blur", "disable"] as const) {
     test(`${transition} neutralizes touch movement and pending look without replaying them`, () => {

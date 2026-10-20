@@ -176,8 +176,12 @@ export function mountTouchButton(
     button.addEventListener("pointerdown", (event) => {
         event.stopPropagation();
         event.preventDefault();
-        button.setPointerCapture(event.pointerId);
         pressKey(world, key);
+        try {
+            button.setPointerCapture(event.pointerId);
+        } catch {
+            // An inactive pointer can refuse capture; its press still belongs to this frame.
+        }
     });
     const release = () => releaseKey(world, key);
     button.addEventListener("pointerup", release);
