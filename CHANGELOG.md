@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- AgX tonemapping now uses Bevy's default-contrast LUT instead of an analytic approximation, changing its displayed colors.
+
 ## 0.10.0
 
 a foundational reset. 0.10 rebuilds shallot so everything can be run and checked from a terminal: no display, software gpu, ci, etc. this makes the engine far more testable, and lays the groundwork for multiplayer support.

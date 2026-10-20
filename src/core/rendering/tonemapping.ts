@@ -2,8 +2,9 @@ import tgpu, { type TgpuRenderPipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { World } from "../../engine";
+import { agxLut } from "./agx-lut";
 import { GradingConfig, grade } from "./color-grading";
-import { tmLuma, tonemap } from "./tonemap";
+import { tmAgxLog, tmLuma, tonemap } from "./tonemap";
 import { tonyLut } from "./tony-lut";
 import { linearToSrgb3 } from "./view";
 
@@ -23,6 +24,7 @@ export function tonemappingLayout() {
             grading: { uniform: GradingConfig, visibility: ["fragment"] },
             lut: { texture: d.texture3d(d.f32), visibility: ["fragment"] },
             sampler: { sampler: "filtering", visibility: ["fragment"] },
+            agx: { texture: d.texture3d(d.f32), visibility: ["fragment"] },
         })
         .$idx(0);
 }
@@ -50,6 +52,9 @@ export function tonemappingKernel(layout: ReturnType<typeof tonemappingLayout>) 
                     std.saturate(uv),
                     0,
                 ).xyz;
+            } else if (layout.$.grading.tonemapMode === 5) {
+                const uv = std.add(std.mul(tmAgxLog(color), 31 / 32), 0.5 / 32);
+                color = std.textureSampleLevel(layout.$.agx, layout.$.sampler, uv, 0).xyz;
             } else color = tonemap(layout.$.grading.tonemapMode, color);
             color = std.mix(d.vec3f(tmLuma(color)), color, layout.$.grading.postSaturation);
             if (layout.$.grading.debandDither !== 0) {
@@ -71,6 +76,7 @@ type Composite = {
     layout: ReturnType<typeof tonemappingLayout>;
     pipeline: TgpuRenderPipeline;
     lut: GPUTextureView;
+    agx: GPUTextureView;
     sampler: GPUSampler;
 };
 export const compositeCacheKey = { create: () => new Map<GPUTextureFormat, Composite>() };
@@ -101,6 +107,24 @@ export function composite(world: World, format: GPUTextureFormat): Composite {
         );
         lut = texture.createView();
     }
+    let agx = shared?.agx;
+    if (!agx) {
+        const texture = device.createTexture({
+            label: "agx",
+            size: [32, 32, 32],
+            dimension: "3d",
+            format: "rgba16float",
+            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+        });
+        world.own(texture);
+        device.queue.writeTexture(
+            { texture },
+            agxLut,
+            { bytesPerRow: 32 * 8, rowsPerImage: 32 },
+            [32, 32, 32],
+        );
+        agx = texture.createView();
+    }
     const layout = shared?.layout ?? tonemappingLayout();
     const pipeline = world.gpu.root
         .createRenderPipeline({
@@ -113,6 +137,7 @@ export function composite(world: World, format: GPUTextureFormat): Composite {
         layout,
         pipeline,
         lut,
+        agx,
         sampler:
             shared?.sampler ?? device.createSampler({ minFilter: "linear", magFilter: "linear" }),
     };

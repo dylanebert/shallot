@@ -214,6 +214,7 @@ export const TonemappingSystem: System = {
                             { binding: 1, resource: { buffer: state.buffers[view.slot] } },
                             { binding: 2, resource: state.built.lut },
                             { binding: 3, resource: state.built.sampler },
+                            { binding: 4, resource: state.built.agx },
                         ],
                     }),
                 };

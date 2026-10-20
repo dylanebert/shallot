@@ -2,7 +2,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 
-/** Tonemapping operators. AgX uses an analytic fit. */
+/** Tonemapping operators. */
 export const TonemappingMethod = {
     TonyMcMapface: 0,
     /** Bypass grading, exposure and dither; only display encoding applies. */
@@ -102,67 +102,25 @@ export const tmAces = tgpu.fn(
     return std.clamp(std.mul(acesOut, c), d.vec3f(0), d.vec3f(1));
 });
 
-/** the AgX sigmoid, a degree-6 polynomial on the log-encoded value. */
-export const tmAgxContrast = tgpu.fn(
+/** Bevy's applyAgXLog, preparing coordinates for its 32³ default-contrast LUT. */
+export const tmAgxLog = tgpu.fn(
     [d.vec3f],
     d.vec3f,
-)((x) => {
+)((input) => {
     "use gpu";
-    const x2 = std.mul(x, x);
-    const x4 = std.mul(x2, x2);
-    return std.sub(
-        std.add(
-            std.add(
-                std.sub(
-                    std.add(
-                        std.sub(std.mul(std.mul(15.5, x4), x2), std.mul(std.mul(40.14, x4), x)),
-                        std.mul(31.96, x4),
-                    ),
-                    std.mul(std.mul(6.868, x2), x),
-                ),
-                std.mul(0.4298, x2),
-            ),
-            std.mul(0.1191, x),
-        ),
-        0.00232,
+    const color = std.max(input, d.vec3f(0));
+    let prepared = d.vec3f(
+        std.dot(color, d.vec3f(0.84247906, 0.0784336, 0.07922375)),
+        std.dot(color, d.vec3f(0.04232824, 0.87846864, 0.07916613)),
+        std.dot(color, d.vec3f(0.04237565, 0.0784336, 0.87914297)),
     );
-});
-
-/** analytic AgX (three.js `AgXToneMapping`) — soft, neutral, gentle desaturation. */
-export const tmAgx = tgpu.fn(
-    [d.vec3f],
-    d.vec3f,
-)((cin) => {
-    "use gpu";
-    const srgbToRec2020 = d.mat3x3f(
-        d.vec3f(0.6274, 0.0691, 0.0164),
-        d.vec3f(0.3293, 0.9195, 0.088),
-        d.vec3f(0.0433, 0.0113, 0.8956),
+    prepared = std.select(
+        prepared,
+        std.add(prepared, 0.00001525878),
+        std.lt(prepared, d.vec3f(0.00003051757)),
     );
-    const rec2020ToSrgb = d.mat3x3f(
-        d.vec3f(1.6605, -0.1246, -0.0182),
-        d.vec3f(-0.5876, 1.1329, -0.1006),
-        d.vec3f(-0.0728, -0.0083, 1.1187),
-    );
-    const inset = d.mat3x3f(
-        d.vec3f(0.856627153315983, 0.137318972929847, 0.11189821299995),
-        d.vec3f(0.0951212405381588, 0.761241990602591, 0.0767994186031903),
-        d.vec3f(0.0482516061458583, 0.101439036467562, 0.811302368396859),
-    );
-    const outset = d.mat3x3f(
-        d.vec3f(1.1271005818144368, -0.1413297634984383, -0.14132976349843826),
-        d.vec3f(-0.11060664309660323, 1.157823702216272, -0.11060664309660294),
-        d.vec3f(-0.016493938717834573, -0.016493938717834257, 1.2519364065950405),
-    );
-    // Explicit f32 constants keep the log-range difference at 16.5; f64 folding rounds one f32 step low.
-    const minEv = d.f32(-12.47393);
-    const maxEv = d.f32(4.026069);
-    let c = std.mul(inset, std.mul(srgbToRec2020, cin));
-    c = std.log2(std.max(c, d.vec3f(1e-10)));
-    c = std.clamp(std.div(std.sub(c, minEv), maxEv - minEv), d.vec3f(0), d.vec3f(1));
-    c = tmAgxContrast(c);
-    c = std.pow(std.max(std.mul(outset, c), d.vec3f(0)), d.vec3f(2.2));
-    return std.clamp(std.mul(rec2020ToSrgb, c), d.vec3f(0), d.vec3f(1));
+    prepared = std.clamp(std.log2(std.div(prepared, 0.18)), d.vec3f(-10), d.vec3f(6.5));
+    return std.clamp(std.div(std.add(prepared, 10), 16.5), d.vec3f(0), d.vec3f(1));
 });
 
 /** Rec. 709 RGB → YCbCr, the chroma basis {@link tmSomewhatBoring} desaturates in. */
@@ -207,7 +165,7 @@ export const tmSomewhatBoring = tgpu.fn(
     return std.mul(std.mix(tm0, tm1, d.vec3f(bt * bt)), 0.97);
 });
 
-/** Analytic operators; TonyMcMapface is sampled by the presentation pass. */
+/** Analytic operators; TonyMcMapface and AgX are sampled by the presentation pass. */
 export const tonemap = tgpu.fn(
     [d.u32, d.vec3f],
     d.vec3f,
@@ -217,7 +175,6 @@ export const tonemap = tgpu.fn(
     if (mode === 2) return tmAces(c);
     if (mode === 3) return tmReinhard(c);
     if (mode === 4) return tmReinhardLuminance(c);
-    if (mode === 5) return tmAgx(c);
     if (mode === 6) return tmSomewhatBoring(c);
     return tmNeutral(c);
 });
