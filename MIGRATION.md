@@ -1,6 +1,6 @@
-# Migrating from 0.10 to 0.11
+# Migrating from 0.10 to 0.10.1
 
-Start with the compiler errors in your app. Search this guide for the old symbol or behavior; each entry goes directly from the published 0.10 package to 0.11. For the engine's layers and extension rules, see [CONTRIBUTING.md](CONTRIBUTING.md).
+Start with the compiler errors in your app. Search this guide for the old symbol or behavior; each entry goes directly from the published 0.10 package to 0.10.1. For the engine's layers and extension rules, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Code fragments assume an owning `world`, an existing entity `eid`, and the imports named in the surrounding text.
 
@@ -14,7 +14,7 @@ world.add(eid, Camera);
 ```
 
 ```ts
-// 0.11: give it its own target
+// 0.10.1: give it its own target
 world.add(eid, Camera);
 attachTexture(world, eid, { width: 320, height: 180 });
 // or stack it over the first camera on purpose
