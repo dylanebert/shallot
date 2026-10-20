@@ -5,7 +5,7 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 setDefaultTimeout(TIMEOUT.node);
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { removeTestDirectory } from "./test-directory";
@@ -57,6 +57,71 @@ test("the diagnostics policy refuses tracked run output and admits source tools"
                         `diagnostics/run/${file}: diagnostics keeps source tools, never a run's output`,
                 )
                 .sort(),
+        );
+    } finally {
+        removeTestDirectory(tree);
+    }
+});
+
+test("browser shards reject malformed or out-of-range selections", () => {
+    for (const shard of ["", "1", "0/2", "3/2", "1/0", "-1/2", "1/2/3", "a/2", "01/2"]) {
+        const result = Bun.spawnSync(["sh", "scripts/browser.sh", "--shard", shard], {
+            cwd: ROOT,
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        expect(result.exitCode, shard).toBe(2);
+        expect(result.stderr.toString()).toContain("Usage:");
+    }
+});
+
+test("browser shards partition sorted subjects but validate every subject", () => {
+    const tree = mkdtempSync(join(tmpdir(), "shallot-browser-shards-"));
+    try {
+        execFileSync("git", ["init", "--quiet"], { cwd: tree });
+        for (const directory of ["scripts", "src", "bin", "examples/a", "examples/b", "examples/c"])
+            mkdirSync(join(tree, directory), { recursive: true });
+        copyFileSync(join(ROOT, "scripts/browser.sh"), join(tree, "scripts/browser.sh"));
+        for (const subject of ["a", "b", "c"]) {
+            for (const file of ["vite.config.ts", "playwright.config.ts", "check.e2e.ts"])
+                writeFileSync(join(tree, "examples", subject, file), "");
+        }
+        for (const command of ["bun", "bunx"]) {
+            const path = join(tree, "bin", command);
+            writeFileSync(path, "#!/bin/sh\necho 60000\n");
+            chmodSync(path, 0o755);
+        }
+        const run = (...args: string[]) =>
+            Bun.spawnSync(["sh", "scripts/browser.sh", ...args], {
+                cwd: tree,
+                env: {
+                    ...process.env,
+                    PATH: `${join(tree, "bin")}${process.platform === "win32" ? ";" : ":"}${process.env.PATH}`,
+                },
+                stdout: "pipe",
+                stderr: "pipe",
+            });
+        const subjects = (shard: string) => {
+            const result = run("--shard", shard);
+            expect(result.exitCode).toBe(0);
+            return result.stdout
+                .toString()
+                .split("\n")
+                .filter((line) => line.startsWith("Browser subject:"));
+        };
+        expect(subjects("1/2")).toEqual([
+            "Browser subject: examples/a",
+            "Browser subject: examples/c",
+        ]);
+        expect(subjects("2/2")).toEqual(["Browser subject: examples/b"]);
+        writeFileSync(join(tree, "src/orphan.e2e.ts"), "");
+        expect(run("--shard", "2/2").stderr.toString()).toContain(
+            "Orphan browser test: src/orphan.e2e.ts",
+        );
+        // A missing config outside this shard is still refused.
+        writeFileSync(join(tree, "src/vite.config.ts"), "");
+        expect(run("--shard", "2/2").stderr.toString()).toContain(
+            "Missing browser config: src/playwright.config.ts",
         );
     } finally {
         removeTestDirectory(tree);

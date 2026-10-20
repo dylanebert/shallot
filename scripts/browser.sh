@@ -1,12 +1,25 @@
 #!/bin/sh
 set -eu
 
+usage() {
+    echo "Usage: sh scripts/browser.sh [--check-only | --shard i/n]" >&2
+    exit 2
+}
+
 check_only=false
+shard_index=1
+shard_count=1
 if [ "$#" -eq 1 ] && [ "$1" = "--check-only" ]; then
     check_only=true
+elif [ "$#" -eq 2 ] && [ "$1" = "--shard" ]; then
+    shard_index=${2%/*}
+    shard_count=${2#*/}
+    case "$shard_index" in ''|0*|*[!0-9]*) usage ;; esac
+    case "$shard_count" in ''|0*|*[!0-9]*) usage ;; esac
+    [ "$2" = "$shard_index/$shard_count" ] || usage
+    [ "$shard_index" -le "$shard_count" ] || usage
 elif [ "$#" -ne 0 ]; then
-    echo "Usage: sh scripts/browser.sh [--check-only]" >&2
-    exit 2
+    usage
 fi
 
 subjects=$(
@@ -50,7 +63,8 @@ if [ "$check_only" = true ]; then
     exit 0
 fi
 
-printf '%s\n' "$subjects" | while IFS= read -r subject; do
+printf '%s\n' "$subjects" | awk -v shard="$shard_index" -v count="$shard_count" \
+    '(NR - 1) % count == shard - 1' | while IFS= read -r subject; do
     # A subject with no browser check yet, as a fresh minimal project, has nothing for Playwright to run.
     if [ -z "$(find "$subject" -name node_modules -prune -o -type f -name '*.e2e.ts' -print)" ]; then
         echo "No browser checks: $subject"
