@@ -265,6 +265,10 @@ function materialFragmentContext<
         material: d.u32,
         alphaMode: d.u32,
         alphaCutoff: d.f32,
+        /** Framebuffer pixel centres in the view's render target at its Resolution, origin top-left.
+         * z and w retain WGSL @builtin(position) semantics: depth and interpolated reciprocal clip w.
+         * Depth and shadow passes use their own render target's coordinates. */
+        fragCoord: d.vec4f,
         ...varyings,
     });
 }

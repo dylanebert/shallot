@@ -688,6 +688,7 @@ function colorFs(
                 material: input.material,
                 alphaMode: alphaToCoverageFallback ? AlphaModeCode.Opaque : input.alphaMode,
                 alphaCutoff: input.alphaCutoff,
+                fragCoord: input.pos,
             } as any);
             const col = d.vec4f(std.add(fragment(ctx), d.vec4f(forcedZero)));
             const output = alphaColorOutput(
@@ -787,6 +788,7 @@ function clipFs(surface: AnyMaterialType) {
     const fragment = materialFragmentFunction(surface);
     const Ctx = (fragment as any).shell.argTypes[0];
     const input = {
+        pos: d.builtin.position,
         worldNormal: d.vec3f,
         eid: d.interpolate("flat", d.u32),
         row: d.interpolate("flat", d.u32),
@@ -811,6 +813,7 @@ function clipFs(surface: AnyMaterialType) {
                 material: fin.material,
                 alphaMode: d.u32(0),
                 alphaCutoff: fin.alphaCutoff,
+                fragCoord: fin.pos,
             });
             const color = fragment(ctx);
             const cutoff = fin.alphaCutoff;
@@ -836,10 +839,21 @@ function clipVaryingCopier(surface: AnyMaterialType) {
     const CtxSchema = (fsFn as unknown as { shell: { argTypes: [unknown] } }).shell.argTypes[0];
     const copier = tgpu
         .fn(
-            [d.vec3f, d.u32, d.u32, d.vec3f, d.vec2f, d.vec3f, d.vec4f, d.u32, varyingSchema],
+            [
+                d.vec4f,
+                d.vec3f,
+                d.u32,
+                d.u32,
+                d.vec3f,
+                d.vec2f,
+                d.vec3f,
+                d.vec4f,
+                d.u32,
+                varyingSchema,
+            ],
             d.vec4f,
-        )(/* wgsl */ `(worldNormalIn: vec3f, eid: u32, row: u32, world: vec3f, uv: vec2f, localPos: vec3f, color: vec4f, material: u32, v0: ${varyingType}) -> vec4f {
-    let ctx = Ctx(eid, row, world, normalize(worldNormalIn), uv, localPos, color, material, 0u, 0.5f, v0);
+        )(/* wgsl */ `(pos: vec4f, worldNormalIn: vec3f, eid: u32, row: u32, world: vec3f, uv: vec2f, localPos: vec3f, color: vec4f, material: u32, v0: ${varyingType}) -> vec4f {
+    let ctx = Ctx(eid, row, world, normalize(worldNormalIn), uv, localPos, color, material, 0u, 0.5f, pos, v0);
     return fs(ctx);
 }`)
         .$uses({ Ctx: CtxSchema, fs: fsFn })
@@ -852,6 +866,7 @@ function varyingClipFs(surface: AnyMaterialType) {
     const needLocalPos = !!surface.fragmentInputs?.localPos;
     const { varyingSchema, copier } = clipVaryingCopier(surface);
     const entryIn = {
+        pos: d.builtin.position,
         worldNormal: d.vec3f,
         eid: d.interpolate("flat", d.u32),
         row: d.interpolate("flat", d.u32),
@@ -869,6 +884,7 @@ function varyingClipFs(surface: AnyMaterialType) {
         })((input) => {
             "use gpu";
             const color = copier(
+                input.pos,
                 input.worldNormal,
                 input.eid,
                 input.row,
@@ -1082,7 +1098,7 @@ function varyingFs(
             d.vec4f,
         )(/* wgsl */ `(pos: vec4f, worldNormalIn: vec3f, eid: u32, world: vec3f, uv: vec2f, localPos: vec3f, color: vec4f, material: u32, ${params}, row: u32) -> vec4f {
     let worldNormal = normalize(worldNormalIn);
-    let ctx = Ctx(eid, row, world, worldNormal, uv, localPos, color, material, 0u, 0.5f, ${schemas.map((_, i) => `v${i}`).join(", ")});
+    let ctx = Ctx(eid, row, world, worldNormal, uv, localPos, color, material, 0u, 0.5f, pos, ${schemas.map((_, i) => `v${i}`).join(", ")});
     return fs(ctx);
 }`)
         .$uses({ Ctx: CtxSchema, fs: fsFn })
@@ -1988,6 +2004,7 @@ function varyingShadowFs(surface: AnyMaterialType) {
                 std.discard();
             }
             const color = copier(
+                input.pos,
                 input.worldNormal,
                 input.eid,
                 input.row,
@@ -2045,6 +2062,7 @@ function clipShadowFs(surface: AnyMaterialType) {
                 material: input.material,
                 alphaMode: d.u32(0),
                 alphaCutoff: input.alphaCutoff,
+                fragCoord: input.pos,
             });
             const color = fragment(ctx);
             const cutoff = input.alphaCutoff;
