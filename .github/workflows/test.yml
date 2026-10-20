@@ -400,7 +400,7 @@ jobs:
           if-no-files-found: warn
 
   browser:
-    timeout-minutes: 10
+    timeout-minutes: 20
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.tier == 'browser' }}
     runs-on: ${{ matrix.os }}
     defaults:
@@ -409,8 +409,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ github.event_name == 'workflow_dispatch' && inputs.tier == 'browser' && fromJSON(format('["{0}"]', inputs.os)) || fromJSON('["macos-15","ubuntu-latest","windows-latest"]') }}
-        shard: [1, 2, 3, 4, 5, 6]
+        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.tier == 'browser' && (inputs.os == 'macos-15' || inputs.os == 'macos-26') && format('[{{"os":"{0}","shard":"1/1"}}]', inputs.os) || github.event_name == 'workflow_dispatch' && inputs.tier == 'browser' && format('[{{"os":"{0}","shard":"1/2"}},{{"os":"{0}","shard":"2/2"}}]', inputs.os) || '[{"os":"macos-15","shard":"1/1"},{"os":"ubuntu-latest","shard":"1/2"},{"os":"ubuntu-latest","shard":"2/2"},{"os":"windows-latest","shard":"1/2"},{"os":"windows-latest","shard":"2/2"}]') }}
     steps:
       - uses: actions/checkout@v7
       - name: capture runner image
@@ -448,12 +447,12 @@ jobs:
         run: bunx playwright install chromium
       - name: browser tier
         id: browser
-        run: time -p sh scripts/browser.sh --shard ${{ matrix.shard }}/6
+        run: time -p sh scripts/browser.sh --shard ${{ matrix.shard }}
       - name: upload browser results
         if: ${{ !cancelled() && (failure() || steps.browser.outputs.flaky == 'true') }}
         uses: actions/upload-artifact@v7
         with:
-          name: browser-results-${{ matrix.os }}-${{ matrix.shard }}
+          name: browser-results-${{ matrix.os }}-${{ strategy.job-index }}
           path: |
             examples/**/test-results/**
             scripts/**/test-results/**
