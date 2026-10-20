@@ -11,16 +11,22 @@ import {
     GroundState,
     InputPlugin,
     lerp,
+    mountOverlay,
     not,
     type Plugin,
+    pressKey,
+    type Resource,
+    releaseKey,
     releasePointerLock,
     requirePointerLock,
     Shape,
     type System,
     Time,
+    type TouchPoint,
     Transform,
     u8,
     u32,
+    Viewports,
     vec2,
     type World,
 } from "@dylanebert/shallot";
@@ -91,7 +97,22 @@ export const Player = component(
 /** Pointer-lock reads are World-scoped. */
 export type { PointerLockStatus } from "@dylanebert/shallot";
 
-function setupPointerLock(world: World): void {
+function setupLocalControls(world: World): void {
+    if (typeof document !== "undefined") {
+        const overlay = mountOverlay(document.querySelector("canvas"), world);
+        mountTouchButton(overlay, world, "Jump", "Space");
+        const stick = document.createElement("div");
+        stick.dataset.touchStick = "";
+        stick.style.cssText =
+            "display:none;position:absolute;width:140px;height:140px;border:1px solid #ffffff80;border-radius:50%;background:#ffffff18;pointer-events:none;transform:translate(-50%,-50%)";
+        const knob = document.createElement("div");
+        knob.style.cssText =
+            "position:absolute;left:50%;top:50%;width:48px;height:48px;border-radius:50%;background:#ffffff80";
+        stick.append(knob);
+        overlay.append(stick);
+        Object.assign(world.resource(TouchControls), { stick, knob });
+        world.onDispose(() => stick.remove());
+    }
     requirePointerLock(world, true);
     world.onDispose(() => {
         releasePointerLock(world);
@@ -120,7 +141,7 @@ export const PlayerInput = component(
 export const LocalPlayer = component(
     "LocalPlayer",
     {
-        /** mouse-look radians per pointer-lock pixel at the fixed 1080px reference height */
+        /** look radians per mouse or touch CSS pixel at the fixed 1080px reference height */
         sensitivity: f32,
         /** locally accumulated view yaw in radians */
         viewYaw: f32,
@@ -134,6 +155,39 @@ export const LocalPlayer = component(
 
 const LOCAL_PLAYERS = [LocalPlayer, Player];
 
+const TouchControls: Resource<{
+    used: boolean;
+    buttons: HTMLButtonElement[];
+    stick?: HTMLDivElement;
+    knob?: HTMLDivElement;
+}> = { create: () => ({ used: false, buttons: [] }) };
+
+/** Mount an action on the example overlay; touch reveals it and feeds the keyboard producer. */
+export function mountTouchButton(
+    parent: HTMLElement,
+    world: World,
+    label: string,
+    key: string,
+): void {
+    const controls = world.resource(TouchControls);
+    const button = document.createElement("button");
+    button.textContent = label;
+    button.style.cssText = `display:none;position:absolute;right:24px;bottom:${key === "Space" ? 32 : 104}px;width:64px;height:64px;border-radius:50%;border:1px solid #ffffff80;background:#242424b0;color:white;pointer-events:auto;touch-action:none`;
+    button.addEventListener("pointerdown", (event) => {
+        event.stopPropagation();
+        event.preventDefault();
+        button.setPointerCapture(event.pointerId);
+        pressKey(world, key);
+    });
+    const release = () => releaseKey(world, key);
+    button.addEventListener("pointerup", release);
+    button.addEventListener("pointercancel", release);
+    button.addEventListener("lostpointercapture", release);
+    controls.buttons.push(button);
+    parent.append(button);
+    world.onDispose(() => button.remove());
+}
+
 /** Sample the local devices once per frame, before any fixed ticks. */
 const LocalPlayerInputSystem: System = {
     name: "local-input",
@@ -141,6 +195,36 @@ const LocalPlayerInputSystem: System = {
     update(world) {
         const devices = world.resource(Devices);
         const active = devices.enabled;
+        const controls = world.resource(TouchControls);
+        const width = world.resource(Viewports).get(devices.focused)?.cssWidth ?? 0;
+        let stick: TouchPoint | undefined;
+        let look: TouchPoint | undefined;
+        for (const point of devices.touch.held.values()) {
+            if (point.startX < width / 2) stick ??= point;
+            else look ??= point;
+        }
+        let stickX = 0;
+        let stickY = 0;
+        if (stick && active) {
+            const x = stick.x - stick.startX;
+            const y = stick.y - stick.startY;
+            const magnitude = Math.hypot(x, y);
+            if (magnitude > 7) {
+                const scale = Math.min(1, magnitude / 70) / magnitude;
+                stickX = x * scale;
+                stickY = -y * scale;
+            }
+        }
+        if (devices.touch.pressed.size) controls.used = true;
+        for (const button of controls.buttons) button.style.display = controls.used ? "" : "none";
+        if (controls.stick && controls.knob) {
+            controls.stick.style.display = stick && active ? "" : "none";
+            if (stick) {
+                controls.stick.style.left = `${stick.startX}px`;
+                controls.stick.style.top = `${stick.startY}px`;
+                controls.knob.style.transform = `translate(calc(-50% + ${stickX * 70}px), calc(-50% - ${stickY * 70}px))`;
+            }
+        }
         const players = world.storage(Player);
         const local = world.storage(LocalPlayer);
         const inputs = world.storage(PlayerInput);
@@ -159,10 +243,22 @@ const LocalPlayerInputSystem: System = {
 
             let yaw = local.viewYaw.get(eid);
             let pitch = local.viewPitch.get(eid);
-            if (active && devices.pointer.lock.status === "locked") {
+            if (
+                active &&
+                devices.touch.held.size === 0 &&
+                devices.pointer.lock.status === "locked"
+            ) {
                 const sensitivity = local.sensitivity.get(eid) / LOOK_REFERENCE_HEIGHT;
                 yaw -= devices.pointer.deltaX * sensitivity;
                 pitch = clamp(pitch - devices.pointer.deltaY * sensitivity, -MAX_PITCH, MAX_PITCH);
+                local.viewYaw.set(eid, yaw);
+                local.viewPitch.set(eid, pitch);
+            }
+
+            if (active && look) {
+                const sensitivity = local.sensitivity.get(eid) / LOOK_REFERENCE_HEIGHT;
+                yaw -= look.deltaX * sensitivity;
+                pitch = clamp(pitch - look.deltaY * sensitivity, -MAX_PITCH, MAX_PITCH);
                 local.viewYaw.set(eid, yaw);
                 local.viewPitch.set(eid, pitch);
             }
@@ -175,6 +271,8 @@ const LocalPlayerInputSystem: System = {
             move[offset + 1] = active
                 ? Number(devices.keys.held.has("KeyW")) - Number(devices.keys.held.has("KeyS"))
                 : 0;
+            move[offset] = clamp(move[offset] + stickX, -1, 1);
+            move[offset + 1] = clamp(move[offset + 1] + stickY, -1, 1);
             inputs.move.markChanged(eid);
             inputs.sprint.set(
                 eid,
@@ -392,7 +490,7 @@ export const UpdatePlayerControlSystem: System = {
     name: "control",
     group: "simulation",
 
-    setup: setupPointerLock,
+    setup: setupLocalControls,
 
     update(world: World) {
         const players = world.storage(Player);

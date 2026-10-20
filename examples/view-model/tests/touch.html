@@ -1,0 +1,14 @@
+<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{margin:0;background:#191816}canvas{display:block;width:100vw;height:100vh}</style></head><body><canvas></canvas><script type="module">
+import { runApp, Transform, Devices } from '@dylanebert/shallot';
+import { Player, PlayerInput } from '../src/player';
+import { ScenePlugin } from '../src/scene';
+
+const app = await runApp({plugins:[ScenePlugin], });
+window.sample = () => {
+ const world = app.world;
+ const eid = [...world.query([Player])][0];
+ const t = world.storage(Transform).translation.column;
+ const input = world.storage(PlayerInput);
+ return {position: Array.from(t.slice(eid*4,eid*4+3)), yaw:input.yaw.get(eid), jumps:input.jumpPresses.get(eid), use:world.resource(Devices).keys.held.has('KeyE')};
+};
+</script></body></html>

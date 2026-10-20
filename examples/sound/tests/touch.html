@@ -1,0 +1,29 @@
+<!doctype html><html><head><link rel="stylesheet" href="../src/hud.css"><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{margin:0;background:#191816}canvas{display:block;width:100vw;height:100vh}</style></head><body><canvas></canvas><script type="module">
+import { runApp, Transform, Devices } from '@dylanebert/shallot';
+import { Yard } from '../src/yard';
+import { Sliding, Hint } from '../src/sound';
+import { Character, setTransform, Sound } from '@dylanebert/shallot';
+import { LocalPlayer, Player, PlayerInput } from '../src/player';
+import { YardPlugin } from '../src/yard';
+import { hud } from '../src/hud';
+const app = await runApp({plugins:[YardPlugin], ui:hud});
+window.aimUse = () => {
+ const w = app.world, yard = w.resource(Yard);
+ w.remove(yard.speaker,Sliding);
+ setTransform(w, yard.player, [w.storage(Transform).translation.x.get(yard.speaker),0.7,0.4], [0,0,0,1]);
+ w.storage(LocalPlayer).viewYaw.set(yard.player,0);
+ w.storage(LocalPlayer).viewPitch.set(yard.player,0);
+ w.storage(Character).velocity.set(yard.player,0,0,0,0);
+ w.storage(Player).gravity.set(yard.player,0);
+ w.storage(Player).friction.set(yard.player,1000);
+};
+window.useState = () => app.world.storage(Sound).paused.get(app.world.resource(Yard).speaker);
+window.useReady = () => !!app.world.resource(Hint).action;
+window.sample = () => {
+ const world = app.world;
+ const eid = [...world.query([Player])][0];
+ const t = world.storage(Transform).translation.column;
+ const input = world.storage(PlayerInput);
+ return {position: Array.from(t.slice(eid*4,eid*4+3)), yaw:input.yaw.get(eid), jumps:input.jumpPresses.get(eid), use:world.resource(Devices).keys.held.has('KeyE')};
+};
+</script></body></html>

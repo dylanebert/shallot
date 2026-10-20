@@ -72,6 +72,7 @@ const FIRST_PERSON_TEMPLATE_FILES = [
     "src/frame.performance.oracle.ts",
     "src/motion.ts",
     "src/player.node.ts",
+    "src/touch.node.ts",
     "src/player.ts",
     "src/plugins.test.ts",
     "src/plugins.ts",
@@ -86,6 +87,7 @@ const FIRST_PERSON_TEMPLATE_FILES = [
     "tests/input/playwright.config.ts",
     "tests/input/vite.config.ts",
     "tests/stepped.html",
+    "tests/touch.html",
     "tsconfig.json",
     "vite.config.ts",
 ];

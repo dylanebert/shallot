@@ -1,0 +1,29 @@
+<!doctype html><html><head><link rel="stylesheet" href="../src/hud.css"><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{margin:0;background:#191816}canvas{display:block;width:100vw;height:100vh}</style></head><body><canvas></canvas><script type="module">
+import { runApp, Transform, Devices } from '@dylanebert/shallot';
+import { Room } from '../src/room';
+import { Usable, Hint } from '../src/interact';
+import { Character, setTransform } from '@dylanebert/shallot';
+import { LocalPlayer, Player, PlayerInput } from '../src/player';
+import { AppPlugin } from '../src/app';
+import { hud } from '../src/hud';
+const app = await runApp({plugins:[AppPlugin], ui:hud});
+window.aimUse = () => {
+ const w = app.world, room = w.resource(Room), t = w.storage(Transform).translation;
+ const target = room.targets[0];
+ setTransform(w, room.player, [t.x.get(target), t.y.get(target)-0.7, t.z.get(target)+2], [0,0,0,1]);
+ w.storage(LocalPlayer).viewYaw.set(room.player,0);
+ w.storage(LocalPlayer).viewPitch.set(room.player,0);
+ w.storage(Character).velocity.set(room.player,0,0,0,0);
+ w.storage(Player).gravity.set(room.player,0);
+ w.storage(Player).friction.set(room.player,1000);
+};
+window.useState = () => app.world.storage(Usable).active.get(app.world.resource(Room).targets[0]);
+window.useReady = () => !!app.world.resource(Hint).target;
+window.sample = () => {
+ const world = app.world;
+ const eid = [...world.query([Player])][0];
+ const t = world.storage(Transform).translation.column;
+ const input = world.storage(PlayerInput);
+ return {position: Array.from(t.slice(eid*4,eid*4+3)), yaw:input.yaw.get(eid), jumps:input.jumpPresses.get(eid), use:world.resource(Devices).keys.held.has('KeyE')};
+};
+</script></body></html>

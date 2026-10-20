@@ -1,7 +1,9 @@
 import type { System, World } from "@dylanebert/shallot";
+import { mountTouchButton } from "./player";
 import { Hint } from "./sound";
 
 export function hud(container: HTMLElement, world: World): () => void {
+    mountTouchButton(container, world, "Use", "KeyE");
     const root = document.createElement("div");
     root.className = "interact-hud";
     root.innerHTML = `<span class="reticle"><span class="reticle-dot" hidden></span></span><div class="hint" hidden><span class="key-slot"><kbd>E</kbd></span><span class="action"></span></div>`;
