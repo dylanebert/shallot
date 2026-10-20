@@ -1,21 +1,19 @@
 import { mkdirSync } from "node:fs";
 import { expect, test } from "playwright/test";
 
-declare global {
-    interface Window {
-        ready: boolean;
-        evidence(name: string): Promise<number | { overlap: number; exposed: number }>;
-        frame(name: string): Promise<void>;
-        adapter: unknown;
-        jitter(): Promise<{ maxChanged: number; occupied: number; turn: number }>;
-    }
-}
+type SteppedWindow = {
+    ready: boolean;
+    evidence(name: string): Promise<number | { overlap: number; exposed: number }>;
+    frame(name: string): Promise<void>;
+    adapter: { class: string; identity: string };
+    jitter(): Promise<{ maxChanged: number; occupied: number; turn: number }>;
+};
 test("jitter: turning at 144 Hz leaves the stationary view model silhouette fixed", async ({
     page,
 }) => {
     await page.goto("http://127.0.0.1:4196/tests/stepped.html");
-    await page.waitForFunction(() => window.ready);
-    const result = await page.evaluate(() => window.jitter());
+    await page.waitForFunction(() => (window as unknown as SteppedWindow).ready);
+    const result = await page.evaluate(() => (window as unknown as SteppedWindow).jitter());
     console.log("jitter", result);
     expect(result.occupied).toBeGreaterThan(1000);
     expect(Math.abs(result.turn)).toBeGreaterThan(0.2);
@@ -33,9 +31,15 @@ for (const [name, claim] of [
         const errors: string[] = [];
         page.on("pageerror", (e) => errors.push(e.message));
         await page.goto("http://127.0.0.1:4196/tests/stepped.html");
-        await page.waitForFunction(() => window.ready);
-        console.log("view-model adapter", await page.evaluate(() => window.adapter));
-        const value = await page.evaluate((name) => window.evidence(name), name);
+        await page.waitForFunction(() => (window as unknown as SteppedWindow).ready);
+        console.log(
+            "view-model adapter",
+            await page.evaluate(() => (window as unknown as SteppedWindow).adapter),
+        );
+        const value = await page.evaluate(
+            (name) => (window as unknown as SteppedWindow).evidence(name),
+            name,
+        );
         console.log(name, value);
         if (name === "contact" || name === "light") expect(value).toBeGreaterThan(500);
         if (name === "count") expect(value).toBe(3);
@@ -55,7 +59,10 @@ for (const [name, claim] of [
         if (process.env.SHALLOT_CAPTURE_DIR && name === "contact") {
             mkdirSync(process.env.SHALLOT_CAPTURE_DIR, { recursive: true });
             for (const frame of ["held", "wall"]) {
-                await page.evaluate((name) => window.frame(name), frame);
+                await page.evaluate(
+                    (name) => (window as unknown as SteppedWindow).frame(name),
+                    frame,
+                );
                 await page
                     .locator("canvas")
                     .screenshot({ path: `${process.env.SHALLOT_CAPTURE_DIR}/${frame}.png` });
