@@ -2,7 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import type { Plugin } from "../../engine";
-import { Vignette, VignettePlugin } from "../../extras/vignette";
+import { EffectStackPlugin, Vignette } from "../../extras/effect-stack";
 import { Transform } from "../transform";
 import { bevyDither, bevyGrading } from "./fixtures/bevy-grading";
 import {
@@ -25,7 +25,7 @@ setDefaultTimeout(TIMEOUT.gpu);
 const sources = { create: () => new Map<number, GPUTextureView>() };
 const Scene: Plugin = {
     name: "PresentationComparisonScene",
-    dependencies: [CorePipelinePlugin, VignettePlugin],
+    dependencies: [CorePipelinePlugin, EffectStackPlugin],
     systems: [
         {
             group: "draw",

@@ -30,6 +30,7 @@ import { Transform } from "../../core/transform";
 import type { Plugin } from "../../engine";
 import { probeBuffer, stampAdapter } from "../../engine/runtime";
 import { type AdapterInfoFacts, classifyAdapter } from "../../engine/runtime/adapter";
+import { EffectStackPlugin, Vignette } from "../../extras/effect-stack";
 import { drawLine, Gizmo, GizmoAsset, LinesPlugin, registerGizmo } from "../../extras/lines";
 import { lineLayout, viewLayout as lineViewLayout } from "../../extras/lines/pipeline";
 import { Sprite, SpriteMaterialInput, SpriteMaterialType, SpritePlugin } from "../../extras/sprite";
@@ -38,7 +39,6 @@ import { spritePublicationLayout } from "../../extras/sprite/table";
 import { internText, registerFont, Text, TextPlugin } from "../../extras/text";
 import { isolationFont } from "../../extras/text/font.fixture";
 import { textLayout, viewLayout as textViewLayout } from "../../extras/text/pipeline";
-import { Vignette, VignettePlugin } from "../../extras/vignette";
 import {
     CLUSTER_COUNT,
     LIGHT_GRID_OFFSET,
@@ -153,7 +153,7 @@ const proof: Plugin = {
     dependencies: [
         SpritePlugin,
         TextPlugin,
-        VignettePlugin,
+        EffectStackPlugin,
         PointsPlugin,
         LinesPlugin,
         FloorMaterialPlugin,

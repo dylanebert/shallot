@@ -2,6 +2,7 @@
 
 // the extras barrel lists each module's author names explicitly; extension names stay on the module.
 
+export { ChromaticAberration, EffectStackPlugin, LensDistortion, Vignette } from "./effect-stack";
 export {
     Fog,
     FogPlugin,
@@ -54,4 +55,3 @@ export {
     Text,
     TextPlugin,
 } from "./text";
-export { Vignette, VignettePlugin } from "./vignette";

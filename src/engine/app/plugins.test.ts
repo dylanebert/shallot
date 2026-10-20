@@ -6,6 +6,7 @@ import { PhysicsPlugin } from "../../core/physics";
 import { CorePipelinePlugin, RenderingPlugin } from "../../core/rendering";
 import { TransformPlugin } from "../../core/transform";
 import {
+    EffectStackPlugin,
     FogPlugin,
     LinesPlugin,
     OrbitPlugin,
@@ -14,7 +15,6 @@ import {
     SkyPlugin,
     SpritePlugin,
     TextPlugin,
-    VignettePlugin,
 } from "../../extras";
 import {
     CharacterPlugin,
@@ -40,7 +40,7 @@ const needsGpu = new Set<Plugin>([
     SkyPlugin,
     SpritePlugin,
     TextPlugin,
-    VignettePlugin,
+    EffectStackPlugin,
 ]);
 const publicPlugins = [
     ...DEFAULT_PLUGINS,
@@ -63,7 +63,7 @@ const publicPlugins = [
     SkyPlugin,
     SpritePlugin,
     TextPlugin,
-    VignettePlugin,
+    EffectStackPlugin,
     StandardPhysicsPlugin,
     MeshRenderPlugin,
     StandardRenderingPlugin,

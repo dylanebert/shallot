@@ -2,6 +2,7 @@ import {
     CharacterPlugin,
     type createApp,
     DEFAULT_PLUGINS,
+    EffectStackPlugin,
     FogPlugin,
     InputPlugin,
     Materials,
@@ -14,7 +15,6 @@ import {
     SpritePlugin,
     StandardMaterial,
     StandardPhysicsPlugin,
-    VignettePlugin,
 } from "@dylanebert/shallot";
 import { rawDevice } from "../src/engine/runtime";
 import { createTestGpuApp, disposeGpuApps, gpuRequirements } from "./gpu.fixture";
@@ -58,7 +58,7 @@ export const compileSubjects = [
     },
     { name: "Fog", config: { plugins: [FogPlugin] } },
     { name: "Outline", config: { plugins: [OutlinePlugin] } },
-    { name: "Vignette", config: { plugins: [VignettePlugin] } },
+    { name: "EffectStack", config: { plugins: [EffectStackPlugin] } },
     { name: "Sprite", config: { plugins: [SpritePlugin] } },
 ] satisfies { name: string; config: Parameters<typeof createApp>[0] }[];
 

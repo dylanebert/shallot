@@ -4,7 +4,7 @@ import { createTestGpuApp } from "../../../scripts/gpu.fixture";
 import type { createApp } from "../../engine/app";
 import { CanvasContext } from "../../engine/app/canvas.fixture";
 import { probeTexture } from "../../engine/runtime";
-import { Vignette, VignettePlugin } from "../../extras/vignette";
+import { EffectStackPlugin, Vignette } from "../../extras/effect-stack";
 import { StandardRenderer } from "../../standard/rendering";
 import { Transform } from "../transform";
 import "../../standard";
@@ -46,7 +46,7 @@ test("standard composition, vignette, after-tonemap and points present and captu
     device.pushErrorScope("validation");
     let app: Awaited<ReturnType<typeof createApp>> | undefined;
     try {
-        app = await createTestGpuApp({ device, plugins: [VignettePlugin, PointsPlugin] });
+        app = await createTestGpuApp({ device, plugins: [EffectStackPlugin, PointsPlugin] });
         const { world } = app;
         const canvas = {
             width: 1280,

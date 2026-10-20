@@ -4,6 +4,10 @@ Start with the compiler errors in your app. Search this guide for the old symbol
 
 Code fragments assume an owning `world`, an existing entity `eid`, and the imports named in the surrounding text.
 
+## Effect stack replaces vignette
+
+Replace imports from `@dylanebert/shallot/vignette` with `@dylanebert/shallot/effect-stack`, and replace `VignettePlugin` with `EffectStackPlugin` (also in root and extras imports). `Vignette` keeps its fields and defaults. The same plugin now supports camera components `LensDistortion` and `ChromaticAberration`, fused with vignette into one pass before tonemapping.
+
 ## A second camera and the first canvas
 
 In 0.10 a camera without a target auto-bound the document's first canvas only while no other camera held it; a second such camera stayed unbound and drew nothing. Now every camera without a target joins the first canvas, and cameras sharing a canvas or texture draw bottom to top by the new `Camera.order`, the bottom one clearing. `attachCanvas` on a canvas another camera of the World holds joins it the same way, where 0.10 let both cameras present over each other. A camera that drew nothing in 0.10 now draws on top of the first: give it its own target, or remove its `Camera`.

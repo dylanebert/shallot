@@ -34,6 +34,7 @@ import { offscreenTexture } from "../../core/rendering/view";
 import { GlobalTransform } from "../../core/transform";
 import {
     drawArrow,
+    EffectStackPlugin,
     Fog,
     FogPlugin,
     Gizmo,
@@ -55,7 +56,6 @@ import {
     Text,
     TextPlugin,
     Vignette,
-    VignettePlugin,
 } from "../../extras";
 import { segmentState } from "../../extras/lines/segments";
 import { SpriteSource } from "../../extras/sprite/material";
@@ -103,7 +103,7 @@ const everyPlugin: readonly Plugin[] = [
     SkyPlugin,
     SpritePlugin,
     TextPlugin,
-    VignettePlugin,
+    EffectStackPlugin,
 ];
 
 import { setupGlobals } from "@dylanebert/shallot/webgpu";

@@ -21,7 +21,7 @@ const pipelineCounts: Record<string, number> = {
     "producer table": 26,
     Fog: 32, // single-sample and multisampled column depth, grid lighting and application; filter and integration
     Outline: 28, // three mask variants, jump flood and composite
-    Vignette: 24,
+    EffectStack: 24,
     Sprite: 28,
 };
 

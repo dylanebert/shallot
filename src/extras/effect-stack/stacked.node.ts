@@ -2,7 +2,14 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
-import { attachTexture, Camera, Tonemapping, TonemappingMethod } from "../../core/rendering";
+import {
+    attachTexture,
+    Camera,
+    EffectPasses,
+    Tonemapping,
+    TonemappingMethod,
+} from "../../core/rendering";
+import { ImageBindings } from "../../core/rendering/image";
 import { offscreenTexture } from "../../core/rendering/view";
 import { Transform } from "../../core/transform";
 import { probeTexture } from "../../engine/runtime";
@@ -15,24 +22,103 @@ import {
     StandardRenderer,
 } from "../../standard/rendering";
 import { corners, LOWER, pixel, SIZE, stackedFrame, stackedScene } from "../stacked-camera.fixture";
-import { Vignette, VignettePlugin } from ".";
+import { ChromaticAberration, EffectStackPlugin, LensDistortion, Vignette } from ".";
 
 setDefaultTimeout(TIMEOUT.node);
 
 const subjects = gpuApps(import.meta.path, [
-    { defaults: false, plugins: [...DEFAULT_PLUGINS, VignettePlugin] },
-    { defaults: false, plugins: [...DEFAULT_PLUGINS, VignettePlugin] },
+    { defaults: false, plugins: [...DEFAULT_PLUGINS, EffectStackPlugin] },
+    { defaults: false, plugins: [...DEFAULT_PLUGINS, EffectStackPlugin] },
 ]);
 
 test("a vignette on a camera stacked over another shades only what that camera drew", async () => {
     const { world } = subjects()[0];
-    const { lower, upper } = stackedScene(world, 1);
+    const { lower, upper, cube } = stackedScene(world, 1);
     const plain = pixel(await stackedFrame(world, lower), SIZE / 2, SIZE / 2 + 6);
     world.add(upper, Vignette, { radius: 0.2 });
     const rgba = await stackedFrame(world, lower);
     expect(new Set(corners(rgba).map(String))).toEqual(new Set([String(LOWER)]));
     const shaded = pixel(rgba, SIZE / 2, SIZE / 2 + 6);
     expect(shaded[0]!).toBeLessThan(plain[0]! - 20);
+    for (const eid of [cube, upper, lower]) world.destroy(eid);
+    world.step(0);
+});
+
+for (const effect of [LensDistortion, ChromaticAberration, Vignette]) {
+    test(`${effect === LensDistortion ? "lens distortion" : effect === ChromaticAberration ? "chromatic aberration" : "vignette"} defaults change the frame, zero is identity, removal unregisters the single pass`, async () => {
+        const { world } = subjects()[0];
+        const { lower, upper, cube } = stackedScene(world, 1, 512);
+        const plain = await stackedFrame(world, lower);
+        expect(world.resource(EffectPasses).get(upper)?.before.length ?? 0).toBe(0);
+        world.add(upper, effect);
+        const changed = await stackedFrame(world, lower);
+        expect(changed).not.toEqual(plain);
+        expect(world.resource(EffectPasses).get(upper)?.before.length).toBe(1);
+        // The clear lower camera is visible wherever the upper drew no geometry.
+        for (const [x, y] of [
+            [0, 0],
+            [511, 0],
+            [0, 511],
+            [511, 511],
+        ]) {
+            const at = (y! * 512 + x!) * 4;
+            expect(Array.from(changed.subarray(at, at + 4))).toEqual(LOWER);
+        }
+        world.storage(effect).intensity.set(upper, 0);
+        expect(await stackedFrame(world, lower)).toEqual(plain);
+        expect(world.resource(EffectPasses).get(upper)?.before.length ?? 0).toBe(0);
+        world.remove(upper, effect);
+        expect(await stackedFrame(world, lower)).toEqual(plain);
+        expect(world.resource(EffectPasses).get(upper)?.before.length ?? 0).toBe(0);
+        for (const eid of [cube, upper, lower]) world.destroy(eid);
+        world.step(0);
+    });
+}
+
+test("all three effects share one pass and detach it when the last component leaves", async () => {
+    const { world } = subjects()[0];
+    const { lower, upper, cube } = stackedScene(world, 1);
+    for (const effect of [LensDistortion, ChromaticAberration, Vignette]) world.add(upper, effect);
+    await stackedFrame(world, lower);
+    expect(world.resource(EffectPasses).get(upper)?.before.length).toBe(1);
+    for (const effect of [LensDistortion, ChromaticAberration, Vignette])
+        world.remove(upper, effect);
+    await stackedFrame(world, lower);
+    expect(world.resource(EffectPasses).get(upper)?.before.length ?? 0).toBe(0);
+    for (const eid of [cube, upper, lower]) world.destroy(eid);
+    world.step(0);
+});
+
+test("a custom chromatic LUT changes the fringes and unsetting it restores the default lookup", async () => {
+    const { world } = subjects()[0];
+    const { lower, upper, cube } = stackedScene(world, 1, 512);
+    world.add(upper, ChromaticAberration);
+    const baseline = await stackedFrame(world, lower);
+    const bindings = world.resource(ImageBindings);
+    const original = bindings.images;
+    const lut = world.gpu.device.createTexture({
+        size: [3, 1, 1],
+        format: "rgba8unorm-srgb",
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+    world.own(lut);
+    world.gpu.device.queue.writeTexture(
+        { texture: lut },
+        new Uint8Array([0, 0, 255, 255, 0, 255, 0, 255, 255, 0, 0, 255]),
+        { bytesPerRow: 12 },
+        [3, 1],
+    );
+    bindings.images = lut;
+    try {
+        world.storage(ChromaticAberration).colorLut.set(upper, 0);
+        expect(await stackedFrame(world, lower)).not.toEqual(baseline);
+        world.storage(ChromaticAberration).colorLut.set(upper, -1);
+        expect(await stackedFrame(world, lower)).toEqual(baseline);
+    } finally {
+        bindings.images = original;
+        for (const eid of [cube, upper, lower]) world.destroy(eid);
+        world.step(0);
+    }
 });
 
 const RADIUS = 0.6;

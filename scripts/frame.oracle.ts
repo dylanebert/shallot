@@ -16,7 +16,7 @@ const {
     Outline,
     OutlinePlugin,
     Vignette,
-    VignettePlugin,
+    EffectStackPlugin,
     Sprite,
     SpriteAlphaMode,
     SpriteFill,
@@ -58,7 +58,7 @@ for (const subject of [
     const plugins = subject.startsWith("outline")
         ? [OutlinePlugin]
         : subject === "vignette"
-          ? [VignettePlugin]
+          ? [EffectStackPlugin]
           : subject === "lines"
             ? [LinesPlugin]
             : subject === "particles"

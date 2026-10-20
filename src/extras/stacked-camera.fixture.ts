@@ -19,12 +19,12 @@ export const LOWER = [0x20, 0x40, 0x60, 255];
  * A clear-only lower camera with a standard camera stacked over it on one texture, drawing a lone unlit
  * cube turned 45° about the view axis, so its edges cover pixels partially under MSAA.
  */
-export function stackedScene(world: World, antialias: number) {
+export function stackedScene(world: World, antialias: number, size = SIZE) {
     const lower = world.create();
     world.add(lower, Transform, { translation: [0, 0, 5, 0] });
     world.add(lower, Camera, { clearColor: 0x204060, antialias });
     world.add(lower, Tonemapping, { method: TonemappingMethod.None });
-    const target = attachTexture(world, lower, { width: SIZE, height: SIZE });
+    const target = attachTexture(world, lower, { width: size, height: size });
     const upper = world.create();
     world.add(upper, Transform, { translation: [0, 0, 5, 0] });
     world.add(upper, Camera, { order: 1, antialias });
