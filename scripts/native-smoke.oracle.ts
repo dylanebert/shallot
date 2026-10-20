@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { resolveCargoInvocation } from "../src/native";
 import {
     assertCanvasImage,
     assertNoSmokeProcesses,
@@ -285,6 +286,18 @@ while True: time.sleep(1)
         }
     });
 }
+
+test("Windows builds use native MSVC rather than cargo-xwin", () => {
+    expect(
+        resolveCargoInvocation("x86_64-pc-windows-msvc", false, false, false, "win32").kind,
+    ).toBe("native");
+    expect(resolveCargoInvocation("x86_64-pc-windows-msvc", false, true, false, "win32").kind).toBe(
+        "native",
+    );
+    expect(
+        resolveCargoInvocation("x86_64-pc-windows-msvc", false, false, false, "linux").kind,
+    ).toBe("xwin");
+});
 
 test("Windows output paths distinguish backend, profile and dev", () => {
     expect(windowsOutput("/scratch/game", true, false, true)).toBe(

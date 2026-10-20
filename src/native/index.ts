@@ -126,14 +126,14 @@ export type CargoInvocation =
 /**
  * Selects the cargo invocation and flags without I/O. `devshell` is
  * windows-portable under WSL (needs the host's native MSVC toolchain via PowerShell, see
- * devShellBuild); `xwin` is any other msvc target (cross-compiled with cargo-xwin); `native` is
- * everything else (`cargo build` in place).
+ * devShellBuild); `xwin` cross-compiles MSVC targets off Windows; `native` builds on the host.
  */
 export function resolveCargoInvocation(
     target: string,
     release: boolean,
     portable: boolean,
     isWSL: boolean,
+    host = process.platform,
 ): CargoInvocation {
     const flags: string[] = ["--target", target];
     if (portable) flags.push("--no-default-features", "--features", "portable");
@@ -141,7 +141,7 @@ export function resolveCargoInvocation(
 
     const msvc = target.includes("msvc");
     if (msvc && isWSL && portable) return { kind: "devshell", flags };
-    return { kind: msvc ? "xwin" : "native", flags };
+    return { kind: msvc && host !== "win32" ? "xwin" : "native", flags };
 }
 
 // crates/native ships in the npm tarball (package.json `files` includes `crates/native`), so a missing
