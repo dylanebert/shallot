@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>capture boundary</title>
+        <style>
+            * { margin: 0; }
+            body { background: #191816; }
+            canvas { display: block; width: 480px; height: 270px; }
+        </style>
+    </head>
+    <body>
+        <canvas id="canvas"></canvas>
+        <script type="module">
+            // A running app sized as an app sizes itself: 480x270 CSS pixels at a fixed pixelRatio of 2, so
+            // its backing surface is 960x540, neither its CSS size nor the 1280x720 fixture size.
+            import {
+                Camera,
+                MeshInstance,
+                MeshMaterial,
+                Materials,
+                runApp,
+                StandardMaterial,
+                StandardRenderer,
+                Transform,
+            } from "@dylanebert/shallot";
+            import { captureFrame } from "@dylanebert/shallot/rendering";
+
+            const Scene = {
+                name: "CaptureBoundary/Scene",
+                initialize(world) {
+                    const camera = world.create();
+                    world.add(camera, Camera, { clearColor: 0x191816 });
+                    world.add(camera, StandardRenderer);
+                    world.add(camera, Transform, { translation: [0, 0, 4] });
+                    const cube = world.create();
+                    world.add(cube, MeshInstance);
+                    world.add(cube, MeshMaterial, world.resource(Materials).add(StandardMaterial({ baseColor: [0.9, 0.3, 0.05, 1], unlit: true })));
+                    world.add(cube, Transform, { scale: [1.5, 1.5, 1.5] });
+                },
+            };
+            window.app = await runApp({ plugins: [Scene], pixelRatio: 2 });
+            window.captureFrame = captureFrame;
+        </script>
+    </body>
+</html>
