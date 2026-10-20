@@ -110,7 +110,7 @@ export function pose(world: World) {
     }
 }
 export const ScenePlugin: Plugin = {
-    name: "HeldItem",
+    name: "ViewModel",
     dependencies: [InputPlugin],
     initialize(world) {
         const s = world.resource(Scene);

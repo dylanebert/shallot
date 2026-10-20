@@ -1,0 +1,7 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="A first-person view model that does not clip through walls, with independent FOV and shared lighting."><title>View model</title><style>body{margin:0;background:#191816}canvas{display:block;width:100vw;height:100vh}aside{position:fixed;bottom:24px;left:24px;color:#eee9df;background:#282622;padding:8px;font:14px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}label{display:block;margin-top:8px}</style></head><body><canvas></canvas><aside>Click to look · W / S approach · E drop / pick up<label>World FOV <input id="fov" type="range" min="40" max="110" value="90"></label></aside><script type="module">
+import { runApp, Camera } from '@dylanebert/shallot';
+import { Scene, ScenePlugin } from './src/scene';
+const app=await runApp({plugins:[ScenePlugin]});
+document.querySelector('#fov').oninput=e=>app.world.storage(Camera).fov.set(app.world.resource(Scene).camera, Number(e.target.value));
+</script></body></html>

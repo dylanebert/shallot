@@ -22,7 +22,7 @@ for (const [name, claim] of [
         page.on("pageerror", (e) => errors.push(e.message));
         await page.goto("http://127.0.0.1:4196/tests/stepped.html");
         await page.waitForFunction(() => window.ready);
-        console.log("held-item adapter", await page.evaluate(() => window.adapter));
+        console.log("view-model adapter", await page.evaluate(() => window.adapter));
         const value = await page.evaluate((name) => window.evidence(name), name);
         console.log(name, value);
         if (name === "contact" || name === "light") expect(value).toBeGreaterThan(500);
