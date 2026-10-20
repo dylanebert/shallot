@@ -56,7 +56,26 @@ export interface Pointer {
     readonly normalizedY: number;
 }
 
+/** One touch in CSS pixels within its canvas. Held records are live; copy values to retain them. */
+export interface TouchPoint {
+    readonly id: number;
+    readonly startX: number;
+    readonly startY: number;
+    readonly x: number;
+    readonly y: number;
+    /** movement accumulated since the last draw boundary */
+    readonly deltaX: number;
+    readonly deltaY: number;
+}
+
 export interface Touch {
+    readonly held: ReadonlyMap<number, TouchPoint>;
+    /** positions at press, retained until the draw boundary even if released in the same frame */
+    readonly pressed: ReadonlyMap<number, TouchPoint>;
+    /** final records for touches released this frame; cleared at the draw boundary */
+    readonly released: ReadonlyMap<number, TouchPoint>;
+    /** final records for touches canceled this frame, not releases; cleared at the draw boundary */
+    readonly canceled: ReadonlyMap<number, TouchPoint>;
     /** number of touch pointers currently held on a bound canvas */
     count: number;
     /** two-finger distance change since the last frame */
@@ -76,7 +95,7 @@ export interface AudioDevice {
 }
 
 /** all device-fed facts for one World, read directly. `keys.pressed`, `keys.released`, `pointer.buttonEvents`,
- * `pointer.scroll` and the pointer and touch deltas cover one frame; the input plugin clears
+ * `touch.pressed`, `touch.released`, `touch.canceled`, `pointer.scroll` and the pointer and touch deltas cover one frame; the input plugin clears
  * them at the draw boundary. A game or headless driver changes every field except `audio.context` through the
  * producers below, which keep edges and boundary releases; the browser producer writes the same fields from DOM events. `audio.context` has no
  * producer: the audio runtime or a headless driver writes it directly. The record is created lazily, so a World
@@ -98,7 +117,12 @@ interface DeviceRecord extends Devices {
     audio: AudioDevice;
     enabled: boolean;
     requireLock: boolean;
-    readonly touchPoints: Map<number, { x: number; y: number }>;
+    readonly touchPoints: Map<number, Mutable<TouchPoint>>;
+    readonly touch: Touch & {
+        pressed: Map<number, TouchPoint>;
+        released: Map<number, TouchPoint>;
+        canceled: Map<number, TouchPoint>;
+    };
     pinchDistance: number | null;
     centroidX: number | null;
     centroidY: number | null;
@@ -192,10 +216,16 @@ const DEFAULT_POINTER: Omit<Pointer, "lock" | "normalizedX" | "normalizedY" | "b
     y: 0,
 };
 
-const DEFAULT_TOUCH: Touch = { count: 0, pinchDelta: 0, deltaX: 0, deltaY: 0 };
+const DEFAULT_TOUCH: Omit<Touch, "held" | "pressed" | "released" | "canceled"> = {
+    count: 0,
+    pinchDelta: 0,
+    deltaX: 0,
+    deltaY: 0,
+};
 const DEFAULT_AUDIO: AudioDevice = { context: "none" };
 const DEFAULT_POINTER_LOCK: PointerLock = { status: "unlocked", refusal: null };
 function emptyRecord(world: World): DeviceRecord {
+    const touchPoints = new Map<number, Mutable<TouchPoint>>();
     const buttonEvents: Mutable<PointerButtonEvent>[] = [];
     const pointer: Pointer = {
         ...DEFAULT_POINTER,
@@ -218,11 +248,17 @@ function emptyRecord(world: World): DeviceRecord {
         },
         audio: { ...DEFAULT_AUDIO },
         pointer,
-        touch: { ...DEFAULT_TOUCH },
+        touch: {
+            ...DEFAULT_TOUCH,
+            held: touchPoints,
+            pressed: new Map(),
+            released: new Map(),
+            canceled: new Map(),
+        },
         enabled: true,
         focused: -1,
         requireLock: false,
-        touchPoints: new Map(),
+        touchPoints,
         pinchDistance: null,
         centroidX: null,
         centroidY: null,
@@ -448,17 +484,26 @@ export function touchPoint(
             pointerMove(world, x, y, x - previous.x, y - previous.y);
             if (d.touchPress) setButtonLevel(d, "left", false);
         }
+        previous.deltaX += x - previous.x;
+        previous.deltaY += y - previous.y;
+        previous.x = x;
+        previous.y = y;
+        d.touch.released.set(pointerId, previous);
         liftTouch(d, pointerId);
         return;
     }
     if (previous) {
         const fromX = previous.x;
         const fromY = previous.y;
+        previous.deltaX += x - fromX;
+        previous.deltaY += y - fromY;
         previous.x = x;
         previous.y = y;
         if (pointerId === d.primaryTouch) pointerMove(world, x, y, x - fromX, y - fromY);
     } else {
-        d.touchPoints.set(pointerId, { x, y });
+        const point = { id: pointerId, startX: x, startY: y, x, y, deltaX: 0, deltaY: 0 };
+        d.touchPoints.set(pointerId, point);
+        d.touch.pressed.set(pointerId, { ...point });
         d.touch.count = d.touchPoints.size;
         updatePinchBaseline(d);
         if (d.touchPoints.size === 1) {
@@ -564,7 +609,19 @@ function gatedButtons(d: DeviceRecord, buttons: number): number {
     return d.requireLock && d.pointer.lock.status !== "locked" ? 0 : buttons;
 }
 
+/** Cancel a held touch without a pointer-button release. */
+export function cancelTouch(world: World, pointerId: number): void {
+    const d = record(world);
+    if (!d.enabled) return;
+    const point = d.touchPoints.get(pointerId);
+    if (!point) return;
+    d.touch.canceled.set(pointerId, point);
+    if (pointerId === d.primaryTouch) cancelTouchPress(d);
+    liftTouch(d, pointerId);
+}
+
 function clearTouch(d: DeviceRecord): void {
+    for (const [id, point] of d.touchPoints) d.touch.canceled.set(id, point);
     d.touchPoints.clear();
     updatePinchBaseline(d);
     d.primaryTouch = null;
@@ -770,8 +827,7 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, world: World): void 
     };
     a.pointerCancel = (e) => {
         if (d.touchPoints.has(e.pointerId)) {
-            if (e.pointerId === d.primaryTouch) cancelTouchPress(d);
-            liftTouch(d, e.pointerId);
+            cancelTouch(world, e.pointerId);
             followTouch(a, d, e.pointerId);
             return;
         }
@@ -1073,6 +1129,13 @@ const ResetFrameInputSystem: System = {
         d.touch.pinchDelta = 0;
         d.touch.deltaX = 0;
         d.touch.deltaY = 0;
+        d.touch.pressed.clear();
+        d.touch.released.clear();
+        d.touch.canceled.clear();
+        for (const point of d.touchPoints.values()) {
+            point.deltaX = 0;
+            point.deltaY = 0;
+        }
     },
 };
 

@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import {
     BrowserInputPlugin,
     blurCanvas,
+    cancelTouch,
     createBrowserInputPlugin,
     Devices,
     focusCanvas,
@@ -1195,7 +1196,7 @@ test("a pinch released one finger at a time presents no one-finger press or rele
     }
 });
 
-test("a cancelled touch reads as a release", () => {
+test("a cancelled touch ends pointer emulation without a release", () => {
     const fixture = declaredHost();
     const world = browserInputStateWith(fixture.host);
     const frames = edgeReader(world);
@@ -1203,13 +1204,99 @@ test("a cancelled touch reads as a release", () => {
         world.step(0);
         fixture.emitCanvas("pointerdown", touchEvent(fixture.canvas, 1, 100, 1));
         fixture.window.emit("pointercancel", touchEvent(fixture.canvas, 1, 100, 0));
+        const { touch } = world.resource(Devices);
+        expect(touch.held.size).toBe(0);
+        expect(touch.released.size).toBe(0);
+        expect(touch.canceled.get(1)).toMatchObject({
+            id: 1,
+            startX: 90,
+            startY: 50,
+            x: 90,
+            y: 50,
+        });
         world.step(0);
+        expect(touch.canceled.size).toBe(0);
         expect(frames[1]).toEqual({
             left: false,
             touches: 0,
             pressed: { x: 90, y: 50 },
             released: undefined,
         });
+    } finally {
+        world.dispose();
+    }
+});
+
+test("held touches retain their starts and accumulate per-frame deltas independently", () => {
+    const world = inputState();
+    try {
+        const { touch } = world.resource(Devices);
+        touchPoint(world, 7, 10, 20);
+        touchPoint(world, 8, 100, 200);
+        touchPoint(world, 7, 15, 18);
+        touchPoint(world, 7, 12, 25);
+        expect(touch.held.get(7)).toEqual({
+            id: 7,
+            startX: 10,
+            startY: 20,
+            x: 12,
+            y: 25,
+            deltaX: 2,
+            deltaY: 5,
+        });
+        expect(touch.pressed.get(7)).toMatchObject({ x: 10, y: 20, deltaX: 0, deltaY: 0 });
+        expect(touch.held.get(8)).toMatchObject({ deltaX: 0, deltaY: 0 });
+        const held = touch.held;
+        const point = held.get(7);
+        world.step(0);
+        expect(touch.held).toBe(held);
+        expect(touch.held.get(7)).toBe(point);
+        expect(point).toMatchObject({ startX: 10, startY: 20, x: 12, y: 25, deltaX: 0, deltaY: 0 });
+        expect(touch.pressed.size).toBe(0);
+        touchPoint(world, 7, 20, 30, false);
+        expect(touch.held.has(7)).toBe(false);
+        expect(touch.released.get(7)).toMatchObject({
+            startX: 10,
+            startY: 20,
+            x: 20,
+            y: 30,
+            deltaX: 8,
+            deltaY: 5,
+        });
+        expect(touch.count).toBe(1);
+        world.step(0);
+        expect(touch.released.size).toBe(0);
+    } finally {
+        world.dispose();
+    }
+});
+
+test("a touch pressed and released within a frame keeps both records until draw", () => {
+    const world = inputState();
+    try {
+        const { touch } = world.resource(Devices);
+        touchPoint(world, 1, 5, 6);
+        touchPoint(world, 1, 8, 10, false);
+        expect(touch.held.size).toBe(0);
+        expect(touch.pressed.get(1)).toMatchObject({ id: 1, x: 5, y: 6 });
+        expect(touch.released.get(1)).toEqual({
+            id: 1,
+            startX: 5,
+            startY: 6,
+            x: 8,
+            y: 10,
+            deltaX: 3,
+            deltaY: 4,
+        });
+        world.step(0);
+        expect(touch.pressed.size + touch.released.size).toBe(0);
+        touchPoint(world, 2, 30, 40);
+        cancelTouch(world, 2);
+        expect(touch.canceled.has(2)).toBe(true);
+        expect(touch.released.size).toBe(0);
+        expect(touch.held.size).toBe(0);
+        world.step(0);
+        expect(touch.canceled.size).toBe(0);
     } finally {
         world.dispose();
     }

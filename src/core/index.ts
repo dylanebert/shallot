@@ -4,6 +4,7 @@ export {
     type AudioDevice,
     BrowserInputPlugin,
     blurCanvas,
+    cancelTouch,
     createBrowserInputPlugin,
     Devices,
     focusCanvas,
@@ -27,6 +28,7 @@ export {
     requirePointerLock,
     setInputEnabled,
     type Touch,
+    type TouchPoint,
     touchPoint,
 } from "./input";
 export {
