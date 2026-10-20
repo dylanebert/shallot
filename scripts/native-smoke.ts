@@ -224,7 +224,7 @@ function groupExists(pid: number): boolean {
     }
 }
 
-/** Terminate a detached POSIX process group, escalating after a bounded grace period. */
+/** Terminate the Windows process tree or detached POSIX group, escalating after a bounded grace period. */
 export async function terminateProcessGroup(pid: number, graceMs = 500): Promise<void> {
     if (process.platform === "win32") {
         spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
@@ -1820,7 +1820,26 @@ async function runWindowsSmoke(options: ReturnType<typeof parseArgs>): Promise<v
                     false,
                     { executable, portable, windows: true },
                 );
-                if (mode === "dev") viteOrigin = result.viteOrigin;
+                if (mode === "dev") {
+                    viteOrigin = result.viteOrigin;
+                    if (portable) {
+                        const identity = await runLogged(
+                            "CEF runtime identity",
+                            "powershell.exe",
+                            [
+                                "-NoProfile",
+                                "-Command",
+                                "(Get-Item -LiteralPath $env:SHALLOT_SMOKE_CEF_DLL).VersionInfo.ProductVersion",
+                            ],
+                            project,
+                            { ...env, SHALLOT_SMOKE_CEF_DLL: resolve(output, "libcef.dll") },
+                            logs,
+                        );
+                        if (!identity.output.trim())
+                            throw new Error("libcef.dll has no product version");
+                        console.info(`CEF runtime version: ${identity.output.trim()}`);
+                    }
+                }
                 if (release) {
                     const copy = resolve(consumer, `installed-${backend}`);
                     rmSync(copy, { recursive: true, force: true });
