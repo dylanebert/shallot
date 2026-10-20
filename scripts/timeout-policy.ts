@@ -1,5 +1,5 @@
 import { parse } from "@babel/parser";
-import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { BROWSER_CEILING, TIMEOUT } from "@dylanebert/shallot/testing";
 
 /** Check declarations, not elapsed time. Delay timers inside tests are not tier declarations. */
 export function timeoutErrors(path: string, text: string): string[] {
@@ -82,6 +82,12 @@ export function timeoutErrors(path: string, text: string): string[] {
             const key = expression.computed ? expression.property.value : expression.property.name;
             if (Object.hasOwn(TIMEOUT, key)) return TIMEOUT[key as keyof typeof TIMEOUT];
         }
+        if (
+            sharedBrowser &&
+            expression?.type === "MemberExpression" &&
+            expression.object.name === "BROWSER_CEILING"
+        )
+            return BROWSER_CEILING[expression.property.name as keyof typeof BROWSER_CEILING];
         if (expression?.type === "Identifier" && !seen.has(expression.name)) {
             seen.add(expression.name);
             return budget(constants.get(expression.name), seen);
@@ -247,7 +253,7 @@ export function timeoutErrors(path: string, text: string): string[] {
                     node.callee.type === "MemberExpression" &&
                     node.callee.property.name === "setTimeout"
                 )
-                    fail(node, "browser tests use Playwright's default test timeout");
+                    fail(node, "browser tests take their test timeout from BROWSER_CONFIG");
                 let timeout = node.arguments[2];
                 if (timeout?.type === "ObjectExpression")
                     timeout = timeout.properties.find(
@@ -260,7 +266,7 @@ export function timeoutErrors(path: string, text: string): string[] {
                     !["ArrowFunctionExpression", "FunctionExpression"].includes(timeout.type)
                 ) {
                     if (browserTest)
-                        fail(timeout, "browser tests use Playwright's default test timeout");
+                        fail(timeout, "browser tests take their test timeout from BROWSER_CONFIG");
                     else checkBudget(timeout, ceiling, ceiling);
                 }
             }

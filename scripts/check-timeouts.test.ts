@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { BUDGET, CEILING, TIMEOUT } from "@dylanebert/shallot/testing";
+import { BROWSER_CEILING, BUDGET, CEILING, TIMEOUT } from "@dylanebert/shallot/testing";
 import { browserCommandErrors, packageTimeoutErrors, timeoutErrors } from "./timeout-policy";
 
 const cheap =
@@ -153,12 +153,17 @@ test("browser subjects inherit categorical values from their one shared home", (
     );
 });
 
-test("browser tests leave Playwright's test timeout at its default", () => {
+test("browser tests take their test timeout from BROWSER_CONFIG", () => {
     const source = 'import { test } from "playwright/test";';
     expect(timeoutErrors("subject.e2e.ts", `${source} test("browser", () => {});`)).toEqual([]);
     expect(
         timeoutErrors("subject.e2e.ts", `${source} test.setTimeout(${TIMEOUT.startup});`),
     ).toHaveLength(1);
+});
+
+test("a browser hang and its retry leave the subject time inside its ceiling", () => {
+    expect(BROWSER_CEILING.expect).toBeLessThan(BROWSER_CEILING.test);
+    expect(2 * BROWSER_CEILING.test).toBeLessThan(CEILING.browser);
 });
 
 test("local budgets retain today's limits and CI selects hang ceilings", () => {

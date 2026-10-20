@@ -168,7 +168,7 @@ bun run format                  # biome
 - A GPU wait has no wall clock of its own: validation errors and device loss fail it, and the tier ceiling catches a hang
 - A missing tier premise fails, never skips
 - Quarantine uses `test.todo`, runnable with `--todo`; a known failure stays failing until fixed
-- Browser subjects keep Playwright and Vite configs together and spread `BROWSER_CONFIG` from `@dylanebert/shallot/testing`; a configured `webServer` spreads `WEB_SERVER_CONFIG`. The engine-wide [browser command](scripts/browser.sh) owns the subject timeout and worker cap; copied projects use Playwright's defaults
+- Browser subjects keep Playwright and Vite configs together and spread `BROWSER_CONFIG` from `@dylanebert/shallot/testing`; a configured `webServer` spreads `WEB_SERVER_CONFIG`. `BROWSER_CONFIG` holds the test and expect timeouts, which on CI are `BROWSER_CEILING`. The engine-wide [browser command](scripts/browser.sh) owns the subject timeout and worker cap; copied projects use Playwright's defaults for those two
 - A test requests the fewest solver threads its claim needs. The solver spins at its stage barriers, so oversubscribing the host makes it slower
 - GPU files run serially on one device with small compositions; each file acquires and warms its independent worlds once in `beforeAll`, and tests time only their work
 - Compiled pipelines are never shared across worlds; a device a loss claim destroys is prepared during that compile step

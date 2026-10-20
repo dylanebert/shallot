@@ -14,6 +14,16 @@ export const BUDGET = /** @type {const} */ ({
     browser: 60_000,
 });
 
+/**
+ * CI hang ceilings for one browser test and one of its waits. A software adapter spaced frames by 21 s on
+ * Windows, and the slowest modelled test took 24 s. A hang and its retry leave the rest of the slowest subject
+ * (85 s of a 135 s Windows run) inside {@link CEILING}.browser, so a red reports its line on both attempts.
+ */
+export const BROWSER_CEILING = /** @type {const} */ ({
+    test: 90_000,
+    expect: 60_000,
+});
+
 /** CI tolerates host variance up to the hang ceiling; local runs enforce speed budgets. */
 export const TIMEOUT = process.env.CI ? CEILING : { ...BUDGET, startup: CEILING.startup };
 
@@ -52,6 +62,11 @@ const launchOptions =
 export const BROWSER_CONFIG = {
     testMatch: "**/*.e2e.ts",
     retries: process.env.CI ? 1 : 0,
+    // Input, locators and the frame loop all wait on browser frames, which a software adapter spaces by seconds.
+    ...(process.env.CI && {
+        timeout: BROWSER_CEILING.test,
+        expect: { timeout: BROWSER_CEILING.expect },
+    }),
     use: {
         trace: "on-first-retry",
         browserName: "chromium",
