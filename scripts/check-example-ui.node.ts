@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { parse } from "@babel/parser";
@@ -79,7 +79,7 @@ const HEX = /#[0-9a-f]+\b/gi;
 const KEYWORDS = new Set(["transparent", "currentcolor", "inherit", "none"]);
 // A computed part of a cssText template or Svelte style attribute; it is not read.
 const COMPUTED_NAME = "--computed";
-const COMPUTED = `var(${COMPUTED_NAME})`;
+const COMPUTED = `${COMPUTED_NAME}()`;
 
 function hexColor(value: string): string | undefined {
     const digits = value.slice(1).toLowerCase();
@@ -601,14 +601,30 @@ async function exampleCss(root: string): Promise<Css> {
             }
         }
         const imports = [
-            ...css.sheets.join("\n").matchAll(/@import\s+(?:url\(\s*)?["']?([^\s"');]+)["']?/g),
+            ...css.sheets.join("\n").matchAll(/@import\s+(?:url\(\s*)?["']?([^\s"');]+)["']?/gi),
         ];
         if (/\.[cm]?[jt]s$|\.svelte$/.test(path))
             imports.push(
                 ...source.matchAll(/\bimport\s+(?:[^;]*?\sfrom\s*)?["']([^"']+\.css)["']/g),
             );
-        for (const match of imports) {
-            const name = match[1]!;
+        const names = imports.map((match) => match[1]!);
+        if (path.endsWith(".html"))
+            await new HTMLRewriter()
+                .on("link[href]", {
+                    element(element) {
+                        if (
+                            element
+                                .getAttribute("rel")
+                                ?.toLowerCase()
+                                .split(/\s+/)
+                                .includes("stylesheet")
+                        )
+                            names.push(element.getAttribute("href")!);
+                    },
+                })
+                .transform(new Response(source))
+                .text();
+        for (const name of names) {
             if (/^(?:https?:|\/\/|data:)/.test(name)) throw new Error(`remote stylesheet: ${name}`);
             await load(
                 name.startsWith("/") ? join(root, "public", name) : resolve(dirname(path), name),
@@ -626,7 +642,8 @@ function styleRules(css: Css): StyleRule[] {
     for (const sheet of [...css.sheets, ...css.lists.map((list) => `inline{${list}}`)]) {
         function visit(value: any, media = "", current?: StyleRule): void {
             if (!value || typeof value !== "object") return;
-            if (value.type === "Atrule" && value.name === "media") media += value.prelude;
+            if (value.type === "Atrule" && value.name.toLowerCase() === "media")
+                media += `${media ? " and " : ""}${value.prelude}`;
             if (value.type === "Rule") {
                 current = {
                     selector: decodeEscapes(sheet.slice(value.prelude.start, value.prelude.end)),
@@ -669,6 +686,70 @@ function selectors(text: string): string[] {
     return result;
 }
 
+function mediaModes(media: string): string[] {
+    if (!media) return ["fine"];
+    const modes = selectors(media).map((query) =>
+        query.match(
+            /^(?:(?:screen|all)\s+and\s+)?\(\s*(pointer\s*:\s*(fine|coarse)|max-width\s*:\s*480px)\s*\)$/i,
+        ),
+    );
+    return modes.some((mode) => !mode)
+        ? []
+        : modes.map((mode) => mode![2]?.toLowerCase() ?? "phone");
+}
+
+function boxValues(value: string): string[] {
+    const [top, right = top, bottom = top, left = right] = value.split(/\s+/);
+    return [top!, right!, bottom!, left!].map((v) => (v === "0" ? "0px" : v));
+}
+
+function spacingMatches(property: string, value: string, expected: string): boolean {
+    if (/gap$/.test(property)) return value === expected;
+    const sides: Record<string, number[]> = {
+        top: [0],
+        right: [1],
+        bottom: [2],
+        left: [3],
+        block: [0, 2],
+        inline: [1, 3],
+        "block-start": [0],
+        "block-end": [2],
+        "inline-start": [3],
+        "inline-end": [1],
+    };
+    const indices = sides[property.replace(/^(padding|margin)-/, "")] ?? [0, 1, 2, 3];
+    if (value.split(/\s+/).length > indices.length) return false;
+    const values = indices.length === 4 ? boxValues(value) : value.split(/\s+/);
+    return indices.every((side, i) => (values[i] ?? values[0]) === boxValues(expected)[side]);
+}
+
+function targetsControl(selector: string, kind: string): boolean {
+    const tag = kind === "checkbox" || kind === "range" ? "input" : kind;
+    function covers(list: any): boolean {
+        return list.children.some((branch: any) =>
+            branch.children.at(-1).selectors.every((node: any) => {
+                if (node.type === "TypeSelector") return node.name === tag || node.name === "*";
+                if (node.type === "AttributeSelector")
+                    return node.name === "type" && node.matcher === "=" && node.value === kind;
+                if (node.type !== "PseudoClassSelector") return false;
+                if (node.name === "focus-visible") return true;
+                if (node.name === "is" || node.name === "where") return covers(node.args);
+                // Disabled controls cannot focus; other restrictions do not cover the whole kind.
+                return (
+                    node.name === "not" &&
+                    node.args.children.every(
+                        (b: any) =>
+                            b.children.length === 1 &&
+                            b.children[0].selectors.length === 1 &&
+                            b.children[0].selectors[0].name === "disabled",
+                    )
+                );
+            }),
+        );
+    }
+    return covers((parseCss(`${selector}{}`).children[0] as any).prelude);
+}
+
 function controlViolations(css: Css, light = false): string[] {
     const failures: string[] = [];
     let rules: StyleRule[];
@@ -694,25 +775,46 @@ function controlViolations(css: Css, light = false): string[] {
             definitions.set(property, values);
         }
     function expand(value: string, stack: string[] = []): string {
-        return decodeEscapes(value).replace(
-            /var\(\s*(--[\w-]+)\s*(?:,\s*([^()]*))?\)/g,
-            (_, name, fallback) => {
-                if (name === COMPUTED_NAME) return COMPUTED;
-                if (stack.includes(name)) {
-                    failures.push(`cyclic variable: ${name}`);
-                    return "invalid";
+        let text = value;
+        for (;;) {
+            const call = [...text.matchAll(/("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|var\(/gi)].find(
+                (match) => !match[1],
+            );
+            if (!call) break;
+            const start = call.index;
+            let end = start + 4;
+            let depth = 1;
+            let comma = -1;
+            let quote = "";
+            for (; end < text.length && depth; end++) {
+                const char = text[end]!;
+                if (quote) {
+                    if (char === quote && text[end - 1] !== "\\") quote = "";
+                    continue;
                 }
-                const values = definitions.get(name);
-                if (!values) {
-                    if (fallback !== undefined) return expand(fallback, stack);
-                    failures.push(`unknown variable: ${name}`);
-                    return "invalid";
-                }
+                if (char === "'" || char === '"') quote = char;
+                else if (char === "(") depth++;
+                else if (char === ")") depth--;
+                else if (char === "," && depth === 1 && comma === -1) comma = end;
+            }
+            if (depth) {
+                failures.push("unclosed variable");
+                return "invalid";
+            }
+            const name = decodeEscapes(text.slice(start + 4, comma < 0 ? end - 1 : comma).trim());
+            const fallback = comma < 0 ? undefined : text.slice(comma + 1, end - 1);
+            const values = definitions.get(name);
+            let replacement = "invalid";
+            if (stack.includes(name)) failures.push(`cyclic variable: ${name}`);
+            else if (values) {
                 const expanded = values.map((v) => expand(v, [...stack, name]));
                 if (new Set(expanded).size !== 1) failures.push(`ambiguous variable: ${name}`);
-                return expanded[0]!;
-            },
-        );
+                replacement = expanded[0]!;
+            } else if (fallback !== undefined) replacement = expand(fallback, stack);
+            else failures.push(`unknown variable: ${name}`);
+            text = text.slice(0, start) + replacement + text.slice(end);
+        }
+        return text;
     }
     const normalize = (s: string) => s.trim().replace(/\s+/g, " ").replace(/"/g, "'");
     const has = (value: string, expected: string) => normalize(value) === normalize(expected);
@@ -725,18 +827,24 @@ function controlViolations(css: Css, light = false): string[] {
     for (const rule of rules) {
         const { selector: s, media } = rule;
         const gameplay = /^(?:gameplay)$|\.reticle\b|\.reticle-dot\b|\[data-touch-stick\]/.test(s);
-        const touch = /pointer:\s*coarse|max-width:\s*480px/.test(media);
-        for (const selector of selectors(s)) {
-            if (
-                rowSelector(selector) &&
-                !/:hover|:active|:focus|:disabled|:is|aria-/.test(selector) &&
-                !heights.has(selector)
+        const modes = mediaModes(media);
+        const touch = modes.includes("coarse") || modes.includes("phone");
+        if (
+            rowSelector(s) &&
+            !/:hover|:active|:focus|:disabled|:is|aria-/.test(s) &&
+            !heights.has(s)
+        )
+            heights.set(s, new Set());
+        if (
+            /^\.ec$|\.panel-title\b|\.section-title\b|\bh[2-6]\b|\boutput\b|\.value\b/.test(s) ||
+            rule.declarations.some(
+                (d) =>
+                    /^(?:font(?:-family|-size|-weight)?|line-height)$/.test(d.property) &&
+                    (d.value !== "inherit" || s === "body"),
             )
-                heights.set(selector, new Set());
-            if (/\.panel-title\b|\.section-title\b|\bh[2-6]\b|\boutput\b|\.value\b/.test(selector))
-                types.set(selector, [...(types.get(selector) ?? []), ...rule.declarations]);
-        }
-        if (/\d/.test(media.replace(/max-width:\s*480px/g, ""))) failures.push(`media: ${media}`);
+        )
+            types.set(s, [...(types.get(s) ?? []), ...rule.declarations]);
+        if (!modes.length) failures.push(`media: ${media}`);
         for (const { property: rawProperty, value: raw } of rule.declarations) {
             const p = decodeEscapes(rawProperty).toLowerCase();
             const v = expand(raw).trim();
@@ -746,26 +854,34 @@ function controlViolations(css: Css, light = false): string[] {
                 if (expected && !has(v, expected)) fail("token");
                 // Unregistered aliases are still checked as literals, not an escape hatch.
             }
-            const text = v
-                .replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, "")
-                .replace(/url\([^)]*\)/g, "");
-            for (const match of text.matchAll(HEX))
+            const unquoted = (value: string) =>
+                value
+                    .replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, "")
+                    .replace(/url\([^)]*\)/gi, "");
+            const text = decodeEscapes(unquoted(v));
+            const colors = `${text} ${decodeEscapes(unquoted(raw))}`;
+            for (const match of colors.matchAll(HEX))
                 if (!Object.values(palette).includes(match[0].toLowerCase() as typeof palette.bg))
                     fail("chrome color");
-            if (COLOR_FUNCTIONS.test(text) && !text.includes(COMPUTED_NAME)) fail("color syntax");
-            COLOR_FUNCTIONS.lastIndex = 0;
-            for (const word of text.match(/(?<![\w$#.-])[a-z]+(?![\w(-])/gi) ?? [])
+            for (const match of colors.matchAll(COLOR_FUNCTIONS))
+                if (!match[1]?.includes(`${COMPUTED_NAME}(`)) fail("color syntax");
+            for (const word of colors.match(/(?<![\w$#.-])[a-z]+(?![\w(-])/gi) ?? [])
                 if (!KEYWORDS.has(word.toLowerCase()) && Bun.color(word, "hex") !== null)
                     fail("color syntax");
             if (p.startsWith("--")) {
                 const values = new Set([...Object.values(tokens), "0", "1fr"]);
                 for (const number of text.matchAll(
-                    /(?<![\w#.-])\d*\.?\d+(?:px|rem|em|dvh|vh|vw|%|fr)?(?![\w.])/g,
+                    /(?<![\w#.-])[+-]?\d*\.?\d+(?:e[+-]?\d+)?(?:[a-z]+|%)?(?![\w.])/gi,
                 ))
                     if (!values.has(number[0])) fail("geometry token");
                 continue;
             }
             if (p === "zoom" || /shadow/.test(p)) fail("surface");
+            if (
+                (/image|mask/.test(p) && v !== "none") ||
+                /(?:gradient|url|image|cross-fade|element|paint)\s*\(/i.test(v)
+            )
+                fail("image surface");
             if (p === "opacity" && (!/^[01]$/.test(v) || /:disabled|aria-disabled/.test(s)))
                 fail("opacity");
             if (/scale\(/.test(v)) fail("scale");
@@ -783,20 +899,16 @@ function controlViolations(css: Css, light = false): string[] {
             )
                 fail("type role");
             if (p === "font-size" && v !== size && !(s === "h1" && v === "24px")) fail("type role");
-            if (p === "font-family" && s !== "@font-face" && !has(v, family)) fail("type role");
+            if (p === "font-family" && !has(v, family)) fail("type role");
             if (p === "font-weight" && v !== weight) fail("type role");
             if (p === "line-height" && v !== "20px") fail("type role");
             if (p === "letter-spacing" && (!heading || v !== ".08em")) fail("heading tracking");
             if (p === "text-transform" && v === "uppercase" && !heading) fail("heading case");
             if (!gameplay && /^(?:min-)?height$/.test(p) && rowSelector(s)) {
                 if (v !== (touch ? "44px" : "32px")) fail("row");
-                for (const selector of selectors(s)) {
-                    const modes = heights.get(selector) ?? new Set();
-                    if (!touch) modes.add("fine");
-                    if (/pointer:\s*coarse/.test(media)) modes.add("coarse");
-                    if (/max-width:\s*480px/.test(media)) modes.add("phone");
-                    heights.set(selector, modes);
-                }
+                const coverage = heights.get(s) ?? new Set();
+                for (const mode of modes) coverage.add(mode);
+                heights.set(s, coverage);
             }
             if (!gameplay && /^(?:padding|margin|gap|row-gap|column-gap)(?:-|$)/.test(p)) {
                 let expected = "0px";
@@ -806,6 +918,8 @@ function controlViolations(css: Css, light = false): string[] {
                         : /\.section\b|\bnav\s*$|\.categories section/.test(s)
                           ? "4px"
                           : "8px";
+                else if (p.startsWith("margin") && heading && /categories/.test(s))
+                    expected = "0px 0px 8px";
                 else if (p.startsWith("padding"))
                     expected = title
                         ? "12px 16px"
@@ -814,24 +928,23 @@ function controlViolations(css: Css, light = false): string[] {
                           : /\.fields\b|\.scenes\b/.test(s)
                             ? "16px"
                             : /dependents/.test(s)
-                              ? "8px"
+                              ? "0px 0px 0px 8px"
                               : /button|select/.test(s)
                                 ? "4px 8px"
                                 : "0px";
                 if (
-                    !has(v, expected) &&
+                    !spacingMatches(p, v, expected) &&
                     !/^0(?:px)?(?: 0(?:px)?)*$/.test(v) &&
                     !(
                         /slider-thumb/.test(s) &&
                         p === "margin-top" &&
                         has(v, "calc((4px - 16px) / 2)")
-                    ) &&
-                    !(heading && has(v, "0px 0px 8px"))
+                    )
                 )
                     fail("spacing role");
             }
             if (!gameplay && /^(?:top|right|bottom|left|inset)$/.test(p)) {
-                const lengths = [...v.matchAll(/(\d+)px/g)].map((m) => m[1]);
+                const lengths = [...v.matchAll(/([+-]?\d*\.?\d+)px/g)].map((m) => m[1]);
                 if (lengths.some((n) => n !== (touch ? "16" : "24")) && !/\.scenes\b/.test(s))
                     fail("inset role");
             }
@@ -843,7 +956,6 @@ function controlViolations(css: Css, light = false): string[] {
             const check = /checkbox/.test(s);
             const thumb = /slider-thumb|range-thumb/.test(s);
             const track = /slider-runnable-track|range-track/.test(s);
-            const focus = /:focus-visible/.test(s);
             const background = /^(background|background-color)$/.test(p);
             const border = /^(border(?:-color)?|border-(?:left|right|top|bottom)(?:-color)?)$/.test(
                 p,
@@ -880,11 +992,15 @@ function controlViolations(css: Css, light = false): string[] {
                       : check
                         ? "muted"
                         : "line";
-            if (p === "outline" && focus) {
-                if (!has(v, `2px solid ${palette.gold}`)) fail("focus role");
-            }
             if (p === "outline-offset" && v !== "2px") fail("focus role");
-            if (role && !v.includes(palette[role]) && !v.includes(COMPUTED_NAME))
+            if (
+                role &&
+                !has(
+                    v,
+                    border && !p.endsWith("color") ? `1px solid ${palette[role]}` : palette[role],
+                ) &&
+                !v.includes(COMPUTED_NAME)
+            )
                 fail("state role");
             if (
                 background &&
@@ -894,16 +1010,25 @@ function controlViolations(css: Css, light = false): string[] {
                 fail("state role");
             if (
                 (hover || pressed) &&
-                selectors(s).some(
-                    (selector) =>
-                        /button|select|checkbox|thumb/.test(selector) &&
-                        /:hover|:active/.test(selector) &&
-                        !selector.includes(":not(:disabled)"),
-                )
+                /button|select|checkbox|thumb/.test(s) &&
+                !s.includes(":not(:disabled)")
             )
                 fail("disabled priority");
             // Gameplay stick, touch buttons and reticles retain their geometry outside the panel kit.
             if (gameplay) continue;
+            if (
+                /^(?:transform(?:-.+)?|translate|rotate|scale|perspective(?:-.+)?)$/.test(p) &&
+                v !== "none" &&
+                !(
+                    p === "transform" &&
+                    /\.picker\b|\.scenes\b/.test(s) &&
+                    ["translateX(calc(0px - 50%))", "translateX(-50%)"].some((center) =>
+                        has(v, center),
+                    )
+                )
+            )
+                fail("transform role");
+            if (p === "width" && /\.controls\b/.test(s) && v !== "360px") fail("panel width role");
             if (/radius/.test(p) && !["0", "0px", "2px"].includes(v)) fail("corner role");
             if ((check || thumb || track) && /^(width|height)$/.test(p)) {
                 const expected = check ? "16px" : thumb ? (p === "width" ? "8px" : "16px") : "4px";
@@ -918,12 +1043,21 @@ function controlViolations(css: Css, light = false): string[] {
                 "1fr",
                 "100%",
                 "50%",
+                ...(p === "transform" ? ["-50%"] : []),
                 "100dvh",
                 "60dvh",
             ]);
             let sizes: string[] = [];
             if (/radius/.test(p) || /^outline/.test(p)) sizes = ["2px"];
             else if (/border/.test(p)) sizes = ["1px"];
+            else if (p === "width")
+                sizes = check
+                    ? ["16px"]
+                    : thumb
+                      ? ["8px"]
+                      : /\.controls\b|\.name\b/.test(s)
+                        ? ["360px"]
+                        : [];
             else if (/width/.test(p))
                 sizes = check
                     ? ["16px"]
@@ -936,7 +1070,7 @@ function controlViolations(css: Css, light = false): string[] {
                           : /button/.test(s)
                             ? ["44px"]
                             : ["360px", "16px", "32px"];
-            else if (/height/.test(p))
+            else if (/^(?:min-|max-)?height$/.test(p))
                 sizes =
                     check || thumb
                         ? ["16px"]
@@ -956,13 +1090,14 @@ function controlViolations(css: Css, light = false): string[] {
             )
                 continue;
             for (const m of text.matchAll(
-                /(?<![\w#.-])\d*\.?\d+(?:px|rem|em|dvh|vh|vw|%|fr)?(?![\w.])/g,
+                /(?<![\w#.-])[+-]?\d*\.?\d+(?:e[+-]?\d+)?(?:[a-z]+|%)?(?![\w.])/gi,
             )) {
                 if (!allowed.has(m[0]) && !sizes.includes(m[0])) fail("geometry role");
             }
         }
     }
-    for (const rule of rules.filter((rule) => rule.selector.includes(":focus-visible"))) {
+    const focusRules = rules.filter((rule) => rule.selector.includes(":focus-visible"));
+    for (const rule of focusRules) {
         if (
             !rule.declarations.some(
                 (d) => d.property === "outline" && expand(d.value) === `2px solid ${palette.gold}`,
@@ -978,7 +1113,7 @@ function controlViolations(css: Css, light = false): string[] {
         !rules.some(
             (rule) =>
                 /nav button:not\(\.name\)/.test(rule.selector) &&
-                /max-width:\s*480px/.test(rule.media) &&
+                mediaModes(rule.media).includes("phone") &&
                 rule.declarations.some(
                     (d) => d.property === "min-width" && expand(d.value) === "44px",
                 ),
@@ -992,13 +1127,7 @@ function controlViolations(css: Css, light = false): string[] {
             if (!owned.some((rule) => rule.selector.includes(state)))
                 failures.push(`state ${state} missing: ${kind}`);
         }
-        if (
-            !rules.some(
-                (rule) =>
-                    rule.selector.includes(":focus-visible") &&
-                    rule.declarations.some((d) => d.property === "outline"),
-            )
-        )
+        if (!focusRules.some((rule) => targetsControl(rule.selector, kind)))
             failures.push(`focus missing: ${kind}`);
         if (
             !rules.some(
@@ -1012,8 +1141,11 @@ function controlViolations(css: Css, light = false): string[] {
     }
     for (const [selector, declarations] of types) {
         if (/:hover|:active|:focus|:disabled/.test(selector)) continue;
-        if (!declarations.some((d) => d.property === "font" || d.property === "font-size"))
-            failures.push(`type role missing: ${selector}`);
+        if (!declarations.some((d) => d.property === "font" && expand(d.value) !== "inherit")) {
+            for (const property of ["font-family", "font-size", "font-weight", "line-height"])
+                if (!declarations.some((d) => d.property === property))
+                    failures.push(`type ${property} missing: ${selector}`);
+        }
         if (/\.section-title\b|\bh[2-6]\b/.test(selector)) {
             if (
                 !declarations.some(
@@ -1042,19 +1174,26 @@ function controlViolations(css: Css, light = false): string[] {
     return failures;
 }
 
+const licenseText = (text: string) => text.replace(/^-+$/gm, "").replace(/\s+/g, " ").trim();
+const OFL_TEXT = licenseText(
+    await readFile("scripts/fixtures/example-controls/OFL-1.1.txt", "utf8"),
+);
+
 async function fontViolations(root: string, css: Css): Promise<string[]> {
     const failures: string[] = [];
     const sheet = css.sheets.join("\n");
-    const faces = [...sheet.matchAll(/@font-face\s*\{([^}]+)\}/g)].map((m) => m[1]!);
+    const faces = [...sheet.matchAll(/@font-face\s*\{([^}]+)\}/gi)].map((m) => m[1]!);
     const families = new Set(["IBM Plex Sans", "JetBrains Mono"]);
-    for (const match of sheet.matchAll(/font-family:\s*['"]([^'"]+)['"]/g)) families.add(match[1]!);
+    for (const match of sheet.matchAll(/font-family:\s*['"]([^'"]+)['"]/gi))
+        families.add(match[1]!);
     for (const family of families) {
         if (!sheet.includes(family) && !css.lists.some((s) => s.includes(family))) continue;
         for (const weight of family === "JetBrains Mono" ? ["400", "700"] : ["400"]) {
             const face = faces.find(
-                (f) => f.includes(family) && new RegExp(`font-weight:\\s*${weight}\\b`).test(f),
+                (f) =>
+                    f.includes(family) && new RegExp(`font-weight:\\s*${weight}\\b`, "i").test(f),
             );
-            const url = face?.match(/url\(['"]?([^)'"\s]+)['"]?\)/)?.[1];
+            const url = face?.match(/url\(['"]?([^)'"\s]+)['"]?\)/i)?.[1];
             if (!url?.endsWith(".woff2") || !url.startsWith("/")) {
                 failures.push(`font face: ${family} ${weight}`);
                 continue;
@@ -1064,9 +1203,14 @@ async function fontViolations(root: string, css: Css): Promise<string[]> {
                 if (relative(resolve(root, "public"), path).startsWith(".."))
                     throw new Error("outside public");
                 const data = await readFile(path);
-                if (data.toString("ascii", 0, 4) !== "wOF2") failures.push(`woff2: ${url}`);
+                if (
+                    data.length < 48 ||
+                    data.toString("ascii", 0, 4) !== "wOF2" ||
+                    data.readUInt32BE(8) !== data.length
+                )
+                    failures.push(`woff2: ${url}`);
                 const license = await readFile(join(dirname(path), "OFL.txt"), "utf8");
-                if (!/SIL OPEN FONT LICENSE/i.test(license)) failures.push(`OFL: ${url}`);
+                if (!licenseText(license).includes(OFL_TEXT)) failures.push(`OFL: ${url}`);
             } catch {
                 failures.push(`shipped font/OFL: ${url}`);
             }
@@ -1091,6 +1235,82 @@ test("example-controls candidate holds colour, type, spacing, rows, states and g
 });
 
 const controlMutations: [string, string, string][] = [
+    [
+        "1: gradient gold panel",
+        "background: var(--bg2)",
+        "background: linear-gradient(var(--bg2), var(--gold))",
+    ],
+    ["1: image panel", "background: var(--bg2)", "background: url('/surface.png') var(--bg2)"],
+    [
+        "1: background image",
+        "background: var(--bg2)",
+        "background: var(--bg2); background-image: url('/surface.png')",
+    ],
+    [
+        "2: output inherits sans",
+        ".ec output { font: var(--regular) var(--small)/var(--leading) var(--mono);",
+        ".ec output { font-size: var(--small);",
+    ],
+    [
+        "3: wrong heading padding sides",
+        "padding: var(--zero) var(--s2)",
+        "padding: var(--zero) var(--zero) var(--s2)",
+    ],
+    ["3: wrong heading padding-left", "padding: var(--zero) var(--s2)", "padding-left: var(--s4)"],
+    [
+        "4: print coarse is not screen coverage",
+        "@media (pointer: coarse)",
+        "@media print and (pointer: coarse)",
+    ],
+    [
+        "4: negated coarse is not coarse coverage",
+        "@media (pointer: coarse)",
+        "@media not (pointer: coarse)",
+    ],
+    [
+        "4: coarse limited to phone is not coarse coverage",
+        "@media (pointer: coarse)",
+        "@media (pointer: coarse) and (max-width: 480px)",
+    ],
+    [
+        "8: summary-only focus",
+        ":is(button, input, select, summary):focus-visible",
+        "summary:focus-visible",
+    ],
+    [
+        "8: range-only focus omits checkboxes",
+        ":is(button, input, select, summary):focus-visible",
+        ":is(button, input[type='range'], select, summary):focus-visible",
+    ],
+    ["9: panel takes row token", "width: var(--panel); max-width", "width: var(--row); max-width"],
+    [
+        "9: unowned negative transform",
+        "box-sizing: border-box",
+        "transform: translateX(-17px); box-sizing: border-box",
+    ],
+    [
+        "9: unowned positive transform",
+        "box-sizing: border-box",
+        "transform: translateX(16px); box-sizing: border-box",
+    ],
+    ["12: computed-name fallback", "color: var(--ink)", "color: var(--computed, #ff0000)"],
+    ["12: nested fallback", "color: var(--ink)", "color: var(--missing, var(--other, #ff0000))"],
+    ["12: dormant fallback literal", "color: var(--ink)", "color: var(--ink, #ff0000)"],
+    ["12: dormant fallback function", "color: var(--ink)", "color: var(--ink, rgb(255 0 0))"],
+    [
+        "2: body inherits host family",
+        "font: var(--regular) var(--body)/var(--leading) var(--sans)",
+        "font-size: var(--body)",
+    ],
+    [
+        "2: body inherits host scale",
+        "font: var(--regular) var(--body)/var(--leading) var(--sans)",
+        "font: inherit",
+    ],
+    ["9: unknown dimension unit", "width: var(--panel); max-width", "width: 1in; max-width"],
+    ["9: independent rotation", "box-sizing: border-box", "rotate: 1turn; box-sizing: border-box"],
+    ["9: independent scaling", "box-sizing: border-box", "scale: 2; box-sizing: border-box"],
+    ["3: negative desktop inset", "top: var(--s5)", "top: -24px"],
     ["1: off-site chrome", "--bg: #141210", "--bg: #191816"],
     ["1: scene colour is not chrome", "--ink: #f0e6d6", "--ink: #ddaa3f"],
     ["1: alpha surface", "--bg: #141210", "--bg: #141210cc"],
@@ -1214,6 +1434,39 @@ for (const [name, before, after] of controlMutations)
         ).toBeGreaterThan(0);
     });
 
+test("audited screen queries, explicit type longhands and nested safe fallbacks pass", () => {
+    for (const sheet of [
+        controlFixture.replaceAll("@media", "@MEDIA").replaceAll("@font-face", "@FONT-FACE"),
+        controlFixture + `.ec::before { content: "var(--not-a-variable), red"; }`,
+        controlFixture + `.ec::before { content: 'it\\'s red'; }`,
+        controlFixture.replace("(pointer: coarse)", "screen and (pointer: coarse)"),
+        controlFixture.replaceAll(
+            "translateX(calc(var(--zero) - var(--half)))",
+            "translateX(-50%)",
+        ),
+        controlFixture.replace(
+            "font: var(--regular) var(--small)/var(--leading) var(--mono); font-variant-numeric",
+            "font-family: var(--mono); font-size: var(--small); font-weight: var(--regular); line-height: var(--leading); font-variant-numeric",
+        ),
+        controlFixture.replace(
+            "padding: var(--zero) var(--s2)",
+            "padding-top: 0px; padding-right: 8px; padding-bottom: 0px; padding-left: 8px",
+        ),
+        controlFixture.replace(
+            "color: var(--ink)",
+            "color: var(--missing, var(--other, var(--ink)))",
+        ),
+    ])
+        expect(controlViolations({ sheets: [sheet], lists: [] })).toEqual([]);
+    for (const extra of [
+        ".ec.controls { transform: translateX(-17px); }",
+        ".ec { color: var(--computed, #ff0000); }",
+    ])
+        expect(
+            controlViolations({ sheets: [controlFixture + extra], lists: [] }).length,
+        ).toBeGreaterThan(0);
+});
+
 test("variables may alias site tokens and inline labels retain the body type role", () => {
     expect(
         controlViolations({
@@ -1281,23 +1534,47 @@ test("11/12: local script and CSS imports, font weights, woff2 and adjacent OFL 
         await writeFile(join(root, "src/main.ts"), 'import "../../controls.css";');
         await writeFile(join(sandbox, "controls.css"), "@import url(./imported.css);");
         await writeFile(imported, controlFixture);
+        const font = Buffer.alloc(48);
+        font.write("wOF2");
+        font.writeUInt32BE(font.length, 8);
         for (const name of ["plex", "mono", "mono-bold"])
-            await writeFile(join(root, `public/fonts/${name}.woff2`), "wOF2fixture");
-        await writeFile(join(root, "public/fonts/OFL.txt"), "SIL OPEN FONT LICENSE Version 1.1");
+            await writeFile(join(root, `public/fonts/${name}.woff2`), font);
+        await writeFile(join(root, "public/fonts/OFL.txt"), OFL_TEXT);
         expect(await exampleControls(root)).toEqual([]);
+        for (const source of [
+            '<link rel="stylesheet" href="../evil.css">',
+            '<LINK REL="StyleSheet" HREF="../evil.css">',
+            '<style>@IMPORT "../evil.css";</style>',
+        ]) {
+            await writeFile(join(sandbox, "evil.css"), ".ec { color: red; }");
+            await writeFile(join(root, "index.html"), source);
+            expect((await exampleControls(root)).length).toBeGreaterThan(0);
+        }
+        await writeFile(join(root, "index.html"), "");
         for (const extra of [
             ".ec { color: red; }",
             ":root { --bad: #ff0000; } .ec { color: var(--bad); }",
             '@import "https://example.com/hidden.css";',
+            '@IMPORT "https://example.com/hidden.css";',
         ]) {
             await writeFile(imported, controlFixture + extra);
             expect((await exampleControls(root)).length).toBeGreaterThan(0);
         }
         await writeFile(imported, controlFixture);
+        for (const file of ["plex.woff2", "OFL.txt"]) {
+            const path = join(root, "public/fonts", file);
+            const original = await readFile(path);
+            await unlink(path);
+            expect((await exampleControls(root)).length).toBeGreaterThan(0);
+            await writeFile(path, original);
+        }
         for (const [file, content] of [
             ["mono-bold.woff2", "not a font"],
-            ["OFL.txt", "not a licence"],
-        ]) {
+            ["mono-bold.woff2", "wOF2"],
+            ["mono-bold.woff2", font.subarray(0, 47)],
+            ["mono-bold.woff2", Buffer.concat([font, Buffer.alloc(1)])],
+            ["OFL.txt", "SIL OPEN FONT LICENSE"],
+        ] as const) {
             const path = join(root, "public/fonts", file!);
             const original = await readFile(path);
             await writeFile(path, content!);
