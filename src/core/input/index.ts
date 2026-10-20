@@ -1118,6 +1118,11 @@ export function createBrowserInputPlugin(host?: InputHost): Plugin {
     };
 }
 
+function resetTouchDelta(point: Mutable<TouchPoint>): void {
+    point.deltaX = 0;
+    point.deltaY = 0;
+}
+
 const ResetFrameInputSystem: System = {
     name: "frame-reset",
     group: "draw",
@@ -1133,13 +1138,10 @@ const ResetFrameInputSystem: System = {
         d.touch.pinchDelta = 0;
         d.touch.deltaX = 0;
         d.touch.deltaY = 0;
-        d.touch.pressed.clear();
-        d.touch.released.clear();
-        d.touch.canceled.clear();
-        for (const point of d.touchPoints.values()) {
-            point.deltaX = 0;
-            point.deltaY = 0;
-        }
+        if (d.touch.pressed.size !== 0) d.touch.pressed.clear();
+        if (d.touch.released.size !== 0) d.touch.released.clear();
+        if (d.touch.canceled.size !== 0) d.touch.canceled.clear();
+        if (d.touchPoints.size !== 0) d.touchPoints.forEach(resetTouchDelta);
     },
 };
 
