@@ -76,6 +76,7 @@
         "examples/embedded-scene",
         "examples/day-night-cycle",
         "examples/hud",
+        "examples/post-processing",
         "examples/interact",
         "examples/world-ui",
         "examples/save-and-load",
