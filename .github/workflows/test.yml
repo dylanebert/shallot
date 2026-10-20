@@ -428,7 +428,9 @@ jobs:
           Write-Output 'Windows native smoke permits WARP; each page marker records its adapter and runtime.'
           Get-ChildItem 'C:/Program Files (x86)/Microsoft/EdgeWebView/Application' -Directory | Select-Object Name
           Write-Output 'WebView2 154.0.4258.62 is not gated: run 39460262333 observed CPU startup but no WebGPU adapter with software explicitly allowed. This job gates CEF only.'
-          bun scripts/native-smoke.ts --portable-only --consumer "$root/consumer" --logs "$root/logs" 2>&1 | Tee-Object "$root/logs/driver.log"
+          # CEF's CMake/MSVC scratch paths must fit the compiler's path limit.
+          $consumer = Join-Path $env:SystemDrive 'sn'
+          bun scripts/native-smoke.ts --portable-only --consumer "$consumer" --logs "$root/logs" 2>&1 | Tee-Object "$root/logs/driver.log"
           exit $LASTEXITCODE
       - name: retain Windows native smoke logs
         if: always()
