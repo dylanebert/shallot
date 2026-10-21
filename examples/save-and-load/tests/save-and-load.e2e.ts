@@ -38,6 +38,7 @@ test("every control holds still across feedback, disabled, hover and focus", asy
         );
     const initial = await boxes();
     await expect(controls.nth(2)).toBeDisabled();
+    await expect(controls.nth(2)).toHaveCSS("background-color", "rgb(28, 25, 23)");
     await controls.nth(2).hover();
     await expect(controls.nth(2).locator("kbd")).toHaveCSS("transform", "none");
     expect(await boxes()).toEqual(initial);
@@ -57,7 +58,7 @@ test("every control holds still across feedback, disabled, hover and focus", asy
     expect(await boxes()).toEqual(initial);
     for (const control of await controls.all()) {
         await control.hover();
-        await expect(control).toHaveCSS("background-color", "rgb(20, 18, 16)");
+        await expect(control).toHaveCSS("background-color", "rgb(60, 50, 44)");
         await expect(control).toHaveCSS("border-color", "rgb(160, 140, 120)");
         await expect(control.locator("kbd")).toHaveCSS("transform", "none");
         expect(await boxes()).toEqual(initial);
@@ -72,7 +73,7 @@ test("every control holds still across feedback, disabled, hover and focus", asy
     }
     await controls.nth(2).evaluate((element) => (element as HTMLElement).blur());
     await controls.nth(1).hover();
-    await expect(controls.nth(1)).toHaveCSS("background-color", "rgb(20, 18, 16)");
+    await expect(controls.nth(1)).toHaveCSS("background-color", "rgb(60, 50, 44)");
     await page.mouse.down();
     await expect(controls.nth(1)).toHaveCSS("background-color", "rgb(42, 36, 32)");
     await page.mouse.up();

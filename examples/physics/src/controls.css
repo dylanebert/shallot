@@ -2,7 +2,7 @@
 @font-face { font-family: 'JetBrains Mono'; font-weight: 400; font-style: normal; font-display: swap; src: url('/fonts/mono/JetBrainsMono-Regular.woff2') format('woff2'); }
 @font-face { font-family: 'JetBrains Mono'; font-weight: 700; font-style: normal; font-display: swap; src: url('/fonts/mono/JetBrainsMono-Bold.woff2') format('woff2'); }
 :root {
- --bg: #141210; --bg2: #1c1917; --ink: #f0e6d6; --muted: #a08c78; --gold: #d49560; --dim: #7a5a3a; --line: #2a2420;
+ --raised: #3c322c; --bg: #141210; --bg2: #1c1917; --ink: #f0e6d6; --muted: #a08c78; --gold: #d49560; --dim: #7a5a3a; --line: #2a2420;
  --sans: 'IBM Plex Sans', system-ui, sans-serif; --mono: 'JetBrains Mono', ui-monospace, monospace;
  --small: 12px; --body: 13px; --title: 15px; --regular: 400; --strong: 700; --leading: 20px; --tracking: .08em;
  --zero: 0px; --hair: 1px; --radius: 2px; --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
@@ -28,11 +28,12 @@
 .ec .dependents .row { grid-template-columns: calc(var(--label) - var(--s2) - var(--hair)) minmax(var(--zero), 1fr); }
 .ec label { cursor: pointer; }
 .ec input { margin: var(--zero); font: inherit; }
-.ec input[type='checkbox'] { appearance: none; flex-shrink: var(--none); width: var(--check); height: var(--check); border: var(--hair) solid var(--muted); border-radius: var(--radius); background: var(--bg); display: grid; place-content: center; cursor: pointer; }
+.ec input[type='checkbox'] { appearance: none; flex-shrink: var(--none); width: var(--check); height: var(--check); border: var(--hair) solid var(--muted); border-radius: var(--radius); background: var(--raised); display: grid; place-content: center; cursor: pointer; }
 .ec input[type='checkbox']:checked { background: var(--dim); border-color: var(--muted); }
 .ec input[type='checkbox']:checked::after { content: '✓'; color: var(--ink); }
 .ec input[type='checkbox']:hover:not(:disabled) { border-color: var(--ink); }
 .ec input[type='checkbox']:active:not(:disabled) { background: var(--line); }
+.ec input[type='checkbox']:disabled { background: var(--bg2); }
 .ec input[type='range'] { appearance: none; width: var(--full); height: var(--row); background: transparent; cursor: ew-resize; }
 .ec input[type='range']::-webkit-slider-runnable-track { height: var(--track); background: var(--line); border-radius: var(--radius); }
 .ec input[type='range']::-webkit-slider-thumb { appearance: none; width: var(--thumb); height: var(--s4); margin-top: calc((var(--track) - var(--s4)) / var(--two)); background: var(--muted); border-radius: var(--radius); }
@@ -58,7 +59,8 @@
  .ec input[type='range'] { height: var(--touch); }
 }
 
-.ec button { min-height: var(--row); padding: var(--s1) var(--s2); color: var(--ink); background: var(--bg); border: var(--hair) solid var(--line); border-radius: var(--radius); font: var(--regular) var(--body)/var(--leading) var(--sans); cursor: pointer; }
+.ec button { min-height: var(--row); padding: var(--s1) var(--s2); color: var(--ink); background: var(--raised); border: var(--hair) solid var(--line); border-radius: var(--radius); font: var(--regular) var(--body)/var(--leading) var(--sans); cursor: pointer; }
+.ec button:disabled { background: var(--bg2); }
 .ec button:hover:not(:disabled) { border-color: var(--muted); }
 .ec button:active:not(:disabled) { background: var(--line); }
 .ec button[aria-current='true'] { border-color: var(--gold); }

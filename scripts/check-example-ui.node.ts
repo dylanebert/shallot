@@ -435,7 +435,8 @@ function requiredStates(kind: string): StateRole[] {
         }
     } else if (kind === "checkbox")
         states.push(
-            ["rest", "", "background", "bg"],
+            ["rest", "", "background", "raised"],
+            ["disabled", "", "background", "bg2"],
             ["rest", "", "border", "muted"],
             ["checked", "", "background", "dim"],
             ["checked", "after", "color", "ink"],
@@ -444,7 +445,8 @@ function requiredStates(kind: string): StateRole[] {
         );
     else {
         states.push(
-            ["rest", "", "background", "bg"],
+            ["rest", "", "background", "raised"],
+            ["disabled", "", "background", "bg2"],
             ["rest", "", "border", "line"],
             ["rest", "", "color", "ink"],
             ["hover", "", "border", "muted"],
@@ -497,7 +499,8 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
     } catch (error) {
         return [`css: ${error}`];
     }
-    const hostPalette = EXAMPLE_CONTROLS[light ? "light" : "dark"];
+    const hostPalette: Record<keyof typeof EXAMPLE_CONTROLS.light, string> & { raised?: string } =
+        EXAMPLE_CONTROLS[light ? "light" : "dark"];
     const tokens: Record<string, string> = {
         ...EXAMPLE_CONTROLS.tokens,
         ...hostPalette,
@@ -567,7 +570,7 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
             /^(?::root|\*|html|body|html,body|h1|\.page|\.scene|\.frame|\.description|\.frame-error|\.bootstrap-panel|\.title-card|\.lockup|\.notice|\.error|\[data-shallot-bootstrap\](?:\[data-state="error"\])?|\[data-bootstrap-(?:label|track)\])$/.test(
                 s,
             );
-        const palette =
+        const palette: Record<keyof typeof EXAMPLE_CONTROLS.light, string> & { raised?: string } =
             EXAMPLE_CONTROLS[
                 light && (!embedded || /^(?::root|body|h1|\.page|\.description)$/.test(s))
                     ? "light"
@@ -734,15 +737,17 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
                             : "muted"
                     : track
                       ? "line"
-                      : pressed
-                        ? "line"
-                        : check
-                          ? /:checked/.test(s)
-                              ? "dim"
-                              : "bg"
-                          : /controls|scenes|section-title/.test(s)
-                            ? "bg2"
-                            : "bg";
+                      : disabled
+                        ? "bg2"
+                        : pressed
+                          ? "line"
+                          : check
+                            ? /:checked/.test(s)
+                                ? "dim"
+                                : "raised"
+                            : /controls|scenes|section-title/.test(s)
+                              ? "bg2"
+                              : "raised";
             if (border && v !== "0px" && v !== "0")
                 role = selected
                     ? "gold"
@@ -757,10 +762,13 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
             if (
                 role &&
                 !passive &&
-                !has(
-                    v,
-                    border && !p.endsWith("color") ? `1px solid ${palette[role]}` : palette[role],
-                ) &&
+                (!palette[role] ||
+                    !has(
+                        v,
+                        border && !p.endsWith("color")
+                            ? `1px solid ${palette[role]}`
+                            : palette[role]!,
+                    )) &&
                 !v.includes(COMPUTED_NAME)
             )
                 fail("state role");
@@ -908,11 +916,12 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
                             const p = d.property.toLowerCase();
                             return (
                                 (p === property || p === `${property}-color`) &&
+                                hostPalette[role] !== undefined &&
                                 has(
                                     expand(d.value),
                                     p === "border"
                                         ? `1px solid ${hostPalette[role]}`
-                                        : hostPalette[role],
+                                        : hostPalette[role]!,
                                 )
                             );
                         }),
@@ -1041,8 +1050,36 @@ function deleteStateProperty(sheet: string, selector: string, property: string):
     throw new Error(`fixture declaration missing: ${selector} ${property}`);
 }
 
+for (const rest of ["bg", "line"]) {
+    test(`8: controls cannot rest on ${rest}`, () => {
+        const css = controlFixture.replaceAll(
+            "background: var(--raised)",
+            `background: var(--${rest})`,
+        );
+        expect(
+            controlViolations({ sheets: [css], lists: [] }).some((failure) =>
+                failure.startsWith("state role:"),
+            ),
+        ).toBe(true);
+    });
+}
+
+for (const surface of ["raised", "line", "bg"]) {
+    test(`8: disabled fields and buttons cannot rest on ${surface}`, () => {
+        const css = controlFixture.replaceAll(
+            ":disabled { background: var(--bg2)",
+            `:disabled { background: var(--${surface})`,
+        );
+        const failures = controlViolations({ sheets: [css], lists: [] });
+        for (const kind of ["button", "select", "checkbox"])
+            expect(failures).toContain(`state missing: ${kind} disabled  background`);
+    });
+}
+
 const stateDeletions: [string, string, string][] = [
     ["button/select rest surface", ".ec button, .ec select", "background"],
+    ["button/select disabled surface", ".ec button:disabled, .ec select:disabled", "background"],
+    ["checkbox disabled surface", ".ec input[type='checkbox']:disabled", "background"],
     ["button/select rest border", ".ec button, .ec select", "border"],
     ["button/select rest text", ".ec button, .ec select", "color"],
     [
@@ -1117,7 +1154,7 @@ test("8: button-only disabled text cannot cover other control kinds", () => {
 
 test("8: styled options require rest, hover, pressed, selected and disabled text", () => {
     const option =
-        ".ec option { background: var(--bg); border: var(--hair) solid var(--line); color: var(--ink); }\n.ec option:hover:not(:disabled) { border-color: var(--muted); }\n.ec option:active:not(:disabled) { background: var(--line); }\n.ec option[aria-selected='true'] { border-color: var(--gold); }\n.ec option:focus-visible { outline: var(--radius) solid var(--gold); outline-offset: var(--radius); }";
+        ".ec option { background: var(--raised); border: var(--hair) solid var(--line); color: var(--ink); }\n.ec option:disabled { background: var(--bg2); }\n.ec option:hover:not(:disabled) { border-color: var(--muted); }\n.ec option:active:not(:disabled) { background: var(--line); }\n.ec option[aria-selected='true'] { border-color: var(--gold); }\n.ec option:focus-visible { outline: var(--radius) solid var(--gold); outline-offset: var(--radius); }";
     const sheet = controlFixture + option;
     expect(controlViolations({ sheets: [sheet], lists: [] })).toEqual([]);
     for (const [selector, property] of [
@@ -1498,11 +1535,13 @@ test("touch action geometry does not excuse missing button states", async () => 
     }
 });
 
-test("1: embedded host uses light counterparts without allowing scene materials", () => {
+test("1: light counterparts have no control rest surface", () => {
     let light = controlFixture;
-    for (const key of Object.keys(EXAMPLE_CONTROLS.dark) as (keyof typeof EXAMPLE_CONTROLS.dark)[])
+    for (const key of Object.keys(
+        EXAMPLE_CONTROLS.light,
+    ) as (keyof typeof EXAMPLE_CONTROLS.light)[])
         light = light.replaceAll(EXAMPLE_CONTROLS.dark[key], EXAMPLE_CONTROLS.light[key]);
-    expect(controlViolations({ sheets: [light], lists: [] }, true)).toEqual([]);
+    expect(controlViolations({ sheets: [light], lists: [] }, true).length).toBeGreaterThan(0);
     expect(
         controlViolations({ sheets: [light.replace("#f7f3ec", "#141210")], lists: [] }, true)
             .length,

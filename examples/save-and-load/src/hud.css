@@ -4,12 +4,12 @@
 .save-hud h1 { position: absolute; top: calc(24px + env(safe-area-inset-top)); left: 0; right: 0; text-align: center; margin: 0; }
 h1 { font: 400 24px/20px 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
 .save-hud .hud { position: absolute; bottom: calc(24px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; pointer-events: auto; }
-.save-hud button { box-sizing: border-box; display: flex; align-items: center; gap: 8px; width: 144px; min-height: 32px; color: #f0e6d6; background: #141210; border: 1px solid #2a2420; border-radius: 2px; padding: 4px 8px; font: inherit; cursor: pointer; white-space: nowrap; text-align: left; }
+.save-hud button { box-sizing: border-box; display: flex; align-items: center; gap: 8px; width: 144px; min-height: 32px; color: #f0e6d6; background: #3c322c; border: 1px solid #2a2420; border-radius: 2px; padding: 4px 8px; font: inherit; cursor: pointer; white-space: nowrap; text-align: left; }
 .save-hud button:hover:not(:disabled) { border-color: #a08c78; }
 .save-hud button:active:not(:disabled) { background: #2a2420; }
 .save-hud button:focus-visible { outline: 2px solid #d49560; outline-offset: 2px; }
 .save-hud button[aria-pressed='true'] { border-color: #d49560; }
-.save-hud button:disabled { color: #a08c78; cursor: default; }
+.save-hud button:disabled { background: #1c1917; color: #a08c78; cursor: default; }
 .save-hud kbd[hidden] { display: none; }
 .save-hud kbd { order: -1; display: grid; place-items: center; font: inherit; }
 @media (pointer: coarse) { .save-hud button { min-height: 44px; } }

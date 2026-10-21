@@ -24,6 +24,7 @@ export const EXAMPLE_CONTROLS = {
     dark: {
         bg: "#141210",
         bg2: "#1c1917",
+        raised: "#3c322c",
         ink: "#f0e6d6",
         muted: "#a08c78",
         gold: "#d49560",

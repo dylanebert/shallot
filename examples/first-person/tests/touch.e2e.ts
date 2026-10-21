@@ -94,7 +94,7 @@ for (const claim of ["move and look", "jump"]) {
             points = [{ id: 1, x: 280, y: 450 }];
             await send("touchStart");
             const button = page.getByRole("button", { name: "Jump", exact: true });
-            await expect(button).toHaveCSS("background-color", "rgb(20, 18, 16)");
+            await expect(button).toHaveCSS("background-color", "rgb(60, 50, 44)");
             await expect(button).toHaveCSS("border-color", "rgb(42, 36, 32)");
             await expect(button).toHaveCSS("font-family", '"IBM Plex Sans", system-ui, sans-serif');
             await expect(button).toHaveCSS("font-size", "13px");
