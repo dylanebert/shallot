@@ -13,7 +13,7 @@
     <body>
         <canvas width="1280" height="720"></canvas>
         <script type="module">
-            import { createApp, mountOverlay } from "@dylanebert/shallot";
+            import { createApp, mountOverlay, DirectionalLight, PointLight, SpotLight } from "@dylanebert/shallot";
             import { captureFrame } from "@dylanebert/shallot/rendering";
             import { flushSync } from "svelte";
             import { hud } from "../src/hud";
@@ -21,8 +21,12 @@
 
             const canvas = document.querySelector("canvas");
             // Controls checks read game state and the DOM; a low pixel ratio keeps each stepped draw cheap.
-            const pixelRatio = new URL(location.href).searchParams.has("controls") ? 0.05 : "auto";
-            const app = await createApp({ plugins: [ScenePlugin], pixelRatio });
+            const controls = new URL(location.href).searchParams.has("controls");
+            const pixelRatio = controls ? 0.05 : "auto";
+            const app = await createApp({ plugins: [ScenePlugin], pixelRatio, setup(world) {
+                if (controls) for (const type of [DirectionalLight, PointLight, SpotLight])
+                    for (const eid of world.query([type])) world.storage(type).shadowMapsEnabled.set(eid, 0);
+            } });
             const { Orbit } = await import("@dylanebert/shallot/extras");
             window.controlsKey = () => {
                 app.world.step(1 / 60);
