@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeEach, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
@@ -9,9 +9,21 @@ import { projectChromium } from "./publish-verify";
 
 const root = mkdtempSync(join(tmpdir(), "shallot-publish-refusals-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
+const progress: string[] = [];
+const expectedProgress: { pattern: RegExp; optional?: boolean }[] = [];
+let stderr: ReturnType<typeof spyOn<typeof process.stderr, "write">>;
+function expectProgress(pattern: RegExp, options: { optional?: boolean } = {}): void {
+    expectedProgress.push({ pattern, ...options });
+}
 let previousCI: string | undefined;
 let previousAccount: string | undefined;
 beforeEach(() => {
+    progress.length = 0;
+    expectedProgress.length = 0;
+    stderr = spyOn(process.stderr, "write").mockImplementation((chunk) => {
+        progress.push(chunk.toString().replace(/\n$/, ""));
+        return true;
+    });
     previousCI = process.env.CI;
     previousAccount = process.env.CLOUDFLARE_ACCOUNT_ID;
     process.env.CI = "true";
@@ -22,6 +34,14 @@ afterEach(() => {
     else process.env.CI = previousCI;
     if (previousAccount === undefined) delete process.env.CLOUDFLARE_ACCOUNT_ID;
     else process.env.CLOUDFLARE_ACCOUNT_ID = previousAccount;
+    stderr.mockRestore();
+    for (const { pattern, optional } of expectedProgress) {
+        if (!optional)
+            expect(
+                progress.some((message) => pattern.test(message)),
+                `Missing stderr matching ${pattern}`,
+            ).toBe(true);
+    }
 });
 const account = { id: "a".repeat(32), name: "fixture" };
 const identity = { loggedIn: true, accounts: [account] };
@@ -152,9 +172,9 @@ for (const [claim, answer, message] of [
 ] satisfies [string, Answer, string][]) {
     test(`non-interactive publish: ${claim}`, async () => {
         const { project, original, commands } = fixture(answer);
-        if (!answer.link) expectError(/^Using publish target cloudflare\.$/);
-        expectError(/^Using Cloudflare account fixture /, { optional: true });
-        expectError(/^Using project name .* as the Worker name\.$/, { optional: true });
+        if (!answer.link) expectProgress(/^Using publish target cloudflare\.$/);
+        expectProgress(/^Using Cloudflare account fixture /, { optional: true });
+        expectProgress(/^Using project name .* as the Worker name\.$/, { optional: true });
         const result = publishProject(project);
         await expect(result).rejects.toThrow(message);
         expect(readFileSync(join(project, "package.json"), "utf8")).toBe(original);
@@ -177,10 +197,10 @@ test("first-link setup builds and writes the target's artifact before invoking d
         captureDeploy: true,
         versions: { status: 1, stdout: "", code: 10007 },
     });
-    expectError(/^Using publish target cloudflare\.$/);
-    expectError(/^Using Cloudflare account fixture /);
-    expectError(/^Using project name fixture-game as the Worker name\.$/);
-    expectError(/^\s*fixture deploy refused\n$/);
+    expectProgress(/^Using publish target cloudflare\.$/);
+    expectProgress(/^Using Cloudflare account fixture /);
+    expectProgress(/^Using project name fixture-game as the Worker name\.$/);
+    expectProgress(/^\s*fixture deploy refused\n$/);
     await expect(publishProject(project)).rejects.toThrow("Wrangler deploy failed");
     const deployment = JSON.parse(
         readFileSync(join(project, "node_modules/wrangler/deployment.json"), "utf8"),
@@ -202,7 +222,7 @@ test("a deliberate saved link skips the first-link collision query", async () =>
     const { project, original, commands } = fixture({
         link: { target: "cloudflare", name: "fixture-game", accountId: account.id },
     });
-    expectError(/^Using Cloudflare account fixture /);
+    expectProgress(/^Using Cloudflare account fixture /);
     expectError(/^Cannot resolve Vite /);
     await expect(publishProject(project)).rejects.toThrow("vite build exited");
     expect(readFileSync(commands, "utf8")).not.toContain('"versions"');
@@ -263,7 +283,7 @@ import { writeFileSync } from 'node:fs';
 writeFileSync(new URL('./installed.json', import.meta.url), JSON.stringify(process.argv.slice(2)));
 `,
     );
-    expectError(/^Installing the project's Playwright Chromium\.$/);
+    expectProgress(/^Installing the project's Playwright Chromium\.$/);
     const browser = await projectChromium(project);
     expect(JSON.parse(readFileSync(join(provider, "installed.json"), "utf8"))).toEqual([
         "install",
