@@ -1,9 +1,23 @@
 <!doctype html><html><head><link rel="stylesheet" href="../src/touch.css"><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{margin:0;background:#141210}canvas{display:block;width:100vw;height:100vh}</style></head><body><canvas></canvas><script type="module">
-import { runApp, Transform, Devices, Character, GroundState } from '@dylanebert/shallot';
+import { createApp, DirectionalLight, PointLight, SpotLight, Transform, Devices, Character, GroundState } from '@dylanebert/shallot';
+import { PhysicsWorldDefinition } from '@dylanebert/shallot/standard/physics';
 import { Player, PlayerInput } from '../src/player';
 import { MotesPlugin } from '../src/motes';
 
-const app = await runApp({plugins:[MotesPlugin], });
+// The checks read input and DOM state, not pixels, and rebuild the game for each claim.
+const start = async () => {
+ const app = await createApp({plugins:[MotesPlugin], pixelRatio:0.05, setup(world){
+  world.resource(PhysicsWorldDefinition).workerCount=1;
+  // Input and DOM checks do not read shadow pixels.
+  for(const type of [DirectionalLight,PointLight,SpotLight])
+   for(const eid of world.query([type])) world.storage(type).shadowMapsEnabled.set(eid,0);
+ }});
+ // Bind canvas input before the first touch.
+ app.world.step(1/60);
+ return app;
+};
+let app;
+window.reset = async () => { app?.dispose(); app = await start(); };
 // Steps sample input and draw; ticks advance only fixed simulation, from the last sampled input.
 window.sample = (steps = 0, ticks = 0) => {
  const world = app.world;

@@ -1,11 +1,26 @@
 <!doctype html><html><head><link rel="stylesheet" href="../src/touch.css"><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{margin:0;background:#141210}canvas{display:block;width:100vw;height:100vh}</style></head><body><canvas></canvas><script type="module">
-import { runApp, Transform, Devices, Character, GroundState } from '@dylanebert/shallot';
+import { createApp, DirectionalLight, PointLight, SpotLight, Transform, Devices, Character, GroundState } from '@dylanebert/shallot';
+import { PhysicsWorldDefinition } from '@dylanebert/shallot/standard/physics';
 import { Player, PlayerInput } from '../src/player';
 import { AppPlugin } from '../src/app';
 import { Route } from '../src/demo';
 import { Text, internText } from '@dylanebert/shallot/extras';
 
-const app = await runApp({plugins:[AppPlugin], });
+// These input, text and chrome claims use a small stepped game, without shadow pixels.
+const shared = new URL(location.href).searchParams.has('shared');
+const start = async () => {
+ const app = await createApp({plugins:[AppPlugin],pixelRatio:0.05,setup(world){
+  world.resource(PhysicsWorldDefinition).workerCount=1;
+  // Input and DOM checks do not read shadow pixels.
+  for(const type of [DirectionalLight,PointLight,SpotLight])
+   for(const eid of world.query([type])) world.storage(type).shadowMapsEnabled.set(eid,0);
+ }});
+ // Bind canvas input and compose the instruction text before the first touch.
+ app.world.step(1/60);
+ return app;
+};
+let app = shared ? undefined : await start();
+window.reset = async () => { app?.dispose(); app = await start(); };
 window.hint = (value) => app.world.storage(Text).content.get(app.world.resource(Route).entities.controls) === internText(app.world, value);
 // Steps sample input and draw; ticks advance only fixed simulation, from the last sampled input.
 window.sample = (steps = 0, ticks = 0) => {
