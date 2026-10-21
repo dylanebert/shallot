@@ -60,6 +60,7 @@ test("bare shallot presents the project map, loop, commands, targets and help co
   Commands
     create <name>                create a project from minimal or an example
     migrate                      print the 0.10 to 0.10.1 migration guide
+    publish [--target cloudflare] build, publish and verify a public web game
     dev --target <platform>      develop a desktop app
     build --target <platform>    build a desktop app
     preview --target <platform>  launch a desktop build
@@ -296,7 +297,7 @@ test("shallot create --help presents the outer-folder project command and templa
     --template <example>  Copy an installed example
     -h, --help            Show this help`.trim(),
     );
-    expect(result.stdout).toMatch(/\n  Templates\n    [a-z][a-z0-9-]* — [^\n]+\n/);
+    expect(result.stdout).toMatch(/\n {2}Templates\n {4}[a-z][a-z0-9-]* — [^\n]+\n/);
     expect(result.stdout).toContain("loading-screen — A game's own title card");
     expect(result.stderr).toBe("");
 });

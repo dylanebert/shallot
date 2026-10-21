@@ -121,12 +121,16 @@
         "test": "bun test --preload ./scripts/test-timeout.ts"
     },
     "peerDependencies": {
+        "wrangler": "4.151.3",
         "playwright": "^1.64.1",
         "webgpu": "^0.6.2",
         "typegpu": "~0.12.8",
         "vite": "^8.0.0"
     },
     "peerDependenciesMeta": {
+        "wrangler": {
+            "optional": true
+        },
         "playwright": {
             "optional": true
         },
@@ -137,6 +141,8 @@
     "dependencies": {
         "@types/node": "^26.6.5",
         "@webgpu/types": "^0.1.74",
+        "am-i-vibing": "0.5.0",
+        "ci-info": "4.4.0",
         "unplugin-typegpu": "~0.12.6"
     },
     "devDependencies": {
@@ -155,6 +161,7 @@
         "typegpu": "~0.12.8",
         "typescript": "^7.0.2",
         "vite": "^8.3.4",
-        "webgpu": "^0.6.2"
+        "webgpu": "^0.6.2",
+        "wrangler": "4.151.3"
     }
 }

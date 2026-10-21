@@ -46,6 +46,7 @@ export function runVite(
     projectDir: string,
     command: ViteCommand,
     args: string[] = [],
+    stdout: "inherit" | 2 = "inherit",
 ): number {
     let viteCli: string;
     try {
@@ -57,7 +58,7 @@ export function runVite(
     const result = Bun.spawnSync([process.execPath, viteCli, ...viteCliArgs(command, args)], {
         cwd: viteCwd(projectDir),
         stdin: "inherit",
-        stdout: "inherit",
+        stdout,
         stderr: "inherit",
     });
     return result.exitCode;

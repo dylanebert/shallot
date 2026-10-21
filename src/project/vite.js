@@ -3,18 +3,8 @@ import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import typegpu from "unplugin-typegpu/vite";
 import { contentType, resolveAssetPath } from "./assets.js";
+import { CROSS_ORIGIN_ISOLATION } from "./isolation.js";
 
-
-/**
- * Cross-origin isolation headers, applied by Vite's dev and preview servers. Physics multithreads
- * only when the page can hold a shared `WebAssembly.Memory`, which a browser grants only to a
- * cross-origin-isolated document. A static host that cannot set headers gets the documented
- * single-thread fallback.
- */
-const CROSS_ORIGIN_ISOLATION = {
-    "Cross-Origin-Opener-Policy": "same-origin",
-    "Cross-Origin-Embedder-Policy": "require-corp",
-};
 
 /** Installed dependencies that consume Shallot must share the project's engine instance.
  * @param {string} projectDir

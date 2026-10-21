@@ -26,6 +26,7 @@ const usage = `
   Commands
     create <name>                create a project from minimal or an example
     migrate                      print the 0.10 to 0.10.1 migration guide
+    publish [--target cloudflare] build, publish and verify a public web game
     dev --target <platform>      develop a desktop app
     build --target <platform>    build a desktop app
     preview --target <platform>  launch a desktop build
@@ -44,6 +45,27 @@ const usage = `
 `;
 
 const commandUsage = {
+    publish: `
+  shallot publish [--target cloudflare]
+
+  Build with the project's Vite config, preflight Cloudflare's free limits, publish
+  to Workers Static Assets and verify the public link anonymously with Playwright.
+  stdout is the stable play link; progress and verification go to stderr.
+
+  Wrangler requires Node.js 22 or newer on PATH.
+  The first run adds pinned Wrangler to devDependencies and saves shallot.publish
+  (target, name and, when needed, accountId) in package.json. Wrangler owns login
+  and credentials. First links are checked for name collisions before deployment.
+  On a collision a terminal can choose another name; without a TTY, in CI or for
+  an agent, publish refuses. A hand-written link deliberately authorizes an update.
+
+  Non-interactive login: CLOUDFLARE_API_TOKEN; CLOUDFLARE_ACCOUNT_ID when ambiguous.
+  Terminal login: wrangler login; remote terminal: wrangler login --device.
+  Vite client environment values are public. Never put secrets in them.
+
+  --target cloudflare   Choose and save the target (the default)
+  -h, --help            Show this help
+`,
     dev: `
   shallot dev --target <platform> [dir] [Vite options]
 
@@ -121,6 +143,7 @@ ${desktopStatus}
 
 export type CliArgs =
     | { kind: "create"; rest: string[] }
+    | { kind: "publish"; target?: string }
     | { kind: "skill" }
     | { kind: "version" }
     | { kind: "migrate" }
@@ -170,6 +193,14 @@ export function parseCliArgs(raw: string[]): CliArgs {
         return { kind: verb === "--skill" ? "skill" : "version" };
     }
     if (verb === "create") return { kind: "create", rest: raw.slice(1) };
+    if (verb === "publish") {
+        if (raw.length === 1) return { kind: "publish" };
+        if (raw.length === 3 && raw[1] === "--target" && raw[2] && !raw[2].startsWith("-"))
+            return { kind: "publish", target: raw[2] };
+        if (raw.length === 2 && raw[1].startsWith("--target=") && raw[1].slice(9))
+            return { kind: "publish", target: raw[1].slice(9) };
+        throw new Error("publish accepts only --target <name>");
+    }
     if (verb === "migrate") {
         if (raw.length === 1) return { kind: "migrate" };
         throw new Error("migrate takes no arguments");
@@ -219,7 +250,9 @@ export function parseCliArgs(raw: string[]): CliArgs {
 
 function helpHint(raw: string[]): string {
     const command =
-        raw[0] && PROJECT_VERBS.some((verb) => verb === raw[0]) ? `shallot ${raw[0]}` : "shallot";
+        raw[0] && (raw[0] === "publish" || PROJECT_VERBS.some((verb) => verb === raw[0]))
+            ? `shallot ${raw[0]}`
+            : "shallot";
     return `See \`${command} --help\` for available options.`;
 }
 
@@ -268,6 +301,17 @@ export async function main(
         console.error(`unknown command: ${parsed.verb}`);
         console.error("See `shallot --help` for available commands.");
         exit(1);
+    }
+
+    if (parsed.kind === "publish") {
+        try {
+            const { publishProject } = await import("./publish");
+            await publishProject(process.cwd(), parsed.target);
+            exit(0);
+        } catch (error) {
+            console.error(error instanceof Error ? error.message : String(error));
+            exit(1);
+        }
     }
 
     const target = parsed.target;
