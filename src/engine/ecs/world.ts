@@ -16,7 +16,6 @@ import {
     fields,
     freezeComponent,
     idOf,
-    keyOf,
     type ScalarField,
     sameComponentSchema,
     type Vector2Field,
@@ -771,16 +770,15 @@ export class World {
     }
 
     /**
-     * Attach a component with optional field values (vectors are arrays).
-     * Missing fields keep the declared defaults when this world registers the component, and
-     * required companions are added only then. Defaults and starting values go through
-     * field setters, publishing changes. An already attached component is unchanged and warns with
-     * the writes that change it.
+     * Attach a component with optional field values (vectors are arrays), or replace the values of
+     * one already attached, as Bevy's `insert` does. Missing fields take the declared defaults when
+     * this world registers the component, and 0 otherwise; required companions are added only on
+     * attachment. Every write goes through field setters, publishing changes.
      */
     add<T>(eid: number, component: T, values?: ComponentValues<NoInfer<T>>): void {
         const storage = this.storage(component as Component);
+        const id = idOf(component as Component);
         if (this._components.add(eid, component)) {
-            const id = idOf(component as Component);
             for (const field of this._storage.get(id)!.fields.values()) field.ensure(eid + 1);
             this.notifyMembership(component as Component, eid, true);
             const tables = this._tablesByComponent.get(id);
@@ -807,24 +805,21 @@ export class World {
             for (const required of this.registry.getRequirements(component as Component)) {
                 if (!this.has(eid, required)) this.add(eid, required);
             }
-            this.registry.applyDefaults(this, component as Component, eid, values);
-            if (values) {
-                for (const name in values) {
-                    const value = values[name];
-                    if (value === undefined) continue;
-                    const field = storage[name] as ScalarField | Vector2Field | Vector4Field;
-                    if (typeof value === "number") (field as ScalarField).set(eid, value);
-                    else {
-                        const lanes = value as readonly number[];
-                        field.set(eid, lanes[0], lanes[1], lanes[2], lanes[3]);
-                    }
+        } else {
+            for (const field of this._storage.get(id)!.fields.values()) field.clear(eid);
+        }
+        this.registry.applyDefaults(this, component as Component, eid, values);
+        if (values) {
+            for (const name in values) {
+                const value = values[name];
+                if (value === undefined) continue;
+                const field = storage[name] as ScalarField | Vector2Field | Vector4Field;
+                if (typeof value === "number") (field as ScalarField).set(eid, value);
+                else {
+                    const lanes = value as readonly number[];
+                    field.set(eid, lanes[0], lanes[1], lanes[2], lanes[3]);
                 }
             }
-        } else {
-            const key = keyOf(component as Component) ?? "component";
-            console.warn(
-                `world.add: ${key} already attached to entity ${eid} and left unchanged; write its fields through world.storage(${key}), or remove it first`,
-            );
         }
     }
 
