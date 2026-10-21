@@ -31,7 +31,7 @@ test("Bun children keep their host identity under a copy named node", () => {
                 "test",
                 import.meta.filename,
                 "-t",
-                "async Bun child|sync Bun child|packed registry dependencies",
+                "async Bun child|sync Bun child|packed registry dependencies|packed lifecycle dependencies",
             ],
             argv0: "bun",
             stdout: "pipe",
@@ -203,6 +203,21 @@ test("packed registry dependencies install from a manifest-free cache with an un
                 "installed consumer",
             ),
         ).toContain("1 pass");
+    });
+});
+
+test("packed lifecycle dependencies survive installation under a copy named node", () => {
+    offlineFixture(({ project, pack }) => {
+        pack({ ...engine, dependencies: { workerd: "1.20261019.1" } });
+        packedInstall(["install", "--linker=isolated"], project, "lifecycle fixture");
+        expect(
+            existsSync(
+                join(
+                    project,
+                    "node_modules/.bun/workerd@1.20261019.1/node_modules/workerd/package.json",
+                ),
+            ),
+        ).toBe(true);
     });
 });
 

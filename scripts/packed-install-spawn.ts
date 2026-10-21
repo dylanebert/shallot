@@ -4,7 +4,6 @@ import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
 import semver from "semver";
-import { bunChild } from "./bun-child";
 
 const INSTALL_TIMEOUT = 60_000;
 
@@ -96,7 +95,9 @@ export function packedInstall(args: string[], cwd: string, label: string): strin
     ];
     writeFileSync(join(cwd, "bun.lock"), `${JSON.stringify(lock, null, 2)}\n`);
     const output = spawnPackedInstall(
-        bunChild([args[0]!, "--offline", "--frozen-lockfile", "--verbose", ...args.slice(1)]),
+        // Lifecycle scripts re-enter Bun by executable path, without inheriting argv0.
+        // A copy named node.exe interprets Bun's internal `exec` command as a script.
+        { cmd: ["bun", args[0]!, "--offline", "--frozen-lockfile", "--verbose", ...args.slice(1)] },
         cwd,
         label,
     );
