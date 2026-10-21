@@ -13,7 +13,8 @@
 .ec, .ec * { box-sizing: border-box; }
 .ec { color: var(--ink); font: var(--regular) var(--body)/var(--leading) var(--sans); pointer-events: auto; }
 .ec.controls { position: absolute; top: calc(var(--s5) + env(safe-area-inset-top)); right: calc(var(--s5) + env(safe-area-inset-right)); width: var(--panel); max-width: calc(var(--full) - var(--s4) - var(--s4)); max-height: calc(var(--view) - var(--s5) - var(--s5) - var(--reserve)); overflow-y: auto; background: var(--bg2); border: var(--hair) solid var(--line); border-radius: var(--radius); }
-.ec .panel-title { min-height: var(--row); font: var(--strong) var(--title)/var(--leading) var(--mono); padding: var(--s3) var(--s4); border-bottom: var(--hair) solid var(--line); cursor: pointer; }
+.ec .panel-title { min-height: var(--row); font: var(--strong) var(--title)/var(--leading) var(--mono); padding: var(--s3) var(--s4); border-bottom: var(--hair) solid var(--line); }
+.ec summary { cursor: pointer; }
 .ec .panel-title::marker { content: '▶ '; font: var(--strong) var(--title)/var(--leading) var(--mono); }
 .ec[open] .panel-title::marker { content: '▼ '; font: var(--strong) var(--title)/var(--leading) var(--mono); }
 .ec .panel-title:hover { border-color: var(--muted); }
@@ -26,15 +27,15 @@
 .ec fieldset { margin: var(--zero); padding: var(--zero); border: var(--zero); min-width: var(--zero); }
 .ec .dependents { display: grid; padding-left: var(--s2); border-left: var(--hair) solid var(--line); }
 .ec .dependents .row { grid-template-columns: calc(var(--label) - var(--s2) - var(--hair)) minmax(var(--zero), 1fr); }
-.ec label { cursor: pointer; }
+.ec label { cursor: default; }
 .ec input { margin: var(--zero); font: inherit; }
-.ec input[type='checkbox'] { appearance: none; flex-shrink: var(--none); width: var(--check); height: var(--check); border: var(--hair) solid var(--muted); border-radius: var(--radius); background: var(--raised); display: grid; place-content: center; cursor: pointer; }
+.ec input[type='checkbox'] { appearance: none; flex-shrink: var(--none); width: var(--check); height: var(--check); border: var(--hair) solid var(--muted); border-radius: var(--radius); background: var(--raised); display: grid; place-content: center; cursor: default; }
 .ec input[type='checkbox']:checked { background: var(--dim); border-color: var(--muted); }
 .ec input[type='checkbox']:checked::after { content: '✓'; color: var(--ink); }
 .ec input[type='checkbox']:hover:not(:disabled) { border-color: var(--ink); }
 .ec input[type='checkbox']:active:not(:disabled) { background: var(--line); }
 .ec input[type='checkbox']:disabled { background: var(--bg2); }
-.ec input[type='range'] { appearance: none; width: var(--full); height: var(--row); background: transparent; cursor: ew-resize; }
+.ec input[type='range'] { appearance: none; width: var(--full); height: var(--row); background: transparent; cursor: default; }
 .ec input[type='range']::-webkit-slider-runnable-track { height: var(--track); background: var(--line); border-radius: var(--radius); }
 .ec input[type='range']::-webkit-slider-thumb { appearance: none; width: var(--thumb); height: var(--s4); margin-top: calc((var(--track) - var(--s4)) / var(--two)); background: var(--muted); border-radius: var(--radius); }
 .ec input[type='range']:hover:not(:disabled)::-webkit-slider-thumb { background: var(--ink); }
@@ -45,10 +46,10 @@
 .ec input[type='range']:active:not(:disabled)::-moz-range-thumb { background: var(--gold); }
 .ec input[type='range']:disabled::-moz-range-thumb { background: var(--dim); }
 .ec :is(input, summary):focus-visible { outline: var(--radius) solid var(--gold); outline-offset: var(--radius); }
-.ec :disabled { color: var(--muted); cursor: not-allowed; }
+.ec :disabled { color: var(--muted); cursor: default; }
 .ec input[type='range']:disabled::-webkit-slider-thumb { background: var(--dim); }
 .ec fieldset:disabled { color: var(--muted); }
-.ec fieldset:disabled label { cursor: not-allowed; }
+.ec fieldset:disabled label { cursor: default; }
 @media (pointer: coarse) {
  .ec .row, .ec .section-title, .ec .panel-title { min-height: var(--touch); }
  .ec input[type='range'] { height: var(--touch); }
@@ -59,13 +60,14 @@
  .ec input[type='range'] { height: var(--touch); }
 }
 
-.ec button { min-height: var(--row); padding: var(--s1) var(--s2); color: var(--ink); background: var(--raised); border: var(--hair) solid var(--line); border-radius: var(--radius); font: var(--regular) var(--body)/var(--leading) var(--sans); cursor: pointer; }
+.ec button { min-height: var(--row); padding: var(--s1) var(--s2); color: var(--ink); background: var(--raised); border: var(--hair) solid var(--line); border-radius: var(--radius); font: var(--regular) var(--body)/var(--leading) var(--sans); cursor: default; }
 .ec button:disabled { background: var(--bg2); }
 .ec button:hover:not(:disabled) { border-color: var(--muted); }
 .ec button:active:not(:disabled) { background: var(--line); }
 .ec button[aria-current='true'] { border-color: var(--gold); }
 .ec button:focus-visible { outline: var(--radius) solid var(--gold); outline-offset: var(--radius); }
-.ec .toggle { min-height: var(--row); cursor: pointer; }
+.ec .toggle { min-height: var(--row); cursor: default; }
+.ec input:enabled, .ec button:enabled { cursor: pointer; }
 
 .ec .dependents .dependents .row { grid-template-columns: calc(var(--label) - var(--s2) - var(--hair) - var(--s2) - var(--hair)) minmax(var(--zero), 1fr); }
 .ec.picker { position: absolute; z-index: var(--layer); bottom: calc(var(--s5) + env(safe-area-inset-bottom)); left: calc(var(--s5) + env(safe-area-inset-left)); right: calc(var(--s5) + env(safe-area-inset-right)); }

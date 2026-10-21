@@ -8,6 +8,18 @@ type SteppedWindow = Window & {
 };
 const names = ["Lens distortion", "Chromatic aberration", "Vignette"];
 
+test("dragging panel chrome and labels selects no page text", async ({ page }) => {
+    await page.goto("/");
+    const label = page.locator(".section-title").first();
+    await label.waitFor();
+    const box = (await label.boundingBox())!;
+    await page.mouse.move(box.x + 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2, { steps: 20 });
+    await page.mouse.up();
+    expect(await page.evaluate(() => getSelection()?.toString())).toBe("");
+});
+
 async function capture(page: Page, name: string) {
     const save =
         Boolean(process.env.SHALLOT_CAPTURE_DIR) &&

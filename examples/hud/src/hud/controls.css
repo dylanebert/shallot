@@ -10,13 +10,14 @@
  --header-surface: var(--bg2);
 }
 .ec, .ec * { box-sizing: border-box; }
+.ec input:enabled, .ec button:enabled { cursor: pointer; }
 .ec { color: var(--ink); font: var(--regular) var(--body)/var(--leading) var(--sans); pointer-events: auto; }
 .ec .row { display: grid; grid-template-columns: var(--label) minmax(var(--zero), 1fr); align-items: center; gap: var(--s2); min-height: var(--row); }
 .ec .slider { display: grid; grid-template-columns: minmax(var(--zero), 1fr) var(--value); align-items: center; gap: var(--s2); }
 .ec output { font: var(--regular) var(--small)/var(--leading) var(--mono); font-variant-numeric: tabular-nums; text-align: right; }
-.ec label { cursor: pointer; }
+.ec label { cursor: default; }
 .ec input { margin: var(--zero); font: inherit; }
-.ec input[type='range'] { appearance: none; width: var(--full); height: var(--row); background: transparent; cursor: ew-resize; }
+.ec input[type='range'] { appearance: none; width: var(--full); height: var(--row); background: transparent; }
 .ec input[type='range']::-webkit-slider-runnable-track { height: var(--track); background: var(--line); border-radius: var(--radius); }
 .ec input[type='range']::-webkit-slider-thumb { appearance: none; width: var(--thumb); height: var(--s4); margin-top: calc((var(--track) - var(--s4)) / var(--two)); background: var(--muted); border-radius: var(--radius); }
 .ec input[type='range']:hover:not(:disabled)::-webkit-slider-thumb { background: var(--ink); }
@@ -27,14 +28,14 @@
 .ec input[type='range']:active:not(:disabled)::-moz-range-thumb { background: var(--gold); }
 .ec input[type='range']:disabled::-moz-range-thumb { background: var(--dim); }
 .ec :is(input, button):focus-visible { outline: var(--radius) solid var(--gold); outline-offset: var(--radius); }
-.ec :disabled { color: var(--muted); cursor: not-allowed; }
+.ec :disabled { color: var(--muted); cursor: default; }
 .ec input[type='range']:disabled::-webkit-slider-thumb { background: var(--dim); }
 
 .ec.controls.hud { position: absolute; bottom: calc(var(--s5) + env(safe-area-inset-bottom)); left: var(--half); transform: translateX(-50%); width: var(--panel); max-width: calc(var(--full) - var(--s4) - var(--s4)); background: var(--bg2); border: var(--hair) solid var(--line); border-radius: var(--radius); }
 .ec .fields { display: grid; gap: var(--s4); padding: var(--s4); }
 .ec .swatches { display: flex; gap: var(--s2); }
 .ec .swatch { flex: var(--layer); align-self: stretch; }
-.ec button { display: flex; min-width: var(--touch); min-height: var(--row); padding: var(--s1) var(--s2); border: var(--hair) solid var(--line); border-radius: var(--radius); background: var(--raised); color: var(--ink); font: inherit; cursor: pointer; }
+.ec button { display: flex; min-width: var(--touch); min-height: var(--row); padding: var(--s1) var(--s2); border: var(--hair) solid var(--line); border-radius: var(--radius); background: var(--raised); color: var(--ink); font: inherit; cursor: default; }
 .ec button:disabled { background: var(--bg2); }
 .ec button:hover:not(:disabled) { border-color: var(--muted); }
 .ec button:active:not(:disabled) { background: var(--line); }

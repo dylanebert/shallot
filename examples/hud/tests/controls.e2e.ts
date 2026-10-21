@@ -1,5 +1,17 @@
 import { expect, test } from "playwright/test";
 
+test("dragging compact HUD labels selects no page text", async ({ page }) => {
+    await page.goto("/");
+    const label = page.locator(".ec label").first();
+    await label.waitFor();
+    const box = (await label.boundingBox())!;
+    await page.mouse.move(box.x + 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2, { steps: 20 });
+    await page.mouse.up();
+    expect(await page.evaluate(() => getSelection()?.toString())).toBe("");
+});
+
 for (const viewport of [
     { width: 1280, height: 720 },
     { width: 390, height: 844 },

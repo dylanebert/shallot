@@ -1667,7 +1667,122 @@ test("11/12: local script and CSS imports, font weights, woff2 and adjacent OFL 
     }
 });
 
+const chromeProperties = {
+    "user-select": "none",
+    "-webkit-user-select": "none",
+    "-webkit-tap-highlight-color": "transparent",
+    "-webkit-touch-callout": "none",
+    "-webkit-user-drag": "none",
+    cursor: "default",
+};
+
+function chromeViolations(css: Css, embedded = false): string[] {
+    const failures: string[] = [];
+    const rules = styleRules({
+        sheets: [...css.sheets, ...css.lists.map((list) => `.inline { ${list} }`)],
+        lists: [],
+    });
+    const variables = new Map<string, string>();
+    for (const rule of rules)
+        for (const d of rule.declarations)
+            if (d.property.startsWith("--")) variables.set(d.property, d.value);
+    const expand = (value: string): string => {
+        for (let i = 0; i < variables.size; i++)
+            value = value.replace(
+                /var\((--[\w-]+)\)/g,
+                (match, name) => variables.get(name) ?? match,
+            );
+        return value.trim();
+    };
+    // These roots cover dynamically mounted overlays as well as the initial DOM.
+    for (const root of embedded ? [".frame", ".frame *"] : ["body", "body *"]) {
+        for (const [property, expected] of Object.entries(chromeProperties)) {
+            const declarations = rules
+                .filter((r) => !r.media && selectors(r.selector).includes(root))
+                .flatMap((r) => r.declarations)
+                .filter((d) => d.property === property);
+            if (expand(declarations.at(-1)?.value ?? "") !== expected)
+                failures.push(`chrome ${root}: ${property}`);
+        }
+    }
+    for (const rule of rules) {
+        for (const d of rule.declarations) {
+            if (!(d.property in chromeProperties)) continue;
+            const value = expand(d.value);
+            if (d.property === "cursor" && value === "pointer") {
+                for (const selector of selectors(rule.selector)) {
+                    if (
+                        !/(?:\b(?:button|input|select)(?:\[[^\]]*\])?:(?:enabled|not\(:disabled\))|\bsummary)$/.test(
+                            selector,
+                        )
+                    )
+                        failures.push(`chrome pointer: ${selector}`);
+                }
+            } else if (value !== chromeProperties[d.property as keyof typeof chromeProperties]) {
+                failures.push(`chrome override: ${rule.selector} ${d.property}`);
+            }
+        }
+    }
+    return failures;
+}
+
+function draggableImages(source: string): string[] {
+    return [...source.matchAll(/<img\b[^>]*>/gi)]
+        .map((match) => match[0])
+        .filter((image) => !/\bdraggable=["']false["']/.test(image));
+}
+
+test("13: images refuse native drag", () => {
+    expect(draggableImages('<img src="icon.svg" draggable="false">')).toEqual([]);
+    for (const attributes of ["", 'draggable="true"', 'draggable="auto"'])
+        expect(draggableImages(`<img src="icon.svg" ${attributes}>`)).toHaveLength(1);
+});
+
+test("13: every chrome property and Safari spelling is required; passive and disabled pointers fail", () => {
+    const declarations = Object.entries(chromeProperties)
+        .map(([p, v]) => `${p}: ${v};`)
+        .join(" ");
+    const sheet = `body, body * { ${declarations} }`;
+    expect(chromeViolations({ sheets: [sheet], lists: [] })).toEqual([]);
+    for (const [property, value] of Object.entries(chromeProperties)) {
+        expect(
+            chromeViolations({ sheets: [sheet.replace(`${property}: ${value};`, "")], lists: [] })
+                .length,
+        ).toBeGreaterThan(0);
+        expect(
+            chromeViolations({ sheets: [sheet + ` label { ${property}: auto; }`], lists: [] })
+                .length,
+        ).toBeGreaterThan(0);
+    }
+    for (const selector of [
+        "label",
+        "output",
+        "canvas",
+        ".ec",
+        "button",
+        "button:disabled",
+        "input",
+        ".toggle",
+        "label.panel-title",
+    ])
+        expect(
+            chromeViolations({ sheets: [sheet + `${selector} { cursor: pointer; }`], lists: [] })
+                .length,
+        ).toBeGreaterThan(0);
+    expect(
+        chromeViolations({ sheets: [sheet + "button:enabled { cursor: pointer; }"], lists: [] }),
+    ).toEqual([]);
+});
+
 for (const example of await readdir("examples")) {
+    test(`${example} chrome is not page content`, async () => {
+        const css = await exampleCss(join("examples", example));
+        expect(chromeViolations(css, example === "embedded-scene")).toEqual([]);
+        for (const path of await sources(join("examples", example))) {
+            const source = await readFile(path, "utf8");
+            expect(draggableImages(source)).toEqual([]);
+        }
+    });
     test(`${example} follows example-controls`, async () => {
         expect(
             await exampleControls(join("examples", example), example === "embedded-scene"),

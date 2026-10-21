@@ -1,6 +1,18 @@
 import { expect, test } from "playwright/test";
 import { capture } from "./capture";
 
+test("dragging save chrome and its title selects no page text", async ({ page }) => {
+    await page.goto("/");
+    const label = page.locator(".save-hud h1");
+    await label.waitFor();
+    const box = (await label.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2 - 70, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + 70, box.y + box.height / 2, { steps: 20 });
+    await page.mouse.up();
+    expect(await page.evaluate(() => getSelection()?.toString())).toBe("");
+});
+
 test.beforeEach(async ({ page }) => {
     const session = await page.context().newCDPSession(page);
     await session.send("Emulation.setHardwareConcurrencyOverride", { hardwareConcurrency: 1 });

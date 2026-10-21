@@ -33,6 +33,22 @@ async function holdEntry(page: Page): Promise<() => void> {
     return release;
 }
 
+test("dragging passive title-card chrome selects no page text", async ({ page }) => {
+    const release = await holdEntry(page);
+    try {
+        const label = page.locator("[data-shallot-bootstrap] h1");
+        await expect(label).toHaveText("loading-screen");
+        const box = (await label.boundingBox())!;
+        await page.mouse.move(box.x + 1, box.y + box.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width - 1, box.y + box.height / 2, { steps: 20 });
+        await page.mouse.up();
+        expect(await page.evaluate(() => getSelection()?.toString())).toBe("");
+    } finally {
+        release();
+    }
+});
+
 async function inspectBootstrap(page: Page): Promise<{ ink: number; background: number[] }> {
     const screenshot = await page.screenshot();
     return page.evaluate(

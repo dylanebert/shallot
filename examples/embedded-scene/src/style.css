@@ -49,6 +49,15 @@ h1 {
     min-width: 0;
 }
 
+.frame, .frame * {
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    -webkit-user-drag: none;
+    cursor: default;
+}
+
 .frame {
     position: relative;
     width: 100%;

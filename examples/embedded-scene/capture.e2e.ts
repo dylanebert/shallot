@@ -2,6 +2,24 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "./tests/browser-fixture";
 
+test("scene chrome refuses selection while the host heading and body remain page content", async ({
+    page,
+}) => {
+    await page.goto("/");
+    for (const selector of ["h1", ".description", ".frame"]) {
+        await page.evaluate(() => getSelection()?.removeAllRanges());
+        const box = (await page.locator(selector).boundingBox())!;
+        const y = box.y + (selector === ".frame" ? box.height / 2 : 10);
+        await page.mouse.move(box.x + 1, y);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width - 1, y, { steps: 20 });
+        await page.mouse.up();
+        const selection = await page.evaluate(() => getSelection()?.toString());
+        if (selector === ".frame") expect(selection).toBe("");
+        else expect(selection?.length).toBeGreaterThan(0);
+    }
+});
+
 const CAPTURE_ENTRY = resolve(
     dirname(fileURLToPath(import.meta.url)),
     ".artifacts/capture-page.js",
