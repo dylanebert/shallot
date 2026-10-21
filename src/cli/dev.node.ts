@@ -66,7 +66,7 @@ test("native dev refuses a project with no resolvable Vite and names the devDepe
             if (parent === current) break;
         }
         const result = Bun.spawnSync(
-            [process.execPath, join(root, "bin/shallot.ts"), "dev", "--target", "mac", project],
+            [process.execPath, join(root, "bin/shallot.ts"), "dev", "--target", "windows", project],
             { cwd: root, stdout: "pipe", stderr: "pipe" },
         );
         expect(result.exitCode).toBe(1);
@@ -96,7 +96,7 @@ test("native dev in a bun-linked Shallot consumer without Vite names the devDepe
             const parent = dirname(current);
             if (parent === current) break;
         }
-        const result = Bun.spawnSync([process.execPath, linkedBin, "dev", "--target", "mac"], {
+        const result = Bun.spawnSync([process.execPath, linkedBin, "dev", "--target", "windows"], {
             cwd: consumer,
             stdout: "pipe",
             stderr: "pipe",

@@ -362,7 +362,7 @@ test("native commands name a missing project directory before looking for a buil
     const escaped = path.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
     for (const command of ["preview", "dev", "build"]) {
         expectError(new RegExp(`^no project directory at ${escaped}$`));
-        const result = await cli(command, "--target", "mac", path);
+        const result = await cli(command, "--target", "windows", path);
         expect(result.code).toBe(1);
         expect(result.stderr).toBe(`no project directory at ${path}`);
     }
