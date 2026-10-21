@@ -17,11 +17,9 @@ import {
     setRenderPipeline,
 } from "../../engine/runtime";
 import { composite, down, first, layout, Settings, up } from "./shaders";
+import { BloomCompositeMode, blendFactor, type CameraState, type State, stateKey } from "./state";
 
-export const BloomCompositeMode = {
-    EnergyConserving: 0,
-    Additive: 1,
-} as const;
+export { BloomCompositeMode };
 
 /** HDR light scattering before tonemapping. Intensity is the scattered fraction in
  * EnergyConserving mode, or added light in Additive mode. Threshold filters HDR brightness;
@@ -57,62 +55,7 @@ export const Bloom = component(
     },
 );
 
-interface BlendSettings {
-    intensity: number;
-    lowFrequencyBoost: number;
-    lowFrequencyBoostCurvature: number;
-    highPassFrequency: number;
-    compositeMode: number;
-}
-// Bevy bloom/mod.rs::compute_blend_factor; mip 0 blends the top mip into the original.
-export function blendFactor(bloom: BlendSettings, mip: number, maxMip: number): number {
-    let boost =
-        (1 - (1 - mip / maxMip) ** (1 / (1 - bloom.lowFrequencyBoostCurvature))) *
-        bloom.lowFrequencyBoost;
-    const highPass =
-        1 -
-        Math.min(
-            Math.max((mip / maxMip - bloom.highPassFrequency) / bloom.highPassFrequency, 0),
-            1,
-        );
-    boost *= bloom.compositeMode === BloomCompositeMode.EnergyConserving ? 1 - bloom.intensity : 1;
-    return (bloom.intensity + boost) * highPass;
-}
-interface Chain {
-    texture: GPUTexture;
-    width: number;
-    height: number;
-    views: GPUTextureView[];
-    groups: GPUBindGroup[];
-    blends: GPUColorDict[];
-}
-interface CameraState {
-    buffer: GPUBuffer;
-    bytes: Float32Array;
-    words: Uint32Array;
-    effect: EffectPass;
-    chain: Chain | null;
-    groups: WeakMap<GPUTextureView, { first: GPUBindGroup; final: GPUBindGroup }>;
-    mode: number;
-    settings: BlendSettings;
-}
 const CAMERAS = [Camera, Bloom];
-export const stateKey = {
-    create: () => ({
-        first: null as GPURenderPipeline | null,
-        down: null as GPURenderPipeline | null,
-        up: [] as GPURenderPipeline[],
-        composite: null as GPURenderPipeline | null,
-        layout: null as GPUBindGroupLayout | null,
-        sampler: null as GPUSampler | null,
-        cameras: new Map<number, CameraState>(),
-        pass: {
-            label: "bloom",
-            colorAttachments: [{ view: null!, loadOp: "clear", storeOp: "store" }],
-        } as GPURenderPassDescriptor,
-    }),
-};
-type State = ReturnType<typeof stateKey.create>;
 function group(
     world: World,
     state: State,

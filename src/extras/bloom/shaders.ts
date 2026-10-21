@@ -1,5 +1,5 @@
 // Bevy b3bdd75be, crates/bevy_post_process/src/bloom/bloom.wesl.
-// MIT OR Apache-2.0; see bevy/LICENSE-MIT.
+// MIT OR Apache-2.0, copyright Bevy contributors; see ../../core/rendering/bevy-LICENSE-MIT.
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 

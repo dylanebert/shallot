@@ -15,8 +15,9 @@ import type { Plugin, World } from "../../engine";
 import { probeTexture } from "../../engine/runtime";
 import { EffectStackPlugin, Vignette } from "../effect-stack";
 import { compare } from "../effect-stack/parity.fixture";
-import { Bloom, BloomCompositeMode, BloomPlugin, blendFactor, stateKey } from ".";
+import { Bloom, BloomCompositeMode, BloomPlugin } from ".";
 import { bevyPipelines, renderBevy } from "./bevy.fixture";
+import { blendFactor, stateKey } from "./state";
 
 setDefaultTimeout(TIMEOUT.gpu);
 const width = 64;

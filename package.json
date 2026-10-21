@@ -99,6 +99,7 @@
         "!examples/*/test-results",
         "!src/standard/physics/solver/fixtures",
         "!src/standard/physics/oracle/**",
+        "!src/extras/bloom/bevy/**",
         "!src/extras/effect-stack/bevy/**",
         "!src/core/rendering/bevy/**",
         "!src/core/rendering/blender/**",
