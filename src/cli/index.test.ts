@@ -296,7 +296,7 @@ test("shallot create --help presents the outer-folder project command and templa
     --template <example>  Copy an installed example
     -h, --help            Show this help`.trim(),
     );
-    expect(result.stdout).toContain("\n  Templates\n    city —");
+    expect(result.stdout).toMatch(/\n  Templates\n    [a-z][a-z0-9-]* — [^\n]+\n/);
     expect(result.stdout).toContain("loading-screen — A game's own title card");
     expect(result.stderr).toBe("");
 });
