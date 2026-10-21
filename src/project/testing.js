@@ -79,3 +79,66 @@ export const WEB_SERVER_CONFIG = {
     reuseExistingServer: false,
     timeout: CEILING.startup,
 };
+
+/**
+ * Holds a page's animation frames from the first request after `ready` holds. A held frame runs only on
+ * `run(count)`, which runs the held callbacks for `count` browser frames, 1 by default, and resolves after the
+ * last; under `runApp`, each is one `world.step` and its draw. Input events, locator actions and screenshots
+ * otherwise wait on scene draws, which a software adapter spaces by seconds. Call before navigating.
+ * `ready` is a CSS selector or a self-contained in-page predicate, checked at each request until it first
+ * holds. A reload or navigation starts a new document, whose frames run freely until `ready` holds again.
+ * @param {import("playwright/test").Page} page
+ * @param {string | (() => boolean)} ready
+ * @returns {Promise<{ run(count?: number): Promise<void> }>}
+ */
+export async function holdFrames(page, ready) {
+    await page.addInitScript(
+        ({ selector, predicate }) => {
+            const isReady = selector
+                ? () => document.querySelector(selector) !== null
+                : new Function(`return (${predicate})()`);
+            const request = window.requestAnimationFrame.bind(window);
+            const cancel = window.cancelAnimationFrame.bind(window);
+            const held = new Map();
+            let holding = false;
+            let next = -1;
+            window.requestAnimationFrame = (callback) => {
+                holding ||= Boolean(isReady());
+                if (!holding) return request(callback);
+                held.set(next, callback);
+                return next--;
+            };
+            window.cancelAnimationFrame = (id) => (id < 0 ? held.delete(id) : cancel(id));
+            Object.defineProperty(window, "__shallotRunHeldFrames", {
+                value: async (/** @type {number} */ count) => {
+                    for (let frame = 0; frame < count; frame++)
+                        await new Promise((resolve) =>
+                            request((time) => {
+                                // A callback may cancel another due this frame; requests it makes wait for the next.
+                                for (const id of [...held.keys()]) {
+                                    const callback = held.get(id);
+                                    if (!callback) continue;
+                                    held.delete(id);
+                                    callback(time);
+                                }
+                                resolve(undefined);
+                            }),
+                        );
+                },
+            });
+        },
+        typeof ready === "string"
+            ? { selector: ready, predicate: "" }
+            : { selector: "", predicate: ready.toString() },
+    );
+    return {
+        run: (count = 1) =>
+            page.evaluate(
+                (count) =>
+                    /** @type {{ __shallotRunHeldFrames(count: number): Promise<void> }} */ (
+                        /** @type {unknown} */ (window)
+                    ).__shallotRunHeldFrames(count),
+                count,
+            ),
+    };
+}

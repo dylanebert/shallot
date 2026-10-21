@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+    <head><meta charset="UTF-8" /><title>Held frames</title></head>
+    <body style="margin:0">
+        <canvas style="display:block;width:100vw;height:100vh"></canvas>
+        <script type="module">
+            import { runApp } from "@dylanebert/shallot";
+            let steps = 0;
+            window.steps = () => steps;
+            await runApp({
+                plugins: [{ name: "StepCount", systems: [{ name: "StepCount/count", update() { steps++; } }] }],
+                ui(overlay) {
+                    const button = document.createElement("button");
+                    button.textContent = "Control";
+                    button.style.cssText = "position:absolute;left:16px;top:16px;pointer-events:auto";
+                    overlay.append(button);
+                },
+            });
+        </script>
+    </body>
+</html>
