@@ -16,16 +16,29 @@ function position(z){
  w.storage(LocalPlayer).viewYaw.set(s.player,0);w.storage(LocalPlayer).viewPitch.set(s.player,0);
  w.step(1/60);w.step(1/60);
 }
-function mask(value){for(const eid of s.parts)w.storage(RenderLayers).mask.set(eid,value);}
+// Hides the given parts; the returned function restores each part's own layers.
+function hideParts(parts=s.parts){
+ const layers=parts.map(eid=>w.storage(RenderLayers).mask.get(eid));
+ for(const eid of parts)w.storage(RenderLayers).mask.set(eid,0);
+ return()=>parts.forEach((eid,i)=>w.storage(RenderLayers).mask.set(eid,layers[i]));
+}
+// A check of the evidence calls' own restoring starts with the first part hidden.
+if(new URL(location.href).searchParams.has('hidden'))w.storage(RenderLayers).mask.set(s.parts[0],0);
+// Shows only the view model; the returned function restores the world camera's own layers.
+function hideWorld(){
+ const had=w.has(s.camera,RenderLayers),layers=had?w.storage(RenderLayers).mask.get(s.camera):0;
+ if(had)w.storage(RenderLayers).mask.set(s.camera,0);else w.add(s.camera,RenderLayers,{mask:0});
+ return()=>{if(had)w.storage(RenderLayers).mask.set(s.camera,layers);else w.remove(s.camera,RenderLayers);};
+}
 function changed(a,b){let n=0;for(let i=0;i<a.length;i+=4)if(Math.abs(a[i]-b[i])+Math.abs(a[i+1]-b[i+1])+Math.abs(a[i+2]-b[i+2])>15)n++;return n;}
 window.evidence=async(name)=>{
  position(2);
  if(name==='contact'){
-  position(-0.6);const on=await image();mask(0);const off=await image();mask(2);return changed(on,off);
+  position(-0.6);const on=await image();const showParts=hideParts();const off=await image();showParts();return changed(on,off);
  }
  if(name==='depth'){
-  w.add(s.camera,RenderLayers,{mask:0});const on=await image();
-  w.storage(RenderLayers).mask.set(s.parts[0],0);const off=await image();mask(2);w.remove(s.camera,RenderLayers);
+  const showWorld=hideWorld();const on=await image();
+  const showPart=hideParts([s.parts[0]]);const off=await image();showPart();showWorld();
   // The grip meets the housing behind its front face.
   let n=0;for(let y=260;y<275;y++)for(let x=395;x<410;x++){let i=(y*640+x)*4;n+=Math.abs(on[i]-off[i])+Math.abs(on[i+1]-off[i+1])+Math.abs(on[i+2]-off[i+2]);}
   return {overlap:n, exposed:changed(on,off)};
@@ -36,12 +49,15 @@ window.evidence=async(name)=>{
    const words=new Uint32Array(bytes);
    for(const eid of [s.camera,s.modelCamera])total+=words[((draw.args.offset??0)+w.resource(Views).get(eid).slot*(draw.args.viewStride??0))/4+1];
   }return total;};
-  const on=await count();mask(0);const off=await count();mask(2);return on-off;
+  const on=await count();const showParts=hideParts();const off=await count();showParts();return on-off;
  }
- w.add(s.camera,RenderLayers,{mask:0});const before=await image();
+ const showWorld=hideWorld();const before=await image();
+ const fov=w.storage(Camera).fov.get(s.camera),illuminance=w.storage(DirectionalLight).illuminance.get(s.light);
  if(name==='fov')w.storage(Camera).fov.set(s.camera,45);
  if(name==='light')w.storage(DirectionalLight).illuminance.set(s.light,0);
- const after=await image();w.remove(s.camera,RenderLayers);return changed(before,after);
+ const after=await image();showWorld();
+ w.storage(Camera).fov.set(s.camera,fov);w.storage(DirectionalLight).illuminance.set(s.light,illuminance);
+ return changed(before,after);
 };
 window.frame=async(name)=>{
  position(name==='held'?2:-0.6);
