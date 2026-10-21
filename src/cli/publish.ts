@@ -72,10 +72,13 @@ export function publishAssets(directory: string): PublishAsset[] {
     return files.sort((a, b) => a.path.localeCompare(b.path));
 }
 
-export function preflightPublish(
-    assets: PublishAsset[],
-    limits: { files: number; bytes: number },
-): void {
+interface PublishLimits {
+    files: number;
+    bytes: number;
+    reserved?: readonly string[];
+}
+
+export function preflightPublish(assets: PublishAsset[], limits: PublishLimits): void {
     for (const [index, asset] of assets.entries()) {
         if (index >= limits.files)
             throw new Error(
@@ -88,7 +91,7 @@ export function preflightPublish(
     }
     if (!assets.some((asset) => asset.path === "index.html"))
         throw new Error("The web build has no index.html.");
-    for (const reserved of ["_headers", "_redirects", ".assetsignore"]) {
+    for (const reserved of limits.reserved ?? []) {
         if (assets.some((asset) => asset.path === reserved))
             throw new Error(
                 `${reserved}: reserved by publish; remove it from the project's web output.`,
@@ -128,7 +131,7 @@ function installDev(projectDir: string, dependency: string): void {
 }
 
 interface PublishTarget {
-    limits: { files: number; bytes: number };
+    limits: PublishLimits;
     setup(
         projectDir: string,
         work: string,
@@ -139,13 +142,19 @@ interface PublishTarget {
         deploy(directory: string): { url: string; buildUrl: string };
         commands: string;
     }>;
-    headers(): string;
+    headers(directory: string): void;
 }
 
 const targets: Record<"cloudflare", PublishTarget> = {
     cloudflare: {
-        limits: { files: 20_000, bytes: 25 * 1024 * 1024 },
-        headers: publishHeaders,
+        limits: {
+            files: 20_000,
+            bytes: 25 * 1024 * 1024,
+            reserved: ["_headers", "_redirects", ".assetsignore"],
+        },
+        headers(directory) {
+            writeFileSync(join(directory, "_headers"), publishHeaders());
+        },
         async setup(projectDir, work, interactive, saved) {
             let cli = resolveWrangler(projectDir);
             if (!cli) {
@@ -303,7 +312,7 @@ export async function publishProject(projectDir: string, targetName?: string): P
         await buildWeb(projectDir, { outDir: directory, stdout: 2 });
         const assets = publishAssets(directory);
         preflightPublish(assets, target.limits);
-        writeFileSync(join(directory, "_headers"), target.headers());
+        target.headers(directory);
         // The link is the deliberate local proof for future updates, retained even if upload fails.
         savePublishLink(projectDir, setup.link);
         const deployed = setup.deploy(directory);

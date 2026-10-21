@@ -105,8 +105,15 @@ test("preflight names the file and limit, including the first file over the coun
     ).toThrow("extra.js: exceeds the target's 1 file limit");
     for (const path of ["_headers", "_redirects", ".assetsignore"])
         expect(() =>
-            preflightPublish([index, { path, size: 0 }], { files: 10, bytes: 10 }),
+            preflightPublish([index, { path, size: 0 }], {
+                files: 10,
+                bytes: 10,
+                reserved: [path],
+            }),
         ).toThrow(`${path}: reserved`);
+    expect(() =>
+        preflightPublish([index, { path: "_headers", size: 0 }], { files: 10, bytes: 10 }),
+    ).not.toThrow();
     expect(() => preflightPublish([], { files: 10, bytes: 10 })).toThrow("no index.html");
     expect(() =>
         preflightPublish([{ path: "index.html", size: 25 * 1024 * 1024 }], {

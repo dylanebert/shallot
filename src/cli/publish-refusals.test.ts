@@ -1,21 +1,26 @@
 import { afterAll, afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { expectError } from "../../scripts/test-console";
-import { publishProject } from "./publish";
+import { publishHeaders, publishProject, readPublishLink } from "./publish";
 import { projectChromium } from "./publish-verify";
 
 const root = mkdtempSync(join(tmpdir(), "shallot-publish-refusals-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 let previousCI: string | undefined;
+let previousAccount: string | undefined;
 beforeEach(() => {
     previousCI = process.env.CI;
+    previousAccount = process.env.CLOUDFLARE_ACCOUNT_ID;
     process.env.CI = "true";
+    delete process.env.CLOUDFLARE_ACCOUNT_ID;
 });
 afterEach(() => {
     if (previousCI === undefined) delete process.env.CI;
     else process.env.CI = previousCI;
+    if (previousAccount === undefined) delete process.env.CLOUDFLARE_ACCOUNT_ID;
+    else process.env.CLOUDFLARE_ACCOUNT_ID = previousAccount;
 });
 const account = { id: "a".repeat(32), name: "fixture" };
 const identity = { loggedIn: true, accounts: [account] };
@@ -25,6 +30,7 @@ interface Answer {
     version?: string;
     name?: string;
     link?: unknown;
+    captureDeploy?: boolean;
 }
 
 function fixture(answer: Answer): { project: string; original: string; commands: string } {
@@ -66,6 +72,16 @@ if (args[0] === 'versions') {
     JSON.stringify({ type: 'command-failed', version: 1, code: result.code }) + '\\n');
   process.stdout.write(result.stdout);
   process.exit(result.status);
+}
+if (args[0] === 'deploy' && answer.captureDeploy) {
+  const configPath = args[args.indexOf('--config') + 1];
+  const config = JSON.parse(fs.readFileSync(configPath));
+  fs.writeFileSync(path.join(__dirname, 'deployment.json'), JSON.stringify({
+    cwd: process.cwd(), configPath, config,
+    headers: fs.readFileSync(path.join(config.assets.directory, '_headers'), 'utf8')
+  }));
+  console.error('fixture deploy refused');
+  process.exit(1);
 }
 throw new Error('Unexpected provider mutation or prompt: ' + args.join(' '));
 `,
@@ -141,6 +157,47 @@ test("an unknown target is refused before reading or changing the project", asyn
     await expect(publishProject("/no-such-project", "other")).rejects.toThrow(
         "Unknown publish target",
     );
+});
+
+test("first-link setup builds and writes the target's artifact before invoking deploy", async () => {
+    const { project, commands } = fixture({
+        captureDeploy: true,
+        versions: { status: 1, stdout: "", code: 10007 },
+    });
+    const vite = join(project, "node_modules/vite");
+    mkdirSync(vite, { recursive: true });
+    writeFileSync(
+        join(vite, "package.json"),
+        JSON.stringify({ name: "vite", bin: { vite: "cli.cjs" } }),
+    );
+    writeFileSync(
+        join(vite, "cli.cjs"),
+        `
+const fs = require('node:fs'), path = require('node:path');
+const directory = process.argv[process.argv.indexOf('--outDir') + 1];
+fs.mkdirSync(directory, { recursive: true });
+fs.writeFileSync(path.join(directory, 'index.html'), '<title>fixture</title>');
+`,
+    );
+    expectError(/^Using publish target cloudflare\.$/);
+    expectError(/^Using Cloudflare account fixture /);
+    expectError(/^Using project name fixture-game as the Worker name\.$/);
+    expectError(/^\s*fixture deploy refused\n$/);
+    await expect(publishProject(project)).rejects.toThrow("Wrangler deploy failed");
+    const deployment = JSON.parse(
+        readFileSync(join(project, "node_modules/wrangler/deployment.json"), "utf8"),
+    );
+    expect(realpathSync(deployment.cwd)).toBe(realpathSync(project));
+    expect(relative(project, deployment.configPath).startsWith("..")).toBe(true);
+    expect(deployment.config.assets.not_found_handling).toBe("none");
+    expect(deployment.headers).toBe(publishHeaders());
+    expect(readPublishLink(project)).toEqual({ target: "cloudflare", name: "fixture-game" });
+    expect(
+        readFileSync(commands, "utf8")
+            .trim()
+            .split("\n")
+            .map((line) => JSON.parse(line)[0]),
+    ).toEqual(["whoami", "versions", "deploy"]);
 });
 
 test("a deliberate saved link skips the first-link collision query", async () => {
