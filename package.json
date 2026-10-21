@@ -78,6 +78,7 @@
         "examples/day-night-cycle",
         "examples/hud",
         "examples/post-processing",
+        "examples/bloom",
         "examples/interact",
         "examples/world-ui",
         "examples/save-and-load",
