@@ -65,7 +65,7 @@ export interface TransitionSample extends AllocationSample {
 const SAMPLER = resolve(import.meta.dir, "allocation-sampler.mjs");
 /**
  * Files copied beside every bundle under their own names, because Bun.build does not emit
- * `new URL(asset, import.meta.url)` assets: Text's default font. scripts/allocation-gates.ts counts
+ * `new URL(asset, import.meta.url)` assets: Text's default font. scripts/changed-tests.ts counts
  * them among every gate's inputs.
  */
 export const ALLOCATION_BUNDLE_ASSETS: readonly string[] = [
