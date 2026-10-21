@@ -13,19 +13,21 @@ for (const claim of ["move and look", "jump", "use"]) {
         page.on("pageerror", (error) => errors.push(error.message));
         await page.goto("/tests/touch.html");
         await page.waitForFunction(() => "sample" in window);
-        const sample = () =>
-            page.evaluate(() =>
-                (
-                    window as unknown as {
-                        sample(): {
-                            grounded: boolean;
-                            position: number[];
-                            yaw: number;
-                            jumps: number;
-                            use: boolean;
-                        };
-                    }
-                ).sample(),
+        const sample = (steps = 0) =>
+            page.evaluate(
+                (steps) =>
+                    (
+                        window as unknown as {
+                            sample(steps: number): {
+                                grounded: boolean;
+                                position: number[];
+                                yaw: number;
+                                jumps: number;
+                                use: boolean;
+                            };
+                        }
+                    ).sample(steps),
+                steps,
             );
         const session = await context.newCDPSession(page);
         let points: { id: number; x: number; y: number }[] = [];
@@ -107,18 +109,25 @@ for (const claim of ["move and look", "jump", "use"]) {
             await send("touchEnd");
             await expect.poll(async () => (await sample()).use).toBe(false);
         }
-        const beforeKey = await sample();
+        const settled = await sample(120);
+        const beforeKey = await sample(12);
+        expect(
+            Math.hypot(
+                beforeKey.position[0] - settled.position[0],
+                beforeKey.position[2] - settled.position[2],
+            ),
+            "no key must leave the settled player stationary",
+        ).toBeLessThan(0.001);
         await page.keyboard.down("w");
         try {
-            await expect
-                .poll(async () => {
-                    const now = await sample();
-                    return Math.hypot(
-                        now.position[0] - beforeKey.position[0],
-                        now.position[2] - beforeKey.position[2],
-                    );
-                })
-                .toBeGreaterThan(0.1);
+            const now = await sample(12);
+            expect(
+                Math.hypot(
+                    now.position[0] - beforeKey.position[0],
+                    now.position[2] - beforeKey.position[2],
+                ),
+                "W must cause new horizontal movement",
+            ).toBeGreaterThan(0.1);
         } finally {
             await page.keyboard.up("w");
         }

@@ -17,7 +17,7 @@
     }
 </script>
 
-<details onmousedown={(event) => { if (!(event.target instanceof HTMLInputElement && event.target.type === "range")) event.preventDefault(); }} onpointerdown={(event) => event.stopPropagation()} open class="ec controls" role="region" aria-label="Post-processing controls">
+<details onmousedown={(event) => { if (!(event.target instanceof HTMLInputElement && event.target.type === "range")) event.preventDefault(); }} open class="ec controls" role="region" aria-label="Post-processing controls">
     <summary tabindex="-1" onfocus={(event) => event.currentTarget.blur()} class="panel-title">Post-processing</summary>
     <div class="fields">
         {#each effects as effect, index}

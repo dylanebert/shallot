@@ -17,8 +17,8 @@
             import { captureFrame } from "@dylanebert/shallot/rendering";
             const app = await createApp({ plugins: [TurntablePlugin] });
             const { Orbit } = await import("@dylanebert/shallot/extras");
-            window.controlsKey = () => {
-                app.world.step(1 / 60);
+            window.controlsKey = (steps = 1) => {
+                for (let i = 0; i < steps; i++) app.world.step(1 / 60);
                 const camera = [...app.world.query([Orbit])][0];
                 return app.world.storage(Orbit).yaw.get(camera);
             };

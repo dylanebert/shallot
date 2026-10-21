@@ -32,15 +32,26 @@ export async function dragRange(page: Page, control: Locator): Promise<void> {
 }
 
 export async function gameKeyMovesCamera(page: Page): Promise<void> {
-    const step = () =>
-        page.evaluate(() => (window as unknown as { controlsKey(): number }).controlsKey());
-    const before = await step();
+    const step = (steps: number) =>
+        page.evaluate(
+            (steps) =>
+                (window as unknown as { controlsKey(steps: number): number }).controlsKey(steps),
+            steps,
+        );
+    const settled = await step(60);
+    const before = await step(12);
+    expect(Math.abs(before - settled), "no key must leave settled yaw unchanged").toBeLessThan(
+        1e-6,
+    );
     await page.keyboard.down("ArrowRight");
     try {
-        expect(await step()).not.toBe(before);
+        expect(
+            Math.abs((await step(12)) - before),
+            "ArrowRight must cause new yaw",
+        ).toBeGreaterThan(0.001);
     } finally {
         await page.keyboard.up("ArrowRight");
-        await step();
+        await step(1);
     }
 }
 

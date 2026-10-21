@@ -16,6 +16,17 @@ test("each pointer control leaves the bound orbit key working", async ({ page })
     await gameKeyMovesCamera(page);
 });
 
+test("a swatch reacquires the bound orbit key after window blur", async ({ page }) => {
+    await page.goto("http://127.0.0.1:4176/tests/stepped.html");
+    await page.waitForFunction(() => "controlsKey" in window);
+    await page.evaluate(() => {
+        (window as unknown as { controlsKey(): number }).controlsKey();
+        window.dispatchEvent(new Event("blur"));
+    });
+    await pointerControl(page, page.getByRole("button", { name: "Cyan" }));
+    await gameKeyMovesCamera(page);
+});
+
 test("a touch swatch changes the cube without taking the bound orbit key", async ({ browser }) => {
     const context = await browser.newContext({
         hasTouch: true,

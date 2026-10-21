@@ -1,15 +1,15 @@
 <!doctype html>
 <html lang="en"><head><meta charset="UTF-8"/><title>Save and load controls</title>
 <link rel="stylesheet" href="../src/hud.css"/></head>
-<body><canvas hidden></canvas><div id="hud" style="position:relative;width:100%;height:100dvh"></div>
+<body style="margin:0"><canvas style="display:block;width:100%;height:100dvh"></canvas>
 <script type="module">
-import { createApp, BrowserInputPlugin, MeshInstance, Transform } from '@dylanebert/shallot';
+import { createApp, mountOverlay, BrowserInputPlugin, MeshInstance, Transform } from '@dylanebert/shallot';
 import { addCoin, Game, GamePlugin } from '../src/game';
 import { hud } from '../src/hud';
 const app=await createApp({plugins:[BrowserInputPlugin,GamePlugin,{name:'HudFixture',components:[MeshInstance,Transform]}]});
 const world=app.world;
 world.resource(Game).storage=localStorage;
-hud(document.querySelector('#hud'),world);
+hud(mountOverlay(document.querySelector('canvas'),world),world);
 const advance=(ticks=1)=>{
  while(ticks>0){const n=Math.min(ticks,4);world.step(n/60);ticks-=n;}
 };

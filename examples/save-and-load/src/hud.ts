@@ -4,7 +4,6 @@ import { count, Game, loadGame, newGame, saveGame, saveLabel } from "./game";
 export function hud(container: HTMLElement, world: World): () => void {
     const root = document.createElement("section");
     root.className = "save-hud";
-    root.onpointerdown = (event) => event.stopPropagation();
     root.onmousedown = (event) => event.preventDefault();
     root.setAttribute("aria-label", "Game controls");
     root.innerHTML = `<h1><output aria-label="Coins">0 coins</output></h1><div class="hud"><button>New game <kbd>N</kbd></button><button><span>Save</span> <kbd>S</kbd></button><button>Load <kbd>L</kbd></button></div>`;

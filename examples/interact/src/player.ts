@@ -187,7 +187,6 @@ export function mountTouchButton(
     button.dataset.touchAction = "";
     button.style.cssText = `display:none;position:absolute;right:24px;bottom:${key === "Space" ? 32 : 104}px;width:64px;height:64px;border-radius:50%;pointer-events:auto;touch-action:none`;
     button.addEventListener("pointerdown", (event) => {
-        event.stopPropagation();
         event.preventDefault();
         pressKey(world, key);
         try {

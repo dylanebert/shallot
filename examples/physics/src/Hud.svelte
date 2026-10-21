@@ -18,7 +18,7 @@
 </script>
 
 <svelte:window onclick={(event) => { if (open && !picker.contains(event.target as Node)) close(); }} onkeydown={(event) => { if (open && event.key === "Escape") { event.preventDefault(); close(); } }} />
-<section onmousedown={(event) => event.preventDefault()} onpointerdown={(event) => event.stopPropagation()} bind:this={picker} class="ec picker" aria-label="Physics scenes">
+<section onmousedown={(event) => event.preventDefault()} bind:this={picker} class="ec picker" aria-label="Physics scenes">
     {#if open}
         <div id="scene-list" class="scenes" aria-label="Scenes">
             <div class="categories">
@@ -63,7 +63,7 @@
                 </fieldset>
         {/each}
     {/snippet}
-    <details onmousedown={(event) => { if (!(event.target instanceof HTMLInputElement && event.target.type === "range")) event.preventDefault(); }} onpointerdown={(event) => event.stopPropagation()} open class="ec controls" aria-label={`${samples.find(sample => sample.id === scene)!.name} controls`}>
+    <details onmousedown={(event) => { if (!(event.target instanceof HTMLInputElement && event.target.type === "range")) event.preventDefault(); }} open class="ec controls" aria-label={`${samples.find(sample => sample.id === scene)!.name} controls`}>
         <summary tabindex="-1" onfocus={(event) => event.currentTarget.blur()} class="panel-title">Physics</summary>
         <div class="fields">
             <section class="section" aria-label="Simulation">

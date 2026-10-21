@@ -11,6 +11,13 @@ test("pointer controls retain disabled nested settings and disclose the root wit
     await gameKeyMovesCamera(page);
     await pointerControl(page, page.getByRole("button", { name: "Wheel", exact: true }));
     await gameKeyMovesCamera(page);
+    await expect(picker).toHaveText("Wheel");
+    await pointerControl(page, page.getByRole("button", { name: "Previous scene", exact: true }));
+    await expect(picker).toHaveText("Revolute");
+    await gameKeyMovesCamera(page);
+    await pointerControl(page, page.getByRole("button", { name: "Next scene", exact: true }));
+    await expect(picker).toHaveText("Wheel");
+    await gameKeyMovesCamera(page);
     const panel = page.locator(".controls");
     const steering = panel.getByRole("checkbox", { name: "Steering", exact: true });
     const limit = panel.getByRole("checkbox", { name: "Steering Limit", exact: true });
@@ -34,5 +41,14 @@ test("pointer controls retain disabled nested settings and disclose the root wit
     await gameKeyMovesCamera(page);
     await pointerControl(page, title);
     await expect(steering).toBeVisible();
+    await pointerControl(page, picker);
+    await pointerControl(page, page.getByRole("button", { name: "Motor Joint", exact: true }));
+    await expect(picker).toHaveText("Motor Joint");
+    const speed = () =>
+        page.evaluate(() => (window as unknown as { actionSpeed(): number }).actionSpeed());
+    expect(await speed()).toBe(0);
+    await pointerControl(page, page.getByRole("button", { name: "Apply impulse", exact: true }));
+    expect(await speed()).toBeGreaterThan(0);
+    await gameKeyMovesCamera(page);
     await tabSkipsChrome(page);
 });

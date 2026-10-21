@@ -41,7 +41,7 @@
     });
 </script>
 
-<section onmousedown={(event) => { if (!(event.target instanceof HTMLInputElement && event.target.type === "range")) event.preventDefault(); }} onpointerdown={(event) => event.stopPropagation()} class="ec controls hud" aria-label="Cube controls">
+<section onmousedown={(event) => { if (!(event.target instanceof HTMLInputElement && event.target.type === "range")) event.preventDefault(); }} class="ec controls hud" aria-label="Cube controls">
   <div class="fields">
     <div class="swatches" aria-label="Cube colour">
         {#each swatches as swatch, index}

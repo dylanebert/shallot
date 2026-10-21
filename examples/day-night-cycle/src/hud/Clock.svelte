@@ -17,7 +17,7 @@
     });
 </script>
 
-<section onmousedown={(event) => { if (!(event.target instanceof HTMLInputElement && event.target.type === "range")) event.preventDefault(); }} onpointerdown={(event) => event.stopPropagation()} class="ec controls hud" aria-label="Time of day">
+<section onmousedown={(event) => { if (!(event.target instanceof HTMLInputElement && event.target.type === "range")) event.preventDefault(); }} class="ec controls hud" aria-label="Time of day">
     <div class="fields">
         <div class="row">
             <label for="hour">Hour</label>

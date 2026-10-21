@@ -4,8 +4,9 @@ import { Player, PlayerInput } from '../src/player';
 import { ScenePlugin } from '../src/scene';
 
 const app = await runApp({plugins:[ScenePlugin], });
-window.sample = () => {
+window.sample = (steps = 0) => {
  const world = app.world;
+ for (let i = 0; i < steps; i++) world.step(1 / 60);
  const eid = [...world.query([Player])][0];
  const t = world.storage(Transform).translation.column;
  const input = world.storage(PlayerInput);
