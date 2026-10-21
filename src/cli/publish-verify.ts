@@ -32,8 +32,12 @@ export async function projectChromium(projectDir: string): Promise<Browser> {
         );
     }
     const { chromium } = (await import(modulePath)) as typeof import("playwright");
+    const launchOptions = {
+        ...BROWSER_CONFIG.use.launchOptions,
+        channel: BROWSER_CONFIG.use.channel,
+    };
     try {
-        return await chromium.launch(BROWSER_CONFIG.use.launchOptions);
+        return await chromium.launch(launchOptions);
     } catch (error) {
         if (!(error instanceof Error) || !error.message.includes("Executable doesn't exist"))
             throw error;
@@ -47,7 +51,7 @@ export async function projectChromium(projectDir: string): Promise<Browser> {
             stdio: ["ignore", 2, 2],
         });
         if (result.status !== 0) throw new Error("Playwright Chromium installation failed.");
-        return chromium.launch(BROWSER_CONFIG.use.launchOptions);
+        return chromium.launch(launchOptions);
     }
 }
 
