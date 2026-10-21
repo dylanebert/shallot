@@ -1,3 +1,4 @@
+import { holdFrames } from "@dylanebert/shallot/testing";
 import { expect, test } from "playwright/test";
 import { dragRange, gameKeyMovesCamera, tabSkipsChrome } from "./pointer";
 
@@ -16,6 +17,7 @@ for (const viewport of [
         page,
     }) => {
         await page.setViewportSize(viewport);
+        const frames = await holdFrames(page, "[aria-label='Time of day']");
         await page.goto("/");
         const panel = page.getByRole("region", { name: "Time of day" });
         await panel.waitFor();
@@ -70,7 +72,10 @@ for (const viewport of [
         await dragRange(page, slider);
         await tabSkipsChrome(page);
         await expect(panel.locator("output")).toHaveText(/^\d{2}:\d{2}$/);
+        const dragged = await panel.locator("output").textContent();
         await slider.fill("23.99");
+        await frames.run();
+        await expect(panel.locator("output")).not.toHaveText(dragged!);
         await expect(panel.locator("output")).toHaveText(/^\d{2}:\d{2}$/);
         expect(
             await controls.evaluateAll((elements) =>

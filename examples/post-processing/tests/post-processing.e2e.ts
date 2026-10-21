@@ -1,4 +1,5 @@
 import { mkdir, writeFile } from "node:fs/promises";
+import { holdFrames } from "@dylanebert/shallot/testing";
 import { expect, type Page, test } from "playwright/test";
 import {
     bodyHasFocus,
@@ -111,6 +112,7 @@ test("native touch toggles, summary and range activate without taking game keys"
 });
 
 test("dragging panel chrome and labels selects no page text", async ({ page }) => {
+    await holdFrames(page, "[aria-label='Post-processing controls']");
     await page.goto("/");
     const label = page.locator(".section-title").first();
     await label.waitFor();
@@ -277,6 +279,7 @@ for (const viewport of [
         page,
     }) => {
         await page.setViewportSize(viewport);
+        await holdFrames(page, "[aria-label='Post-processing controls']");
         await page.goto("/");
         const panel = page.getByRole("region", { name: "Post-processing controls" });
         await panel.waitFor();

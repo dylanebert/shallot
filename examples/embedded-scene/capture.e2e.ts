@@ -1,11 +1,14 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { holdFrames } from "@dylanebert/shallot/testing";
 import { expect, test } from "./tests/browser-fixture";
 
 test("scene chrome refuses selection while the host heading and body remain page content", async ({
     page,
 }) => {
+    await holdFrames(page, "#scene.visible");
     await page.goto("/");
+    await page.locator("#scene.visible").waitFor();
     for (const selector of ["h1", ".description", ".frame"]) {
         await page.evaluate(() => getSelection()?.removeAllRanges());
         const box = (await page.locator(selector).boundingBox())!;

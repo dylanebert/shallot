@@ -1,3 +1,4 @@
+import { holdFrames } from "@dylanebert/shallot/testing";
 import { expect, test } from "playwright/test";
 import {
     bodyHasFocus,
@@ -62,6 +63,7 @@ test("a touch swatch changes the cube without taking the bound orbit key", async
 });
 
 test("dragging compact HUD labels selects no page text", async ({ page }) => {
+    await holdFrames(page, "[aria-label='Cube controls']");
     await page.goto("/");
     const label = page.locator(".ec label").first();
     await label.waitFor();
@@ -81,6 +83,7 @@ for (const viewport of [
         page,
     }) => {
         await page.setViewportSize(viewport);
+        const frames = await holdFrames(page, "[aria-label='Cube controls']");
         await page.goto("/");
         const panel = page.getByRole("region", { name: "Cube controls" });
         await panel.waitFor();
@@ -155,6 +158,14 @@ for (const viewport of [
             "angle-label",
         );
         await tabSkipsChrome(page);
+        const angle = page.locator('[data-hud="angle"]');
+        const shown = await angle.textContent();
+        await expect
+            .poll(async () => {
+                await frames.run();
+                return angle.textContent();
+            }, "the turning cube must change the angle readout")
+            .not.toBe(shown);
         expect(
             await panel
                 .locator("output")
