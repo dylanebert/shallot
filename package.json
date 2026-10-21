@@ -79,6 +79,7 @@
         "examples/hud",
         "examples/post-processing",
         "examples/bloom",
+        "examples/color-grading",
         "examples/interact",
         "examples/world-ui",
         "examples/save-and-load",

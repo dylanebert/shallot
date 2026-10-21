@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="description" content="Shape HDR color-grading around a bouncing grid of blue, white and red emissive spheres." />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+        <title>color-grading</title>
+        <style>body, body * { user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; -webkit-user-drag: none; cursor: default; }
+            * { box-sizing: border-box; margin: 0; }
+            html, body, canvas { width: 100%; height: 100%; }
+            body { overflow: hidden; background: #141210; }
+            canvas { display: block; }
+        </style>
+    </head>
+    <body>
+        <canvas id="canvas"></canvas>
+        <script type="module">
+            import { runApp } from "@dylanebert/shallot";
+            import { hud } from "./src/hud";
+            import { ScenePlugin } from "./src/scene";
+
+            await runApp({ plugins: [ScenePlugin], ui: hud });
+        </script>
+    </body>
+</html>
