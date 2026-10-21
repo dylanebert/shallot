@@ -1,7 +1,12 @@
 import { expect, test } from "bun:test";
 import { nativeHostDiagnostic } from "./index";
 
-for (const host of ["darwin", "linux", "win32", "freebsd"] as const) {
+for (const [host, hostName] of [
+    ["darwin", "macOS"],
+    ["linux", "Linux"],
+    ["win32", "Windows"],
+    ["freebsd", "freebsd"],
+] as const) {
     for (const [target, requiredHost, requirement] of [
         ["linux", "linux", "Linux"],
         ["mac", "darwin", "macOS"],
@@ -9,7 +14,7 @@ for (const host of ["darwin", "linux", "win32", "freebsd"] as const) {
         if (host === requiredHost) continue;
         test(`${target} refuses ${host} before building or launching`, () => {
             expect(nativeHostDiagnostic(target, host)).toBe(
-                `Target ${target} is not supported on host ${host}; a ${target} target needs a ${requirement} host.`,
+                `Target ${target} is not supported on host ${hostName}; a ${target} target needs a ${requirement} host.`,
             );
         });
     }

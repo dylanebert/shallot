@@ -131,7 +131,13 @@ export function nativeHostDiagnostic(target: string, host = process.platform): s
     const required = target === "linux" ? "linux" : target === "mac" ? "darwin" : null;
     if (!required || host === required) return null;
     const name = required === "linux" ? "Linux" : "macOS";
-    return `Target ${target} is not supported on host ${host}; a ${target} target needs a ${name} host.`;
+    const hostNames: Partial<Record<NodeJS.Platform, string>> = {
+        darwin: "macOS",
+        linux: "Linux",
+        win32: "Windows",
+    };
+    const hostName = hostNames[host] ?? host;
+    return `Target ${target} is not supported on host ${hostName}; a ${target} target needs a ${name} host.`;
 }
 
 /**

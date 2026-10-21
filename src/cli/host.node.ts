@@ -1,4 +1,9 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
+
+import { TIMEOUT } from "@dylanebert/shallot/testing";
+
+setDefaultTimeout(TIMEOUT.node);
+
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -30,7 +35,7 @@ for (const command of ["dev", "build", "preview"]) {
             });
             expect(result.exitCode).toBe(1);
             expect(result.stderr.toString().trim()).toBe(
-                "Target linux is not supported on host darwin; a linux target needs a Linux host.",
+                "Target linux is not supported on host macOS; a linux target needs a Linux host.",
             );
             expect(result.stdout.toString()).toBe("");
             expect(() => readFileSync(marker)).toThrow();
