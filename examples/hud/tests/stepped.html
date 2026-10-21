@@ -5,17 +5,27 @@
         <title>hud, stepped</title>
     </head>
     <body>
-        <canvas width="1280" height="720"></canvas>
+        <canvas width="1280" height="720" style="width:100vw;height:100vh"></canvas>
         <script type="module">
             // The game and its HUD composed as the page composes them, but stepped by the check rather than by
             // requestAnimationFrame, so each value the HUD shows can be compared with the world's own.
-            import { createApp, mountOverlay, Materials } from "@dylanebert/shallot";
+            import { createApp, mountOverlay, Materials, Camera, DirectionalLight, Resolution } from "@dylanebert/shallot";
             import { flushSync } from "svelte";
             import { hud } from "../src/hud";
             import { CubeMaterial, Turn, TurntablePlugin } from "../src/turntable";
 
             import { captureFrame } from "@dylanebert/shallot/rendering";
             const app = await createApp({ plugins: [TurntablePlugin] });
+            const world = app.world, camera = [...world.query([Camera])][0];
+            const shadows = [...world.query([DirectionalLight])].map(eid => [eid, world.storage(DirectionalLight).shadowMapsEnabled.get(eid)]);
+            function drawPixels(full) {
+                for (const [eid, enabled] of shadows) world.storage(DirectionalLight).shadowMapsEnabled.set(eid, full ? enabled : 0);
+                if (full) world.remove(camera, Resolution);
+                else world.add(camera, Resolution, { height: 9 });
+            }
+            // Input and text steps do not read pixels; captures restore the full presented image.
+            drawPixels(false);
+            window.resetHud = () => { app.world.resource(Turn).angle = 0; flushSync(); };
             const { Orbit } = await import("@dylanebert/shallot/extras");
             window.controlsKey = () => {
                 app.world.step(1 / 60);
@@ -25,9 +35,13 @@
             hud(mountOverlay(document.querySelector("canvas"), app.world), app.world);
             flushSync();
             window.captureHud = async () => {
+                drawPixels(true);
+                app.world.step(0);
+                await app.world.frameFence;
                 const capture = captureFrame(document.querySelector("canvas"));
                 app.world.step(0);
                 const image = await capture;
+                drawPixels(false);
                 const offset = (Math.floor(image.height / 2) * image.width + Math.floor(image.width / 2)) * 4;
                 return Array.from(image.rgba.slice(offset, offset + 4));
             };
