@@ -185,7 +185,7 @@ export const chromium={async launch(){const browser=await publishTestChromium(),
     };
 }
 
-test("publishProject succeeds end to end, changing only the link and installed devDependency; a collaborator's different sole account cannot take over", async () => {
+test("publishProject changes only the link and installed devDependency; a saved account persists unless the environment conflicts", async () => {
     const f = await fixture();
     try {
         const before = f.snapshot();
@@ -212,20 +212,24 @@ test("publishProject succeeds end to end, changing only the link and installed d
         const deployment = f.commands().find((entry) => entry.command === "deploy");
         expect(deployment.linked).toBeUndefined();
         expect(deployment.config.account_id).toBe(accountA);
-        // Reviewer's reproduction: A publishes with one account; B has a different sole account.
+        // A saved account stays explicit even if whoami lists a different sole account.
         f.state.account = accountB;
         f.save();
         const switched = await f.run();
-        expect(switched.code).toBe(1);
-        expect(switched.stderr).toContain(accountA);
-        expect(switched.stderr).toContain(accountB);
+        expect(switched.code, switched.stderr).toBe(0);
+        expect(
+            f
+                .commands()
+                .filter((entry) => entry.command === "deploy")
+                .at(-1).config.account_id,
+        ).toBe(accountA);
         f.state.account = accountA;
         f.save();
         const explicit = await f.run(accountB);
         expect(explicit.code).toBe(1);
         expect(explicit.stderr).toContain(accountA);
         expect(explicit.stderr).toContain(accountB);
-        expect(f.commands().filter((entry) => entry.command === "deploy")).toHaveLength(1);
+        expect(f.commands().filter((entry) => entry.command === "deploy")).toHaveLength(2);
         expect(f.snapshot()).toEqual(after);
     } finally {
         await f.close();

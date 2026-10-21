@@ -172,21 +172,38 @@ const targets: Record<"cloudflare", PublishTarget> = {
                     join(work, `wrangler-${serial++}.jsonl`),
                     terminal,
                 );
-            const identity = () => {
+            let accountId = process.env.CLOUDFLARE_ACCOUNT_ID || saved?.accountId;
+            if (saved && saved.accountId !== accountId)
+                throw new Error(
+                    `Resolved Cloudflare account ${accountId} differs from shallot.publish.accountId ${saved.accountId}; refusing to switch accounts.`,
+                );
+            const identity = (): {
+                loggedIn: boolean;
+                accounts?: { id: string; name: string }[];
+            } => {
                 const result = run(["whoami", "--json"]);
                 let data: { loggedIn: boolean; accounts?: { id: string; name: string }[] };
                 try {
                     data = JSON.parse(result.stdout);
                 } catch {
+                    // whoami can fail listing accounts even when account-scoped access works.
+                    if (accountId) return { loggedIn: true };
                     throw new Error(
                         `Could not determine Wrangler login.\n${result.stderr || result.stdout}`,
                     );
                 }
-                if (result.status !== 0 && data.loggedIn !== false)
+                if (result.status !== 0 && data.loggedIn !== false) {
+                    if (accountId) return { loggedIn: true };
                     throw new Error(`Wrangler whoami failed.\n${result.stderr}`);
+                }
                 return data;
             };
-            let user = identity();
+            // Wrangler 4.151.3 requireAuth/getOrSelectAccountId accepts a token and an
+            // explicit account before fetchAllAccounts; ownership and deploy prove access.
+            let user =
+                accountId && process.env.CLOUDFLARE_API_TOKEN
+                    ? { loggedIn: true, accounts: undefined }
+                    : identity();
             if (!user.loggedIn) {
                 if (!interactive)
                     throw new Error(
@@ -212,12 +229,9 @@ const targets: Record<"cloudflare", PublishTarget> = {
                     throw new Error("Wrangler did not report a login after login completed.");
             }
             const accounts = user.accounts;
-            if (!Array.isArray(accounts) || !accounts.length)
-                throw new Error("Wrangler reported no accessible Cloudflare accounts.");
-            let accountId =
-                process.env.CLOUDFLARE_ACCOUNT_ID ||
-                (accounts.length === 1 ? accounts[0]!.id : saved?.accountId);
             if (!accountId) {
+                if (!Array.isArray(accounts) || !accounts.length)
+                    throw new Error("Wrangler reported no accessible Cloudflare accounts.");
                 if (accounts.length === 1) {
                     accountId = accounts[0]!.id;
                 } else {
@@ -230,15 +244,13 @@ const targets: Record<"cloudflare", PublishTarget> = {
                     );
                     accountId = await ask("Cloudflare account id");
                 }
+                if (!accounts.some((account) => account.id === accountId))
+                    throw new Error(
+                        `Cloudflare account ${accountId} is not accessible to this login.`,
+                    );
             }
-            if (saved && saved.accountId !== accountId)
-                throw new Error(
-                    `Resolved Cloudflare account ${accountId} differs from shallot.publish.accountId ${saved.accountId}; refusing to switch accounts.`,
-                );
-            if (!accounts.some((account) => account.id === accountId))
-                throw new Error(`Cloudflare account ${accountId} is not accessible to this login.`);
             publishProgress(
-                `Using Cloudflare account ${accounts.find((account) => account.id === accountId)!.name} (${accountId}).`,
+                `Using Cloudflare account ${accounts?.find((account) => account.id === accountId)?.name ?? accountId} (${accountId}).`,
             );
             const manifest = JSON.parse(readFileSync(join(projectDir, "package.json"), "utf8"));
             const defaultName = String(manifest.name ?? basename(projectDir))

@@ -17,6 +17,7 @@ function expectProgress(pattern: RegExp, options: { optional?: boolean } = {}): 
 }
 let previousCI: string | undefined;
 let previousAccount: string | undefined;
+let previousToken: string | undefined;
 beforeEach(() => {
     progress.length = 0;
     expectedProgress.length = 0;
@@ -26,6 +27,8 @@ beforeEach(() => {
     });
     previousCI = process.env.CI;
     previousAccount = process.env.CLOUDFLARE_ACCOUNT_ID;
+    previousToken = process.env.CLOUDFLARE_API_TOKEN;
+    delete process.env.CLOUDFLARE_API_TOKEN;
     process.env.CI = "true";
     delete process.env.CLOUDFLARE_ACCOUNT_ID;
 });
@@ -34,6 +37,8 @@ afterEach(() => {
     else process.env.CI = previousCI;
     if (previousAccount === undefined) delete process.env.CLOUDFLARE_ACCOUNT_ID;
     else process.env.CLOUDFLARE_ACCOUNT_ID = previousAccount;
+    if (previousToken === undefined) delete process.env.CLOUDFLARE_API_TOKEN;
+    else process.env.CLOUDFLARE_API_TOKEN = previousToken;
     stderr.mockRestore();
     for (const { pattern, optional } of expectedProgress) {
         if (!optional)
@@ -47,6 +52,7 @@ const account = { id: "a".repeat(32), name: "fixture" };
 const identity = { loggedIn: true, accounts: [account] };
 interface Answer {
     identity?: unknown;
+    whoamiFailure?: string;
     versions?: { status: number; stdout: string; code?: number };
     version?: string;
     name?: string;
@@ -84,6 +90,10 @@ const answer = JSON.parse(fs.readFileSync(path.join(__dirname, 'answers.json')))
 const args = process.argv.slice(2);
 fs.appendFileSync(path.join(__dirname, 'commands.jsonl'), JSON.stringify(args) + '\\n');
 if (args[0] === 'whoami') {
+  if (answer.whoamiFailure) {
+    console.error(answer.whoamiFailure);
+    process.exit(1);
+  }
   console.log(JSON.stringify(answer.identity));
   process.exit(answer.identity.loggedIn === false ? 1 : 0);
 }
@@ -143,11 +153,6 @@ for (const [claim, answer, message] of [
         },
         "CLOUDFLARE_ACCOUNT_ID",
     ],
-    [
-        "the login's sole account differs from the saved account",
-        { link: { target: "cloudflare", name: "fixture-game", accountId: "b".repeat(32) } },
-        "differs from shallot.publish.accountId",
-    ],
     ["an invalid default name refuses", { name: "" }, "Invalid Worker name"],
     [
         "a different installed provider version refuses",
@@ -172,7 +177,7 @@ for (const [claim, answer, message] of [
 ] satisfies [string, Answer, string][]) {
     test(`non-interactive publish: ${claim}`, async () => {
         const { project, original, commands } = fixture(answer);
-        if (!answer.link) expectProgress(/^Using publish target cloudflare\.$/);
+        expectProgress(/^Using publish target cloudflare\.$/);
         expectProgress(/^Using Cloudflare account fixture /, { optional: true });
         expectProgress(/^Using project name .* as the Worker name\.$/, { optional: true });
         const result = publishProject(project);
@@ -227,6 +232,64 @@ test("a deliberate saved link skips the first-link collision query", async () =>
     await expect(publishProject(project)).rejects.toThrow("vite build exited");
     expect(readFileSync(commands, "utf8")).not.toContain('"versions"');
     expect(readFileSync(join(project, "package.json"), "utf8")).toBe(original);
+});
+
+// Recorded on Actions run 39684554804 with Wrangler 4.151.3 and an account-scoped token.
+const whoamiFailure = "Failed to automatically retrieve account IDs for the logged in user.";
+
+for (const source of ["environment", "saved link"] as const) {
+    test(`an explicit account from ${source} does not require whoami account access`, async () => {
+        if (source === "environment") process.env.CLOUDFLARE_ACCOUNT_ID = account.id;
+        const { project, original, commands } = fixture({
+            whoamiFailure,
+            ...(source === "saved link"
+                ? {
+                      link: { target: "cloudflare", name: "fixture-game", accountId: account.id },
+                      captureDeploy: true,
+                  }
+                : {}),
+            versions: { status: 1, stdout: "", code: 9109 },
+        });
+        if (source === "environment") {
+            expectProgress(/^Using publish target cloudflare\.$/);
+            expectProgress(/^Using project name fixture-game as the Worker name\.$/);
+        }
+        expectProgress(/^Using Cloudflare account /);
+        if (source === "saved link") expectProgress(/^\s*fixture deploy refused\n$/);
+        await expect(publishProject(project)).rejects.toThrow(
+            source === "environment"
+                ? "Could not check Worker ownership"
+                : "Wrangler deploy failed",
+        );
+        expect(readFileSync(join(project, "package.json"), "utf8")).toBe(original);
+        expect(readFileSync(commands, "utf8")).toContain('"whoami"');
+        if (source === "environment")
+            expect(readFileSync(commands, "utf8")).not.toContain('"deploy"');
+    });
+}
+
+test("a token and explicit account bypass account enumeration, but not ownership errors", async () => {
+    process.env.CLOUDFLARE_API_TOKEN = "fixture-token";
+    process.env.CLOUDFLARE_ACCOUNT_ID = account.id;
+    const { project, commands } = fixture({
+        whoamiFailure,
+        versions: { status: 1, stdout: "", code: 9109 },
+    });
+    expectProgress(/^Using publish target cloudflare\.$/);
+    expectProgress(/^Using Cloudflare account /);
+    expectProgress(/^Using project name fixture-game as the Worker name\.$/);
+    await expect(publishProject(project)).rejects.toThrow("Could not check Worker ownership");
+    const recorded = readFileSync(commands, "utf8");
+    expect(recorded).not.toContain('"whoami"');
+    expect(recorded).not.toContain('"deploy"');
+    expect(readPublishLink(project)).toBeUndefined();
+});
+
+test("an explicit account without credentials still refuses missing login", async () => {
+    process.env.CLOUDFLARE_ACCOUNT_ID = account.id;
+    const { project } = fixture({ identity: { loggedIn: false } });
+    expectProgress(/^Using publish target cloudflare\.$/);
+    await expect(publishProject(project)).rejects.toThrow("CLOUDFLARE_API_TOKEN");
 });
 
 test("a saved account cannot be redirected through the environment", async () => {
