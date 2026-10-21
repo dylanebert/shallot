@@ -1,11 +1,9 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { Exposure } from "@dylanebert/shallot";
-import { NoFog } from "@dylanebert/shallot/extras";
+import { Exposure, Transform, VolumetricLight } from "@dylanebert/shallot";
+import { Fog, NoFog } from "@dylanebert/shallot/extras";
 import { attachTexture, captureTexture } from "@dylanebert/shallot/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { openGpuApp } from "@dylanebert/shallot/testing/gpu";
-import { Motes, MotesPlugin } from "./motes";
-import { Room } from "./room";
 
 setDefaultTimeout(TIMEOUT.node);
 const WIDTH = 1280;
@@ -41,14 +39,14 @@ function measure(ev100: number) {
 async function shaftTemporalError(ev100: number) {
     let profileError = 0;
     let patchSwing = 0;
-    const app = await openGpuApp({ plugins: [MotesPlugin] });
+    const app = await openGpuApp({ plugins: [FogPlugin] });
     try {
         const { world } = app;
         console.log("shaft adapter", world.gpu.adapter);
-        const camera = world.resource(Room).camera;
-        world.resource(Motes).visible = false;
+        const camera = room(world);
         world.storage(Exposure).ev100.set(camera, ev100);
         attachTexture(world, camera, { width: WIDTH, height: 720 });
+        world.tick();
         world.step(1 / 60);
         world.step(1 / 60);
         for (let i = 0; i < 64; i++) {
@@ -105,3 +103,95 @@ test("at EV6, every converged shaft-edge profile agrees with the equal 16-phase 
 test("at EV6, a still shaft-edge patch stays calm across all 16 consecutive phases", async () => {
     expect((await measure(6)).patchSwing).toBeLessThan(0.005);
 });
+
+import {
+    Camera,
+    DirectionalLight,
+    GlobalAmbientLight,
+    lookAtRotation,
+    Materials,
+    MeshInstance,
+    MeshMaterial,
+    StandardMaterial,
+    StandardRenderer,
+    type World,
+} from "@dylanebert/shallot";
+import { FogPlugin } from "@dylanebert/shallot/extras";
+
+// Carbon room, 2 × 1.5 m rear window and shadowed sun: the particles fixture.
+function room(world: World) {
+    const ambient = world.resource(GlobalAmbientLight);
+    ambient.color = 0xd8e4ff;
+    ambient.brightness = 9.223178581445604;
+    const camera = world.create();
+    // Eye after the original player's first two fixed steps.
+    world.add(camera, Transform, { translation: [0, 1.6918056011199951, 2, 0] });
+    world.add(camera, Camera, { fov: 70, clearColor: 0x191816 });
+    world.add(camera, StandardRenderer);
+    world.add(camera, Exposure, { ev100: 5 });
+    const carbon = world
+        .resource(Materials)
+        .add(StandardMaterial({ baseColor: [0.085, 0.08, 0.072, 1] }));
+    for (const [translation, scale] of [
+        [
+            [0, -0.25, 0],
+            [7, 0.5, 7],
+        ],
+        [
+            [0, 3.45, 0],
+            [7, 0.5, 7],
+        ],
+        [
+            [0, 1.6, 3.5],
+            [7, 3.2, 0.4],
+        ],
+        [
+            [-3.5, 1.6, 0],
+            [0.4, 3.2, 7],
+        ],
+        [
+            [3.5, 1.6, 0],
+            [0.4, 3.2, 7],
+        ],
+        [
+            [-2.25, 1.6, -3.5],
+            [2.5, 3.2, 0.4],
+        ],
+        [
+            [2.25, 1.6, -3.5],
+            [2.5, 3.2, 0.4],
+        ],
+        [
+            [0, 0.65, -3.5],
+            [2, 1.3, 0.4],
+        ],
+        [
+            [0, 3, -3.5],
+            [2, 0.4, 0.4],
+        ],
+    ] as const) {
+        const block = world.create();
+        world.add(block, Transform, { translation, scale });
+        world.add(block, MeshInstance);
+        world.add(block, MeshMaterial, carbon);
+    }
+    const sun = world.create();
+    world.add(sun, Transform, { rotation: lookAtRotation(0, 4, -8, 0, 0, 0) });
+    world.add(sun, DirectionalLight, {
+        color: 0xffe8cc,
+        illuminance: 24000,
+        shadowMapsEnabled: 1,
+        maximumDistance: 20,
+    });
+    world.add(sun, VolumetricLight);
+    world.add(world.create(), Fog, {
+        brightness: 0,
+        density: 0.025,
+        absorption: 0,
+        scattering: 1,
+        lightIntensity: 1 / Math.PI,
+        scatteringAsymmetry: 0.4,
+        heightFalloff: 0,
+    });
+    return camera;
+}

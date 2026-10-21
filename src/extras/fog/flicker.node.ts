@@ -1,13 +1,10 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { Exposure, probeTexture, Transform } from "@dylanebert/shallot";
-import { fogReadBindGroup, fogReadLayout, readFogInScatter } from "@dylanebert/shallot/extras";
+import { Exposure, probeTexture, Transform, VolumetricLight } from "@dylanebert/shallot";
+import { Fog, fogReadBindGroup, fogReadLayout, readFogInScatter } from "@dylanebert/shallot/extras";
 import { attachTexture, captureTexture, EffectPasses } from "@dylanebert/shallot/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { openGpuApp } from "@dylanebert/shallot/testing/gpu";
 import tgpu from "typegpu";
-import { Motes, MotesPlugin } from "./motes";
-import { Player } from "./player";
-import { Room } from "./room";
 
 setDefaultTimeout(TIMEOUT.node);
 const lin = (x: number) => {
@@ -17,17 +14,14 @@ const lin = (x: number) => {
 const lum = (a: Uint8ClampedArray, i: number) =>
     0.2126 * lin(a[i]!) + 0.7152 * lin(a[i + 1]!) + 0.0722 * lin(a[i + 2]!);
 test("a still edge mote's estimated display swing is under 0.005 over 16 frames", async () => {
-    const app = await openGpuApp({ plugins: [MotesPlugin] });
+    const app = await openGpuApp({ plugins: [FogPlugin] });
     try {
         const { world } = app;
-        const camera = world.resource(Room).camera;
-        world.remove(world.resource(Room).player, Player);
+        const camera = room(world);
         attachTexture(world, camera, { width: 160, height: 90 });
         world.storage(Transform).translation.set(camera, 0, 1.7, 2, 0);
         world.storage(Exposure).ev100.set(camera, 5);
         world.tick();
-        const motes = world.resource(Motes);
-        motes.visible = false;
         const device = world.gpu.device;
         const module = device.createShaderModule({
             code: tgpu.resolve({
@@ -132,3 +126,94 @@ test("a still edge mote's estimated display swing is under 0.005 over 16 frames"
         app.dispose();
     }
 });
+
+import {
+    Camera,
+    DirectionalLight,
+    GlobalAmbientLight,
+    lookAtRotation,
+    Materials,
+    MeshInstance,
+    MeshMaterial,
+    StandardMaterial,
+    StandardRenderer,
+    type World,
+} from "@dylanebert/shallot";
+import { FogPlugin } from "@dylanebert/shallot/extras";
+
+// Carbon room, 2 × 1.5 m rear window and shadowed sun: the particles fixture.
+function room(world: World) {
+    const ambient = world.resource(GlobalAmbientLight);
+    ambient.color = 0xd8e4ff;
+    ambient.brightness = 9.223178581445604;
+    const camera = world.create();
+    world.add(camera, Transform, { translation: [0, 1.7, 2, 0] });
+    world.add(camera, Camera, { fov: 70, clearColor: 0x191816 });
+    world.add(camera, StandardRenderer);
+    world.add(camera, Exposure, { ev100: 5 });
+    const carbon = world
+        .resource(Materials)
+        .add(StandardMaterial({ baseColor: [0.085, 0.08, 0.072, 1] }));
+    for (const [translation, scale] of [
+        [
+            [0, -0.25, 0],
+            [7, 0.5, 7],
+        ],
+        [
+            [0, 3.45, 0],
+            [7, 0.5, 7],
+        ],
+        [
+            [0, 1.6, 3.5],
+            [7, 3.2, 0.4],
+        ],
+        [
+            [-3.5, 1.6, 0],
+            [0.4, 3.2, 7],
+        ],
+        [
+            [3.5, 1.6, 0],
+            [0.4, 3.2, 7],
+        ],
+        [
+            [-2.25, 1.6, -3.5],
+            [2.5, 3.2, 0.4],
+        ],
+        [
+            [2.25, 1.6, -3.5],
+            [2.5, 3.2, 0.4],
+        ],
+        [
+            [0, 0.65, -3.5],
+            [2, 1.3, 0.4],
+        ],
+        [
+            [0, 3, -3.5],
+            [2, 0.4, 0.4],
+        ],
+    ] as const) {
+        const block = world.create();
+        world.add(block, Transform, { translation, scale });
+        world.add(block, MeshInstance);
+        world.add(block, MeshMaterial, carbon);
+    }
+    const sun = world.create();
+    world.add(sun, Transform, { rotation: lookAtRotation(0, 4, -8, 0, 0, 0) });
+    world.add(sun, DirectionalLight, {
+        color: 0xffe8cc,
+        illuminance: 24000,
+        shadowMapsEnabled: 1,
+        maximumDistance: 20,
+    });
+    world.add(sun, VolumetricLight);
+    world.add(world.create(), Fog, {
+        brightness: 0,
+        density: 0.025,
+        absorption: 0,
+        scattering: 1,
+        lightIntensity: 1 / Math.PI,
+        scatteringAsymmetry: 0.4,
+        heightFalloff: 0,
+    });
+    return camera;
+}
