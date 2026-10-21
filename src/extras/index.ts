@@ -2,6 +2,7 @@
 
 // the extras barrel lists each module's author names explicitly; extension names stay on the module.
 
+export { Bloom, BloomCompositeMode, BloomPlugin } from "./bloom";
 export {
     ChromaticAberration,
     EffectStackPlugin,

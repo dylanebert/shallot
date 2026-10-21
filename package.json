@@ -50,6 +50,7 @@
         "./mesh": "./src/core/mesh/index.ts",
         "./rendering": "./src/core/rendering/index.ts",
         "./standard/rendering": "./src/standard/rendering/index.ts",
+        "./bloom": "./src/extras/bloom/index.ts",
         "./effect-stack": "./src/extras/effect-stack/index.ts",
         "./vignette": "./src/extras/effect-stack/index.ts",
         "./physics": "./src/core/physics/index.ts",
