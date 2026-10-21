@@ -8,10 +8,8 @@ import {
     readFileSync,
     writeFileSync,
 } from "node:fs";
-import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { bunChild } from "../../scripts/bun-child";
 import { removeTestDirectory } from "../../scripts/test-directory";
@@ -22,7 +20,6 @@ setDefaultTimeout(TIMEOUT.node);
 const repo = resolve(import.meta.dir, "../..");
 const accountA = "a".repeat(32),
     accountB = "b".repeat(32);
-const require = createRequire(join(repo, "package.json"));
 
 async function fixture() {
     const root = mkdtempSync(join(tmpdir(), "shallot-publish-flow-"));
@@ -124,8 +121,8 @@ record({command:'build'});const directory=process.argv[process.argv.indexOf('--o
     );
     writeFileSync(
         join(project, "node_modules/playwright/index.js"),
-        `import {chromium as real} from ${JSON.stringify(pathToFileURL(require.resolve("playwright")).href)};
-export const chromium={async launch(options){const browser=await real.launch({...options,executablePath:${JSON.stringify(require("playwright").chromium.executablePath())}}),create=browser.newContext.bind(browser);const map=(url)=>{const u=new URL(url);if(u.origin!=='https://fixture.workers.dev')throw Error('Unexpected external request');return ${JSON.stringify(server.url.origin)}+u.pathname;};browser.newContext=async(...args)=>{const context=await create(...args),get=context.request.get.bind(context.request),page=context.newPage.bind(context);context.request.get=(url,...args)=>get(map(url),...args);context.newPage=async()=>{const p=await page(),go=p.goto.bind(p);p.goto=(url,...args)=>go(map(url),...args);return p;};return context;};return browser;}};`,
+        `import {projectChromium} from ${JSON.stringify(join(repo, "src/cli/publish-verify.ts"))};
+export const chromium={async launch(){const browser=await projectChromium(${JSON.stringify(repo)}),create=browser.newContext.bind(browser);const map=(url)=>{const u=new URL(url);if(u.origin!=='https://fixture.workers.dev')throw Error('Unexpected external request');return ${JSON.stringify(server.url.origin)}+u.pathname;};browser.newContext=async(...args)=>{const context=await create(...args),get=context.request.get.bind(context.request),page=context.newPage.bind(context);context.request.get=(url,...args)=>get(map(url),...args);context.newPage=async()=>{const p=await page(),go=p.goto.bind(p);p.goto=(url,...args)=>go(map(url),...args);return p;};return context;};return browser;}};`,
     );
     const runner = join(root, "run.ts");
     writeFileSync(
