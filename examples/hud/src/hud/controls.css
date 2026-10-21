@@ -27,7 +27,6 @@
 .ec input[type='range']:hover:not(:disabled)::-moz-range-thumb { background: var(--ink); }
 .ec input[type='range']:active:not(:disabled)::-moz-range-thumb { background: var(--gold); }
 .ec input[type='range']:disabled::-moz-range-thumb { background: var(--dim); }
-.ec :is(input, button):focus-visible { outline: var(--radius) solid var(--gold); outline-offset: var(--radius); }
 .ec :disabled { color: var(--muted); cursor: default; }
 .ec input[type='range']:disabled::-webkit-slider-thumb { background: var(--dim); }
 

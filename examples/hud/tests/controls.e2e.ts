@@ -1,4 +1,54 @@
 import { expect, test } from "playwright/test";
+import {
+    bodyHasFocus,
+    dragRange,
+    gameKeyMovesCamera,
+    pointerControl,
+    tabSkipsChrome,
+} from "./pointer";
+
+test("each pointer control leaves the bound orbit key working", async ({ page }) => {
+    await page.goto("http://127.0.0.1:4176/tests/stepped.html");
+    await page.waitForFunction(() => "controlsKey" in window);
+    await dragRange(page, page.getByRole("slider", { name: "Turn speed" }));
+    await gameKeyMovesCamera(page);
+    await pointerControl(page, page.getByRole("button", { name: "Cyan" }));
+    await gameKeyMovesCamera(page);
+});
+
+test("a touch swatch changes the cube without taking the bound orbit key", async ({ browser }) => {
+    const context = await browser.newContext({
+        hasTouch: true,
+        viewport: { width: 390, height: 844 },
+    });
+    try {
+        const page = await context.newPage();
+        await page.goto("http://127.0.0.1:4176/tests/stepped.html");
+        await page.waitForFunction(() => "controlsKey" in window);
+        const material = () =>
+            page.evaluate(() => (window as unknown as { materialHud(): number[] }).materialHud());
+        const before = await material();
+        const cyan = page.getByRole("button", { name: "Cyan" });
+        const box = (await cyan.boundingBox())!;
+        const session = await context.newCDPSession(page);
+        await session.send("Input.dispatchTouchEvent", {
+            type: "touchStart",
+            touchPoints: [{ id: 1, x: box.x + box.width / 2, y: box.y + box.height / 2 }],
+        });
+        await bodyHasFocus(page);
+        await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+        await bodyHasFocus(page);
+        await expect(cyan).toHaveAttribute("aria-pressed", "true");
+        await expect(page.getByRole("button", { name: "Amber" })).toHaveAttribute(
+            "aria-pressed",
+            "false",
+        );
+        await gameKeyMovesCamera(page);
+        expect(await material()).not.toEqual(before);
+    } finally {
+        await context.close();
+    }
+});
 
 test("dragging compact HUD labels selects no page text", async ({ page }) => {
     await page.goto("/");
@@ -16,7 +66,7 @@ for (const viewport of [
     { width: 1280, height: 720 },
     { width: 390, height: 844 },
 ]) {
-    test(`compact HUD keeps its geometry and keyboard access at ${viewport.width}px`, async ({
+    test(`compact HUD keeps its geometry without keyboard focus at ${viewport.width}px`, async ({
         page,
     }) => {
         await page.setViewportSize(viewport);
@@ -71,26 +121,11 @@ for (const viewport of [
                 expect(box.width).toBeGreaterThanOrEqual(44);
             }
         const slider = page.getByRole("slider", { name: "Turn speed" });
-        await slider.fill("0");
-        await slider.focus();
-        await page.keyboard.press("ArrowRight");
-        await expect(slider).toHaveValue("0.1");
-        await expect(slider).toBeFocused();
-        expect(
-            await slider.evaluate((el) => {
-                const css = getComputedStyle(el);
-                return [
-                    el.matches(":focus-visible"),
-                    css.outlineWidth,
-                    css.outlineColor,
-                    css.outlineOffset,
-                ];
-            }),
-        ).toEqual([true, "2px", "rgb(212, 149, 96)", "2px"]);
-        await expect(panel.locator("output").first()).toHaveText("0.1");
-        await slider.fill("3");
-        await page.getByRole("button", { name: "Cyan" }).focus();
-        await page.keyboard.press("Space");
+        await dragRange(page, slider);
+        await expect(panel.locator("output").first()).toHaveText(
+            Number(await slider.inputValue()).toFixed(1),
+        );
+        await pointerControl(page, page.getByRole("button", { name: "Cyan" }));
         await expect(page.getByRole("button", { name: "Cyan" })).toHaveAttribute(
             "aria-pressed",
             "true",
@@ -99,6 +134,7 @@ for (const viewport of [
             "aria-pressed",
             "false",
         );
+        await page.mouse.move(0, 0);
         await expect(page.getByRole("button", { name: "Cyan" })).toHaveCSS(
             "border-color",
             "rgb(212, 149, 96)",
@@ -107,17 +143,7 @@ for (const viewport of [
             "aria-labelledby",
             "angle-label",
         );
-        expect(
-            await page.getByRole("button", { name: "Cyan" }).evaluate((el) => {
-                const css = getComputedStyle(el);
-                return [
-                    el.matches(":focus-visible"),
-                    css.outlineWidth,
-                    css.outlineColor,
-                    css.outlineOffset,
-                ];
-            }),
-        ).toEqual([true, "2px", "rgb(212, 149, 96)", "2px"]);
+        await tabSkipsChrome(page);
         expect(
             await panel
                 .locator("output")
@@ -132,7 +158,6 @@ for (const viewport of [
             ),
         ).toEqual(before);
         expect(await panel.boundingBox()).toEqual(bounds);
-        await page.evaluate(() => (document.activeElement as HTMLElement)?.blur());
         await page.mouse.move(0, 0);
         expect(await panel.locator(":focus-visible, :hover").count()).toBe(0);
         if (process.env.SHALLOT_CONTROLS_CAPTURE_DIR)

@@ -29,8 +29,10 @@ for (const claim of ["move and look", "jump", "use"]) {
             );
         const session = await context.newCDPSession(page);
         let points: { id: number; x: number; y: number }[] = [];
-        const send = (type: "touchStart" | "touchMove" | "touchEnd") =>
-            session.send("Input.dispatchTouchEvent", { type, touchPoints: points });
+        const send = async (type: "touchStart" | "touchMove" | "touchEnd") => {
+            await session.send("Input.dispatchTouchEvent", { type, touchPoints: points });
+            expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+        };
         await expect(page.getByRole("button", { name: "Jump", exact: true })).toBeHidden();
         if (claim === "move and look") {
             const before = await sample();
@@ -104,6 +106,21 @@ for (const claim of ["move and look", "jump", "use"]) {
             points = [];
             await send("touchEnd");
             await expect.poll(async () => (await sample()).use).toBe(false);
+        }
+        const beforeKey = await sample();
+        await page.keyboard.down("w");
+        try {
+            await expect
+                .poll(async () => {
+                    const now = await sample();
+                    return Math.hypot(
+                        now.position[0] - beforeKey.position[0],
+                        now.position[2] - beforeKey.position[2],
+                    );
+                })
+                .toBeGreaterThan(0.1);
+        } finally {
+            await page.keyboard.up("w");
         }
         expect(errors).toEqual([]);
         await context.close();

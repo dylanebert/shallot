@@ -1,5 +1,6 @@
 import { expect, test } from "playwright/test";
 import { capture } from "./capture";
+import { bodyHasFocus, pointerControl, tabSkipsChrome } from "./pointer";
 
 test("dragging save chrome and its title selects no page text", async ({ page }) => {
     await page.goto("/");
@@ -35,7 +36,9 @@ test("the built page opens a new game with clear controls and Load disabled unti
     expect(errors).toEqual([]);
 });
 
-test("every control holds still across feedback, disabled, hover and focus", async ({ page }) => {
+test("every control holds still across feedback, disabled and hover without focus", async ({
+    page,
+}) => {
     await page.goto(
         `http://127.0.0.1:4190/tests/${process.env.SHALLOT_CAPTURE_DIR ? "stepped.html?capture" : "hud.html"}`,
     );
@@ -75,18 +78,23 @@ test("every control holds still across feedback, disabled, hover and focus", asy
         await expect(control.locator("kbd")).toHaveCSS("transform", "none");
         expect(await boxes()).toEqual(initial);
         await page.mouse.move(0, 0);
-        await page.keyboard.press("Tab");
-        await control.focus();
-        await expect(control).toBeFocused();
-        await expect(control).toHaveCSS("outline-color", "rgb(212, 149, 96)");
-        await expect(control).toHaveCSS("outline-style", "solid");
+        await pointerControl(page, control);
+        await page.evaluate(() => window.saveAndLoad.click());
+        await page.keyboard.down("n");
+        await page.evaluate(() => window.saveAndLoad.advance());
+        await page.keyboard.up("n");
+        await page.evaluate(() => window.saveAndLoad.advance());
+        await expect(page.getByRole("status", { name: "Coins", exact: true })).toHaveText(
+            "0 coins",
+        );
         await expect(control.locator("kbd")).toHaveCSS("transform", "none");
         expect(await boxes()).toEqual(initial);
     }
-    await controls.nth(2).evaluate((element) => (element as HTMLElement).blur());
+    await tabSkipsChrome(page);
     await controls.nth(1).hover();
     await expect(controls.nth(1)).toHaveCSS("background-color", "rgb(60, 50, 44)");
     await page.mouse.down();
+    await bodyHasFocus(page);
     await expect(controls.nth(1)).toHaveCSS("background-color", "rgb(42, 36, 32)");
     await page.mouse.up();
     await capture(page, "03-save-hovered");

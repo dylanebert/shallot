@@ -41,18 +41,18 @@
     });
 </script>
 
-<section class="ec controls hud" aria-label="Cube controls">
+<section onmousedown={(event) => { if (!(event.target instanceof HTMLInputElement && event.target.type === "range")) event.preventDefault(); }} onpointerdown={(event) => event.stopPropagation()} class="ec controls hud" aria-label="Cube controls">
   <div class="fields">
     <div class="swatches" aria-label="Cube colour">
         {#each swatches as swatch, index}
-            <button aria-label={swatch.name} aria-pressed={selected === index}
+            <button tabindex="-1" onfocus={(event) => event.currentTarget.blur()} aria-label={swatch.name} aria-pressed={selected === index}
                 onclick={() => recolor(index)}><span class="swatch" style:background={srgb(swatch.color)}></span></button>
         {/each}
     </div>
     <div class="row">
         <label for="speed">Turn speed</label>
         <div class="slider">
-            <input id="speed" type="range" min="0" max="3" step="0.1" bind:value={speed} />
+            <input tabindex="-1" onfocus={(event) => event.currentTarget.blur()} id="speed" type="range" min="0" max="3" step="0.1" bind:value={speed} />
             <output for="speed">{speed.toFixed(1)}</output>
         </div>
     </div>

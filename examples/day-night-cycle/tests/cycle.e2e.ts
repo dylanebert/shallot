@@ -165,9 +165,7 @@ test.describe("one stepped app", () => {
         expect(await night.evaluate((frame) => frame.hour)).toBe(0);
         await expect(page.locator('output[for="hour"]')).toHaveText("00:00");
         const slider = page.getByRole("slider", { name: "Hour" });
-        await slider.focus();
-        await page.keyboard.press("ArrowRight");
-        await expect(slider).toHaveValue("0.01");
+        await slider.fill("0.01");
         await frame(page);
         await expect(page.locator('output[for="hour"]')).toHaveText("00:00");
         for (const [hour, time] of [

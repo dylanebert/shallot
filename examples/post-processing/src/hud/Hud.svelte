@@ -17,18 +17,18 @@
     }
 </script>
 
-<details open class="ec controls" role="region" aria-label="Post-processing controls">
-    <summary class="panel-title">Post-processing</summary>
+<details onmousedown={(event) => { if (!(event.target instanceof HTMLInputElement && event.target.type === "range")) event.preventDefault(); }} onpointerdown={(event) => event.stopPropagation()} open class="ec controls" role="region" aria-label="Post-processing controls">
+    <summary tabindex="-1" onfocus={(event) => event.currentTarget.blur()} class="panel-title">Post-processing</summary>
     <div class="fields">
         {#each effects as effect, index}
             <section class="section" aria-label={effect.name}>
-                <label class="section-title" for={`effect-${index}`}><span role="heading" aria-level="2">{effect.name}</span><input id={`effect-${index}`} type="checkbox" checked={enabled[index]} onchange={() => toggle(index)} /></label>
+                <label class="section-title" for={`effect-${index}`}><span role="heading" aria-level="2">{effect.name}</span><input tabindex="-1" onfocus={(event) => event.currentTarget.blur()} id={`effect-${index}`} type="checkbox" checked={enabled[index]} onchange={() => toggle(index)} /></label>
                 <fieldset class="section dependents" disabled={!enabled[index]} aria-label={effect.name}>
                     {#each settings[index] as control, setting}
                         <div class="row">
                             <label for={`control-${index}-${setting}`}>{control.label}</label>
                             <div class="slider">
-                                <input id={`control-${index}-${setting}`} type="range" min={control.min} max={control.max} step="0.01" value={values[index][setting]} oninput={(event) => update(index, setting, Number(event.currentTarget.value))} />
+                                <input tabindex="-1" onfocus={(event) => event.currentTarget.blur()} id={`control-${index}-${setting}`} type="range" min={control.min} max={control.max} step="0.01" value={values[index][setting]} oninput={(event) => update(index, setting, Number(event.currentTarget.value))} />
                                 <output for={`control-${index}-${setting}`}>{values[index][setting].toFixed(2)}</output>
                             </div>
                         </div>

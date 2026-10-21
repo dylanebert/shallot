@@ -24,6 +24,11 @@
     }] }] });
     const fullSize = new URL(location.href).searchParams.has("capture");
     const camera = app.world.resource(CycleScene).camera;
+    const { Orbit } = await import("@dylanebert/shallot/extras");
+    window.controlsKey = () => {
+        app.world.step(1 / 60);
+        return app.world.storage(Orbit).yaw.get(camera);
+    };
     window.orbit = async (yaw) => {
         const { Orbit } = await import("@dylanebert/shallot/extras");
         app.world.remove(camera, Orbit);

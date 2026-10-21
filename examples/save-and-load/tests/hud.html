@@ -1,12 +1,12 @@
 <!doctype html>
 <html lang="en"><head><meta charset="UTF-8"/><title>Save and load controls</title>
 <link rel="stylesheet" href="../src/hud.css"/></head>
-<body><div id="hud" style="position:relative;width:100%;height:100dvh"></div>
+<body><canvas hidden></canvas><div id="hud" style="position:relative;width:100%;height:100dvh"></div>
 <script type="module">
-import { createApp, MeshInstance, Transform } from '@dylanebert/shallot';
+import { createApp, BrowserInputPlugin, MeshInstance, Transform } from '@dylanebert/shallot';
 import { addCoin, Game, GamePlugin } from '../src/game';
 import { hud } from '../src/hud';
-const app=await createApp({plugins:[GamePlugin,{name:'HudFixture',components:[MeshInstance,Transform]}]});
+const app=await createApp({plugins:[BrowserInputPlugin,GamePlugin,{name:'HudFixture',components:[MeshInstance,Transform]}]});
 const world=app.world;
 world.resource(Game).storage=localStorage;
 hud(document.querySelector('#hud'),world);

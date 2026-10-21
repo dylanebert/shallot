@@ -149,15 +149,15 @@ for (const viewport of [
                 }
             });
         }
-        test("uncropped keyboard picker and safe areas", async ({ page }) => {
+        test("uncropped pointer picker and safe areas", async ({ page }) => {
             await page.goto("/");
             const trigger = page.getByRole("button", { name: "Scene", exact: true });
             await expect(trigger).toBeVisible();
             const initial = await page
                 .locator("nav button:not(.name)")
                 .evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().toJSON()));
-            await trigger.focus();
-            await page.keyboard.press("Enter");
+            await trigger.click();
+            expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
             const list = page.locator("#scene-list");
             expect(await list.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
             const box = (await list.boundingBox())!;
@@ -173,11 +173,11 @@ for (const viewport of [
             );
             await page.keyboard.press("Escape");
             await expect(list).toBeHidden();
-            await expect(trigger).toBeFocused();
-            await page.keyboard.press("Enter");
+            expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+            await trigger.click();
             await page.mouse.click(4, 4);
             await expect(list).toBeHidden();
-            await expect(trigger).toBeFocused();
+            expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
             expect(
                 await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
             ).toBe(true);

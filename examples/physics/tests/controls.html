@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><title>Physics controls, stepped</title>
+<style>body{margin:0}canvas{display:block;width:100vw;height:100vh}</style></head>
+<body><canvas width="1280" height="720"></canvas><script type="module">
+import { createApp, mountOverlay, StandardPhysicsPlugin } from '@dylanebert/shallot';
+import { LinesPlugin, OrbitPlugin, Orbit, TextPlugin } from '@dylanebert/shallot/extras';
+import { mount, unmount, flushSync } from 'svelte';
+import Hud from '../src/Hud.svelte';
+import { EventSamplePlugin, SampleInputPlugin } from '../src/events';
+import { sceneSwitcher } from '../src/sample';
+import { changeControl } from '../src/scenes';
+import { createViewer } from '../src/view';
+const app = await createApp({plugins:[StandardPhysicsPlugin,EventSamplePlugin,SampleInputPlugin,TextPlugin,OrbitPlugin,LinesPlugin]});
+const world=app.world;
+const container=mountOverlay(document.querySelector('canvas'),world);
+const replace=sceneSwitcher(world,createViewer(world));
+let component;
+function select(scene){
+ const bodies=replace(scene);
+ if(component) void unmount(component);
+ component=mount(Hud,{target:container,props:{scene,select,change:(name,value,values)=>changeControl(world,scene,bodies,values,name,value)}});
+ flushSync();
+}
+select('wheel');
+window.controlsKey=()=>{
+ world.step(1/60);
+ const camera=[...world.query([Orbit])][0];
+ return world.storage(Orbit).yaw.get(camera);
+};
+</script></body></html>

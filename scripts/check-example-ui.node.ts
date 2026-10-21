@@ -758,7 +758,12 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
                       : check
                         ? "muted"
                         : "line";
-            if (p === "outline-offset" && v !== "2px") fail("focus role");
+            if (
+                s.includes(":focus-visible") &&
+                /^outline(?:-width|-style|-color)?$/.test(p) &&
+                !["none", "0", "0px"].includes(v)
+            )
+                fail("focus outline forbidden");
             if (
                 role &&
                 !passive &&
@@ -873,19 +878,6 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
             }
         }
     }
-    const focusRules = rules.filter((rule) => rule.selector.includes(":focus-visible"));
-    for (const rule of focusRules) {
-        if (
-            !rule.declarations.some(
-                (d) =>
-                    d.property === "outline" && expand(d.value) === `2px solid ${hostPalette.gold}`,
-            ) ||
-            !rule.declarations.some(
-                (d) => d.property === "outline-offset" && expand(d.value) === "2px",
-            )
-        )
-            failures.push(`focus outline/offset missing: ${rule.selector}`);
-    }
     if (
         rules.some((rule) => /nav\s+\.name\b/.test(rule.selector)) &&
         !rules.some(
@@ -903,8 +895,6 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
             !rules.some((rule) => rule.selector.includes(kind) && stateSubject(rule.selector, kind))
         )
             continue;
-        if (!focusRules.some((rule) => stateSubject(rule.selector, kind)))
-            failures.push(`focus missing: ${kind}`);
         for (const [state, part, property, role] of requiredStates(kind)) {
             if (
                 !rules.some(
@@ -1154,7 +1144,7 @@ test("8: button-only disabled text cannot cover other control kinds", () => {
 
 test("8: styled options require rest, hover, pressed, selected and disabled text", () => {
     const option =
-        ".ec option { background: var(--raised); border: var(--hair) solid var(--line); color: var(--ink); }\n.ec option:disabled { background: var(--bg2); }\n.ec option:hover:not(:disabled) { border-color: var(--muted); }\n.ec option:active:not(:disabled) { background: var(--line); }\n.ec option[aria-selected='true'] { border-color: var(--gold); }\n.ec option:focus-visible { outline: var(--radius) solid var(--gold); outline-offset: var(--radius); }";
+        ".ec option { background: var(--raised); border: var(--hair) solid var(--line); color: var(--ink); }\n.ec option:disabled { background: var(--bg2); }\n.ec option:hover:not(:disabled) { border-color: var(--muted); }\n.ec option:active:not(:disabled) { background: var(--line); }\n.ec option[aria-selected='true'] { border-color: var(--gold); }";
     const sheet = controlFixture + option;
     expect(controlViolations({ sheets: [sheet], lists: [] })).toEqual([]);
     for (const [selector, property] of [
@@ -1213,16 +1203,6 @@ const controlMutations: [string, string, string][] = [
         "4: coarse limited to phone is not coarse coverage",
         "@media (pointer: coarse)",
         "@media (pointer: coarse) and (max-width: 480px)",
-    ],
-    [
-        "8: summary-only focus",
-        ":is(button, input, select, summary):focus-visible",
-        "summary:focus-visible",
-    ],
-    [
-        "8: range-only focus omits checkboxes",
-        ":is(button, input, select, summary):focus-visible",
-        ":is(button, input[type='range'], select, summary):focus-visible",
     ],
     ["9: panel takes row token", "width: var(--panel); max-width", "width: var(--row); max-width"],
     [
@@ -1332,8 +1312,6 @@ const controlMutations: [string, string, string][] = [
         "background: var(--dim); border-color",
         "background: var(--gold); border-color",
     ],
-    ["8: focus width", "outline: var(--radius)", "outline: var(--hair)"],
-    ["8: focus offset", "outline-offset: var(--radius)", "outline-offset: var(--hair)"],
     [
         "8: disabled text",
         ".ec :disabled { color: var(--muted)",
@@ -1526,7 +1504,7 @@ test("world-space Text fields are data, not CSS; CSS authored in script strings 
 test("touch action geometry does not excuse missing button states", async () => {
     const sheet = await readFile("examples/first-person/src/touch.css", "utf8");
     expect(controlViolations({ sheets: [sheet], lists: [] })).toEqual([]);
-    for (const state of ["hover", "active", "focus-visible", "disabled"]) {
+    for (const state of ["hover", "active", "disabled"]) {
         const missing = sheet.replaceAll(
             `button[data-touch-action]:${state}`,
             `.not-an-action:${state}`,
@@ -1726,6 +1704,47 @@ function chromeViolations(css: Css, embedded = false): string[] {
     return failures;
 }
 
+function tabStops(source: string): string[] {
+    return [
+        ...source.matchAll(
+            /\btabindex(?:\s*=|["']\s*,)\s*(?:["']\s*([+-]?\d+)\s*["']|\{\s*([+-]?\d+)\s*\}|([+-]?\d+))/gi,
+        ),
+    ]
+        .filter((match) => Number(match[1] ?? match[2] ?? match[3]) >= 0)
+        .map((match) => match[0]);
+}
+
+test("8: chrome refuses nonnegative tab stops in markup and DOM assignments", () => {
+    for (const source of [
+        '<button tabindex="-1">',
+        "slider.tabIndex = -1;",
+        "<input tabindex={-1}>",
+    ])
+        expect(tabStops(source)).toEqual([]);
+    for (const source of [
+        '<button tabindex="0">',
+        "<div tabindex='2'>",
+        "<input tabindex={0}>",
+        "<select tabindex=0>",
+        "slider.tabIndex = 0;",
+        'button.setAttribute("tabindex", "0");',
+    ])
+        expect(tabStops(source)).toHaveLength(1);
+});
+
+test("8: focus-visible outlines are refused rather than required", () => {
+    expect(controlViolations({ sheets: [controlFixture], lists: [] })).toEqual([]);
+    for (const outline of ["outline: 2px solid var(--gold)", "outline-width: 2px"])
+        expect(
+            controlViolations({
+                sheets: [controlFixture + `.ec button:focus-visible { ${outline}; }`],
+                lists: [],
+            }),
+        ).toContain(
+            `focus outline forbidden: .ec button:focus-visible { ${outline.replace("var(--gold)", EXAMPLE_CONTROLS.dark.gold)} }`,
+        );
+});
+
 function draggableImages(source: string): string[] {
     return [...source.matchAll(/<img\b[^>]*>/gi)]
         .map((match) => match[0])
@@ -1781,6 +1800,7 @@ for (const example of await readdir("examples")) {
         for (const path of await sources(join("examples", example))) {
             const source = await readFile(path, "utf8");
             expect(draggableImages(source)).toEqual([]);
+            expect(tabStops(source)).toEqual([]);
         }
     });
     test(`${example} follows example-controls`, async () => {

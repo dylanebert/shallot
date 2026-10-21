@@ -17,12 +17,12 @@
     });
 </script>
 
-<section class="ec controls hud" aria-label="Time of day">
+<section onmousedown={(event) => { if (!(event.target instanceof HTMLInputElement && event.target.type === "range")) event.preventDefault(); }} onpointerdown={(event) => event.stopPropagation()} class="ec controls hud" aria-label="Time of day">
     <div class="fields">
         <div class="row">
             <label for="hour">Hour</label>
             <div class="slider">
-                <input id="hour" type="range" min="0" max="23.99" step="0.01" value={hour}
+                <input tabindex="-1" onfocus={(event) => event.currentTarget.blur()} id="hour" type="range" min="0" max="23.99" step="0.01" value={hour}
                     oninput={(event) => { world.resource(Clock).hour = Number(event.currentTarget.value); }} />
                 <output for="hour">{time(hour)}</output>
             </div>

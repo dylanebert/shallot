@@ -1,10 +1,18 @@
 import { expect, test } from "playwright/test";
+import { dragRange, gameKeyMovesCamera, tabSkipsChrome } from "./pointer";
+
+test("pointer hour control leaves the bound orbit key working", async ({ page }) => {
+    await page.goto("http://127.0.0.1:4266/tests/stepped.html");
+    await page.waitForFunction(() => "controlsKey" in window);
+    await dragRange(page, page.getByRole("slider", { name: "Hour" }));
+    await gameKeyMovesCamera(page);
+});
 
 for (const viewport of [
     { width: 1280, height: 720 },
     { width: 390, height: 844 },
 ]) {
-    test(`compact HUD keeps its geometry and keyboard access at ${viewport.width}px`, async ({
+    test(`compact HUD keeps its geometry without keyboard focus at ${viewport.width}px`, async ({
         page,
     }) => {
         await page.setViewportSize(viewport);
@@ -59,22 +67,8 @@ for (const viewport of [
                 expect(box.width).toBeGreaterThanOrEqual(44);
             }
         const slider = page.getByRole("slider", { name: "Hour" });
-        await slider.fill("0");
-        await slider.focus();
-        await page.keyboard.press("ArrowRight");
-        expect(Number(await slider.inputValue())).toBeGreaterThan(0);
-        await expect(slider).toBeFocused();
-        expect(
-            await slider.evaluate((el) => {
-                const css = getComputedStyle(el);
-                return [
-                    el.matches(":focus-visible"),
-                    css.outlineWidth,
-                    css.outlineColor,
-                    css.outlineOffset,
-                ];
-            }),
-        ).toEqual([true, "2px", "rgb(212, 149, 96)", "2px"]);
+        await dragRange(page, slider);
+        await tabSkipsChrome(page);
         await expect(panel.locator("output")).toHaveText(/^\d{2}:\d{2}$/);
         await slider.fill("23.99");
         await expect(panel.locator("output")).toHaveText(/^\d{2}:\d{2}$/);
@@ -87,7 +81,6 @@ for (const viewport of [
             ),
         ).toEqual(before);
         expect(await panel.boundingBox()).toEqual(bounds);
-        await page.evaluate(() => (document.activeElement as HTMLElement)?.blur());
         await page.mouse.move(0, 0);
         expect(await panel.locator(":focus-visible, :hover").count()).toBe(0);
         if (process.env.SHALLOT_CONTROLS_CAPTURE_DIR)

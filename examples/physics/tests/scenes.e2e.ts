@@ -1,4 +1,5 @@
 import { expect, test } from "playwright/test";
+import { bodyHasFocus, pointerControl } from "./pointer";
 
 test("switching scenes resets the Bridge control and keeps the canvas", async ({ page }) => {
     const errors: string[] = [];
@@ -11,13 +12,13 @@ test("switching scenes resets the Bridge control and keeps the canvas", async ({
     await scene.click();
     await page.mouse.click(20, 20);
     await expect(scene).toHaveAttribute("aria-expanded", "false");
-    await scene.focus();
-    await page.keyboard.press("Enter");
+    await bodyHasFocus(page);
+    await pointerControl(page, scene);
     await page.keyboard.press("Escape");
     await expect(scene).toHaveAttribute("aria-expanded", "false");
-    await expect(scene).toBeFocused();
-    await page.keyboard.press("Enter");
-    await expect(page.getByRole("button", { name: "Box Stack", exact: true })).toBeFocused();
+    await bodyHasFocus(page);
+    await pointerControl(page, scene);
+    await bodyHasFocus(page);
     await expect(
         page
             .getByRole("region", { name: "Joints", exact: true })

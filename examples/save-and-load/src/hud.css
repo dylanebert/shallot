@@ -8,7 +8,6 @@ h1 { font: 400 24px/20px 'JetBrains Mono', ui-monospace, monospace; font-variant
 .save-hud button:enabled { cursor: pointer; }
 .save-hud button:hover:not(:disabled) { border-color: #a08c78; }
 .save-hud button:active:not(:disabled) { background: #2a2420; }
-.save-hud button:focus-visible { outline: 2px solid #d49560; outline-offset: 2px; }
 .save-hud button[aria-pressed='true'] { border-color: #d49560; }
 .save-hud button:disabled { background: #1c1917; color: #a08c78; cursor: default; }
 .save-hud kbd[hidden] { display: none; }
