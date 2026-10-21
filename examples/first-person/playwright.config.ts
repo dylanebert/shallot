@@ -3,7 +3,7 @@ import type { PlaywrightTestConfig } from "playwright/test";
 
 export const config = {
     testDir: ".",
-    testIgnore: "**/tests/input/**",
+    testIgnore: ["**/tests/input/**", "**/tests/touch/**"],
     ...BROWSER_CONFIG,
     globalSetup: "./tests/browser-setup.ts",
     use: {

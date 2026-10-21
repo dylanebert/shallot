@@ -1,7 +1,7 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { holdFrames } from "@dylanebert/shallot/testing";
-import { expect, test } from "./tests/browser-fixture";
+import { expect, test } from "../browser-fixture";
 
 test("scene chrome refuses selection while the host heading and body remain page content", async ({
     page,
@@ -25,7 +25,7 @@ test("scene chrome refuses selection while the host heading and body remain page
 
 const CAPTURE_ENTRY = resolve(
     dirname(fileURLToPath(import.meta.url)),
-    ".artifacts/capture-page.js",
+    "../../.artifacts/capture-page.js",
 );
 
 test("a browser capture preserves the declared page geometry and shows its color tag", async ({
