@@ -1,6 +1,5 @@
 import {
     Camera,
-    lookAtRotation,
     Materials,
     Meshes,
     MeshInstance,
@@ -16,6 +15,7 @@ import {
     type World,
 } from "@dylanebert/shallot";
 import { Bloom, BloomPlugin } from "@dylanebert/shallot/bloom";
+import { Orbit, OrbitPlugin } from "@dylanebert/shallot/extras";
 
 export const Scene: Resource<{ camera: number; spheres: number[] }> = {
     create: () => ({ camera: -1, spheres: [] }),
@@ -32,10 +32,13 @@ function makeScene(world: World): void {
     world.resource(Scene).camera = camera;
     world.add(camera, Camera, { clearColor: 0x000000 });
     world.add(camera, StandardRenderer);
-    world.add(camera, Transform, {
-        translation: [-8, 10, 20],
-        rotation: lookAtRotation(-8, 10, 20, 0, 0, 0),
+    world.add(camera, Orbit, {
+        pan: [0, 0, 0],
+        distance: Math.hypot(2, 2.5, 5),
+        yaw: Math.atan2(-2, 5),
+        pitch: Math.atan2(2.5, Math.hypot(2, 5)),
     });
+    world.add(camera, Transform);
     world.add(camera, Tonemapping, { method: TonemappingMethod.TonyMcMapface });
     setBloom(world, true);
 
@@ -73,7 +76,7 @@ function makeScene(world: World): void {
 
 export const ScenePlugin: Plugin = {
     name: "BloomScene",
-    dependencies: [BloomPlugin],
+    dependencies: [BloomPlugin, OrbitPlugin],
     initialize: makeScene,
     systems: [
         {
