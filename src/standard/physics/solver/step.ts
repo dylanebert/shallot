@@ -1,4 +1,4 @@
-import { reportStartup } from "../../../engine/runtime/startup";
+import { reportStartup } from "../../../engine/runtime";
 import { readJointEventUserData } from "../kernel/jointcolumns";
 import { assertKernelEntry, kernel, rethrowQueryError, threads } from "../kernel/kernel";
 import type { WorldState } from "../world/world";

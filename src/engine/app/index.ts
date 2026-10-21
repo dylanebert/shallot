@@ -10,12 +10,12 @@ import {
     PLUGIN_HOOK_MEASURE_PREFIX,
     precompileAll,
     Runtime,
+    reportStartup,
     requestFrame,
     requestGPU,
     validateGpu,
     withPipelineOwner,
 } from "../runtime";
-import { reportStartup } from "../runtime/startup";
 import { resolvePlugins } from "./compose";
 import { frameDelta } from "./frame-delta";
 

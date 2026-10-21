@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { expectError } from "../../scripts/test-console";
+import { normalizePath } from "../project";
 import { publishHeaders, publishProject, readPublishLink } from "./publish";
 import { projectChromium } from "./publish-verify";
 
@@ -185,7 +186,7 @@ test("first-link setup builds and writes the target's artifact before invoking d
         readFileSync(join(project, "node_modules/wrangler/deployment.json"), "utf8"),
     );
     expect(realpathSync(deployment.cwd)).toBe(realpathSync(project));
-    expect(relative(project, deployment.configPath).startsWith("..")).toBe(true);
+    expect(normalizePath(relative(project, deployment.configPath)).startsWith("..")).toBe(true);
     expect(deployment.config.assets.not_found_handling).toBe("none");
     expect(deployment.headers).toBe(publishHeaders());
     expect(readPublishLink(project)).toBeUndefined();

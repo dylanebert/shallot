@@ -2,10 +2,11 @@ import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join, resolve, sep } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { bunChild } from "../../scripts/bun-child";
 import { packedInstall } from "../../scripts/packed-install-spawn";
+import { normalizePath } from "../project";
 import { cloudflareConfig, type WranglerResult, workerExists } from "./publish-cloudflare";
 
 // Manual, real Cloudflare boundary. Run by path from the person's terminal, with
@@ -169,7 +170,7 @@ test(
         const collision = join(root, "collision");
         cpSync(project, collision, {
             recursive: true,
-            filter: (source) => !source.split(sep).includes("node_modules"),
+            filter: (source) => !normalizePath(source).split("/").includes("node_modules"),
         });
         const collisionPath = join(collision, "package.json");
         const collisionManifest = JSON.parse(readFileSync(collisionPath, "utf8"));

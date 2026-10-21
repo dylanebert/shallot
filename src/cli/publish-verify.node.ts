@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { removeTestDirectory } from "../../scripts/test-directory";
-import { CROSS_ORIGIN_ISOLATION } from "../project/isolation.js";
+import { CROSS_ORIGIN_ISOLATION } from "../project";
 import { projectChromium, verifyPublishedGame } from "./publish-verify";
 
 setDefaultTimeout(TIMEOUT.node);
@@ -57,27 +57,34 @@ for (const [fault, failure] of [
     ["wrong MIME", "game.js: expected application/javascript, got text/plain"],
     ["SPA fallback", "A missing path answered 200, not 404"],
     ["absent isolation", "The published page is not cross-origin isolated"],
-    ["no startup observation", `waitForFunction: Timeout ${TIMEOUT.startup}ms exceeded`],
+    ["no startup observation", `waitForFunction: Timeout ${TIMEOUT.cheap}ms exceeded`],
 ] as const) {
-    test(
-        `the publish verifier ${failure ? `rejects ${fault}` : "accepts the isolated, observed positive control"}`,
-        async () => {
-            control = fault;
-            writeFileSync(
-                join(directory, "index.html"),
-                fault === "no startup observation" ? '<link rel="icon" href="data:,">' : html,
-            );
-            writeFileSync(join(directory, "game.js"), "const game = 1;\n");
-            const assets = ["index.html", "game.js"].map((path) => ({
-                path,
-                size: readFileSync(join(directory, path)).length,
-            }));
-            const result = verifyPublishedGame(browser, server.url.href, directory, assets);
-            if (failure) await expect(result).rejects.toThrow(failure);
-            else
-                expect(await result).toMatchObject({ hardware: false, adapter: "No GPU required" });
-        },
-        // The missing-observation control exhausts the startup wait after loading the page.
-        fault === "no startup observation" ? 2 * TIMEOUT.startup : TIMEOUT.node,
-    );
+    test(`the publish verifier ${failure ? `rejects ${fault}` : "accepts the isolated, observed positive control"}`, async () => {
+        control = fault;
+        writeFileSync(
+            join(directory, "index.html"),
+            fault === "no startup observation" ? '<link rel="icon" href="data:,">' : html,
+        );
+        writeFileSync(join(directory, "game.js"), "const game = 1;\n");
+        const assets = ["index.html", "game.js"].map((path) => ({
+            path,
+            size: readFileSync(join(directory, path)).length,
+        }));
+        // The fixture dispatches startup synchronously; its missing signal must fail within the Node tier.
+        const result = verifyPublishedGame(
+            browser,
+            server.url.href,
+            directory,
+            assets,
+            TIMEOUT.cheap,
+        );
+        if (failure)
+            expect(
+                await result.then(
+                    () => undefined,
+                    (error: Error) => error.message,
+                ),
+            ).toContain(failure);
+        else expect(await result).toMatchObject({ hardware: false, adapter: "No GPU required" });
+    });
 }

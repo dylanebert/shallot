@@ -16,7 +16,7 @@ import {
     Time,
     type World,
 } from "../../engine";
-import { reportStartup } from "../../engine/runtime/startup";
+import { reportStartup } from "../../engine/runtime";
 import { clamp } from "../../engine/utils";
 import type { AABB, Pos, Quat, Vec3, WorldState, WorldTransform } from "./api";
 import { init, type PhysicsSnapshot, shutdown } from "./api";

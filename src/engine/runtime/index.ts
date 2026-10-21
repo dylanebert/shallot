@@ -64,4 +64,5 @@ export {
 } from "./probe";
 export { ReadbackPool, type ReadbackStamp } from "./readback";
 
+export { reportStartup } from "./startup";
 export { resizeViewport, type Viewport, Viewports } from "./viewport";

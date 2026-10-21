@@ -1,10 +1,9 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
+import { BROWSER_CONFIG, TIMEOUT } from "@dylanebert/shallot/testing";
 import type { Browser, Page } from "playwright";
-import { contentType } from "../project/assets.js";
-import { CROSS_ORIGIN_ISOLATION } from "../project/isolation.js";
-import { BROWSER_CONFIG, TIMEOUT } from "../project/testing.js";
+import { CROSS_ORIGIN_ISOLATION, contentType } from "../project";
 
 export interface PublishAsset {
     path: string;
@@ -51,12 +50,13 @@ export async function projectChromium(projectDir: string): Promise<Browser> {
     }
 }
 
-/** Load anonymously, checking the build's bytes as well as the page's actual startup observations. */
+/** Load anonymously, checking build bytes and actual startup. startupTimeout bounds observation waiting after navigation, in milliseconds. */
 export async function verifyPublishedGame(
     browser: Browser,
     url: string,
     directory: string,
     assets: PublishAsset[],
+    startupTimeout: number = TIMEOUT.startup,
 ): Promise<PublishVerification> {
     const context = await browser.newContext();
     try {
@@ -120,7 +120,7 @@ export async function verifyPublishedGame(
                 return status.started && status.adapter !== undefined;
             },
             undefined,
-            { timeout: TIMEOUT.startup },
+            { timeout: startupTimeout },
         );
         const status = await page.evaluate(
             () => (window as unknown as { __shallotPublish: BrowserStartup }).__shallotPublish,

@@ -5,8 +5,7 @@ import { basename, join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { detectAgenticEnvironment } from "am-i-vibing";
 import ci from "ci-info";
-import { buildWeb } from "../project/build";
-import { CROSS_ORIGIN_ISOLATION } from "../project/isolation.js";
+import { buildWeb, CROSS_ORIGIN_ISOLATION } from "../project";
 import {
     cloudflareConfig,
     cloudflareDeployment,
