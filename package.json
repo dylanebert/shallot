@@ -80,6 +80,7 @@
         "examples/post-processing",
         "examples/bloom",
         "examples/color-grading",
+        "examples/tonemapping",
         "examples/interact",
         "examples/world-ui",
         "examples/save-and-load",
