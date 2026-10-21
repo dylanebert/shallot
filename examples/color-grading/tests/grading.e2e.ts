@@ -1,6 +1,22 @@
 import { mkdir } from "node:fs/promises";
 import { expect, type Page, test } from "playwright/test";
 import { settings } from "../src/settings";
+import { dragRange, gameKeyMovesCamera, pointerControl } from "./pointer";
+
+test("each panel control leaves the orbit key working", async ({ page }) => {
+    await page.goto("http://127.0.0.1:4296/tests/stepped.html");
+    await page.waitForFunction(() => "controlsKey" in window);
+    await gameKeyMovesCamera(page);
+    await pointerControl(page, page.locator("summary"));
+    await gameKeyMovesCamera(page);
+    await pointerControl(page, page.locator("summary"));
+    await gameKeyMovesCamera(page);
+    for (const [index, control] of settings.entries()) {
+        await dragRange(page, page.locator(`#control-${index}`));
+        await gameKeyMovesCamera(page);
+        await page.locator(`#control-${index}`).fill(String(control.value));
+    }
+});
 
 type CaptureWindow = Window & { captureScene: () => Promise<number[]>; captures: number[][] };
 async function capture(page: Page): Promise<number> {
@@ -60,6 +76,11 @@ for (const viewport of [
         const panel = page.getByRole("region", { name: "Color grading controls" });
         await panel.waitFor();
         await page.evaluate(() => document.fonts.ready);
+        for (const [index, control] of settings.entries())
+            await page.locator(`#control-${index}`).fill(String(control.value));
+        await panel.evaluate((el) => {
+            el.scrollTop = 0;
+        });
         const bounds = (await panel.boundingBox())!;
         expect(bounds.x).toBeGreaterThanOrEqual(0);
         expect(bounds.y + bounds.height).toBeLessThanOrEqual(viewport.height);

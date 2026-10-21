@@ -4,7 +4,6 @@ import {
     cube,
     DirectionalLight,
     GlobalAmbientLight,
-    lookAtRotation,
     Materials,
     Meshes,
     MeshInstance,
@@ -18,6 +17,7 @@ import {
     sphere,
     Transform,
 } from "@dylanebert/shallot";
+import { Orbit, OrbitPlugin } from "@dylanebert/shallot/extras";
 
 export const Scene: Resource<{ camera: number; subjects: number[] }> = {
     create: () => ({ camera: -1, subjects: [] }),
@@ -25,17 +25,20 @@ export const Scene: Resource<{ camera: number; subjects: number[] }> = {
 
 export const ScenePlugin: Plugin = {
     name: "ColorGradingScene",
-    dependencies: [MeshPlugin, StandardRenderingPlugin],
+    dependencies: [MeshPlugin, StandardRenderingPlugin, OrbitPlugin],
     initialize(world) {
         const scene = world.resource(Scene);
         const camera = world.create();
         scene.camera = camera;
         world.add(camera, Camera, { clearColor: 0x141210 });
         world.add(camera, StandardRenderer);
-        world.add(camera, Transform, {
-            translation: [0.7, 0.7, 1],
-            rotation: lookAtRotation(0.7, 0.7, 1, 0, 0.3, 0),
+        world.add(camera, Orbit, {
+            pan: [0, 0.3, 0],
+            distance: Math.hypot(0.7, 0.4, 1),
+            yaw: Math.atan2(0.7, 1),
+            pitch: Math.atan2(0.4, Math.hypot(0.7, 1)),
         });
+        world.add(camera, Transform);
         world.add(camera, ColorGrading);
         const light = world.create();
         world.add(light, DirectionalLight, { illuminance: 15000, shadowMapsEnabled: 1 });

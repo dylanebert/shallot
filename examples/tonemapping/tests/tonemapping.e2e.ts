@@ -2,6 +2,38 @@ import { mkdir } from "node:fs/promises";
 import { holdFrames } from "@dylanebert/shallot/testing";
 import { expect, type Page, test } from "playwright/test";
 import { methods } from "../src/settings";
+import { bodyHasFocus, gameKeyMovesCamera, pointerControl } from "./pointer";
+
+test("panel controls retain orbit and the pattern stays framed while orbiting", async ({
+    page,
+}) => {
+    await page.goto("http://127.0.0.1:4297/tests/stepped.html");
+    await page.waitForFunction(() => "controlsKey" in window);
+    await gameKeyMovesCamera(page);
+    await pointerControl(page, page.locator("summary"));
+    await gameKeyMovesCamera(page);
+    await pointerControl(page, page.locator("summary"));
+    await gameKeyMovesCamera(page);
+    for (const [name, value] of methods) {
+        await page.locator("#method").focus();
+        await page.locator("#method").selectOption(String(value));
+        await bodyHasFocus(page);
+        await gameKeyMovesCamera(page);
+        expect(await page.locator("#method").inputValue(), name).toBe(String(value));
+    }
+    await page.locator("#method").selectOption("0");
+    for (const scene of ["pattern", "basic"]) {
+        await page.locator("#scene").focus();
+        await page.locator("#scene").selectOption(scene);
+        await bodyHasFocus(page);
+        await gameKeyMovesCamera(page);
+    }
+    await page.locator("#scene").selectOption("pattern");
+    const before = await capture(page);
+    for (let i = 0; i < 8; i++) await gameKeyMovesCamera(page);
+    expect(await difference(page, before, await capture(page))).toBeLessThan(0.01);
+    await page.locator("#scene").selectOption("basic");
+});
 
 type CaptureWindow = Window & { captureScene: () => Promise<number[]>; captures: number[][] };
 async function capture(page: Page): Promise<number> {

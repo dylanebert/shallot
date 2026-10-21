@@ -21,6 +21,11 @@
 
             const canvas = document.querySelector("canvas");
             const app = await createApp({ plugins: [ScenePlugin] });
+            const { Orbit } = await import("@dylanebert/shallot/extras");
+            window.controlsKey = () => {
+                app.world.step(1 / 60);
+                return app.world.storage(Orbit).yaw.get(app.world.resource(Scene).camera);
+            };
             hud(mountOverlay(canvas, app.world), app.world);
             flushSync();
             app.world.step(0);

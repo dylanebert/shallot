@@ -1,5 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { Camera, ColorGrading, DirectionalLight, Transform } from "@dylanebert/shallot";
+import { Orbit } from "@dylanebert/shallot/extras";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { openGpuApp } from "@dylanebert/shallot/testing/gpu";
 import { Scene, ScenePlugin } from "./scene";
@@ -12,6 +13,8 @@ test("Bevy camera and shadowed sun illuminate the plane, five-part cube and six 
         const { camera, subjects } = world.resource(Scene);
         expect([...world.query([Camera])]).toEqual([camera]);
         expect(world.has(camera, ColorGrading)).toBe(true);
+        expect(world.has(camera, Orbit)).toBe(true);
+        world.step(0);
         expect(subjects).toHaveLength(12);
         expect(world.storage(Transform).translation.x.get(camera)).toBeCloseTo(0.7);
         const sun = [...world.query([DirectionalLight])][0];

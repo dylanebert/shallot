@@ -6,6 +6,7 @@ import {
     MeshInstance,
     Transform,
 } from "@dylanebert/shallot";
+import { Orbit } from "@dylanebert/shallot/extras";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { openGpuApp } from "@dylanebert/shallot/testing/gpu";
 import { Scene, ScenePlugin } from "./scene";
@@ -19,6 +20,8 @@ test("Bevy camera and shadowed sun illuminate the plane, five-part cube and six 
         const { camera, subjects } = world.resource(Scene);
         expect([...world.query([Camera])]).toEqual([camera]);
         expect(world.has(camera, ColorGrading)).toBe(true);
+        expect(world.has(camera, Orbit)).toBe(true);
+        world.step(0);
         expect(subjects).toHaveLength(12);
         setScene(world, true);
         expect([...world.query([MeshInstance])]).toEqual([world.resource(Scene).pattern]);

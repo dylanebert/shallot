@@ -4,7 +4,6 @@ import {
     cube,
     DirectionalLight,
     GlobalAmbientLight,
-    lookAtRotation,
     Materials,
     Meshes,
     MeshInstance,
@@ -20,6 +19,7 @@ import {
     TonemappingMethod,
     Transform,
 } from "@dylanebert/shallot";
+import { Orbit, OrbitPlugin } from "@dylanebert/shallot/extras";
 
 import { PatternMaterial, PatternPlugin } from "./pattern";
 
@@ -34,17 +34,41 @@ export const Scene: Resource<{
 
 export const ScenePlugin: Plugin = {
     name: "TonemappingScene",
-    dependencies: [MeshPlugin, StandardRenderingPlugin, PatternPlugin],
+    dependencies: [MeshPlugin, StandardRenderingPlugin, PatternPlugin, OrbitPlugin],
+    systems: [
+        {
+            group: "simulation",
+            update(world) {
+                const { camera, pattern } = world.resource(Scene);
+                const t = world.storage(Transform);
+                const x = t.rotation.x.get(camera);
+                const y = t.rotation.y.get(camera);
+                const z = t.rotation.z.get(camera);
+                const w = t.rotation.w.get(camera);
+                t.rotation.set(pattern, x, y, z, w);
+                // Keep the sweep one unit in front of the orbiting camera.
+                t.translation.set(
+                    pattern,
+                    t.translation.x.get(camera) - 2 * (x * z + w * y),
+                    t.translation.y.get(camera) - 2 * (y * z - w * x),
+                    t.translation.z.get(camera) - (1 - 2 * (x * x + y * y)),
+                );
+            },
+        },
+    ],
     initialize(world) {
         const scene = world.resource(Scene);
         const camera = world.create();
         scene.camera = camera;
         world.add(camera, Camera, { clearColor: 0x141210 });
         world.add(camera, StandardRenderer);
-        world.add(camera, Transform, {
-            translation: [0.7, 0.7, 1],
-            rotation: lookAtRotation(0.7, 0.7, 1, 0, 0.3, 0),
+        world.add(camera, Orbit, {
+            pan: [0, 0.3, 0],
+            distance: Math.hypot(0.7, 0.4, 1),
+            yaw: Math.atan2(0.7, 1),
+            pitch: Math.atan2(0.4, Math.hypot(0.7, 1)),
         });
+        world.add(camera, Transform);
         world.add(camera, ColorGrading);
         world.add(camera, Tonemapping, { method: TonemappingMethod.TonyMcMapface });
         const light = world.create();
@@ -98,12 +122,7 @@ export const ScenePlugin: Plugin = {
         });
         const pattern = world.create();
         scene.pattern = pattern;
-        const rotation = lookAtRotation(0.7, 0.7, 1, 0, 0.3, 0);
-        const distance = Math.hypot(0.7, 0.4, 1);
-        world.add(pattern, Transform, {
-            translation: [0.7 - 0.7 / distance, 0.7 - 0.4 / distance, 1 - 1 / distance],
-            rotation,
-        });
+        world.add(pattern, Transform);
         world.add(pattern, MeshMaterial, world.resource(PatternMaterial).add({}));
         const patternMesh = meshes.add({
             name: "Test pattern",
