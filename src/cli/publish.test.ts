@@ -61,6 +61,7 @@ test("the link has one home, preserves other Shallot settings, and rejects malfo
         { ...link, name: "../game" },
         { ...link, target: "unknown" },
         { ...link, accountId: "bad" },
+        { target: "cloudflare", name: "game" },
     ]) {
         writeFileSync(path, JSON.stringify({ shallot: { publish: invalid } }));
         expect(() => readPublishLink(root)).toThrow("Invalid shallot.publish");
@@ -124,7 +125,11 @@ test("preflight names the file and limit, including the first file over the coun
 });
 
 test("the generated configuration is assets-only and headers isolate and cache the build", () => {
-    const config = cloudflareConfig("/web", { target: "cloudflare", name: "game" });
+    const config = cloudflareConfig("/web", {
+        target: "cloudflare",
+        name: "game",
+        accountId: "a".repeat(32),
+    });
     expect(config).not.toHaveProperty("main");
     expect(config.assets.directory).toBe("/web");
     expect(config.assets.not_found_handling).toBe("none");

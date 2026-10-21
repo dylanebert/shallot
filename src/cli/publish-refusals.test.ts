@@ -86,6 +86,18 @@ if (args[0] === 'deploy' && answer.captureDeploy) {
 throw new Error('Unexpected provider mutation or prompt: ' + args.join(' '));
 `,
     );
+    if (answer.versions) {
+        const vite = join(project, "node_modules/vite");
+        mkdirSync(vite, { recursive: true });
+        writeFileSync(
+            join(vite, "package.json"),
+            JSON.stringify({ name: "vite", bin: { vite: "cli.cjs" } }),
+        );
+        writeFileSync(
+            join(vite, "cli.cjs"),
+            `const fs = require('node:fs'), path = require('node:path'); const directory = process.argv[process.argv.indexOf('--outDir') + 1]; fs.mkdirSync(directory, {recursive:true}); fs.writeFileSync(path.join(directory,'index.html'), '<title>fixture</title>');`,
+        );
+    }
     return { project, original, commands };
 }
 
@@ -111,9 +123,9 @@ for (const [claim, answer, message] of [
         "CLOUDFLARE_ACCOUNT_ID",
     ],
     [
-        "a saved inaccessible account refuses",
+        "the login's sole account differs from the saved account",
         { link: { target: "cloudflare", name: "fixture-game", accountId: "b".repeat(32) } },
-        "not accessible",
+        "differs from shallot.publish.accountId",
     ],
     ["an invalid default name refuses", { name: "" }, "Invalid Worker name"],
     [
@@ -164,21 +176,6 @@ test("first-link setup builds and writes the target's artifact before invoking d
         captureDeploy: true,
         versions: { status: 1, stdout: "", code: 10007 },
     });
-    const vite = join(project, "node_modules/vite");
-    mkdirSync(vite, { recursive: true });
-    writeFileSync(
-        join(vite, "package.json"),
-        JSON.stringify({ name: "vite", bin: { vite: "cli.cjs" } }),
-    );
-    writeFileSync(
-        join(vite, "cli.cjs"),
-        `
-const fs = require('node:fs'), path = require('node:path');
-const directory = process.argv[process.argv.indexOf('--outDir') + 1];
-fs.mkdirSync(directory, { recursive: true });
-fs.writeFileSync(path.join(directory, 'index.html'), '<title>fixture</title>');
-`,
-    );
     expectError(/^Using publish target cloudflare\.$/);
     expectError(/^Using Cloudflare account fixture /);
     expectError(/^Using project name fixture-game as the Worker name\.$/);
@@ -191,7 +188,7 @@ fs.writeFileSync(path.join(directory, 'index.html'), '<title>fixture</title>');
     expect(relative(project, deployment.configPath).startsWith("..")).toBe(true);
     expect(deployment.config.assets.not_found_handling).toBe("none");
     expect(deployment.headers).toBe(publishHeaders());
-    expect(readPublishLink(project)).toEqual({ target: "cloudflare", name: "fixture-game" });
+    expect(readPublishLink(project)).toBeUndefined();
     expect(
         readFileSync(commands, "utf8")
             .trim()
@@ -202,7 +199,7 @@ fs.writeFileSync(path.join(directory, 'index.html'), '<title>fixture</title>');
 
 test("a deliberate saved link skips the first-link collision query", async () => {
     const { project, original, commands } = fixture({
-        link: { target: "cloudflare", name: "fixture-game" },
+        link: { target: "cloudflare", name: "fixture-game", accountId: account.id },
     });
     expectError(/^Using Cloudflare account fixture /);
     expectError(/^Cannot resolve Vite /);
@@ -219,7 +216,7 @@ test("a saved account cannot be redirected through the environment", async () =>
             link: { target: "cloudflare", name: "fixture-game", accountId: account.id },
         });
         await expect(publishProject(project)).rejects.toThrow(
-            "CLOUDFLARE_ACCOUNT_ID differs from shallot.publish.accountId",
+            `Resolved Cloudflare account ${"b".repeat(32)} differs from shallot.publish.accountId ${account.id}`,
         );
         expect(readFileSync(join(project, "package.json"), "utf8")).toBe(original);
     } finally {

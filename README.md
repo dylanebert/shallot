@@ -65,14 +65,18 @@ accessible. Defaults taken are printed.
     "shallot": {
         "publish": {
             "target": "cloudflare",
-            "name": "my-game"
+            "name": "my-game",
+            "accountId": "0123456789abcdef0123456789abcdef"
         }
     }
 }
 ```
 
-`accountId` is also saved when the login reaches multiple accounts. A first-link
-name collision prompts for another name in a terminal and refuses otherwise.
+The link always binds the account id and Worker name; the id is not a credential.
+A different resolved account refuses, even when it is the login's only account.
+After building, a first publish checks the name right before deploying and saves
+the link only after a successful deploy. A collision prompts for another name in
+a terminal and refuses otherwise.
 Writing a complete link by hand deliberately authorizes updating that Worker;
 later publishes update the saved destination without a collision check. Credentials
 never belong in this link.

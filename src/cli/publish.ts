@@ -28,11 +28,11 @@ export function readPublishLink(projectDir: string): PublishLink | undefined {
         link.target !== "cloudflare" ||
         typeof link.name !== "string" ||
         !validWorkerName(link.name) ||
-        (link.accountId !== undefined &&
-            (typeof link.accountId !== "string" || !/^[a-f0-9]{32}$/.test(link.accountId)))
+        typeof link.accountId !== "string" ||
+        !/^[a-f0-9]{32}$/.test(link.accountId)
     )
         throw new Error(
-            "Invalid shallot.publish in package.json: expected target cloudflare, name, and optional accountId.",
+            "Invalid shallot.publish in package.json: expected target cloudflare, name, and accountId.",
         );
     return link;
 }
@@ -139,7 +139,7 @@ interface PublishTarget {
         saved?: PublishLink,
     ): Promise<{
         link: PublishLink;
-        deploy(directory: string): { url: string; buildUrl: string };
+        deploy(directory: string): Promise<{ url: string; buildUrl: string }>;
         commands: string;
     }>;
     headers(directory: string): void;
@@ -214,19 +214,12 @@ const targets: Record<"cloudflare", PublishTarget> = {
             const accounts = user.accounts;
             if (!Array.isArray(accounts) || !accounts.length)
                 throw new Error("Wrangler reported no accessible Cloudflare accounts.");
-            let accountId = saved?.accountId ?? process.env.CLOUDFLARE_ACCOUNT_ID;
-            if (
-                saved?.accountId &&
-                process.env.CLOUDFLARE_ACCOUNT_ID &&
-                saved.accountId !== process.env.CLOUDFLARE_ACCOUNT_ID
-            )
-                throw new Error(
-                    "CLOUDFLARE_ACCOUNT_ID differs from shallot.publish.accountId; refusing to switch accounts.",
-                );
+            let accountId =
+                process.env.CLOUDFLARE_ACCOUNT_ID ||
+                (accounts.length === 1 ? accounts[0]!.id : saved?.accountId);
             if (!accountId) {
                 if (accounts.length === 1) {
                     accountId = accounts[0]!.id;
-                    console.error(`Using Cloudflare account ${accounts[0]!.name} (${accountId}).`);
                 } else {
                     if (!interactive)
                         throw new Error(
@@ -238,8 +231,15 @@ const targets: Record<"cloudflare", PublishTarget> = {
                     accountId = await ask("Cloudflare account id");
                 }
             }
+            if (saved && saved.accountId !== accountId)
+                throw new Error(
+                    `Resolved Cloudflare account ${accountId} differs from shallot.publish.accountId ${saved.accountId}; refusing to switch accounts.`,
+                );
             if (!accounts.some((account) => account.id === accountId))
                 throw new Error(`Cloudflare account ${accountId} is not accessible to this login.`);
+            console.error(
+                `Using Cloudflare account ${accounts.find((account) => account.id === accountId)!.name} (${accountId}).`,
+            );
             const manifest = JSON.parse(readFileSync(join(projectDir, "package.json"), "utf8"));
             const defaultName = String(manifest.name ?? basename(projectDir))
                 .replace(/^@[^/]+\//, "")
@@ -250,44 +250,44 @@ const targets: Record<"cloudflare", PublishTarget> = {
                 saved?.name ?? (interactive ? await ask("Worker name", defaultName) : defaultName);
             if (!saved && !interactive)
                 console.error(`Using project name ${name} as the Worker name.`);
-            while (true) {
-                if (!validWorkerName(name))
-                    throw new Error(
-                        `Invalid Worker name ${JSON.stringify(name)}; use 1–63 lowercase letters, digits and hyphens, starting with a letter or digit.`,
-                    );
-                writeFileSync(
-                    configPath,
-                    JSON.stringify(
-                        cloudflareConfig(join(work, "web"), {
-                            target: "cloudflare",
-                            name,
-                            accountId,
-                        }),
-                    ),
+            if (!validWorkerName(name))
+                throw new Error(
+                    `Invalid Worker name ${JSON.stringify(name)}; use 1–63 lowercase letters, digits and hyphens, starting with a letter or digit.`,
                 );
-                if (saved || !workerExists(run(["versions", "list", "--json"]))) break;
-                const message = `Worker "${name}" already exists in account ${accountId}. No link was saved and nothing was deployed. package.json's shallot.publish.name names the Worker; writing the complete shallot.publish link by hand deliberately authorizes updating it.`;
-                if (!interactive) throw new Error(message);
-                console.error(message);
-                name = await ask("Choose another Worker name");
-            }
-            const link: PublishLink = {
-                target: "cloudflare",
-                name,
-                ...(accounts.length > 1 || saved?.accountId ? { accountId } : {}),
-            };
+            const link: PublishLink = { target: "cloudflare", name, accountId };
             return {
                 link,
-                deploy(directory) {
-                    writeFileSync(
-                        configPath,
-                        JSON.stringify(cloudflareConfig(directory, { ...link, accountId })),
-                    );
+                async deploy(directory) {
+                    while (true) {
+                        if (!validWorkerName(name))
+                            throw new Error(
+                                `Invalid Worker name ${JSON.stringify(name)}; use 1–63 lowercase letters, digits and hyphens, starting with a letter or digit.`,
+                            );
+                        writeFileSync(
+                            configPath,
+                            JSON.stringify(
+                                cloudflareConfig(directory, {
+                                    target: "cloudflare",
+                                    name,
+                                    accountId,
+                                }),
+                            ),
+                        );
+                        if (saved || !workerExists(run(["versions", "list", "--json"]))) break;
+                        const message = `Worker "${name}" already exists in account ${accountId}. No link was saved and nothing was deployed. package.json's shallot.publish.name names the Worker; writing the complete shallot.publish link by hand deliberately authorizes updating it.`;
+                        if (!interactive) throw new Error(message);
+                        console.error(message);
+                        name = await ask("Choose another Worker name");
+                    }
+                    link.name = name;
+                    // Wrangler gives no lock: another Worker can appear between the absence check and deploy.
                     const result = run(["deploy"], interactive);
                     if (!interactive) console.error(result.stdout, result.stderr);
                     return cloudflareDeployment(result);
                 },
-                commands: `Preview: bunx wrangler dev --assets <web-build-directory>\nRollback: bunx wrangler rollback --name ${name}\nUnpublish: bunx wrangler delete --name ${name}\nAccount: ${accountId}`,
+                get commands() {
+                    return `Preview: bunx wrangler dev --assets <web-build-directory>\nRollback: bunx wrangler rollback --name ${name}\nUnpublish: bunx wrangler delete --name ${name}\nAccount: ${accountId}`;
+                },
             };
         },
     },
@@ -313,9 +313,8 @@ export async function publishProject(projectDir: string, targetName?: string): P
         const assets = publishAssets(directory);
         preflightPublish(assets, target.limits);
         target.headers(directory);
-        // The link is the deliberate local proof for future updates, retained even if upload fails.
+        const deployed = await setup.deploy(directory);
         savePublishLink(projectDir, setup.link);
-        const deployed = setup.deploy(directory);
         console.log(deployed.url);
         console.error(`Build: ${deployed.buildUrl}\n${setup.commands}`);
         const browser = await projectChromium(projectDir);

@@ -116,10 +116,9 @@ test(
         });
         expect(whoami.status, whoami.stderr).toBe(0);
         const identity = JSON.parse(whoami.stdout);
-        const accountId =
-            link.accountId ??
-            (identity.accounts.length === 1 ? identity.accounts[0].id : undefined);
+        const accountId = link.accountId;
         expect(accountId).toBeString();
+        expect(identity.accounts.map((account: { id: string }) => account.id)).toContain(accountId);
         const config = join(root, "wrangler.json");
         writeFileSync(
             config,

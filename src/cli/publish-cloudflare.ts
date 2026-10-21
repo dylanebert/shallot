@@ -9,7 +9,7 @@ export const WRANGLER_VERSION: string = JSON.parse(
 export interface PublishLink {
     target: "cloudflare";
     name: string;
-    accountId?: string;
+    accountId: string;
 }
 export interface WranglerResult {
     status: number | null;
@@ -22,7 +22,7 @@ export interface WranglerResult {
 export function cloudflareConfig(directory: string, link: PublishLink) {
     return {
         name: link.name,
-        ...(link.accountId ? { account_id: link.accountId } : {}),
+        account_id: link.accountId,
         compatibility_date: "2026-10-19",
         workers_dev: true,
         preview_urls: true,
@@ -34,13 +34,12 @@ export function cloudflareConfig(directory: string, link: PublishLink) {
 
 export function resolveWrangler(projectDir: string): string | undefined {
     const require = createRequire(join(projectDir, "package.json"));
-    let path: string;
-    try {
-        path = require.resolve("wrangler/package.json");
-    } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "MODULE_NOT_FOUND") return;
-        throw error;
-    }
+    // An inline install must be visible even after Bun cached a missing resolution.
+    const path = require.resolve
+        .paths("wrangler")
+        ?.map((directory) => join(directory, "wrangler/package.json"))
+        .find((candidate) => existsSync(candidate));
+    if (!path) return;
     const manifest = JSON.parse(readFileSync(path, "utf8"));
     if (manifest.version !== WRANGLER_VERSION)
         throw new Error(

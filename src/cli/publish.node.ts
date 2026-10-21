@@ -139,7 +139,11 @@ for (const template of ["minimal", "physics"])
             const assets = publish.publishAssets(directory);
             publish.preflightPublish(assets, { files: 20_000, bytes: 25 * 1024 * 1024 });
             writeFileSync(join(directory, "_headers"), publish.publishHeaders());
-            const link = { target: "cloudflare" as const, name: "shallot-publish-local" };
+            const link = {
+                target: "cloudflare" as const,
+                name: "shallot-publish-local",
+                accountId: "a".repeat(32),
+            };
             const config = join(root, "wrangler.json");
             writeFileSync(config, JSON.stringify(cloudflareConfig(directory, link)));
             const wrangler = resolveWrangler(scaffold)!;

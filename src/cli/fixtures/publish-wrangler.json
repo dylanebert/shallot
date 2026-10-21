@@ -1,0 +1,20 @@
+{
+    "accountA": {
+        "status": 0,
+        "stdout": "{\"loggedIn\":true,\"accounts\":[{\"id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"name\":\"fixture\"}]}"
+    },
+    "accountB": {
+        "status": 0,
+        "stdout": "{\"loggedIn\":true,\"accounts\":[{\"id\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"name\":\"collaborator\"}]}"
+    },
+    "absent": {
+        "status": 1,
+        "entries": [{"type":"command-failed","version":1,"code":10007}]
+    },
+    "exists": { "status": 0, "stdout": "[]" },
+    "deployed": {
+        "status": 0,
+        "entries": [{"type":"deploy","version":1,"targets":["https://fixture.workers.dev"],"version_id":"12345678-1234-1234-1234-123456789012"}]
+    },
+    "failed": { "status": 1, "stderr": "recorded deploy failure" }
+}

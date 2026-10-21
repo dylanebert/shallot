@@ -53,9 +53,11 @@ const commandUsage = {
   stdout is the stable play link; progress and verification go to stderr.
 
   Wrangler requires Node.js 22 or newer on PATH.
-  The first run adds pinned Wrangler to devDependencies and saves shallot.publish
-  (target, name and, when needed, accountId) in package.json. Wrangler owns login
-  and credentials. First links are checked for name collisions before deployment.
+  Missing pinned Wrangler is added to devDependencies inline. After a successful
+  deploy, shallot.publish (target, name, accountId) is saved in package.json.
+  Wrangler owns login and credentials. The account must match the link.
+  First links are checked for name collisions after building, immediately before
+  deployment.
   On a collision a terminal can choose another name; without a TTY, in CI or for
   an agent, publish refuses. A hand-written link deliberately authorizes an update.
 
