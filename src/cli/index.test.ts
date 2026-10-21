@@ -223,6 +223,8 @@ test("shallot build --help presents build options without dev-only options", asy
     expect(result.stdout).toContain("GitHub Releases");
     expect(result.stdout).toContain("source checkout");
     expect(result.stdout).toContain("Rust toolchain");
+    expect(result.stdout).toContain("macOS host with Xcode command line tools");
+    expect(result.stdout).toContain("Linux host; --portable only");
     expect(result.stdout).toContain("cargo-xwin");
     expect(result.stdout).toContain("CEF_PATH");
     expect(result.stderr).toBe("");

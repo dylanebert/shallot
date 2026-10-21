@@ -1,5 +1,6 @@
 import { readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
+import { nativeHostDiagnostic } from "../native";
 import { resolveViteCli, startViteDev } from "../project";
 import { buildProject, type NativeTarget } from "./build";
 import { previewProject } from "./preview";
@@ -82,8 +83,8 @@ ${desktopStatus}
     offline, checksum mismatch, or source checkout) falls back to compiling the Rust native host from
     source. Debug builds always compile from source. Source builds need the Rust toolchain
     (https://rustup.rs) and, per target:
-      mac       Xcode command line tools
-      linux     --portable only (WebKitGTK does not enable WebGPU by default), with libx11-dev
+      mac       macOS host with Xcode command line tools
+      linux     Linux host; --portable only (WebKitGTK does not enable WebGPU by default), with libx11-dev
       windows   cargo-xwin to cross-compile; --portable needs a Windows host with Visual Studio,
                 its C++ workload and ATL
     Portable builds download CEF on first build, or use CEF_PATH when set.
@@ -279,6 +280,12 @@ export async function main(
     if (!isNativeTarget(target)) {
         console.error(`unknown target: ${target}`);
         console.error(`See \`shallot ${parsed.subcmd} --help\` for available targets and options.`);
+        exit(1);
+    }
+
+    const hostDiagnostic = nativeHostDiagnostic(target);
+    if (hostDiagnostic) {
+        console.error(hostDiagnostic);
         exit(1);
     }
 

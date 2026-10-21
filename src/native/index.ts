@@ -126,6 +126,14 @@ export type CargoInvocation =
     | { kind: "xwin"; flags: string[] }
     | { kind: "native"; flags: string[] };
 
+/** Refuse native targets that require a different host before building or launching. */
+export function nativeHostDiagnostic(target: string, host = process.platform): string | null {
+    const required = target === "linux" ? "linux" : target === "mac" ? "darwin" : null;
+    if (!required || host === required) return null;
+    const name = required === "linux" ? "Linux" : "macOS";
+    return `Target ${target} is not supported on host ${host}; a ${target} target needs a ${name} host.`;
+}
+
 /**
  * Selects the cargo invocation and flags without I/O. `devshell` is
  * windows-portable under WSL (needs the host's native MSVC toolchain via PowerShell, see
