@@ -24,7 +24,10 @@ window.hall={
  async walk(count=60){
   // The final distance claim needs stepped input and simulation, not a camera or its rendered view.
   if(!captures){detachView(world,room.camera);world.remove(room.camera,Camera);}
-  const p=world.storage(GlobalTransform).translation;const before=p.z.get(room.player);pressKey(world,'KeyW');for(let i=0;i<count;i++)world.step(1/60);releaseKey(world,'KeyW');
+  const p=world.storage(GlobalTransform).translation;const before=p.z.get(room.player);pressKey(world,'KeyW');
+  if(captures){for(let i=0;i<count;i++)world.step(1/60);}
+  else if(count>0){world.step(1/60);for(let i=1;i<count;i++)world.tick();world.step(0);}
+  releaseKey(world,'KeyW');
   await world.gpu.device.queue.onSubmittedWorkDone();
   return {before,after:p.z.get(room.player)};},
 };
