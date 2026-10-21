@@ -1,13 +1,11 @@
 import { beforeAll, expect, setDefaultTimeout, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import {
     allocationFailure,
     sampleAllocation,
 } from "../../../diagnostics/first-person-allocation/allocation";
-import { removeTestDirectory } from "../../../scripts/test-directory";
+import { countedKernelBytes } from "../../../scripts/counted-kernel";
 import { BodyType, defaultSurfaceMaterial, ShapeType } from "./common/types";
 import { BodyField, setBodyField } from "./kernel/bodyrecords";
 import { hullDatabaseIndex } from "./kernel/geocolumns";
@@ -32,38 +30,14 @@ import type { WorldState } from "./world/world";
 
 setDefaultTimeout(TIMEOUT.node);
 const entry = resolve(import.meta.dir, "fixtures/shape-allocation.entry.ts");
-let countedKernelBytes: ArrayBuffer | undefined;
+let kernelBytes: ArrayBuffer | undefined;
 
 beforeAll(async () => {
-    const dir = mkdtempSync(join(tmpdir(), "shallot-shape-alloc-"));
-    try {
-        const build = Bun.spawnSync(
-            [
-                "cargo",
-                "build",
-                "-p",
-                "shallot-physics",
-                "--release",
-                "--target",
-                "wasm32-unknown-unknown",
-                "--features",
-                "count-allocations",
-                "--target-dir",
-                dir,
-            ],
-            { cwd: resolve(import.meta.dir, "../../..") },
-        );
-        if (build.exitCode !== 0) throw new Error(build.stderr.toString());
-        countedKernelBytes = await Bun.file(
-            join(dir, "wasm32-unknown-unknown/release/shallot_physics.wasm"),
-        ).arrayBuffer();
-    } finally {
-        removeTestDirectory(dir);
-    }
+    kernelBytes = await countedKernelBytes();
 }, TIMEOUT.startup);
 
 test("warm recycled shape create/destroy, filters, inline materials, mass walks, static enable/disable, sleeping wake with shape query sync and pair finding allocate no WASM heap; the allocating control fails", async () => {
-    const bytes = countedKernelBytes;
+    const bytes = kernelBytes;
     if (!bytes) throw new Error("counting kernel was not built");
     const runtime = kernelState(undefined);
     const previous = runtime.instance;
