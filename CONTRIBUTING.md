@@ -146,7 +146,7 @@ bun run format                  # biome
 
 - Bun child processes spread [the executable and host identity](scripts/bun-child.ts) into object-form spawn options
 - After a test child exits, remove directories it used with [removeTestDirectory](scripts/test-directory.ts); Windows can release its file locks after the exit is observed
-- Iterate on selected files or subjects
+- Iterate on selected files or subjects, on this host's own adapter; `scripts/lavapipe.sh` runs only where Rendering iteration names it or for a red only software adapters show
 - [AGENTS.md](AGENTS.md) owns the pre-land check
 - Existing import debts leave with their migrations; no new exception becomes a todo
 
