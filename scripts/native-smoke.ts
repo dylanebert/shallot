@@ -392,7 +392,10 @@ interface MarkerReport {
 
 interface Observer {
     origin: string;
+    /** Resolves with the page's marker; clears the stages recorded for `nonce`. */
     wait(nonce: string): Promise<MarkerReport>;
+    /** Stages the page has posted since `wait(nonce)`, in arrival order. */
+    stages(nonce: string): string[];
     close(): Promise<void>;
 }
 
@@ -401,6 +404,7 @@ export async function startObserver(logs: string): Promise<Observer> {
     writeFileSync(logPath, "");
     const pending = new Map<string, { resolve(report: MarkerReport): void }>();
     const runs = new Set<string>();
+    const stages = new Map<string, string[]>();
     const server = createServer((request, response) => {
         response.setHeader("Access-Control-Allow-Origin", "*");
         response.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
@@ -410,7 +414,7 @@ export async function startObserver(logs: string): Promise<Observer> {
             response.writeHead(204).end();
             return;
         }
-        if (request.method !== "POST" || request.url !== "/marker") {
+        if (request.method !== "POST" || (request.url !== "/marker" && request.url !== "/stage")) {
             response.writeHead(404).end();
             return;
         }
@@ -426,6 +430,13 @@ export async function startObserver(logs: string): Promise<Observer> {
                 return;
             }
             try {
+                if (request.url === "/stage") {
+                    const { nonce, stage } = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+                    appendFileSync(logPath, `${JSON.stringify({ nonce, stage })}\n`);
+                    stages.get(nonce)?.push(String(stage));
+                    response.writeHead(204).end();
+                    return;
+                }
                 const report = JSON.parse(Buffer.concat(chunks).toString("utf8")) as MarkerReport;
                 appendFileSync(logPath, `${JSON.stringify(report)}\n`);
                 if (!report.run || runs.has(report.run)) {
@@ -458,8 +469,10 @@ export async function startObserver(logs: string): Promise<Observer> {
                 resolveReport = resolve;
             });
             pending.set(nonce, { resolve: resolveReport });
+            stages.set(nonce, []);
             return promise;
         },
+        stages: (nonce) => stages.get(nonce) ?? [],
         close: () =>
             new Promise<void>((resolveClose, reject) =>
                 server.close((error) => (error ? reject(error) : resolveClose())),
@@ -635,7 +648,11 @@ function writePage(
     hardware = false,
 ): void {
     const report = JSON.stringify({ nonce, mode, href: "" });
+    // Each stage posts before the next await, so a page that never reports names where it stopped.
+    const stage = `const stage = (name) => fetch(${JSON.stringify(`${observer}/stage`)}, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify({ nonce: ${JSON.stringify(nonce)}, stage: name }) }).catch(() => {});`;
     const script = `import { createApp } from '@dylanebert/shallot/app';
+${stage}
+stage('module');
 const report = ${report};
 report.href = location.href;
 report.userAgent = navigator.userAgent;
@@ -648,6 +665,7 @@ try {
     cpu.dispose();
     if (status.textContent !== 'CPU-only startup ready') throw new Error('CPU-only startup failed');
     report.cpuReady = true;
+    stage('cpu');
     const policy = Object.getOwnPropertyDescriptor(globalThis, '__shallotRequireHardwareGpu');
     if (!policy || policy.writable || policy.configurable) throw new Error('native GPU policy must be readonly host data');
     const frame = document.createElement('iframe');
@@ -656,6 +674,7 @@ try {
     if (frame.contentWindow.__shallotRequireHardwareGpu !== report.requireHardware) throw new Error('native subframe policy differs');
     frame.remove();
     const hooks = report.hooks = [];
+    stage('gpu app');
     let splashError;
     let gpuApp;
     try {
@@ -671,11 +690,14 @@ try {
     } else {
         if (!gpuApp || hooks.join(',') !== 'prepare,initialize,warm' || splashError) throw new Error('GPU startup failed');
         gpuApp.dispose();
+        stage('adapter');
         const adapter = await navigator.gpu.requestAdapter();
         if (!adapter) throw new Error("no WebGPU adapter");
         const { vendor, architecture, device: deviceName, description, isFallbackAdapter } = adapter.info;
         report.adapter = { vendor, architecture, device: deviceName, description, isFallbackAdapter };
+        stage('device');
         const device = await adapter.requestDevice();
+        stage('frame');
         const canvas = document.querySelector("canvas");
         const context = canvas.getContext("webgpu");
         context.configure({ device, format: navigator.gpu.getPreferredCanvasFormat(), alphaMode: "opaque" });
@@ -705,7 +727,7 @@ try {
 fetch(${JSON.stringify(`${observer}/marker`)}, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(report) }).catch((error) => console.error("smoke observer", error));`;
     writeFileSync(
         resolve(project, "index.html"),
-        `<!doctype html><html><head><meta charset="utf-8"><title>Shallot native smoke</title></head><body><canvas width="64" height="64"></canvas><script type="module">${script}</script></body></html>\n`,
+        `<!doctype html><html><head><meta charset="utf-8"><title>Shallot native smoke</title></head><body><canvas width="64" height="64"></canvas><script>${stage}stage('html');</script><script type="module">${script}</script></body></html>\n`,
     );
 }
 
@@ -809,6 +831,18 @@ export function assertStandaloneOrigin(
         throw new Error(`page ran at ${pageOrigin}, not the shell asset server ${shellOrigin}`);
     if (viteOrigin && pageOrigin === urlOrigin(viteOrigin, "Vite URL"))
         throw new Error("standalone preview loaded the dev Vite origin");
+}
+
+/** Whether the shell's asset server answers its index, which separates a blocked server from a page that never ran. */
+async function probeAssetServer(origin: string | null): Promise<string> {
+    if (!origin) return "no asset server reported";
+    const started = performance.now();
+    try {
+        const response = await fetch(`${origin}/`, { signal: AbortSignal.timeout(5000) });
+        return `asset server answered / with ${response.status} in ${Math.round(performance.now() - started)}ms`;
+    } catch (error) {
+        return `asset server did not answer / within 5000ms (${error instanceof Error ? error.message : String(error)})`;
+    }
 }
 
 function lastDiagnostic(output: string): string | null {
@@ -970,7 +1004,7 @@ async function launchAndObserve(
                         );
                     }
                 } else if (result.kind === "timeout")
-                    failure = `page script did not report its nonce within CEILING.startup (${CEILING.startup}ms)`;
+                    failure = `page script did not report its nonce within CEILING.startup (${CEILING.startup}ms); page stages: ${observer.stages(nonce).join(", ") || "none"}; ${await probeAssetServer(assetOrigin(transcript))}`;
                 else
                     failure =
                         spawnError?.message ??

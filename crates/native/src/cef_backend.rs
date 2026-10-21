@@ -1,6 +1,6 @@
 use cef::*;
 use std::io::{Read, Write};
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
 use std::sync::OnceLock;
 
 use crate::{app_name, asset, cache_dir, content_type};
@@ -24,43 +24,48 @@ fn start_asset_server() -> String {
     let origin = format!("http://127.0.0.1:{}", port);
     eprintln!("[shallot] asset server on {}", origin);
 
+    // Chromium opens speculative connections that may send nothing, so each connection is served
+    // on its own thread: a serial loop would block every later request on that first read.
     std::thread::spawn(move || {
-        for stream in listener.incoming() {
-            let Ok(mut stream) = stream else { continue };
-            let mut buf = [0u8; 4096];
-            let n = match stream.read(&mut buf) {
-                Ok(n) if n > 0 => n,
-                _ => continue,
-            };
-            let request = String::from_utf8_lossy(&buf[..n]);
-            let path = request
-                .lines()
-                .next()
-                .and_then(|line| line.split_whitespace().nth(1))
-                .unwrap_or("/");
-            let path = if path == "/" { "/index.html" } else { path };
-
-            match asset(&path[1..]) {
-                Some(data) => {
-                    let mime = content_type(path);
-                    // Cross-origin isolation permits shared-memory physics workers.
-                    let header = format!(
-                        "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nCross-Origin-Opener-Policy: same-origin\r\nCross-Origin-Embedder-Policy: require-corp\r\nConnection: close\r\n\r\n",
-                        mime, data.len()
-                    );
-                    let _ = stream.write_all(header.as_bytes());
-                    let _ = stream.write_all(&data);
-                }
-                None => {
-                    let _ = stream.write_all(
-                        b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-                    );
-                }
-            }
+        for stream in listener.incoming().flatten() {
+            std::thread::spawn(move || serve(stream));
         }
     });
 
     origin
+}
+
+fn serve(mut stream: TcpStream) {
+    let mut buf = [0u8; 4096];
+    let n = match stream.read(&mut buf) {
+        Ok(n) if n > 0 => n,
+        _ => return,
+    };
+    let request = String::from_utf8_lossy(&buf[..n]);
+    let path = request
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .unwrap_or("/");
+    let path = if path == "/" { "/index.html" } else { path };
+
+    match asset(&path[1..]) {
+        Some(data) => {
+            let mime = content_type(path);
+            // Cross-origin isolation permits shared-memory physics workers.
+            let header = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nCross-Origin-Opener-Policy: same-origin\r\nCross-Origin-Embedder-Policy: require-corp\r\nConnection: close\r\n\r\n",
+                mime, data.len()
+            );
+            let _ = stream.write_all(header.as_bytes());
+            let _ = stream.write_all(&data);
+        }
+        None => {
+            let _ = stream.write_all(
+                b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            );
+        }
+    }
 }
 
 /// Switches every CEF process receives unconditionally.
@@ -343,6 +348,21 @@ mod tests {
                 ]
             )
         });
+    }
+
+    #[test]
+    fn asset_server_answers_while_another_connection_sends_nothing() {
+        let origin = start_asset_server();
+        let address = origin.trim_start_matches("http://");
+        let _idle = TcpStream::connect(address).unwrap();
+        let mut request = TcpStream::connect(address).unwrap();
+        request
+            .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+            .unwrap();
+        request.write_all(b"GET /missing HTTP/1.1\r\n\r\n").unwrap();
+        let mut response = String::new();
+        request.read_to_string(&mut response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 404"), "{response}");
     }
 
     #[test]

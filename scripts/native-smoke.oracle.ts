@@ -479,6 +479,27 @@ test("each preview of the same artifact needs a fresh page-run marker", async ()
     }
 });
 
+test("a page that never reports names the stages it reached for this launch only", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "shallot-stage-"));
+    const observer = await startObserver(scratch);
+    const post = (stage: string) =>
+        fetch(`${observer.origin}/stage`, {
+            method: "POST",
+            body: JSON.stringify({ nonce: "artifact", stage }),
+        });
+    try {
+        void observer.wait("artifact");
+        expect((await post("html")).status).toBe(204);
+        expect((await post("module")).status).toBe(204);
+        expect(observer.stages("artifact")).toEqual(["html", "module"]);
+        void observer.wait("artifact");
+        expect(observer.stages("artifact")).toEqual([]);
+    } finally {
+        await observer.close();
+        removeTestDirectory(scratch);
+    }
+});
+
 test("the smoke log keeps a line whole when the shell writes it in pieces", () => {
     const written: string[] = [];
     const lines = streamLines((stream, line) => written.push(`[${stream}] ${line}`));
