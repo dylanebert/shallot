@@ -275,7 +275,7 @@ A choice the pillars leave open is taste, and goes to the person.
 - Examples are the outer loop: a user's problem exposes a missing mechanism, and the owning module fixes and proves it, never the example
 - Each example lives in its promise's repository, under `examples/<name>`, in the shape of a copied user project, and its `index.html` carries one `<meta name="description">` describing it
 - One problem per example; only `first-person` and `physics` compose many
-- An example takes the view its problem needs
+- An example takes the view its problem needs; a scene seen from outside orbits with `OrbitPlugin`
 - Every public promise is owed an example whose answer depends on it
 - There are no duplicate demonstrations; the one showing the engine at its best stays
 - Each example has a check that fails when its answer breaks, or the example is removed
