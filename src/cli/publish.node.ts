@@ -8,6 +8,7 @@ import {
     realpathSync,
     writeFileSync,
 } from "node:fs";
+import { createServer as createHttpServer } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
@@ -16,6 +17,7 @@ import { bunChild } from "../../scripts/bun-child";
 import { packedInstall } from "../../scripts/packed-install-spawn";
 import { removeTestDirectory } from "../../scripts/test-directory";
 import { cloudflareConfig, resolveWrangler, WRANGLER_VERSION } from "./publish-cloudflare";
+import { projectChromium, verifyPublishedGame } from "./publish-verify";
 
 setDefaultTimeout(TIMEOUT.node);
 const repo = resolve(import.meta.dir, "../..");
@@ -42,6 +44,56 @@ function cleanEnv(home: string): NodeJS.ProcessEnv {
         CI: "true",
     };
 }
+
+for (const cause of ["device", "console", "page", "browser", "crash"] as const)
+    test(`publish verification fails with the observed ${cause} failure before startup`, async () => {
+        const browser = await projectChromium(repo);
+        const server = createHttpServer((request, response) => {
+            if (request.url !== "/") {
+                response.writeHead(404).end();
+                return;
+            }
+            response.writeHead(200, {
+                "content-type": "text/html",
+                "Cross-Origin-Opener-Policy": "same-origin",
+                "Cross-Origin-Embedder-Policy": "require-corp",
+            });
+            response.end(
+                `<link rel="icon" href="data:,"><script>${cause === "device" ? 'throw new Error("WebGPU device creation failed: test device unavailable")' : cause === "console" ? 'console.error("WebGPU device creation failed: test console error")' : 'console.log("ready to terminate")'}</script>`,
+            );
+        });
+        await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+        const address = server.address();
+        if (!address || typeof address === "string") throw new Error("No local port");
+        browser.on("context", (context) => {
+            context.on("page", (page) => {
+                page.on("console", (message) => {
+                    if (message.text() !== "ready to terminate") return;
+                    if (cause === "browser") void browser.close();
+                    if (cause === "page") void page.close();
+                    if (cause === "crash")
+                        void context
+                            .newCDPSession(page)
+                            .then((session) => session.send("Page.crash"))
+                            .catch(() => {});
+                });
+            });
+        });
+        try {
+            await expect(
+                verifyPublishedGame(browser, `http://127.0.0.1:${address.port}`, repo, []),
+            ).rejects.toThrow(
+                cause === "device" || cause === "console"
+                    ? "WebGPU device creation failed"
+                    : cause === "crash"
+                      ? "crashed"
+                      : /closed|disconnected/,
+            );
+        } finally {
+            await browser.close();
+            await new Promise<void>((done) => server.close(() => done()));
+        }
+    });
 
 for (const template of ["minimal", "physics"])
     test(`a packed minimal scaffold ${template === "physics" ? "with physics" : "without physics"} starts through pinned Wrangler assets, dry-runs without credentials, and changes only its link`, async () => {

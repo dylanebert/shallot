@@ -110,35 +110,57 @@ export async function verifyPublishedGame(
             throw new Error(`A missing path answered ${missingStatus}, not 404.`);
         const page = await context.newPage();
         const errors: string[] = [];
-        page.on("pageerror", (error) => errors.push(error.message));
-        page.on("console", (message) => {
-            if (message.type() === "error") errors.push(message.text());
+        const failure = new Promise<never>((_, reject) => {
+            const fail = (cause: string) => {
+                errors.push(cause);
+                reject(new Error(`Published page verification failed:\n${errors.join("\n")}`));
+            };
+            page.on("pageerror", (error) => fail(error.message));
+            page.on("console", (message) => {
+                if (message.type() === "error") fail(message.text());
+            });
+            page.on("crash", () => fail("The published page crashed."));
+            page.on("close", () => fail("The published page closed during verification."));
+            browser.on("disconnected", disconnected);
+            function disconnected() {
+                fail("Chromium disconnected during verification.");
+            }
+            context.on("close", () => browser.off("disconnected", disconnected));
         });
-        await observeStartup(page);
-        await page.goto(url, { waitUntil: "load", timeout: TIMEOUT.startup });
-        if (!(await page.evaluate(() => crossOriginIsolated)))
-            throw new Error("The published page is not cross-origin isolated.");
-        await page.waitForFunction(
-            () => {
-                const status = (window as unknown as { __shallotPublish: BrowserStartup })
-                    .__shallotPublish;
-                return status.started && status.adapter !== undefined;
-            },
-            undefined,
-            { timeout: startupTimeout },
-        );
-        const status = await page.evaluate(
-            () => (window as unknown as { __shallotPublish: BrowserStartup }).__shallotPublish,
-        );
-        if (status.threads !== undefined && !(status.threads > 1))
-            throw new Error(`Physics started with ${status.threads} thread, not a worker pool.`);
-        if (errors.length) throw new Error(`Published page errors:\n${errors.join("\n")}`);
-        return {
-            hardware: !!status.hardware,
-            adapter: status.adapter!,
-            threads: status.threads,
-            physicsStepped: status.physicsStepped,
-        };
+        return await Promise.race([
+            failure,
+            (async () => {
+                await observeStartup(page);
+                await page.goto(url, { waitUntil: "load", timeout: TIMEOUT.startup });
+                if (!(await page.evaluate(() => crossOriginIsolated)))
+                    throw new Error("The published page is not cross-origin isolated.");
+                await page.waitForFunction(
+                    () => {
+                        const status = (window as unknown as { __shallotPublish: BrowserStartup })
+                            .__shallotPublish;
+                        return status.started && status.adapter !== undefined;
+                    },
+                    undefined,
+                    { timeout: startupTimeout },
+                );
+                const status = await page.evaluate(
+                    () =>
+                        (window as unknown as { __shallotPublish: BrowserStartup })
+                            .__shallotPublish,
+                );
+                if (status.threads !== undefined && !(status.threads > 1))
+                    throw new Error(
+                        `Physics started with ${status.threads} thread, not a worker pool.`,
+                    );
+                if (errors.length) throw new Error(`Published page errors:\n${errors.join("\n")}`);
+                return {
+                    hardware: !!status.hardware,
+                    adapter: status.adapter!,
+                    threads: status.threads,
+                    physicsStepped: status.physicsStepped,
+                };
+            })(),
+        ]);
     } finally {
         await context.close();
     }
