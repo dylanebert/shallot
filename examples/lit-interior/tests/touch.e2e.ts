@@ -1,3 +1,4 @@
+import { holdFrames } from "@dylanebert/shallot/testing";
 import { expect, test } from "playwright/test";
 
 test.use({ baseURL: "http://127.0.0.1:4216" });
@@ -9,16 +10,21 @@ for (const claim of ["move and look", "jump"]) {
             hasTouch: true,
         });
         const page = await context.newPage();
+        // The check steps the game itself, one frame after each touch event and each poll.
+        await holdFrames(page, "[data-touch-stick]");
         const errors: string[] = [];
         page.on("pageerror", (error) => errors.push(error.message));
         await page.goto("/tests/touch.html");
         await page.waitForFunction(() => "sample" in window);
-        const sample = (steps = 0) =>
+        const sample = (steps = 0, ticks = 0) =>
             page.evaluate(
-                (steps) =>
+                ([steps, ticks]) =>
                     (
                         window as unknown as {
-                            sample(steps: number): {
+                            sample(
+                                steps: number,
+                                ticks: number,
+                            ): {
                                 grounded: boolean;
                                 position: number[];
                                 yaw: number;
@@ -26,14 +32,15 @@ for (const claim of ["move and look", "jump"]) {
                                 use: boolean;
                             };
                         }
-                    ).sample(steps),
-                steps,
+                    ).sample(steps, ticks),
+                [steps, ticks],
             );
         const session = await context.newCDPSession(page);
         let points: { id: number; x: number; y: number }[] = [];
         const send = async (type: "touchStart" | "touchMove" | "touchEnd") => {
             await session.send("Input.dispatchTouchEvent", { type, touchPoints: points });
             expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+            await sample(1);
         };
         await expect(page.getByRole("button", { name: "Jump", exact: true })).toBeHidden();
         if (claim === "move and look") {
@@ -47,15 +54,20 @@ for (const claim of ["move and look", "jump"]) {
             points[1].x = 330;
             await send("touchMove");
             await expect
-                .poll(async () => {
-                    const now = await sample();
-                    return Math.hypot(
-                        now.position[0] - before.position[0],
-                        now.position[2] - before.position[2],
-                    );
-                })
+                .poll(
+                    async () => {
+                        const now = await sample(1);
+                        return Math.hypot(
+                            now.position[0] - before.position[0],
+                            now.position[2] - before.position[2],
+                        );
+                    },
+                    { intervals: [0] },
+                )
                 .toBeGreaterThan(0.1);
-            await expect.poll(async () => (await sample()).yaw).not.toBe(before.yaw);
+            await expect
+                .poll(async () => (await sample(1)).yaw, { intervals: [0] })
+                .not.toBe(before.yaw);
             await expect(page.locator("[data-touch-stick]")).toBeVisible();
             points = [];
             await send("touchEnd");
@@ -67,19 +79,24 @@ for (const claim of ["move and look", "jump"]) {
             const jump = await page
                 .getByRole("button", { name: "Jump", exact: true })
                 .boundingBox();
-            await expect.poll(async () => (await sample()).grounded).toBe(true);
+            await expect
+                .poll(async () => (await sample(1)).grounded, { intervals: [0] })
+                .toBe(true);
             const grounded = await sample();
             points.push({ id: 2, x: jump!.x + 32, y: jump!.y + 32 });
             await send("touchStart");
-            await expect.poll(async () => (await sample()).jumps).toBeGreaterThan(grounded.jumps);
             await expect
-                .poll(async () => (await sample()).position[1])
+                .poll(async () => (await sample(1)).jumps, { intervals: [0] })
+                .toBeGreaterThan(grounded.jumps);
+            await expect
+                .poll(async () => (await sample(1)).position[1], { intervals: [0] })
                 .toBeGreaterThan(grounded.position[1] + 0.2);
             points = [];
             await send("touchEnd");
         }
-        const settled = await sample(120);
-        const beforeKey = await sample(12);
+        // Settling and the keyless stretch need no input sampled, so they tick without drawing.
+        const settled = await sample(0, 120);
+        const beforeKey = await sample(0, 12);
         expect(
             Math.hypot(
                 beforeKey.position[0] - settled.position[0],
