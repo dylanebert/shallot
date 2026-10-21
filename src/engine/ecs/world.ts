@@ -16,6 +16,7 @@ import {
     fields,
     freezeComponent,
     idOf,
+    keyOf,
     type ScalarField,
     sameComponentSchema,
     type Vector2Field,
@@ -773,7 +774,8 @@ export class World {
      * Attach a component with optional field values (vectors are arrays).
      * Missing fields keep the declared defaults when this world registers the component, and
      * required companions are added only then. Defaults and starting values go through
-     * field setters, publishing changes. An already attached component is unchanged and warns.
+     * field setters, publishing changes. An already attached component is unchanged and warns with
+     * the writes that change it.
      */
     add<T>(eid: number, component: T, values?: ComponentValues<NoInfer<T>>): void {
         const storage = this.storage(component as Component);
@@ -819,7 +821,10 @@ export class World {
                 }
             }
         } else {
-            console.warn("world.add: component already attached to entity", eid);
+            const key = keyOf(component as Component) ?? "component";
+            console.warn(
+                `world.add: ${key} already attached to entity ${eid} and left unchanged; write its fields through world.storage(${key}), or remove it first`,
+            );
         }
     }
 

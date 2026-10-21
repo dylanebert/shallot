@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { expectWarning } from "../../../scripts/test-console";
 import { component } from "./component";
 import { f16, f32, vec2, vec3, vec4, World } from "./index";
 
@@ -18,6 +19,22 @@ test("re-added components publish new values and reset omitted fields", () => {
         expect(storage.scalar.get(eid)).toBe(11);
         expect(storage.pair.x.get(eid)).toBe(0);
         expect(storage.pair.y.get(eid)).toBe(0);
+    } finally {
+        world.dispose();
+    }
+});
+
+test("adding an attached component keeps its values and names the writes that change it", () => {
+    const world = new World();
+    const Value = component("readd-value", { scalar: f32 });
+    const eid = world.create();
+    try {
+        world.add(eid, Value, { scalar: 1 });
+        expectWarning(
+            /^world\.add: readd-value already attached to entity \d+ and left unchanged; write its fields through world\.storage\(readd-value\), or remove it first$/,
+        );
+        world.add(eid, Value, { scalar: 2 });
+        expect(world.storage(Value).scalar.get(eid)).toBe(1);
     } finally {
         world.dispose();
     }

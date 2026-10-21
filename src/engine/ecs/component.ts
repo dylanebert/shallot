@@ -373,6 +373,11 @@ export function component<
     return fields;
 }
 
+/** @internal The key a record declared, or undefined for an undeclared record. */
+export function keyOf(fields: Component): string | undefined {
+    return declarations.get(fields)?.key;
+}
+
 /** @internal Refuse undeclared plugin records before composition or reload. */
 export function declaration(fields: Component, plugin: string): Declaration {
     const entry = declarations.get(fields);
