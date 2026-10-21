@@ -94,7 +94,14 @@ for (const template of ["minimal", "physics"])
                             "runApp, shallotDark, StandardPhysicsPlugin",
                         )
                         .replace("plugins: [Welcome]", "plugins: [StandardPhysicsPlugin, Welcome]")
-                        .replace("await runApp({", "const app = await runApp({")
+                        .replace(
+                            'from "@dylanebert/shallot";',
+                            'from "@dylanebert/shallot"; import { PhysicsWorldDefinition } from "@dylanebert/shallot/standard/physics";',
+                        )
+                        .replace(
+                            "await runApp({",
+                            "const app = await runApp({ setup: world => { world.resource(PhysicsWorldDefinition).workerCount = 2; },",
+                        )
                         .replace(
                             "loading: shallotDark({ bootstrap }) });",
                             "loading: shallotDark({ bootstrap }) });\n            app.world.tick();",
@@ -181,6 +188,14 @@ for (const template of ["minimal", "physics"])
             let browser: Awaited<ReturnType<typeof verify.projectChromium>> | undefined;
             try {
                 browser = await verify.projectChromium(scaffold);
+                const newContext = browser.newContext.bind(browser);
+                browser.newContext = async (...args) => {
+                    const context = await newContext(...args);
+                    await context.addInitScript(() =>
+                        Object.defineProperty(navigator, "hardwareConcurrency", { value: 2 }),
+                    );
+                    return context;
+                };
                 const url = `http://127.0.0.1:${port}`;
                 const deadline = Date.now() + TIMEOUT.startup;
                 while (true) {
