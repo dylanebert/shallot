@@ -1,0 +1,194 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { expect, type JSHandle, type Page, test } from "playwright/test";
+import { dragRange, gameKeyMovesCamera } from "../pointer";
+
+type Pixels = { hour: number; width: number; height: number; rgba: number[]; png: string };
+type Frame = JSHandle<Pixels>;
+declare global {
+    interface Window {
+        frame: (hour?: number, noFog?: boolean, moon?: boolean) => Promise<Pixels>;
+        orbit(yaw: number): Promise<void>;
+        resetControls(): Promise<void>;
+        updateControls(): void;
+    }
+}
+
+async function open(page: Page, hour: number, evening = false, side = false) {
+    await page.goto(
+        `http://127.0.0.1:4266/tests/stepped.html?hour=${hour}${evening ? "&evening" : ""}${side ? "&side" : ""}${process.env.SHALLOT_CAPTURE_DIR ? "&capture" : ""}`,
+    );
+    await page.waitForFunction(() => !!window.frame);
+}
+
+function frame(page: Page, hour?: number, noFog = false): Promise<Frame> {
+    return page.evaluateHandle(({ hour, noFog }) => window.frame(hour, noFog), { hour, noFog });
+}
+
+async function save(name: string, frame: Frame) {
+    if (!process.env.SHALLOT_CAPTURE_DIR) return;
+    mkdirSync(process.env.SHALLOT_CAPTURE_DIR, { recursive: true });
+    writeFileSync(
+        `${process.env.SHALLOT_CAPTURE_DIR}/${name}.png`,
+        Buffer.from((await frame.evaluate((frame) => frame.png)).split(",")[1], "base64"),
+    );
+}
+
+function mean(frame: Frame, x0: number, y0: number, x1: number, y1: number) {
+    return frame.evaluate(
+        (frame, [x0, y0, x1, y1]) => {
+            let sum = 0,
+                count = 0;
+            for (let y = Math.floor(y0 * frame.height); y < y1 * frame.height; y++) {
+                for (let x = Math.floor(x0 * frame.width); x < x1 * frame.width; x++) {
+                    const i = (y * frame.width + x) * 4;
+                    sum +=
+                        0.2126 * frame.rgba[i] +
+                        0.7152 * frame.rgba[i + 1] +
+                        0.0722 * frame.rgba[i + 2];
+                    count++;
+                }
+            }
+            return sum / count;
+        },
+        [x0, y0, x1, y1],
+    );
+}
+
+// These frame claims share one stepped app, started at 7, so its page and pipelines build once.
+test.describe(() => {
+    let page: Page;
+    let initial: Frame;
+    test.beforeAll(async ({ browser }) => {
+        page = await browser.newPage();
+        await open(page, 7);
+        initial = await frame(page);
+    });
+    test.afterAll(() => page.close());
+
+    test("pointer hour control leaves the bound orbit key working", async () => {
+        try {
+            await dragRange(page, page.getByRole("slider", { name: "Hour" }));
+            await gameKeyMovesCamera(page);
+        } finally {
+            await page.evaluate(() => window.resetControls());
+        }
+    });
+
+    test.describe("one stepped app", () => {
+        test("a fresh scene starts at the requested hour with the low sun's disk in frame", async () => {
+            expect(await initial.evaluate((frame) => frame.hour)).toBe(7);
+            expect(await mean(initial, 0.798, 0.048, 0.807, 0.067)).toBeGreaterThan(
+                (await mean(initial, 0.7, 0.05, 0.74, 0.1)) + 8,
+            );
+        });
+
+        test("the first frame after changing the light direction has the new shadows", async () => {
+            // Surface shadows update immediately; volumetric lighting intentionally retains history.
+            const reference = await frame(page, 7, true);
+            await frame(page, 15, true);
+            const changed = await frame(page, 7, true);
+            await save("changed-sun-first-frame", changed);
+            await save("changed-sun-reference", reference);
+            const error = await page.evaluate(
+                ({ reference, changed }) => {
+                    let error = 0;
+                    for (let i = 0; i < reference.rgba.length; i++)
+                        error += Math.abs(reference.rgba[i] - changed.rgba[i]);
+                    return error / reference.rgba.length;
+                },
+                { reference, changed },
+            );
+            expect(error).toBeLessThan(0.05);
+        });
+
+        test("low-sun haze leaves the central shape distinct from adjacent ground", async () => {
+            expect(
+                Math.abs(
+                    (await mean(initial, 0.48, 0.4, 0.51, 0.46)) -
+                        (await mean(initial, 0.54, 0.4, 0.57, 0.46)),
+                ),
+            ).toBeGreaterThan(10);
+        });
+
+        test("the midnight shape stands apart from ground and the moon lights the ground", async () => {
+            const night = await frame(page, 0);
+            const lit = await mean(night, 0.48, 0.4, 0.51, 0.46);
+            const ground = await mean(night, 0.54, 0.4, 0.57, 0.46);
+            expect(Math.abs(lit - ground)).toBeGreaterThan(10);
+            const withoutMoon = await page.evaluateHandle(() => window.frame(0, false, false));
+            // The ground faces the moon, so moon on against off isolates its contribution.
+            expect(ground - (await mean(withoutMoon, 0.54, 0.4, 0.57, 0.46))).toBeGreaterThan(3);
+        });
+
+        test("the slider drives the hour and noon sky is brighter than midnight", async () => {
+            const noon = await frame(page, 12);
+            await page.getByRole("slider", { name: "Hour" }).fill("0");
+            const night = await frame(page);
+            expect(await night.evaluate((frame) => frame.hour)).toBe(0);
+            await expect(page.locator('output[for="hour"]')).toHaveText("00:00");
+            const slider = page.getByRole("slider", { name: "Hour" });
+            await slider.fill("0.01");
+            await page.evaluate(() => window.updateControls());
+            await expect(page.locator('output[for="hour"]')).toHaveText("00:00");
+            for (const [hour, time] of [
+                [7.5, "07:30"],
+                [12, "12:00"],
+                [23.99, "23:59"],
+            ] as const) {
+                await page.getByRole("slider", { name: "Hour" }).fill(String(hour));
+                await page.evaluate(() => window.updateControls());
+                await expect(page.locator('output[for="hour"]')).toHaveText(time);
+            }
+            expect(await mean(noon, 0.1, 0.05, 0.9, 0.25)).toBeGreaterThan(
+                (await mean(night, 0.1, 0.05, 0.9, 0.25)) + 30,
+            );
+        });
+
+        test("morning and afternoon cast a shape's shadow on opposite sides", async () => {
+            await page.evaluate(() => window.orbit(0));
+            const morning = await frame(page, 9);
+            const afternoon = await frame(page, 15);
+            await save("morning", morning);
+            await save("afternoon", afternoon);
+            const contrast = async (f: Frame) =>
+                (await mean(f, 0.48, 0.535, 0.5, 0.55)) - (await mean(f, 0.605, 0.535, 0.62, 0.55));
+            expect((await contrast(morning)) * (await contrast(afternoon))).toBeLessThan(-4);
+        });
+    });
+});
+
+test("named hours and a low-sun sequence are captured when SHALLOT_CAPTURE_DIR is set", async ({
+    page,
+}) => {
+    if (!process.env.SHALLOT_CAPTURE_DIR) return;
+    for (const [name, hour] of Object.entries({
+        dawn: 6.25,
+        "low-morning": 7,
+        noon: 12,
+        "low-evening": 17,
+        dusk: 17.75,
+        midnight: 0,
+    })) {
+        await open(page, hour, hour > 12);
+        const captured = await frame(page);
+        expect(await captured.evaluate((frame) => frame.hour)).toBe(hour);
+        await save(name, captured);
+        await page.screenshot({ path: `${process.env.SHALLOT_CAPTURE_DIR}/page-${name}.png` });
+    }
+    for (const hour of [7, 17]) {
+        await open(page, hour, hour > 12);
+        await page.goto(`${page.url()}&no-shafts`);
+        await page.waitForFunction(() => !!window.frame);
+        await save(
+            hour === 7 ? "low-morning-no-shafts" : "low-evening-no-shafts",
+            await frame(page),
+        );
+    }
+    await open(page, 7);
+    for (let i = 0; i < 12; i++) {
+        const hour = 7 + i / 150;
+        const captured = await frame(page, hour);
+        expect(await captured.evaluate((frame) => frame.hour)).toBe(hour);
+        await save(`low-sun-${String(i).padStart(2, "0")}`, captured);
+    }
+});

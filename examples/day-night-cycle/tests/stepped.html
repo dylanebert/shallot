@@ -1,10 +1,10 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="UTF-8" /><title>day-night-cycle, stepped</title><style>body { margin: 0; } canvas { display: block; }</style></head>
+<head><meta charset="UTF-8" /><title>day-night-cycle, stepped</title><style>body { margin: 0; } canvas { display: block; width:100vw; height:100vh; }</style></head>
 <body>
 <canvas width="1280" height="720"></canvas>
 <script type="module">
-    import { createApp, mountOverlay, Transform, lookAtRotation, VolumetricLight, DirectionalLight } from "@dylanebert/shallot";
+    import { createApp, mountOverlay, Transform, lookAtRotation, VolumetricLight, DirectionalLight, Resolution } from "@dylanebert/shallot";
     import { attachTexture, captureTexture, captureFrame } from "@dylanebert/shallot/rendering";
     import { NoFog } from "@dylanebert/shallot/extras";
     import { flushSync } from "svelte";
@@ -24,8 +24,24 @@
     }] }] });
     const fullSize = new URL(location.href).searchParams.has("capture");
     const camera = app.world.resource(CycleScene).camera;
+    const shadows = [...app.world.query([DirectionalLight])].map(eid => [eid, app.world.storage(DirectionalLight).shadowMapsEnabled.get(eid)]);
+    function drawPixels(full) {
+        for (const [eid, enabled] of shadows) app.world.storage(DirectionalLight).shadowMapsEnabled.set(eid, full ? enabled : 0);
+        if (full) app.world.remove(camera, Resolution);
+        else app.world.add(camera, Resolution, { height: 9 });
+    }
+    window.updateControls = () => { drawPixels(false); app.world.step(0); flushSync(); };
     const { Orbit } = await import("@dylanebert/shallot/extras");
+    const initialYaw = app.world.storage(Orbit).yaw.get(camera);
+    window.resetControls = async () => {
+        drawPixels(true);
+        app.world.storage(Orbit).yaw.set(camera, initialYaw);
+        app.world.resource(Clock).hour = startHour;
+        app.world.step(0);
+        await app.world.frameFence;
+    };
     window.controlsKey = () => {
+        drawPixels(false);
         app.world.step(1 / 60);
         return app.world.storage(Orbit).yaw.get(camera);
     };
@@ -45,6 +61,10 @@
     hud(mountOverlay(canvas, app.world), app.world);
     flushSync();
     window.frame = async (hour, noFog = false, moon = true) => {
+        const resize = fullSize && app.world.has(camera, Resolution);
+        drawPixels(true);
+        // Finish a canvas resize before changing the requested light: the capture is still its first frame.
+        if (resize) { app.world.step(0); await app.world.frameFence; }
         moonlight = moon;
         if (noFog && !app.world.has(camera, NoFog)) app.world.add(camera, NoFog);
         else if (!noFog) app.world.remove(camera, NoFog);
