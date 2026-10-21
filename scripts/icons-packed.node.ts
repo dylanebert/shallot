@@ -26,7 +26,22 @@ let projectCli: string;
 let standardSvg: Buffer<ArrayBuffer>;
 let standardPng: Buffer<ArrayBuffer>;
 let standardHtml: string;
-const out = resolve(project, "build/linux/debug-portable");
+const target =
+    process.platform === "darwin" ? "mac" : process.platform === "win32" ? "windows" : "linux";
+const portable = target === "linux";
+const buildArgs = [
+    "build",
+    "--target",
+    target,
+    ...(portable ? ["--portable"] : []),
+    "--base",
+    "/nested/",
+];
+const out = resolve(
+    project,
+    `build/${target}/debug-${portable ? "portable" : "system"}`,
+    ...(target === "mac" ? ["game.app/Contents/Resources"] : []),
+);
 const run = (args: string[], cwd = project) => {
     const result = Bun.spawnSync({
         ...bunChild(args),
@@ -77,7 +92,7 @@ beforeAll(() => {
     const cargoSource = `const fs=require('node:fs'),path=require('node:path');
 const args=process.argv.slice(2),target=args[args.indexOf('--target')+1];
 const out=path.join(process.env.CARGO_TARGET_DIR,target,'debug');fs.mkdirSync(out,{recursive:true});
-fs.writeFileSync(path.join(out,'shallot-native'),'fixture shell, never launched');
+fs.writeFileSync(path.join(out,'shallot-native'+(target.includes('windows')?'.exe':'')),'fixture shell, never launched');
 console.log(JSON.stringify({reason:'build-script-executed',package_id:'path+file:///fixture#shallot-native@0.10.0',env:[['SHALLOT_CEF_DIR',process.env.FIXTURE_RUNTIME]]}));`;
     if (process.platform === "win32") {
         writeFileSync(resolve(tools, "cargo.js"), cargoSource);
@@ -88,6 +103,11 @@ console.log(JSON.stringify({reason:'build-script-executed',package_id:'path+file
     } else {
         writeFileSync(resolve(tools, "cargo"), `#!${process.execPath}\n${cargoSource}`);
         chmodSync(resolve(tools, "cargo"), 0o755);
+    }
+    if (process.platform === "darwin") {
+        // The fixture shell is not Mach-O; signing is outside this asset-packaging claim.
+        writeFileSync(resolve(tools, "codesign"), "#!/bin/sh\nexit 0\n");
+        chmodSync(resolve(tools, "codesign"), 0o755);
     }
     env.PATH = `${tools}${delimiter}${env.PATH}`;
     env.FIXTURE_RUNTIME = runtime;
@@ -108,7 +128,7 @@ beforeEach(() => {
 
 test("installed packed CLI builds the default favicon and native PNG at a nested web base", () => {
     expect(readFileSync(resolve(project, "public/icon.svg"))).toEqual(standardSvg);
-    run([projectCli, "build", "--target", "linux", "--portable", "--base", "/nested/"]);
+    run([projectCli, ...buildArgs]);
     expect(readFileSync(resolve(project, "dist/index.html"), "utf8")).toContain(
         'href="/nested/icon.svg"',
     );
@@ -125,7 +145,7 @@ test("installed packed CLI preserves editable favicon and native PNG at a nested
     const customBytes = Buffer.concat([customPng, Buffer.from("consumer PNG")]);
     writeFileSync(resolve(project, "public/icon.svg"), customSvg);
     writeFileSync(resolve(project, "public/icon.png"), customBytes);
-    run([projectCli, "build", "--target", "linux", "--portable", "--base", "/nested/"]);
+    run([projectCli, ...buildArgs]);
     expect(readFileSync(resolve(out, "dist/icon.svg"))).toEqual(customSvg);
     expect(readFileSync(resolve(out, "dist/icon.png"))).toEqual(customBytes);
     expect(readFileSync(resolve(project, "dist/index.html"), "utf8")).toContain(
