@@ -1,5 +1,5 @@
 import { expect, test } from "playwright/test";
-import { dragRange, gameKeyMovesCamera, pointerControl, tabSkipsChrome } from "./pointer";
+import { dragRange, gameKeyMovesCamera, pointerControl, tabSkipsChrome } from "../pointer";
 
 test("pointer controls retain disabled nested settings and disclose the root without focus", async ({
     page,

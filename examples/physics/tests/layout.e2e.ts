@@ -7,17 +7,27 @@ import { categories, type Scene, scenes } from "../src/scenes";
 // draw, and every action on a running scene would otherwise wait on one.
 async function heldPage(browser: Browser, options: Parameters<Browser["newContext"]>[0] = {}) {
     const page = await (await browser.newContext(options)).newPage();
+    const session = await page.context().newCDPSession(page);
+    await session.send("Emulation.setHardwareConcurrencyOverride", { hardwareConcurrency: 1 });
     await holdFrames(page, "[aria-label='Scene navigation']");
     await page.goto("/");
     return page;
 }
 
+let desktop: Page | undefined;
+async function desktopPage(browser: Browser) {
+    return (desktop ??= await heldPage(browser, { viewport: { width: 1280, height: 720 } }));
+}
+test.afterAll(async () => {
+    await desktop?.context().close();
+    desktop = undefined;
+});
+
 test.describe(() => {
     let page: Page;
     test.beforeAll(async ({ browser }) => {
-        page = await heldPage(browser);
+        page = await desktopPage(browser);
     });
-    test.afterAll(() => page.context().close());
     // The Wheel claim leaves the scene list open.
     test.beforeEach(() => page.keyboard.press("Escape"));
     for (const [scene, selectors] of [
@@ -75,9 +85,14 @@ for (const viewport of [
         const phone = viewport.width === 390;
         let page: Page;
         test.beforeAll(async ({ browser }) => {
-            page = await heldPage(browser, { viewport, hasTouch: phone });
+            page = phone
+                ? await heldPage(browser, { viewport, hasTouch: true })
+                : await desktopPage(browser);
         });
-        test.afterAll(() => page.context().close());
+        test.afterAll(async () => {
+            if (phone) await page.context().close();
+        });
+        test.beforeEach(() => page.keyboard.press("Escape"));
         const samples = categories.flatMap((category) => category.scenes);
         for (let start = 0; start < samples.length; start += 2) {
             const group = samples.slice(start, start + 2);

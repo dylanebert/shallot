@@ -2,7 +2,8 @@
 <html lang="en"><head><meta charset="UTF-8"><title>Physics controls, stepped</title>
 <style>body{margin:0}canvas{display:block;width:100vw;height:100vh}</style></head>
 <body><canvas width="1280" height="720"></canvas><script type="module">
-import { createApp, mountOverlay, StandardPhysicsPlugin, GlobalTransform } from '@dylanebert/shallot';
+import { createApp, mountOverlay, StandardPhysicsPlugin, GlobalTransform, DirectionalLight } from '@dylanebert/shallot';
+import { PhysicsWorldDefinition } from '@dylanebert/shallot/standard/physics';
 import { LinesPlugin, OrbitPlugin, Orbit, TextPlugin } from '@dylanebert/shallot/extras';
 import { mount, unmount, flushSync } from 'svelte';
 import Hud from '../src/Hud.svelte';
@@ -11,13 +12,14 @@ import { sceneSwitcher } from '../src/sample';
 import { changeControl } from '../src/scenes';
 import { createViewer } from '../src/view';
 // The checks read game state and the DOM; a low pixel ratio keeps each stepped draw cheap.
-const app = await createApp({plugins:[StandardPhysicsPlugin,EventSamplePlugin,SampleInputPlugin,TextPlugin,OrbitPlugin,LinesPlugin],pixelRatio:0.05});
+const app = await createApp({plugins:[StandardPhysicsPlugin,EventSamplePlugin,SampleInputPlugin,TextPlugin,OrbitPlugin,LinesPlugin],pixelRatio:0.05,setup(world){world.resource(PhysicsWorldDefinition).workerCount=1;}});
 const world=app.world;
 const container=mountOverlay(document.querySelector('canvas'),world);
 const replace=sceneSwitcher(world,createViewer(world));
 let component;
 function select(scene){
  const bodies=replace(scene);
+ for(const eid of world.query([DirectionalLight]))world.storage(DirectionalLight).shadowMapsEnabled.set(eid,0);
  if(component) void unmount(component);
  component=mount(Hud,{target:container,props:{scene,select,change:(name,value,values)=>changeControl(world,scene,bodies,values,name,value)}});
  flushSync();
