@@ -4,28 +4,27 @@ import { createApp, pressKey, releaseKey, Camera, GlobalTransform, VolumetricLig
 import { attachTexture, captureTexture, detachView } from '@dylanebert/shallot/rendering';
 import { NoFog } from '@dylanebert/shallot/extras';
 import { MotesPlugin } from '../src/motes';
-import { Room } from '../src/room';
-const app=await createApp({plugins:[MotesPlugin]});
+import { Room, RoomPlugin } from '../src/room';
+const captures=new URLSearchParams(location.search).has('captures');
+const app=await createApp({plugins:[captures?MotesPlugin:RoomPlugin]});
 const world=app.world, room=world.resource(Room);
 // Claims read a quarter-size frame without MSAA, as particles' do: the fog grid keeps its 160 × 90 columns,
 // and the rest of the frame draws a sixteenth of the pixels. Captures keep the game's 1280 × 720 view.
-const captures=new URLSearchParams(location.search).has('captures');
 const W=captures?1280:320,H=captures?720:180;
 attachTexture(world,room.camera,{width:W,height:H});
 if(!captures)world.storage(Camera).antialias.set(room.camera,0);
-world.step(1/60);world.step(1/60);
+world.step(1/60);if(captures)world.step(1/60);
 async function render(){world.step(0);return captureTexture(world,room.camera);}
 window.hall={
  adapter:world.gpu.adapter,
  async image(){const image=await render();const c=document.createElement('canvas');c.width=image.width;c.height=image.height;c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(image.rgba),image.width,image.height),0,0);return c.toDataURL('image/png');},
  async evidence(regions){const on=(await render()).rgba;world.add(room.camera,NoFog);const off=(await render()).rgba;world.remove(room.camera,NoFog);return regions.map(([left,right,top,bottom])=>{let sum=0,count=0;for(let y=top;y<bottom;y++)for(let x=left;x<right;x++){const i=(y*W+x)*4;sum+=(on[i]+on[i+1]+on[i+2]-off[i]-off[i+1]-off[i+2])/3;count++;}return sum/count;});},
  async contributions(regions){const on=(await render()).rgba;const result=[];for(const [j,lights] of [[room.sun],[room.downlight],room.pendants].entries()){const enabled=lights.filter(e=>world.has(e,VolumetricLight));for(const e of enabled)world.remove(e,VolumetricLight);const off=(await render()).rgba;for(const e of enabled)world.add(e,VolumetricLight);const [left,right,top,bottom]=regions[j];let sum=0,count=0;for(let y=top;y<bottom;y++)for(let x=left;x<right;x++){const i=(y*W+x)*4;sum+=(on[i]+on[i+1]+on[i+2]-off[i]-off[i+1]-off[i+2])/3;count++;}result.push(sum/count);}return result;},
- async sunColumns([left,right,top,bottom]){const on=(await render()).rgba;world.remove(room.sun,VolumetricLight);const off=(await render()).rgba;world.add(room.sun,VolumetricLight);const columns=[];for(let x=left;x<right;x++){let sum=0;for(let y=top;y<bottom;y++){const i=(y*W+x)*4;sum+=(on[i]+on[i+1]+on[i+2]-off[i]-off[i+1]-off[i+2])/3;}columns.push(sum/(bottom-top));}return columns;},
+ async sunColumns([left,right,top,bottom]){const enabled=world.has(room.sun,VolumetricLight);const on=(await render()).rgba;world.remove(room.sun,VolumetricLight);const off=(await render()).rgba;if(enabled)world.add(room.sun,VolumetricLight);const columns=[];for(let x=left;x<right;x++){let sum=0;for(let y=top;y<bottom;y++){const i=(y*W+x)*4;sum+=(on[i]+on[i+1]+on[i+2]-off[i]-off[i+1]-off[i+2])/3;}columns.push(sum/(bottom-top));}return columns;},
  async walk(count=60){
-  // Only the walked distance is claimed; keep every simulated frame, not its pixels, as particles does.
-  if(!captures){detachView(world,room.camera);attachTexture(world,room.camera,{width:16,height:9});}
+  // The final distance claim needs stepped input and simulation, not a camera or its rendered view.
+  if(!captures){detachView(world,room.camera);world.remove(room.camera,Camera);}
   const p=world.storage(GlobalTransform).translation;const before=p.z.get(room.player);pressKey(world,'KeyW');for(let i=0;i<count;i++)world.step(1/60);releaseKey(world,'KeyW');
-  if(!captures){detachView(world,room.camera);attachTexture(world,room.camera,{width:W,height:H});}
   await world.gpu.device.queue.onSubmittedWorkDone();
   return {before,after:p.z.get(room.player)};},
 };
