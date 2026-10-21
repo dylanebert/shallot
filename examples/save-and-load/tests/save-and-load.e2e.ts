@@ -1,8 +1,10 @@
+import { holdFrames } from "@dylanebert/shallot/testing";
 import { expect, test } from "playwright/test";
 import { capture } from "./capture";
 import { bodyHasFocus, pointerControl, tabSkipsChrome } from "./pointer";
 
 test("dragging save chrome and its title selects no page text", async ({ page }) => {
+    await holdFrames(page, ".save-hud");
     await page.goto("/");
     const label = page.locator(".save-hud h1");
     await label.waitFor();
