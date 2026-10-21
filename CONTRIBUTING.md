@@ -176,6 +176,7 @@ bun run format                  # biome
 - A built-in composition change adds an exact native-pipeline count; compile durations are reported by `scripts/compile.oracle.ts` and `scripts/gpu-compile.oracle.ts`, never asserted
 - Device-backed checks record adapter classification, and a hardware claim requires a real adapter
 - A browser check runs headless and holds only what needs the built page: assets, cross-origin isolation, focused input and presentation into the canvas
+- A browser claim on a running page that does not read its frames holds them with `holdFrames` from `./testing`
 - Browser observations accept software adapters and request no adapter themselves
 - A display run is a manual oracle on the monitor `SHALLOT_DISPLAY_SEAT` declares, and holds only claims whose evidence is presentation on a physical monitor: refresh-paced play, and a real adapter in a browser where headless reaches none. It runs only when the person starts it, and takes that monitor's keyboard and cursor while it runs
 - A virtual compositor is not desktop isolation: X11 pathname sockets and the session bus can remain shared despite a private `XDG_RUNTIME_DIR`. Native-host boundary spikes run in a disposable VM or verified private mount/PID/network namespaces with private `/tmp`, `/run`, HOME/XDG directories and no shared session bus. Wayland-only fixtures disable Xwayland. Verify that boundary before starting a display server or client; virtual testing must not replace a live desktop's socket
