@@ -1,6 +1,6 @@
 import { copyFileSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { removeTestDirectory } from "../../scripts/test-directory";
 import { DEFERRED_TURBOFAN_FLAGS, SAMPLE_RESULT } from "./allocation-sampler.mjs";
 
@@ -63,7 +63,14 @@ export interface TransitionSample extends AllocationSample {
 }
 
 const SAMPLER = resolve(import.meta.dir, "allocation-sampler.mjs");
-const TEXT_FONT = resolve(import.meta.dir, "../../src/extras/text/Inter-Regular.ttf");
+/**
+ * Files copied beside every bundle under their own names, because Bun.build does not emit
+ * `new URL(asset, import.meta.url)` assets: Text's default font. scripts/allocation-gates.ts counts
+ * them among every gate's inputs.
+ */
+export const ALLOCATION_BUNDLE_ASSETS: readonly string[] = [
+    resolve(import.meta.dir, "../../src/extras/text/Inter-Regular.ttf"),
+];
 
 /**
  * Lower thresholds only move compiles into warm-up; synchronous compilation keeps installation in its run.
@@ -228,23 +235,26 @@ async function runSampler(
     }
 }
 
+/** The options that bundle `entry` for the Node sampler, without an output directory. */
+export async function allocationBuildConfig(entry: string): Promise<Bun.BuildConfig> {
+    const { shallot } = await import("@dylanebert/shallot/bun");
+    return {
+        entrypoints: [entry],
+        target: "node",
+        format: "esm",
+        sourcemap: "linked",
+        naming: "subject.mjs",
+        plugins: [shallot({ root: dirname(entry) })],
+    };
+}
+
 async function buildAllocationBundle(entry: string): Promise<{ dir: string; path: string }> {
     const dir = mkdtempSync(join(tmpdir(), "shallot-allocation-"));
     try {
-        const { shallot } = await import("@dylanebert/shallot/bun");
-        const built = await Bun.build({
-            entrypoints: [entry],
-            outdir: dir,
-            target: "node",
-            format: "esm",
-            sourcemap: "linked",
-            naming: "subject.mjs",
-            plugins: [shallot({ root: dirname(entry) })],
-        });
+        const built = await Bun.build({ ...(await allocationBuildConfig(entry)), outdir: dir });
         if (!built.success)
             throw new Error(`allocation bundle failed: ${built.logs.map(String).join("\n")}`);
-        // Bun.build does not emit `new URL(asset, import.meta.url)` assets; Text's default font resolves beside the bundle.
-        copyFileSync(TEXT_FONT, join(dir, "Inter-Regular.ttf"));
+        for (const asset of ALLOCATION_BUNDLE_ASSETS) copyFileSync(asset, join(dir, basename(asset)));
         return { dir, path: join(dir, "subject.mjs") };
     } catch (error) {
         rmSync(dir, { recursive: true, force: true });
