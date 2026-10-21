@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { BROWSER_CONFIG, TIMEOUT } from "@dylanebert/shallot/testing";
 import type { Browser, Page } from "playwright";
 import { CROSS_ORIGIN_ISOLATION, contentType } from "../project";
+import { publishProgress } from "./publish-output";
 
 export interface PublishAsset {
     path: string;
@@ -36,7 +37,7 @@ export async function projectChromium(projectDir: string): Promise<Browser> {
     } catch (error) {
         if (!(error instanceof Error) || !error.message.includes("Executable doesn't exist"))
             throw error;
-        console.error("Installing the project's Playwright Chromium.");
+        publishProgress("Installing the project's Playwright Chromium.");
         const { spawnSync } = await import("node:child_process");
         const manifestPath = require.resolve("playwright/package.json");
         const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));

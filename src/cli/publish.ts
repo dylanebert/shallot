@@ -15,6 +15,7 @@ import {
     WRANGLER_VERSION,
     workerExists,
 } from "./publish-cloudflare";
+import { publishProgress } from "./publish-output";
 import { type PublishAsset, projectChromium, verifyPublishedGame } from "./publish-verify";
 
 export function readPublishLink(projectDir: string): PublishLink | undefined {
@@ -120,7 +121,7 @@ async function ask(question: string, fallback?: string): Promise<string> {
 }
 
 function installDev(projectDir: string, dependency: string): void {
-    console.error(`Adding ${dependency} to the project's devDependencies.`);
+    publishProgress(`Adding ${dependency} to the project's devDependencies.`);
     const result = spawnSync("bun", ["add", "--dev", dependency], {
         cwd: projectDir,
         stdio: ["ignore", 2, 2],
@@ -191,7 +192,7 @@ const targets: Record<"cloudflare", PublishTarget> = {
                     throw new Error(
                         "Cloudflare login is missing. Set CLOUDFLARE_API_TOKEN for non-interactive publish; run wrangler login in a terminal (wrangler login --device for a remote session).",
                     );
-                console.error(
+                publishProgress(
                     "Cloudflare login is required. For a remote session, use wrangler login --device.",
                 );
                 if (
@@ -224,7 +225,7 @@ const targets: Record<"cloudflare", PublishTarget> = {
                         throw new Error(
                             "More than one Cloudflare account is accessible. Set CLOUDFLARE_ACCOUNT_ID or shallot.publish.accountId in package.json.",
                         );
-                    console.error(
+                    publishProgress(
                         accounts.map((account) => `${account.name}: ${account.id}`).join("\n"),
                     );
                     accountId = await ask("Cloudflare account id");
@@ -236,7 +237,7 @@ const targets: Record<"cloudflare", PublishTarget> = {
                 );
             if (!accounts.some((account) => account.id === accountId))
                 throw new Error(`Cloudflare account ${accountId} is not accessible to this login.`);
-            console.error(
+            publishProgress(
                 `Using Cloudflare account ${accounts.find((account) => account.id === accountId)!.name} (${accountId}).`,
             );
             const manifest = JSON.parse(readFileSync(join(projectDir, "package.json"), "utf8"));
@@ -248,7 +249,7 @@ const targets: Record<"cloudflare", PublishTarget> = {
             let name =
                 saved?.name ?? (interactive ? await ask("Worker name", defaultName) : defaultName);
             if (!saved && !interactive)
-                console.error(`Using project name ${name} as the Worker name.`);
+                publishProgress(`Using project name ${name} as the Worker name.`);
             if (!validWorkerName(name))
                 throw new Error(
                     `Invalid Worker name ${JSON.stringify(name)}; use 1–63 lowercase letters, digits and hyphens, starting with a letter or digit.`,
@@ -275,13 +276,13 @@ const targets: Record<"cloudflare", PublishTarget> = {
                         if (saved || !workerExists(run(["versions", "list", "--json"]))) break;
                         const message = `Worker "${name}" already exists in account ${accountId}. No link was saved and nothing was deployed. package.json's shallot.publish.name names the Worker; writing the complete shallot.publish link by hand deliberately authorizes updating it.`;
                         if (!interactive) throw new Error(message);
-                        console.error(message);
+                        publishProgress(message);
                         name = await ask("Choose another Worker name");
                     }
                     link.name = name;
                     // Wrangler gives no lock: another Worker can appear between the absence check and deploy.
                     const result = run(["deploy"], interactive);
-                    if (!interactive) console.error(result.stdout, result.stderr);
+                    if (!interactive) publishProgress(result.stdout, result.stderr);
                     return cloudflareDeployment(result);
                 },
                 get commands() {
@@ -298,7 +299,7 @@ export async function publishProject(projectDir: string, targetName?: string): P
         throw new Error(`Unknown publish target: ${targetName}. Available: cloudflare.`);
     const saved = readPublishLink(projectDir);
     const target = targets[targetName ?? saved?.target ?? "cloudflare"];
-    if (!targetName && !saved) console.error("Using publish target cloudflare.");
+    if (!targetName && !saved) publishProgress("Using publish target cloudflare.");
     const work = mkdtempSync(join(tmpdir(), "shallot-publish-"));
     try {
         const directory = join(work, "web");
@@ -315,7 +316,7 @@ export async function publishProject(projectDir: string, targetName?: string): P
         const deployed = await setup.deploy(directory);
         savePublishLink(projectDir, setup.link);
         console.log(deployed.url);
-        console.error(`Build: ${deployed.buildUrl}\n${setup.commands}`);
+        publishProgress(`Build: ${deployed.buildUrl}\n${setup.commands}`);
         const browser = await projectChromium(projectDir);
         try {
             const verification = await verifyPublishedGame(
@@ -324,7 +325,7 @@ export async function publishProject(projectDir: string, targetName?: string): P
                 directory,
                 assets,
             );
-            console.error(
+            publishProgress(
                 `${verification.hardware ? "Engine started on a hardware adapter." : "Engine started; loading, headers and assets verified, not hardware play."}${verification.threads === undefined ? "" : ` Physics ${verification.physicsStepped ? "stepped" : "initialized"} on ${verification.threads} threads.`}\nAdapter: ${verification.adapter}`,
             );
         } finally {
