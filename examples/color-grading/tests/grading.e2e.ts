@@ -77,8 +77,9 @@ for (const viewport of [
         await page.locator("#control-3").fill("0.6");
         const last = page.getByRole("slider").last();
         await last.scrollIntoViewIfNeeded();
-        await last.fill("-0.1");
-        await expect(last).toHaveValue("-0.1");
+        await last.fill("0.05");
+        await expect(last).toHaveValue("0.05");
+        await last.fill("0");
         expect(await panel.boundingBox()).toEqual(bounds);
         await panel.evaluate((el) => {
             el.scrollTop = 0;
