@@ -10,7 +10,8 @@ import { EventSample, EventSamplePlugin, SampleInputPlugin } from '../src/events
 import { sceneSwitcher } from '../src/sample';
 import { changeControl } from '../src/scenes';
 import { createViewer } from '../src/view';
-const app = await createApp({plugins:[StandardPhysicsPlugin,EventSamplePlugin,SampleInputPlugin,TextPlugin,OrbitPlugin,LinesPlugin]});
+// The checks read game state and the DOM; a low pixel ratio keeps each stepped draw cheap.
+const app = await createApp({plugins:[StandardPhysicsPlugin,EventSamplePlugin,SampleInputPlugin,TextPlugin,OrbitPlugin,LinesPlugin],pixelRatio:0.05});
 const world=app.world;
 const container=mountOverlay(document.querySelector('canvas'),world);
 const replace=sceneSwitcher(world,createViewer(world));

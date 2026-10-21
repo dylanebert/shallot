@@ -20,7 +20,9 @@
             import { ScenePlugin } from "../src/scene";
 
             const canvas = document.querySelector("canvas");
-            const app = await createApp({ plugins: [ScenePlugin] });
+            // Controls checks read game state and the DOM; a low pixel ratio keeps each stepped draw cheap.
+            const pixelRatio = new URL(location.href).searchParams.has("controls") ? 0.05 : "auto";
+            const app = await createApp({ plugins: [ScenePlugin], pixelRatio });
             const { Orbit } = await import("@dylanebert/shallot/extras");
             window.controlsKey = () => {
                 app.world.step(1 / 60);
