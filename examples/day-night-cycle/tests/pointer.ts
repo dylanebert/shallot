@@ -22,26 +22,26 @@ export async function dragRange(page: Page, control: Locator): Promise<void> {
 }
 
 export async function gameKeyMovesCamera(page: Page): Promise<void> {
-    const step = (steps: number) =>
-        page.evaluate(
-            (steps) =>
-                (window as unknown as { controlsKey(steps: number): number }).controlsKey(steps),
-            steps,
-        );
-    const settled = await step(60);
-    const before = await step(12);
-    expect(Math.abs(before - settled), "no key must leave settled yaw unchanged").toBeLessThan(
-        1e-6,
-    );
+    // Every stepped frame draws, and a software adapter takes up to a second each, so this stays a few
+    // frames. An unkeyed turn only decays, so comparing successive per-frame turns needs no settling.
+    const step = () =>
+        page.evaluate(() => (window as unknown as { controlsKey(): number }).controlsKey());
+    const first = await step();
+    const second = await step();
+    const before = await step();
+    const unkeyed = before - second;
+    expect(
+        unkeyed - (second - first),
+        "no key must leave the camera turning no faster",
+    ).toBeLessThan(1e-6);
     await page.keyboard.down("ArrowRight");
     try {
         expect(
-            Math.abs((await step(12)) - before),
-            "ArrowRight must cause new yaw",
+            (await step()) - before - unkeyed,
+            "ArrowRight must turn the camera faster than the unkeyed frame before",
         ).toBeGreaterThan(0.001);
     } finally {
         await page.keyboard.up("ArrowRight");
-        await step(1);
     }
 }
 

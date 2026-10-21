@@ -26,8 +26,8 @@ window.actionSpeed=()=>{
  world.step(1/60);
  return world.storage(GlobalTransform).linearVelocity.x.get(world.resource(EventSample).player);
 };
-window.controlsKey=(steps=1)=>{
- for(let i=0;i<steps;i++) world.step(1/60);
+window.controlsKey=()=>{
+ world.step(1/60);
  const camera=[...world.query([Orbit])][0];
  return world.storage(Orbit).yaw.get(camera);
 };
