@@ -5,6 +5,8 @@ import { bodyHasFocus, pointerControl } from "./pointer";
 test("switching scenes resets the Bridge control and keeps the canvas", async ({ page }) => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
+    const session = await page.context().newCDPSession(page);
+    await session.send("Emulation.setHardwareConcurrencyOverride", { hardwareConcurrency: 1 });
     // Each switched scene steps and draws once; held frames keep the picker's clicks from waiting on draws.
     const frames = await holdFrames(page, "[aria-label='Scene navigation']");
     await page.goto("/");

@@ -1,8 +1,9 @@
 <!doctype html>
 <html lang="en"><head><meta charset="UTF-8"><title>Physics grab, stepped</title>
-<style>body{margin:0}canvas{display:block}</style></head>
+<style>body{margin:0}canvas{display:block;width:640px;height:480px}</style></head>
 <body><canvas width="640" height="480"></canvas><script type="module">
-import { createApp, MeshPlugin, Body, MotorJoint, Transform, NotShadowCaster, Camera, Devices, Outline, GlobalTransform, pointerMove, pressButton, releaseButton, StandardPhysicsPlugin } from '@dylanebert/shallot';
+import { createApp, MeshPlugin, Body, MotorJoint, Transform, NotShadowCaster, Camera, Resolution, DirectionalLight, Devices, Outline, GlobalTransform, pointerMove, pressButton, releaseButton, StandardPhysicsPlugin } from '@dylanebert/shallot';
+import { PhysicsWorldDefinition } from '@dylanebert/shallot/standard/physics';
 import { captureFrame, worldToViewport } from '@dylanebert/shallot/rendering';
 import { LinesPlugin, OrbitPlugin } from '@dylanebert/shallot/extras';
 import { createScene } from '../src/scenes';
@@ -13,11 +14,16 @@ const scene=params.get('scene') || 'boxStack';
 const bodyIndex=scene==='bridge'?10:scene==='boxStack'?20:0;
 let bodies;
 const app = await createApp({ plugins: [StandardPhysicsPlugin, LinesPlugin, OrbitPlugin, GrabPlugin, {name:'SampleView', dependencies:[MeshPlugin,StandardPhysicsPlugin], initialize(world){createViewer(world)(world,scene)}}], setup(world) {
+ world.resource(PhysicsWorldDefinition).workerCount=1;
  bodies=createScene(world,scene);
 } });
 const world=app.world;
 const camera=[...world.query([Camera])][0];
 world.storage(Camera).antialias.set(camera,0);
+// Input and geometry steps do not read pixels; captures below draw at the canvas's full CSS size.
+world.add(camera,Resolution,{width:64,height:48});
+const shadows=[...world.query([DirectionalLight])].map(eid=>[eid,world.storage(DirectionalLight).shadowMapsEnabled.get(eid)]);
+for(const [eid] of shadows) world.storage(DirectionalLight).shadowMapsEnabled.set(eid,0);
 const frame=()=>world.step(1/60);
 await frame(); await frame();
 const position=(eid)=>{const p=world.storage(GlobalTransform).translation;return [p.x.get(eid),p.y.get(eid),p.z.get(eid)]};
@@ -54,7 +60,7 @@ window.drag=async(move=true)=>{
  const ends=[-0.5,0.5].map(sign=>worldToViewport(world,camera,attachment.map((v,i)=>v+sign*scale*up[i])));
  const diameter=Math.hypot(ends[1][0]-ends[0][0],ends[1][1]-ends[0][1]);
  const mid=attachment.map((v,i)=>(v+grab.point[i])/2);
- const read=async(points=[])=>{await world.frameFence;const pending=captureFrame(document.querySelector('canvas'));await world.step(0);const image=await pending;const pixels=points.map(point=>{const pixel=worldToViewport(world,camera,point);const offset=(Math.round(pixel[1])*image.width+Math.round(pixel[0]))*4;return Array.from(image.rgba.slice(offset,offset+3))});return {image,pixels}};
+ const read=async(points=[])=>{await world.frameFence;for(const [eid,enabled] of shadows)world.storage(DirectionalLight).shadowMapsEnabled.set(eid,enabled);world.remove(camera,Resolution);world.step(0);await world.frameFence;const pending=captureFrame(document.querySelector('canvas'));await world.step(0);const image=await pending;world.add(camera,Resolution,{width:64,height:48});for(const [eid] of shadows)world.storage(DirectionalLight).shadowMapsEnabled.set(eid,0);const pixels=points.map(point=>{const pixel=worldToViewport(world,camera,point);const offset=(Math.round(pixel[1])*image.width+Math.round(pixel[0]))*4;return Array.from(image.rgba.slice(offset,offset+3))});return {image,pixels}};
  let lineSamples;
  if(params.has('capture')) lineSamples=(await read([0.1,0.5,0.9].map(t=>attachment.map((v,i)=>v*(1-t)+grab.point[i]*t)))).pixels;
  const markerDuring=world.has(marker,GlobalTransform) && !world.has(marker, Body);
@@ -80,5 +86,7 @@ window.hover=async()=>{
  world.resource(Devices).pointer.hover=false; await frame();
  return {added,removed:!world.has(body,Outline)};
 };
+const initial=world.snapshot();
+window.reset=()=>world.restore(initial);
 window.ready=true;
 </script></body></html>
