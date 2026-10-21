@@ -125,8 +125,8 @@ function checkInstalledRanges(cwd: string, label: string): void {
                     .map(([name, spec]) => ["peer", name, spec]),
             ] as [string, string, string][];
             for (const [kind, name, spec] of edges) {
-                const target = require.resolve
-                    .paths(name)
+                // Bun treats undici as a builtin, but a registry dependency still needs its package.
+                const target = (require.resolve.paths(name) ?? require.resolve.paths("package"))
                     ?.map((base) => join(base, name, "package.json"))
                     .find(existsSync);
                 const installed = target ? JSON.parse(readFileSync(target, "utf8")) : undefined;
