@@ -1,14 +1,16 @@
 <!doctype html><html lang="en"><head><link rel="stylesheet" href="../src/touch.css"><meta charset="UTF-8"/><title>Sound stepped</title><link rel="stylesheet" href="../src/hud.css"/><style>body{margin:0;background:#191816}canvas{display:block}</style></head><body><canvas width="1280" height="720"></canvas><button id="start">Start audio</button><script type="module">
-import { AudioOutput, Camera, createApp, mountOverlay, Sound, Transform, pressKey, releaseKey, setTransform } from '@dylanebert/shallot';
+import { DirectionalLight, PointLight, SpotLight, Resolution, AudioOutput, Camera, createApp, mountOverlay, Sound, Transform, pressKey, releaseKey, setTransform } from '@dylanebert/shallot';
 import { attachTexture, captureTexture, captureFrame } from '@dylanebert/shallot/rendering';
 import { Yard, YardPlugin } from '../src/yard';
 import { LocalPlayer, Player } from '../src/player';
 import { Sliding, Hint } from '../src/sound';
 import { hud } from '../src/hud';
-const app=await createApp({plugins:[YardPlugin]});
-const w=app.world, yard=w.resource(Yard), canvas=document.querySelector('canvas');
+import { PhysicsWorldDefinition } from '@dylanebert/shallot/standard/physics';
 const captures=new URLSearchParams(location.search).has('captures');
-if(!captures) {canvas.width=320;canvas.height=180;attachTexture(w,yard.camera,{width:320,height:180});w.storage(Camera).antialias.set(yard.camera,0);}
+const app=await createApp({plugins:[YardPlugin],setup(world){world.resource(PhysicsWorldDefinition).workerCount=1; if(!captures) for(const type of [DirectionalLight,PointLight,SpotLight]) for(const eid of world.query([type])) world.storage(type).shadowMapsEnabled.set(eid,0);}});
+const w=app.world, yard=w.resource(Yard), canvas=document.querySelector('canvas');
+// Audio observations need no shadow maps or full-size raster; manual captures keep both.
+if(!captures) {canvas.width=320;canvas.height=180;attachTexture(w,yard.camera,{width:320,height:180});w.add(yard.camera,Resolution,{height:9});w.storage(Camera).antialias.set(yard.camera,0);}
 hud(mountOverlay(canvas,w),w);
 const output=w.resource(AudioOutput), context=output.context;
 const splitter=context.createChannelSplitter(2);output.bus.connect(splitter);

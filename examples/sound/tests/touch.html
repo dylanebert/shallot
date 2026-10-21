@@ -1,12 +1,28 @@
 <!doctype html><html><head><link rel="stylesheet" href="../src/touch.css"><link rel="stylesheet" href="../src/hud.css"><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{margin:0;background:#141210}canvas{display:block;width:100vw;height:100vh}</style></head><body><canvas></canvas><script type="module">
-import { runApp, Transform, Devices, GroundState } from '@dylanebert/shallot';
+import { createApp, DirectionalLight, PointLight, SpotLight, mountOverlay, Transform, Devices, GroundState } from '@dylanebert/shallot';
+import { PhysicsWorldDefinition } from '@dylanebert/shallot/standard/physics';
 import { Yard } from '../src/yard';
 import { Sliding, Hint } from '../src/sound';
 import { Character, setTransform, Sound } from '@dylanebert/shallot';
 import { LocalPlayer, Player, PlayerInput } from '../src/player';
 import { YardPlugin } from '../src/yard';
 import { hud } from '../src/hud';
-const app = await runApp({plugins:[YardPlugin], ui:hud});
+// The checks read input and DOM state, not pixels, and rebuild the game for each claim.
+const start = async () => {
+ const app = await createApp({plugins:[YardPlugin], pixelRatio:0.05, setup(world){
+  world.resource(PhysicsWorldDefinition).workerCount=1;
+  // Input and DOM checks do not read shadow pixels.
+  for(const type of [DirectionalLight,PointLight,SpotLight])
+   for(const eid of world.query([type])) world.storage(type).shadowMapsEnabled.set(eid,0);
+ }});
+ const dispose = hud(mountOverlay(document.querySelector('canvas'), app.world), app.world);
+ app.world.onDispose(dispose);
+ // Bind canvas input before the first touch.
+ app.world.step(1/60);
+ return app;
+};
+let app;
+window.reset = async () => { app?.dispose(); app = await start(); };
 window.aimUse = () => {
  const w = app.world, yard = w.resource(Yard);
  w.remove(yard.speaker,Sliding);

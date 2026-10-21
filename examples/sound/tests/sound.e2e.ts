@@ -1,3 +1,4 @@
+import { holdFrames } from "@dylanebert/shallot/testing";
 import { expect, type Page, test } from "playwright/test";
 
 async function energy(page: Page): Promise<number[]> {
@@ -15,6 +16,7 @@ async function energy(page: Page): Promise<number[]> {
     });
 }
 test("the built yard serves its music and shared interaction HUD", async ({ page }) => {
+    await holdFrames(page, ".reticle");
     await page.goto("/");
     await expect(page.locator(".reticle")).toBeVisible();
     expect((await page.request.get("/Project_Utopia.ogg")).ok()).toBe(true);
