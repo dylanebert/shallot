@@ -1,4 +1,5 @@
 import { type Plugin, type System, Viewports, type World } from "../../engine";
+import { OverlayCanvases } from "../../engine/app";
 
 /** Keyboard facts owned by one {@link World}. `pressed`/`released` are the frame latches. */
 export interface Keys {
@@ -748,12 +749,17 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, world: World): void 
         }
         e.preventDefault();
     };
+    const overlays = world.resource(OverlayCanvases);
     a.windowPointerDown = (e) => {
-        if (!a.canvases.has(e.target as HTMLCanvasElement)) {
-            a.canvasFocused = false;
-            d.focused = -1;
-            releaseAll(d);
+        if (a.canvases.has(e.target as HTMLCanvasElement)) return;
+        for (const [overlay, canvas] of overlays) {
+            const index = a.canvases.get(canvas as HTMLCanvasElement);
+            if (index !== undefined && overlay.contains(e.target as Node)) {
+                focusCanvas(world, index);
+                return;
+            }
         }
+        blurCanvas(world);
     };
     a.windowBlur = () => blurCanvas(world);
     a.visibilityChange = () => {
@@ -888,7 +894,7 @@ function attachGlobal(a: BrowserAdapter): void {
     const { document, window } = a.host;
     listen(a, window, "keydown", a.keyDown as EventListener);
     listen(a, window, "keyup", a.keyUp as EventListener);
-    listen(a, window, "pointerdown", a.windowPointerDown as EventListener);
+    listen(a, window, "pointerdown", a.windowPointerDown as EventListener, true);
     listen(a, window, "pointerup", a.pointerUp as EventListener);
     listen(a, window, "pointercancel", a.pointerCancel as EventListener);
     listen(a, window, "pointermove", a.pointerMove as EventListener);

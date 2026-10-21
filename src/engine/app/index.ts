@@ -414,6 +414,12 @@ async function buildNow(config: AppConfig): Promise<App> {
     }
 }
 
+/** Overlay roots and their owning canvases for one World. Host adapters use this ownership to
+ * route UI engagement to the same canvas; it does not forward pointer input to the canvas. */
+export const OverlayCanvases: import("../ecs").Resource<Map<HTMLElement, HTMLElement>> = {
+    create: () => new Map(),
+};
+
 /**
  * Mount an overlay filling the canvas's parent, or document.body when there is no parent.
  * The parent must be connected before mounting.
@@ -421,7 +427,8 @@ async function buildNow(config: AppConfig): Promise<App> {
  * default `UiScale` of 1 do.
  * Layout and paint containment bounds absolute and fixed descendants to the overlay.
  * Pointer events pass through; UI panels must re-enable them.
- * With `world`, disposal removes the overlay and restores the parent's prior inline `position`.
+ * With `world`, registers canvas ownership for host input; disposal removes that registration,
+ * removes the overlay and restores the parent's prior inline `position`.
  * Without it, the caller removes the overlay; the parent's `position` is not restored.
  */
 export function mountOverlay(canvas: HTMLElement | null, world?: World): HTMLDivElement {
@@ -432,7 +439,10 @@ export function mountOverlay(canvas: HTMLElement | null, world?: World): HTMLDiv
     overlay.style.cssText =
         "position:absolute;inset:0;pointer-events:none;z-index:1;contain:layout paint;overflow:hidden";
     parent.appendChild(overlay);
+    const ownership = world?.resource(OverlayCanvases);
+    if (canvas) ownership?.set(overlay, canvas);
     world?.onDispose(() => {
+        ownership?.delete(overlay);
         overlay.remove();
         parent.style.position = prior;
     });

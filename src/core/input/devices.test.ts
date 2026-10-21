@@ -26,6 +26,7 @@ import {
     Viewports,
     World,
 } from "@dylanebert/shallot";
+import { OverlayCanvases } from "@dylanebert/shallot/app";
 import { sizeView, type View } from "@dylanebert/shallot/rendering";
 
 function inputState(): World {
@@ -205,6 +206,63 @@ function declaredHost(
         },
     };
 }
+
+test("owned overlay presses keep and restore canvas keyboard focus without canvas pointer input", () => {
+    const fixture = declaredHost({ canvasCount: 2 });
+    const world = browserInputStateWith(fixture.host);
+    const control = {};
+    const overlay = { contains: (target: unknown) => target === control } as HTMLElement;
+    try {
+        world.step(0);
+        // Ownership can be mounted after browser setup, as runApp does.
+        world.resource(OverlayCanvases).set(overlay, fixture.canvases[1]);
+        for (const afterBlur of [false, true]) {
+            if (afterBlur) fixture.window.emit("blur");
+            fixture.window.emit("pointerdown", { target: control });
+            fixture.window.emit("keydown", { code: "ArrowRight" });
+            const devices = world.resource(Devices);
+            expect(devices.focused).toBe(1);
+            expect(devices.keys.held.has("ArrowRight")).toBe(true);
+            expect(devices.pointer.left).toBe(false);
+            expect(devices.pointer.buttonEvents).toHaveLength(0);
+            expect(devices.touch.count).toBe(0);
+            expect(fixture.captured()).toBeNull();
+            expect(fixture.requestCount).toBe(0);
+        }
+        fixture.window.emit("pointerdown", { target: {} });
+        expect(world.resource(Devices).focused).toBe(-1);
+        expect(world.resource(Devices).keys.held.size).toBe(0);
+        fixture.window.emit("keydown", { code: "KeyW" });
+        expect(world.resource(Devices).keys.held.size).toBe(0);
+        world.resource(OverlayCanvases).delete(overlay);
+        fixture.window.emit("pointerdown", { target: control });
+        expect(world.resource(Devices).focused).toBe(-1);
+    } finally {
+        world.dispose();
+    }
+});
+
+test("another world's overlay does not grant keyboard focus", () => {
+    const fixture = declaredHost();
+    const world = browserInputStateWith(fixture.host);
+    const other = inputState();
+    const control = {};
+    const overlay = { contains: () => true } as unknown as HTMLElement;
+    try {
+        other.resource(OverlayCanvases).set(overlay, fixture.canvas);
+        world.step(0);
+        fixture.window.emit("pointerdown", { target: control });
+        fixture.window.emit("keydown", { code: "KeyW" });
+        expect(world.resource(Devices).focused).toBe(-1);
+        expect(world.resource(Devices).keys.held.size).toBe(0);
+        world.resource(OverlayCanvases).set(overlay, {} as HTMLElement);
+        fixture.window.emit("pointerdown", { target: control });
+        expect(world.resource(Devices).focused).toBe(-1);
+    } finally {
+        world.dispose();
+        other.dispose();
+    }
+});
 
 test("touch clicks never request pointer lock but mouse clicks still do", () => {
     const fixture = declaredHost();
