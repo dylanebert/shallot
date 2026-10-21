@@ -7,6 +7,9 @@ import { bodyHasFocus, gameKeyMovesCamera, pointerControl } from "./pointer";
 test("panel controls retain orbit and the pattern stays framed while orbiting", async ({
     page,
 }) => {
+    // Each step queues a full draw that the first capture waits behind; at 1280 px a software
+    // adapter spends about a second on each. The desktop panel and the framing hold at a quarter of it.
+    await page.setViewportSize({ width: 640, height: 360 });
     await page.goto("http://127.0.0.1:4297/tests/stepped.html");
     await page.waitForFunction(() => "controlsKey" in window);
     await gameKeyMovesCamera(page);
