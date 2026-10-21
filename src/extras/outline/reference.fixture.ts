@@ -1,13 +1,13 @@
 import { beforeAll } from "bun:test";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
+import { fullscreenVertex } from "../../core/rendering";
 import { probeTexture } from "../../engine/runtime";
 import { DEFAULT_PLUGINS } from "../../standard";
 import { OutlinePlugin } from ".";
 import {
     compositeKernel,
     compositeLayout,
-    fullscreenVs,
     jfaFs,
     jfaLayout,
     jfaPassCount,
@@ -107,7 +107,7 @@ export function outlineReference(path: string) {
         );
         const jfa = root.unwrap(
             root.createRenderPipeline({
-                vertex: fullscreenVs,
+                vertex: fullscreenVertex,
                 fragment: jfaFs,
                 targets: { format: "rg16uint" },
                 primitive: { topology: "triangle-list", cullMode: "none" },

@@ -8,13 +8,17 @@ import { tmAgxLog, tmLuma, tonemap } from "./tonemap";
 import { tonyLut } from "./tony-lut";
 import { linearToSrgb3 } from "./view";
 
+/** Bevy's `fullscreen_vertex_shader`: one triangle covering the viewport at depth 0, drawn with
+ * three vertices and no vertex buffer. `uv` is (0, 0) at the top-left corner and (1, 1) at the
+ * bottom-right. Bloom and the effect stack hold Bevy parity through this exact triangle: another one
+ * covering the viewport interpolates uv with different rounding. */
 export const fullscreenVertex = tgpu.vertexFn({
     in: { index: d.builtin.vertexIndex },
-    out: { position: d.builtin.position },
+    out: { position: d.builtin.position, uv: d.vec2f },
 })((input) => {
     "use gpu";
-    const uv = d.vec2f(d.f32((input.index << 1) & 2), d.f32(input.index & 2));
-    return { position: d.vec4f(uv.x * 2 - 1, uv.y * 2 - 1, 0, 1) };
+    const uv = std.mul(d.vec2f(d.f32(input.index >>> 1), d.f32(input.index & 1)), 2);
+    return { position: d.vec4f(std.add(std.mul(uv, d.vec2f(2, -2)), d.vec2f(-1, 1)), 0, 1), uv };
 });
 
 export function tonemappingLayout() {

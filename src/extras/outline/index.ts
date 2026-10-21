@@ -13,6 +13,7 @@ import {
 import {
     Camera,
     DepthPrepassRequests,
+    fullscreenVertex,
     globalTransformTable,
     MainPassSystem,
     OverlaySystem,
@@ -45,7 +46,6 @@ import { MeshRenderPlugin, StandardRenderer } from "../../standard/rendering";
 import {
     compositeKernel,
     compositeLayout,
-    fullscreenVs,
     jfaFs,
     jfaLayout,
     jfaPassCount,
@@ -628,7 +628,7 @@ function prepareOutline(world: World): void {
 
     _outlineState.gpu.jfa = world.gpu.root
         .createRenderPipeline({
-            vertex: fullscreenVs,
+            vertex: fullscreenVertex,
             fragment: jfaFs,
             targets: { format: SEED_FORMAT },
             primitive: fullscreen,

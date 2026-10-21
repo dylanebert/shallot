@@ -9,20 +9,12 @@ import {
     setRenderBindGroup,
     setRenderPipeline,
 } from "../../engine/runtime";
+import { fullscreenVertex } from "./tonemapping";
 import type { View } from "./view";
 
 const upscalingLayout = tgpu.bindGroupLayout({
     source: { texture: d.texture2d(d.f32), visibility: ["fragment"] },
     sampler: { sampler: "non-filtering", visibility: ["fragment"] },
-});
-
-const upscalingVertex = tgpu.vertexFn({
-    in: { index: d.builtin.vertexIndex },
-    out: { position: d.builtin.position, uv: d.vec2f },
-})((input) => {
-    "use gpu";
-    const uv = d.vec2f(d.f32((input.index << 1) & 2), d.f32(input.index & 2));
-    return { position: d.vec4f(uv.x * 2 - 1, uv.y * 2 - 1, 0, 1), uv: d.vec2f(uv.x, 1 - uv.y) };
 });
 
 const upscalingFragment = tgpu.fragmentFn({ in: { uv: d.vec2f }, out: d.vec4f })((input) => {
@@ -40,7 +32,7 @@ function createUpscaling(world: World) {
     const device = world.gpu.device;
     const pipeline = world.gpu.root
         .createRenderPipeline({
-            vertex: upscalingVertex,
+            vertex: fullscreenVertex,
             fragment: upscalingFragment,
             targets: { format: navigator.gpu.getPreferredCanvasFormat(), blend: OVER },
         })

@@ -12,6 +12,7 @@ import { decodePos, decodeUv, MeshQuant, meshIdOf } from "../../core/mesh";
 import {
     DEPTH_FORMAT,
     Frame,
+    fullscreenVertex,
     RenderContext,
     SAMPLE_COUNT,
     Xform,
@@ -2150,17 +2151,6 @@ export function getCompiledMaterial(
  *  boundaries, matching {@link AnyMaterialType}'s shape. */
 type AnyBackground = Background<Record<string, MaterialBinding>>;
 
-// Reverse-Z far-plane depth lets the background fill only pixels without geometry.
-const bgVs = tgpu
-    .vertexFn({ in: { vidx: d.builtin.vertexIndex }, out: { pos: d.builtin.position } })(
-        (input) => {
-            "use gpu";
-            const c = d.vec2f(d.f32((input.vidx << 1) & 2), d.f32(input.vidx & 2));
-            return { pos: d.vec4f(c.x * 2 - 1, c.y * 2 - 1, 0, 1) };
-        },
-    )
-    .$name("bgVs");
-
 function bgFs(bg: AnyBackground) {
     return tgpu
         .fragmentFn({ in: { pos: d.builtin.position }, out: d.vec4f })((input) => {
@@ -2238,7 +2228,7 @@ export function compileBackground(world: World, bg: AnyBackground): CompiledBack
     };
     const color = world.gpu.root
         .createRenderPipeline({
-            vertex: bgVs,
+            vertex: fullscreenVertex,
             fragment,
             targets: { format: _render.format },
             primitive,
@@ -2248,7 +2238,7 @@ export function compileBackground(world: World, bg: AnyBackground): CompiledBack
         .$name(`standard-bg-${bg.name}`);
     const single = world.gpu.root
         .createRenderPipeline({
-            vertex: bgVs,
+            vertex: fullscreenVertex,
             fragment,
             targets: { format: _render.format },
             primitive,

@@ -3,6 +3,7 @@ import {
     CorePipelinePlugin,
     type EffectPass,
     EffectPasses,
+    fullscreenVertex,
     TonemappingSystem,
     Views,
 } from "../../core/rendering";
@@ -15,7 +16,7 @@ import {
     setRenderBindGroup,
     setRenderPipeline,
 } from "../../engine/runtime";
-import { composite, down, first, layout, Settings, up, vertex } from "./shaders";
+import { composite, down, first, layout, Settings, up } from "./shaders";
 
 export const BloomCompositeMode = {
     EnergyConserving: 0,
@@ -310,21 +311,21 @@ export const BloomPlugin: Plugin = {
         });
         state.first = root.unwrap(
             root.createRenderPipeline({
-                vertex,
+                vertex: fullscreenVertex,
                 fragment: first,
                 targets: { format: "rgba16float" },
             }),
         );
         state.down = root.unwrap(
             root.createRenderPipeline({
-                vertex,
+                vertex: fullscreenVertex,
                 fragment: down,
                 targets: { format: "rgba16float" },
             }),
         );
         state.composite = root.unwrap(
             root.createRenderPipeline({
-                vertex,
+                vertex: fullscreenVertex,
                 fragment: composite,
                 targets: { format: "rgba16float" },
             }),
@@ -333,7 +334,7 @@ export const BloomPlugin: Plugin = {
             state.up.push(
                 root.unwrap(
                     root.createRenderPipeline({
-                        vertex,
+                        vertex: fullscreenVertex,
                         fragment: up,
                         targets: {
                             format: "rgba16float",

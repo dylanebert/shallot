@@ -2,7 +2,6 @@
 // MIT OR Apache-2.0; see bevy/LICENSE-MIT.
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
-import * as std from "typegpu/std";
 
 export const Settings = d.struct({
     threshold: d.vec4f,
@@ -19,14 +18,6 @@ export const layout = tgpu
         original: { texture: d.texture2d(d.f32), visibility: ["fragment"] },
     })
     .$idx(0);
-export const vertex = tgpu.vertexFn({
-    in: { index: d.builtin.vertexIndex },
-    out: { position: d.builtin.position, uv: d.vec2f },
-})((input) => {
-    "use gpu";
-    const uv = std.mul(d.vec2f(d.f32(input.index >>> 1), d.f32(input.index & 1)), 2);
-    return { position: d.vec4f(std.add(std.mul(uv, d.vec2f(2, -2)), d.vec2f(-1, 1)), 0, 1), uv };
-});
 const karis = tgpu.fn(
     [d.vec3f],
     d.f32,

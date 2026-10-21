@@ -6,6 +6,7 @@ import tgpu, { type TgpuRenderPipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { checkTextureLimits, Registry, type World } from "../../engine";
+import { fullscreenVertex } from "./tonemapping";
 
 /** World-local decoded image array and sampler, populated at RenderingPlugin warm. */
 export const ImageBindings = {
@@ -163,18 +164,6 @@ const blitLayout = tgpu.bindGroupLayout({
     samp: { sampler: "filtering" },
 });
 
-const blitVs = tgpu.vertexFn({
-    in: { vi: d.builtin.vertexIndex },
-    out: { pos: d.builtin.position, uv: d.vec2f },
-})((input) => {
-    "use gpu";
-    const uv = d.vec2f(d.f32((input.vi << 1) & 2), d.f32(input.vi & 2));
-    return {
-        pos: d.vec4f(uv.x * 2 - 1, uv.y * 2 - 1, 0, 1),
-        uv: d.vec2f(uv.x, 1 - uv.y),
-    };
-});
-
 const blitFs = tgpu.fragmentFn({
     in: { uv: d.vec2f },
     out: d.vec4f,
@@ -199,7 +188,7 @@ function blitPipeline(world: World, format: GPUTextureFormat): TgpuRenderPipelin
     if (cached) return cached;
     const pipeline = world.gpu.root
         .createRenderPipeline({
-            vertex: blitVs,
+            vertex: fullscreenVertex,
             fragment: blitFs,
             targets: { format },
             primitive: { topology: "triangle-list" },

@@ -155,18 +155,6 @@ export const compositeLayout = tgpu.bindGroupLayout({
     },
 });
 
-/** the fullscreen triangle every screen-space pass draws: three vertices covering the viewport, no vertex
- *  buffer, no interpolators past the clip position.
- *  @internal */
-export const fullscreenVs = tgpu.vertexFn({
-    in: { i: d.builtin.vertexIndex },
-    out: { pos: d.builtin.position },
-})((input) => {
-    "use gpu";
-    const p = d.vec2f(d.f32((input.i << 1) & 2), d.f32(input.i & 2));
-    return { pos: d.vec4f(p.x * 2 - 1, p.y * 2 - 1, 0, 1) };
-});
-
 /**
  * Skip neighbours off the texture: an out-of-bounds `textureLoad` returns 0, which would read as a seed
  * at the corner. Offsets are `i32` because they go negative; the output is a `vec4<u32>` because typegpu types a
