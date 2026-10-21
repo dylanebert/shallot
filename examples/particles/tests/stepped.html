@@ -4,7 +4,7 @@ import { createApp, Camera, DirectionalLight, StandardRenderer, GlobalTransform,
 import { attachTexture, detachView, captureTexture, captureFrame } from '@dylanebert/shallot/rendering';
 import { DiagnosticsStore } from '@dylanebert/shallot';
 import { DirectionalLightShadowMap } from '@dylanebert/shallot/standard/rendering';
-import { NoFog, showProfiler } from '@dylanebert/shallot/extras';
+import { showProfiler } from '@dylanebert/shallot/extras';
 import { Motes, MotesPlugin } from '../src/motes';
 import { Room } from '../src/room';
 const requests=[];
@@ -35,25 +35,14 @@ window.particles={
   const on=(await render()).rgba;
   motes.visible=false;
   const off=(await render()).rgba;
-  world.add(room.camera,NoFog);
-  const clear=(await render()).rgba;
-  world.remove(room.camera,NoFog);
   motes.visible=true;
   let increase=0,changed=0,count=0;
-  // The central window and the shaft below it, not the room's unlit corners.
+  // The central walking corridor.
   for(let y=45;y<150;y++) for(let x=125;x<195;x++) {
    const i=(y*320+x)*4;
    const delta=(on[i]+on[i+1]+on[i+2]-off[i]-off[i+1]-off[i+2])/3;
    increase+=delta;changed+=Number(delta>2);count++;
   }
-  const floorMean=(left,right)=>{
-   let sum=0,count=0;
-   for(let y=173;y<178;y++) for(let x=left;x<right;x++) {
-    const i=(y*320+x)*4;
-    sum+=(off[i]+off[i+1]+off[i+2])/3;count++;
-   }
-   return sum/count;
-  };
   const linear=value=>{const s=value/255;return s<=0.04045?s/12.92:((s+0.055)/1.055)**2.4;};
   const luminance=(r,g,b)=>0.2126*linear(r)+0.7152*linear(g)+0.0722*linear(b);
   const regionLuminance=(left,right,top,bottom,image=off)=>{
@@ -65,12 +54,10 @@ window.particles={
    return sum/count;
   };
   return {
-   increase:increase/count,changed,floorBeam:floorMean(140,180),floorShade:floorMean(80,100),
+   increase:increase/count,changed,
    wallLuminance:regionLuminance(100,120,75,95),
    floorLuminance:regionLuminance(140,180,173,178),
    clearLuminance:luminance(0x19,0x18,0x16),
-   hazeBeam:regionLuminance(150,170,115,140)-regionLuminance(150,170,115,140,clear),
-   hazeShade:regionLuminance(70,85,115,140)-regionLuminance(70,85,115,140,clear),
   };
  },
  walk(count=45) {
@@ -91,7 +78,7 @@ window.particles={
   if(gpuTiming==='available') while(!stats.get('render/particles:advance/elapsed_gpu')) {
    world.step(0);await world.gpu.sync();await new Promise(resolve=>setTimeout(resolve,0));
   }
-  return {gpuTiming,passes:[...stats.iter()].filter(d=>d.path.path.endsWith('/elapsed_gpu')).map(d=>d.path.path.slice(7,-12))};
+  return {gpuTiming,bufferBytes:stats.get('memory/bufferBytes')?.value(),compiles:['compute','draw'].filter(name=>stats.get('compile/particles:'+name+'/elapsed')),passes:[...stats.iter()].filter(d=>d.path.path.endsWith('/elapsed_gpu')).map(d=>d.path.path.slice(7,-12))};
  },
  profiler() {showProfiler(world);world.step(0);},
  async converge(count=64) {

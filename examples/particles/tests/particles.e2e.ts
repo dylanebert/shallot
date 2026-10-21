@@ -4,13 +4,9 @@ import { expect, type Page, test } from "playwright/test";
 type Evidence = {
     increase: number;
     changed: number;
-    floorBeam: number;
-    floorShade: number;
     wallLuminance: number;
     floorLuminance: number;
     clearLuminance: number;
-    hazeBeam: number;
-    hazeShade: number;
 };
 declare global {
     interface Window {
@@ -20,7 +16,12 @@ declare global {
             evidence(): Promise<Evidence>;
             walk(count?: number): { before: number; after: number };
             profiler(): void;
-            profile(): { gpuTiming: string; passes: string[] };
+            profile(): {
+                gpuTiming: string;
+                passes: string[];
+                bufferBytes: number;
+                compiles: string[];
+            };
             capture(): Promise<string>;
         };
     }
@@ -82,7 +83,7 @@ test.describe("one composed view", () => {
     test.afterAll(() => page.close());
     test.afterEach(() => expect(errors).toEqual([]));
 
-    test("the floor beam outshines adjacent shade, motes brighten the shared view, and injected walking draws on default device limits", () => {
+    test("motes brighten the shared view and injected walking draws on default device limits", () => {
         expect(requests).toHaveLength(1);
         const legacyLimits = new Set([
             "maxStorageBuffersInVertexStage",
@@ -103,11 +104,9 @@ test.describe("one composed view", () => {
                 )
                 .sort(),
         );
-        console.log("beam motes", evidence);
+        console.log("motes", evidence);
         expect(evidence.increase).toBeGreaterThan(0.02);
         expect(evidence.changed).toBeGreaterThan(5);
-        expect(evidence.floorBeam).toBeGreaterThan(evidence.floorShade + 20);
-        expect(evidence.hazeBeam).toBeGreaterThan(evidence.hazeShade + 0.04);
         expect(evidence.wallLuminance).toBeGreaterThan(evidence.clearLuminance);
         expect(evidence.wallLuminance).toBeLessThan(evidence.floorLuminance);
         expect(walk.after).toBeLessThan(walk.before - 1);
@@ -127,7 +126,7 @@ test.describe("one composed view", () => {
             await manualPage.evaluate(() => window.particles.profiler());
             captures.push(await capture(manualPage));
         }
-        for (const [i, name] of ["spawn-facing-beam", "mid-stir", "profiler-canvas"].entries()) {
+        for (const [i, name] of ["spawn-motes", "mid-stir", "profiler-canvas"].entries()) {
             const { image, colors } = captures[i]!;
             expect(
                 colors,
@@ -186,6 +185,8 @@ for (const timestamps of ["adapter", "withheld"] as const) {
         if (timestamps === "withheld") {
             await expect(profiler).toHaveAttribute("data-gpu-timing", "requires timestamp-query");
         }
+        expect(profile.bufferBytes).toBeGreaterThanOrEqual(8192 * 16 + 32);
+        expect(profile.compiles).toEqual(["compute", "draw"]);
         if (profile.gpuTiming === "available") {
             expect(profile.passes).toContain("particles:advance");
         } else {

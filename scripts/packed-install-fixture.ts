@@ -194,10 +194,13 @@ export function assertCreatedExample(name: string): void {
 
 export const manualParticleCases = [
     [
-        "./src/fog.node.ts",
-        "every converged shaft-edge profile agrees with the equal 16-phase linear average",
+        "./src/motes.node.ts",
+        "the example compiles its compute and draw pipelines and counts its storage and uniform bytes",
     ],
-    ["./src/fog.node.ts", "a still shaft-edge patch stays calm across all 16 consecutive phases"],
+    [
+        "./src/motes.node.ts",
+        "the profiler buffer total includes exactly the motes storage and frame uniform allocations",
+    ],
     [
         "./src/motes.node.ts",
         "motes near a moving player's fixed path end farther from the path than with the player still",

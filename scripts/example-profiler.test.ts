@@ -43,6 +43,9 @@ for (const [name, plugin] of examples) {
         const plugins = composition(plugin);
         expect(plugins.has(DiagnosticsOverlayPlugin)).toBe(true);
         expect(plugins.has(ProfilePlugin)).toBe(true);
+        if (name === "particles") {
+            expect([...plugins].some((plugin) => plugin.name === "Fog")).toBe(false);
+        }
 
         const world = new World();
         const window = new EventTarget();

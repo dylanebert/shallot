@@ -1,12 +1,6 @@
 import type { Plugin, Resource } from "@dylanebert/shallot";
 import { GlobalTransform } from "@dylanebert/shallot";
 import {
-    fogReadBindGroup,
-    fogReadLayout,
-    readFog,
-    readFogInScatter,
-} from "@dylanebert/shallot/extras";
-import {
     Camera,
     CorePipelinePlugin,
     MainPassSystem,
@@ -74,7 +68,9 @@ const advance = tgpu
             )
             .sub(d.vec3f(0.5))
             .mul(0.09);
-        const next = p.xyz.add(drift.add(delta.div(std.max(distance, 0.001)).mul(force)).mul(dt));
+        const outward = delta.div(std.max(distance, 0.001));
+        const swirl = d.vec3f(-outward.z, outward.y * 0.2, outward.x);
+        const next = p.xyz.add(drift.add(outward.add(swirl).mul(force)).mul(dt));
         layout.$.positions[i] = d.vec4f(
             std.clamp(next, d.vec3f(-3.2, 0.1, -3.2), d.vec3f(3.2, 3.1, 3.2)),
             p.w,
@@ -112,11 +108,9 @@ const MOTE_SIZE_DEPTH: f32 = 2.0;
 struct View { viewProj: mat4x4f }
 @group(0) @binding(0) var<uniform> moteView: View;
 @group(0) @binding(1) var<storage, read> positions: array<vec4f>;
-// Pure single-scattering albedo; coverage and camera fade are separate factors.
-// Mineral-dust modelling assumption grounded in Saharan dust measurements at 532 nm,
-// not household dust across the visible spectrum: Linke et al. (2006), doi:10.5194/acp-6-3315-2006.
-const MOTE_ALBEDO = 0.98;
-struct Vertex { @builtin(position) position: vec4f, @location(0) uv: vec2f, @location(1) cameraFade: f32, @location(2) world: vec3f }
+// Warm aperture-carbon dust, lit by the example rather than a scene effect.
+const MOTE_LIGHT = vec3f(18, 10, 3);
+struct Vertex { @builtin(position) position: vec4f, @location(0) uv: vec2f, @location(1) cameraFade: f32, @location(2) light: f32 }
 @vertex fn vertex(@builtin(vertex_index) v: u32, @builtin(instance_index) i: u32) -> Vertex {
     let corners = array<vec2f, 6>(vec2f(-1,-1),vec2f(1,-1),vec2f(-1,1),vec2f(-1,1),vec2f(1,-1),vec2f(1,1));
     let p = positions[i];
@@ -125,11 +119,11 @@ struct Vertex { @builtin(position) position: vec4f, @location(0) uv: vec2f, @loc
     clip.x += corners[v].x * size;
     clip.y += corners[v].y * size;
     let cameraFade = smoothstep(CAMERA_FADE_NEAR, CAMERA_FADE_FAR, clip.w);
-    return Vertex(clip, corners[v], cameraFade, p.xyz);
+    return Vertex(clip, corners[v], cameraFade, 0.25 + 0.75 * p.w);
 }
 @fragment fn fragment(v: Vertex) -> @location(0) vec4f {
     let alpha = max(0, 1 - dot(v.uv, v.uv));
-    return vec4f(MOTE_ALBEDO * readFogInScatter(v.world) * v.cameraFade * alpha * readFog(v.world).a, 0);
+    return vec4f(MOTE_LIGHT * v.light * v.cameraFade * alpha, 0);
 }`;
 
 export const MotesPlugin: Plugin = {
@@ -189,11 +183,7 @@ export const MotesPlugin: Plugin = {
                 if (!pipeline) {
                     const module = device.createShaderModule({
                         label: "particles:billboards",
-                        // The fragment read shares fog's fragment-visible layout; the quad carries its centre.
-                        code: tgpu.resolve({
-                            externals: { readFog, readFogInScatter },
-                            template: shader,
-                        }),
+                        code: shader,
                     });
                     pipeline = device.createRenderPipeline({
                         label: "particles:draw",
@@ -213,9 +203,6 @@ export const MotesPlugin: Plugin = {
                                         },
                                     ],
                                 }),
-                                device.createBindGroupLayout({ entries: [] }),
-                                device.createBindGroupLayout({ entries: [] }),
-                                world.gpu.root.unwrap(fogReadLayout),
                             ],
                         }),
                         vertex: { module, entryPoint: "vertex" },
@@ -270,7 +257,6 @@ export const MotesPlugin: Plugin = {
                     s.pipelines.get(`${view.framebufferFormat ?? render.format}:${samples}`)!,
                 );
                 pass.setBindGroup(0, s.groups.get(view)!.group);
-                pass.setBindGroup(3, fogReadBindGroup(world, eid));
                 pass.draw(6, MOTE_COUNT);
             },
         });

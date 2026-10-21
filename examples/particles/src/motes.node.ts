@@ -6,7 +6,6 @@ import {
     probeBuffer,
     setTransform,
 } from "@dylanebert/shallot";
-import { Fog } from "@dylanebert/shallot/extras";
 import {
     AmbientLight,
     attachTexture,
@@ -133,21 +132,14 @@ test("without timestamp-query the example draws and reports requires timestamp-q
 function moteImages(world: typeof untimed.world) {
     const camera = world.resource(Room).camera;
     if (!world.has(camera, AmbientLight)) world.add(camera, AmbientLight);
-    world.storage(AmbientLight).brightness.set(camera, 10000);
-    world.storage(Exposure).ev100.set(camera, 8);
+    world.storage(AmbientLight).brightness.set(camera, 0);
+    world.storage(Exposure).ev100.set(camera, 5);
     if (!world.has(camera, Tonemapping)) world.add(camera, Tonemapping);
     world.storage(Tonemapping).method.set(camera, TonemappingMethod.None);
-    // Past viewDistance the mote's light is analytic and the grid holds 5 cm of 1e-5 density,
-    // uniform, so jitter changes nothing.
-    const fog = world.only([Fog]);
-    world.storage(Fog).density.set(fog, 0.00001);
-    world.storage(Fog).viewDistance.set(fog, 0.15);
     const motes = world.resource(Motes);
     const positions = new Float32Array(MOTE_COUNT * 4);
     // All other instances stay outside the room and the view.
     for (let i = 0; i < MOTE_COUNT; i++) positions[i * 4] = 100;
-    // A changed Fog drops the grid's history, and the next frame blends it back in at rgba16float
-    // precision, so the first frame can differ from the second by a byte. Compare settled frames.
     motes.visible = false;
     world.step(0);
     return async (depth: number, visible: boolean) => {

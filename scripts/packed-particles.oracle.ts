@@ -7,7 +7,7 @@ import {
     manualParticleCases,
 } from "./packed-install-fixture";
 
-// Manual: packed re-runs cost 14–46 s; examples/particles/src/{fog,motes}.node.ts prove these claims automatically.
+// Manual: packed re-runs cost 14–46 s; examples/particles/src/motes.node.ts prove these claims automatically.
 beforeAll(() => createExample("particles"), TIMEOUT.startup);
 
 for (const [subject, claim] of manualParticleCases) {
