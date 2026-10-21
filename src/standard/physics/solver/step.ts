@@ -1,3 +1,4 @@
+import { reportStartup } from "../../../engine/runtime/startup";
 import { readJointEventUserData } from "../kernel/jointcolumns";
 import { assertKernelEntry, kernel, rethrowQueryError, threads } from "../kernel/kernel";
 import type { WorldState } from "../world/world";
@@ -40,7 +41,8 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
         readJointEventUserData(world);
         world.invDt = k.stepInvDt();
         world.invH = k.stepInvH();
-        if (timeStep > 0) ++world.stepIndex;
+        if (timeStep > 0 && ++world.stepIndex === 1)
+            reportStartup({ kind: "physics-step", threads: threads(world.ecsState) });
         world.bodyStore.syncCount = k.bodySyncCount();
         world.bodyStore.refreshViews();
         world.manifoldStore.refreshViews();

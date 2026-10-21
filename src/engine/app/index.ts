@@ -15,6 +15,7 @@ import {
     validateGpu,
     withPipelineOwner,
 } from "../runtime";
+import { reportStartup } from "../runtime/startup";
 import { resolvePlugins } from "./compose";
 import { frameDelta } from "./frame-delta";
 
@@ -474,6 +475,7 @@ export async function runApp(config: AppConfig): Promise<App> {
         }
 
         let disposed = false;
+        let startupReported = false;
         const failure = device && observeDevice(device);
         void failure?.error.then((error) => {
             if (!disposed) loading?.error?.(error);
@@ -522,6 +524,10 @@ export async function runApp(config: AppConfig): Promise<App> {
                 world.fenceWaitSink?.(pendingFenceWaitMs);
                 pendingFenceWaitMs = 0;
                 world.step(dt);
+                if (!startupReported && dt > 0) {
+                    startupReported = true;
+                    reportStartup({ kind: "app", adapter: gpu ? { ...gpu.adapter } : undefined });
+                }
                 // Fence timing has a reader only when requested; time the World's submission fence, not a second one.
                 const fence = world.frameFence;
                 if (fence && world.fenceWaitSink) {

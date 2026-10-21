@@ -16,6 +16,7 @@ import {
     Time,
     type World,
 } from "../../engine";
+import { reportStartup } from "../../engine/runtime/startup";
 import { clamp } from "../../engine/utils";
 import type { AABB, Pos, Quat, Vec3, WorldState, WorldTransform } from "./api";
 import { init, type PhysicsSnapshot, shutdown } from "./api";
@@ -74,6 +75,7 @@ import {
     type QueryCallback,
     rethrowQueryError,
     setQueryCallback,
+    threads,
     writeQueryReturn,
 } from "./kernel/kernel";
 import { queryColumns } from "./kernel/querycolumns";
@@ -2072,6 +2074,7 @@ export const StandardPhysicsPlugin: Plugin = {
         syncWorldDefinition(runtime.physicsWorld, definition);
         clearBodies(world, runtime);
         clearPhysicsEvents(world.resource(PhysicsEvents));
+        reportStartup({ kind: "physics", threads: threads(world) });
     },
 
     dispose(world) {
