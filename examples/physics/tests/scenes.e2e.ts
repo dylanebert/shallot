@@ -1,9 +1,12 @@
+import { holdFrames } from "@dylanebert/shallot/testing";
 import { expect, test } from "playwright/test";
 import { bodyHasFocus, pointerControl } from "./pointer";
 
 test("switching scenes resets the Bridge control and keeps the canvas", async ({ page }) => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
+    // Each switched scene steps and draws once; held frames keep the picker's clicks from waiting on draws.
+    const frames = await holdFrames(page, "[aria-label='Scene navigation']");
     await page.goto("/");
     const scene = page.getByRole("button", { name: "Scene", exact: true });
     await expect(scene).toBeEnabled();
@@ -32,6 +35,7 @@ test("switching scenes resets the Bridge control and keeps the canvas", async ({
     await page.getByRole("button", { name: "Bridge", exact: true }).click();
     await expect(scene).toHaveText("Bridge");
     await expect(scene).toBeEnabled();
+    await frames.run();
     const gravity = page.getByRole("slider", { name: "Gravity scale" });
     await expect(gravity).toHaveValue("1");
     await gravity.fill("-0.5");
@@ -39,6 +43,7 @@ test("switching scenes resets the Bridge control and keeps the canvas", async ({
     await page.getByRole("button", { name: "Box Stack", exact: true }).click();
     await expect(scene).toHaveText("Box Stack");
     await expect(scene).toBeEnabled();
+    await frames.run();
     await expect(gravity).toBeHidden();
     await scene.click();
     await expect(
@@ -56,6 +61,7 @@ test("switching scenes resets the Bridge control and keeps the canvas", async ({
     await page.getByRole("button", { name: "Bridge", exact: true }).click();
     await expect(scene).toHaveText("Bridge");
     await expect(scene).toBeEnabled();
+    await frames.run();
     await expect(gravity).toHaveValue("1");
     await expect(page.locator("canvas")).toBeVisible();
     expect(

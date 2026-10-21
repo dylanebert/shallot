@@ -1,53 +1,71 @@
-import { expect, test } from "playwright/test";
+import { holdFrames } from "@dylanebert/shallot/testing";
+import { type Browser, expect, type Page, test } from "playwright/test";
 import { formatValue } from "../src/control-format";
 import { categories, type Scene, scenes } from "../src/scenes";
 
-for (const [scene, selectors] of [
-    [
-        "Wheel",
-        [
-            ".panel-title",
-            ".section-title",
-            ".row > label",
-            ".toggle span",
-            "output",
-            "nav button",
-            "nav .name",
-            ".categories h2",
-            ".categories button",
-        ],
-    ],
-    ["Contact", [".input-help"]],
-    ["Motor Joint", [".fields button"]],
-] as const) {
-    test(`${scene} control kinds render only shipped fonts`, async ({ page, context }) => {
-        await page.goto("/");
-        const trigger = page.getByRole("button", { name: "Scene", exact: true });
-        await trigger.click();
-        await page.getByRole("button", { name: scene, exact: true }).click();
-        if (scene === "Wheel") await trigger.click();
-        await page.evaluate(() => document.fonts.ready);
-        const cdp = await context.newCDPSession(page);
-        await cdp.send("DOM.enable");
-        await cdp.send("CSS.enable");
-        const { root } = await cdp.send("DOM.getDocument");
-        async function shippedFont(selector: string) {
-            const { nodeId } = await cdp.send("DOM.querySelector", {
-                nodeId: root.nodeId,
-                selector,
-            });
-            expect(nodeId, selector).not.toBe(0);
-            const { fonts } = await cdp.send("CSS.getPlatformFontsForNode", { nodeId });
-            expect(fonts.length, selector).toBeGreaterThan(0);
-            for (const font of fonts) {
-                expect(font.isCustomFont, `${selector}: ${font.familyName}`).toBe(true);
-                expect(["IBM Plex Sans", "JetBrains Mono"]).toContain(font.familyName);
-            }
-        }
-        for (const selector of selectors) await shippedFont(selector);
-        await cdp.detach();
-    });
+// Each group's read-only claims share one page whose frames are held: scene switches and DOM reads need no
+// draw, and every action on a running scene would otherwise wait on one.
+async function heldPage(browser: Browser, options: Parameters<Browser["newContext"]>[0] = {}) {
+    const page = await (await browser.newContext(options)).newPage();
+    await holdFrames(page, "[aria-label='Scene navigation']");
+    await page.goto("/");
+    return page;
 }
+
+test.describe(() => {
+    let page: Page;
+    test.beforeAll(async ({ browser }) => {
+        page = await heldPage(browser);
+    });
+    test.afterAll(() => page.context().close());
+    // The Wheel claim leaves the scene list open.
+    test.beforeEach(() => page.keyboard.press("Escape"));
+    for (const [scene, selectors] of [
+        [
+            "Wheel",
+            [
+                ".panel-title",
+                ".section-title",
+                ".row > label",
+                ".toggle span",
+                "output",
+                "nav button",
+                "nav .name",
+                ".categories h2",
+                ".categories button",
+            ],
+        ],
+        ["Contact", [".input-help"]],
+        ["Motor Joint", [".fields button"]],
+    ] as const) {
+        test(`${scene} control kinds render only shipped fonts`, async () => {
+            const trigger = page.getByRole("button", { name: "Scene", exact: true });
+            await trigger.click();
+            await page.getByRole("button", { name: scene, exact: true }).click();
+            if (scene === "Wheel") await trigger.click();
+            await page.evaluate(() => document.fonts.ready);
+            const cdp = await page.context().newCDPSession(page);
+            await cdp.send("DOM.enable");
+            await cdp.send("CSS.enable");
+            const { root } = await cdp.send("DOM.getDocument");
+            async function shippedFont(selector: string) {
+                const { nodeId } = await cdp.send("DOM.querySelector", {
+                    nodeId: root.nodeId,
+                    selector,
+                });
+                expect(nodeId, selector).not.toBe(0);
+                const { fonts } = await cdp.send("CSS.getPlatformFontsForNode", { nodeId });
+                expect(fonts.length, selector).toBeGreaterThan(0);
+                for (const font of fonts) {
+                    expect(font.isCustomFont, `${selector}: ${font.familyName}`).toBe(true);
+                    expect(["IBM Plex Sans", "JetBrains Mono"]).toContain(font.familyName);
+                }
+            }
+            for (const selector of selectors) await shippedFont(selector);
+            await cdp.detach();
+        });
+    }
+});
 
 for (const viewport of [
     { width: 1280, height: 720 },
@@ -55,14 +73,15 @@ for (const viewport of [
 ]) {
     test.describe(`${viewport.width}`, () => {
         const phone = viewport.width === 390;
-        test.use({ viewport, hasTouch: phone });
+        let page: Page;
+        test.beforeAll(async ({ browser }) => {
+            page = await heldPage(browser, { viewport, hasTouch: phone });
+        });
+        test.afterAll(() => page.context().close());
         const samples = categories.flatMap((category) => category.scenes);
         for (let start = 0; start < samples.length; start += 2) {
             const group = samples.slice(start, start + 2);
-            test(`${group.map((sample) => sample.name).join(", ")}: fixed allocations and label fit`, async ({
-                page,
-            }) => {
-                await page.goto("/");
+            test(`${group.map((sample) => sample.name).join(", ")}: fixed allocations and label fit`, async () => {
                 const trigger = page.getByRole("button", { name: "Scene", exact: true });
                 const arrows = page.locator("nav button:not(.name)");
                 await expect(trigger).toBeVisible();
@@ -149,8 +168,7 @@ for (const viewport of [
                 }
             });
         }
-        test("uncropped pointer picker and safe areas", async ({ page }) => {
-            await page.goto("/");
+        test("uncropped pointer picker and safe areas", async () => {
             const trigger = page.getByRole("button", { name: "Scene", exact: true });
             await expect(trigger).toBeVisible();
             const initial = await page
