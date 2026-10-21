@@ -101,7 +101,7 @@ fn sample_character_matches_native_queries_motion_and_impulses() {
     assert_eq!(core::mem::offset_of!(Input, max_slope), 80);
     assert_eq!(core::mem::offset_of!(Input, rotation), 88);
     assert_eq!(core::mem::offset_of!(Input, max_speed), 104);
-    let cases: Value = serde_json::from_str(include_str!("character.gold.json")).unwrap();
+    let cases: Value = serde_json::from_str(include_str!("../character.gold.json")).unwrap();
     for case in cases.as_array().unwrap() {
         let w = words(&case["input"]);
         let input = Input {

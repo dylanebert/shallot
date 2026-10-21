@@ -22,7 +22,7 @@ fn pose(v: &Value) -> Transform {
     }
 }
 fn check(operation: usize) {
-    let gold: Value = serde_json::from_str(include_str!("joint_read.gold.json")).unwrap();
+    let gold: Value = serde_json::from_str(include_str!("../joint_read.gold.json")).unwrap();
     let mut count = 0;
     for c in gold.as_array().unwrap() {
         if c["output"][operation].is_null() {

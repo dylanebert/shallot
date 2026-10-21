@@ -96,7 +96,7 @@ fn vec3(v: &Value) -> Vec3 {
 // Box3D by diagnostics/box3d-parity/mesh-impact.oracle.ts.
 #[test]
 fn reflected_mesh_impacts_equal_native_box3d() {
-    let gold: Value = serde_json::from_str(include_str!("mesh_impact.gold.json")).unwrap();
+    let gold: Value = serde_json::from_str(include_str!("../mesh_impact.gold.json")).unwrap();
     // b3MakeBoxHull(0.25, 0.25, 0.25)'s points in its order; the sweep reads only points and bounds.
     let h = 0.25;
     let points = [

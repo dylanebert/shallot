@@ -5,7 +5,7 @@ use shallot_physics::math::{Quat, Transform, Vec3};
 
 #[test]
 fn construction_and_generators_match_native_images() {
-    let cases: Value = serde_json::from_str(include_str!("hull_build.gold.json")).unwrap();
+    let cases: Value = serde_json::from_str(include_str!("../hull_build.gold.json")).unwrap();
     for case in cases.as_array().unwrap() {
         let name = case["name"].as_str().unwrap();
         let args: Vec<f32> = case["args"]

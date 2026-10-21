@@ -8,7 +8,7 @@ use shallot_physics::distance::{
 };
 use shallot_physics::math::{Quat, Transform, Vec3};
 
-const GOLD: &str = include_str!("../../../src/standard/physics/collision/distance.gold.json");
+const GOLD: &str = include_str!("../../../../src/standard/physics/collision/distance.gold.json");
 
 fn from_bits(hex: &str) -> f32 {
     let bits = u32::from_str_radix(hex.trim_start_matches("0x"), 16).expect("hex");
@@ -106,7 +106,7 @@ fn sweep_from_hex(o: &Value) -> Sweep {
 
 #[test]
 fn time_of_impact_bit_exact() {
-    let gold: Value = serde_json::from_str(include_str!("../../../src/standard/physics/oracle/box3d/47d7f7cc7e091142c08d11dc7d2e493c5d34f536/v8/cases.json")).expect("parse pinned TOI lane");
+    let gold: Value = serde_json::from_str(include_str!("../../../../src/standard/physics/oracle/box3d/47d7f7cc7e091142c08d11dc7d2e493c5d34f536/v8/cases.json")).expect("parse pinned TOI lane");
     assert_eq!(gold["schema"], "box3d-oracle/v8");
     let cases = gold["cases"].as_array().expect("cases array");
     assert_eq!(cases.len(), 4);
@@ -290,7 +290,7 @@ fn shape_distance_bit_exact() {
 
 #[test]
 fn shape_distance_box3d_corpus() {
-    let corpus: Value = serde_json::from_str(include_str!("../../../src/standard/physics/oracle/box3d/47d7f7cc7e091142c08d11dc7d2e493c5d34f536/v6/cases.json")).expect("parse pinned v6 corpus");
+    let corpus: Value = serde_json::from_str(include_str!("../../../../src/standard/physics/oracle/box3d/47d7f7cc7e091142c08d11dc7d2e493c5d34f536/v6/cases.json")).expect("parse pinned v6 corpus");
     assert_eq!(corpus["schema"], "box3d-oracle/v6");
     let cases: Vec<_> = corpus["cases"]
         .as_array()

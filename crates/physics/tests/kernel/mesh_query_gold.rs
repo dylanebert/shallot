@@ -5,9 +5,9 @@ use shallot_physics::manifold::Capsule;
 use shallot_physics::math::{Transform, Vec3};
 use shallot_physics::mesh_query::*;
 use shallot_physics::query::{PlaneResult, RayCastInput, ShapeCastInput};
-const QUERY: &str = include_str!("../../../src/standard/physics/collision/query.gold.json");
-const MOVER: &str = include_str!("../../../src/standard/physics/collision/mover.gold.json");
-const GEOMETRY: &str = include_str!("../../../src/standard/physics/shapes/geometry.gold.json");
+const QUERY: &str = include_str!("../../../../src/standard/physics/collision/query.gold.json");
+const MOVER: &str = include_str!("../../../../src/standard/physics/collision/mover.gold.json");
+const GEOMETRY: &str = include_str!("../../../../src/standard/physics/shapes/geometry.gold.json");
 fn f(v: &Value) -> f32 {
     f32::from_bits(u32::from_str_radix(v.as_str().unwrap().trim_start_matches("0x"), 16).unwrap())
 }

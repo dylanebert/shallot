@@ -19,7 +19,7 @@ use shallot_physics::triangle_manifold::{
     collide_capsule_and_triangle, collide_sphere_and_triangle,
 };
 
-const GOLD: &str = include_str!("../../../src/standard/physics/collision/manifold.gold.json");
+const GOLD: &str = include_str!("../../../../src/standard/physics/collision/manifold.gold.json");
 
 fn from_bits(hex: &str) -> f32 {
     let bits = u32::from_str_radix(hex.trim_start_matches("0x"), 16).expect("hex");

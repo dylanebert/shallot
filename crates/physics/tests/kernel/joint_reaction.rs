@@ -1,12 +1,7 @@
-use shallot_physics::{col, joint_abi, math};
-
-#[path = "../src/joint_draw.rs"]
-#[allow(dead_code)]
-mod joint_draw;
-
-use col::Col;
-use joint_abi::*;
-use math::{Quat, Transform, Vec3};
+use crate::joint_draw;
+use shallot_physics::col::Col;
+use shallot_physics::joint_abi::*;
+use shallot_physics::math::{Quat, Transform, Vec3};
 use std::cell::Cell;
 
 #[test]

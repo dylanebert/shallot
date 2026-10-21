@@ -20,7 +20,7 @@ fn height_field_gold() {
     check(true);
 }
 fn check(height_field: bool) {
-    let gold: Value = serde_json::from_str(include_str!("nonconvex_build.gold.json")).unwrap();
+    let gold: Value = serde_json::from_str(include_str!("../nonconvex_build.gold.json")).unwrap();
     let cases: Vec<Case> = gold
         .as_array()
         .unwrap()

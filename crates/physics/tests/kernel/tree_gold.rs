@@ -157,7 +157,7 @@ fn pool_growth_preserves_category_words_and_all_proxies() {
 }
 
 fn load() -> Value {
-    let raw = include_str!("../../../src/standard/physics/collision/tree.gold.json");
+    let raw = include_str!("../../../../src/standard/physics/collision/tree.gold.json");
     serde_json::from_str(raw).expect("parse tree.gold.json")
 }
 

@@ -2,7 +2,7 @@ use serde_json::Value;
 use shallot_physics::geometry_read::read;
 
 fn check(operation: u32) {
-    let cases: Value = serde_json::from_str(include_str!("geometry_read.gold.json")).unwrap();
+    let cases: Value = serde_json::from_str(include_str!("../geometry_read.gold.json")).unwrap();
     let mut count = 0;
     for (i, c) in cases.as_array().unwrap().iter().enumerate() {
         if c["operation"].as_u64().unwrap() as u32 != operation {

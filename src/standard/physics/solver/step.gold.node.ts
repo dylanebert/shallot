@@ -164,10 +164,10 @@ test("the active collision route changes the symmetric face-B feature order, the
 test("every case of the immutable Box3D v6 corpus TypeScript reaches, including the official scenes, equals the Box3D reference", () => {
     const corpus = loadConsumerCorpus();
     for (const item of corpus.cases) {
-        // shape_distance_box3d_corpus in crates/physics/tests/distance_gold.rs checks these
+        // shape_distance_box3d_corpus in crates/physics/tests/kernel/distance_gold.rs checks these
         // against the kernel's GJK, which TypeScript does not reach.
         if (item.symbol === "b3ShapeDistance") continue;
-        // math_box3d_corpus in crates/physics/tests/math_gold.rs checks the six math cases;
+        // math_box3d_corpus in crates/physics/tests/kernel/math_gold.rs checks the six math cases;
         // point_to_segment_box3d_corpus there checks both point-segment cases.
         if (["b3Add", "b3Dot", "b3ComputeCosSin", "b3PointToSegmentDistance"].includes(item.symbol))
             continue;
