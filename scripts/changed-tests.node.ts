@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } fro
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { normalizePath } from "../src/project/paths";
 import {
     allocationGates,
     changedPaths,
@@ -52,11 +53,23 @@ test("a module reached only through the package's own name selects every test im
 
 test("non-ASCII paths in git listings select their tests", () => {
     const root = realpathSync(mkdtempSync(join(scratch, "unicode-")));
+    // Inherited git state stays out: an inherited commit.gpgsign hangs commit, a GIT_TEMPLATE_DIR
+    // installs its hooks, and GIT_DIR redirects every command.
+    const hooks = mkdtempSync(join(scratch, "hooks-"));
+    const config = join(scratch, "unicode.gitconfig");
+    writeFileSync(
+        config,
+        `[user]\n\tname = test\n\temail = test@example.com\n[core]\n\thooksPath = ${normalizePath(hooks)}\n`,
+    );
+    const env = {
+        ...Object.fromEntries(
+            Object.entries(process.env).filter(([name]) => !name.toUpperCase().startsWith("GIT_")),
+        ),
+        GIT_CONFIG_GLOBAL: config,
+        GIT_CONFIG_NOSYSTEM: "1",
+    };
     const run = (...args: string[]) => {
-        const result = Bun.spawnSync(["git", "-c", "core.hooksPath=/dev/null", ...args], {
-            cwd: root,
-            stderr: "pipe",
-        });
+        const result = Bun.spawnSync(["git", ...args], { cwd: root, env, stderr: "pipe" });
         if (result.exitCode !== 0) throw new Error(result.stderr.toString());
     };
     mkdirSync(join(root, "scripts"));
@@ -78,7 +91,7 @@ value;
     );
     run("init", "-q");
     run("add", ".");
-    run("-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-qm", "fixture");
+    run("commit", "-qm", "fixture");
     writeFileSync(join(root, "scripts/réview-helper.ts"), "export const value = 2;\n");
     writeFileSync(
         join(root, "scripts/naïve.node.ts"),
