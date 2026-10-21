@@ -23,8 +23,8 @@ import {
     MainPassSystem,
     PrepassSystem,
     RenderContext,
-    RenderLayers,
     RenderPhases,
+    renderLayers,
     SAMPLE_COUNT,
     type TransparentPhase,
 } from "../../core/rendering";
@@ -889,15 +889,9 @@ function queueTransparent(world: World, eid: number, view: View, phase: Transpar
     const planeBase = view.slot * CULL_VOLUME_FLOATS;
     const position = phase.positionScratch;
     const sources = world.resource(MaterialTypes).sources;
-    const layers = world.storage(RenderLayers).mask;
-    const cameraLayers = world.has(eid, RenderLayers) ? layers.get(eid) : 1;
+    const cameraLayers = renderLayers(world, eid);
     for (const instanceEid of world.resource(TransparentMeshes).candidates) {
-        if (
-            ((world.has(instanceEid, RenderLayers) ? layers.get(instanceEid) : 1) &
-                cameraLayers) ===
-            0
-        )
-            continue;
+        if ((renderLayers(world, instanceEid) & cameraLayers) === 0) continue;
         const source = sources[materials.type.get(instanceEid)];
         const alphaMode =
             source?.alphaMode(materials.material.get(instanceEid)) ??

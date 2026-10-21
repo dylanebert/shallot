@@ -50,6 +50,7 @@ import {
     NotShadowCaster,
     PointLight,
     RenderLayers,
+    renderLayers,
     SpotLight,
     SunDisk,
     VolumetricLight,
@@ -94,6 +95,7 @@ export {
     NotShadowCaster,
     PointLight,
     RenderLayers,
+    renderLayers,
     SpotLight,
     SUN_DISK_EARTH_ANGULAR_SIZE,
     SunDisk,
@@ -134,7 +136,7 @@ function packView(world: World, eid: number, view: ViewSlot, shading: boolean, s
     // the camera basis (floats 20-27) and the eye (32-35) come from the world matrix, which is also what
     // the viewProj is composed from, so it is read before the unchanged-slot test below
     composeGlobalTransform(world, eid, _renderFrame.camWorld);
-    const mask = world.has(eid, RenderLayers) ? world.storage(RenderLayers).mask.get(eid) : 1;
+    const mask = renderLayers(world, eid);
     _render.cullVolumeWords[slot * CULL_VOLUME_FLOATS + 2] = mask;
     if (!slotInputsChanged(world, eid, view, shading, slot)) return;
     const offset = slot * SLOT_FLOATS;

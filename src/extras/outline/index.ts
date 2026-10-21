@@ -20,7 +20,7 @@ import {
     PresentationSystem,
     RenderContext,
     RenderingPlugin,
-    RenderLayers,
+    renderLayers,
     sceneTransform,
     TonemappingSystem,
     type View,
@@ -501,12 +501,11 @@ const OutlineSystem: System = {
         const eidsStaging = _outlineState.eidsStaging;
         const attrStaging = _outlineState.attrStaging;
         const groups = _outlineState.groups;
-        const layers = world.storage(RenderLayers).mask;
         let cursor = 0;
         for (const camEid of cameras) {
             const view = world.resource(Views).get(camEid);
             if (!view?.framebuffer) continue;
-            const cameraMask = world.has(camEid, RenderLayers) ? layers.get(camEid) : 1;
+            const cameraMask = renderLayers(world, camEid);
             const start = cursor;
             let groupCount = 0;
             let maxWidth = 1;
@@ -529,7 +528,7 @@ const OutlineSystem: System = {
                 for (let j = i; j < n; j++) {
                     if (meshes[j] !== meshId) continue;
                     const eid = eids[j]!;
-                    const meshMask = world.has(eid, RenderLayers) ? layers.get(eid) : 1;
+                    const meshMask = renderLayers(world, eid);
                     if ((meshMask & cameraMask) === 0) continue;
                     eidsStaging[cursor] = eid;
                     const o = cursor * 8;

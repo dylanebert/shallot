@@ -1,4 +1,4 @@
-import type { Resource } from "../../engine";
+import type { Resource, World } from "../../engine";
 import { component, f32, u32 } from "../../engine";
 import { Transform } from "../transform";
 
@@ -151,6 +151,11 @@ export const RenderLayers = component(
     { mask: u32 },
     { defaults: () => ({ mask: 1 }) },
 );
+
+/** An entity's RenderLayers mask, or layer 0 (mask 1) without one. */
+export function renderLayers(world: World, eid: number): number {
+    return world.has(eid, RenderLayers) ? world.storage(RenderLayers).mask.get(eid) : 1;
+}
 
 /** Exclude a mesh from shadow views without removing it from the main view. */
 export const NotShadowCaster = component("NotShadowCaster", {});

@@ -12,8 +12,8 @@ import {
     globalTransformTable,
     PrepassSystem,
     RenderContext,
-    RenderLayers,
     RenderPhases,
+    renderLayers,
     type TransparentPhase,
     type View,
     type Xform,
@@ -408,14 +408,12 @@ function queueText(world: World, eid: number, _view: View, phase: TransparentPha
     const state = world.resource(textStateKey);
     if (!state.glyphBuf || !state.quad) return;
     const position = phase.positionScratch;
-    const layers = world.storage(RenderLayers).mask;
-    const cameraLayers = world.has(eid, RenderLayers) ? layers.get(eid) : 1;
+    const cameraLayers = renderLayers(world, eid);
     for (let i = 0; i < state.labelDraws.length; i++) {
         const label = state.labelDraws[i];
         if (!label.count || !world.exists(label.eid) || !world.has(label.eid, GlobalTransform))
             continue;
-        if (!((world.has(label.eid, RenderLayers) ? layers.get(label.eid) : 1) & cameraLayers))
-            continue;
+        if (!(renderLayers(world, label.eid) & cameraLayers)) continue;
         composeGlobalTransform(world, label.eid, state.transformScratch);
         const transform = state.transformScratch;
         const mode = world.storage(Text).billboard.get(label.eid);

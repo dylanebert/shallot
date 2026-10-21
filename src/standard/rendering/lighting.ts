@@ -5,7 +5,7 @@ import {
     DirectionalLight,
     PointLight,
     RenderContext,
-    RenderLayers,
+    renderLayers,
     SpotLight,
     SunDisk,
     type View,
@@ -161,7 +161,7 @@ export function viewLighting(world: World, slot: number): GPUBuffer {
 
 function writeViewLighting(this: World, view: View, eid: number): void {
     if (view.slot >= this.resource(RenderContext).shadeCount) return;
-    const mask = this.has(eid, RenderLayers) ? this.storage(RenderLayers).mask.get(eid) : 1;
+    const mask = renderLayers(this, eid);
     packLighting(this, mask, viewLighting(this, view.slot), false);
 }
 
@@ -181,9 +181,8 @@ function packLighting(world: World, mask: number, buffer: GPUBuffer, warn = true
     const lights = world.storage(DirectionalLight);
     let count = 0;
     let total = 0;
-    const layers = world.storage(RenderLayers).mask;
     for (const eid of world.query(DIRECTIONAL_TERMS)) {
-        if (((world.has(eid, RenderLayers) ? layers.get(eid) : 1) & mask) === 0) continue;
+        if ((renderLayers(world, eid) & mask) === 0) continue;
         if (count < MAX_DIRECTIONAL_LIGHTS) resources.directionalEids[count++] = eid;
         total++;
     }
@@ -197,7 +196,7 @@ function packLighting(world: World, mask: number, buffer: GPUBuffer, warn = true
     }
 
     const shadow = shadowDirectionalLight(world);
-    if (shadow >= 0 && ((world.has(shadow, RenderLayers) ? layers.get(shadow) : 1) & mask) !== 0) {
+    if (shadow >= 0 && (renderLayers(world, shadow) & mask) !== 0) {
         let at = -1;
         for (let i = 0; i < count; i++) if (resources.directionalEids[i] === shadow) at = i;
         if (at < 0) {

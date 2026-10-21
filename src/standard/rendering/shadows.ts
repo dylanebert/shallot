@@ -12,6 +12,7 @@ import {
     PointLight,
     RenderLayers,
     readRenderGlobalTransform,
+    renderLayers,
     SpotLight,
     Views,
 } from "../../core/rendering";
@@ -643,7 +644,7 @@ export function updateCascades(world: World, main: number): void {
 
     syncCascadePool(world, shadow, n);
     const layers = world.storage(RenderLayers).mask;
-    const mask = world.has(light, RenderLayers) ? layers.get(light) : 1;
+    const mask = renderLayers(world, light);
     for (let i = 0; i < n; i++) {
         const camera = shadow.cascadeEids[i]!;
         if (layers.get(camera) !== mask) layers.set(camera, mask);
@@ -1156,7 +1157,7 @@ function poseSpotRotation(world: World, eid: number, frame: PointShadowFrame): v
 // Combo culling must match the face/cone projection before atlas tile placement.
 function poseCombo(world: World, eid: number, frame: PointShadowFrame, face: number): void {
     const layers = world.storage(RenderLayers).mask;
-    const mask = world.has(frame.light, RenderLayers) ? layers.get(frame.light) : 1;
+    const mask = renderLayers(world, frame.light);
     if (layers.get(eid) !== mask) layers.set(eid, mask);
     world.storage(GlobalTransform).translation.set(eid, frame.pos[0], frame.pos[1], frame.pos[2]);
     if (frame.spot) poseSpotRotation(world, eid, frame);

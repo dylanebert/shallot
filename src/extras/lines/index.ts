@@ -4,8 +4,8 @@ import {
     CorePipelinePlugin,
     PrepassSystem,
     RenderContext,
-    RenderLayers,
     RenderPhases,
+    renderLayers,
     type TransparentPhase,
     type View,
 } from "../../core/rendering";
@@ -64,7 +64,6 @@ function expandRetained(world: World): void {
     const gizmos = world.storage(Gizmo);
     const assets = world.resource(gizmoAssets);
     const target = segmentState(world);
-    const layers = world.storage(RenderLayers).mask;
     for (const eid of world.query(RETAINED_LINES_QUERY)) {
         const asset = assets[gizmos.handle.get(eid) - 1];
         if (!asset) continue;
@@ -94,7 +93,7 @@ function expandRetained(world: World): void {
             target.u32[out + 7] = (source.u32[at + 7] & 0xffffff) | alpha;
             target.u32[out + 11] = triangle;
             target.f32[out + 12] = gizmos.depthBias.get(eid);
-            target.layers[index] = world.has(eid, RenderLayers) ? layers.get(eid) : 1;
+            target.layers[index] = renderLayers(world, eid);
             target.stableIds[index] = eid;
             target.stableParts[index] = i;
         }
@@ -131,8 +130,7 @@ function queueLines(world: World, eid: number, _view: View, phase: TransparentPh
     const stableIds = lineStableIds(world);
     const stableParts = lineStableParts(world);
     const position = phase.positionScratch;
-    const layers = world.storage(RenderLayers).mask;
-    const cameraLayers = world.has(eid, RenderLayers) ? layers.get(eid) : 1;
+    const cameraLayers = renderLayers(world, eid);
     const segmentLayers = segmentState(world).layers;
     for (let i = 0; i < count; i++) {
         if (!(segmentLayers[i]! & cameraLayers)) continue;
