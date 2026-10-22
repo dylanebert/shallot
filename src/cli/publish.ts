@@ -14,7 +14,7 @@ import {
     type CloudflareLink,
     cloudflareConfig,
     cloudflareDeployment,
-    providerConfig,
+    discoverWranglerConfig,
     resolveWrangler,
     runWrangler,
     WRANGLER_VERSION,
@@ -363,10 +363,14 @@ const targets: {
                     }
                 },
                 get commands() {
-                    const config = providerConfig(projectDir, link);
+                    const config = discoverWranglerConfig(projectDir);
+                    const dashboard = `Workers (all in this account): https://dash.cloudflare.com/${accountId}/workers/overview`;
+                    const confirmation =
+                        "Confirm with the person before deleting: Wrangler asks nothing without a TTY or in CI.";
+                    if (config)
+                        return `Wrangler config found: ${config}; Wrangler would take its account_id over the link's account. Use the account's Workers page instead.\n${confirmation}\n${dashboard}`;
                     const command = `CLOUDFLARE_ACCOUNT_ID=${accountId} bunx wrangler`;
-                    const configFlag = `--config "${config}"`;
-                    return `Preview: ${command} dev ${configFlag} --assets <web-build-directory>\nRollback: ${command} rollback ${configFlag} --name ${name}\nConfirm with the person before deleting: Wrangler asks nothing without a TTY or in CI.\nUnpublish: ${command} delete ${configFlag} --name ${name}\nWorkers (all in this account): https://dash.cloudflare.com/${accountId}/workers/overview`;
+                    return `Preview: ${command} dev --assets <web-build-directory>\nRollback: ${command} rollback --name ${name}\n${confirmation}\nUnpublish: ${command} delete --name ${name}\n${dashboard}`;
                 },
             };
         },

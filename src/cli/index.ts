@@ -66,16 +66,14 @@ const commandUsage = {
   Least CI token: custom, Account → Workers Scripts → Edit on the one account.
   The "Edit Cloudflare Workers" template is broader.
   Provider commands run from the project with its pinned Wrangler. Substitute
-  <account> and <name> from shallot.publish.accountId and .name. Every command
-  requires the disposable config publish writes below node_modules; never omit
-  --config (an ancestor's config can override the account environment variable).
-  Before running these commands, regenerate it from the current link:
-  bun -e 'const fs=require("node:fs"),l=require("./package.json").shallot.publish; if(l.target!=="cloudflare"||!l.accountId||!l.name)throw Error("Cloudflare link required"); fs.mkdirSync("node_modules/.cache/shallot",{recursive:true}); fs.writeFileSync("node_modules/.cache/shallot/wrangler.json",JSON.stringify({account_id:l.accountId,name:l.name}));'
-  Login: CLOUDFLARE_ACCOUNT_ID=<account> bunx wrangler login --config node_modules/.cache/shallot/wrangler.json
-  Remote login: CLOUDFLARE_ACCOUNT_ID=<account> bunx wrangler login --config node_modules/.cache/shallot/wrangler.json --device
-  Preview: CLOUDFLARE_ACCOUNT_ID=<account> bunx wrangler dev --config node_modules/.cache/shallot/wrangler.json --assets <web-build-directory>
-  "Roll back": CLOUDFLARE_ACCOUNT_ID=<account> bunx wrangler rollback --config node_modules/.cache/shallot/wrangler.json --name <name>
-  "Take the game down": CLOUDFLARE_ACCOUNT_ID=<account> bunx wrangler delete --config node_modules/.cache/shallot/wrangler.json --name <name>
+  <account> and <name> from shallot.publish.accountId and .name.
+  These commands assume no Wrangler config in the project or any directory above
+  it, because its account_id overrides the link's account environment variable.
+  Login: CLOUDFLARE_ACCOUNT_ID=<account> bunx wrangler login
+  Remote login: CLOUDFLARE_ACCOUNT_ID=<account> bunx wrangler login --device
+  Preview: CLOUDFLARE_ACCOUNT_ID=<account> bunx wrangler dev --assets <web-build-directory>
+  "Roll back": CLOUDFLARE_ACCOUNT_ID=<account> bunx wrangler rollback --name <name>
+  "Take the game down": CLOUDFLARE_ACCOUNT_ID=<account> bunx wrangler delete --name <name>
   Confirm with the person before deleting: Wrangler auto-confirms without a TTY
   or in CI. Deletion cannot be undone.
   "See what is published": https://dash.cloudflare.com/<account>/workers/overview

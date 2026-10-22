@@ -9,10 +9,22 @@ import * as cloudflare from "./publish-cloudflare";
 import * as itch from "./publish-itch";
 import * as verify from "./publish-verify";
 
-for (const target of ["cloudflare", "itch"] as const) {
+for (const scenario of [
+    "cloudflare",
+    "itch",
+    "wrangler.json",
+    "wrangler.jsonc",
+    "wrangler.toml",
+] as const) {
+    const target = scenario === "itch" ? "itch" : "cloudflare";
+    const conflict = scenario.startsWith("wrangler.");
     for (const fails of [false, true]) {
-        test(`${target} report: ${fails ? "verification failure withholds stdout" : "stdout is only the final play link"}`, async () => {
-            const directory = mkdtempSync(join(tmpdir(), "shallot-report-"));
+        test(`${scenario} report: ${fails ? "verification failure withholds stdout" : "stdout is only the final play link"}`, async () => {
+            const root = mkdtempSync(join(tmpdir(), "shallot-report-"));
+            const directory = join(root, "project");
+            mkdirSync(directory);
+            const ancestor = join(root, scenario);
+            if (conflict) writeFileSync(ancestor, `{"account_id":"${"b".repeat(32)}"}`);
             const accountId = "a".repeat(32);
             const name = target === "itch" ? "user/game" : "game";
             const url =
@@ -93,19 +105,27 @@ for (const target of ["cloudflare", "itch"] as const) {
                     expect(seen.at(-1)).toEqual({ stream: "stdout", text: `${url}\n` });
                     const report = seen.map((entry) => entry.text).join("");
                     expect(report).toContain("Build: ");
-                    expect(report).toContain("Preview: ");
-                    expect(report).toContain("Unpublish: ");
+                    if (!conflict) {
+                        expect(report).toContain("Preview: ");
+                        expect(report).toContain("Unpublish: ");
+                    }
                     if (target === "cloudflare") {
-                        expect(report).toContain('--config "');
                         expect(report).toContain("Confirm with the person before deleting");
-                        for (const command of [
-                            "dev --assets <web-build-directory>",
-                            `rollback --name ${name}`,
-                            `delete --name ${name}`,
-                        ])
+                        if (conflict) {
+                            expect(report).not.toContain("bunx wrangler");
+                            expect(report).toContain(`Wrangler config found: ${ancestor}`);
                             expect(report).toContain(
-                                `CLOUDFLARE_ACCOUNT_ID=${accountId} bunx wrangler ${command.split(" ")[0]} --config "${join(directory, "node_modules/.cache/shallot/wrangler.json")}" ${command.split(" ").slice(1).join(" ")}`,
+                                "Wrangler would take its account_id over the link's account",
                             );
+                        } else
+                            for (const command of [
+                                "dev --assets <web-build-directory>",
+                                `rollback --name ${name}`,
+                                `delete --name ${name}`,
+                            ])
+                                expect(report).toContain(
+                                    `CLOUDFLARE_ACCOUNT_ID=${accountId} bunx wrangler ${command}`,
+                                );
                         expect(report).toContain(
                             `Workers (all in this account): https://dash.cloudflare.com/${accountId}/workers/overview`,
                         );
@@ -130,7 +150,7 @@ for (const target of ["cloudflare", "itch"] as const) {
             } finally {
                 for (const mock of mocks) mock.mockRestore();
                 process.env = env;
-                rmSync(directory, { recursive: true, force: true });
+                rmSync(root, { recursive: true, force: true });
             }
         });
     }

@@ -7,6 +7,7 @@ import {
     readFileSync,
     realpathSync,
     symlinkSync,
+    unlinkSync,
     writeFileSync,
 } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
@@ -20,7 +21,7 @@ import { publishTestChromium } from "../../scripts/publish-browser";
 import { removeTestDirectory } from "../../scripts/test-directory";
 import {
     cloudflareConfig,
-    providerConfig,
+    discoverWranglerConfig,
     resolveWrangler,
     WRANGLER_VERSION,
 } from "./publish-cloudflare";
@@ -220,13 +221,13 @@ for (const template of ["minimal", "physics"])
             // biome-ignore lint/style/useNamingConvention: Wrangler owns its configuration field names.
             const conflicting = { name: link.name, account_id: "b".repeat(32) };
             writeFileSync(ancestor, JSON.stringify(conflicting));
-            const guidance = providerConfig(scaffold, link);
-            const probe = (explicit: boolean) => {
+            expect(discoverWranglerConfig(scaffold)).toBe(ancestor);
+            const probe = () => {
                 const result = Bun.spawnSync(
                     [
                         "node",
                         "-e",
-                        `const {unstable_readConfig}=require(${JSON.stringify(join(scaffold, "node_modules/wrangler/wrangler-dist/cli.js"))}); console.log(unstable_readConfig(${JSON.stringify(explicit ? { config: guidance } : {})}).account_id);`,
+                        `const {unstable_readConfig}=require(${JSON.stringify(join(scaffold, "node_modules/wrangler/wrangler-dist/cli.js"))}); console.log(unstable_readConfig({}).account_id);`,
                     ],
                     {
                         cwd: scaffold,
@@ -238,9 +239,10 @@ for (const template of ["minimal", "physics"])
                 expect(result.exitCode, result.stderr.toString()).toBe(0);
                 return result.stdout.toString().trim();
             };
-            // The old environment-only guidance resolves the ancestor's account.
-            expect(probe(false)).toBe(conflicting.account_id);
-            expect(probe(true)).toBe(link.accountId);
+            // Plain commands are withheld because Wrangler resolves the ancestor's account.
+            expect(probe()).toBe(conflicting.account_id);
+            unlinkSync(ancestor);
+            expect(discoverWranglerConfig(scaffold)).toBeUndefined();
             for (const args of [
                 ["login", "--help"],
                 ["login", "--device", "--help"],
@@ -248,15 +250,12 @@ for (const template of ["minimal", "physics"])
                 ["rollback", "--name", link.name, "--help"],
                 ["delete", "--name", link.name, "--dry-run"],
             ]) {
-                const parsed = Bun.spawnSync(
-                    ["node", wrangler, args[0]!, "--config", guidance, ...args.slice(1)],
-                    {
-                        cwd: scaffold,
-                        env: { ...env, CLOUDFLARE_ACCOUNT_ID: link.accountId },
-                        stdout: "pipe",
-                        stderr: "pipe",
-                    },
-                );
+                const parsed = Bun.spawnSync(["node", wrangler, ...args], {
+                    cwd: scaffold,
+                    env: { ...env, CLOUDFLARE_ACCOUNT_ID: link.accountId },
+                    stdout: "pipe",
+                    stderr: "pipe",
+                });
                 expect(
                     parsed.exitCode,
                     `${args.join(" ")}: ${parsed.stdout}\n${parsed.stderr}`,
