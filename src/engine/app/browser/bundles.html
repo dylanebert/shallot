@@ -29,6 +29,23 @@ const app = await createApp({
             create("early-sync", false);
             await create("early-async", true);
             create("early-depth", false, true);
+            const descriptor = {
+                label: "early-mutated", layout, vertex: { module, entryPoint: "vs" },
+                fragment: { module, entryPoint: "fs", targets: [{ format: "rgba8unorm" }] },
+                depthStencil: { format: "depth24plus", depthWriteEnabled: true, depthCompare: "always" },
+                multisample: { count: 4 },
+            };
+            const pending = device.createRenderPipelineAsync(descriptor);
+            descriptor.fragment.targets[0].format = "bgra8unorm";
+            descriptor.depthStencil.format = "depth32float";
+            descriptor.multisample.count = 1;
+            await pending;
+            device.createRenderPipeline({
+                label: "early-null-slot", layout, vertex: { module, entryPoint: "vs" },
+                fragment: { module, entryPoint: "fs", targets: [
+                    { format: "rgba8unorm" }, null, { format: "bgra8unorm", writeMask: 0 },
+                ] },
+            });
         },
     }],
 });

@@ -60,6 +60,18 @@ test("only pre-handoff render pipelines bind once in compatible throwaway bundle
             depthStencilFormat: "depth24plus-stencil8",
             sampleCount: 1,
         },
+        {
+            label: "early-mutated",
+            colorFormats: ["rgba8unorm"],
+            depthStencilFormat: "depth24plus",
+            sampleCount: 4,
+        },
+        {
+            label: "early-null-slot",
+            colorFormats: ["rgba8unorm", null, "bgra8unorm"],
+            depthStencilFormat: undefined,
+            sampleCount: 1,
+        },
     ]);
     expect(errors).toEqual([]);
 });

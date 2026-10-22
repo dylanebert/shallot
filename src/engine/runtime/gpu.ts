@@ -1398,19 +1398,22 @@ export async function requestGPU(
                   checkPipeline(descriptor);
                   return createComputePipelineAsync(descriptor);
               };
-              const primeRenderBundle = (
+              const bundleDescriptor = (
                   descriptor: GPURenderPipelineDescriptor,
+              ): GPURenderBundleEncoderDescriptor => ({
+                  colorFormats: Array.from(
+                      descriptor.fragment?.targets ?? [],
+                      (target) => target?.format ?? null,
+                  ),
+                  depthStencilFormat: descriptor.depthStencil?.format,
+                  sampleCount: descriptor.multisample?.count ?? 1,
+              });
+              const primeRenderBundle = (
+                  descriptor: GPURenderBundleEncoderDescriptor,
                   pipeline: GPURenderPipeline,
               ) => {
                   if (!owner.resource?.(precompileState).drained) {
-                      const bundle = d.createRenderBundleEncoder({
-                          colorFormats: Array.from(
-                              descriptor.fragment?.targets ?? [],
-                              (target) => target?.format ?? null,
-                          ),
-                          depthStencilFormat: descriptor.depthStencil?.format,
-                          sampleCount: descriptor.multisample?.count ?? 1,
-                      });
+                      const bundle = d.createRenderBundleEncoder(descriptor);
                       bundle.setPipeline(pipeline);
                       bundle.finish();
                   }
@@ -1418,12 +1421,16 @@ export async function requestGPU(
               };
               const trackedRenderPipeline = (descriptor: GPURenderPipelineDescriptor) => {
                   checkPipeline(descriptor);
-                  return primeRenderBundle(descriptor, createRenderPipeline(descriptor));
+                  return primeRenderBundle(
+                      bundleDescriptor(descriptor),
+                      createRenderPipeline(descriptor),
+                  );
               };
               const trackedRenderPipelineAsync = (descriptor: GPURenderPipelineDescriptor) => {
                   checkPipeline(descriptor);
+                  const bundle = bundleDescriptor(descriptor);
                   return createRenderPipelineAsync(descriptor).then((pipeline) =>
-                      primeRenderBundle(descriptor, pipeline),
+                      primeRenderBundle(bundle, pipeline),
                   );
               };
               const queueMethods: MethodCache = new Map();
