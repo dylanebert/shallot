@@ -168,6 +168,11 @@ export function selectTests(
         .map(([test]) => test);
 }
 
+/** The tests that read examples from disk when a path under examples changed, else none. */
+export function exampleReaders(changed: readonly string[]): readonly string[] {
+    return changed.some((path) => path.startsWith("examples/")) ? EXAMPLE_READERS : [];
+}
+
 /**
  * The node tests a change reaches through their import closures, the allocation gates whose
  * bundles it reaches, and the tests that read examples when one changed, each once and sorted.
@@ -175,9 +180,7 @@ export function selectTests(
  */
 export async function changedTests(changed: readonly string[]): Promise<string[]> {
     const selected = new Set(selectTests(importClosures(nodeTests()), changed));
-    if (changed.some((path) => path.startsWith("examples/"))) {
-        for (const test of EXAMPLE_READERS) selected.add(test);
-    }
+    for (const test of exampleReaders(changed)) selected.add(test);
     if (changed.some((path) => /^(src|examples|diagnostics)\//.test(path))) {
         for (const gate of selectTests(await gateInputs(allocationGates()), changed)) {
             selected.add(gate);

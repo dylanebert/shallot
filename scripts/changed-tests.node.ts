@@ -8,6 +8,7 @@ import {
     allocationGates,
     changedPaths,
     changedTests,
+    exampleReaders,
     gateEntries,
     gateInputs,
     importClosures,
@@ -124,18 +125,11 @@ test("a gate a change reaches through both its imports and its bundle is printed
     for (const gate of both) expect(selected.filter((path) => path === gate)).toEqual([gate]);
 });
 
-test("a changed example selects the tests that read examples from disk, each once", async () => {
-    const readers = [
-        "scripts/icons-packed.node.ts",
-        "scripts/icons.node.ts",
-        "scripts/packed-install.node.ts",
-        "src/cli/create.node.ts",
-    ];
-    expect(await changedTests(["examples/physics/src/main.ts"])).toEqual(
-        expect.arrayContaining(readers),
-    );
-    const selected = await changedTests(["src/project/testing.js", "examples/physics/src/main.ts"]);
-    for (const test of readers) expect(selected.filter((path) => path === test)).toEqual([test]);
+test("a changed example selects the tests that read examples from disk, and only an example does", () => {
+    const readers = exampleReaders(["examples/physics/src/main.ts"]);
+    expect(readers.length).toBeGreaterThan(0);
+    for (const test of readers) expect(nodeTests()).toContain(test);
+    expect(exampleReaders(["src/project/testing.js", "README.md"])).toEqual([]);
 });
 
 test("a change no test imports selects none", async () => {
