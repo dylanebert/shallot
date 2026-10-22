@@ -1,0 +1,52 @@
+name: publish CI spike
+
+on:
+  push:
+    branches:
+      - spike/publish-ci
+
+permissions:
+  contents: read
+
+jobs:
+  cloudflare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
+      - name: Publish from a clean HOME with CI credentials
+        run: bun test ./src/cli/publish.oracle.ts -t CI
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Record the ownership endpoint's error codes without credentials
+        if: failure()
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          python3 - <<'PY'
+          import glob, json, os, urllib.request, urllib.error
+          path = glob.glob('/tmp/shallot-publish-oracle-*/game/package.json')[0]
+          with open(path) as manifest:
+              name = json.load(manifest)['name']
+          account = os.environ['CLOUDFLARE_ACCOUNT_ID']
+          request = urllib.request.Request(
+              f'https://api.cloudflare.com/client/v4/accounts/{account}/workers/scripts/{name}/versions?deployable=true',
+              headers={'Authorization': 'Bearer ' + os.environ['CLOUDFLARE_API_TOKEN']})
+          try:
+              response = urllib.request.urlopen(request)
+          except urllib.error.HTTPError as error:
+              response = error
+          print('Ownership endpoint HTTP status:', response.status)
+          for error in json.load(response).get('errors', []):
+              print('Cloudflare error:', error.get('code'), error.get('message'))
+          PY
