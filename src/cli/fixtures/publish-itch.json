@@ -1,0 +1,251 @@
+{
+    "source": "butler v15.32.0 --json and anonymous Chromium on individualkex/shallot-publish-test, 2026-10-22; error messages keep their first line; cdnHeaders are html.itch.zone's answers with SharedArrayBuffer support on; htmlgameJs is static.itch.io/htmlgame.js, which html.itch.zone appends to index.html",
+    "statusNoChannel": {
+        "status": 0,
+        "entries": [
+            {
+                "time": 1792634564,
+                "type": "result",
+                "value": {
+                    "channels": [],
+                    "target": "individualkex/shallot-publish-test"
+                }
+            }
+        ]
+    },
+    "statusQueued": {
+        "status": 0,
+        "entries": [
+            {
+                "time": 1792635725,
+                "type": "result",
+                "value": {
+                    "channels": [
+                        {
+                            "head": {
+                                "createdAt": "2026-10-22T02:02:43Z",
+                                "id": 2181987,
+                                "state": "completed",
+                                "updatedAt": "2026-10-22T02:02:50Z",
+                                "userVersion": "spike-1",
+                                "version": 1
+                            },
+                            "name": "html5",
+                            "pending": {
+                                "createdAt": "2026-10-22T02:22:03Z",
+                                "id": 2182067,
+                                "parentBuildId": 2181987,
+                                "state": "queued",
+                                "updatedAt": "2026-10-22T02:22:03Z",
+                                "userVersion": "spike-2",
+                                "version": 2
+                            },
+                            "tags": "",
+                            "uploadId": 19938966
+                        }
+                    ],
+                    "target": "individualkex/shallot-publish-test"
+                }
+            }
+        ]
+    },
+    "statusProcessing": {
+        "status": 0,
+        "entries": [
+            {
+                "time": 1792635729,
+                "type": "result",
+                "value": {
+                    "channels": [
+                        {
+                            "head": {
+                                "createdAt": "2026-10-22T02:02:43Z",
+                                "id": 2181987,
+                                "state": "completed",
+                                "updatedAt": "2026-10-22T02:02:50Z",
+                                "userVersion": "spike-1",
+                                "version": 1
+                            },
+                            "name": "html5",
+                            "pending": {
+                                "createdAt": "2026-10-22T02:22:03Z",
+                                "id": 2182067,
+                                "parentBuildId": 2181987,
+                                "state": "processing",
+                                "updatedAt": "2026-10-22T02:22:09Z",
+                                "userVersion": "spike-2",
+                                "version": 2
+                            },
+                            "tags": "",
+                            "uploadId": 19938966
+                        }
+                    ],
+                    "target": "individualkex/shallot-publish-test"
+                }
+            }
+        ]
+    },
+    "statusCompleted": {
+        "status": 0,
+        "entries": [
+            {
+                "time": 1792639217,
+                "type": "result",
+                "value": {
+                    "channels": [
+                        {
+                            "head": {
+                                "createdAt": "2026-10-22T02:22:03Z",
+                                "id": 2182067,
+                                "parentBuildId": 2181987,
+                                "state": "completed",
+                                "updatedAt": "2026-10-22T02:22:19Z",
+                                "userVersion": "spike-2",
+                                "version": 2
+                            },
+                            "name": "html5",
+                            "tags": "",
+                            "uploadId": 19938966
+                        }
+                    ],
+                    "target": "individualkex/shallot-publish-test"
+                }
+            }
+        ]
+    },
+    "statusMissingGame": {
+        "status": 1,
+        "entries": [
+            {
+                "message": "itch.io API error (400): /wharf/channels: invalid game",
+                "time": 1792634551,
+                "type": "error"
+            }
+        ]
+    },
+    "statusMissingUser": {
+        "status": 1,
+        "entries": [
+            {
+                "message": "itch.io API error (400): /wharf/channels: invalid target (bad user)",
+                "time": 1792634551,
+                "type": "error"
+            }
+        ]
+    },
+    "statusNoCredentials": {
+        "status": 1,
+        "entries": [
+            {
+                "level": "info",
+                "message": "Please set BUTLER_API_KEY to your API key, see https://itch.io/docs/butler/login.html for more info.",
+                "time": 1792638501,
+                "type": "log"
+            },
+            {
+                "message": "No credentials and stdin is not a terminal - terminating.",
+                "time": 1792638501,
+                "type": "error"
+            }
+        ]
+    },
+    "statusInvalidKey": {
+        "status": 1,
+        "entries": [
+            {
+                "message": "itch.io API error (403): /wharf/channels: invalid key",
+                "time": 1792638501,
+                "type": "error"
+            }
+        ]
+    },
+    "pushMissingGame": {
+        "status": 1,
+        "entries": [
+            {
+                "level": "info",
+                "message": "> Scanning launch targets...",
+                "time": 1792634551,
+                "type": "log"
+            },
+            {
+                "message": "itch.io API error (400): /wharf/builds: invalid game",
+                "time": 1792634551,
+                "type": "error"
+            }
+        ]
+    },
+    "pushCreated": {
+        "status": 0,
+        "entries": [
+            {
+                "buildId": 2182067,
+                "channel": "html5",
+                "time": 1792635723,
+                "type": "buildCreated"
+            },
+            {
+                "level": "info",
+                "message": "> Build is now processing, should be up in a bit.",
+                "time": 1792635724,
+                "type": "log"
+            },
+            {
+                "time": 1792635724,
+                "type": "result",
+                "value": {
+                    "buildId": 2182067,
+                    "channel": "html5",
+                    "dryRun": false,
+                    "reason": "",
+                    "skipped": false
+                }
+            }
+        ]
+    },
+    "pushUnchanged": {
+        "status": 0,
+        "entries": [
+            {
+                "level": "info",
+                "message": "< No changes and --if-changed used, not pushing anything",
+                "time": 1792639217,
+                "type": "log"
+            },
+            {
+                "time": 1792639217,
+                "type": "result",
+                "value": {
+                    "buildId": 0,
+                    "channel": "html5",
+                    "dryRun": false,
+                    "reason": "if-changed",
+                    "skipped": true
+                }
+            }
+        ]
+    },
+    "cdnHeaders": {
+        "document": {
+            "Content-Type": "text/html; charset=utf-8",
+            "Cross-Origin-Opener-Policy": "same-origin",
+            "Cross-Origin-Embedder-Policy": "require-corp",
+            "Cross-Origin-Resource-Policy": "cross-origin",
+            "Cache-Control": "max-age=2678400"
+        },
+        "asset": {
+            "Cross-Origin-Embedder-Policy": "require-corp",
+            "Cache-Control": "max-age=2678400"
+        },
+        "missing": {
+            "Content-Type": "text/html",
+            "Cross-Origin-Embedder-Policy": "require-corp"
+        }
+    },
+    "htmlgameJs": "(()=>{var o,i,l,a,e,d,c,h,n,t;t=(a=(e=location.ancestorOrigins)!=null?e[0]:void 0)!=null?a:document.referrer;i=t!=null&&(d=t.match(/\\/\\/([^\\/]+)/))!=null?d[1]:void 0;n=(c=window.location.href)!=null&&(h=c.match(/\\/html\\/(\\d+)/))!=null?h[1]:void 0;l=i&&!(i===\"itch.io\"||i.match(/\\.itch\\.io$/)||i.match(/\\.itch\\.zone$/))?!0:void 0;navigator.sendBeacon!=null&&(o=new FormData,o.append(\"domain\",i||\"unknown-domain\"),n&&o.append(\"upload_id\",n),l&&o.append(\"hotlink\",\"1\"),navigator.sendBeacon(\"https://itch.io/html-callback\",o));l&&(n?window.location=\"https://itch.io/embed-hotlink/\"+n:window.location=\"https://itch.io/embed-hotlink\");})();\n",
+    "htmlgameHeaders": {
+        "Content-Type": "application/x-javascript",
+        "Access-Control-Allow-Origin": "*",
+        "Cross-Origin-Resource-Policy": "cross-origin"
+    }
+}

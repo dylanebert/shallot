@@ -93,6 +93,28 @@ verification checks each built asset's bytes and content type, a missing path's
 reports physics, it also requires threaded physics. A software adapter is named;
 its startup and loading checks are not hardware-play qualification.
 
+### itch.io
+
+```bash
+bunx shallot publish --target itch
+```
+
+pushes the same build to the page's `html5` channel with itch.io's butler, fetched
+at its pinned version into Shallot's cache; butler owns login and credentials
+(`butler login` in a terminal, `BUTLER_API_KEY` otherwise). itch.io allows 1,000
+files, 200 MB per file and 500 MB in all, and serves the build with its own headers.
+publish waits until itch.io has processed the build, then plays the document the
+page's embed frames on `html.itch.zone`: itch.io puts its pages behind a bot check
+for automated browsers. itch.io serves a new build only once its page is next
+viewed; until then publish exits nonzero naming the page to open, and the next run
+verifies it.
+
+itch.io's web UI owns the page: create it with Kind of project HTML and name it in
+`package.json` as `{"target": "itch", "name": "<user>/<game>"}`; publish refuses a
+project butler cannot find. On its Edit page, tick "This file will be played in the
+browser" and "SharedArrayBuffer support", and set Visibility to Public or
+Restricted, not Draft. Verification cannot see these settings; publish names them.
+
 **Vite client environment values are public. Never put secrets in them.**
 
 ## more

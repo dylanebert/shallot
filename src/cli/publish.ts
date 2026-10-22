@@ -3,25 +3,52 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createInterface } from "node:readline/promises";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { detectAgenticEnvironment } from "am-i-vibing";
 import ci from "ci-info";
+import type { Browser } from "playwright";
 import { buildWeb, CROSS_ORIGIN_ISOLATION } from "../project";
 import {
+    type CloudflareLink,
     cloudflareConfig,
     cloudflareDeployment,
-    type PublishLink,
     resolveWrangler,
     runWrangler,
     WRANGLER_VERSION,
     workerExists,
 } from "./publish-cloudflare";
+import {
+    BUTLER_STATUS_TIMEOUT,
+    ensureButler,
+    ITCH_CHANNEL,
+    ITCH_HOST,
+    type ItchLink,
+    itchBuildUrl,
+    itchChannel,
+    itchPageSettings,
+    itchPageUrl,
+    itchPush,
+    liveItchBuild,
+    runButler,
+    validItchName,
+    waitForItchBuild,
+} from "./publish-itch";
 import { publishProgress } from "./publish-output";
-import { type PublishAsset, projectChromium, verifyPublishedGame } from "./publish-verify";
+import {
+    type PublishAsset,
+    type PublishVerification,
+    projectChromium,
+    verifyPublishedGame,
+} from "./publish-verify";
+
+export type PublishLink = CloudflareLink | ItchLink;
 
 export function readPublishLink(projectDir: string): PublishLink | undefined {
     const manifest = JSON.parse(readFileSync(join(projectDir, "package.json"), "utf8"));
     const link = manifest.shallot?.publish;
     if (link === undefined) return;
+    if (link?.target === "itch" && typeof link.name === "string" && validItchName(link.name))
+        return { target: "itch", name: link.name };
     if (
         !link ||
         typeof link !== "object" ||
@@ -32,7 +59,7 @@ export function readPublishLink(projectDir: string): PublishLink | undefined {
         !/^[a-f0-9]{32}$/.test(link.accountId)
     )
         throw new Error(
-            "Invalid shallot.publish in package.json: expected target cloudflare, name, and accountId.",
+            'Invalid shallot.publish in package.json: expected target cloudflare, name, and accountId, or target itch and name "<user>/<game>".',
         );
     return link;
 }
@@ -74,7 +101,10 @@ export function publishAssets(directory: string): PublishAsset[] {
 
 interface PublishLimits {
     files: number;
+    /** Per file. */
     bytes: number;
+    /** All files together. */
+    total?: number;
     reserved?: readonly string[];
 }
 
@@ -86,9 +116,14 @@ export function preflightPublish(assets: PublishAsset[], limits: PublishLimits):
             );
         if (asset.size > limits.bytes)
             throw new Error(
-                `${asset.path}: ${asset.size} bytes exceeds the target's ${limits.bytes} byte (${limits.bytes / 1024 / 1024} MiB) file limit.`,
+                `${asset.path}: ${asset.size} bytes exceeds the target's ${limits.bytes} byte (${limits.bytes % 1024 ** 2 ? `${limits.bytes / 1000 / 1000} MB` : `${limits.bytes / 1024 ** 2} MiB`}) file limit.`,
             );
     }
+    const total = assets.reduce((sum, asset) => sum + asset.size, 0);
+    if (limits.total !== undefined && total > limits.total)
+        throw new Error(
+            `The web build's ${total} bytes exceed the target's ${limits.total} byte (${limits.total / 1000 / 1000} MB) total.`,
+        );
     if (!assets.some((asset) => asset.path === "index.html"))
         throw new Error("The web build has no index.html.");
     for (const reserved of limits.reserved ?? []) {
@@ -130,22 +165,39 @@ function installDev(projectDir: string, dependency: string): void {
     if (result.status !== 0) throw new Error(`Could not install ${dependency}.`);
 }
 
-interface PublishTarget {
+interface Deployment {
+    /** The stable play link. */
+    url: string;
+    /** This build's own link. */
+    buildUrl: string;
+}
+
+/** A target's setup runs before the build, its deploy returns once the upload is live, and its verify plays it. */
+interface PublishTarget<Link extends PublishLink> {
     limits: PublishLimits;
     setup(
         projectDir: string,
         work: string,
         interactive: boolean,
-        saved?: PublishLink,
+        saved?: Link,
     ): Promise<{
-        link: PublishLink;
-        deploy(directory: string): Promise<{ url: string; buildUrl: string }>;
+        link: Link;
+        deploy(directory: string): Promise<Deployment>;
         commands: string;
     }>;
     headers(directory: string): void;
+    verify(
+        browser: Browser,
+        deployment: Deployment,
+        directory: string,
+        assets: PublishAsset[],
+    ): Promise<PublishVerification>;
 }
 
-const targets: Record<"cloudflare", PublishTarget> = {
+const targets: {
+    cloudflare: PublishTarget<CloudflareLink>;
+    itch: PublishTarget<ItchLink>;
+} = {
     cloudflare: {
         limits: {
             files: 20_000,
@@ -155,6 +207,8 @@ const targets: Record<"cloudflare", PublishTarget> = {
         headers(directory) {
             writeFileSync(join(directory, "_headers"), publishHeaders());
         },
+        verify: (browser, deployment, directory, assets) =>
+            verifyPublishedGame(browser, deployment.url, directory, assets),
         async setup(projectDir, work, interactive, saved) {
             let cli = resolveWrangler(projectDir);
             if (!cli) {
@@ -266,7 +320,7 @@ const targets: Record<"cloudflare", PublishTarget> = {
                 throw new Error(
                     `Invalid Worker name ${JSON.stringify(name)}; use 1–63 lowercase letters, digits and hyphens, starting with a letter or digit.`,
                 );
-            const link: PublishLink = { target: "cloudflare", name, accountId };
+            const link: CloudflareLink = { target: "cloudflare", name, accountId };
             return {
                 link,
                 async deploy(directory) {
@@ -303,15 +357,87 @@ const targets: Record<"cloudflare", PublishTarget> = {
             };
         },
     },
+    itch: {
+        limits: { files: 1000, bytes: 200_000_000, total: 500_000_000 },
+        // itch.io serves the build with its own headers.
+        headers() {},
+        // itch.io's page answers a bot check to every automated client; its frame document does not.
+        async verify(browser, deployment, directory, assets) {
+            return verifyPublishedGame(
+                browser,
+                await liveItchBuild(deployment.url, deployment.buildUrl),
+                directory,
+                assets,
+                TIMEOUT.startup,
+                ITCH_HOST,
+            );
+        },
+        async setup(_projectDir, _work, interactive, saved) {
+            let name = saved?.name;
+            if (!name) {
+                const instruction =
+                    'Create the page at https://itch.io/game/new with Kind of project HTML; shallot.publish in package.json then names it, {"target": "itch", "name": "<user>/<game>"}.';
+                if (!interactive) throw new Error(`No itch.io project is linked. ${instruction}`);
+                publishProgress(instruction);
+                name = await ask("itch.io project (<user>/<game>)");
+            }
+            if (!validItchName(name))
+                throw new Error(
+                    `Invalid itch.io project ${JSON.stringify(name)}; use <user>/<game> as in its page's link.`,
+                );
+            const project = name;
+            const butler = await ensureButler();
+            const status = (timeout = BUTLER_STATUS_TIMEOUT) =>
+                runButler(butler, ["status", `${project}:${ITCH_CHANNEL}`], { timeout });
+            let answer = status();
+            if (
+                interactive &&
+                answer.entries.some((entry) => /No credentials/.test(String(entry.message)))
+            ) {
+                publishProgress("itch.io login is required.");
+                if (runButler(butler, ["login"], { terminal: true }).status !== 0)
+                    throw new Error("butler login failed.");
+                answer = status();
+            }
+            itchChannel(project, answer);
+            return {
+                link: { target: "itch", name: project },
+                async deploy(directory) {
+                    const pushed = runButler(butler, [
+                        "push",
+                        "--if-changed",
+                        directory,
+                        `${project}:${ITCH_CHANNEL}`,
+                    ]);
+                    const build = itchPush(project, pushed);
+                    publishProgress(
+                        build === undefined
+                            ? "itch.io already has this build; waiting for it to be live."
+                            : `Pushed build ${build}; waiting for itch.io to process it.`,
+                    );
+                    const live = await waitForItchBuild(project, build, status);
+                    return {
+                        url: itchPageUrl(project),
+                        buildUrl: itchBuildUrl(live.uploadId, live.buildId),
+                    };
+                },
+                commands: `Preview: bun run preview\nStatus: ${butler} status ${project}\nRollback: publish an earlier commit again\nUnpublish: set Visibility to Draft in the game's Edit page on itch.io\n${itchPageSettings(project)}`,
+            };
+        },
+    },
 };
 
 /** Publish a web build; only the provider's CLI reads or writes its credentials. */
 export async function publishProject(projectDir: string, targetName?: string): Promise<void> {
-    if (targetName !== undefined && targetName !== "cloudflare")
-        throw new Error(`Unknown publish target: ${targetName}. Available: cloudflare.`);
-    const saved = readPublishLink(projectDir);
-    const target = targets[targetName ?? saved?.target ?? "cloudflare"];
-    if (!targetName && !saved) publishProgress("Using publish target cloudflare.");
+    if (targetName !== undefined && !Object.hasOwn(targets, targetName))
+        throw new Error(
+            `Unknown publish target: ${targetName}. Available: ${Object.keys(targets).join(", ")}.`,
+        );
+    const linked = readPublishLink(projectDir);
+    const chosen = (targetName ?? linked?.target ?? "cloudflare") as keyof typeof targets;
+    const saved = linked?.target === chosen ? linked : undefined;
+    const target = targets[chosen] as PublishTarget<PublishLink>;
+    if (!targetName && !linked) publishProgress("Using publish target cloudflare.");
     const work = mkdtempSync(join(tmpdir(), "shallot-publish-"));
     try {
         const directory = join(work, "web");
@@ -331,12 +457,7 @@ export async function publishProject(projectDir: string, targetName?: string): P
         publishProgress(`Build: ${deployed.buildUrl}\n${setup.commands}`);
         const browser = await projectChromium(projectDir);
         try {
-            const verification = await verifyPublishedGame(
-                browser,
-                deployed.url,
-                directory,
-                assets,
-            );
+            const verification = await target.verify(browser, deployed, directory, assets);
             publishProgress(
                 `${verification.hardware ? "Engine started on a hardware adapter." : "Engine started; loading, headers and assets verified, not hardware play."}${verification.threads === undefined ? "" : ` Physics ${verification.physicsStepped ? "stepped" : "initialized"} on ${verification.threads} threads.`}\nAdapter: ${verification.adapter}`,
             );

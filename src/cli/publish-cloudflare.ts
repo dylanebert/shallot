@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 export const WRANGLER_VERSION: string = JSON.parse(
     readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
 ).peerDependencies.wrangler;
-export interface PublishLink {
+export interface CloudflareLink {
     target: "cloudflare";
     name: string;
     accountId: string;
@@ -19,7 +19,7 @@ export interface WranglerResult {
 }
 
 // biome-ignore-start lint/style/useNamingConvention: Wrangler owns its configuration field names.
-export function cloudflareConfig(directory: string, link: PublishLink) {
+export function cloudflareConfig(directory: string, link: CloudflareLink) {
     return {
         name: link.name,
         account_id: link.accountId,

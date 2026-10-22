@@ -55,23 +55,41 @@ export async function projectChromium(projectDir: string): Promise<Browser> {
     }
 }
 
-/** Load anonymously, checking build bytes and actual startup. startupTimeout bounds observation waiting after navigation, in milliseconds. */
+/** How a host serves a build's files. */
+export interface PublishHost {
+    /** The headers a file answers with. */
+    headers(path: string): Record<string, string>;
+    /** The bytes the host serves for a built file, when it changes them. */
+    bytes?(path: string, built: Buffer): Buffer;
+    /** Whether a console error at `url` is the host's own, not the game's. */
+    foreign?(url: string): boolean;
+}
+
+/**
+ * Load anonymously, checking build bytes and actual startup. `url` is the build's root or its `.html`
+ * document, beside which its files are served, and its query is sent with each file; `host` says how the host serves each file. startupTimeout bounds observation
+ * waiting after navigation, in milliseconds.
+ */
 export async function verifyPublishedGame(
     browser: Browser,
     url: string,
     directory: string,
     assets: PublishAsset[],
     startupTimeout: number = TIMEOUT.startup,
+    host: PublishHost = { headers: () => CROSS_ORIGIN_ISOLATION },
 ): Promise<PublishVerification> {
+    const { search, pathname } = new URL(url);
+    const base = pathname.endsWith(".html")
+        ? new URL(".", url).href
+        : `${url.replace(/[?#].*$/, "").replace(/\/$/, "")}/`;
+    // A query on the document is kept on every request, so none reads an answer cached before this build.
+    const at = (path: string) => `${new URL(path, base).href}${search}`;
     const context = await browser.newContext();
     try {
         for (const asset of assets) {
             if (asset.path === "_headers" || asset.path === "_redirects") continue;
             const response = await context.request.get(
-                new URL(
-                    asset.path.split("/").map(encodeURIComponent).join("/"),
-                    `${url.replace(/\/$/, "")}/`,
-                ).href,
+                at(asset.path.split("/").map(encodeURIComponent).join("/")),
             );
             if (response.status() !== 200)
                 throw new Error(`${asset.path}: expected 200, got ${response.status()}`);
@@ -92,18 +110,18 @@ export async function verifyPublishedGame(
                 throw new Error(
                     `${asset.path}: expected ${expected ?? "a content type"}, got ${type}`,
                 );
-            if (!(await response.body()).equals(readFileSync(join(directory, asset.path))))
+            const built = readFileSync(join(directory, asset.path));
+            if (!(await response.body()).equals(host.bytes?.(asset.path, built) ?? built))
                 throw new Error(`${asset.path}: the deployed bytes differ from this build`);
-            for (const [name, value] of Object.entries(CROSS_ORIGIN_ISOLATION)) {
+            for (const [name, value] of Object.entries(host.headers(asset.path))) {
                 if (response.headers()[name.toLowerCase()] !== value)
                     throw new Error(`${asset.path}: missing ${name}: ${value}`);
             }
             await response.dispose();
         }
-        const missing = await context.request.get(
-            new URL(`__shallot_missing_${crypto.randomUUID()}`, `${url.replace(/\/$/, "")}/`).href,
-            { maxRedirects: 0 },
-        );
+        const missing = await context.request.get(at(`__shallot_missing_${crypto.randomUUID()}`), {
+            maxRedirects: 0,
+        });
         const missingStatus = missing.status();
         await missing.dispose();
         if (missingStatus !== 404)
@@ -117,7 +135,8 @@ export async function verifyPublishedGame(
             };
             page.on("pageerror", (error) => fail(error.message));
             page.on("console", (message) => {
-                if (message.type() === "error") fail(message.text());
+                if (message.type() === "error" && !host.foreign?.(message.location().url))
+                    fail(message.text());
             });
             page.on("crash", () => fail("The published page crashed."));
             page.on("close", () => fail("The published page closed during verification."));

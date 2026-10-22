@@ -26,7 +26,7 @@ const usage = `
   Commands
     create <name>                create a project from minimal or an example
     migrate                      print the 0.10 to 0.10.1 migration guide
-    publish [--target cloudflare] build, publish and verify a public web game
+    publish [--target <name>]    build, publish and verify a public web game
     dev --target <platform>      develop a desktop app
     build --target <platform>    build a desktop app
     preview --target <platform>  launch a desktop build
@@ -46,12 +46,14 @@ const usage = `
 
 const commandUsage = {
     publish: `
-  shallot publish [--target cloudflare]
+  shallot publish [--target cloudflare|itch]
 
-  Build with the project's Vite config, preflight Cloudflare's free limits, publish
-  to Workers Static Assets and verify the public link anonymously with Playwright.
-  stdout is the stable play link; progress and verification go to stderr.
+  Build with the project's Vite config, preflight the target's limits, publish,
+  wait until the upload is live and verify the public link anonymously with
+  Playwright. stdout is the stable play link; progress and verification go to
+  stderr. The target is saved in package.json's shallot.publish.
 
+  cloudflare (the default): Workers Static Assets, 20,000 files and 25 MiB per file.
   Wrangler requires Node.js 22 or newer on PATH.
   Missing pinned Wrangler is added to devDependencies inline. After a successful
   deploy, shallot.publish (target, name, accountId) is saved in package.json.
@@ -60,12 +62,24 @@ const commandUsage = {
   deployment.
   On a collision a terminal can choose another name; without a TTY, in CI or for
   an agent, publish refuses. A hand-written link deliberately authorizes an update.
-
   Non-interactive login: CLOUDFLARE_API_TOKEN; CLOUDFLARE_ACCOUNT_ID when ambiguous.
   Terminal login: wrangler login; remote terminal: wrangler login --device.
+
+  itch: the page's html5 channel, 1,000 files, 200 MB per file, 500 MB in all.
+  Create the page on itch.io with Kind of project HTML; shallot.publish (target
+  itch, name <user>/<game>) names it. itch.io's butler is fetched at its pinned
+  version into Shallot's cache and owns login and credentials. Verification plays
+  the build's document on html.itch.zone, which the page's embed frames; itch.io
+  serves a new build once its page is next viewed, so publish names the page to
+  open and the next run verifies it. On the
+  page's Edit page, tick "This file will be played in the browser" and
+  "SharedArrayBuffer support", and set Visibility to Public or Restricted, not
+  Draft; verification cannot see these, so publish names them.
+  Non-interactive login: BUTLER_API_KEY. Terminal login: butler login.
+
   Vite client environment values are public. Never put secrets in them.
 
-  --target cloudflare   Choose and save the target (the default)
+  --target <name>       Choose and save the target: cloudflare or itch
   -h, --help            Show this help
 `,
     dev: `

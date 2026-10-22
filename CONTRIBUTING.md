@@ -128,7 +128,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
   - an app's `dev`, `build` and `preview`, calling Vite;
   - `lint` and `format`, where the project has them;
   - `typecheck`, only for `svelte-check`
-- Every command runs by its native verb: `bun test` for cheap and GPU files, `bun test ./<file>` for Node and oracle files, `bunx playwright test` for browser subjects (after `bunx playwright install chromium` once), `bun check`, `bun <file>`, `bunx shallot`
+- Every command runs by its native verb: `bun test` for cheap and GPU files, `bun test ./<file>` for Node and oracle files (after `bun scripts/publish-butler.ts` once for the publish tests), `bunx playwright test` for browser subjects (after `bunx playwright install chromium` once), `bun check`, `bun <file>`, `bunx shallot`
 - A project that adopts the engine's timeouts, as the engine does, defines one `test` running `bun test` with a preload that calls `setDefaultTimeout(TIMEOUT.cheap)`, run as `bun run test`
 
 ```bash

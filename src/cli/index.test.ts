@@ -60,7 +60,7 @@ test("bare shallot presents the project map, loop, commands, targets and help co
   Commands
     create <name>                create a project from minimal or an example
     migrate                      print the 0.10 to 0.10.1 migration guide
-    publish [--target cloudflare] build, publish and verify a public web game
+    publish [--target <name>]    build, publish and verify a public web game
     dev --target <platform>      develop a desktop app
     build --target <platform>    build a desktop app
     preview --target <platform>  launch a desktop build
