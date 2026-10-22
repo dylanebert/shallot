@@ -9,6 +9,7 @@ export function cleanupOracleWorkers(
     passed: boolean,
     accountId: string | undefined,
     remove: (name: string) => OracleDeleteAnswer,
+    exists: (name: string) => boolean,
     report: (message: string) => void,
 ): void {
     const failures: string[] = [];
@@ -25,11 +26,23 @@ export function cleanupOracleWorkers(
             report(`Retained Worker for inspection: ${command}`);
             continue;
         }
-        const answer = remove(name);
-        if (answer.status === 0) report(`Deleted Worker ${name}.`);
-        else {
-            report(`Could not delete Worker: ${command}`);
-            failures.push(`${name}: ${answer.stderr || `exit ${answer.status}`}`);
+        try {
+            const answer = remove(name);
+            if (exists(name)) {
+                report(`Could not delete Worker: ${command}`);
+                failures.push(
+                    `${name}: Worker still exists; ${answer.stderr || `exit ${answer.status}`}`,
+                );
+                continue;
+            }
+            report(`Deleted Worker ${name}.`);
+            if (answer.status !== 0)
+                report(
+                    `Wrangler reported an error after Worker ${name} was deleted: ${answer.stderr || `exit ${answer.status}`}`,
+                );
+        } catch (error) {
+            report(`Could not verify Worker deletion: ${command}`);
+            failures.push(`${name}: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
     if (failures.length) throw new Error(`Oracle Worker cleanup failed:\n${failures.join("\n")}`);

@@ -259,36 +259,47 @@ for (const trial of ["personal", "CI"] as const) {
                 } finally {
                     const linked = JSON.parse(readFileSync(path, "utf8")).shallot?.publish;
                     workers.add(linked?.name ?? manifest.name);
+                    const cleanupWrangler = (args: string[], output?: string) => {
+                        const result = spawnSync(
+                            "node",
+                            [join(project, "node_modules/wrangler/bin/wrangler.js"), ...args],
+                            {
+                                cwd: project,
+                                env: {
+                                    ...trialEnv,
+                                    CI: "true",
+                                    ...(linked?.accountId
+                                        ? { CLOUDFLARE_ACCOUNT_ID: linked.accountId }
+                                        : {}),
+                                    ...(output ? { WRANGLER_OUTPUT_FILE_PATH: output } : {}),
+                                },
+                                encoding: "utf8",
+                                stdio: ["ignore", "pipe", "pipe"],
+                            },
+                        );
+                        if (result.error) throw result.error;
+                        return result;
+                    };
                     cleanupOracleWorkers(
                         workers,
                         passed,
                         linked?.accountId ?? trialEnv.CLOUDFLARE_ACCOUNT_ID,
+                        (name) => cleanupWrangler(["delete", "--name", name]),
                         (name) => {
-                            const result = spawnSync(
-                                "node",
-                                [
-                                    join(project, "node_modules/wrangler/bin/wrangler.js"),
-                                    "delete",
-                                    "--name",
-                                    name,
-                                ],
-                                {
-                                    cwd: project,
-                                    env: {
-                                        ...trialEnv,
-                                        CI: "true",
-                                        ...(linked?.accountId
-                                            ? { CLOUDFLARE_ACCOUNT_ID: linked.accountId }
-                                            : {}),
-                                    },
-                                    encoding: "utf8",
-                                    stdio: ["ignore", "pipe", "pipe"],
-                                },
+                            const output = join(root, `cleanup-${crypto.randomUUID()}.jsonl`);
+                            const result = cleanupWrangler(
+                                ["versions", "list", "--json", "--name", name],
+                                output,
                             );
-                            return {
+                            return workerExists({
                                 status: result.status,
-                                stderr: result.error?.message ?? result.stderr ?? "",
-                            };
+                                stdout: result.stdout,
+                                stderr: result.stderr,
+                                entries: readFileSync(output, "utf8")
+                                    .trim()
+                                    .split("\n")
+                                    .map((line) => JSON.parse(line)),
+                            });
                         },
                         console.info,
                     );

@@ -94,6 +94,8 @@ verification checks each built asset's bytes and content type, a missing path's
 reports physics, it also requires threaded physics. A software adapter is named;
 its startup and loading checks are not hardware-play qualification.
 
+Unpublish: `CLOUDFLARE_ACCOUNT_ID=<account> bunx wrangler delete --name <name>`; with the least token, Wrangler may print a KV permission error after deleting the Worker.
+
 ### itch.io
 
 ```bash
