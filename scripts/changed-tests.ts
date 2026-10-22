@@ -14,6 +14,13 @@ const ROOT = resolve(import.meta.dir, "..");
 const GATE = /sampleAllocation|prepareAllocationSampler/;
 const ENTRY = /["'`](?:\$\{import\.meta\.dir\}\/)?([^"'`\s$]*\.entry\.ts)["'`]/g;
 const SCRIPT = /\.[cm]?[jt]sx?$/;
+/** Node tests that read examples from disk, which no import walk reaches. */
+const EXAMPLE_READERS = [
+    "scripts/icons-packed.node.ts",
+    "scripts/icons.node.ts",
+    "scripts/packed-install.node.ts",
+    "src/cli/create.node.ts",
+];
 const transpiler = new Bun.Transpiler({ loader: "tsx" });
 
 /** A git listing's paths, NUL-delimited so none is quoted. */
@@ -162,12 +169,15 @@ export function selectTests(
 }
 
 /**
- * The node tests a change reaches through their import closures, and the allocation gates whose
- * bundles it reaches, each once and sorted. Gates are bundled only when a path under src, examples
- * or diagnostics changed.
+ * The node tests a change reaches through their import closures, the allocation gates whose
+ * bundles it reaches, and the tests that read examples when one changed, each once and sorted.
+ * Gates are bundled only when a path under src, examples or diagnostics changed.
  */
 export async function changedTests(changed: readonly string[]): Promise<string[]> {
     const selected = new Set(selectTests(importClosures(nodeTests()), changed));
+    if (changed.some((path) => path.startsWith("examples/"))) {
+        for (const test of EXAMPLE_READERS) selected.add(test);
+    }
     if (changed.some((path) => /^(src|examples|diagnostics)\//.test(path))) {
         for (const gate of selectTests(await gateInputs(allocationGates()), changed)) {
             selected.add(gate);
