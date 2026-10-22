@@ -272,7 +272,7 @@ for (const template of ["minimal", "physics"])
             const verification = await verify.verifyPublishedGame(browser, url, directory, assets);
             console.info(`publish ${template} local verification:`, verification);
             if (template === "physics") {
-                expect(verification.threads).toBeGreaterThan(1);
+                expect(verification.artifact).toBe("shared");
                 expect(verification.physicsStepped).toBe(true);
             } else expect(verification.threads).toBeUndefined();
             publish.savePublishLink(scaffold, link);

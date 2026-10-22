@@ -17,6 +17,7 @@ const root = mkdtempSync(join(tmpdir(), "shallot-base-"));
 const subpath = "/html/19938966-2182067/";
 let browser: Awaited<ReturnType<typeof publishTestChromium>>;
 let directory = "";
+let blockWorkers = false;
 // One origin per base: a build that names its files from the root fails under the subpath.
 const servers = ["/", subpath].map((base) =>
     Bun.serve({
@@ -40,11 +41,38 @@ const servers = ["/", subpath].map((base) =>
 );
 beforeAll(async () => {
     browser = await publishTestChromium();
+    const newContext = browser.newContext.bind(browser);
+    browser.newContext = async (...args) => {
+        const context = await newContext(...args);
+        await context.addInitScript((blocked) => {
+            Object.defineProperty(navigator, "hardwareConcurrency", { value: blocked ? 4 : 3 });
+            if (blocked)
+                window.Worker = class {
+                    constructor() {
+                        throw new Error("Worker startup blocked by test");
+                    }
+                } as unknown as typeof Worker;
+        }, blockWorkers);
+        return context;
+    };
 });
 afterAll(async () => {
     await browser?.close();
     await Promise.all(servers.map((server) => server.stop(true)));
     await removeTestDirectory(root);
+});
+
+test("the verifier rejects physics after worker startup falls back to the single artifact", async () => {
+    directory = join(root, "physics-fallback");
+    await buildWeb(join(repo, "examples/physics"), { outDir: directory, stdout: 2 });
+    blockWorkers = true;
+    try {
+        await expect(
+            verifyPublishedGame(browser, servers[0]!.url.href, directory, publishAssets(directory)),
+        ).rejects.toThrow("Physics initialized the single artifact, not shared.");
+    } finally {
+        blockWorkers = false;
+    }
 });
 
 // minimal is the scaffold; physics loads its kernel chunk and workers; materials names an image by new URL(..., import.meta.url).
@@ -61,6 +89,9 @@ for (const example of ["minimal", "physics", "materials"])
                 directory,
                 assets,
             );
-            if (example === "physics") expect(verification.threads).toBeGreaterThan(1);
+            if (example === "physics") {
+                expect(verification.artifact).toBe("shared");
+                expect(verification.threads).toBe(1);
+            }
         }
     });

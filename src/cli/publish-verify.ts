@@ -14,6 +14,7 @@ export interface PublishVerification {
     hardware: boolean;
     adapter: string;
     threads?: number;
+    artifact?: "shared" | "single";
     physicsStepped?: boolean;
 }
 
@@ -218,15 +219,16 @@ export async function verifyPublishedGame(
                         (window as unknown as { __shallotPublish: BrowserStartup })
                             .__shallotPublish,
                 );
-                if (status.threads !== undefined && !(status.threads > 1))
+                if (status.threads !== undefined && status.artifact !== "shared")
                     throw new Error(
-                        `Physics started with ${status.threads} thread, not a worker pool.`,
+                        `Physics initialized the ${status.artifact ?? "unknown"} artifact, not shared.`,
                     );
                 if (errors.length) throw new Error(`Published page errors:\n${errors.join("\n")}`);
                 return {
                     hardware: !!status.hardware,
                     adapter: status.adapter!,
                     threads: status.threads,
+                    artifact: status.artifact,
                     physicsStepped: status.physicsStepped,
                 };
             })(),
@@ -240,6 +242,7 @@ interface BrowserStartup {
     started: boolean;
     physicsStepped?: boolean;
     threads?: number;
+    artifact?: "shared" | "single";
     adapter?: string;
     hardware?: boolean;
 }
@@ -255,7 +258,10 @@ async function observeStartup(page: Page): Promise<void> {
                 status.adapter = detail.adapter?.identity ?? "No GPU required";
                 status.hardware = detail.adapter?.class === "real";
             }
-            if (detail.kind === "physics") status.threads = detail.threads;
+            if (detail.kind === "physics") {
+                status.threads = detail.threads;
+                status.artifact = detail.artifact;
+            }
             if (detail.kind === "physics-step") {
                 status.physicsStepped = true;
                 status.threads = detail.threads;

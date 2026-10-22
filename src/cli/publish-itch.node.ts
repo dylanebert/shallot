@@ -98,6 +98,9 @@ beforeAll(async () => {
     const newContext = browser.newContext.bind(browser);
     browser.newContext = async (...args) => {
         const context = await newContext(...args);
+        await context.addInitScript(() => {
+            Object.defineProperty(navigator, "hardwareConcurrency", { value: 3 });
+        });
         // The last matching route handles a request, so this refusal of every other host goes first.
         await context.route(/^https?:\/\/(?!127\.0\.0\.1)/, (route) => route.abort());
         await context.route("https://static.itch.io/htmlgame.js", (route) =>
@@ -150,8 +153,10 @@ for (const example of ["minimal", "physics"])
             "https://itch.io/html-callback Failed to load resource: net::ERR_BLOCKED_BY_RESPONSE",
         ]);
         const verification = await verify(isolatedCdn);
-        if (example === "physics") expect(verification.threads).toBeGreaterThan(1);
-        else expect(verification.threads).toBeUndefined();
+        if (example === "physics") {
+            expect(verification.artifact).toBe("shared");
+            expect(verification.threads).toBe(1);
+        } else expect(verification.threads).toBeUndefined();
     });
 
 test("the frame document fails verification without SharedArrayBuffer support or before it is served", async () => {
