@@ -63,6 +63,8 @@ const commandUsage = {
   On a collision a terminal can choose another name; without a TTY, in CI or for
   an agent, publish refuses. A hand-written link deliberately authorizes an update.
   Non-interactive login: CLOUDFLARE_API_TOKEN; CLOUDFLARE_ACCOUNT_ID when ambiguous.
+  Least CI token: custom, Account → Workers Scripts → Edit on the one account.
+  The "Edit Cloudflare Workers" template is broader.
   Terminal login: wrangler login; remote terminal: wrangler login --device.
 
   itch: the page's html5 channel, 1,000 files, 200 MB per file, 500 MB in all.
@@ -76,8 +78,11 @@ const commandUsage = {
   "SharedArrayBuffer support", and set Visibility to Public or Restricted, not
   Draft; verification cannot see these, so publish names them.
   Non-interactive login: BUTLER_API_KEY. Terminal login: butler login.
+  butler's login key has wharf scope: builds on every project the identity can
+  reach, not one game. An account-settings API key can be broader still.
 
-  Vite client environment values are public. Never put secrets in them.
+  Publish adds no credentials to the build. Vite's client values, public files
+  and source maps can still disclose what the project puts there. Never put secrets in them.
 
   --target <name>       Choose and save the target: cloudflare or itch
   -h, --help            Show this help

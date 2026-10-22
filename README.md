@@ -56,7 +56,8 @@ newer on PATH. Wrangler owns login and
 credential storage: a terminal can log in inline; a remote terminal uses its device
 flow. Without a TTY, in CI or for an agent, no prompt runs: set
 `CLOUDFLARE_API_TOKEN`, and `CLOUDFLARE_ACCOUNT_ID` when more than one account is
-accessible. Defaults taken are printed.
+accessible. CI's least token is a custom token with Account → Workers Scripts → Edit
+on the one account; the "Edit Cloudflare Workers" template is broader. Defaults taken are printed.
 
 `package.json` keeps the destination; commit it and the dependency changes:
 
@@ -101,7 +102,9 @@ bunx shallot publish --target itch
 
 pushes the same build to the page's `html5` channel with itch.io's butler, fetched
 at its pinned version into Shallot's cache; butler owns login and credentials
-(`butler login` in a terminal, `BUTLER_API_KEY` otherwise). itch.io allows 1,000
+(`butler login` in a terminal, `BUTLER_API_KEY` otherwise). butler's login key has
+`wharf` scope: it manages builds on every project that identity can reach, not one
+game. An account-settings API key can be broader still. itch.io allows 1,000
 files, 200 MB per file and 500 MB in all, and serves the build with its own headers.
 publish waits until itch.io has processed the build, then plays the document the
 page's embed frames on `html.itch.zone`: itch.io puts its pages behind a bot check
@@ -115,7 +118,8 @@ project butler cannot find. On its Edit page, tick "This file will be played in 
 browser" and "SharedArrayBuffer support", and set Visibility to Public or
 Restricted, not Draft. Verification cannot see these settings; publish names them.
 
-**Vite client environment values are public. Never put secrets in them.**
+Publish adds no credentials to the build. Vite's client values, public files and
+source maps can still disclose what the project puts there. Never put secrets in them.
 
 ## more
 

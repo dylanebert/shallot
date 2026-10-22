@@ -9,9 +9,9 @@ import ci from "ci-info";
 import type { Browser } from "playwright";
 import { buildWeb, CROSS_ORIGIN_ISOLATION } from "../project";
 import {
-    type CloudflareLink,
     CLOUDFLARE_LOGIN_ARGS,
     CLOUDFLARE_LOGIN_DISCLOSURE,
+    type CloudflareLink,
     cloudflareConfig,
     cloudflareDeployment,
     resolveWrangler,

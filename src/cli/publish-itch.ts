@@ -9,7 +9,7 @@ import { publishProgress } from "./publish-output";
 import type { PublishHost } from "./publish-verify";
 
 export const BUTLER_VERSION = "15.32.0";
-/** SHA-256 of broth's `default` archive per platform at {@link BUTLER_VERSION}. */
+/** SHA-256 recorded at download of broth's `default` archive per platform, not publisher attestations. */
 export const BUTLER_ARCHIVES: Record<string, string> = {
     "darwin-arm64": "f1c460f08c02686b49f8da74344e5578ece9ea1a8bae1779445b5d98e0a794b3",
     "darwin-amd64": "a92947c9556c9bfb0cc9bdc3814f342b30e0ee7269efc418658894a916ca9584",
