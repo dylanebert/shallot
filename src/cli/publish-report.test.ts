@@ -111,7 +111,7 @@ for (const target of ["cloudflare", "itch"] as const) {
                         expect(report).toContain('Login: "fixture-butler" login');
                         expect(report).toContain(`Status: "fixture-butler" status ${name}`);
                         expect(report).toContain(
-                            `"fixture-butler" push <web-build-directory> ${name}:html5`,
+                            "Rollback: check out an earlier commit, then bunx shallot publish --target itch",
                         );
                         expect(report).toContain(
                             "Unpublish: https://itch.io/dashboard, Edit game, set Visibility to Draft",

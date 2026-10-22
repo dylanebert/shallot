@@ -96,8 +96,7 @@ const commandUsage = {
   All pages and Edit: https://itch.io/dashboard, choose Edit for <game>.
   "Take the game down": confirm with the person, then set Visibility to Draft
   on that Edit page. butler cannot unpublish or delete a page.
-  "Roll back": check out an earlier commit, build with bun run build, then
-  "<butler>" push <web-build-directory> <user>/<game>:html5
+  "Roll back": check out an earlier commit, then bunx shallot publish --target itch
   Cleanup, preview, rollback and listing stay the providers'; Shallot adds no
   unpublish or list command.
   butler's login key has wharf scope: builds on every project the identity can

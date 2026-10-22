@@ -143,7 +143,7 @@ For provider commands, use the quoted cached butler path printed by publish as
 | Login | `"<butler>" login` |
 | Preview locally | `bun run preview` |
 | See what is published | `"<butler>" status <user>/<game>`; all pages at `https://itch.io/dashboard` |
-| Roll back | Check out an earlier commit, `bun run build`, then `"<butler>" push <web-build-directory> <user>/<game>:html5` |
+| Roll back | Check out an earlier commit, then `bunx shallot publish --target itch` |
 | Take the game down | Confirm with the person, then open `https://itch.io/dashboard`, choose the game's Edit page and set Visibility to Draft |
 
 butler owns builds, not page visibility; it cannot unpublish or delete a page.

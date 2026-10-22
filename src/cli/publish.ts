@@ -432,7 +432,7 @@ const targets: {
                         buildUrl: itchBuildUrl(live.uploadId, live.buildId),
                     };
                 },
-                commands: `Login: "${butler}" login\nPreview: bun run preview\nStatus: "${butler}" status ${project}\nRollback: check out an earlier commit, build with bun run build, then "${butler}" push <web-build-directory> ${project}:${ITCH_CHANNEL}\nUnpublish: https://itch.io/dashboard, Edit ${project.split("/")[1]}, set Visibility to Draft\n${itchPageSettings(project)}`,
+                commands: `Login: "${butler}" login\nPreview: bun run preview\nStatus: "${butler}" status ${project}\nRollback: check out an earlier commit, then bunx shallot publish --target itch\nUnpublish: https://itch.io/dashboard, Edit ${project.split("/")[1]}, set Visibility to Draft\n${itchPageSettings(project)}`,
             };
         },
     },
