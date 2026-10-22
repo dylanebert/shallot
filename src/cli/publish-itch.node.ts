@@ -127,6 +127,7 @@ const verify = (server: { url: URL }, path = build) =>
         publishAssets(directory),
         TIMEOUT.startup,
         ITCH_HOST,
+        TIMEOUT.cheap,
     );
 
 for (const example of ["minimal", "physics"])

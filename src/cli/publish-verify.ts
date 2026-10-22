@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { BROWSER_CONFIG, TIMEOUT } from "@dylanebert/shallot/testing";
-import type { Browser, Page } from "playwright";
+import type { APIResponse, Browser, Page } from "playwright";
 import { CROSS_ORIGIN_ISOLATION, contentType } from "../project";
 import { publishProgress } from "./publish-output";
 
@@ -68,7 +68,8 @@ export interface PublishHost {
 /**
  * Load anonymously, checking build bytes and actual startup. `url` is the build's root or its `.html`
  * document, beside which its files are served, and its query is sent with each file; `host` says how the host serves each file. startupTimeout bounds observation
- * waiting after navigation, in milliseconds.
+ * waiting after navigation, in milliseconds. availabilityTimeout bounds retries of asset 404/5xx
+ * answers across all assets from the first check, in milliseconds (default 120 seconds).
  */
 export async function verifyPublishedGame(
     browser: Browser,
@@ -77,6 +78,7 @@ export async function verifyPublishedGame(
     assets: PublishAsset[],
     startupTimeout: number = TIMEOUT.startup,
     host: PublishHost = { headers: () => CROSS_ORIGIN_ISOLATION },
+    availabilityTimeout = 120_000,
 ): Promise<PublishVerification> {
     const { search, pathname } = new URL(url);
     const base = pathname.endsWith(".html")
@@ -85,14 +87,49 @@ export async function verifyPublishedGame(
     // A query on the document is kept on every request, so none reads an answer cached before this build.
     const at = (path: string) => `${new URL(path, base).href}${search}`;
     const context = await browser.newContext();
+    const firstCheck = performance.now();
+    const deadline = firstCheck + availabilityTimeout;
+    let retried = false;
     try {
         for (const asset of assets) {
             if (asset.path === "_headers" || asset.path === "_redirects") continue;
-            const response = await context.request.get(
-                at(asset.path.split("/").map(encodeURIComponent).join("/")),
-            );
-            if (response.status() !== 200)
-                throw new Error(`${asset.path}: expected 200, got ${response.status()}`);
+            let delay = 250;
+            let response: APIResponse;
+            let lastAnswer: string | undefined;
+            for (;;) {
+                try {
+                    response = await context.request.get(
+                        at(asset.path.split("/").map(encodeURIComponent).join("/")),
+                        { timeout: Math.max(1, deadline - performance.now()) },
+                    );
+                } catch (error) {
+                    if (lastAnswer && performance.now() >= deadline)
+                        throw new Error(
+                            `Availability wait of ${availabilityTimeout} ms exhausted; ${lastAnswer}`,
+                            { cause: error },
+                        );
+                    throw error;
+                }
+                const status = response.status();
+                if (status === 200) break;
+                await response.body();
+                await response.dispose();
+                const answer = `${asset.path}: expected 200, got ${status}`;
+                lastAnswer = answer;
+                if (status !== 404 && (status < 500 || status > 599)) throw new Error(answer);
+                const remaining = deadline - performance.now();
+                if (remaining <= 0)
+                    throw new Error(
+                        `Availability wait of ${availabilityTimeout} ms exhausted; ${answer}`,
+                    );
+                retried = true;
+                await new Promise((resolve) => setTimeout(resolve, Math.min(delay, remaining)));
+                if (performance.now() >= deadline)
+                    throw new Error(
+                        `Availability wait of ${availabilityTimeout} ms exhausted; ${answer}`,
+                    );
+                delay = Math.min(delay * 2, 5000);
+            }
             const type = response.headers()["content-type"]?.split(";")[0];
             const expected =
                 (
@@ -119,6 +156,10 @@ export async function verifyPublishedGame(
             }
             await response.dispose();
         }
+        if (retried)
+            publishProgress(
+                `Assets available after ${Math.round(performance.now() - firstCheck)} ms.`,
+            );
         const missing = await context.request.get(at(`__shallot_missing_${crypto.randomUUID()}`), {
             maxRedirects: 0,
         });

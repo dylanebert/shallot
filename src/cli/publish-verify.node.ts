@@ -15,19 +15,28 @@ mkdirSync(directory);
 const script = 'dispatchEvent(new CustomEvent("shallot:startup",{detail:{kind:"app"}}));';
 const html = `<link rel="icon" href="data:,"><script>${script}</script>`;
 let control = "positive";
+let unavailable = 0;
+let requests = 0;
+let unavailableStatus = 404;
 let browser: Awaited<ReturnType<typeof publishTestChromium>>;
 const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
     fetch(request) {
         const path = new URL(request.url).pathname;
-        const headers: Record<string, string> = { ...CROSS_ORIGIN_ISOLATION, Connection: "close" };
+        const headers: Record<string, string> = { ...CROSS_ORIGIN_ISOLATION };
         if (path === "/" && control === "absent isolation") {
             for (const name of Object.keys(CROSS_ORIGIN_ISOLATION)) delete headers[name];
         }
         if (path === "/game.js") {
+            requests++;
+            if (requests <= unavailable)
+                return new Response("not ready", {
+                    status: unavailableStatus,
+                    headers: {},
+                });
             if (control === "missing asset")
-                return new Response("missing", { status: 404, headers: { Connection: "close" } });
+                return new Response("missing", { status: 404, headers: {} });
             return new Response(readFileSync(join(directory, "game.js")), {
                 headers: {
                     ...headers,
@@ -40,7 +49,7 @@ const server = Bun.serve({
             return new Response(readFileSync(join(directory, "index.html")), {
                 headers: { ...headers, "Content-Type": "text/html" },
             });
-        return new Response("missing", { status: 404, headers: { Connection: "close" } });
+        return new Response("missing", { status: 404, headers: {} });
     },
 });
 beforeAll(async () => {
@@ -62,6 +71,8 @@ for (const [fault, failure] of [
 ] as const) {
     test(`the publish verifier ${failure ? `rejects ${fault}` : "accepts the isolated, observed positive control"}`, async () => {
         control = fault;
+        unavailable = 0;
+        requests = 0;
         writeFileSync(
             join(directory, "index.html"),
             fault === "no startup observation" ? '<link rel="icon" href="data:,">' : html,
@@ -78,6 +89,8 @@ for (const [fault, failure] of [
             directory,
             assets,
             TIMEOUT.cheap,
+            undefined,
+            600,
         );
         if (failure)
             expect(
@@ -89,3 +102,45 @@ for (const [fault, failure] of [
         else expect(await result).toMatchObject({ hardware: false, adapter: "No GPU required" });
     });
 }
+
+test("asset availability retries transient 404s and 5xx, but bounds persistent 404s", async () => {
+    control = "positive";
+    writeFileSync(join(directory, "index.html"), html);
+    writeFileSync(join(directory, "game.js"), "const game = 1;\n");
+    const assets = [{ path: "game.js", size: 16 }];
+    for (const status of [404, 503]) {
+        unavailableStatus = status;
+        unavailable = 2;
+        requests = 0;
+        await verifyPublishedGame(
+            browser,
+            server.url.href,
+            directory,
+            assets,
+            TIMEOUT.cheap,
+            undefined,
+            2000,
+        );
+        expect(requests).toBe(3);
+    }
+    unavailableStatus = 404;
+    unavailable = Infinity;
+    requests = 0;
+    const start = performance.now();
+    const failure = await verifyPublishedGame(
+        browser,
+        server.url.href,
+        directory,
+        assets,
+        TIMEOUT.cheap,
+        undefined,
+        600,
+    ).then(
+        () => "verified",
+        (error: Error) => error.message,
+    );
+    expect(failure).toContain(
+        "Availability wait of 600 ms exhausted; game.js: expected 200, got 404",
+    );
+    expect(performance.now() - start).toBeLessThan(1500);
+});
