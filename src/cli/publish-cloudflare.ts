@@ -72,6 +72,7 @@ export function runWrangler(
         env: {
             ...process.env,
             WRANGLER_SEND_METRICS: "false",
+            WRANGLER_LOG_SANITIZE: "true",
             WRANGLER_OUTPUT_FILE_PATH: outputPath,
         },
         encoding: "utf8",
