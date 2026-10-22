@@ -3,8 +3,10 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { deflateRawSync } from "node:zlib";
+import * as projectBuild from "../project";
 import { parseCliArgs } from "./index";
 import { preflightPublish, publishProject, readPublishLink } from "./publish";
+import * as itch from "./publish-itch";
 import {
     type ButlerResult,
     butlerPath,
@@ -247,6 +249,50 @@ test("a processed build not yet served refuses verification, naming the page to 
         await server.stop(true);
     }
 });
+
+for (const key of ["stored-key", "", " \n", undefined]) {
+    test(`non-interactive itch setup: ${key?.trim() ? "stored credentials reach the build" : `missing credentials (${JSON.stringify(key)}) refuse without login`}`, async () => {
+        const directory = mkdtempSync(join(root, "credentials-"));
+        const identity = join(directory, "butler_creds");
+        if (key !== undefined) writeFileSync(identity, key);
+        writeFileSync(
+            join(directory, "package.json"),
+            JSON.stringify({
+                name: "game",
+                shallot: { publish: { target: "itch", name: project } },
+            }),
+        );
+        const env = {
+            CI: process.env.CI,
+            BUTLER_API_KEY: process.env.BUTLER_API_KEY,
+            XDG_CONFIG_PATH: process.env.XDG_CONFIG_PATH,
+        };
+        process.env.CI = "true";
+        delete process.env.BUTLER_API_KEY;
+        process.env.XDG_CONFIG_PATH = identity;
+        const ensure = spyOn(itch, "ensureButler").mockResolvedValue("recorded-butler");
+        const run = spyOn(itch, "runButler").mockReturnValue(answer("statusCompleted"));
+        const build = spyOn(projectBuild, "buildWeb").mockRejectedValue(
+            new Error("setup accepted; build reached"),
+        );
+        try {
+            await expect(publishProject(directory)).rejects.toThrow(
+                key?.trim() ? "setup accepted; build reached" : "BUTLER_API_KEY",
+            );
+            expect(run.mock.calls.map((call) => call[1][0])).toEqual(key?.trim() ? ["status"] : []);
+            expect(build).toHaveBeenCalledTimes(key?.trim() ? 1 : 0);
+            expect(ensure).toHaveBeenCalledTimes(key?.trim() ? 1 : 0);
+        } finally {
+            ensure.mockRestore();
+            run.mockRestore();
+            build.mockRestore();
+            for (const [name, value] of Object.entries(env)) {
+                if (value === undefined) delete process.env[name];
+                else process.env[name] = value;
+            }
+        }
+    });
+}
 
 test("an unlinked itch publish without a terminal refuses before fetching butler or building", async () => {
     const directory = mkdtempSync(join(root, "unlinked-"));

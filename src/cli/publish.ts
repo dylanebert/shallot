@@ -23,6 +23,7 @@ import {
     BUTLER_LOGIN_REQUIRED,
     BUTLER_STATUS_TIMEOUT,
     ensureButler,
+    hasButlerCredentials,
     ITCH_CHANNEL,
     ITCH_HOST,
     type ItchLink,
@@ -387,7 +388,7 @@ const targets: {
                     `Invalid itch.io project ${JSON.stringify(name)}; use <user>/<game> as in its page's link.`,
                 );
             const project = name;
-            if (!interactive && !process.env.BUTLER_API_KEY) throw new Error(BUTLER_LOGIN_REQUIRED);
+            if (!interactive && !hasButlerCredentials()) throw new Error(BUTLER_LOGIN_REQUIRED);
             const butler = await ensureButler();
             const status = (timeout = BUTLER_STATUS_TIMEOUT) =>
                 runButler(butler, ["status", `${project}:${ITCH_CHANNEL}`], { timeout });
@@ -429,7 +430,7 @@ const targets: {
     },
 };
 
-/** Publish a web build; only the provider's CLI reads or writes its credentials. */
+/** Publish a web build; the provider's CLI owns authentication and credential storage. */
 export async function publishProject(projectDir: string, targetName?: string): Promise<void> {
     if (targetName !== undefined && !Object.hasOwn(targets, targetName))
         throw new Error(

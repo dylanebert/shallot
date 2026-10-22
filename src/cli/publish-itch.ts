@@ -1,6 +1,14 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+    chmodSync,
+    existsSync,
+    mkdirSync,
+    readFileSync,
+    renameSync,
+    rmSync,
+    writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { inflateRawSync } from "node:zlib";
@@ -172,6 +180,23 @@ function failure(result: ButlerResult): string | undefined {
     if (result.status === 0) return;
     const error = result.entries.findLast((entry) => entry.type === "error")?.message;
     return String(error ?? result.stderr).split("\n")[0];
+}
+
+/** Mirrors butler 15.32.0's main.go defaultKeyPath; XDG_CONFIG_PATH names the file, not a directory. */
+export function hasButlerCredentials(): boolean {
+    if (process.env.BUTLER_API_KEY) return true;
+    const home = process.env.HOME || process.env.USERPROFILE || "";
+    const identity =
+        process.env.XDG_CONFIG_PATH ||
+        (process.platform === "darwin"
+            ? join(home, "Library", "Application Support", "itch", "butler_creds")
+            : join(home, ".config", "itch", "butler_creds"));
+    try {
+        // An empty key also starts OAuth, even when butler's stdin is closed on Windows.
+        return readFileSync(identity, "utf8").trim().length > 0;
+    } catch {
+        return false;
+    }
 }
 
 export const MISSING_BUTLER_LOGIN = "No credentials and stdin is not a terminal";

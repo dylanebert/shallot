@@ -77,7 +77,8 @@ const commandUsage = {
   page's Edit page, tick "This file will be played in the browser" and
   "SharedArrayBuffer support", and set Visibility to Public or Restricted, not
   Draft; verification cannot see these, so publish names them.
-  Non-interactive login: BUTLER_API_KEY. Terminal login: butler login.
+  Non-interactive login: butler's stored credentials or BUTLER_API_KEY.
+  Terminal login: butler login.
   butler's login key has wharf scope: builds on every project the identity can
   reach, not one game. An account-settings API key can be broader still.
 

@@ -104,7 +104,7 @@ bunx shallot publish --target itch
 
 pushes the same build to the page's `html5` channel with itch.io's butler, fetched
 at its pinned version into Shallot's cache; butler owns login and credentials
-(`butler login` in a terminal, `BUTLER_API_KEY` otherwise). butler's login key has
+(`butler login` in a terminal; stored credentials or `BUTLER_API_KEY` without one). butler's login key has
 `wharf` scope: it manages builds on every project that identity can reach, not one
 game. An account-settings API key can be broader still. itch.io allows 1,000
 files, 200 MB per file and 500 MB in all, and serves the build with its own headers.
