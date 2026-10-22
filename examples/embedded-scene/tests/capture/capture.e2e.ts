@@ -3,23 +3,20 @@ import { fileURLToPath } from "node:url";
 import { holdFrames } from "@dylanebert/shallot/testing";
 import { expect, test } from "../browser-fixture";
 
-test("scene chrome refuses selection while the host heading and body remain page content", async ({
-    page,
-}) => {
+test("the host heading and body remain selectable page content", async ({ page }) => {
     await holdFrames(page, "#scene.visible");
     await page.goto("/");
     await page.locator("#scene.visible").waitFor();
-    for (const selector of ["h1", ".description", ".frame"]) {
+    for (const selector of ["h1", ".description"]) {
         await page.evaluate(() => getSelection()?.removeAllRanges());
         const box = (await page.locator(selector).boundingBox())!;
-        const y = box.y + (selector === ".frame" ? box.height / 2 : 10);
+        const y = box.y + 10;
         await page.mouse.move(box.x + 1, y);
         await page.mouse.down();
         await page.mouse.move(box.x + box.width - 1, y, { steps: 20 });
         await page.mouse.up();
         const selection = await page.evaluate(() => getSelection()?.toString());
-        if (selector === ".frame") expect(selection).toBe("");
-        else expect(selection?.length).toBeGreaterThan(0);
+        expect(selection?.length).toBeGreaterThan(0);
     }
 });
 

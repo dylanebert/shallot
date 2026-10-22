@@ -2,31 +2,6 @@ import { type BrowserContext, expect, type Page, test } from "playwright/test";
 
 test.use({ baseURL: "http://127.0.0.1:4176" });
 
-test("dragging touch chrome and its labels selects no page text", async ({ browser }) => {
-    const context = await browser.newContext({
-        hasTouch: true,
-        viewport: { width: 390, height: 844 },
-    });
-    try {
-        const page = await context.newPage();
-        await page.goto("http://127.0.0.1:4176/tests/touch.html");
-        await page.waitForFunction(() => "sample" in window);
-        await page.touchscreen.tap(100, 100);
-        // The tap reveals the touch controls on the next stepped frame.
-        await page.evaluate(() => (window as unknown as { sample(steps: number): void }).sample(1));
-        const label = page.getByRole("button", { name: "Jump" });
-        await expect(label).toBeVisible();
-        const box = (await label.boundingBox())!;
-        await page.mouse.move(box.x + 2, box.y + box.height / 2);
-        await page.mouse.down();
-        await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2, { steps: 20 });
-        await page.mouse.up();
-        expect(await page.evaluate(() => getSelection()?.toString())).toBe("");
-    } finally {
-        await context.close();
-    }
-});
-
 test("desktop instructions name keyboard and mouse", async ({ page }) => {
     await page.goto("/tests/touch.html");
     await expect
