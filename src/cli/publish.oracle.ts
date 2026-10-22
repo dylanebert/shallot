@@ -242,13 +242,13 @@ for (const trial of ["personal", "CI"] as const) {
                     ).toBeUndefined();
                     expect(deployments().at(-1)!.id).toBe(firstDeployment);
                     const html = join(project, "index.html");
-                    writeFileSync(
-                        html,
-                        readFileSync(html, "utf8").replace(
-                            "<title>minimal</title>",
-                            "<title>republished oracle</title>",
-                        ),
+                    const before = readFileSync(html, "utf8");
+                    const after = before.replace(
+                        /<title>[^<]*<\/title>/,
+                        "<title>republished oracle</title>",
                     );
+                    expect(after, "Republish must change the scaffold title").not.toBe(before);
+                    writeFileSync(html, after);
                     expect(run([projectCli, "publish"], project)).toBe(url);
                     expect(deployments().at(-1)!.id).not.toBe(firstDeployment);
                     expect(await (await fetch(url)).text()).toContain("republished oracle");
@@ -401,14 +401,15 @@ for (const trial of ["personal", "CI"] as const) {
                 const cli = join(project, "node_modules/@dylanebert/shallot/bin/shallot.ts");
                 const url = "https://individualkex.itch.io/shallot-publish-test";
                 const html = join(project, "index.html");
-                const change = () =>
-                    writeFileSync(
-                        html,
-                        readFileSync(html, "utf8").replace(
-                            "<title>minimal</title>",
-                            "<title>republished oracle</title>",
-                        ),
+                const change = () => {
+                    const before = readFileSync(html, "utf8");
+                    const after = before.replace(
+                        /<title>[^<]*<\/title>/,
+                        "<title>republished oracle</title>",
                     );
+                    expect(after, "Republish must change the scaffold title").not.toBe(before);
+                    writeFileSync(html, after);
+                };
                 const publish = (terminal: boolean) => {
                     const result = Bun.spawnSync({
                         ...bunChild([cli, "publish"]),
