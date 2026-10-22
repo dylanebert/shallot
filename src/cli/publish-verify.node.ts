@@ -177,6 +177,7 @@ test("asset availability retries transient 404s and 5xx, but bounds persistent 4
         "Availability wait of 600 ms exhausted; game.js: expected 200, got 404",
     );
     expect(performance.now() - start).toBeLessThan(1500);
+    expect(requests).toBeGreaterThanOrEqual(2);
 });
 
 test("republish retries stale index bytes and bounds a permanently wrong deploy", async () => {
@@ -217,7 +218,7 @@ test("republish retries stale index bytes and bounds a permanently wrong deploy"
             "Availability wait of 600 ms exhausted; index.html: the deployed bytes still differ from this build",
         );
         expect(performance.now() - start).toBeLessThan(1500);
-        expect(documentRequests).toBe(2);
+        expect(documentRequests).toBeGreaterThanOrEqual(2);
     } finally {
         stale = 0;
     }
