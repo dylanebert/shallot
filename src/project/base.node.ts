@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
-import { mkdtempSync, readFileSync, statSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
@@ -63,8 +63,26 @@ afterAll(async () => {
 });
 
 test("the verifier rejects physics after worker startup falls back to the single artifact", async () => {
-    directory = join(root, "physics-fallback");
-    await buildWeb(join(repo, "examples/physics"), { outDir: directory, stdout: 2 });
+    const project = join(root, "physics-fallback");
+    mkdirSync(project);
+    symlinkSync(join(repo, "node_modules"), join(project, "node_modules"), "junction");
+    writeFileSync(
+        join(project, "vite.config.mts"),
+        `export default { resolve: { alias: {
+            "fixture-app": ${JSON.stringify(join(repo, "src/engine/app/index.ts"))},
+            "fixture-physics": ${JSON.stringify(join(repo, "src/standard/physics/runtime.ts"))}
+        } } };`,
+    );
+    writeFileSync(
+        join(project, "index.html"),
+        `<link rel="icon" href="data:,"><script type="module">
+            import { runApp } from "fixture-app";
+            import { StandardPhysicsPlugin } from "fixture-physics";
+            await runApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
+        </script>`,
+    );
+    directory = join(project, "dist");
+    await buildWeb(project, { stdout: 2 });
     blockWorkers = true;
     try {
         await expect(
