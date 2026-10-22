@@ -158,10 +158,12 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           rustflags: ""
+      - name: fetch locked crates
+        run: cargo fetch --locked
       - name: audio tests
-        run: /usr/bin/time -p cargo test -p shallot-audio
+        run: /usr/bin/time -p cargo test --frozen -p shallot-audio
       - name: physics tests
-        run: /usr/bin/time -p cargo test -p shallot-physics
+        run: /usr/bin/time -p cargo test --frozen -p shallot-physics
 
   node:
     timeout-minutes: 20
@@ -209,6 +211,8 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           rustflags: ""
+      - name: fetch locked crates
+        run: cargo fetch --locked
       - run: bun install --frozen-lockfile
       - name: install Playwright Chromium
         run: bunx playwright install chromium
@@ -296,6 +300,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: install Playwright Chromium
         run: bunx playwright install chromium
+      - name: fetch locked crates
+        run: cargo fetch --locked
       - name: install the shared kernel's nightly
         run: rustup toolchain install "$(grep -m1 -oE 'nightly-[0-9-]+' crates/physics/scripts/build-kernel.ts)" --component rust-src --target wasm32-unknown-unknown
       - name: build checked kernels

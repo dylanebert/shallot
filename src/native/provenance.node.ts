@@ -45,6 +45,10 @@ beforeAll(() => {
         `[package]\nname="shallot-native"\nversion="0.10.0"\nedition="2021"\nbuild="build.rs"\n[dependencies]\ncef-dll-sys={path="../cef-dll-sys"}\n`,
     );
     writeFileSync(resolve(shell, "src/main.rs"), "fn main() {}\n");
+    writeFileSync(
+        resolve(shell, "Cargo.lock"),
+        `version = 4\n\n[[package]]\nname = "cef-dll-sys"\nversion = "154.2.0"\n\n[[package]]\nname = "shallot-native"\nversion = "0.10.0"\ndependencies = ["cef-dll-sys"]\n`,
+    );
     firstBuild = build(firstRuntime);
     console.info(
         JSON.stringify({
@@ -69,7 +73,7 @@ function runtime(name: string, contents: string) {
 function build(cefPath: string) {
     return execFileSync(
         "cargo",
-        ["build", "--offline", "--message-format=json-render-diagnostics"],
+        ["build", "--frozen", "--message-format=json-render-diagnostics"],
         {
             cwd: shell,
             encoding: "utf8",

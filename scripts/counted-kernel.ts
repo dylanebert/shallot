@@ -13,6 +13,7 @@ export async function countedKernelBytes(): Promise<ArrayBuffer> {
         [
             "cargo",
             "build",
+            "--frozen",
             "-p",
             "shallot-physics",
             "--release",
@@ -25,7 +26,10 @@ export async function countedKernelBytes(): Promise<ArrayBuffer> {
         ],
         { cwd: ROOT },
     );
-    if (build.exitCode !== 0) throw new Error(build.stderr.toString());
+    if (build.exitCode !== 0)
+        throw new Error(
+            `${build.stderr.toString()}\nCounted kernel requires fetched crates. Run cargo fetch --locked in ${ROOT}.`,
+        );
     return Bun.file(
         resolve(TARGET, "wasm32-unknown-unknown/release/shallot_physics.wasm"),
     ).arrayBuffer();
