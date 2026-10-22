@@ -97,15 +97,22 @@ its startup and loading checks are not hardware-play qualification.
 Cleanup and everything past publishing stay the provider's; Shallot adds no
 unpublish or list command. Run the project's pinned `bunx wrangler` from the
 project, substituting `shallot.publish.accountId` for `<account>` and `.name` for
-`<name>`:
+`<name>`. Each command uses the disposable config publish writes below
+`node_modules`, not a committed config. Never omit `--config`: an ancestor's
+config can override the account environment variable. Before running these
+commands, regenerate it from the current link:
+
+```bash
+bun -e 'const fs=require("node:fs"),l=require("./package.json").shallot.publish; if(l.target!=="cloudflare"||!l.accountId||!l.name)throw Error("Cloudflare link required"); fs.mkdirSync("node_modules/.cache/shallot",{recursive:true}); fs.writeFileSync("node_modules/.cache/shallot/wrangler.json",JSON.stringify({account_id:l.accountId,name:l.name}));'
+```
 
 | Request | Cloudflare command or page |
 | --- | --- |
-| Login | `CLOUDFLARE_ACCOUNT_ID=<account> bunx wrangler login` (add `--device` remotely) |
-| Preview locally | `CLOUDFLARE_ACCOUNT_ID=<account> bunx wrangler dev --assets <web-build-directory>` |
-| Roll back | `CLOUDFLARE_ACCOUNT_ID=<account> bunx wrangler rollback --name <name>` |
+| Login | `CLOUDFLARE_ACCOUNT_ID=<account> bunx wrangler login --config node_modules/.cache/shallot/wrangler.json` (add `--device` remotely) |
+| Preview locally | `CLOUDFLARE_ACCOUNT_ID=<account> bunx wrangler dev --config node_modules/.cache/shallot/wrangler.json --assets <web-build-directory>` |
+| Roll back | `CLOUDFLARE_ACCOUNT_ID=<account> bunx wrangler rollback --config node_modules/.cache/shallot/wrangler.json --name <name>` |
 | See what is published | `https://dash.cloudflare.com/<account>/workers/overview` lists every Worker in the account; Wrangler has no account-wide list command |
-| Take the game down | `CLOUDFLARE_ACCOUNT_ID=<account> bunx wrangler delete --name <name>` |
+| Take the game down | `CLOUDFLARE_ACCOUNT_ID=<account> bunx wrangler delete --config node_modules/.cache/shallot/wrangler.json --name <name>` |
 
 Confirm with the person before deleting. Wrangler auto-confirms without a TTY or
 in CI: it will not ask an agent. Deletion cannot be undone. With the least token,

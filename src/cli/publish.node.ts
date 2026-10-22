@@ -18,7 +18,12 @@ import { bunChild } from "../../scripts/bun-child";
 import { packedInstall } from "../../scripts/packed-install-spawn";
 import { publishTestChromium } from "../../scripts/publish-browser";
 import { removeTestDirectory } from "../../scripts/test-directory";
-import { cloudflareConfig, resolveWrangler, WRANGLER_VERSION } from "./publish-cloudflare";
+import {
+    cloudflareConfig,
+    providerConfig,
+    resolveWrangler,
+    WRANGLER_VERSION,
+} from "./publish-cloudflare";
 import { verifyPublishedGame } from "./publish-verify";
 
 setDefaultTimeout(TIMEOUT.node);
@@ -211,6 +216,31 @@ for (const template of ["minimal", "physics"])
         expect(dry.exitCode, `${dry.stdout}\n${dry.stderr}`).toBe(0);
         expect(dry.stdout.toString()).toContain("--dry-run: exiting now");
         if (template === "minimal") {
+            const ancestor = join(root, "wrangler.json");
+            // biome-ignore lint/style/useNamingConvention: Wrangler owns its configuration field names.
+            const conflicting = { name: link.name, account_id: "b".repeat(32) };
+            writeFileSync(ancestor, JSON.stringify(conflicting));
+            const guidance = providerConfig(scaffold, link);
+            const probe = (explicit: boolean) => {
+                const result = Bun.spawnSync(
+                    [
+                        "node",
+                        "-e",
+                        `const {unstable_readConfig}=require(${JSON.stringify(join(scaffold, "node_modules/wrangler/wrangler-dist/cli.js"))}); console.log(unstable_readConfig(${JSON.stringify(explicit ? { config: guidance } : {})}).account_id);`,
+                    ],
+                    {
+                        cwd: scaffold,
+                        env: { ...env, CLOUDFLARE_ACCOUNT_ID: link.accountId },
+                        stdout: "pipe",
+                        stderr: "pipe",
+                    },
+                );
+                expect(result.exitCode, result.stderr.toString()).toBe(0);
+                return result.stdout.toString().trim();
+            };
+            // The old environment-only guidance resolves the ancestor's account.
+            expect(probe(false)).toBe(conflicting.account_id);
+            expect(probe(true)).toBe(link.accountId);
             for (const args of [
                 ["login", "--help"],
                 ["login", "--device", "--help"],
@@ -218,12 +248,15 @@ for (const template of ["minimal", "physics"])
                 ["rollback", "--name", link.name, "--help"],
                 ["delete", "--name", link.name, "--dry-run"],
             ]) {
-                const parsed = Bun.spawnSync(["node", wrangler, ...args], {
-                    cwd: scaffold,
-                    env: { ...env, CLOUDFLARE_ACCOUNT_ID: link.accountId },
-                    stdout: "pipe",
-                    stderr: "pipe",
-                });
+                const parsed = Bun.spawnSync(
+                    ["node", wrangler, args[0]!, "--config", guidance, ...args.slice(1)],
+                    {
+                        cwd: scaffold,
+                        env: { ...env, CLOUDFLARE_ACCOUNT_ID: link.accountId },
+                        stdout: "pipe",
+                        stderr: "pipe",
+                    },
+                );
                 expect(
                     parsed.exitCode,
                     `${args.join(" ")}: ${parsed.stdout}\n${parsed.stderr}`,
@@ -232,6 +265,7 @@ for (const template of ["minimal", "physics"])
                     expect(parsed.stdout.toString()).toContain("--dry-run: exiting now");
             }
         }
+        writeFileSync(config, JSON.stringify(cloudflareConfig(directory, link)));
         const port = await freePort();
         const child = spawn(
             "node",

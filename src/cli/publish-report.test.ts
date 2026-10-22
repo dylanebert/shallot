@@ -96,18 +96,23 @@ for (const target of ["cloudflare", "itch"] as const) {
                     expect(report).toContain("Preview: ");
                     expect(report).toContain("Unpublish: ");
                     if (target === "cloudflare") {
+                        expect(report).toContain('--config "');
+                        expect(report).toContain("Confirm with the person before deleting");
                         for (const command of [
                             "dev --assets <web-build-directory>",
                             `rollback --name ${name}`,
                             `delete --name ${name}`,
                         ])
                             expect(report).toContain(
-                                `CLOUDFLARE_ACCOUNT_ID=${accountId} bunx wrangler ${command}`,
+                                `CLOUDFLARE_ACCOUNT_ID=${accountId} bunx wrangler ${command.split(" ")[0]} --config "${join(directory, "node_modules/.cache/shallot/wrangler.json")}" ${command.split(" ").slice(1).join(" ")}`,
                             );
                         expect(report).toContain(
                             `Workers (all in this account): https://dash.cloudflare.com/${accountId}/workers/overview`,
                         );
                     } else {
+                        expect(report).toContain(
+                            "Confirm with the person before taking the page down",
+                        );
                         expect(report).toContain('Login: "fixture-butler" login');
                         expect(report).toContain(`Status: "fixture-butler" status ${name}`);
                         expect(report).toContain(

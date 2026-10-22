@@ -1,8 +1,17 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { publishProgress } from "./publish-output";
+
+/** Writes disposable provider guidance config outside committed project files. */
+export function providerConfig(projectDir: string, link: CloudflareLink): string {
+    const path = join(projectDir, "node_modules/.cache/shallot/wrangler.json");
+    mkdirSync(dirname(path), { recursive: true });
+    // biome-ignore lint/style/useNamingConvention: Wrangler owns its configuration field names.
+    writeFileSync(path, JSON.stringify({ name: link.name, account_id: link.accountId }));
+    return path;
+}
 
 export const WRANGLER_VERSION: string = JSON.parse(
     readFileSync(new URL("../../package.json", import.meta.url), "utf8"),

@@ -14,6 +14,7 @@ import {
     type CloudflareLink,
     cloudflareConfig,
     cloudflareDeployment,
+    providerConfig,
     resolveWrangler,
     runWrangler,
     WRANGLER_VERSION,
@@ -362,7 +363,10 @@ const targets: {
                     }
                 },
                 get commands() {
-                    return `Preview: CLOUDFLARE_ACCOUNT_ID=${accountId} bunx wrangler dev --assets <web-build-directory>\nRollback: CLOUDFLARE_ACCOUNT_ID=${accountId} bunx wrangler rollback --name ${name}\nUnpublish: CLOUDFLARE_ACCOUNT_ID=${accountId} bunx wrangler delete --name ${name}\nWorkers (all in this account): https://dash.cloudflare.com/${accountId}/workers/overview`;
+                    const config = providerConfig(projectDir, link);
+                    const command = `CLOUDFLARE_ACCOUNT_ID=${accountId} bunx wrangler`;
+                    const configFlag = `--config "${config}"`;
+                    return `Preview: ${command} dev ${configFlag} --assets <web-build-directory>\nRollback: ${command} rollback ${configFlag} --name ${name}\nConfirm with the person before deleting: Wrangler asks nothing without a TTY or in CI.\nUnpublish: ${command} delete ${configFlag} --name ${name}\nWorkers (all in this account): https://dash.cloudflare.com/${accountId}/workers/overview`;
                 },
             };
         },
@@ -432,7 +436,7 @@ const targets: {
                         buildUrl: itchBuildUrl(live.uploadId, live.buildId),
                     };
                 },
-                commands: `Login: "${butler}" login\nPreview: bun run preview\nStatus: "${butler}" status ${project}\nRollback: check out an earlier commit, then bunx shallot publish --target itch\nUnpublish: https://itch.io/dashboard, Edit ${project.split("/")[1]}, set Visibility to Draft\n${itchPageSettings(project)}`,
+                commands: `Login: "${butler}" login\nPreview: bun run preview\nStatus: "${butler}" status ${project}\nRollback: check out an earlier commit, then bunx shallot publish --target itch\nConfirm with the person before taking the page down.\nUnpublish: https://itch.io/dashboard, Edit ${project.split("/")[1]}, set Visibility to Draft\n${itchPageSettings(project)}`,
             };
         },
     },
