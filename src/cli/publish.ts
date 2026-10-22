@@ -10,6 +10,8 @@ import type { Browser } from "playwright";
 import { buildWeb, CROSS_ORIGIN_ISOLATION } from "../project";
 import {
     type CloudflareLink,
+    CLOUDFLARE_LOGIN_ARGS,
+    CLOUDFLARE_LOGIN_DISCLOSURE,
     cloudflareConfig,
     cloudflareDeployment,
     resolveWrangler,
@@ -263,13 +265,11 @@ const targets: {
                     throw new Error(
                         "Cloudflare login is missing. Set CLOUDFLARE_API_TOKEN for non-interactive publish; run wrangler login in a terminal (wrangler login --device for a remote session).",
                     );
-                publishProgress(
-                    "Cloudflare login is required. For a remote session, use wrangler login --device.",
-                );
+                publishProgress(CLOUDFLARE_LOGIN_DISCLOSURE);
                 if (
                     run(
                         [
-                            "login",
+                            ...CLOUDFLARE_LOGIN_ARGS,
                             ...(process.env.SSH_CONNECTION || process.env.SSH_TTY
                                 ? ["--device"]
                                 : []),

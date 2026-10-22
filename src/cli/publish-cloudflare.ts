@@ -6,6 +6,18 @@ import { dirname, join, resolve } from "node:path";
 export const WRANGLER_VERSION: string = JSON.parse(
     readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
 ).peerDependencies.wrangler;
+// Wrangler packages/wrangler/src/user/commands.ts:38–40,145–167 accepts --scopes;
+// Wrangler adds offline_access itself.
+export const CLOUDFLARE_LOGIN_ARGS = [
+    "login",
+    "--scopes",
+    "account:read",
+    "user:read",
+    "workers_scripts:write",
+];
+export const CLOUDFLARE_LOGIN_DISCLOSURE =
+    "Cloudflare login requests account:read, user:read and workers_scripts:write; Wrangler adds offline_access. This is Wrangler's own login, shared with other Wrangler use. Other work may need wrangler login again. For a remote session, use wrangler login --device.";
+
 export interface CloudflareLink {
     target: "cloudflare";
     name: string;
