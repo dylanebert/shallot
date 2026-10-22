@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { gpuApps, gpuScene } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
 import {
     AmbientLight,
@@ -23,7 +23,6 @@ import { Fog, FogPlugin } from ".";
 
 setDefaultTimeout(TIMEOUT.node);
 const subjects = gpuApps(import.meta.path, [
-    { defaults: false, plugins: [...DEFAULT_PLUGINS, FogPlugin] },
     { defaults: false, plugins: [...DEFAULT_PLUGINS, FogPlugin] },
 ]);
 
@@ -87,33 +86,44 @@ test("a sub-160×90 view caps its fog grid to its pixels and matches Beer-Lamber
     world.destroy(fog);
 });
 
+const skyScene = gpuScene(
+    import.meta.path,
+    { defaults: false, plugins: [...DEFAULT_PLUGINS, FogPlugin] },
+    (world) => {
+        const camera = world.create();
+        world.add(camera, Transform);
+        world.add(camera, Camera, { near: 2, far: 100, fov: 60, clearColor: 0, antialias: 0 });
+        world.add(camera, StandardRenderer);
+        world.add(camera, Tonemapping, { method: TonemappingMethod.None });
+        attachTexture(world, camera, { width: 32, height: 32 });
+        const surface = world.create();
+        world.add(surface, Transform, { translation: [10, 0, -60, 0], scale: [20, 20, 1, 0] });
+        world.add(surface, MeshInstance);
+        world.add(
+            surface,
+            MeshMaterial,
+            world.resource(Materials).add(StandardMaterial({ baseColor: [0, 0, 0, 1] })),
+        );
+        const fog = world.create();
+        world.add(fog, Fog, {
+            color: 0xffffff,
+            density: 0.02,
+            absorption: 0,
+            scattering: 1,
+            // Only the medium's own light: its haze is color · (1 − T).
+            lightIntensity: 0,
+            viewDistance: 8,
+        });
+        world.storage(Fog).maxDistance.set(fog, 30);
+        return { camera, surface, fog };
+    },
+);
+
 test("clear sky ends at maxDistance and farther surfaces take the same ray-length haze", async () => {
-    const { world } = subjects()[1]!;
-    const camera = world.create();
-    world.add(camera, Transform);
-    world.add(camera, Camera, { near: 2, far: 100, fov: 60, clearColor: 0, antialias: 0 });
-    world.add(camera, StandardRenderer);
-    world.add(camera, Tonemapping, { method: TonemappingMethod.None });
-    attachTexture(world, camera, { width: 32, height: 32 });
-    const surface = world.create();
-    world.add(surface, Transform, { translation: [10, 0, -60, 0], scale: [20, 20, 1, 0] });
-    world.add(surface, MeshInstance);
-    world.add(
-        surface,
-        MeshMaterial,
-        world.resource(Materials).add(StandardMaterial({ baseColor: [0, 0, 0, 1] })),
-    );
-    const fog = world.create();
-    world.add(fog, Fog, {
-        color: 0xffffff,
-        density: 0.02,
-        absorption: 0,
-        scattering: 1,
-        // Only the medium's own light: its haze is color · (1 − T).
-        lightIntensity: 0,
-        viewDistance: 8,
-    });
-    world.storage(Fog).maxDistance.set(fog, 30);
+    const {
+        world,
+        scene: { camera, surface, fog },
+    } = skyScene();
     for (const distance of [30, 8, 4, 1, 0, -1]) {
         if (distance !== 30) world.storage(Fog).maxDistance.set(fog, distance);
         world.step(0);

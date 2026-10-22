@@ -21,9 +21,18 @@ setDefaultTimeout(TIMEOUT.node);
 const config: TerrainConfig = { chunkSize: 8, viewDistance: 1, height: 16, relief: 4 };
 let app: Awaited<ReturnType<typeof createApp>>;
 beforeAll(async () => {
-    app = await openGpuApp({ plugins: [terrainPlugin(config)] });
+    app = await openGpuApp({
+        plugins: [
+            {
+                name: "CaptureTerrain",
+                dependencies: [terrainPlugin(config)],
+                initialize(world) {
+                    attachTexture(world, world.resource(Terrain).camera, { width: 16, height: 16 });
+                },
+            },
+        ],
+    });
     console.log("voxel adapter", app.world.gpu.adapter);
-    attachTexture(app.world, app.world.resource(Terrain).camera, { width: 16, height: 16 });
     app.world.step(1 / 60);
 });
 afterAll(() => app?.dispose());

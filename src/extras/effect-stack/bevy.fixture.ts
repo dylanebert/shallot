@@ -27,6 +27,7 @@ function shader(): string {
 export async function bevyPipeline(world: World): Promise<GPURenderPipeline> {
     const module = world.gpu.device.createShaderModule({ code: shader() });
     return world.gpu.device.createRenderPipelineAsync({
+        label: "bevy-effect-stack",
         layout: "auto",
         vertex: { module, entryPoint: "fullscreen_vertex_shader" },
         fragment: { module, entryPoint: "fragment_main", targets: [{ format: "rgba16float" }] },

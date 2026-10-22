@@ -168,6 +168,11 @@ export class World {
         return this._gpu;
     }
 
+    /** Diagnostic identity of the system executing synchronously, including setup; absent outside the schedule. */
+    get currentSystem(): string | undefined {
+        return this._scheduler.currentSystem;
+    }
+
     /** @internal GPU context for lifecycle code that must also run without a device. */
     get gpuIfAvailable(): WorldGpu | undefined {
         return this._gpu;

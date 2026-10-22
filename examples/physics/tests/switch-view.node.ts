@@ -12,6 +12,7 @@ import { createViewer, GrabFeedback } from "../src/view";
 setDefaultTimeout(TIMEOUT.node);
 
 test("scene presentation releases old meshes, systems and grab feedback in the running app", async () => {
+    const Viewer = { create: createViewer };
     const app = await openGpuApp({
         plugins: [
             StandardPhysicsPlugin,
@@ -21,11 +22,18 @@ test("scene presentation releases old meshes, systems and grab feedback in the r
             OrbitPlugin,
             LinesPlugin,
             GrabPlugin,
+            {
+                name: "SampleViewer",
+                dependencies: [OrbitPlugin],
+                initialize(world) {
+                    world.resource(Viewer);
+                },
+            },
         ],
     });
     try {
         const world = app.world;
-        const select = sceneSwitcher(world, createViewer(world));
+        const select = sceneSwitcher(world, world.resource(Viewer));
         for (const scene of Object.keys(scenes) as Scene[]) {
             select(scene);
             const meshes = world.resource(Meshes);

@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { gpuScene } from "../../../scripts/gpu.fixture";
 import type { World } from "../../engine";
 import { drawLine, Gizmo, GizmoAsset, LinesPlugin, registerGizmo } from "../../extras/lines";
 import { internText, registerFont, Text, TextPlugin } from "../../extras/text";
@@ -28,7 +28,8 @@ import {
 
 setDefaultTimeout(TIMEOUT.node);
 let font = 0;
-const subjects = gpuApps(import.meta.path, [
+const subject = gpuScene(
+    import.meta.path,
     {
         defaults: false,
         plugins: [TextPlugin, LinesPlugin, MeshRenderPlugin, StandardRenderingPlugin],
@@ -39,7 +40,21 @@ const subjects = gpuApps(import.meta.path, [
             );
         },
     },
-]);
+    (world) => {
+        const camera = createCamera(world);
+        const farMaterial = world
+            .resource(Materials)
+            .add(StandardMaterial({ baseColor: [1, 0.2, 0.1, 0.25], unlit: true }), {
+                alphaMode: AlphaMode.Blend,
+            });
+        const nearMaterial = world
+            .resource(Materials)
+            .add(StandardMaterial({ baseColor: [0.1, 0.2, 1, 0.5], unlit: true }), {
+                alphaMode: AlphaMode.Blend,
+            });
+        return { camera, farMaterial, nearMaterial };
+    },
+);
 
 function createCamera(world: World) {
     const eid = world.create();
@@ -68,8 +83,10 @@ function differsAt(first: Uint8ClampedArray, second: Uint8ClampedArray, offset: 
 }
 
 test("standard, text and line renderers alternate in one phase; text and lines do not write transparent depth", async () => {
-    const { world } = subjects()[0];
-    const camera = createCamera(world);
+    const {
+        world,
+        scene: { camera, farMaterial, nearMaterial },
+    } = subject();
     const blank = await readFrame(world, camera);
 
     const label = world.create();
@@ -96,11 +113,6 @@ test("standard, text and line renderers alternate in one phase; text and lines d
     world.add(line, Gizmo, { handle: registerGizmo(world, asset), width: 12 });
     const textAndLines = await readFrame(world, camera);
 
-    const farMaterial = world
-        .resource(Materials)
-        .add(StandardMaterial({ baseColor: [1, 0.2, 0.1, 0.25], unlit: true }), {
-            alphaMode: AlphaMode.Blend,
-        });
     const farPane = world.create();
     world.add(farPane, Transform, {
         translation: [2, 0, -1.5, 0],
@@ -149,11 +161,6 @@ test("standard, text and line renderers alternate in one phase; text and lines d
         vertices,
         indices: new Uint32Array([0, 1, 2, 0, 2, 3]),
     });
-    const nearMaterial = world
-        .resource(Materials)
-        .add(StandardMaterial({ baseColor: [0.1, 0.2, 1, 0.5], unlit: true }), {
-            alphaMode: AlphaMode.Blend,
-        });
     const nearPane = world.create();
     world.add(nearPane, Transform, { translation: [0, 0, -0.7, 0] });
     world.add(nearPane, MeshInstance, { mesh });

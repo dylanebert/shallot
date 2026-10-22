@@ -23,9 +23,18 @@ let app: Awaited<ReturnType<typeof createApp>>;
 let untimed: Awaited<ReturnType<typeof createApp>>;
 let untimedDevice: GPUDevice;
 beforeAll(async () => {
-    app = await openGpuApp({ plugins: [MotesPlugin] });
+    app = await openGpuApp({
+        plugins: [
+            {
+                name: "CaptureMotes",
+                dependencies: [MotesPlugin],
+                initialize(world) {
+                    attachTexture(world, world.resource(Room).camera, { width: 64, height: 64 });
+                },
+            },
+        ],
+    });
     console.log("particles adapter", app.world.gpu.adapter);
-    attachTexture(app.world, app.world.resource(Room).camera, { width: 64, height: 64 });
     app.world.step(1 / 60);
     app.world.step(1 / 60);
     const adapter = await navigator.gpu.requestAdapter();
@@ -33,10 +42,24 @@ beforeAll(async () => {
     untimedDevice = await adapter.requestDevice({
         requiredFeatures: ["indirect-first-instance"],
     });
-    untimed = await openGpuApp({ plugins: [MotesPlugin], device: untimedDevice, adapter });
-    attachTexture(untimed.world, untimed.world.resource(Room).camera, {
-        width: 2048,
-        height: 2048,
+    untimed = await openGpuApp({
+        plugins: [
+            {
+                name: "CaptureMoteImages",
+                dependencies: [MotesPlugin],
+                initialize(world) {
+                    const camera = world.resource(Room).camera;
+                    attachTexture(world, camera, { width: 2048, height: 2048 });
+                    if (!world.has(camera, AmbientLight)) world.add(camera, AmbientLight);
+                    world.storage(AmbientLight).brightness.set(camera, 0);
+                    world.storage(Exposure).ev100.set(camera, 5);
+                    if (!world.has(camera, Tonemapping)) world.add(camera, Tonemapping);
+                    world.storage(Tonemapping).method.set(camera, TonemappingMethod.None);
+                },
+            },
+        ],
+        device: untimedDevice,
+        adapter,
     });
 });
 afterAll(async () => {
@@ -131,11 +154,6 @@ test("without timestamp-query the example draws and reports requires timestamp-q
 /** One mote alone in a scene each geometry test sets for itself, since hosts run tests one at a time. */
 function moteImages(world: typeof untimed.world) {
     const camera = world.resource(Room).camera;
-    if (!world.has(camera, AmbientLight)) world.add(camera, AmbientLight);
-    world.storage(AmbientLight).brightness.set(camera, 0);
-    world.storage(Exposure).ev100.set(camera, 5);
-    if (!world.has(camera, Tonemapping)) world.add(camera, Tonemapping);
-    world.storage(Tonemapping).method.set(camera, TonemappingMethod.None);
     const motes = world.resource(Motes);
     const positions = new Float32Array(MOTE_COUNT * 4);
     // All other instances stay outside the room and the view.

@@ -3,7 +3,7 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { gpuScene } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
 import {
     attachTexture,
@@ -14,7 +14,7 @@ import {
     PointLight,
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
-import { lookAtRotation, type Plugin, type World } from "../../engine";
+import { lookAtRotation, type Plugin, precompile, type World } from "../../engine";
 import { probeBuffer } from "../../engine/runtime";
 import { pointAtlasView, sunShadowView } from "./atlas";
 import { StandardRenderer } from "./forward";
@@ -59,40 +59,62 @@ const depthCount = tgpu
 }`)
     .$uses({ bound: depthLayout.$ });
 const depthProbe = {
-    create: (world: World) =>
-        world.gpu.root.unwrap(world.gpu.root.createComputePipeline({ compute: depthCount })),
+    create(world: World) {
+        const pipeline = world.gpu.root
+            .createComputePipeline({ compute: depthCount })
+            .$name("material-shadow-depth-probe");
+        precompile(world, "material-shadow-depth-probe", () => [pipeline]);
+        return world.gpu.root.unwrap(pipeline);
+    },
 };
-const subjects = gpuApps(import.meta.path, [{ defaults: false, plugins: [CutoutPlugin] }]);
-
+const subject = gpuScene(
+    import.meta.path,
+    { defaults: false, plugins: [CutoutPlugin] },
+    (world) => {
+        const device = world.gpu.device;
+        const camera = world.create();
+        world.add(camera, Transform, { translation: [0, 0, 5, 0] });
+        world.add(camera, Camera);
+        world.add(camera, StandardRenderer);
+        attachTexture(world, camera, { width: 16, height: 16 });
+        const caster = world.create();
+        world.add(caster, Transform);
+        world.add(caster, MeshInstance);
+        const materials = world.resource(CutoutMaterial);
+        const values = { color: d.vec4f(1, 0, 0, 1) };
+        const initial = materials.add(values, { alphaMode: AlphaMode.Mask(0.5) });
+        world.add(caster, MeshMaterial, initial);
+        const sun = world.create();
+        world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, -0.4, -0.8, -0.5) });
+        world.add(sun, DirectionalLight);
+        world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
+        const point = world.create();
+        world.add(point, Transform, { translation: [2, 2, 3, 0] });
+        world.add(point, PointLight, { intensity: 315225.92, range: 10 });
+        world.storage(PointLight).shadowMapsEnabled.set(point, 1);
+        const counts = device.createBuffer({
+            size: 8,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+        });
+        world.own(counts);
+        const pipeline = world.resource(depthProbe);
+        return {
+            world,
+            device,
+            camera,
+            caster,
+            materials,
+            values,
+            initial,
+            counts,
+            pipeline,
+        };
+    },
+);
 test("NotShadowCaster preserves visibility and peers' shadows; shadow materials survive table growth", async () => {
-    const { world } = subjects()[0];
-    const device = world.gpu.device;
-    const camera = world.create();
-    world.add(camera, Transform, { translation: [0, 0, 5, 0] });
-    world.add(camera, Camera);
-    world.add(camera, StandardRenderer);
-    attachTexture(world, camera, { width: 16, height: 16 });
-    const caster = world.create();
-    world.add(caster, Transform);
-    world.add(caster, MeshInstance);
-    const materials = world.resource(CutoutMaterial);
-    const values = { color: d.vec4f(1, 0, 0, 1) };
-    const initial = materials.add(values, { alphaMode: AlphaMode.Mask(0.5) });
-    world.add(caster, MeshMaterial, initial);
-    const sun = world.create();
-    world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, -0.4, -0.8, -0.5) });
-    world.add(sun, DirectionalLight);
-    world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
-    const point = world.create();
-    world.add(point, Transform, { translation: [2, 2, 3, 0] });
-    world.add(point, PointLight, { intensity: 315225.92, range: 10 });
-    world.storage(PointLight).shadowMapsEnabled.set(point, 1);
-    const counts = device.createBuffer({
-        size: 8,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
-    });
-    world.own(counts);
-    const pipeline = world.resource(depthProbe);
+    const {
+        scene: { world, device, camera, caster, materials, values, initial, counts, pipeline },
+    } = subject();
     async function occupied() {
         device.pushErrorScope("validation");
         world.step(0);

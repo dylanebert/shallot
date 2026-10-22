@@ -5,11 +5,13 @@ import { Draws } from '@dylanebert/shallot/standard/rendering';
 import { PhysicsWorldDefinition } from '@dylanebert/shallot/standard/physics';
 import { Scene, ScenePlugin } from '../src/scene';
 import { LocalPlayer, Player } from '../src/player';
-const app=await createApp({plugins:[ScenePlugin, {name:'CheckPhysics',initialize(world){world.resource(PhysicsWorldDefinition).workerCount=1;}}]});
+const app=await createApp({plugins:[{name:'SteppedScene',dependencies:[ScenePlugin],initialize(w){
+ const s=w.resource(Scene);
+ const target=attachTexture(w,s.camera,{width:640,height:360});attachTexture(w,s.modelCamera,target);
+ for(const eid of [s.camera,s.modelCamera])w.storage(Camera).antialias.set(eid,0);
+}}, {name:'CheckPhysics',initialize(world){world.resource(PhysicsWorldDefinition).workerCount=1;}}]});
 const w=app.world,s=w.resource(Scene),canvas=document.querySelector('canvas');
 w.storage(Player).gravity.set(s.player,0);
-const target=attachTexture(w,s.camera,{width:640,height:360});attachTexture(w,s.modelCamera,target);
-for(const eid of [s.camera,s.modelCamera])w.storage(Camera).antialias.set(eid,0);
 async function image(){ w.step(0); return (await captureTexture(w,s.camera)).rgba; }
 function position(z){
  setTransform(w,s.player,[0,0.9,z],[0,0,0,1]);

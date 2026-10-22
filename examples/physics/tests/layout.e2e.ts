@@ -1,7 +1,9 @@
-import { holdFrames } from "@dylanebert/shallot/testing";
+import { holdFrames, pipelineWarnings } from "@dylanebert/shallot/testing";
 import { type Browser, expect, type Page, test } from "playwright/test";
 import { formatValue } from "../src/control-format";
 import { categories, type Scene, scenes } from "../src/scenes";
+
+test.use(pipelineWarnings);
 
 // Each group's read-only claims share one page whose frames are held: scene switches and DOM reads need no
 // draw, and every action on a running scene would otherwise wait on one.

@@ -1,6 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
+import { expectWarning } from "../../../scripts/test-console";
 import { Meshes, MeshInstance } from "../../core/mesh";
 import { attachTexture, Camera, captureTexture } from "../../core/rendering";
 import { Transform } from "../../core/transform";
@@ -185,6 +186,9 @@ test("draws are registered only for the alpha keys a material type's rows use, a
     expect(world.resource(Draws).size).toBe(types * meshes);
     expect(await coveredPixels(world, camera)).toBeGreaterThan(100);
 
+    expectWarning(
+        /Pipeline "standard-StandardMaterial-2" owned by "CorePipeline\/1" created after the precompile drain\./,
+    );
     const blended = world
         .resource(Materials)
         .add(StandardMaterial({ emissive: [1, 1, 1] }), { alphaMode: AlphaMode.Blend });

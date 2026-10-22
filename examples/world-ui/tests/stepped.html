@@ -8,14 +8,15 @@ import { createApp, Camera, DirectionalLight, GlobalTransform, Sprite, Orbit, qR
 import { captureFrame, worldToViewport } from '@dylanebert/shallot/rendering';
 import { DirectionalLightShadowMap } from '@dylanebert/shallot/standard/rendering';
 import { assets, Delivery, DeliveryPlugin } from '../src/delivery';
-const app = await createApp({ plugins: [DeliveryPlugin], setup: assets });
+const app = await createApp({ plugins: [{name:'SteppedScene',dependencies:[DeliveryPlugin],initialize(world){
+ if(!new URLSearchParams(location.search).has('captures')){
+  world.storage(Camera).antialias.set(world.resource(Delivery).camera,0);
+  world.resource(DirectionalLightShadowMap).size=512;
+  for(const sun of world.query([DirectionalLight]))world.storage(DirectionalLight).numCascades.set(sun,1);
+ }
+}}], setup: assets });
 const world = app.world;
 const canvas = document.querySelector('canvas');
-if(!new URLSearchParams(location.search).has('captures')){
- world.storage(Camera).antialias.set(world.resource(Delivery).camera,0);
- world.resource(DirectionalLightShadowMap).size=512;
- for(const sun of world.query([DirectionalLight]))world.storage(DirectionalLight).numCascades.set(sun,1);
-}
 for (let i = 0; i < 3; i++) world.step(0);
 function xyz(eid) {
     const p = world.storage(GlobalTransform).translation;

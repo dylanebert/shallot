@@ -142,3 +142,74 @@ export async function holdFrames(page, ready) {
             ),
     };
 }
+
+/** Playwright fixtures: `test.use(pipelineWarnings)` fails on late pipelines, including manually created pages. */
+export const pipelineWarnings = {
+    /**
+     * @param {{ browser: import("playwright/test").Browser }} fixtures
+     * @param {(browser: import("playwright/test").Browser) => Promise<void>} use
+     */
+    browser: async ({ browser }, use) => {
+        /** @type {string[]} */
+        const warnings = [];
+        /** @type {Set<import("playwright/test").BrowserContext>} */
+        const contexts = new Set();
+        /** @param {import("playwright/test").ConsoleMessage} message */
+        const onConsole = (message) => {
+            if (message.type() === "warning" && message.text().startsWith("[shallot] Pipeline ") &&
+                message.text().includes("created after the precompile drain.")) warnings.push(message.text());
+        };
+        /** @param {import("playwright/test").BrowserContext} context */
+        const watch = (context) => {
+            if (!contexts.has(context)) {
+                contexts.add(context);
+                context.on("console", onConsole);
+                context.once("close", () => contexts.delete(context));
+            }
+            return context;
+        };
+        /** @type {import("playwright/test").Browser["newContext"]} */
+        const newContext = async (options) => watch(await browser.newContext(options));
+        /** @type {import("playwright/test").Browser["newPage"]} */
+        const newPage = async (options) => {
+            const page = await browser.newPage(options);
+            watch(page.context());
+            return page;
+        };
+        const guarded = new Proxy(browser, {
+            get(target, key) {
+                if (key === "newContext") return newContext;
+                if (key === "newPage") return newPage;
+                const value = Reflect.get(target, key, target);
+                return typeof value === "function" ? value.bind(target) : value;
+            },
+        });
+        try {
+            await use(guarded);
+        } finally {
+            for (const context of contexts) context.off("console", onConsole);
+            if (warnings.length) throw new Error(warnings.join("\n"));
+        }
+    },
+    /**
+     * @param {{ page: import("playwright/test").Page }} fixtures
+     * @param {(page: import("playwright/test").Page) => Promise<void>} use
+     */
+    page: async ({ page }, use) => {
+        /** @type {string[]} */
+        const warnings = [];
+        /** @param {import("playwright/test").ConsoleMessage} message */
+        const onConsole = (message) => {
+            if (message.type() === "warning" && message.text().startsWith("[shallot] Pipeline ") &&
+                message.text().includes("created after the precompile drain.")) warnings.push(message.text());
+        };
+        const context = page.context();
+        context.on("console", onConsole);
+        try {
+            await use(page);
+        } finally {
+            context.off("console", onConsole);
+            if (warnings.length) throw new Error(warnings.join("\n"));
+        }
+    },
+};

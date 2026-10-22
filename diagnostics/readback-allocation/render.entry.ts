@@ -1,6 +1,6 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
-import { Meshes, createApp, Camera, StandardRenderer, Transform, AmbientLight, PointLight, MeshInstance, DirectionalLight, SpotLight } from "../../src/index";
+import { Meshes, createApp, Camera, StandardRenderer, Transform, AmbientLight, PointLight, MeshInstance, DirectionalLight, SpotLight, type World } from "../../src/index";
 import { LinesPlugin, drawLine, drawArrow, drawWireBox, GizmoAsset, Gizmo, registerGizmo } from "../../src/extras/lines";
 import { ProfilePlugin } from "../../src/extras/profile";
 import { BackgroundContext, backgroundLayout, CameraBackground, registerProducerTable, Materials, StandardMaterial, registerBackground } from "../../src/standard/rendering";
@@ -42,18 +42,7 @@ export default async function create(input = "", device?: GPUDevice) {
     }
     const resizeObserver = Object.getOwnPropertyDescriptor(globalThis, "ResizeObserver");
     globalThis.ResizeObserver = class { observe() {} disconnect() {} unobserve() {} } as unknown as typeof ResizeObserver;
-    const app = await createApp({ plugins: [LinesPlugin], device });
-    const world = app.world;
-    const lost = world.gpu.device.lost.then((info) => {
-        throw new Error(`render allocation device lost: ${info.message}`);
-    });
-    void lost.catch(() => {});
-    let validation: GPUError | undefined;
-    let failValidation!: (error: GPUError) => void;
-    const failed = new Promise<never>((_, reject) => { failValidation = reject; });
-    void failed.catch(() => {});
-    const onError = (event: GPUUncapturedErrorEvent) => { validation ??= event.error; failValidation(validation); };
-    world.gpu.device.addEventListener("uncapturederror", onError);
+    const initialize = (world: World) => {
     let context: CanvasContext;
     const canvas = {
         width: 32, height: 24, style: { imageRendering: "auto" },
@@ -129,6 +118,25 @@ export default async function create(input = "", device?: GPUDevice) {
         world.storage(Transform).translation.set(gizmo, (frame++ % 60) / 60, 0.2, 0.3);
     };
     compose();
+    return { context, compose };
+    };
+    let scene!: ReturnType<typeof initialize>;
+    const app = await createApp({ plugins: [LinesPlugin, {
+        name: "AllocationScene", dependencies: [LinesPlugin],
+        initialize(world) { scene = initialize(world); },
+    }], device });
+    const world = app.world;
+    const { context, compose } = scene;
+    const lost = world.gpu.device.lost.then((info) => {
+        throw new Error(`render allocation device lost: ${info.message}`);
+    });
+    void lost.catch(() => {});
+    let validation: GPUError | undefined;
+    let failValidation!: (error: GPUError) => void;
+    const failed = new Promise<never>((_, reject) => { failValidation = reject; });
+    void failed.catch(() => {});
+    const onError = (event: GPUUncapturedErrorEvent) => { validation ??= event.error; failValidation(validation); };
+    world.gpu.device.addEventListener("uncapturederror", onError);
     world.step(1 / 60);
     if (world.resource(RenderContext).shadeCount === 0) throw new Error("allocation subject did not render a shaded view");
     return {

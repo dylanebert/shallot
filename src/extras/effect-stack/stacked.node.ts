@@ -1,7 +1,7 @@
-import { beforeAll, expect, setDefaultTimeout, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { Vignette as LegacyVignette, VignettePlugin } from "@dylanebert/shallot/vignette";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { gpuApps, gpuScene } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
 import {
     attachTexture,
@@ -15,6 +15,7 @@ import { ImageBindings } from "../../core/rendering/image";
 import { tonemappingStateKey } from "../../core/rendering/tonemapping-state";
 import { offscreenTexture } from "../../core/rendering/view";
 import { Transform } from "../../core/transform";
+import { precompile, type World } from "../../engine";
 import { probeTexture } from "../../engine/runtime";
 import { DEFAULT_PLUGINS } from "../../standard";
 import {
@@ -34,19 +35,37 @@ setDefaultTimeout(TIMEOUT.node);
 
 const parity = parityCapture();
 const subjects = gpuApps(import.meta.path, [
-    { defaults: false, plugins: [...DEFAULT_PLUGINS, VignettePlugin, parity.plugin] },
-    { defaults: false, plugins: [...DEFAULT_PLUGINS, EffectStackPlugin] },
+    {
+        defaults: false,
+        plugins: [
+            ...DEFAULT_PLUGINS,
+            VignettePlugin,
+            parity.plugin,
+            {
+                name: "EffectStackReference",
+                dependencies: [EffectStackPlugin],
+                initialize: initializeReference,
+            },
+        ],
+    },
 ]);
+const alphaScenes = [false, true].map((stacked) =>
+    gpuScene(
+        import.meta.path,
+        { defaults: false, plugins: [...DEFAULT_PLUGINS, EffectStackPlugin] },
+        (world) => initializeAlphaScene(world, stacked),
+    ),
+);
 
 let referencePipeline: GPURenderPipeline;
 let referenceInput: GPUTexture;
 let referenceOutput: GPUTexture;
-beforeAll(async () => {
-    const world = subjects()[0].world;
+async function initializeReference(world: World) {
     referencePipeline = await bevyPipeline(world);
+    precompile(world, "bevy-effect-stack", () => [referencePipeline]);
     referenceInput = inputTexture(world);
     referenceOutput = texture(world, "rgba16float");
-});
+}
 
 // Full default-renderer composition shares this Node file's prepared world. Compare on
 // one adapter: bilinear weights differ between adapters even for Bevy's own shader.
@@ -322,8 +341,7 @@ function half(bits: number): number {
     return 2 ** (exponent - 15) * (1 + fraction / 1024);
 }
 
-test("a lone or bottom camera's white vignette mixes its scene by the unscaled formula where AlphaToCoverage leaves alpha below 1", async () => {
-    const { world } = subjects()[1];
+function initializeAlphaScene(world: World, stacked: boolean) {
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });
     world.add(camera, Camera, { clearColor: 0x204060 });
@@ -345,36 +363,48 @@ test("a lone or bottom camera's white vignette mixes its scene by the unscaled f
             }),
     );
 
-    async function check(): Promise<void> {
-        const rgba = await stackedFrame(world, camera);
-        const scene = new Uint16Array(
-            (await probeTexture(world, offscreenTexture(world, camera)!)).bytes as ArrayBuffer,
-        );
-        let partial = 0;
-        const off: string[] = [];
-        for (let y = 0; y < SIZE; y++) {
-            for (let x = 0; x < SIZE; x++) {
-                const at = (y * SIZE + x) * 4;
-                if (half(scene[at + 3]!) < 0.99) partial++;
-                for (let c = 0; c < 3; c++) {
-                    const expected = srgb(vignetted(half(scene[at + c]!), x, y));
-                    if (Math.abs(rgba[at + c]! - expected) > 1)
-                        off.push(`${x},${y}[${c}]: ${rgba[at + c]} != ${expected}`);
+    const entities = [cube, camera];
+    if (stacked) {
+        // The upper camera faces away, leaving the bottom camera's image unchanged.
+        const away = world.create();
+        world.add(away, Transform, { translation: [0, 0, 5, 0], rotation: [0, 1, 0, 0] });
+        world.add(away, Camera, { order: 1 });
+        world.add(away, StandardRenderer);
+        attachTexture(world, away, target);
+        entities.push(away);
+    }
+    return { camera, entities };
+}
+test("a lone or bottom camera's white vignette mixes its scene by the unscaled formula where AlphaToCoverage leaves alpha below 1", async () => {
+    for (const subject of alphaScenes) {
+        const {
+            world,
+            scene: { camera, entities },
+        } = subject();
+        async function check(): Promise<void> {
+            const rgba = await stackedFrame(world, camera);
+            const scene = new Uint16Array(
+                (await probeTexture(world, offscreenTexture(world, camera)!)).bytes as ArrayBuffer,
+            );
+            let partial = 0;
+            const off: string[] = [];
+            for (let y = 0; y < SIZE; y++) {
+                for (let x = 0; x < SIZE; x++) {
+                    const at = (y * SIZE + x) * 4;
+                    if (half(scene[at + 3]!) < 0.99) partial++;
+                    for (let c = 0; c < 3; c++) {
+                        const expected = srgb(vignetted(half(scene[at + c]!), x, y));
+                        if (Math.abs(rgba[at + c]! - expected) > 1)
+                            off.push(`${x},${y}[${c}]: ${rgba[at + c]} != ${expected}`);
+                    }
                 }
             }
+            expect(partial).toBeGreaterThan(SIZE * SIZE * 0.5);
+            expect(off.slice(0, 8)).toEqual([]);
         }
-        expect(partial).toBeGreaterThan(SIZE * SIZE * 0.5);
-        expect(off.slice(0, 8)).toEqual([]);
-    }
 
-    await check();
-    // The bottom of a stack whose upper camera faces away renders as the lone camera does.
-    const away = world.create();
-    world.add(away, Transform, { translation: [0, 0, 5, 0], rotation: [0, 1, 0, 0] });
-    world.add(away, Camera, { order: 1 });
-    world.add(away, StandardRenderer);
-    attachTexture(world, away, target);
-    await check();
-    for (const eid of [cube, away, camera]) world.destroy(eid);
-    world.step(0);
+        await check();
+        for (const eid of entities) world.destroy(eid);
+        world.step(0);
+    }
 });

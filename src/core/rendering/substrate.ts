@@ -57,6 +57,8 @@ import {
 } from "./lighting";
 import { initializeRenderState, RenderContext } from "./render";
 import { ShadowFilteringMethod, ShadowFilteringMethodMode } from "./shadow-filtering";
+import { SAMPLE_COUNT } from "./targets";
+import { warmUpscaling } from "./upscaling";
 
 import {
     bindCamera,
@@ -335,6 +337,27 @@ function sortTargets(world: World, eids: number[], views: ViewSlot[]): void {
     }
 }
 
+/** Sample counts to prepare for the current cameras, including views that auto-bind a canvas. */
+export function initialViewSampleCounts(world: World): Set<number> {
+    const counts = new Set<number>();
+    for (const eid of world.query([Camera]))
+        counts.add(world.storage(Camera).antialias.get(eid) ? SAMPLE_COUNT : 1);
+    return counts;
+}
+
+/** Initial explicitly attached camera stacks, sorted by the same target order as draw. @internal */
+export function initialStackedViews(world: World): ViewSlot[] {
+    const eids: number[] = [];
+    const views: ViewSlot[] = [];
+    for (const [eid, view] of world.resource(Views)) {
+        if (!world.has(eid, Camera) || !view.target) continue;
+        eids.push(eid);
+        views.push(view);
+    }
+    sortTargets(world, eids, views);
+    return views.filter((view) => view.sortedIndexForTarget);
+}
+
 /**
  * prepares per-frame render state: writes the Frame UBO, records history work
  * on the World's lazy frame encoder, acquires each view's swapchain backbuffer
@@ -582,7 +605,10 @@ export const RenderingPlugin: Plugin = {
         ShadowFilteringMethod,
     ],
 
-    warm: warmImages,
+    warm(world) {
+        warmUpscaling(world);
+        return warmImages(world);
+    },
 
     async initialize(world) {
         initializeRenderState(world);

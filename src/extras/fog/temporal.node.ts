@@ -15,17 +15,33 @@ import {
     VolumetricLight,
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
+import type { World } from "../../engine";
 import { DEFAULT_PLUGINS } from "../../standard";
 import { StandardRenderer } from "../../standard/rendering";
 import { Fog, FogPlugin, NoFog } from ".";
 
 setDefaultTimeout(TIMEOUT.node);
+const initial = { camera: 0, light: 0 };
+const plugins = [...DEFAULT_PLUGINS, FogPlugin];
 const subjects = gpuApps(import.meta.path, [
-    { defaults: false, plugins: [...DEFAULT_PLUGINS, FogPlugin] },
+    {
+        defaults: false,
+        plugins: [
+            ...plugins,
+            {
+                name: "TemporalFogScene",
+                dependencies: plugins,
+                initialize(world) {
+                    initial.light = scene(world);
+                    initial.camera = camera(world);
+                },
+            },
+        ],
+    },
 ]);
 const entities: number[] = [];
-function entity() {
-    const eid = subjects()[0].world.create();
+function entity(world: World) {
+    const eid = world.create();
     entities.push(eid);
     return eid;
 }
@@ -33,9 +49,8 @@ afterEach(() => {
     for (const eid of entities) subjects()[0].world.destroy(eid);
     entities.length = 0;
 });
-function camera(size = 32, x = 0) {
-    const { world } = subjects()[0];
-    const eid = entity();
+function camera(world: World, size = 32, x = 0) {
+    const eid = entity(world);
     world.add(eid, Transform, { translation: [x, 0, 5, 0] });
     world.add(eid, Camera, {
         mode: CameraMode.Orthographic,
@@ -51,10 +66,9 @@ function camera(size = 32, x = 0) {
     attachTexture(world, eid, { width: size, height: size });
     return eid;
 }
-function scene() {
-    const { world } = subjects()[0];
-    world.add(entity(), Fog, { color: 0, density: 0.15, lightIntensity: 3, viewDistance: 10 });
-    const light = entity();
+function scene(world: World) {
+    world.add(entity(world), Fog, { color: 0, density: 0.15, lightIntensity: 3, viewDistance: 10 });
+    const light = entity(world);
     world.add(light, Transform, { translation: [-1, 0, 2, 0] });
     world.add(light, PointLight, { intensity: 100000, range: 3 });
     world.add(light, VolumetricLight);
@@ -71,37 +85,37 @@ async function image(eid: number) {
 
 test("first frames after opt-out, resize and camera replacement equal an unblended fresh view", async () => {
     const { world } = subjects()[0];
-    const light = scene();
-    let old = camera();
+    const light = initial.light;
+    let old = initial.camera;
     frame();
     for (let i = 0; i < 32; i++) world.step(0);
     world.storage(Transform).translation.set(light, 1, 0, 2, 0);
-    const current = camera();
+    const current = camera(world);
     frame();
     expect(await image(old)).not.toEqual(await image(current));
     world.add(old, NoFog);
     frame();
     world.remove(old, NoFog);
-    const fresh = camera();
+    const fresh = camera(world);
     frame();
     expect(await image(old)).toEqual(await image(fresh));
     detachView(world, old);
     attachTexture(world, old, { width: 24, height: 24 });
-    const resized = camera(24);
+    const resized = camera(world, 24);
     frame();
     expect(await image(old)).toEqual(await image(resized));
     world.destroy(old);
     entities.splice(entities.indexOf(old), 1);
-    old = camera();
-    const replacement = camera();
+    old = camera(world);
+    const replacement = camera(world);
     frame();
     expect(await image(old)).toEqual(await image(replacement));
 });
 
 test("an extinguished isotropic light retains six sevenths of its previous in-scatter", async () => {
     const { world } = subjects()[0];
-    const light = scene();
-    const view = camera();
+    const light = scene(world);
+    const view = camera(world);
     world.add(view, Tonemapping, { method: TonemappingMethod.None });
     world.storage(PointLight).intensity.set(light, 1000);
     frame();
@@ -127,13 +141,13 @@ test("an extinguished isotropic light retains six sevenths of its previous in-sc
 
 test("history outside the previous frustum takes the current sample alone", async () => {
     const { world } = subjects()[0];
-    const light = scene();
-    const old = camera();
+    const light = scene(world);
+    const old = camera(world);
     frame();
     for (let i = 0; i < 32; i++) world.step(0);
     world.storage(Transform).translation.set(old, 100, 0, 5, 0);
     world.storage(Transform).translation.set(light, 100, 0, 2, 0);
-    const fresh = camera(32, 100);
+    const fresh = camera(world, 32, 100);
     frame();
     expect(await image(old)).toEqual(await image(fresh));
     expect((await image(old)).some((value, i) => i % 4 !== 3 && value > 10)).toBe(true);

@@ -2,7 +2,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { fullscreenVertex } from "../../core/rendering";
-import { probeTexture, type World } from "../../engine";
+import { precompile, probeTexture, type World } from "../../engine";
 import { planeUv } from "./receding-plane.fixture";
 
 const point = d.struct({ uv: d.vec2f, dx: d.vec2f, dy: d.vec2f });
@@ -17,6 +17,20 @@ const fragment = tgpu.fragmentFn({ in: { pos: d.builtin.position }, out: d.vec4f
     const p = layout.$.points[d.u32(input.pos.y) * layout.$.width + d.u32(input.pos.x)];
     return std.textureSampleGrad(layout.$.images, layout.$.sampler, p.uv, 0, p.dx, p.dy);
 });
+
+export const hardwarePlanePipeline = {
+    create(world: World) {
+        const pipeline = world.gpu.root
+            .createRenderPipeline({
+                vertex: fullscreenVertex,
+                fragment,
+                targets: { format: "rgba8unorm-srgb" },
+            })
+            .$name("hardware-plane-reference");
+        precompile(world, "hardware-plane-reference", () => [pipeline]);
+        return pipeline;
+    },
+};
 
 /** Direct hardware filtering at independently intersected pixel centres and quad gradients. */
 export async function hardwarePlaneReference(
@@ -62,11 +76,7 @@ export async function hardwarePlaneReference(
         points,
         width: root.createBuffer(d.u32, width).$usage("uniform"),
     });
-    const pipeline = root.createRenderPipeline({
-        vertex: fullscreenVertex,
-        fragment,
-        targets: { format: "rgba8unorm-srgb" },
-    });
+    const pipeline = world.resource(hardwarePlanePipeline);
     const encoder = device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
         colorAttachments: [{ view: output.createView(), loadOp: "clear", storeOp: "store" }],

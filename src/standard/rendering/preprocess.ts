@@ -40,7 +40,7 @@ import {
     TransparentMeshes,
 } from "./material-type";
 import { materialAttributeError } from "./mesh-attributes";
-import { publishMeshCounts, rebuildMeshCounts } from "./mesh-count";
+import { publishMeshCounts, rebuildMeshCounts, warmTransparentCounts } from "./mesh-count";
 import {
     CullParams,
     countKernel,
@@ -919,6 +919,7 @@ export function warmMeshPreprocess(world: World): void {
         const bound = bindScatter(world);
         return bound && [bound.pipeline];
     });
+    precompile(world, "transparent-mesh-count", () => warmTransparentCounts(world));
     precompile(world, "shallot-producer-preprocess", () => {
         prepareProducerPack(world);
         return [];

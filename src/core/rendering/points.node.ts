@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { gpuApps, gpuScene } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
 import type { Resource, System } from "../../engine";
 import { ClearChangeMarksSystem } from "../../engine/app";
@@ -64,6 +64,7 @@ import { RenderContext, renderKey } from "./render";
 import { viewTargetsKey } from "./targets";
 import { compositeCacheKey } from "./tonemapping";
 import { TonemappingSystem, tonemappingStateKey } from "./tonemapping-state";
+import { upscalingKey } from "./upscaling";
 import { Views, viewResourcesKey } from "./view";
 
 setDefaultTimeout(TIMEOUT.node);
@@ -86,6 +87,7 @@ const coreResources = {
     pointsState,
     typegpuRoot,
     precompileState,
+    upscalingKey,
     renderKey,
     viewTargetsKey,
     RenderPhases,
@@ -245,22 +247,39 @@ test("warmed unchanged points frames create no bind groups", async () => {
     }
 });
 
+const depthScene = gpuScene(
+    import.meta.path,
+    {
+        defaults: false,
+        plugins: [
+            RenderingPlugin,
+            PointsPlugin,
+            StandardRenderingPlugin,
+            MeshRenderPlugin,
+            CorePipelinePlugin,
+        ],
+    },
+    (world) => {
+        const camera = world.create();
+        world.add(camera, Transform);
+        world.add(camera, Camera);
+        world.add(camera, StandardRenderer);
+        world.add(camera, Tonemapping, { method: TonemappingMethod.KhronosPbrNeutral });
+        world.storage(Transform).translation.set(camera, 0, 0, 5, 0);
+        world.storage(Camera).mode.set(camera, CameraMode.Orthographic);
+        world.storage(Camera).size.set(camera, 4);
+        world.storage(Camera).antialias.set(camera, 0);
+        attachTexture(world, camera, { width: 64, height: 64 });
+        const mesh = world.create();
+        world.add(mesh, Transform);
+        world.add(mesh, MeshInstance);
+        world.storage(Transform).translation.set(mesh, 0, 0, 1, 0);
+        return camera;
+    },
+);
+
 test("points beside a mesh share the view depth: side and front points show, the rear point is occluded", async () => {
-    const { world } = subjects()[1];
-    const camera = world.create();
-    world.add(camera, Transform);
-    world.add(camera, Camera);
-    world.add(camera, StandardRenderer);
-    world.add(camera, Tonemapping, { method: TonemappingMethod.KhronosPbrNeutral });
-    world.storage(Transform).translation.set(camera, 0, 0, 5, 0);
-    world.storage(Camera).mode.set(camera, CameraMode.Orthographic);
-    world.storage(Camera).size.set(camera, 4);
-    world.storage(Camera).antialias.set(camera, 0);
-    attachTexture(world, camera, { width: 64, height: 64 });
-    const mesh = world.create();
-    world.add(mesh, Transform);
-    world.add(mesh, MeshInstance);
-    world.storage(Transform).translation.set(mesh, 0, 0, 1, 0);
+    const { world, scene: camera } = depthScene();
     world.gpu.device.pushErrorScope("validation");
     world.step(0);
     world.step(0);

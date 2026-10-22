@@ -2,7 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { gpuScene } from "../../../scripts/gpu.fixture";
 import { attachTexture, Camera, captureTexture } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import { DEFAULT_PLUGINS } from "../../standard";
@@ -16,11 +16,9 @@ import {
 } from "./index";
 
 setDefaultTimeout(TIMEOUT.node);
-const subjects = gpuApps(import.meta.path, [{ defaults: false, plugins: [...DEFAULT_PLUGINS] }]);
+const config = { defaults: false, plugins: [...DEFAULT_PLUGINS] };
 
-test("backgrounds sharing a name retain independent identity on two cameras", async () => {
-    const app = subjects()[0];
-    const { world } = app;
+const sameName = gpuScene(import.meta.path, config, (world) => {
     const layout = backgroundLayout({});
     const first = registerBackground(world, {
         name: "same",
@@ -44,7 +42,6 @@ test("backgrounds sharing a name retain independent identity on two cameras", as
             return d.vec3f(0, 1, 0);
         }),
     });
-    expect(first).not.toBe(second);
     const cameras = [first, second].map((background) => {
         const camera = world.create();
         world.add(camera, Transform);
@@ -54,6 +51,15 @@ test("backgrounds sharing a name retain independent identity on two cameras", as
         attachTexture(world, camera, { width: 8, height: 8 });
         return camera;
     });
+    return { first, second, cameras };
+});
+
+test("backgrounds sharing a name retain independent identity on two cameras", async () => {
+    const {
+        world,
+        scene: { first, second, cameras },
+    } = sameName();
+    expect(first).not.toBe(second);
     world.step(0);
     world.step(0);
     const frames = await Promise.all(cameras.map((camera) => captureTexture(world, camera)));
@@ -65,8 +71,7 @@ test("backgrounds sharing a name retain independent identity on two cameras", as
     for (const camera of cameras) world.destroy(camera);
 });
 
-test("background bindings observe a resized storage resource", async () => {
-    const { world } = subjects()[0];
+const resized = gpuScene(import.meta.path, config, (world) => {
     const layout = backgroundLayout({ colors: { type: "storage", element: d.vec3f } });
     const bindings = {
         colors: world.gpu.root
@@ -91,6 +96,14 @@ test("background bindings observe a resized storage resource", async () => {
     world.add(camera, StandardRenderer);
     world.add(camera, CameraBackground, { background });
     attachTexture(world, camera, { width: 8, height: 8 });
+    return { camera, bindings };
+});
+
+test("background bindings observe a resized storage resource", async () => {
+    const {
+        world,
+        scene: { camera, bindings },
+    } = resized();
     world.step(0);
     const before = (await captureTexture(world, camera)).rgba;
     expect(before[0]).toBeGreaterThan(before[1]!);
@@ -103,8 +116,7 @@ test("background bindings observe a resized storage resource", async () => {
     world.destroy(camera);
 });
 
-test("each background observes changed binding records and replaced resources", async () => {
-    const { world } = subjects()[0];
+const rebound = gpuScene(import.meta.path, config, (world) => {
     const color = d.struct({ value: d.vec3f });
     const layout = backgroundLayout({ color: { type: "uniform", struct: color } });
     const red = world.gpu.root.createBuffer(color, { value: d.vec3f(1, 0, 0) }).$usage("uniform");
@@ -133,6 +145,14 @@ test("each background observes changed binding records and replaced resources", 
         attachTexture(world, camera, { width: 8, height: 8 });
         return camera;
     });
+    return { cameras, resources, red, green };
+});
+
+test("each background observes changed binding records and replaced resources", async () => {
+    const {
+        world,
+        scene: { cameras, resources, red, green },
+    } = rebound();
     world.step(0);
     world.step(0);
     const first = (await captureTexture(world, cameras[0]!)).rgba;

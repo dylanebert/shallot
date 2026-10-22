@@ -33,7 +33,25 @@ async function openApp(): Promise<{
         return requestDevice.call(this, descriptor);
     };
     try {
-        return { app: await openGpuApp({ plugins: APP_PLUGINS }), deviceRequest };
+        return {
+            app: await openGpuApp({
+                plugins: [
+                    {
+                        name: "CaptureRoute",
+                        dependencies: APP_PLUGINS,
+                        initialize(world) {
+                            const route = world.resource(Route).entities;
+                            if (!route)
+                                throw new Error(
+                                    'goal "spawn" failed at tick 0: Demo did not create the route',
+                                );
+                            attachTexture(world, route.eye, { width: 320, height: 180 });
+                        },
+                    },
+                ],
+            }),
+            deviceRequest,
+        };
     } finally {
         GPUAdapter.prototype.requestDevice = requestDevice;
     }
@@ -100,7 +118,6 @@ test("tick-addressed PlayerInput clears the route goals and captures the resulti
         let goalIndex = 0;
         let tick = 0;
 
-        attachTexture(world, camera, { width: 320, height: 180 });
         for (tick = 1; tick <= MAX_TICKS && goalIndex < goals.length; tick++) {
             // On the lift, wait for it to rise before stepping off; elsewhere walk forward.
             const waiting =

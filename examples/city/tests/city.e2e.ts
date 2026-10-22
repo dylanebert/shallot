@@ -1,4 +1,5 @@
 import { mkdirSync, writeFileSync } from "node:fs";
+import { pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, test } from "playwright/test";
 
 declare global {
@@ -8,6 +9,17 @@ declare global {
         };
     }
 }
+test.use(pipelineWarnings);
+
+test("the first frame has no late-pipeline warning", async ({ page }) => {
+    await page.goto("/");
+    await page.waitForFunction(() =>
+        performance
+            .getEntriesByType("measure")
+            .some((entry) => entry.name.endsWith(":first-update")),
+    );
+});
+
 test("the stepped city's buildings fill the centre of the view", async ({ page }) => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));

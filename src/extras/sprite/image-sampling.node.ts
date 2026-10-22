@@ -25,6 +25,7 @@ import {
 import { Sprite, SpritePlugin } from "./index";
 
 setDefaultTimeout(TIMEOUT.node);
+let camera = -1;
 const subjects = gpuApps(import.meta.path, [
     {
         defaults: false,
@@ -32,7 +33,18 @@ const subjects = gpuApps(import.meta.path, [
             SpritePlugin,
             {
                 name: "ImageSamplerConsumers",
+                dependencies: [SpritePlugin],
                 initialize(world) {
+                    camera = world.create();
+                    world.add(camera, Transform, { translation: [0, 0, 5] });
+                    world.add(camera, Camera, {
+                        mode: CameraMode.Orthographic,
+                        size: 2,
+                        antialias: 0,
+                    });
+                    world.add(camera, StandardRenderer);
+                    world.add(camera, Tonemapping, { method: TonemappingMethod.None });
+                    attachTexture(world, camera, { width: 128, height: 64 });
                     for (const mode of [
                         ImageAddressMode.ClampToEdge,
                         ImageAddressMode.Repeat,
@@ -90,12 +102,6 @@ test("Sprite and StandardMaterial use the same registered address modes and filt
         vertices: new Float32Array(vertices),
         indices: new Uint32Array([0, 1, 2, 0, 2, 3]),
     });
-    const camera = world.create();
-    world.add(camera, Transform, { translation: [0, 0, 5] });
-    world.add(camera, Camera, { mode: CameraMode.Orthographic, size: 2, antialias: 0 });
-    world.add(camera, StandardRenderer);
-    world.add(camera, Tonemapping, { method: TonemappingMethod.None });
-    attachTexture(world, camera, { width: 128, height: 64 });
     const owner = world.create();
     world.add(owner, Transform, { translation: [100, 0, 0] });
     world.add(owner, Sprite, { size: [1, 1], billboard: Billboard.World });

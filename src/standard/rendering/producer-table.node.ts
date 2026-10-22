@@ -13,7 +13,7 @@ import {
     Xform,
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
-import { lookAtRotation, type World } from "../../engine";
+import { lookAtRotation, precompile, type World } from "../../engine";
 import { probeBuffer } from "../../engine/runtime";
 import { DEFAULT_PLUGINS } from "../../standard";
 import { sunShadowView } from "./atlas";
@@ -135,7 +135,8 @@ const state = {
             .createBuffer(d.vec3u, d.vec3u(mesh, red.type, red.material))
             .$usage("uniform");
         const flags = root.createBuffer(d.u32, 0).$usage("uniform");
-        const pipe = root.createComputePipeline({ compute: kernel });
+        const pipe = root.createComputePipeline({ compute: kernel }).$name("producer-table-proof");
+        precompile(world, "producer-table-proof", () => [pipe]);
         const group = root.createBindGroup(layout, {
             placements: table.placements,
             instances: table.meshInstances,
@@ -170,6 +171,7 @@ const apps = gpuApps(
                 warm(world: World) {
                     world.resource(material);
                     world.resource(secondMaterial);
+                    world.resource(depthProbe);
                     if (producer) world.resource(state);
                 },
                 systems: producer
@@ -190,6 +192,25 @@ const apps = gpuApps(
                       ]
                     : [],
             },
+            {
+                name: "ProducerScene",
+                dependencies: DEFAULT_PLUGINS,
+                initialize(world: World) {
+                    const camera = scene(world);
+                    if (producer) world.resource(state).camera = camera;
+                    else {
+                        const red = world
+                            .resource(material)
+                            .add({ color: d.vec4f(1, 0, 0, 1), eid: 0, row: 0 });
+                        for (const x of [-1.2, 1.2, 100]) {
+                            const eid = world.create();
+                            world.add(eid, Transform, { translation: [x, 0, 0] });
+                            world.add(eid, MeshInstance);
+                            world.add(eid, MeshMaterial, red);
+                        }
+                    }
+                },
+            },
         ],
     })),
 );
@@ -206,13 +227,22 @@ function scene(world: World) {
     world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
     return camera;
 }
+const depthProbe = {
+    create(world: World) {
+        const pipeline = world.gpu.root
+            .createComputePipeline({ compute: depthKernel })
+            .$name("producer-shadow-probe");
+        precompile(world, "producer-shadow-probe", () => [pipeline]);
+        return world.gpu.root.unwrap(pipeline);
+    },
+};
 async function shadow(world: World) {
     const root = world.gpu.root;
     const samples = root.createBuffer(d.arrayOf(d.f32, 512 * 512)).$usage("storage");
     const group = root.createBindGroup(depthLayout, { depth: sunShadowView(world)!, samples });
     const encoder = world.gpu.device.createCommandEncoder();
     const pass = encoder.beginComputePass();
-    pass.setPipeline(root.unwrap(root.createComputePipeline({ compute: depthKernel })));
+    pass.setPipeline(world.resource(depthProbe));
     pass.setBindGroup(0, root.unwrap(group));
     pass.dispatchWorkgroups(64, 64);
     pass.end();
@@ -245,16 +275,8 @@ async function producerArgs(world: World) {
 test("compute-written producer placements draw exactly the entity colour and sun-shadow pixels", async () => {
     const entity = apps()[0].world;
     const producer = apps()[1].world;
-    const ec = scene(entity);
-    const pc = scene(producer);
-    producer.resource(state).camera = pc;
-    const red = entity.resource(material).add({ color: d.vec4f(1, 0, 0, 1), eid: 0, row: 0 });
-    for (const x of [-1.2, 1.2, 100]) {
-        const eid = entity.create();
-        entity.add(eid, Transform, { translation: [x, 0, 0] });
-        entity.add(eid, MeshInstance);
-        entity.add(eid, MeshMaterial, red);
-    }
+    const ec = [...entity.query([Camera])][0]!;
+    const pc = producer.resource(state).camera;
     for (let i = 0; i < 3; i++) {
         entity.step(0);
         producer.step(0);

@@ -1,4 +1,7 @@
+import { pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, test } from "playwright/test";
+
+test.use(pipelineWarnings);
 
 for (const touch of [false, true]) {
     test(`${touch ? "touch" : "desktop"} instructions name the input in use`, async ({

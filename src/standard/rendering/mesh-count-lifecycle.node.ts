@@ -1,8 +1,9 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { gpuScene } from "../../../scripts/gpu.fixture";
 import { Meshes } from "../../core/mesh";
 import { meshResourcesKey } from "../../core/mesh/mesh";
+import type { World } from "../../engine";
 import {
     AlphaMode,
     Draws,
@@ -16,9 +17,10 @@ import { MeshDrawBuffers } from "./preprocess";
 
 setDefaultTimeout(TIMEOUT.node);
 const config = { defaults: false, plugins: [MeshRenderPlugin, StandardRenderingPlugin] };
-const subjects = gpuApps(import.meta.path, [config, config, config, config, config, config]);
-function setup(index: number, count = 1) {
-    const { world } = subjects()[index]!;
+const subjects = [200, 200, 1, 1, 1, 1].map((count) =>
+    gpuScene(import.meta.path, config, (world) => initialize(world, count)),
+);
+function initialize(world: World, count: number) {
     const meshes = world.resource(Meshes);
     const geometry = meshes.values().next().value!;
     const buffer = world.gpu.device.createBuffer({
@@ -29,11 +31,15 @@ function setup(index: number, count = 1) {
     world.gpu.device.queue.writeBuffer(buffer, 0, new Uint32Array([3, 9]));
     const spec = { ...geometry, name: "count", indirectIndexCount: { buffer }, indexCount: 12 };
     const handles = Array.from({ length: count }, () => meshes.add(spec));
-    world.step(0);
     return { world, meshes, spec, handles, buffer };
 }
+function setup(index: number) {
+    const { scene } = subjects[index]();
+    scene.world.step(0);
+    return scene;
+}
 test("a hundred warm count-bearing turnovers create no device buffers or bind groups", () => {
-    const s = setup(0, 200);
+    const s = setup(0);
     const device = s.world.gpu.device;
     for (const handle of s.handles.slice(1)) {
         const buffer = device.createBuffer({ size: 4, usage: GPUBufferUsage.STORAGE });
@@ -72,7 +78,7 @@ test("a hundred warm count-bearing turnovers create no device buffers or bind gr
     expect({ buffers, groups }).toEqual({ buffers: 0, groups: 0 });
 });
 test("two hundred counts sharing a source encode one count dispatch and no per-record copies", async () => {
-    const s = setup(1, 200);
+    const s = setup(1);
     const target = s.world.gpu.root.unwrap(s.world.resource(MeshDrawBuffers).drawArgs!);
     const device = s.world.gpu.device;
     const create = device.createCommandEncoder.bind(device);

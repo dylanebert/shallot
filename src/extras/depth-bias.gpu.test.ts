@@ -2,7 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
-import { gpuApps } from "../../scripts/gpu.fixture";
+import { gpuScene } from "../../scripts/gpu.fixture";
 import {
     Anchor,
     attachTexture,
@@ -15,7 +15,7 @@ import {
     RenderPhases,
 } from "../core/rendering";
 import { Transform } from "../core/transform";
-import type { Plugin } from "../engine";
+import { type Plugin, precompile } from "../engine";
 import { drawLine, Gizmo, GizmoAsset, LinesPlugin, registerGizmo } from "./lines";
 import { internText, Text, TextPlugin } from "./text";
 
@@ -66,6 +66,8 @@ const Surface: Plugin = {
                 depthWriteEnabled: true,
             },
         });
+        pipeline.$name("opaque-depth-surface");
+        precompile(world, "opaque-depth-surface", () => [pipeline]);
         world.resource(RenderPhases).push({
             opaque(_world, _eid, _view, pass) {
                 pass.setPipeline(world.gpu.root.unwrap(pipeline));
@@ -74,21 +76,23 @@ const Surface: Plugin = {
         });
     },
 };
-const subjects = gpuApps(import.meta.path, [{ defaults: false, plugins: [Surface] }]);
+const subject = gpuScene(import.meta.path, { defaults: false, plugins: [Surface] }, (world) => {
+    const camera = world.create();
+    world.add(camera, Transform, { translation: [0, 0, 5] });
+    world.add(camera, Camera, {
+        mode: CameraMode.Orthographic,
+        size: 2,
+        near: 1,
+        far: 11,
+        antialias: 0,
+    });
+    attachTexture(world, camera, { width: 64, height: 64 });
+    return camera;
+});
 
 for (const kind of ["immediate line", "retained line", "text"] as const) {
     test(`${kind} is hidden behind an opaque surface by default; depthBias moves its visibility cutoff`, async () => {
-        const { world } = subjects()[0];
-        const camera = world.create();
-        world.add(camera, Transform, { translation: [0, 0, 5] });
-        world.add(camera, Camera, {
-            mode: CameraMode.Orthographic,
-            size: 2,
-            near: 1,
-            far: 11,
-            antialias: 0,
-        });
-        attachTexture(world, camera, { width: 64, height: 64 });
+        const { world, scene: camera } = subject();
         const frame = async () => {
             world.step(1 / 60);
             return (await captureTexture(world, camera)).rgba;
@@ -126,7 +130,6 @@ for (const kind of ["immediate line", "retained line", "text"] as const) {
         world.resource(immediate).enabled = false;
         world.resource(immediate).depthBias = 0;
         world.destroy(entity);
-        world.destroy(camera);
     });
 }
 
@@ -138,17 +141,7 @@ function largestDifference(a: ArrayLike<number>, b: ArrayLike<number>): number {
 
 for (const kind of ["immediate line", "retained line"] as const) {
     test(`${kind} crossing an orthographic far plane keeps its in-range part under negative depthBias`, async () => {
-        const { world } = subjects()[0];
-        const camera = world.create();
-        world.add(camera, Transform, { translation: [0, 0, 5] });
-        world.add(camera, Camera, {
-            mode: CameraMode.Orthographic,
-            size: 2,
-            near: 1,
-            far: 11,
-            antialias: 0,
-        });
-        attachTexture(world, camera, { width: 64, height: 64 });
+        const { world, scene: camera } = subject();
         const frame = async () => {
             world.step(1 / 60);
             return (await captureTexture(world, camera)).rgba;
@@ -183,6 +176,5 @@ for (const kind of ["immediate line", "retained line"] as const) {
         options.end = b;
         options.depthBias = 0;
         world.destroy(entity);
-        world.destroy(camera);
     });
 }

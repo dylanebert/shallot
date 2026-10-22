@@ -12,8 +12,13 @@ test("scheduler fixed and frame paths require no placement or other world domain
     const groups: string[] = [];
     for (const group of ["fixed", "simulation", "draw"] as const)
         scheduler.register({
+            name: group,
             group,
+            setup: () => {
+                expect(scheduler.currentSystem).toBe(group);
+            },
             update: (w) => {
+                expect(scheduler.currentSystem).toBe(group);
                 expect(w).toBe(world);
                 groups.push(group);
             },
@@ -21,6 +26,7 @@ test("scheduler fixed and frame paths require no placement or other world domain
     scheduler.tick(world);
     scheduler.step(world, { deltaTime: Time.FIXED_DT });
     expect(groups).toEqual(["fixed", "fixed", "simulation", "draw"]);
+    expect(scheduler.currentSystem).toBeUndefined();
 });
 
 test("catch-up ticks see integer tick time; zero-tick frames keep virtual time", () => {

@@ -15,11 +15,19 @@ import { internText, registerFont, Text, TextPlugin } from "./index";
 
 setDefaultTimeout(TIMEOUT.gpu);
 let font = 0;
+let camera = 0;
 const subjects = gpuApps(import.meta.path, [
     {
         defaults: false,
         plugins: [TextPlugin],
         setup(world) {
+            camera = world.create();
+            world.add(camera, Transform, {
+                translation: [5, 0, 0, 0],
+                rotation: [0, Math.SQRT1_2, 0, Math.SQRT1_2],
+            });
+            world.add(camera, Camera);
+            world.add(camera, DebandDither, { enabled: 0 });
             font = registerFont(
                 world,
                 `data:font/ttf;base64,${Buffer.from(isolationFont()).toString("base64")}`,
@@ -31,13 +39,6 @@ const subjects = gpuApps(import.meta.path, [
 test("an edge-on label covers pixels in Screen mode and none in World mode", async () => {
     const { world } = subjects()[0];
     console.info("text billboard adapter:", world.gpu.adapter);
-    const camera = world.create();
-    world.add(camera, Transform, {
-        translation: [5, 0, 0, 0],
-        rotation: [0, Math.SQRT1_2, 0, Math.SQRT1_2],
-    });
-    world.add(camera, Camera);
-    world.add(camera, DebandDither, { enabled: 0 });
     attachTexture(world, camera, { width: 64, height: 64 });
     const frame = async () => {
         world.step(1 / 60);

@@ -9,6 +9,7 @@ import {
     createTestGpuApp,
     expectAdapterNotice,
 } from "../../../scripts/gpu.fixture";
+import { expectWarning } from "../../../scripts/test-console";
 import { Meshes, MeshInstance } from "../../core/mesh";
 import {
     AmbientLight,
@@ -27,7 +28,7 @@ import {
 } from "../../core/rendering";
 import { PointsPlugin } from "../../core/rendering/points.fixture";
 import { Transform } from "../../core/transform";
-import type { Plugin } from "../../engine";
+import { type Plugin, precompile, type World } from "../../engine";
 import { probeBuffer, stampAdapter } from "../../engine/runtime";
 import { type AdapterInfoFacts, classifyAdapter } from "../../engine/runtime/adapter";
 import { EffectStackPlugin, Vignette } from "../../extras/effect-stack";
@@ -281,8 +282,23 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
     device.pushErrorScope("validation");
     let app: Awaited<ReturnType<typeof createApp>> | undefined;
     try {
-        app = await createTestGpuApp({ device, adapter, plugins: [proof] });
+        let initial: ReturnType<typeof initializeScene>;
+        app = await createTestGpuApp({
+            device,
+            adapter,
+            plugins: [
+                proof,
+                {
+                    name: "FloorScene",
+                    dependencies: [proof],
+                    initialize(world) {
+                        initial = initializeScene(world);
+                    },
+                },
+            ],
+        });
         const { world } = app;
+        const { camera, spriteEids, captureCompletedFrame, pipeline } = initial!;
         const layouts = {
             standardVertex:
                 storageCount(engineLayout, "vertex") + storageCount(Materials.layout, "vertex"),
@@ -352,111 +368,129 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
             grid: LIGHT_GRID_OFFSET,
             clusters: CLUSTER_COUNT,
         });
-        const camera = world.create();
-        world.add(camera, Transform, { translation: [0, 0, 5, 0] });
-        world.add(camera, Camera);
-        world.add(camera, AmbientLight, { brightness: 199.61915 });
-        world.add(camera, StandardRenderer);
-        attachTexture(world, camera, { width: 32, height: 32 });
-        const captureCompletedFrame = async () => {
-            await device.queue.onSubmittedWorkDone();
-            return captureTexture(world, camera);
-        };
-        const bg = registerBackground(world, {
-            name: "floor-background",
-            layout: backgroundLayout({}),
-            fs: tgpu.fn(
-                [BackgroundContext],
-                d.vec3f,
-            )(() => {
-                "use gpu";
-                return d.vec3f(0.1, 0.2, 0.3);
-            }),
-        });
-        world.add(camera, CameraBackground, { background: bg });
-        const standardMaterial = world
-            .resource(Materials)
-            .add(StandardMaterial({ baseColor: [1, 0.3, 0.2, 1] }));
-        registerProducerTable(world, {
-            name: "floor-producer",
-            capacity: 8,
-            meshes: [[...world.resource(Meshes).entries()][0]![0]],
-            materials: [standardMaterial],
-        });
-        for (let i = 0; i < 192; i++) {
-            const mesh = world.create();
-            world.add(mesh, Transform, {
-                translation: [-0.65, (i % 8) * 0.01, -i * 0.01, 0],
-                scale: [0.4, 0.4, 0.4, 0],
+        function initializeScene(world: World) {
+            const camera = world.create();
+            world.add(camera, Transform, { translation: [0, 0, 5, 0] });
+            world.add(camera, Camera, { antialias: 0 });
+            world.add(camera, AmbientLight, { brightness: 199.61915 });
+            world.add(camera, StandardRenderer);
+            attachTexture(world, camera, { width: 32, height: 32 });
+            const captureCompletedFrame = async () => {
+                await device.queue.onSubmittedWorkDone();
+                return captureTexture(world, camera);
+            };
+            const bg = registerBackground(world, {
+                name: "floor-background",
+                layout: backgroundLayout({}),
+                fs: tgpu.fn(
+                    [BackgroundContext],
+                    d.vec3f,
+                )(() => {
+                    "use gpu";
+                    return d.vec3f(0.1, 0.2, 0.3);
+                }),
             });
-            world.add(mesh, MeshInstance);
-            world.add(mesh, MeshMaterial, standardMaterial);
-        }
-        const customMaterial = world
-            .resource(FloorMaterial)
-            .add({ color: d.vec4f(1, 0.3, 0.2, 1) });
-        const vertexMaterial = world
-            .resource(VertexMaterialType)
-            .add(StandardMaterial({ baseColor: [0, 1, 0, 1] }), { alphaMode: AlphaMode.Mask(0.5) });
-        const unlitMaterial = world
-            .resource(Materials)
-            .add(StandardMaterial({ baseColor: [0, 0, 1, 1], unlit: true }));
-        const customMesh = world.create();
-        world.add(customMesh, Transform, {
-            translation: [0.65, 0, 0, 0],
-            scale: [0.4, 0.4, 0.4, 0],
-        });
-        world.add(customMesh, MeshInstance);
-        world.add(customMesh, MeshMaterial, customMaterial);
-        for (const [x, material] of [
-            [-1.6, vertexMaterial],
-            [1.6, unlitMaterial],
-        ] as const) {
-            const mesh = world.create();
-            world.add(mesh, Transform, {
-                translation: [x, 0, 0, 0],
-                scale: [0.4, 0.4, 0.4, 0],
+            world.add(camera, CameraBackground, { background: bg });
+            const standardMaterial = world
+                .resource(Materials)
+                .add(StandardMaterial({ baseColor: [1, 0.3, 0.2, 1] }));
+            registerProducerTable(world, {
+                name: "floor-producer",
+                capacity: 8,
+                meshes: [[...world.resource(Meshes).entries()][0]![0]],
+                materials: [standardMaterial],
             });
-            world.add(mesh, MeshInstance);
-            world.add(mesh, MeshMaterial, material);
-        }
-        const sun = world.create();
-        world.add(sun, Transform);
-        world.add(sun, DirectionalLight, { shadowMapsEnabled: 1 });
-        const point = world.create();
-        world.add(point, Transform, { translation: [1, 1, 2, 0] });
-        world.add(point, PointLight, { shadowMapsEnabled: 1, range: 10 });
-        const spot = world.create();
-        world.add(spot, Transform, { translation: [-1, 1, 3, 0] });
-        world.add(spot, SpotLight, { shadowMapsEnabled: 1, range: 10 });
-        const spriteEids: number[] = [];
-        for (const billboard of [0, 1, 2]) {
-            for (const blend of [0, 1]) {
-                const sprite = world.create();
-                world.add(sprite, Transform);
-                world.add(sprite, Sprite, {
-                    billboard,
-                    alphaMode: blend === 0 ? SpriteAlphaMode.Mask() : SpriteAlphaMode.Blend,
-                    color: 0xff0000 + billboard * 0x000101,
-                    fillAmount: 0.5,
-                    fillMethod: billboard % 3,
+            for (let i = 0; i < 192; i++) {
+                const mesh = world.create();
+                world.add(mesh, Transform, {
+                    translation: [-0.65, (i % 8) * 0.01, -i * 0.01, 0],
+                    scale: [0.4, 0.4, 0.4, 0],
                 });
-                spriteEids.push(sprite);
+                world.add(mesh, MeshInstance);
+                world.add(mesh, MeshMaterial, standardMaterial);
             }
+            const customMaterial = world
+                .resource(FloorMaterial)
+                .add({ color: d.vec4f(1, 0.3, 0.2, 1) });
+            const vertexMaterial = world
+                .resource(VertexMaterialType)
+                .add(StandardMaterial({ baseColor: [0, 1, 0, 1] }), {
+                    alphaMode: AlphaMode.Mask(0.5),
+                });
+            const unlitMaterial = world
+                .resource(Materials)
+                .add(StandardMaterial({ baseColor: [0, 0, 1, 1], unlit: true }));
+            const customMesh = world.create();
+            world.add(customMesh, Transform, {
+                translation: [0.65, 0, 0, 0],
+                scale: [0.4, 0.4, 0.4, 0],
+            });
+            world.add(customMesh, MeshInstance);
+            world.add(customMesh, MeshMaterial, customMaterial);
+            for (const [x, material] of [
+                [-1.6, vertexMaterial],
+                [1.6, unlitMaterial],
+            ] as const) {
+                const mesh = world.create();
+                world.add(mesh, Transform, {
+                    translation: [x, 0, 0, 0],
+                    scale: [0.4, 0.4, 0.4, 0],
+                });
+                world.add(mesh, MeshInstance);
+                world.add(mesh, MeshMaterial, material);
+            }
+            const sun = world.create();
+            world.add(sun, Transform);
+            world.add(sun, DirectionalLight, { shadowMapsEnabled: 1 });
+            const point = world.create();
+            world.add(point, Transform, { translation: [1, 1, 2, 0] });
+            world.add(point, PointLight, { shadowMapsEnabled: 1, range: 10 });
+            const spot = world.create();
+            world.add(spot, Transform, { translation: [-1, 1, 3, 0] });
+            world.add(spot, SpotLight, { shadowMapsEnabled: 1, range: 10 });
+            const spriteEids: number[] = [];
+            for (const billboard of [0, 1, 2]) {
+                for (const blend of [0, 1]) {
+                    const sprite = world.create();
+                    world.add(sprite, Transform);
+                    world.add(sprite, Sprite, {
+                        billboard,
+                        alphaMode: blend === 0 ? SpriteAlphaMode.Mask() : SpriteAlphaMode.Blend,
+                        color: 0xff0000 + billboard * 0x000101,
+                        fillAmount: 0.5,
+                        fillMethod: billboard % 3,
+                    });
+                    spriteEids.push(sprite);
+                }
+            }
+            const text = world.create();
+            world.add(text, Transform);
+            world.add(text, Text, {
+                content: internText(world, "isolation"),
+                font: registerFont(world, FLOOR_FONT),
+                fontSize: 0.2,
+            });
+            const line = world.create();
+            world.add(line, Transform, { translation: [0, 1, 0, 0] });
+            const asset = new GizmoAsset();
+            drawLine(asset, [0, 0, 0], [1, 0, 0], 0xff00ff);
+            world.add(line, Gizmo, { handle: registerGizmo(world, asset), width: 3 });
+            return {
+                camera,
+                spriteEids,
+                captureCompletedFrame,
+                pipeline: createIdentityPipeline(world),
+            };
         }
-        const text = world.create();
-        world.add(text, Transform);
-        world.add(text, Text, {
-            content: internText(world, "isolation"),
-            font: registerFont(world, FLOOR_FONT),
-            fontSize: 0.2,
-        });
-        const line = world.create();
-        world.add(line, Transform, { translation: [0, 1, 0, 0] });
-        const asset = new GizmoAsset();
-        drawLine(asset, [0, 0, 0], [1, 0, 0], 0xff00ff);
-        world.add(line, Gizmo, { handle: registerGizmo(world, asset), width: 3 });
         for (const aa of [0, 1]) {
+            if (aa) {
+                expectWarning(
+                    /Pipeline "text-4" owned by "CorePipeline\/1" created after the precompile drain\./,
+                );
+                expectWarning(
+                    /Pipeline "lines-4" owned by "CorePipeline\/1" created after the precompile drain\./,
+                );
+            }
             world.storage(Camera).antialias.set(camera, aa);
             for (const depth of [0, 1]) {
                 if (depth) world.add(camera, DepthPrepass);
@@ -559,23 +593,28 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
         const vignette = (await captureCompletedFrame()).rgba;
         expect(vignette).not.toEqual(plain);
         // Identity after-tonemap pass; cache by input view, as built-in effects do.
-        const module = device.createShaderModule({
-            code: `
+        function createIdentityPipeline(world: World) {
+            const module = device.createShaderModule({
+                code: `
 @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
  let uv = vec2f(f32((i << 1u) & 2u), f32(i & 2u)); return vec4f(uv * 2.0 - 1.0, 0.0, 1.0);
 }
 @group(0) @binding(0) var input: texture_2d<f32>;
 @fragment fn fs(@builtin(position) p: vec4f) -> @location(0) vec4f { return textureLoad(input, vec2u(p.xy), 0); }`,
-        });
-        const pipeline = device.createRenderPipeline({
-            layout: "auto",
-            vertex: { module, entryPoint: "vs" },
-            fragment: {
-                module,
-                entryPoint: "fs",
-                targets: [{ format: navigator.gpu.getPreferredCanvasFormat() }],
-            },
-        });
+            });
+            const pipeline = device.createRenderPipeline({
+                label: "floor-after-tonemap-identity",
+                layout: "auto",
+                vertex: { module, entryPoint: "vs" },
+                fragment: {
+                    module,
+                    entryPoint: "fs",
+                    targets: [{ format: navigator.gpu.getPreferredCanvasFormat() }],
+                },
+            });
+            precompile(world, "floor-after-tonemap-identity", () => [pipeline]);
+            return pipeline;
+        }
         const groups = new Map<GPUTextureView, GPUBindGroup>();
         const stack = world.resource(EffectPasses).get(camera)!;
         stack.after.push((world, _eid, _view, input, output) => {

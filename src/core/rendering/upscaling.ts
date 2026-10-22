@@ -6,11 +6,14 @@ import {
     beginRenderPass,
     draw,
     endRenderPass,
+    precompile,
     setRenderBindGroup,
     setRenderPipeline,
 } from "../../engine/runtime";
+import { Camera } from "./camera";
+import { initialStackedViews } from "./substrate";
 import { fullscreenVertex } from "./tonemapping";
-import type { View } from "./view";
+import { cameraView, type View } from "./view";
 
 const upscalingLayout = tgpu.bindGroupLayout({
     source: { texture: d.texture2d(d.f32), visibility: ["fragment"] },
@@ -37,6 +40,7 @@ function createUpscaling(world: World) {
             targets: { format: navigator.gpu.getPreferredCanvasFormat(), blend: OVER },
         })
         .$name("upscaling");
+    precompile(world, "upscaling", () => pipeline);
     const attachment: GPURenderPassColorAttachment = {
         view: null!,
         loadOp: "load",
@@ -51,7 +55,31 @@ function createUpscaling(world: World) {
         pass: { label: "upscaling", colorAttachments: [attachment] } as GPURenderPassDescriptor,
     };
 }
-const upscalingKey = { create: createUpscaling };
+export const upscalingKey = { create: createUpscaling };
+
+function initialCanvasStack(world: World): boolean {
+    if (typeof document === "undefined") return false;
+    const canvas = document.querySelector("canvas");
+    if (!canvas) return false;
+    let cameras = 0;
+    for (const eid of world.query([Camera])) {
+        const view = cameraView(world, eid);
+        if ((!view?.target || view.canvas === canvas) && ++cameras > 1) return true;
+    }
+    return false;
+}
+
+export function warmUpscaling(world: World): void {
+    precompile(world, "upscaling-prepare", () => {
+        if (
+            world.pixelRatio === "auto" ||
+            initialStackedViews(world).length ||
+            initialCanvasStack(world)
+        )
+            world.resource(upscalingKey);
+        return [];
+    });
+}
 
 /**
  * Blends each presented camera above the bottom of its target over that target, bottom to top, as Bevy's

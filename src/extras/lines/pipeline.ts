@@ -1,7 +1,8 @@
-import tgpu, { type TgpuRoot } from "typegpu";
+import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { biasClipDepth, DEPTH_FORMAT, ViewUniforms } from "../../core/rendering";
+import { precompile, type World } from "../../engine";
 import { unpackLdrColor } from "../../engine/utils";
 
 /** A pixel-width shaft, or one world-space triangle with vertices a, b and c. */
@@ -97,19 +98,23 @@ const ALPHA_BLEND: GPUBlendState = {
     alpha: { operation: "add", srcFactor: "one", dstFactor: "one-minus-src-alpha" },
 };
 
-export function createLinePipeline(root: TgpuRoot, format: GPUTextureFormat, sampleCount: number) {
-    return root.createRenderPipeline({
-        vertex: LineVertex,
-        fragment: LineFragment,
-        primitive: { topology: "triangle-list", cullMode: "none" },
-        depthStencil: {
-            format: DEPTH_FORMAT,
-            depthWriteEnabled: false,
-            depthCompare: "greater-equal",
-        },
-        multisample: { count: sampleCount },
-        targets: { format, blend: ALPHA_BLEND },
-    });
+export function createLinePipeline(world: World, format: GPUTextureFormat, sampleCount: number) {
+    const pipeline = world.gpu.root
+        .createRenderPipeline({
+            vertex: LineVertex,
+            fragment: LineFragment,
+            primitive: { topology: "triangle-list", cullMode: "none" },
+            depthStencil: {
+                format: DEPTH_FORMAT,
+                depthWriteEnabled: false,
+                depthCompare: "greater-equal",
+            },
+            multisample: { count: sampleCount },
+            targets: { format, blend: ALPHA_BLEND },
+        })
+        .$name(`lines-${sampleCount}`);
+    precompile(world, `lines-${sampleCount}`, () => pipeline);
+    return pipeline;
 }
 
 export const lineQuad = tgpu.fn(

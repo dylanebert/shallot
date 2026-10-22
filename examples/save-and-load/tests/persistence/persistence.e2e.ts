@@ -1,5 +1,8 @@
+import { pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, type Page, test } from "playwright/test";
 import { capture } from "../capture";
+
+test.use(pipelineWarnings);
 
 async function count(page: Page, expected: number) {
     expect(await page.evaluate(() => window.saveAndLoad.state().count)).toBe(expected);

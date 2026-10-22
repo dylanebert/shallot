@@ -8,7 +8,17 @@ import { LoadingWorld } from "./scene";
 setDefaultTimeout(TIMEOUT.node);
 
 test("embedded-scene draws with default WebGPU limits", async () => {
-    const app = await createApp({ plugins: [LoadingWorld] });
+    const app = await createApp({
+        plugins: [
+            {
+                name: "CaptureLoadingWorld",
+                dependencies: [LoadingWorld],
+                initialize(world) {
+                    attachTexture(world, world.only([Camera]), { width: 64, height: 64 });
+                },
+            },
+        ],
+    });
     try {
         const { world } = app;
         const device = world.gpu.device;
@@ -24,7 +34,6 @@ test("embedded-scene draws with default WebGPU limits", async () => {
         expect(device.features.has("indirect-first-instance")).toBe(true);
         const camera = [...world.query([Camera])][0];
         if (camera === undefined) throw new Error("embedded-scene scene has no camera");
-        attachTexture(world, camera, { width: 64, height: 64 });
         world.step(0);
         const frame = await captureTexture(world, camera);
         console.info("rendered clear", Array.from(frame.rgba.slice(0, 4)));

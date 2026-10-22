@@ -1,11 +1,11 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { gpuScene } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
 import { attachTexture, Billboard, Camera, DirectionalLight } from "../../core/rendering";
 import { ImageBindings } from "../../core/rendering/image";
 import { Transform } from "../../core/transform";
-import { lookAtRotation } from "../../engine";
+import { lookAtRotation, precompile } from "../../engine";
 import { probeBuffer } from "../../engine/runtime";
 import {
     DirectionalLightShadowMap,
@@ -15,7 +15,6 @@ import {
 import { Sprite, SpriteFill, SpritePlugin } from "./index";
 
 setDefaultTimeout(TIMEOUT.node);
-const subjects = gpuApps(import.meta.path, [{ defaults: false, plugins: [SpritePlugin] }]);
 const SHADOW_SIDE = 256;
 
 const pixelShader = `
@@ -28,57 +27,75 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     depths[gid.y * dims.x + gid.x] = textureLoad(shadowMap, vec2i(gid.xy), 0);
 }`;
 
+const subject = gpuScene(
+    import.meta.path,
+    { defaults: false, plugins: [SpritePlugin] },
+    (world) => {
+        world.resource(DirectionalLightShadowMap).size = SHADOW_SIDE;
+        const device = world.gpu.device;
+        // Dawn's Node harness has no createImageBitmap. Bind a known opaque texel directly so the witness
+        // measures clip discard in the shadow pass rather than host image decoding.
+        const atlas = device.createTexture({
+            size: [1, 1, 1],
+            format: "rgba8unorm-srgb",
+            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+        });
+        world.own(atlas);
+        device.queue.writeTexture(
+            { texture: atlas },
+            new Uint8Array([255, 255, 255, 255]),
+            { bytesPerRow: 4, rowsPerImage: 1 },
+            { width: 1, height: 1, depthOrArrayLayers: 1 },
+        );
+
+        const camera = world.create();
+        world.add(camera, Transform, { translation: [0, 0, 5, 0] });
+        world.add(camera, Camera);
+        world.add(camera, StandardRenderer);
+        attachTexture(world, camera, { width: 32, height: 32 });
+
+        const receiver = world.create();
+        world.add(receiver, Transform, {
+            translation: [0, 0, -2, 0],
+            scale: [3, 3, 0.1, 0],
+        });
+        world.add(receiver, MeshInstance);
+        const sun = world.create();
+        world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, -0.4, -0.8, -0.5) });
+        world.add(sun, DirectionalLight, { shadowMapsEnabled: 1, numCascades: 1 });
+
+        const depthBuffer = device.createBuffer({
+            size: SHADOW_SIDE * SHADOW_SIDE * 4,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+        });
+        world.own(depthBuffer);
+        const bindGroupLayout = device.createBindGroupLayout({
+            entries: [
+                {
+                    binding: 0,
+                    visibility: GPUShaderStage.COMPUTE,
+                    texture: { sampleType: "depth" },
+                },
+                { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+            ],
+        });
+        const pipeline = device.createComputePipeline({
+            label: "sprite-shadow-pixels",
+            layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
+            compute: {
+                module: device.createShaderModule({ code: pixelShader }),
+                entryPoint: "main",
+            },
+        });
+        precompile(world, "sprite-shadow-pixels", () => [pipeline]);
+        return { world, device, atlas, depthBuffer, bindGroupLayout, pipeline };
+    },
+);
 test("clip Sprite leaves its alpha hole out of the directional shadow map", async () => {
-    const { world } = subjects()[0];
-    world.resource(DirectionalLightShadowMap).size = SHADOW_SIDE;
-    const device = world.gpu.device;
-    // Dawn's Node harness has no createImageBitmap. Bind a known opaque texel directly so the witness
-    // measures clip discard in the shadow pass rather than host image decoding.
-    const atlas = device.createTexture({
-        size: [1, 1, 1],
-        format: "rgba8unorm-srgb",
-        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-    });
-    world.own(atlas);
-    device.queue.writeTexture(
-        { texture: atlas },
-        new Uint8Array([255, 255, 255, 255]),
-        { bytesPerRow: 4, rowsPerImage: 1 },
-        { width: 1, height: 1, depthOrArrayLayers: 1 },
-    );
+    const {
+        scene: { world, device, atlas, depthBuffer, bindGroupLayout, pipeline },
+    } = subject();
     world.resource(ImageBindings).images = atlas;
-
-    const camera = world.create();
-    world.add(camera, Transform, { translation: [0, 0, 5, 0] });
-    world.add(camera, Camera);
-    world.add(camera, StandardRenderer);
-    attachTexture(world, camera, { width: 32, height: 32 });
-
-    const receiver = world.create();
-    world.add(receiver, Transform, {
-        translation: [0, 0, -2, 0],
-        scale: [3, 3, 0.1, 0],
-    });
-    world.add(receiver, MeshInstance);
-    const sun = world.create();
-    world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, -0.4, -0.8, -0.5) });
-    world.add(sun, DirectionalLight, { shadowMapsEnabled: 1, numCascades: 1 });
-
-    const depthBuffer = device.createBuffer({
-        size: SHADOW_SIDE * SHADOW_SIDE * 4,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-    });
-    world.own(depthBuffer);
-    const bindGroupLayout = device.createBindGroupLayout({
-        entries: [
-            { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "depth" } },
-            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-        ],
-    });
-    const pipeline = device.createComputePipeline({
-        layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
-        compute: { module: device.createShaderModule({ code: pixelShader }), entryPoint: "main" },
-    });
     async function depthPixels(): Promise<Float32Array> {
         const view = sunShadowView(world);
         expect(view).not.toBeNull();

@@ -10,19 +10,21 @@ import { Room } from '../src/room';
 const requests=[];
 const request=GPUAdapter.prototype.requestDevice;
 GPUAdapter.prototype.requestDevice=function(descriptor) { requests.push({requiredLimits:descriptor?.requiredLimits, requiredFeatures:descriptor?.requiredFeatures}); return request.call(this,descriptor); };
-const app=await createApp({plugins:[MotesPlugin]});
-const world=app.world, room=world.resource(Room), motes=world.resource(Motes);
 const canvas=document.querySelector('canvas');
 const captures=new URLSearchParams(location.search).has('captures');
-if (!captures) {
- canvas.width=320;canvas.height=180;
- const profiler=new URLSearchParams(location.search).has('profiler');
- attachTexture(world,room.camera,profiler?{width:16,height:9}:{width:320,height:180});
- if(profiler)world.remove(room.camera,StandardRenderer);
- world.storage(Camera).antialias.set(room.camera,0);
- world.resource(DirectionalLightShadowMap).size=512;
- for(const sun of world.query([DirectionalLight])) world.storage(DirectionalLight).numCascades.set(sun,1);
-}
+const app=await createApp({plugins:[{name:'SteppedScene',dependencies:[MotesPlugin],initialize(world){
+ if (!captures) {
+  const room=world.resource(Room);
+  canvas.width=320;canvas.height=180;
+  const profiler=new URLSearchParams(location.search).has('profiler');
+  attachTexture(world,room.camera,profiler?{width:16,height:9}:{width:320,height:180});
+  if(profiler)world.remove(room.camera,StandardRenderer);
+  world.storage(Camera).antialias.set(room.camera,0);
+  world.resource(DirectionalLightShadowMap).size=512;
+  for(const sun of world.query([DirectionalLight])) world.storage(DirectionalLight).numCascades.set(sun,1);
+ }
+}}]});
+const world=app.world, room=world.resource(Room), motes=world.resource(Motes);
 world.step(1/60);world.step(1/60);
 async function render() {
  if (!captures) {world.step(0);return captureTexture(world,room.camera);}

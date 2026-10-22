@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import tgpu from "typegpu";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { gpuScene } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
 import {
     AmbientLight,
@@ -13,7 +13,7 @@ import {
     VolumetricLight,
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
-import { probeTexture, type World } from "../../engine";
+import { precompile, precompileScope, probeTexture, type World } from "../../engine";
 import { DEFAULT_PLUGINS } from "../../standard";
 import { StandardRenderer } from "../../standard/rendering";
 import {
@@ -27,9 +27,7 @@ import {
 } from ".";
 
 setDefaultTimeout(TIMEOUT.node);
-const subjects = gpuApps(import.meta.path, [
-    { defaults: false, plugins: [...DEFAULT_PLUGINS, FogPlugin] },
-]);
+const config = { defaults: false, plugins: [...DEFAULT_PLUGINS, FogPlugin] };
 
 function reader(world: World, camera: number, fragment: string, width: number) {
     const device = world.gpu.device;
@@ -45,13 +43,16 @@ function reader(world: World, camera: number, fragment: string, width: number) {
         }),
     });
     const empty = device.createBindGroupLayout({ entries: [] });
+    const label = precompileScope(world, "fog-reader");
     const pipeline = device.createRenderPipeline({
+        label,
         layout: device.createPipelineLayout({
             bindGroupLayouts: [empty, empty, empty, world.gpu.root.unwrap(fogReadLayout)],
         }),
         vertex: { module, entryPoint: "fullscreenVertex" },
         fragment: { module, entryPoint: "sample", targets: [{ format: "rgba32float" }] },
     });
+    precompile(world, label, () => [pipeline]);
     const output = device.createTexture({
         size: [width, 1],
         format: "rgba32float",
@@ -73,8 +74,7 @@ function reader(world: World, camera: number, fragment: string, width: number) {
     };
 }
 
-test("uniform ambient radiance scatters at its own radiance, as a white diffuse surface reflects it", async () => {
-    const { world } = subjects()[0]!;
+const ambientScene = gpuScene(import.meta.path, config, (world) => {
     const camera = world.create();
     world.add(camera, Transform);
     world.add(camera, Camera, { antialias: 0, near: 0.1 });
@@ -101,6 +101,14 @@ test("uniform ambient radiance scatters at its own radiance, as a white diffuse 
         `,
         2,
     );
+    return { camera, fog, sample };
+});
+
+test("uniform ambient radiance scatters at its own radiance, as a white diffuse surface reflects it", async () => {
+    const {
+        world,
+        scene: { camera, fog, sample },
+    } = ambientScene();
     const exposed = 100 / 1.2;
     const values = await sample();
     world.destroy(camera);
@@ -110,8 +118,7 @@ test("uniform ambient radiance scatters at its own radiance, as a white diffuse 
     expect(values[4]! / (exposed * (1 - Math.exp(-0.1 * (11 - 0.1))))).toBeCloseTo(1, 2);
 });
 
-test("Fog's own light scatters at its exposed radiance, scaled by albedo in the haze, without scene lights", async () => {
-    const { world } = subjects()[0]!;
+const emissionScene = gpuScene(import.meta.path, config, (world) => {
     const camera = world.create();
     world.add(camera, Transform);
     world.add(camera, Camera, { antialias: 0, near: 0.1 });
@@ -141,6 +148,14 @@ test("Fog's own light scatters at its exposed radiance, scaled by albedo in the 
         `,
         3,
     );
+    return { camera, fog, sample };
+});
+
+test("Fog's own light scatters at its exposed radiance, scaled by albedo in the haze, without scene lights", async () => {
+    const {
+        world,
+        scene: { camera, fog, sample },
+    } = emissionScene();
     const lit = await sample();
     world.storage(Exposure).ev100.set(camera, 1);
     const half = await sample();
@@ -156,8 +171,7 @@ test("Fog's own light scatters at its exposed radiance, scaled by albedo in the 
     expect(half[8]! / lit[8]!).toBeCloseTo(0.5, 2);
 });
 
-test("local light is dark behind a shadow despite bright haze on its ray, exposed once, and zero without fog", async () => {
-    const { world } = subjects()[0]!;
+const shadowScene = gpuScene(import.meta.path, config, (world) => {
     const camera = world.create();
     world.add(camera, Transform);
     world.add(camera, Camera, { antialias: 0, near: 0.1 });
@@ -186,7 +200,6 @@ test("local light is dark behind a shadow despite bright haze on its ray, expose
     const roof = world.create();
     world.add(roof, Transform, { translation: [0, 2, -10], scale: [10, 0.2, 8] });
     world.add(roof, MeshInstance);
-    world.tick();
     const sample = reader(
         world,
         camera,
@@ -201,6 +214,15 @@ test("local light is dark behind a shadow despite bright haze on its ray, expose
         `,
         5,
     );
+    return { camera, fog, sample };
+});
+
+test("local light is dark behind a shadow despite bright haze on its ray, exposed once, and zero without fog", async () => {
+    const {
+        world,
+        scene: { camera, fog, sample },
+    } = shadowScene();
+    world.tick();
     const lit = await sample();
     expect(lit[8]!).toBeGreaterThan(0.1);
     expect(lit[0]!).toBeGreaterThan(1);
@@ -227,8 +249,7 @@ test("local light is dark behind a shadow despite bright haze on its ray, expose
 
 // Stage 8 fills cells behind an opaque surface with the light just in front of it, for trilinear and filtered
 // reads; a surface-clamped cell's zero-length segment must take the light at that point, not at the camera.
-test("cells behind a wall beside a point light keep the light just in front of the wall", async () => {
-    const { world } = subjects()[0]!;
+const wallScene = gpuScene(import.meta.path, config, (world) => {
     const camera = world.create();
     world.add(camera, Transform);
     world.add(camera, Camera, { antialias: 0, near: 0.1 });
@@ -245,7 +266,6 @@ test("cells behind a wall beside a point light keep the light just in front of t
     world.add(lamp, Transform, { translation: [0, 0, -4.5] });
     world.add(lamp, PointLight, { intensity: 10000, range: 3 });
     world.add(lamp, VolumetricLight);
-    world.tick();
     const sample = reader(
         world,
         camera,
@@ -257,6 +277,15 @@ test("cells behind a wall beside a point light keep the light just in front of t
         `,
         2,
     );
+    return { camera, fog, wall, lamp, sample };
+});
+
+test("cells behind a wall beside a point light keep the light just in front of the wall", async () => {
+    const {
+        world,
+        scene: { camera, fog, wall, lamp, sample },
+    } = wallScene();
+    world.tick();
     const values = await sample();
     world.destroy(camera);
     world.destroy(fog);

@@ -1,4 +1,16 @@
+import { pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, test } from "playwright/test";
+
+test.use(pipelineWarnings);
+
+test("the first frame has no late-pipeline warning", async ({ page }) => {
+    await page.goto("/");
+    await page.waitForFunction(() =>
+        performance
+            .getEntriesByType("measure")
+            .some((entry) => entry.name.endsWith(":first-update")),
+    );
+});
 
 test("the copied production page presents the delivery scene", async ({ page }) => {
     const errors: string[] = [];

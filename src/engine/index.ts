@@ -21,7 +21,10 @@ export {
     type DiagnosticMeasurement,
     DiagnosticPath,
     DiagnosticsStore,
+    HANDOFF_MARK,
+    SYSTEM_MEASURE_PREFIX,
     sampleDiagnosticTime,
+    UI_MOUNT_MEASURE,
 } from "./diagnostics";
 export {
     and,

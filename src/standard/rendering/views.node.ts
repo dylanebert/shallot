@@ -22,6 +22,7 @@ import {
     presentingViewSlot,
     viewResourcesKey,
 } from "../../core/rendering/view";
+import type { World } from "../../engine";
 import { Fog, FogPlugin } from "../../extras/fog";
 import { Outline, OutlinePlugin } from "../../extras/outline";
 import { CLUSTER_COUNT, CLUSTER_Z, Clusters, clusterGpuKey, LightCull } from "./cluster";
@@ -38,12 +39,22 @@ import { setupGlobals } from "@dylanebert/shallot/webgpu";
 
 await setupGlobals();
 
-async function withStandard() {
-    return createApp({ plugins: [StandardRenderingPlugin] });
+async function withStandard(initialize?: (world: World) => void) {
+    return createApp({
+        plugins: [
+            StandardRenderingPlugin,
+            ...(initialize
+                ? [{ name: "ViewScene", dependencies: [StandardRenderingPlugin], initialize }]
+                : []),
+        ],
+    });
 }
 
-async function withVisualRendering() {
-    return createApp({ plugins: [StandardRenderingPlugin, FogPlugin, OutlinePlugin] });
+async function withVisualRendering(initialize: (world: World) => void) {
+    const plugins = [StandardRenderingPlugin, FogPlugin, OutlinePlugin];
+    return createApp({
+        plugins: [...plugins, { name: "VisualViewScene", dependencies: plugins, initialize }],
+    });
 }
 
 function renderedCamera(
@@ -135,36 +146,36 @@ describe.each([0, 1])("lit fogged outlined views, antialias %i", (antialias) => 
         return [...rgba.subarray(at, at + 3)];
     };
     beforeAll(async () => {
-        app = await withVisualRendering();
-        const world = app.world;
-        first = renderedCamera(world, antialias, true, -3);
-        fog = world.create();
-        world.add(fog, Fog, { density: 0.3 });
-        for (const [x, color] of [
-            [-3, [0.85, 0.08, 0.02, 1]],
-            [3, [0.02, 0.08, 0.85, 1]],
-        ] as const) {
-            const mesh = world.create();
-            world.add(mesh, Transform, { translation: [x, 0, 0, 0] });
-            world.add(mesh, MeshInstance);
-            world.add(
-                mesh,
-                MeshMaterial,
-                world
-                    .resource(Materials)
-                    .add(StandardMaterial({ baseColor: color, perceptualRoughness: 0.8 })),
-            );
-            world.add(mesh, Outline, { color: 0x59ff7c, width: 3 });
-        }
-        points = pointSpecs.map(({ x, light }) => {
-            const point = world.create();
-            world.add(point, Transform, { translation: [x, 0, 2, 0] });
-            world.add(point, PointLight, light);
-            world.add(point, VolumetricLight);
-            return point;
+        app = await withVisualRendering((world) => {
+            first = renderedCamera(world, antialias, true, -3);
+            fog = world.create();
+            world.add(fog, Fog, { density: 0.3 });
+            for (const [x, color] of [
+                [-3, [0.85, 0.08, 0.02, 1]],
+                [3, [0.02, 0.08, 0.85, 1]],
+            ] as const) {
+                const mesh = world.create();
+                world.add(mesh, Transform, { translation: [x, 0, 0, 0] });
+                world.add(mesh, MeshInstance);
+                world.add(
+                    mesh,
+                    MeshMaterial,
+                    world
+                        .resource(Materials)
+                        .add(StandardMaterial({ baseColor: color, perceptualRoughness: 0.8 })),
+                );
+                world.add(mesh, Outline, { color: 0x59ff7c, width: 3 });
+            }
+            points = pointSpecs.map(({ x, light }) => {
+                const point = world.create();
+                world.add(point, Transform, { translation: [x, 0, 2, 0] });
+                world.add(point, PointLight, light);
+                world.add(point, VolumetricLight);
+                return point;
+            });
+            second = renderedCamera(world, antialias, false, 3);
         });
-        second = renderedCamera(world, antialias, false, 3);
-
+        const world = app.world;
         // Compare the same jitter phase after fog's temporal average has settled.
         for (let i = 0; i < 96; i++) world.step(0);
         beforeGrowth = await captureTexture(world, first);
@@ -322,11 +333,11 @@ describe.each([0, 1])("lit fogged outlined views, antialias %i", (antialias) => 
 });
 
 test("removing a camera releases its targets and shifts the remaining tone group with its slot", async () => {
-    const app = await withStandard();
-    try {
-        const world = app.world;
-        const first = renderedCamera(world, 0);
-        const second = renderedCamera(world, 0);
+    let first!: number;
+    let second!: number;
+    const app = await withStandard((world) => {
+        first = renderedCamera(world, 0);
+        second = renderedCamera(world, 0);
         world.storage(Tonemapping).method.set(second, TonemappingMethod.None);
         const mesh = world.create();
         world.add(mesh, Transform);
@@ -344,7 +355,9 @@ test("removing a camera releases its targets and shifts the remaining tone group
         const point = world.create();
         world.add(point, Transform, { translation: [1, 1, 2, 0] });
         world.add(point, PointLight, { color: 0xff8844, intensity: 315225.92, range: 10 });
-
+    });
+    try {
+        const world = app.world;
         world.step(0);
         world.step(0);
         const beforeRemoval = await captureTexture(world, second);

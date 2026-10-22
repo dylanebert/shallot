@@ -25,35 +25,52 @@ import { QuantizedMaterial } from "./materials";
 setDefaultTimeout(TIMEOUT.node);
 
 test("the Banded lighting exhibit has flat lighting bands across its curved surface", async () => {
+    let camera = 0;
     const app = await openGpuApp({
         defaults: false,
-        plugins: [StandardRenderingPlugin, MeshRenderPlugin, MaterialPlugin(QuantizedMaterial)],
+        plugins: [
+            {
+                name: "BandedLightingScene",
+                dependencies: [
+                    StandardRenderingPlugin,
+                    MeshRenderPlugin,
+                    MaterialPlugin(QuantizedMaterial),
+                ],
+                initialize(world) {
+                    camera = world.create();
+                    world.add(camera, Transform, { translation: [0, 0, 3] });
+                    world.add(camera, Camera, { antialias: 0 });
+                    world.add(camera, StandardRenderer);
+                    world.add(camera, Tonemapping, { method: TonemappingMethod.None });
+                    attachTexture(world, camera, { width: 64, height: 64 });
+                    const sun = world.create();
+                    world.add(sun, Transform, {
+                        rotation: lookAtRotation(0, 0, 0, -0.5, -1, -0.6),
+                    });
+                    world.add(sun, DirectionalLight, { color: 0xffe8cc, illuminance: 3200 });
+                    const eid = world.create();
+                    world.add(eid, Transform);
+                    world.add(eid, MeshInstance, {
+                        mesh: world
+                            .resource(Meshes)
+                            .add({ name: "Exhibit sphere", ...sphere(0.65, 64, 32) }),
+                    });
+                    world.add(
+                        eid,
+                        MeshMaterial,
+                        world.resource(QuantizedMaterial).add(
+                            StandardMaterial({
+                                baseColor: [0.72, 0.4, 0.05, 1],
+                                perceptualRoughness: 0.8,
+                            }),
+                        ),
+                    );
+                },
+            },
+        ],
     });
     try {
         const { world } = app;
-        const camera = world.create();
-        world.add(camera, Transform, { translation: [0, 0, 3] });
-        world.add(camera, Camera, { antialias: 0 });
-        world.add(camera, StandardRenderer);
-        world.add(camera, Tonemapping, { method: TonemappingMethod.None });
-        attachTexture(world, camera, { width: 64, height: 64 });
-        const sun = world.create();
-        world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, -0.5, -1, -0.6) });
-        world.add(sun, DirectionalLight, { color: 0xffe8cc, illuminance: 3200 });
-        const eid = world.create();
-        world.add(eid, Transform);
-        world.add(eid, MeshInstance, {
-            mesh: world.resource(Meshes).add({ name: "Exhibit sphere", ...sphere(0.65, 64, 32) }),
-        });
-        world.add(
-            eid,
-            MeshMaterial,
-            world
-                .resource(QuantizedMaterial)
-                .add(
-                    StandardMaterial({ baseColor: [0.72, 0.4, 0.05, 1], perceptualRoughness: 0.8 }),
-                ),
-        );
         world.step(0);
         world.step(0);
         const { rgba } = await captureTexture(world, camera);

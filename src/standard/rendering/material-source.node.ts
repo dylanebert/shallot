@@ -30,6 +30,7 @@ import { Transform } from "@dylanebert/shallot/transform";
 import tgpu, { readFromArrayBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
+import { expectWarning } from "../../../scripts/test-console";
 
 setDefaultTimeout(TIMEOUT.node);
 const Surface = component(
@@ -154,6 +155,9 @@ test("a material borrows externally owned rows and alpha inputs without taking o
     try {
         world.step(0);
         expect(alphaReads).toHaveBeenCalledTimes(0);
+        expectWarning(
+            /Pipeline "standard-MaterialSourceProof-2" owned by "CorePipeline\/1" created after the precompile drain\./,
+        );
         const grow = {
             group: "draw" as const,
             after: [ClearChangeMarksSystem],

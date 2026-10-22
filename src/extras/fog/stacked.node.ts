@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { gpuScene } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
 import { attachTexture, Camera } from "../../core/rendering";
 import { offscreenTexture } from "../../core/rendering/view";
@@ -19,13 +19,14 @@ import { Fog, FogPlugin, NoFog } from ".";
 
 setDefaultTimeout(TIMEOUT.node);
 
-const subjects = gpuApps(import.meta.path, [
-    { defaults: false, plugins: [...DEFAULT_PLUGINS, FogPlugin] },
-]);
+const config = { defaults: false, plugins: [...DEFAULT_PLUGINS, FogPlugin] };
+const stacked = gpuScene(import.meta.path, config, (world) => stackedScene(world, 1));
 
 test("fog on a camera stacked over another reaches the lower image only through that camera's coverage", async () => {
-    const { world } = subjects()[0];
-    const { lower, upper, cube } = stackedScene(world, 1);
+    const {
+        world,
+        scene: { lower, upper, cube },
+    } = stacked();
     const clear = pixel(await stackedFrame(world, lower), SIZE / 2, SIZE / 2);
     const fog = world.create();
     world.add(fog, Fog, { density: 0.1, color: 0xffffff });
@@ -57,8 +58,7 @@ test("fog on a camera stacked over another reaches the lower image only through 
     world.step(0);
 });
 
-test("a bottom camera's in-scatter ignores its scene alpha, as before stacking, under hardware AlphaToCoverage", async () => {
-    const { world } = subjects()[0];
+const coverageScene = gpuScene(import.meta.path, config, (world) => {
     // Four lone cameras see identical fog in one frame, each over its own cube far from the others:
     // white and black opaque cubes measure in-scatter F and transmittance T at the cube's depth, and an
     // AlphaToCoverage cube, seen with and without fog, must read F + D·T from its unfogged color D.
@@ -95,6 +95,14 @@ test("a bottom camera's in-scatter ignores its scene alpha, as before stacking, 
     const fog = world.create();
     world.add(fog, Fog, { density: 0.1, color: 0xffffff });
     entities.push(fog);
+    return { cameras, entities };
+});
+
+test("a bottom camera's in-scatter ignores its scene alpha, as before stacking, under hardware AlphaToCoverage", async () => {
+    const {
+        world,
+        scene: { cameras, entities },
+    } = coverageScene();
     world.gpu.device.pushErrorScope("validation");
     for (let i = 0; i < 4; i++) world.step(0);
     expect((await world.gpu.device.popErrorScope())?.message ?? null).toBeNull();

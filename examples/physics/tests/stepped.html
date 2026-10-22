@@ -13,15 +13,18 @@ const params=new URLSearchParams(location.search);
 const scene=params.get('scene') || 'boxStack';
 const bodyIndex=scene==='bridge'?10:scene==='boxStack'?20:0;
 let bodies;
-const app = await createApp({ plugins: [StandardPhysicsPlugin, LinesPlugin, OrbitPlugin, GrabPlugin, {name:'SampleView', dependencies:[MeshPlugin,StandardPhysicsPlugin], initialize(world){createViewer(world)(world,scene)}}], setup(world) {
+const app = await createApp({ plugins: [StandardPhysicsPlugin, LinesPlugin, OrbitPlugin, GrabPlugin, {name:'SampleView', dependencies:[MeshPlugin,StandardPhysicsPlugin], initialize(world){
+ createViewer(world)(world,scene);
+ const camera=[...world.query([Camera])][0];
+ world.storage(Camera).antialias.set(camera,0);
+ // Input and geometry steps use a small target; captures restore the canvas size.
+ world.add(camera,Resolution,{width:64,height:48});
+}}], setup(world) {
  world.resource(PhysicsWorldDefinition).workerCount=1;
  bodies=createScene(world,scene);
 } });
 const world=app.world;
 const camera=[...world.query([Camera])][0];
-world.storage(Camera).antialias.set(camera,0);
-// Input and geometry steps do not read pixels; captures below draw at the canvas's full CSS size.
-world.add(camera,Resolution,{width:64,height:48});
 const shadows=[...world.query([DirectionalLight])].map(eid=>[eid,world.storage(DirectionalLight).shadowMapsEnabled.get(eid)]);
 for(const [eid] of shadows) world.storage(DirectionalLight).shadowMapsEnabled.set(eid,0);
 const frame=()=>world.step(1/60);

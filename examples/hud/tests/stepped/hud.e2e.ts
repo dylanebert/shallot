@@ -1,5 +1,8 @@
+import { pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, type Page, test } from "playwright/test";
 import { bodyHasFocus, dragRange, gameKeyMovesCamera, pointerControl } from "../pointer";
+
+test.use(pipelineWarnings);
 
 type Turn = { angle: number; speed: number };
 type SteppedWindow = Window & {

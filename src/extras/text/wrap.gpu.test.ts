@@ -8,11 +8,15 @@ import { internText, Justify, registerFont, Text, TextPlugin } from "./index";
 
 setDefaultTimeout(TIMEOUT.gpu);
 let font = 0;
+let camera = 0;
 const subjects = gpuApps(import.meta.path, [
     {
         defaults: false,
         plugins: [TextPlugin],
         setup(world) {
+            camera = world.create();
+            world.add(camera, Transform, { translation: [0, 0, 5] });
+            world.add(camera, Camera);
             font = registerFont(
                 world,
                 `data:font/ttf;base64,${Buffer.from(isolationFont()).toString("base64")}`,
@@ -23,9 +27,6 @@ const subjects = gpuApps(import.meta.path, [
 
 test("a wrapped centred label covers two separated rows in a captured frame", async () => {
     const { world } = subjects()[0];
-    const camera = world.create();
-    world.add(camera, Transform, { translation: [0, 0, 5] });
-    world.add(camera, Camera);
     attachTexture(world, camera, { width: 64, height: 64 });
     world.step(1 / 60);
     world.step(1 / 60);

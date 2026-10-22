@@ -1,4 +1,7 @@
+import { pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, test } from "playwright/test";
+
+test.use(pipelineWarnings);
 
 test.beforeEach(async ({ page }) => {
     const session = await page.context().newCDPSession(page);

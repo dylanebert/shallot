@@ -19,7 +19,7 @@ import {
     xformNormal,
     xformPoint,
 } from "../../core/rendering";
-import type { World } from "../../engine";
+import { precompile, precompileScope, type World } from "../../engine";
 import { octDecodeNormal } from "../../engine/utils";
 import { cascadeLayout, pointLayout, shadowLayout } from "./atlas";
 import { LightCull } from "./cluster";
@@ -2271,11 +2271,13 @@ export function getBackground(world: World, bg: AnyBackground): CompiledBackgrou
 
 /** Prepare every material parameter table, pipeline and background at warm, before the first draw.
  * `singleSample` also prepares each material's AA-off variant, for a no-AA camera present at warm.
- * A camera added or switched to AA-off after warm still compiles that variant on its first draw. */
+ * `stacked` prepares AlphaToCoverage for an initially stacked multisampled camera.
+ * A camera added or reconfigured after warm may still compile a variant on its first draw and warn. */
 export async function preparePipelines(
     world: World,
     capacity: number,
     singleSample = false,
+    stacked = false,
 ): Promise<void> {
     // A material may first acquire a draw in the draw group, after that frame's table upload.
     // Create its parameter table at warm so the defaults reach the first frame's upload.
@@ -2294,6 +2296,10 @@ export async function preparePipelines(
             if (!(alphaKeys & (1 << alphaPipelineKey))) continue;
             const compiled = compileMaterial(world, type, capacity, alphaPipelineKey);
             if (singleSample) ensureSingle(world, compiled);
+            if (stacked && alphaPipelineKey === AlphaPipelineKey.AlphaToCoverage) {
+                const pipeline = ensureStacked(world, compiled);
+                precompile(world, precompileScope(world, "standard-stacked"), () => pipeline);
+            }
             for (const p of [
                 compiled.color,
                 compiled.transparent,
@@ -2303,6 +2309,7 @@ export async function preparePipelines(
                 compiled.single?.color,
                 compiled.single?.transparent,
                 compiled.prepassSingle,
+                compiled.stacked,
             ]) {
                 if (p) world.gpu.root.unwrap(p);
             }

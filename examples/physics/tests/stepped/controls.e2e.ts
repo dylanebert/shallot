@@ -1,5 +1,8 @@
+import { pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, test } from "playwright/test";
 import { dragRange, gameKeyMovesCamera, pointerControl, tabSkipsChrome } from "../pointer";
+
+test.use(pipelineWarnings);
 
 test("pointer controls retain disabled nested settings and disclose the root without focus", async ({
     page,

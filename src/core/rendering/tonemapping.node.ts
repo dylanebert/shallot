@@ -1,6 +1,7 @@
-import { beforeAll, expect, setDefaultTimeout, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
+import { precompile, type World } from "../../engine";
 import { probeTexture } from "../../engine/runtime";
 import { Transform } from "../transform";
 import { gradingDefaults } from "./color-grading";
@@ -24,7 +25,18 @@ import {
 } from "./tonemapping-bevy.fixture";
 
 setDefaultTimeout(TIMEOUT.node);
-const subjects = gpuApps(import.meta.path, [{ defaults: false, plugins: [CorePipelinePlugin] }]);
+const subjects = gpuApps(import.meta.path, [
+    {
+        defaults: false,
+        plugins: [
+            {
+                name: "TonemappingComparison",
+                dependencies: [CorePipelinePlugin],
+                initialize,
+            },
+        ],
+    },
+]);
 const width = 128,
     height = 32;
 let eid: number;
@@ -32,8 +44,7 @@ let input: GPUTexture;
 let output: GPUTexture;
 const pipelines = new Map<string, GPURenderPipeline>();
 const vertex = `@vertex fn vertex(@builtin(vertex_index) i:u32)->@builtin(position) vec4f {let uv=vec2f(f32((i<<1u)&2u),f32(i&2u));return vec4f(uv*2.0-1.0,0.0,1.0);}`;
-beforeAll(async () => {
-    const { world } = subjects()[0];
+async function initialize(world: World) {
     const device = world.gpu.device;
     const info = device.adapterInfo;
     console.log(
@@ -127,7 +138,8 @@ beforeAll(async () => {
         ],
         after: [],
     });
-}, TIMEOUT.startup);
+    precompile(world, "tonemapping-comparison", () => [...pipelines.values(), pipeline, copy]);
+}
 
 test("the Bevy gate covers every TonemappingMethod", () => {
     expect(methods.map((method) => method[1]).sort()).toEqual(

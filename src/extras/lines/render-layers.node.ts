@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { gpuScene } from "../../../scripts/gpu.fixture";
 import { attachTexture, Camera, RenderLayers, TransparentPhases } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import {
@@ -14,7 +14,13 @@ import {
 } from "./index";
 
 setDefaultTimeout(TIMEOUT.node);
-const subjects = gpuApps(import.meta.path, [{ defaults: false, plugins: [LinesPlugin] }]);
+const subject = gpuScene(import.meta.path, { defaults: false, plugins: [LinesPlugin] }, (world) => {
+    const camera = world.create();
+    world.add(camera, Transform, { translation: [0, 0, 5] });
+    world.add(camera, Camera, { antialias: 0 });
+    attachTexture(world, camera, { width: 32, height: 32 });
+    return camera;
+});
 
 for (const kind of ["entity", "line", "box", "arrow"] as const)
     for (const [itemMask, cameraMask] of [
@@ -22,12 +28,8 @@ for (const kind of ["entity", "line", "box", "arrow"] as const)
         [1, 2],
     ])
         test(`${kind} mask ${itemMask} is not drawn by camera mask ${cameraMask}`, () => {
-            const { world } = subjects()[0];
-            const camera = world.create();
-            world.add(camera, Transform, { translation: [0, 0, 5] });
-            world.add(camera, Camera, { antialias: 0 });
+            const { world, scene: camera } = subject();
             if (cameraMask !== 1) world.add(camera, RenderLayers, { mask: cameraMask });
-            attachTexture(world, camera, { width: 32, height: 32 });
             const entity = world.create();
             if (kind === "entity") {
                 const asset = new GizmoAsset();
@@ -51,6 +53,6 @@ for (const kind of ["entity", "line", "box", "arrow"] as const)
                 expect(frame()).toBe(kind === "box" ? 12 : kind === "arrow" ? 2 : 1);
             } finally {
                 world.destroy(entity);
-                world.destroy(camera);
+                world.remove(camera, RenderLayers);
             }
         });

@@ -11,11 +11,13 @@ import { LocalPlayer, Player } from '../src/player';
 const requests=[];
 const requestDevice=GPUAdapter.prototype.requestDevice;
 GPUAdapter.prototype.requestDevice=function(descriptor){requests.push(descriptor??{});return requestDevice.call(this,descriptor);};
-const app=await createApp({plugins:[RoomPlugin]});
-const w=app.world, room=w.resource(Room);
 const canvas=document.querySelector('canvas');
 const captures=new URLSearchParams(location.search).has('captures');
-if(!captures){canvas.width=320;canvas.height=180;attachTexture(w,room.camera,{width:320,height:180});w.storage(Camera).antialias.set(room.camera,0);w.resource(PointShadows).atlas=1024;w.resource(DirectionalLightShadowMap).size=512;}
+const app=await createApp({plugins:[{name:'SteppedScene',dependencies:[RoomPlugin],initialize(w){
+ const room=w.resource(Room);
+ if(!captures){canvas.width=320;canvas.height=180;attachTexture(w,room.camera,{width:320,height:180});w.storage(Camera).antialias.set(room.camera,0);w.resource(PointShadows).atlas=1024;w.resource(DirectionalLightShadowMap).size=512;}
+}}]});
+const w=app.world, room=w.resource(Room);
 w.storage(Player).gravity.set(room.player,0);
 w.storage(Player).friction.set(room.player,1000);
 window.view=(x=2.5,y=1,z=11,yaw=0.25,pitch=-0.05)=>{

@@ -1,6 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { gpuScene } from "../../../scripts/gpu.fixture";
+import { expectWarning } from "../../../scripts/test-console";
 import { MeshInstance } from "../../core/mesh";
 import {
     attachTexture,
@@ -30,13 +31,6 @@ const alphaWorld = {
     defaults: false,
     plugins: [StandardRenderingPlugin, MeshRenderPlugin],
 };
-const subjects = gpuApps(import.meta.path, [
-    alphaWorld,
-    alphaWorld,
-    alphaWorld,
-    alphaWorld,
-    alphaWorld,
-]);
 
 function srgbByte(linear: number): number {
     const encoded = linear <= 0.0031308 ? linear * 12.92 : 1.055 * linear ** (1 / 2.4) - 0.055;
@@ -60,8 +54,7 @@ test("Premultiplied and Add share the material pipeline key", () => {
     );
 });
 
-test("one material type routes opaque, masked, and blended instances by their alpha modes", async () => {
-    const { world } = subjects()[0];
+const routing = gpuScene(import.meta.path, alphaWorld, (world) => {
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });
     world.add(camera, Camera);
@@ -91,7 +84,12 @@ test("one material type routes opaque, masked, and blended instances by their al
         world.add(eid, MeshMaterial, rows[i]);
         entities.push(eid);
     }
-
+    return { world, camera, materials, rows, entities };
+});
+test("one material type routes opaque, masked, and blended instances by their alpha modes", async () => {
+    const {
+        scene: { world, camera, materials, rows, entities },
+    } = routing();
     world.step(0);
     world.step(0);
     const rgba = (await captureTexture(world, camera)).rgba;
@@ -115,8 +113,7 @@ test("one material type routes opaque, masked, and blended instances by their al
     ]);
 });
 
-test("Premultiplied, Add and Multiply use their independently computed composites", async () => {
-    const { world } = subjects()[1];
+const composites = gpuScene(import.meta.path, alphaWorld, (world) => {
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });
     world.add(camera, Camera);
@@ -146,7 +143,12 @@ test("Premultiplied, Add and Multiply use their independently computed composite
         world.add(eid, MeshInstance);
         world.add(eid, MeshMaterial, rows[i]);
     }
-
+    return { world, camera };
+});
+test("Premultiplied, Add and Multiply use their independently computed composites", async () => {
+    const {
+        scene: { world, camera },
+    } = composites();
     world.step(0);
     world.step(0);
     const rgba = (await captureTexture(world, camera)).rgba;
@@ -172,8 +174,7 @@ test("Premultiplied, Add and Multiply use their independently computed composite
     ).toHaveLength(1);
 });
 
-test("AlphaToCoverage selects fractional sample coverage on a multisampled target", async () => {
-    const { world } = subjects()[2];
+const fractional = gpuScene(import.meta.path, alphaWorld, (world) => {
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });
     world.add(camera, Camera);
@@ -191,7 +192,12 @@ test("AlphaToCoverage selects fractional sample coverage on a multisampled targe
     world.add(eid, Transform, { scale: [0.45, 0.45, 0.45, 0] });
     world.add(eid, MeshInstance);
     world.add(eid, MeshMaterial, material);
-
+    return { world, camera };
+});
+test("AlphaToCoverage selects fractional sample coverage on a multisampled target", async () => {
+    const {
+        scene: { world, camera },
+    } = fractional();
     world.step(0);
     world.step(0);
     const rgba = (await captureTexture(world, camera)).rgba;
@@ -201,6 +207,15 @@ test("AlphaToCoverage selects fractional sample coverage on a multisampled targe
         Math.max(...pixel.map((channel, i) => Math.abs(channel - expected[i]))),
     ).toBeLessThanOrEqual(1);
 
+    expectWarning(
+        /Pipeline "standard-StandardMaterial-0-1x" owned by "CorePipeline\/1" created after the precompile drain\./,
+    );
+    expectWarning(
+        /Pipeline "standard-StandardMaterial-5-1x" owned by "CorePipeline\/1" created after the precompile drain\./,
+    );
+    expectWarning(
+        /Pipeline "standard-VertexMaterial-0-1x" owned by "CorePipeline\/1" created after the precompile drain\./,
+    );
     world.storage(Camera).antialias.set(camera, 0);
     world.step(0);
     world.step(0);
@@ -210,8 +225,7 @@ test("AlphaToCoverage selects fractional sample coverage on a multisampled targe
     ]);
 });
 
-test("AlphaToCoverage sharpens a sampled texel just above cutoff to full 4× coverage", async () => {
-    const { world } = subjects()[4];
+const sampled = gpuScene(import.meta.path, alphaWorld, (world) => {
     const device = world.gpu.device;
     // Direct upload isolates shader sampling from image decoding on Dawn.
     const image = device.createTexture({
@@ -226,7 +240,6 @@ test("AlphaToCoverage sharpens a sampled texel just above cutoff to full 4× cov
         { bytesPerRow: 4 },
         [1, 1, 1],
     );
-    world.resource(ImageBindings).images = image;
     const material = world
         .resource(Materials)
         .add(StandardMaterial({ baseColorTexture: 0, unlit: true }), {
@@ -243,6 +256,13 @@ test("AlphaToCoverage sharpens a sampled texel just above cutoff to full 4× cov
     world.add(camera, StandardRenderer);
     world.add(camera, Tonemapping, { method: TonemappingMethod.None });
     attachTexture(world, camera, { width: 32, height: 32 });
+    return { world, camera, image };
+});
+test("AlphaToCoverage sharpens a sampled texel just above cutoff to full 4× coverage", async () => {
+    const {
+        scene: { world, camera, image },
+    } = sampled();
+    world.resource(ImageBindings).images = image;
     world.step(0);
     world.step(0);
     const { rgba } = await captureTexture(world, camera);
@@ -251,8 +271,7 @@ test("AlphaToCoverage sharpens a sampled texel just above cutoff to full 4× cov
     );
 });
 
-test("a reassigned material row's alpha mode selects the entity's draw on the next step", async () => {
-    const { world } = subjects()[3];
+const reassignment = gpuScene(import.meta.path, alphaWorld, (world) => {
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });
     world.add(camera, Camera);
@@ -266,6 +285,12 @@ test("a reassigned material row's alpha mode selects the entity's draw on the ne
     const glass = materials.add(StandardMaterial({ baseColor: [0, 0, 1, 0.25], unlit: true }), {
         alphaMode: AlphaMode.Blend,
     });
+    return { world, camera, materials, opaque, glass };
+});
+test("a reassigned material row's alpha mode selects the entity's draw on the next step", async () => {
+    const {
+        scene: { world, camera, materials, opaque, glass },
+    } = reassignment();
     const blended = expectedPixel(CLEAR[0] * 0.75, CLEAR[1] * 0.75, CLEAR[2] * 0.75 + 0.25);
     const expectGlass = async (eid: number) => {
         expect(world.storage(MeshMaterial).alphaMode.get(eid)).toBe(glass.alphaMode);

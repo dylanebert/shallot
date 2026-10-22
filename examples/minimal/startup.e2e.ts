@@ -1,4 +1,4 @@
-import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { pipelineWarnings, TIMEOUT } from "@dylanebert/shallot/testing";
 import { expect, type Page, test } from "playwright/test";
 
 const entry = "**/assets/index-*.js";
@@ -78,6 +78,17 @@ async function expectPaintedLabel(page: Page) {
         "screenshot has visible label ink against the bootstrap background",
     ).toBeGreaterThan(20);
 }
+
+test.use(pipelineWarnings);
+
+test("the first frame has no late-pipeline warning", async ({ page }) => {
+    await page.goto("/");
+    await page.waitForFunction(() =>
+        performance
+            .getEntriesByType("measure")
+            .some((entry) => entry.name.endsWith(":first-update")),
+    );
+});
 
 test("minimal paints its bootstrap before the held application entry", async ({ page }) => {
     const release = await holdEntry(page);

@@ -1,3 +1,4 @@
+import { pipelineWarnings } from "@dylanebert/shallot/testing";
 import { test as base, expect, type Page } from "playwright/test";
 
 const noticePrefix = "__shallot_browser_startup_failure__: ";
@@ -38,7 +39,7 @@ export async function releasing<T>(
     return result;
 }
 
-export const test = base.extend({
+export const test = base.extend(pipelineWarnings).extend({
     page: async ({ page }, use) => {
         const failures = expectedFailures.get(page) ?? [];
         expectedFailures.set(page, failures);

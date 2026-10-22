@@ -1,10 +1,10 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { gpuScene } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
 import { Anchor, attachTexture, Billboard, Camera, captureTexture } from "../../core/rendering";
 import { Transform } from "../../core/transform";
-import { lookAtRotation } from "../../engine";
+import { lookAtRotation, type World } from "../../engine";
 import {
     AlphaMode,
     Materials,
@@ -19,21 +19,18 @@ import { isolationFont } from "./font.fixture";
 import { internText, registerFont, Text, TextPlugin } from "./index";
 
 setDefaultTimeout(TIMEOUT.node);
-let font = 0;
-const subjects = gpuApps(import.meta.path, [
-    {
-        defaults: false,
-        plugins: [TextPlugin, LinesPlugin, MeshRenderPlugin, StandardRenderingPlugin],
-        setup(world) {
-            font = registerFont(
-                world,
-                `data:font/ttf;base64,${Buffer.from(isolationFont()).toString("base64")}`,
-            );
-        },
-    },
-]);
+const config = {
+    defaults: false,
+    plugins: [TextPlugin, LinesPlugin, MeshRenderPlugin, StandardRenderingPlugin],
+};
+function initializeFont(world: World) {
+    return registerFont(
+        world,
+        `data:font/ttf;base64,${Buffer.from(isolationFont()).toString("base64")}`,
+    );
+}
 
-async function frame(world: ReturnType<typeof subjects>[number]["world"], camera: number) {
+async function frame(world: World, camera: number) {
     world.step(1 / 60);
     world.step(1 / 60);
     return (await captureTexture(world, camera)).rgba;
@@ -54,9 +51,9 @@ for (const pose of [
         label: [-0.01, 0, 0],
         anchor: Anchor.BOTTOM_LEFT,
     },
-] as const)
-    test(`a ${pose.name} label in front of a blended plane stays visible`, async () => {
-        const { world } = subjects()[0];
+] as const) {
+    const subject = gpuScene(import.meta.path, config, (world) => {
+        const font = initializeFont(world);
         const camera = world.create();
         const rotation = lookAtRotation(pose.eye[0], pose.eye[1], pose.eye[2], 0, 0, 0);
         world.add(camera, Transform, { translation: pose.eye, rotation });
@@ -75,6 +72,12 @@ for (const pose of [
                     alphaMode: AlphaMode.Blend,
                 }),
         );
+        return { world, font, camera, plane };
+    });
+    test(`a ${pose.name} label in front of a blended plane stays visible`, async () => {
+        const {
+            scene: { world, font, camera, plane },
+        } = subject();
         const baseline = await frame(world, camera);
         const label = world.create();
         world.add(label, Transform, {
@@ -93,9 +96,10 @@ for (const pose of [
         world.destroy(plane);
         world.destroy(camera);
     });
+}
 
-test("Text and Gizmo are both visible alone and occluded by an opaque mesh", async () => {
-    const { world } = subjects()[0];
+const solid = gpuScene(import.meta.path, config, (world) => {
+    const font = initializeFont(world);
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });
     world.add(camera, Camera);
@@ -109,6 +113,12 @@ test("Text and Gizmo are both visible alone and occluded by an opaque mesh", asy
         .resource(Materials)
         .add(StandardMaterial({ baseColor: [1, 0, 0, 1], unlit: true }));
     world.add(cube, MeshMaterial, material);
+    return { world, camera, cube, font };
+});
+test("Text and Gizmo are both visible alone and occluded by an opaque mesh", async () => {
+    const {
+        scene: { world, camera, cube, font },
+    } = solid();
     const baseline = await frame(world, camera);
 
     const label = world.create();

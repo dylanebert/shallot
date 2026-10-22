@@ -1,4 +1,4 @@
-import tgpu, { type TgpuRoot } from "typegpu";
+import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { decodePos, MeshQuant, meshIdOf } from "../../core/mesh";
@@ -10,6 +10,7 @@ import {
     Xform,
     xformMat,
 } from "../../core/rendering";
+import { precompile, type World } from "../../engine";
 import { unpackLdrColor } from "../../engine/utils";
 import { Glyph, sdfToSignedDistance } from "./glyph";
 
@@ -104,19 +105,23 @@ const ALPHA_BLEND: GPUBlendState = {
     alpha: { operation: "add", srcFactor: "one", dstFactor: "one-minus-src-alpha" },
 };
 
-export function createTextPipeline(root: TgpuRoot, format: GPUTextureFormat, sampleCount: number) {
-    return root.createRenderPipeline({
-        vertex: TextVertex,
-        fragment: TextFragment,
-        primitive: { topology: "triangle-list", cullMode: "none" },
-        depthStencil: {
-            format: DEPTH_FORMAT,
-            depthWriteEnabled: false,
-            depthCompare: "greater-equal",
-        },
-        multisample: { count: sampleCount },
-        targets: { format, blend: ALPHA_BLEND },
-    });
+export function createTextPipeline(world: World, format: GPUTextureFormat, sampleCount: number) {
+    const pipeline = world.gpu.root
+        .createRenderPipeline({
+            vertex: TextVertex,
+            fragment: TextFragment,
+            primitive: { topology: "triangle-list", cullMode: "none" },
+            depthStencil: {
+                format: DEPTH_FORMAT,
+                depthWriteEnabled: false,
+                depthCompare: "greater-equal",
+            },
+            multisample: { count: sampleCount },
+            targets: { format, blend: ALPHA_BLEND },
+        })
+        .$name(`text-${sampleCount}`);
+    precompile(world, `text-${sampleCount}`, () => pipeline);
+    return pipeline;
 }
 
 export { viewLayout };

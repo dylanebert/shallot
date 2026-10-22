@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { gpuScene } from "../../../scripts/gpu.fixture";
 import { expectWarning } from "../../../scripts/test-console";
 import { MeshInstance } from "../../core/mesh";
 import {
@@ -26,52 +26,58 @@ import { PointShadows, pointFaceVP } from "./shadows";
 
 setDefaultTimeout(TIMEOUT.node);
 const methods = [ShadowFilteringMethodMode.Hardware2x2, ShadowFilteringMethodMode.Gaussian];
-const subject = gpuApps(
-    import.meta.path,
-    Array.from({ length: methods.length }, () => ({
-        defaults: false,
-        plugins: [StandardRenderingPlugin, MeshRenderPlugin],
-    })),
-);
 
 for (const method of methods) {
+    const subject = gpuScene(
+        import.meta.path,
+        { defaults: false, plugins: [StandardRenderingPlugin, MeshRenderPlugin] },
+        (world) => {
+            console.log("adapter", world.gpu.adapter);
+            world.resource(PointShadows).atlas = 4096;
+            const camera = world.create();
+            const z = -6 / Math.tan((85 * Math.PI) / 180);
+            world.add(camera, Transform, {
+                translation: [2, 0, 3, 0],
+                rotation: lookAtRotation(2, 0, 3, 6, 0, z),
+            });
+            world.add(camera, Camera);
+            world.storage(Camera).antialias.set(camera, 0);
+            world.add(camera, AmbientLight, { brightness: 0 });
+            world.add(camera, StandardRenderer);
+            world.add(camera, ShadowFilteringMethod, { method });
+            attachTexture(world, camera, { width: 128, height: 128 });
+            const material = world
+                .resource(Materials)
+                .add(StandardMaterial({ baseColor: [0.8, 0.8, 0.8, 1] }));
+            const receiver = world.create();
+            world.add(receiver, Transform, { translation: [6.1, 0, z, 0], scale: [0.2, 3, 3, 0] });
+            world.add(receiver, MeshInstance);
+            world.add(receiver, MeshMaterial, material);
+            const occluder = world.create();
+            world.add(occluder, Transform, {
+                translation: [3, 0, z / 2, 0],
+                scale: [0.3, 2, 0.2, 0],
+            });
+            world.add(occluder, MeshInstance);
+            world.add(occluder, MeshMaterial, material);
+            const light = world.create();
+            world.add(light, Transform);
+            world.add(light, SpotLight, {
+                intensity: 100000,
+                range: 20,
+                innerAngle: (88 * Math.PI) / 180,
+                outerAngle: (89 * Math.PI) / 180,
+                shadowMapsEnabled: 1,
+            });
+            world.add(occluder, NotShadowCaster);
+            return { camera, receiver, occluder, light };
+        },
+    );
     test(`wide cone occluder darkens the 85 degree receiver: ${method}`, async () => {
-        const { world } = subject()[method]!;
-        console.log("adapter", world.gpu.adapter);
-        world.resource(PointShadows).atlas = 4096;
-        const camera = world.create();
-        const z = -6 / Math.tan((85 * Math.PI) / 180);
-        world.add(camera, Transform, {
-            translation: [2, 0, 3, 0],
-            rotation: lookAtRotation(2, 0, 3, 6, 0, z),
-        });
-        world.add(camera, Camera);
-        world.storage(Camera).antialias.set(camera, 0);
-        world.add(camera, AmbientLight, { brightness: 0 });
-        world.add(camera, StandardRenderer);
-        world.add(camera, ShadowFilteringMethod, { method });
-        attachTexture(world, camera, { width: 128, height: 128 });
-        const material = world
-            .resource(Materials)
-            .add(StandardMaterial({ baseColor: [0.8, 0.8, 0.8, 1] }));
-        const receiver = world.create();
-        world.add(receiver, Transform, { translation: [6.1, 0, z, 0], scale: [0.2, 3, 3, 0] });
-        world.add(receiver, MeshInstance);
-        world.add(receiver, MeshMaterial, material);
-        const occluder = world.create();
-        world.add(occluder, Transform, { translation: [3, 0, z / 2, 0], scale: [0.3, 2, 0.2, 0] });
-        world.add(occluder, MeshInstance);
-        world.add(occluder, MeshMaterial, material);
-        const light = world.create();
-        world.add(light, Transform);
-        world.add(light, SpotLight, {
-            intensity: 100000,
-            range: 20,
-            innerAngle: (88 * Math.PI) / 180,
-            outerAngle: (89 * Math.PI) / 180,
-            shadowMapsEnabled: 1,
-        });
-        world.add(occluder, NotShadowCaster);
+        const {
+            world,
+            scene: { camera, receiver, occluder, light },
+        } = subject();
         world.step(0);
         world.step(0);
         const control = (await captureTexture(world, camera)).rgba;

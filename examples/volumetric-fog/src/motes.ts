@@ -1,4 +1,4 @@
-import type { Plugin, Resource } from "@dylanebert/shallot";
+import { type Plugin, precompile, type Resource } from "@dylanebert/shallot";
 import {
     fogReadBindGroup,
     fogReadLayout,
@@ -8,6 +8,7 @@ import {
 import {
     Camera,
     CorePipelinePlugin,
+    initialViewSampleCounts,
     RenderContext,
     RenderPhases,
     SAMPLE_COUNT,
@@ -82,6 +83,80 @@ export const MotesPlugin: Plugin = {
             positions[i * 4 + 3] = random();
         }
         device.queue.writeBuffer(s.positions, 0, positions);
+        const pipelineFor = (format: GPUTextureFormat, samples: number) => {
+            const key = `${format}:${samples}`;
+            let pipeline = s.pipelines.get(key);
+            if (!pipeline) {
+                const module = device.createShaderModule({
+                    label: "dust:billboards",
+                    // The fragment read shares fog's fragment-visible layout; the quad carries its centre.
+                    code: tgpu.resolve({
+                        externals: { readFog, readFogInScatter },
+                        template: shader,
+                    }),
+                });
+                pipeline = device.createRenderPipeline({
+                    label: "dust:draw",
+                    layout: device.createPipelineLayout({
+                        bindGroupLayouts: [
+                            device.createBindGroupLayout({
+                                entries: [
+                                    {
+                                        binding: 0,
+                                        visibility: GPUShaderStage.VERTEX,
+                                        buffer: { type: "uniform" },
+                                    },
+                                    {
+                                        binding: 1,
+                                        visibility: GPUShaderStage.VERTEX,
+                                        buffer: { type: "read-only-storage" },
+                                    },
+                                ],
+                            }),
+                            device.createBindGroupLayout({ entries: [] }),
+                            device.createBindGroupLayout({ entries: [] }),
+                            world.gpu.root.unwrap(fogReadLayout),
+                        ],
+                    }),
+                    vertex: { module, entryPoint: "vertex" },
+                    fragment: {
+                        module,
+                        entryPoint: "fragment",
+                        targets: [
+                            {
+                                format,
+                                blend: {
+                                    color: {
+                                        srcFactor: "one",
+                                        dstFactor: "one",
+                                        operation: "add",
+                                    },
+                                    alpha: {
+                                        srcFactor: "zero",
+                                        dstFactor: "one",
+                                        operation: "add",
+                                    },
+                                },
+                            },
+                        ],
+                    },
+                    primitive: { topology: "triangle-list" },
+                    multisample: { count: samples },
+                    depthStencil: {
+                        format: "depth32float",
+                        depthWriteEnabled: false,
+                        depthCompare: "greater-equal",
+                    },
+                });
+                s.pipelines.set(key, pipeline);
+            }
+            return pipeline;
+        };
+        precompile(world, "motes", () =>
+            [...initialViewSampleCounts(world)].map((samples) =>
+                pipelineFor("rgba16float", samples),
+            ),
+        );
         world.resource(RenderPhases).push({
             transparent(_world, _eid, _view, phase) {
                 if (s.visible) phase.add(0, 0, 0, 1.6, 0, 0);
@@ -89,73 +164,7 @@ export const MotesPlugin: Plugin = {
             prepareTransparent(world, eid, view) {
                 const render = world.resource(RenderContext);
                 const samples = world.storage(Camera).antialias.get(eid) ? SAMPLE_COUNT : 1;
-                const format = view.framebufferFormat ?? render.format;
-                const key = `${format}:${samples}`;
-                let pipeline = s.pipelines.get(key);
-                if (!pipeline) {
-                    const module = device.createShaderModule({
-                        label: "dust:billboards",
-                        // The fragment read shares fog's fragment-visible layout; the quad carries its centre.
-                        code: tgpu.resolve({
-                            externals: { readFog, readFogInScatter },
-                            template: shader,
-                        }),
-                    });
-                    pipeline = device.createRenderPipeline({
-                        label: "dust:draw",
-                        layout: device.createPipelineLayout({
-                            bindGroupLayouts: [
-                                device.createBindGroupLayout({
-                                    entries: [
-                                        {
-                                            binding: 0,
-                                            visibility: GPUShaderStage.VERTEX,
-                                            buffer: { type: "uniform" },
-                                        },
-                                        {
-                                            binding: 1,
-                                            visibility: GPUShaderStage.VERTEX,
-                                            buffer: { type: "read-only-storage" },
-                                        },
-                                    ],
-                                }),
-                                device.createBindGroupLayout({ entries: [] }),
-                                device.createBindGroupLayout({ entries: [] }),
-                                world.gpu.root.unwrap(fogReadLayout),
-                            ],
-                        }),
-                        vertex: { module, entryPoint: "vertex" },
-                        fragment: {
-                            module,
-                            entryPoint: "fragment",
-                            targets: [
-                                {
-                                    format,
-                                    blend: {
-                                        color: {
-                                            srcFactor: "one",
-                                            dstFactor: "one",
-                                            operation: "add",
-                                        },
-                                        alpha: {
-                                            srcFactor: "zero",
-                                            dstFactor: "one",
-                                            operation: "add",
-                                        },
-                                    },
-                                },
-                            ],
-                        },
-                        primitive: { topology: "triangle-list" },
-                        multisample: { count: samples },
-                        depthStencil: {
-                            format: "depth32float",
-                            depthWriteEnabled: false,
-                            depthCompare: "greater-equal",
-                        },
-                    });
-                    s.pipelines.set(key, pipeline);
-                }
+                const pipeline = pipelineFor(view.framebufferFormat ?? render.format, samples);
                 const buffer = render.viewBuffers[view.slot];
                 if (s.groups.get(view)?.buffer !== buffer)
                     s.groups.set(view, {

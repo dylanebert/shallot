@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { gpuApps } from "../../../scripts/gpu.fixture";
-import type { World } from "../../engine";
+import { gpuScene } from "../../../scripts/gpu.fixture";
+import { precompile, type World } from "../../engine";
 import {
     AlphaMode,
     Materials,
@@ -12,7 +12,7 @@ import {
     StandardRenderingPlugin,
 } from "../../standard/rendering";
 import { MeshInstance } from "../mesh";
-import { Transform } from "../transform";
+import { PrepareGlobalTransformSystem, Transform } from "../transform";
 import {
     attachTexture,
     Camera,
@@ -29,9 +29,6 @@ import {
 import { computeViewProj } from "./camera";
 
 setDefaultTimeout(TIMEOUT.node);
-const subjects = gpuApps(import.meta.path, [
-    { defaults: false, plugins: [StandardRenderingPlugin, MeshRenderPlugin] },
-]);
 
 const CLEAR = [0x2e, 0x2b, 0x28].map((channel) => {
     const value = channel / 255;
@@ -56,6 +53,7 @@ function composite(colors: readonly (readonly number[])[]): number[] {
 }
 
 function panePipeline(world: World, eid: number, z: number, color: readonly number[]) {
+    PrepareGlobalTransformSystem.update!(world);
     const matrix = new Float32Array(16);
     const view = new Float32Array(16);
     computeViewProj(world, eid, 1, matrix, view);
@@ -76,7 +74,7 @@ function panePipeline(world: World, eid: number, z: number, color: readonly numb
             }
         `,
     });
-    return world.gpu.device!.createRenderPipeline({
+    const pipeline = world.gpu.device!.createRenderPipeline({
         label: `transparent-witness-${eid}-${z}`,
         layout: "auto",
         vertex: { module, entryPoint: "vertex" },
@@ -108,81 +106,91 @@ function panePipeline(world: World, eid: number, z: number, color: readonly numb
             depthCompare: "greater-equal",
         },
     });
+    precompile(world, `transparent-witness-${eid}-${z}`, () => [pipeline]);
+    return pipeline;
 }
 
-test("transparent standard instances and another renderer composite in per-view depth order", async () => {
-    const { world } = subjects()[0];
-    const cameras = [world.create(), world.create()];
-    world.add(cameras[0], Transform, { translation: [0, 0, 5, 0] });
-    world.add(cameras[1], Transform, {
-        translation: [0, 0, -5, 0],
-        rotation: [0, 1, 0, 0],
-    });
-    for (const camera of cameras) {
-        world.add(camera, Camera);
-        world.storage(Camera).antialias.set(camera, 0);
-        world.add(camera, StandardRenderer);
-        world.add(camera, Tonemapping, { method: TonemappingMethod.None });
-        attachTexture(world, camera, { width: 64, height: 64 });
-    }
-
-    const materials = world.resource(Materials);
-    const red = materials.add(StandardMaterial({ baseColor: [1, 0, 0, 0.25], unlit: true }), {
-        alphaMode: AlphaMode.Blend,
-    });
-    const blue = materials.add(StandardMaterial({ baseColor: [0, 0, 1, 0.25], unlit: true }), {
-        alphaMode: AlphaMode.Blend,
-    });
-    const panes = [
-        { z: -2, material: red },
-        { z: -1, material: blue },
-        { z: 0, material: red },
-        { z: 1, material: blue },
-    ];
-    const meshEntities: number[] = [];
-    for (const pane of panes) {
-        const eid = world.create();
-        world.add(eid, Transform, {
-            translation: [0, 0, pane.z, 0],
-            scale: [1, 1, 0.04, 0],
+const subject = gpuScene(
+    import.meta.path,
+    { defaults: false, plugins: [StandardRenderingPlugin, MeshRenderPlugin] },
+    (world) => {
+        const cameras = [world.create(), world.create()];
+        world.add(cameras[0], Transform, { translation: [0, 0, 5, 0] });
+        world.add(cameras[1], Transform, {
+            translation: [0, 0, -5, 0],
+            rotation: [0, 1, 0, 0],
         });
-        world.add(eid, MeshInstance);
-        world.add(eid, MeshMaterial, pane.material);
-        meshEntities.push(eid);
-    }
+        for (const camera of cameras) {
+            world.add(camera, Camera);
+            world.storage(Camera).antialias.set(camera, 0);
+            world.add(camera, StandardRenderer);
+            world.add(camera, Tonemapping, { method: TonemappingMethod.None });
+            attachTexture(world, camera, { width: 64, height: 64 });
+        }
 
-    world.step(0);
-    world.step(0);
-    const green = [0, 1, 0] as const;
-    const yellow = [1, 1, 0] as const;
-    const panesByView = new Map<number, [GPURenderPipeline, GPURenderPipeline]>();
-    for (const camera of cameras)
-        panesByView.set(camera, [
-            panePipeline(world, camera, -1.5, green),
-            panePipeline(world, camera, 0.5, yellow),
-        ]);
-    world.resource(RenderPhases).push({
-        transparent(_world, _eid, _view, phase: TransparentPhase) {
-            phase.add(0, 0, 0, 0, -1.5, 0);
-            phase.add(1, 1, 0, 0, 0.5, 1);
-        },
-        drawTransparent(
-            _world,
-            eid,
-            _view: View,
-            phase: TransparentPhase,
-            start: number,
-            end: number,
-            pass: GPURenderPassEncoder,
-        ) {
-            const pipelines = panesByView.get(eid)!;
-            for (let i = start; i < end; i++) {
-                pass.setPipeline(pipelines[phase.item(i).draw]!);
-                pass.draw(3);
-            }
-        },
-    });
+        const materials = world.resource(Materials);
+        const red = materials.add(StandardMaterial({ baseColor: [1, 0, 0, 0.25], unlit: true }), {
+            alphaMode: AlphaMode.Blend,
+        });
+        const blue = materials.add(StandardMaterial({ baseColor: [0, 0, 1, 0.25], unlit: true }), {
+            alphaMode: AlphaMode.Blend,
+        });
+        const panes = [
+            { z: -2, material: red },
+            { z: -1, material: blue },
+            { z: 0, material: red },
+            { z: 1, material: blue },
+        ];
+        const meshEntities: number[] = [];
+        for (const pane of panes) {
+            const eid = world.create();
+            world.add(eid, Transform, {
+                translation: [0, 0, pane.z, 0],
+                scale: [1, 1, 0.04, 0],
+            });
+            world.add(eid, MeshInstance);
+            world.add(eid, MeshMaterial, pane.material);
+            meshEntities.push(eid);
+        }
 
+        const opaque = materials.add(StandardMaterial({ baseColor: [1, 0, 0, 1], unlit: true }));
+        const green = [0, 1, 0] as const;
+        const yellow = [1, 1, 0] as const;
+        const panesByView = new Map<number, [GPURenderPipeline, GPURenderPipeline]>();
+        for (const camera of cameras)
+            panesByView.set(camera, [
+                panePipeline(world, camera, -1.5, green),
+                panePipeline(world, camera, 0.5, yellow),
+            ]);
+        world.resource(RenderPhases).push({
+            transparent(_world, _eid, _view, phase: TransparentPhase) {
+                phase.add(0, 0, 0, 0, -1.5, 0);
+                phase.add(1, 1, 0, 0, 0.5, 1);
+            },
+            drawTransparent(
+                _world,
+                eid,
+                _view: View,
+                phase: TransparentPhase,
+                start: number,
+                end: number,
+                pass: GPURenderPassEncoder,
+            ) {
+                const pipelines = panesByView.get(eid)!;
+                for (let i = start; i < end; i++) {
+                    pass.setPipeline(pipelines[phase.item(i).draw]!);
+                    pass.draw(3);
+                }
+            },
+        });
+
+        return { world, cameras, meshEntities, opaque };
+    },
+);
+test("transparent standard instances and another renderer composite in per-view depth order", async () => {
+    const {
+        scene: { world, cameras, meshEntities, opaque },
+    } = subject();
     world.step(0);
     world.step(0);
     const pixels = [];
@@ -230,11 +238,7 @@ test("transparent standard instances and another renderer composite in per-view 
         scale: [1.5, 1.5, 0.06, 0],
     });
     world.add(occluder, MeshInstance);
-    world.add(
-        occluder,
-        MeshMaterial,
-        materials.add(StandardMaterial({ baseColor: [1, 0, 0, 1], unlit: true })),
-    );
+    world.add(occluder, MeshMaterial, opaque);
     world.step(0);
     world.step(0);
     const occluded = (await captureTexture(world, cameras[0])).rgba;

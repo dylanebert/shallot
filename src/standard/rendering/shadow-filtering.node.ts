@@ -96,19 +96,27 @@ function shadowFlag(world: World, kind: LightKind, light: number, enabled: numbe
 }
 
 async function image(kind: LightKind, method?: number, cameraX = 4): Promise<Frame> {
+    let scene: ReturnType<typeof addScene>;
     const app = await createTestGpuApp({
         defaults: false,
-        plugins: [StandardRenderingPlugin, MeshRenderPlugin],
+        plugins: [
+            StandardRenderingPlugin,
+            MeshRenderPlugin,
+            {
+                name: "ShadowFilteringScene",
+                dependencies: [StandardRenderingPlugin, MeshRenderPlugin],
+                initialize(world) {
+                    world.resource(DirectionalLightShadowMap).size = 1024;
+                    world.resource(PointShadows).atlas = 4096;
+                    scene = addScene(world, kind, cameraX);
+                    if (shadowFilteringMethod && method !== undefined)
+                        world.add(scene.camera, shadowFilteringMethod, { method });
+                },
+            },
+        ],
         device,
-        setup(world) {
-            world.resource(DirectionalLightShadowMap).size = 1024;
-            world.resource(PointShadows).atlas = 4096;
-        },
     });
-    const { camera, light } = addScene(app.world, kind, cameraX);
-    if (shadowFilteringMethod && method !== undefined) {
-        app.world.add(camera, shadowFilteringMethod, { method });
-    }
+    const { camera, light } = scene!;
 
     try {
         shadowFlag(app.world, kind, light, 0);

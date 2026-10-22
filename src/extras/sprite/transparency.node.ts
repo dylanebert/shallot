@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import * as d from "typegpu/data";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { gpuScene } from "../../../scripts/gpu.fixture";
 import { Meshes, MeshInstance } from "../../core/mesh";
 import {
     Anchor,
@@ -41,11 +41,7 @@ const Proof: Plugin = {
     name: "SpriteSortProof",
     dependencies: [SpritePlugin, MaterialPlugin(Blue)],
 };
-const subjects = gpuApps(import.meta.path, [
-    { defaults: false, plugins: [Proof] },
-    { defaults: false, plugins: [Proof] },
-    { defaults: false, plugins: [Proof] },
-]);
+const config = { defaults: false, plugins: [Proof] };
 
 function camera(world: World) {
     const eid = world.create();
@@ -66,8 +62,7 @@ function camera(world: World) {
         { bytesPerRow: 4 },
         [1, 1, 1],
     );
-    world.resource(ImageBindings).images = atlas;
-    return eid;
+    return { view: eid, atlas };
 }
 
 function encode(linear: number): number {
@@ -76,9 +71,8 @@ function encode(linear: number): number {
     );
 }
 
-test("a rotated Blend sprite sorts at its origin-centred sphere and composites over the farther pane", async () => {
-    const { world } = subjects()[0];
-    const view = camera(world);
+const rotated = gpuScene(import.meta.path, config, (world) => {
+    const { view, atlas } = camera(world);
     const sprite = world.create();
     world.add(sprite, Transform, { rotation: [0, Math.SQRT1_2, 0, Math.SQRT1_2] });
     world.add(sprite, Sprite, {
@@ -104,6 +98,13 @@ test("a rotated Blend sprite sorts at its origin-centred sphere and composites o
         MeshMaterial,
         world.resource(Blue).add({ color: d.vec4f(0, 0, 1, 0.5) }, { alphaMode: AlphaMode.Blend }),
     );
+    return { world, view, atlas, pane, sprite };
+});
+test("a rotated Blend sprite sorts at its origin-centred sphere and composites over the farther pane", async () => {
+    const {
+        scene: { world, view, atlas, pane, sprite },
+    } = rotated();
+    world.resource(ImageBindings).images = atlas;
     world.step(0);
     const { rgba } = await captureTexture(world, view);
     const offset = (16 * 32 + 16) * 4;
@@ -115,12 +116,18 @@ test("a rotated Blend sprite sorts at its origin-centred sphere and composites o
     expect([phase.item(0).stableId, phase.item(1).stableId]).toEqual([pane, sprite]);
 });
 
-test("a consumer sharing a large Sprite row stays visible at the frustum edge without its own Sprite", async () => {
-    const { world } = subjects()[2];
-    const view = camera(world);
+const sharing = gpuScene(import.meta.path, config, (world) => {
+    const { view, atlas } = camera(world);
     const owner = world.create();
     world.add(owner, Transform, { translation: [100, 0, 0] });
     world.add(owner, Sprite, { size: [10, 10], alphaMode: SpriteAlphaMode.Blend });
+    return { world, view, atlas, owner };
+});
+test("a consumer sharing a large Sprite row stays visible at the frustum edge without its own Sprite", async () => {
+    const {
+        scene: { world, view, atlas, owner },
+    } = sharing();
+    world.resource(ImageBindings).images = atlas;
     world.step(0);
     const shared = world.create();
     world.add(shared, Transform, { translation: [4, 0, 0] });
@@ -144,12 +151,18 @@ test("a consumer sharing a large Sprite row stays visible at the frustum edge wi
     expect(world.resource(TransparentPhases).get(view)!.length).toBe(1);
 });
 
-test("an offscreen Blend sprite contributes no shared transparent phase item", () => {
-    const { world } = subjects()[1];
-    const view = camera(world);
+const offscreen = gpuScene(import.meta.path, config, (world) => {
+    const { view, atlas } = camera(world);
     const sprite = world.create();
     world.add(sprite, Transform, { translation: [100, 0, 0] });
     world.add(sprite, Sprite, { alphaMode: SpriteAlphaMode.Blend });
+    return { world, view, atlas, sprite };
+});
+test("an offscreen Blend sprite contributes no shared transparent phase item", () => {
+    const {
+        scene: { world, view, atlas, sprite },
+    } = offscreen();
+    world.resource(ImageBindings).images = atlas;
     world.step(0);
     expect(world.resource(TransparentPhases).get(view)!.length).toBe(0);
     world.storage(Transform).translation.x.set(sprite, 3.8);

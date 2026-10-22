@@ -62,7 +62,10 @@ export const compileSubjects = [
     { name: "Sprite", config: { plugins: [SpritePlugin] } },
 ] satisfies { name: string; config: Parameters<typeof createApp>[0] }[];
 
-export async function measureCompile(config: Parameters<typeof createApp>[0]) {
+export async function measureCompile(
+    config: Parameters<typeof createApp>[0],
+    onPipeline?: (label: string) => void,
+) {
     const plugins = [
         ...DEFAULT_PLUGINS,
         ...compileSubjects.flatMap((subject) => subject.config.plugins),
@@ -85,6 +88,10 @@ export async function measureCompile(config: Parameters<typeof createApp>[0]) {
         for (const [index, name] of methods.entries()) {
             Reflect.set(device, name, (...args: unknown[]) => {
                 pipelines++;
+                onPipeline?.(
+                    (args[0] as GPUComputePipelineDescriptor | GPURenderPipelineDescriptor).label ??
+                        "<unlabelled>",
+                );
                 return Reflect.apply(originals[index], device, args);
             });
         }

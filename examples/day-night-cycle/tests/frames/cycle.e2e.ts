@@ -1,6 +1,9 @@
 import { mkdirSync, writeFileSync } from "node:fs";
+import { pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, type JSHandle, type Page, test } from "playwright/test";
 import { dragRange, gameKeyMovesCamera } from "../pointer";
+
+test.use(pipelineWarnings);
 
 type Pixels = { hour: number; width: number; height: number; rgba: number[]; png: string };
 type Frame = JSHandle<Pixels>;

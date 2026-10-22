@@ -20,6 +20,7 @@ import {
     CULL_VOLUME_FLOATS,
     DEPTH_FORMAT,
     globalTransformTable,
+    initialStackedViews,
     MainPassSystem,
     PrepassSystem,
     RenderContext,
@@ -1215,7 +1216,18 @@ async function prepareStandardRenderer(
     // Compile material types and the shared re-gather pipelines before the first draw.
     await Promise.all([
         prepareRegather(world, device, capacity),
-        preparePipelines(world, capacity, hasSingleSampleCamera(world)),
+        preparePipelines(
+            world,
+            capacity,
+            hasSingleSampleCamera(world),
+            initialStackedViews(world).some((view) => {
+                const eid = world.resolve(view.camera);
+                return (
+                    world.has(eid, StandardRenderer) &&
+                    world.storage(Camera).antialias.get(eid) !== 0
+                );
+            }),
+        ),
     ]);
 }
 

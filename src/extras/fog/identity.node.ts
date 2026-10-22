@@ -2,7 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { gpuScene } from "../../../scripts/gpu.fixture";
 import {
     attachTexture,
     Camera,
@@ -14,10 +14,10 @@ import {
     TonemappingMethod,
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
+import { precompile } from "../../engine";
 import { fogReadBindGroup, fogReadLayout, readFog, readFogInScatter } from ".";
 
 setDefaultTimeout(TIMEOUT.node);
-const subjects = gpuApps(import.meta.path, [{ defaults: false, plugins: [CorePipelinePlugin] }]);
 const fragment = tgpu
     .fragmentFn({ out: d.vec4f })(() => {
         "use gpu";
@@ -37,29 +37,50 @@ const fragment = tgpu
     })
     .$name("identityFragment");
 
+const subject = gpuScene(
+    import.meta.path,
+    { defaults: false, plugins: [CorePipelinePlugin] },
+    (world) => {
+        const camera = world.create();
+        world.add(camera, Transform);
+        world.add(camera, Camera, { antialias: 0 });
+        world.add(camera, Tonemapping, { method: TonemappingMethod.None });
+        attachTexture(world, camera, { width: 8, height: 8 });
+        const device = world.gpu.device;
+        const module = device.createShaderModule({
+            code: tgpu.resolve([fullscreenVertex, fragment], { names: "strict" }),
+        });
+        const empty = device.createBindGroupLayout({ entries: [] });
+        const pipeline = device.createRenderPipeline({
+            label: "identity-fog-reader",
+            layout: device.createPipelineLayout({
+                bindGroupLayouts: [empty, empty, empty, world.gpu.root.unwrap(fogReadLayout)],
+            }),
+            vertex: { module, entryPoint: "fullscreenVertex" },
+            fragment: {
+                module,
+                entryPoint: "identityFragment",
+                targets: [{ format: "rgba16float" }],
+            },
+            depthStencil: {
+                format: "depth32float",
+                depthWriteEnabled: false,
+                depthCompare: "always",
+            },
+        });
+        precompile(world, "identity-fog-reader", () => [pipeline]);
+        return { camera, pipeline };
+    },
+);
+
 test("a core-only camera can bind and read identity fog without FogPlugin or standard lighting", async () => {
-    const { world } = subjects()[0]!;
-    const camera = world.create();
-    world.add(camera, Transform);
-    world.add(camera, Camera, { antialias: 0 });
-    world.add(camera, Tonemapping, { method: TonemappingMethod.None });
-    attachTexture(world, camera, { width: 8, height: 8 });
+    const {
+        world,
+        scene: { camera, pipeline },
+    } = subject();
     world.step(0);
     const group = fogReadBindGroup(world, camera);
     expect(fogReadBindGroup(world, camera)).toBe(group);
-    const device = world.gpu.device;
-    const module = device.createShaderModule({
-        code: tgpu.resolve([fullscreenVertex, fragment], { names: "strict" }),
-    });
-    const empty = device.createBindGroupLayout({ entries: [] });
-    const pipeline = device.createRenderPipeline({
-        layout: device.createPipelineLayout({
-            bindGroupLayouts: [empty, empty, empty, world.gpu.root.unwrap(fogReadLayout)],
-        }),
-        vertex: { module, entryPoint: "fullscreenVertex" },
-        fragment: { module, entryPoint: "identityFragment", targets: [{ format: "rgba16float" }] },
-        depthStencil: { format: "depth32float", depthWriteEnabled: false, depthCompare: "always" },
-    });
     world.resource(RenderPhases).push({
         afterOpaque(_world, _eid, _view, pass) {
             pass.setPipeline(pipeline);

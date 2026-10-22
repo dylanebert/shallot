@@ -1,4 +1,5 @@
 import { mkdirSync, writeFileSync } from "node:fs";
+import { pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, type Page, test } from "playwright/test";
 
 type Evidence = {
@@ -26,6 +27,17 @@ declare global {
         };
     }
 }
+test.use(pipelineWarnings);
+
+test("the first frame has no late-pipeline warning", async ({ page }) => {
+    await page.goto("/");
+    await page.waitForFunction(() =>
+        performance
+            .getEntriesByType("measure")
+            .some((entry) => entry.name.endsWith(":first-update")),
+    );
+});
+
 test.beforeEach(async ({ page }) => {
     const session = await page.context().newCDPSession(page);
     await session.send("Emulation.setHardwareConcurrencyOverride", { hardwareConcurrency: 1 });

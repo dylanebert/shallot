@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { gpuScene } from "../../../scripts/gpu.fixture";
 import { cube, Meshes, MeshInstance } from "../../core/mesh";
 import { Transform } from "../../core/transform";
 import { probeBuffer } from "../../engine/runtime";
@@ -16,25 +16,32 @@ import { MeshDrawBuffers, meshPreprocessKey } from "./preprocess";
 import { type Draw, Draws } from "./registry";
 
 setDefaultTimeout(TIMEOUT.node);
-const apps = gpuApps(import.meta.path, [
+const subject = gpuScene(
+    import.meta.path,
     { defaults: false, plugins: [MeshRenderPlugin, StandardRenderingPlugin] },
-]);
+    (world) => {
+        const meshes = world.resource(Meshes);
+        const handle = meshes.add({ name: "membership", ...cube([1, 1, 1]) });
+        const material = world.resource(Materials).add(StandardMaterial({}));
+        const eid = world.create();
+        world.add(eid, Transform);
+        world.add(eid, MeshInstance, { mesh: handle });
+        world.add(eid, MeshMaterial, material);
+        registerProducerTable(world, {
+            name: "membership",
+            capacity: 1,
+            meshes: [handle],
+            materials: [material],
+        });
+        return { meshes, handle, eid };
+    },
+);
 
 test("freed mesh handles clear bounds and entity/producer records, then publish the successor without stale state", async () => {
-    const { world } = apps()[0]!;
-    const meshes = world.resource(Meshes);
-    const handle = meshes.add({ name: "membership", ...cube([1, 1, 1]) });
-    const material = world.resource(Materials).add(StandardMaterial({}));
-    const eid = world.create();
-    world.add(eid, Transform);
-    world.add(eid, MeshInstance, { mesh: handle });
-    world.add(eid, MeshMaterial, material);
-    registerProducerTable(world, {
-        name: "membership",
-        capacity: 1,
-        meshes: [handle],
-        materials: [material],
-    });
+    const {
+        world,
+        scene: { meshes, handle, eid },
+    } = subject();
     world.step(0);
     const original = meshes.get(handle)!;
     const draws = [...world.resource(Draws)].filter((draw) => draw.mesh === handle);

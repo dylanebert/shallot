@@ -11,6 +11,8 @@ import {
     setComputePipeline,
 } from "../../engine/runtime";
 
+import { AlphaPipelineKey, MaterialTypes, materialSource } from "./material-type";
+
 const descriptor = { label: "shallot-mesh-count" };
 const sourceLayout = tgpu
     .bindGroupLayout({
@@ -135,7 +137,7 @@ export function rebuildMeshCounts(
     }
     if (state.activeCount && !state.pipeline)
         state.pipeline = world.gpu.root.unwrap(
-            world.gpu.root.createComputePipeline({ compute: kernel }),
+            world.gpu.root.createComputePipeline({ compute: kernel }).$name("mesh-count"),
         );
     for (let i = 0; i < state.activeCount; i++) {
         const entry = state.active[i]!;
@@ -206,6 +208,30 @@ const transparentKey = {
     }),
 };
 
+function transparentCountPipeline(world: World): GPUComputePipeline {
+    const state = world.resource(transparentKey);
+    return (state.pipeline ??= world.gpu.root.unwrap(
+        world.gpu.root
+            .createComputePipeline({ compute: transparentKernel })
+            .$name("transparent-mesh-count"),
+    ));
+}
+
+/** Warm only when the initial composition has count-bearing meshes and transparent material rows. */
+export function warmTransparentCounts(world: World): GPUComputePipeline[] {
+    const meshes = world.resource(meshResourcesKey).meshes;
+    if (![...meshes.values()].some((mesh) => mesh.indirectIndexCount)) return [];
+    const transparent =
+        (1 << AlphaPipelineKey.Blend) |
+        (1 << AlphaPipelineKey.Premultiplied) |
+        (1 << AlphaPipelineKey.Multiply);
+    for (const type of world.resource(MaterialTypes).types) {
+        if (type && materialSource(world, type).alphaKeys & transparent)
+            return [transparentCountPipeline(world)];
+    }
+    return [];
+}
+
 export function publishTransparentCounts(
     world: World,
     source: GPUBuffer,
@@ -230,9 +256,7 @@ export function publishTransparentCounts(
         state.staging = new Uint32Array(capacity);
         state.group = null;
     }
-    state.pipeline ??= world.gpu.root.unwrap(
-        world.gpu.root.createComputePipeline({ compute: transparentKernel }),
-    );
+    const pipeline = transparentCountPipeline(world);
     if (!state.group || state.source !== source || state.target !== target) {
         state.group = world.gpu.device.createBindGroup({
             layout: world.gpu.root.unwrap(transparentLayout),
@@ -252,7 +276,7 @@ export function publishTransparentCounts(
     }
     world.uploadGpuTable(state.table!, 0, state.staging.buffer, required * 4);
     const pass = beginComputePass(world.frameEncoder()!, descriptor);
-    setComputePipeline(pass, state.pipeline);
+    setComputePipeline(pass, pipeline);
     setComputeBindGroup(pass, 0, state.group);
     dispatchWorkgroups(pass, Math.ceil(count / 64));
     endComputePass(pass);

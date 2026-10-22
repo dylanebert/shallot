@@ -7,10 +7,13 @@ import { Sliding, Hint } from '../src/sound';
 import { hud } from '../src/hud';
 import { PhysicsWorldDefinition } from '@dylanebert/shallot/standard/physics';
 const captures=new URLSearchParams(location.search).has('captures');
-const app=await createApp({plugins:[YardPlugin],setup(world){world.resource(PhysicsWorldDefinition).workerCount=1; if(!captures) for(const type of [DirectionalLight,PointLight,SpotLight]) for(const eid of world.query([type])) world.storage(type).shadowMapsEnabled.set(eid,0);}});
-const w=app.world, yard=w.resource(Yard), canvas=document.querySelector('canvas');
-// Audio observations need no shadow maps or full-size raster; manual captures keep both.
-if(!captures) {canvas.width=320;canvas.height=180;attachTexture(w,yard.camera,{width:320,height:180});w.add(yard.camera,Resolution,{height:9});w.storage(Camera).antialias.set(yard.camera,0);}
+const canvas=document.querySelector('canvas');
+const app=await createApp({plugins:[{name:'SteppedScene',dependencies:[YardPlugin],initialize(w){
+ const yard=w.resource(Yard);
+ // Audio observations need no full-size raster; manual captures retain it.
+ if(!captures) {canvas.width=320;canvas.height=180;attachTexture(w,yard.camera,{width:320,height:180});w.add(yard.camera,Resolution,{height:9});w.storage(Camera).antialias.set(yard.camera,0);}
+}}],setup(world){world.resource(PhysicsWorldDefinition).workerCount=1; if(!captures) for(const type of [DirectionalLight,PointLight,SpotLight]) for(const eid of world.query([type])) world.storage(type).shadowMapsEnabled.set(eid,0);}});
+const w=app.world, yard=w.resource(Yard);
 hud(mountOverlay(canvas,w),w);
 const output=w.resource(AudioOutput), context=output.context;
 const splitter=context.createChannelSplitter(2);output.bus.connect(splitter);

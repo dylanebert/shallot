@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { gpuScene } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
 import {
     AmbientLight,
@@ -14,7 +14,7 @@ import {
     VolumetricLight,
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
-import { lookAtRotation } from "../../engine";
+import { lookAtRotation, type World } from "../../engine";
 import { DEFAULT_PLUGINS } from "../../standard";
 import {
     Materials,
@@ -25,9 +25,7 @@ import {
 import { Fog, FogPlugin, NoFog } from ".";
 
 setDefaultTimeout(TIMEOUT.node);
-const subjects = gpuApps(import.meta.path, [
-    { defaults: false, plugins: [...DEFAULT_PLUGINS, FogPlugin] },
-]);
+const config = { defaults: false, plugins: [...DEFAULT_PLUGINS, FogPlugin] };
 const WIDTH = 640;
 const HEIGHT = 360;
 const linear = (value: number) => {
@@ -60,11 +58,7 @@ function measure() {
     measured ??= lampTemporalError();
     return measured;
 }
-let built = false;
-function scene() {
-    const { world } = subjects()[0]!;
-    if (built) return;
-    built = true;
+function scene(world: World) {
     world.resource(GlobalAmbientLight).brightness = 0;
     const grey = world.resource(Materials).add(StandardMaterial({ baseColor: [0.4, 0.4, 0.4, 1] }));
     for (const [translation, scale] of [
@@ -108,9 +102,7 @@ function scene() {
     });
 }
 /** A camera at eye height looking down −z. */
-function cameraAt(z: number) {
-    const { world } = subjects()[0]!;
-    scene();
+function cameraAt(world: World, z: number) {
     const eid = world.create();
     world.add(eid, Transform, {
         translation: [0, 1.65, z, 0],
@@ -124,9 +116,17 @@ function cameraAt(z: number) {
     attachTexture(world, eid, { width: WIDTH, height: HEIGHT });
     return eid;
 }
+const stillScene = gpuScene(import.meta.path, config, (world) => {
+    scene(world);
+    return cameraAt(world, 9);
+});
+const walkingScene = gpuScene(import.meta.path, config, (world) => {
+    scene(world);
+    return cameraAt(world, WALK.start);
+});
+
 async function lampTemporalError() {
-    const { world } = subjects()[0]!;
-    const camera = cameraAt(9);
+    const { world, scene: camera } = stillScene();
     world.tick();
     world.step(1 / 60);
     for (let i = 0; i < 64; i++) {
@@ -181,8 +181,7 @@ function project(z: number, [x, y, pz]: readonly [number, number, number]) {
 const WALK = { speed: 1.5, start: 10, frames: 48, every: 6 } as const;
 let walked: Promise<number> | undefined;
 async function walkError() {
-    const { world } = subjects()[0]!;
-    const camera = cameraAt(WALK.start);
+    const { world, scene: camera } = walkingScene();
     const at = (frame: number) => WALK.start - (WALK.speed / 60) * frame;
     const place = (frame: number) => {
         world.storage(Transform).translation.set(camera, 0, 1.65, at(frame), 0);

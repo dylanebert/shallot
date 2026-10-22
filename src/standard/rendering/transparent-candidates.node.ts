@@ -1,6 +1,7 @@
 import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { gpuScene } from "../../../scripts/gpu.fixture";
+import { expectWarning } from "../../../scripts/test-console";
 import { Meshes, MeshInstance } from "../../core/mesh";
 import { attachTexture, Camera, TransparentPhases } from "../../core/rendering";
 import { GlobalTransform, Transform } from "../../core/transform";
@@ -15,33 +16,40 @@ import {
 } from "./index";
 
 setDefaultTimeout(TIMEOUT.node);
-const subjects = gpuApps(import.meta.path, [
+const subject = gpuScene(
+    import.meta.path,
     { defaults: false, plugins: [MeshRenderPlugin, StandardRenderingPlugin] },
-]);
+    (world) => {
+        const materials = world.resource(Materials);
+        const opaque = materials.add(StandardMaterial());
+        const glass = materials.add(StandardMaterial(), { alphaMode: AlphaMode.Blend });
+        const mesh = world.resource(Meshes).entries().next().value![0];
+        const eids: number[] = [];
+        for (let i = 0; i < 128; i++) {
+            const eid = world.create();
+            eids.push(eid);
+            world.add(eid, Transform);
+            world.add(eid, MeshInstance, { mesh });
+            world.add(eid, MeshMaterial, i < 2 ? glass : opaque);
+        }
+        const cameras: number[] = [];
+        for (let i = 0; i < 2; i++) {
+            const camera = world.create();
+            world.add(camera, Transform, { translation: [0, 0, 5, 0] });
+            world.add(camera, Camera);
+            world.add(camera, StandardRenderer);
+            cameras.push(camera);
+            attachTexture(world, camera, { width: 16, height: 16 });
+        }
+        return { materials, opaque, glass, mesh, eids, cameras };
+    },
+);
 
 test("each view visits only transparent candidates through reassignment, row changes, removal and reuse", () => {
-    const { world } = subjects()[0]!;
-    const materials = world.resource(Materials);
-    const opaque = materials.add(StandardMaterial());
-    const glass = materials.add(StandardMaterial(), { alphaMode: AlphaMode.Blend });
-    const mesh = world.resource(Meshes).entries().next().value![0];
-    const eids: number[] = [];
-    for (let i = 0; i < 128; i++) {
-        const eid = world.create();
-        eids.push(eid);
-        world.add(eid, Transform);
-        world.add(eid, MeshInstance, { mesh });
-        world.add(eid, MeshMaterial, i < 2 ? glass : opaque);
-    }
-    const cameras: number[] = [];
-    for (let i = 0; i < 2; i++) {
-        const camera = world.create();
-        world.add(camera, Transform, { translation: [0, 0, 5, 0] });
-        world.add(camera, Camera);
-        world.add(camera, StandardRenderer);
-        cameras.push(camera);
-        attachTexture(world, camera, { width: 16, height: 16 });
-    }
+    const {
+        world,
+        scene: { materials, opaque, glass, mesh, eids, cameras },
+    } = subject();
     world.step(0);
     const storage = world.storage(MeshMaterial);
     const reads = spyOn(materials, "alphaMode");
@@ -83,6 +91,9 @@ test("each view visits only transparent candidates through reassignment, row cha
         frame([eids[1]]);
         materials.update(glass, {}, { alphaMode: AlphaMode.Opaque });
         frame([]);
+        expectWarning(
+            /Pipeline "standard-StandardMaterial-3" owned by "CorePipeline\/1" created after the precompile drain\./,
+        );
         materials.update(glass, {}, { alphaMode: AlphaMode.Add });
         frame([eids[1]]);
     } finally {

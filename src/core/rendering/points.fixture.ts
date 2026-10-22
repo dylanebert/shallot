@@ -1,4 +1,4 @@
-import type { Plugin } from "../../engine";
+import { type Plugin, precompile } from "../../engine";
 import {
     Camera,
     CorePipelinePlugin,
@@ -46,19 +46,13 @@ export const PointsPlugin: Plugin = {
         cached.pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [cached.layout] });
         cached.descriptor.layout = cached.layout;
         cached.descriptor.entries = [{ binding: 0, resource: cached.binding }];
-        world.resource(RenderPhases).push({
-            opaque(world, eid, view, pass) {
-                const render = world.resource(RenderContext);
-                const samples = world.storage(Camera).antialias.get(eid) ? SAMPLE_COUNT : 1;
-                const format = view.framebufferFormat ?? render.format;
-                let record = cached.views.get(view);
-                if (!record || record.format !== format || record.samples !== samples) {
-                    const key = `${format}:${samples}`;
-                    let pipeline = cached.pipelines.get(key);
-                    if (!pipeline) {
-                        // WGSL escape hatch: point-list has no mesh or surface contract.
-                        const module = world.gpu.device.createShaderModule({
-                            code: `
+        const pipelineFor = (format: GPUTextureFormat, samples: number) => {
+            const key = `${format}:${samples}`;
+            let pipeline = cached.pipelines.get(key);
+            if (!pipeline) {
+                // WGSL escape hatch: point-list has no mesh or surface contract.
+                const module = world.gpu.device.createShaderModule({
+                    code: `
 struct View { viewProj: mat4x4f }
 @group(0) @binding(0) var<uniform> view: View;
 @vertex fn vertex(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
@@ -68,21 +62,36 @@ struct View { viewProj: mat4x4f }
 }
 @fragment fn fragment() -> @location(0) vec4f { return vec4f(0, 1, 0, 1); }
 `,
-                        });
-                        pipeline = world.gpu.device.createRenderPipeline({
-                            layout: cached.pipelineLayout!,
-                            vertex: { module, entryPoint: "vertex" },
-                            fragment: { module, entryPoint: "fragment", targets: [{ format }] },
-                            primitive: { topology: "point-list" },
-                            multisample: { count: samples },
-                            depthStencil: {
-                                format: "depth32float",
-                                depthWriteEnabled: true,
-                                depthCompare: "greater-equal",
-                            },
-                        });
-                        cached.pipelines.set(key, pipeline);
-                    }
+                });
+                pipeline = world.gpu.device.createRenderPipeline({
+                    label: `points-${samples}`,
+                    layout: cached.pipelineLayout!,
+                    vertex: { module, entryPoint: "vertex" },
+                    fragment: { module, entryPoint: "fragment", targets: [{ format }] },
+                    primitive: { topology: "point-list" },
+                    multisample: { count: samples },
+                    depthStencil: {
+                        format: "depth32float",
+                        depthWriteEnabled: true,
+                        depthCompare: "greater-equal",
+                    },
+                });
+                cached.pipelines.set(key, pipeline);
+            }
+            return pipeline;
+        };
+        precompile(world, "points", () => [
+            pipelineFor("rgba16float", 1),
+            pipelineFor("rgba16float", SAMPLE_COUNT),
+        ]);
+        world.resource(RenderPhases).push({
+            opaque(world, eid, view, pass) {
+                const render = world.resource(RenderContext);
+                const samples = world.storage(Camera).antialias.get(eid) ? SAMPLE_COUNT : 1;
+                const format = view.framebufferFormat ?? render.format;
+                let record = cached.views.get(view);
+                if (!record || record.format !== format || record.samples !== samples) {
+                    const pipeline = pipelineFor(format, samples);
                     if (record) {
                         record.format = format;
                         record.samples = samples;

@@ -1,4 +1,4 @@
-import { beforeAll, expect, setDefaultTimeout, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import {
@@ -11,7 +11,7 @@ import {
     Views,
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
-import type { Plugin, World } from "../../engine";
+import { type Plugin, precompile, type World } from "../../engine";
 import { probeTexture } from "../../engine/runtime";
 import { EffectStackPlugin, Vignette } from "../effect-stack";
 import { compare } from "../effect-stack/parity.fixture";
@@ -29,6 +29,8 @@ let inputView: GPUTextureView;
 let outputView: GPUTextureView;
 const capture: Plugin = {
     name: "BloomCapture",
+    dependencies: [BloomPlugin, EffectStackPlugin],
+    initialize,
     systems: [
         {
             name: "bloom-capture",
@@ -62,9 +64,9 @@ function texture(world: World) {
 }
 const bits = async (world: World, t: GPUTexture) =>
     new Uint16Array((await probeTexture(world, t)).bytes as ArrayBuffer);
-beforeAll(async () => {
-    const world = subjects()[0].world;
+async function initialize(world: World) {
     reference = await bevyPipelines(world);
+    precompile(world, "bevy-bloom", () => [reference.first, reference.down, reference.up]);
     input = texture(world);
     output = texture(world);
     referenceOutput = texture(world);
@@ -89,7 +91,7 @@ beforeAll(async () => {
     world.add(eid, Camera, { clearColor: 0x808080 });
     attachTexture(world, eid, { width, height });
     world.add(eid, Bloom);
-});
+}
 
 test("NATURAL chain matches vendored Bevy driven by bloom/mod.rs within one half-float step", async () => {
     const world = subjects()[0].world;

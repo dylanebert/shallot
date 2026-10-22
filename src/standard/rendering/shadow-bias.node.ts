@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { gpuScene } from "../../../scripts/gpu.fixture";
 import { cube, Meshes, MeshInstance } from "../../core/mesh";
 import {
     AmbientLight,
@@ -22,7 +22,10 @@ import { DirectionalLightShadowMap, PointShadows } from "./shadows";
 
 setDefaultTimeout(TIMEOUT.node);
 const config = { defaults: false, plugins: [StandardRenderingPlugin, MeshRenderPlugin] };
-const subjects = gpuApps(import.meta.path, [config, config]);
+const directionalSubject = gpuScene(import.meta.path, config, (world) =>
+    makeScene(world, "directional"),
+);
+const pointSubject = gpuScene(import.meta.path, config, (world) => makeScene(world, "point"));
 const WIDTH = 256;
 const EDGE_ROW = 160;
 const WORLD_WIDTH = 8;
@@ -119,11 +122,8 @@ async function edgeX(world: World, camera: number): Promise<number> {
 }
 
 test("equal directional and point depthBias values move production shadow edges by the same world distance", async () => {
-    const [directionalSubject, pointSubject] = subjects();
-    const directionalWorld = directionalSubject.world;
-    const pointWorld = pointSubject.world;
-    const directional = makeScene(directionalWorld, "directional");
-    const point = makeScene(pointWorld, "point");
+    const { world: directionalWorld, scene: directional } = directionalSubject();
+    const { world: pointWorld, scene: point } = pointSubject();
 
     const directionalStorage = directionalWorld.storage(DirectionalLight);
     const pointStorage = pointWorld.storage(PointLight);

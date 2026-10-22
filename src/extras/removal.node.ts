@@ -12,11 +12,16 @@ import { isolationFont } from "./text/font.fixture";
 
 setDefaultTimeout(TIMEOUT.node);
 let font = 0;
+let camera = 0;
 const subjects = gpuApps(import.meta.path, [
     {
         defaults: false,
         plugins: [SpritePlugin, TextPlugin, LinesPlugin],
         setup(world) {
+            camera = world.create();
+            world.add(camera, Transform, { translation: [0, 0, 5] });
+            world.add(camera, Camera);
+            world.add(camera, StandardRenderer);
             font = registerFont(
                 world,
                 `data:font/ttf;base64,${Buffer.from(isolationFont()).toString("base64")}`,
@@ -41,10 +46,6 @@ test("removing and re-adding Sprite, Text and Gizmo removes and restores each dr
         [1, 1, 1],
     );
     world.resource(ImageBindings).images = image;
-    const camera = world.create();
-    world.add(camera, Transform, { translation: [0, 0, 5] });
-    world.add(camera, Camera);
-    world.add(camera, StandardRenderer);
     attachTexture(world, camera, { width: 64, height: 64 });
     const entity = world.create();
     world.add(entity, Transform);

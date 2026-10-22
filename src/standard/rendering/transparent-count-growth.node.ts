@@ -1,6 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
+import { expectWarning } from "../../../scripts/test-console";
 import { Meshes, MeshInstance } from "../../core/mesh";
 import { attachTexture, Camera } from "../../core/rendering";
 import { Transform } from "../../core/transform";
@@ -52,6 +53,16 @@ test("a later view growing from one to forty transparent count runs preserves th
         world.add(camera, StandardRenderer);
         attachTexture(world, camera, { width: 96, height: 96 });
     }
+    // Adding count-bearing transparent runs after the build also creates their pipelines after the drain.
+    expectWarning(
+        /Pipeline "mesh-count" owned by "MeshRender\/1" created after the precompile drain\./,
+    );
+    expectWarning(
+        /Pipeline "transparent-mesh-count" owned by "CorePipeline\/1" created after the precompile drain\./,
+    );
+    expectWarning(
+        /Pipeline "standard-StandardMaterial-2" owned by "CorePipeline\/1" created after the precompile drain\./,
+    );
     const device = world.gpu.device,
         create = device.createBuffer.bind(device);
     const sizes: number[] = [];

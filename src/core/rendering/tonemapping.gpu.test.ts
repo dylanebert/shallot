@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
-import type { Plugin } from "../../engine";
+import { type Plugin, precompile } from "../../engine";
 import { EffectStackPlugin, Vignette } from "../../extras/effect-stack";
 import { Transform } from "../transform";
 import {
@@ -23,6 +23,7 @@ import { tonemappingStateKey } from "./tonemapping-state";
 
 setDefaultTimeout(TIMEOUT.gpu);
 const vertex = `@vertex fn vertex(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f { let uv = vec2f(f32((i << 1u) & 2u), f32(i & 2u)); return vec4f(uv * 2.0 - 1.0, 0.0, 1.0); }`;
+let inversion: GPURenderPipeline;
 const Scene: Plugin = {
     name: "PresentationComparisonScene",
     dependencies: [CorePipelinePlugin, EffectStackPlugin],
@@ -51,6 +52,22 @@ const Scene: Plugin = {
                 depthCompare: "always",
             },
         });
+        const invertModule = device.createShaderModule({
+            code: `${vertex}
+@group(0) @binding(0) var input: texture_2d<f32>;
+@fragment fn fragment(@builtin(position) p: vec4f) -> @location(0) vec4f { return vec4f(1.0 - textureLoad(input, vec2u(p.xy), 0).rgb, 1.0); }`,
+        });
+        inversion = device.createRenderPipeline({
+            label: "after-tonemap-invert",
+            layout: "auto",
+            vertex: { module: invertModule, entryPoint: "vertex" },
+            fragment: {
+                module: invertModule,
+                entryPoint: "fragment",
+                targets: [{ format: navigator.gpu.getPreferredCanvasFormat() }],
+            },
+        });
+        precompile(world, "presentation-comparison", () => [pipeline, inversion]);
         world.resource(RenderPhases).push({
             opaque(_world, _eid, _view, pass) {
                 pass.setPipeline(pipeline);
@@ -156,20 +173,7 @@ test("after-tonemapping pass transforms the presented image; no registration add
     device.pushErrorScope("validation");
     world.step(0);
     const baseline = await captureTexture(world, eid);
-    const module = device.createShaderModule({
-        code: `${vertex}
-@group(0) @binding(0) var input: texture_2d<f32>;
-@fragment fn fragment(@builtin(position) p: vec4f) -> @location(0) vec4f { return vec4f(1.0 - textureLoad(input, vec2u(p.xy), 0).rgb, 1.0); }`,
-    });
-    const pipeline = device.createRenderPipeline({
-        layout: "auto",
-        vertex: { module, entryPoint: "vertex" },
-        fragment: {
-            module,
-            entryPoint: "fragment",
-            targets: [{ format: navigator.gpu.getPreferredCanvasFormat() }],
-        },
-    });
+    const pipeline = inversion;
     const groups = new WeakMap<GPUTextureView, GPUBindGroup>();
     const stack = {
         before: [],

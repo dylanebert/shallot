@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import * as d from "typegpu/data";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { gpuScene } from "../../../scripts/gpu.fixture";
 import { Meshes, MeshInstance } from "../../core/mesh";
 import {
     attachTexture,
@@ -15,7 +15,8 @@ import { DEFAULT_PLUGINS } from "../../standard";
 import { MeshMaterial, materialLayout, materialType, StandardRenderer } from "./index";
 
 setDefaultTimeout(TIMEOUT.node);
-const subjects = gpuApps(import.meta.path, [
+const subject = gpuScene(
+    import.meta.path,
     {
         defaults: false,
         plugins: [
@@ -28,7 +29,8 @@ const subjects = gpuApps(import.meta.path, [
             },
         ],
     },
-]);
+    initialize,
+);
 const Color = d.struct({ value: d.vec3f });
 const OwnedColor = {
     create: (world: import("../../engine").World) => ({
@@ -49,8 +51,7 @@ const material = materialType({
     },
 });
 
-test("material owned uniforms resolve from live bindings and rebind after replacement", async () => {
-    const { world } = subjects()[0];
+function initialize(world: import("../../engine").World) {
     const mesh = world.resource(Meshes).add({
         name: "owned-color-quad",
         vertices: new Float32Array([
@@ -70,6 +71,11 @@ test("material owned uniforms resolve from live bindings and rebind after replac
     world.add(camera, StandardRenderer);
     world.add(camera, Tonemapping, { method: TonemappingMethod.None });
     attachTexture(world, camera, { width: 8, height: 8 });
+    return camera;
+}
+
+test("material owned uniforms resolve from live bindings and rebind after replacement", async () => {
+    const { world, scene: camera } = subject();
     world.step(0);
     world.step(0);
     const first = (await captureTexture(world, camera)).rgba;

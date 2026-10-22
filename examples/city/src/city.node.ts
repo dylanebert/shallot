@@ -36,13 +36,22 @@ test("doubling a small population preserves kit sizes and exact per-mesh group c
 });
 
 test("a fixed camera draws the default population's buildings across the centre", async () => {
-    const app = await openGpuApp({ plugins: [cityPlugin()] });
+    const app = await openGpuApp({
+        plugins: [
+            {
+                name: "CaptureCity",
+                dependencies: [cityPlugin()],
+                initialize(world) {
+                    attachTexture(world, world.resource(City).camera, { width: 320, height: 180 });
+                },
+            },
+        ],
+    });
     try {
         const { world } = app;
         console.info("city frame adapter", world.gpu.adapter);
         expect([...world.query([MeshInstance])]).toHaveLength(POPULATION);
         const camera = world.resource(City).camera;
-        attachTexture(world, camera, { width: 320, height: 180 });
         world.step(1 / 60);
         world.step(1 / 60);
         const frame = await captureTexture(world, camera);

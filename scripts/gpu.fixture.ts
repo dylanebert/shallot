@@ -1,6 +1,6 @@
 import { afterAll, beforeAll } from "bun:test";
 import { relative } from "node:path";
-import { createApp, type Plugin } from "@dylanebert/shallot";
+import { createApp, type Plugin, type World } from "@dylanebert/shallot";
 import { CEILING } from "@dylanebert/shallot/testing";
 import { attachTexture, Camera, CorePipelinePlugin, captureTexture } from "../src/core/rendering";
 import { Transform } from "../src/core/transform";
@@ -19,16 +19,26 @@ async function warmDriver(): Promise<void> {
     const info = (await navigator.gpu.requestAdapter())?.info;
     if (!/llvmpipe/i.test(`${info?.architecture} ${info?.device} ${info?.description}`)) return;
     const start = performance.now();
-    const app = await createTestGpuApp({ defaults: false, plugins: [CorePipelinePlugin] });
-    const world = app.world;
-    const cameras = [0, 1].map((antialias) => {
-        const camera = world.create();
-        world.add(camera, Transform);
-        world.add(camera, Camera);
-        world.storage(Camera).antialias.set(camera, antialias);
-        attachTexture(world, camera, { width: 8, height: 8 });
-        return camera;
+    const cameras: number[] = [];
+    const app = await createTestGpuApp({
+        defaults: false,
+        plugins: [
+            {
+                name: "DriverWarmup",
+                dependencies: [CorePipelinePlugin],
+                initialize(world) {
+                    for (const antialias of [0, 1]) {
+                        const camera = world.create();
+                        world.add(camera, Transform);
+                        world.add(camera, Camera, { antialias });
+                        attachTexture(world, camera, { width: 8, height: 8 });
+                        cameras.push(camera);
+                    }
+                },
+            },
+        ],
     });
+    const world = app.world;
     world.step(1 / 60);
     for (const camera of cameras) await captureTexture(world, camera);
     await disposeGpuApps([app]);
@@ -138,6 +148,31 @@ export async function disposeGpuApps(apps: GpuApp[]): Promise<void> {
             await device.lost;
         }
     }
+}
+
+/** Compose a test scene during initialization; acquire and warm its World in beforeAll. */
+export function gpuScene<T>(
+    path: string,
+    config: Parameters<typeof createApp>[0],
+    initialize: (world: World) => T,
+): () => { world: World; scene: T } {
+    let scene: T;
+    const apps = gpuApps(path, [
+        {
+            ...config,
+            plugins: [
+                ...config.plugins,
+                {
+                    name: "TestScene",
+                    dependencies: config.plugins,
+                    initialize(world) {
+                        scene = initialize(world);
+                    },
+                },
+            ],
+        },
+    ]);
+    return () => ({ world: apps()[0].world, scene });
 }
 
 /** Prebuild independent worlds on one file device; never share pipelines between worlds. */

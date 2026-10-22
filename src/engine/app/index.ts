@@ -1,5 +1,6 @@
 /// <reference types="@webgpu/types" />
 
+import { HANDOFF_MARK, UI_MOUNT_MEASURE, userTimingMark, userTimingSpan } from "../diagnostics";
 import { type Component, type System, World } from "../ecs";
 import {
     type AdapterVerdict,
@@ -23,6 +24,9 @@ export * from "./compose";
 
 /**
  * bundle of components, systems, and lifecycle hooks: the unit of behavior a project enables.
+ * Create pipelines in `initialize` or `warm` and register them with `precompile` so they compile under
+ * the loading screen. Pipeline creation through `world.gpu.device` after the drain warns in every build,
+ * naming the pipeline and its owner. Callers using a raw or externally retained device own their preparation.
  */
 export interface Plugin {
     /** unique name */
@@ -299,6 +303,9 @@ async function buildNow(config: AppConfig): Promise<App> {
             const compute = await requestGPU(config.device, requirements, config.adapter, {
                 own: world.own.bind(world),
                 resource: world.resource.bind(world),
+                get currentSystem() {
+                    return world.currentSystem;
+                },
                 prepare: (gpu) => {
                     for (const plugin of sorted) plugin.prepareGpu?.(world, gpu);
                 },
@@ -370,6 +377,7 @@ async function buildNow(config: AppConfig): Promise<App> {
             cleanup();
             cleanup = undefined;
         }
+        userTimingMark(HANDOFF_MARK);
 
         let disposed = false;
         return {
@@ -469,8 +477,10 @@ export async function runApp(config: AppConfig): Promise<App> {
         const sync = gpu?.sync;
         // World-owned UI cleanup also covers direct world.dispose(), after plugin hooks on App.dispose.
         if (config.ui && Runtime === "web") {
-            const overlay = mountOverlay(document.querySelector("canvas"), world);
-            const uiCleanup = config.ui(overlay, world);
+            const ui = config.ui;
+            const uiCleanup = userTimingSpan(UI_MOUNT_MEASURE, () =>
+                ui(mountOverlay(document.querySelector("canvas"), world), world),
+            );
             if (uiCleanup) world.onDispose(uiCleanup);
         }
 

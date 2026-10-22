@@ -8,11 +8,24 @@ import { internText, registerFont, Text, TextPlugin } from "./index";
 
 setDefaultTimeout(TIMEOUT.node);
 let font = 0;
+let camera = 0;
 const subjects = gpuApps(import.meta.path, [
     {
         defaults: false,
-        plugins: [TextPlugin],
+        plugins: [
+            TextPlugin,
+            {
+                name: "LayerView",
+                dependencies: [TextPlugin],
+                initialize(world) {
+                    attachTexture(world, camera, { width: 32, height: 32 });
+                },
+            },
+        ],
         setup(world) {
+            camera = world.create();
+            world.add(camera, Transform, { translation: [0, 0, 5] });
+            world.add(camera, Camera, { antialias: 0 });
             font = registerFont(
                 world,
                 `data:font/ttf;base64,${Buffer.from(isolationFont()).toString("base64")}`,
@@ -27,11 +40,7 @@ for (const [itemMask, cameraMask] of [
 ])
     test(`text mask ${itemMask} is not drawn by camera mask ${cameraMask}`, () => {
         const { world } = subjects()[0];
-        const camera = world.create();
-        world.add(camera, Transform, { translation: [0, 0, 5] });
-        world.add(camera, Camera, { antialias: 0 });
         if (cameraMask !== 1) world.add(camera, RenderLayers, { mask: cameraMask });
-        attachTexture(world, camera, { width: 32, height: 32 });
         const label = world.create();
         world.add(label, Transform);
         world.add(label, Text, { font, content: internText(world, "i") });
@@ -45,6 +54,6 @@ for (const [itemMask, cameraMask] of [
             expect(world.resource(TransparentPhases).get(camera)!.metrics.draws).toBe(1);
         } finally {
             world.destroy(label);
-            world.destroy(camera);
+            world.remove(camera, RenderLayers);
         }
     });

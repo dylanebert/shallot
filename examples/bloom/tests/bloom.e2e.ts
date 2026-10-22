@@ -1,4 +1,5 @@
 import { mkdir } from "node:fs/promises";
+import { pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, type Page, test } from "playwright/test";
 import { bodyHasFocus, dragRange, gameKeyMovesCamera, pointerControl } from "./pointer";
 
@@ -23,6 +24,17 @@ async function difference(page: Page, a: number, b: number): Promise<number> {
         [a, b],
     );
 }
+
+test.use(pipelineWarnings);
+
+test("the first frame has no late-pipeline warning", async ({ page }) => {
+    await page.goto("/");
+    await page.waitForFunction(() =>
+        performance
+            .getEntriesByType("measure")
+            .some((entry) => entry.name.endsWith(":first-update")),
+    );
+});
 
 test("every bloom control changes the captured frame and off restores the unbloomed frame", async ({
     page,

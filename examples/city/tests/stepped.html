@@ -5,16 +5,19 @@ import { attachTexture, captureTexture, captureFrame } from '@dylanebert/shallot
 import { DirectionalLightShadowMap } from '@dylanebert/shallot/standard/rendering';
 import { City, cityPlugin } from '../src/city';
 import { SEED } from '../src/layout';
-const app=await createApp({plugins:[cityPlugin(SEED,8192)]});
-const world=app.world, canvas=document.querySelector('canvas');
 const captures=new URLSearchParams(location.search).has('captures');
-if(!captures){
- const camera=world.resource(City).camera;
- attachTexture(world,camera,{width:640,height:360});
- world.storage(Camera).antialias.set(camera,0);
- world.resource(DirectionalLightShadowMap).size=512;
- for(const sun of world.query([DirectionalLight]))world.storage(DirectionalLight).numCascades.set(sun,1);
-}
+const city=cityPlugin(SEED,8192);
+const app=await createApp({plugins:[city,{
+ name:'CityTestView',dependencies:[city],
+ initialize(world){if(!captures){
+  const camera=world.resource(City).camera;
+  attachTexture(world,camera,{width:640,height:360});
+  world.storage(Camera).antialias.set(camera,0);
+  world.resource(DirectionalLightShadowMap).size=512;
+  for(const sun of world.query([DirectionalLight]))world.storage(DirectionalLight).numCascades.set(sun,1);
+ }},
+}]});
+const world=app.world, canvas=document.querySelector('canvas');
 world.step(1/60);world.step(1/60);
 window.city={
  async capture() {

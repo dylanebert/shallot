@@ -9,11 +9,15 @@ import { internText, registerFont, Text, TextPlugin } from "./index";
 
 setDefaultTimeout(TIMEOUT.gpu);
 let defaultFont = 0;
+let camera = 0;
 const subjects = gpuApps(import.meta.path, [
     {
         defaults: false,
         plugins: [TextPlugin],
         setup(world) {
+            camera = world.create();
+            world.add(camera, Transform, { translation: [0, 0, 5, 0] });
+            world.add(camera, Camera);
             registerFont(
                 world,
                 `data:font/ttf;base64,${Buffer.from(isolationFont()).toString("base64")}`,
@@ -25,9 +29,6 @@ const subjects = gpuApps(import.meta.path, [
 
 test("a world registering a font draws a font-0 label in the default face", async () => {
     const { world } = subjects()[0];
-    const camera = world.create();
-    world.add(camera, Transform, { translation: [0, 0, 5, 0] });
-    world.add(camera, Camera);
     attachTexture(world, camera, { width: 128, height: 64 });
     const label = world.create();
     world.add(label, Transform);

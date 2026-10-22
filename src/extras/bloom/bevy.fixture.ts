@@ -30,6 +30,7 @@ export async function bevyPipelines(world: World) {
     const make = (first: boolean, entryPoint: string, blend?: GPUBlendState) => {
         const module = device.createShaderModule({ code: shader(first) });
         return device.createRenderPipelineAsync({
+            label: `bevy-bloom-${entryPoint}`,
             layout: pipelineLayout,
             vertex: { module, entryPoint: "fullscreen_vertex_shader" },
             fragment: { module, entryPoint, targets: [{ format: "rgba16float", blend }] },

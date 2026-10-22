@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Motes preparation control</title></head>
+<body><canvas width="16" height="16"></canvas><script type="module">
+import { createApp, Camera, Transform } from '@dylanebert/shallot';
+import { Views } from '@dylanebert/shallot/rendering';
+import { PhysicsWorldDefinition } from '@dylanebert/shallot/standard/physics';
+const params = new URLSearchParams(location.search);
+const family = params.get('family');
+const samples = Number(params.get('samples'));
+const { MotesPlugin } = family === 'particles'
+    ? await import('../../../examples/particles/src/motes')
+    : await import('../../../examples/volumetric-fog/src/motes');
+const counts = [];
+let upscaling = 0;
+const app = await createApp({pixelRatio: 1, setup(world) { world.resource(PhysicsWorldDefinition).workerCount = 1; }, plugins: [{
+    name: 'MotesPreparationControl', dependencies: [MotesPlugin],
+    initialize(world) {
+        for (const eid of world.query([Camera])) {
+            if (!samples) world.remove(eid, Camera);
+            else world.storage(Camera).antialias.set(eid, samples === 1 ? 0 : 1);
+        }
+        if (params.has('stack')) {
+            const camera = world.create();
+            world.add(camera, Transform);
+            world.add(camera, Camera, { antialias: 0, order: 1 });
+        }
+        const device = world.gpu.device;
+        for (const name of ['createRenderPipeline', 'createRenderPipelineAsync']) {
+            const create = device[name].bind(device);
+            device[name] = descriptor => {
+                if (descriptor.label === 'upscaling') upscaling++;
+                if (descriptor.label === 'particles:draw' || descriptor.label === 'dust:draw')
+                    counts.push(descriptor.multisample?.count ?? 1);
+                return create(descriptor);
+            };
+        }
+    },
+}]});
+window.preparedSamples = counts;
+window.preparedUpscaling = upscaling;
+window.initialViews = app.world.resource(Views).size;
+window.dispose = () => app.dispose();
+</script></body></html>

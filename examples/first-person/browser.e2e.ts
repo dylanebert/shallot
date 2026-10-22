@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Capture } from "@dylanebert/shallot/rendering";
+import { pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, type Page, test } from "playwright/test";
 
 const CAPTURE_ENTRY = resolve(
@@ -49,6 +50,17 @@ async function captureCanvasFrame(page: Page): Promise<Frame> {
         } as Frame;
     });
 }
+test.use(pipelineWarnings);
+
+test("the first frame has no late-pipeline warning", async ({ page }) => {
+    await page.goto("/");
+    await page.waitForFunction(() =>
+        performance
+            .getEntriesByType("measure")
+            .some((entry) => entry.name.endsWith(":first-update")),
+    );
+});
+
 test.beforeEach(async ({ page }) => {
     const session = await page.context().newCDPSession(page);
     await session.send("Emulation.setHardwareConcurrencyOverride", { hardwareConcurrency: 1 });

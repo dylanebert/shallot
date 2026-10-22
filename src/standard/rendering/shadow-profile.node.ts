@@ -2,6 +2,7 @@ import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import tgpu from "typegpu";
 import { compileGpuFile, createTestGpuApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
+import { precompile, type World } from "../../engine";
 import { PointLightGpu } from "./lighting";
 import {
     pointCastersSchema,
@@ -16,10 +17,24 @@ setDefaultTimeout(TIMEOUT.node);
 const SIDE = 256;
 const OFFSETS = Array.from({ length: 33 }, (_, i) => (i - 16) / 4);
 const apps: Awaited<ReturnType<typeof createTestGpuApp>>[] = [];
+const prepared = new Map<string, ReturnType<typeof createProfilePipelines>>();
 const fixture = compileGpuFile(import.meta.path, async () => {
     const app = await createTestGpuApp({
         defaults: false,
-        plugins: [{ name: "ShadowProfileDevice", gpu: {} }],
+        plugins: [
+            {
+                name: "ShadowProfileDevice",
+                gpu: {},
+                initialize(world) {
+                    for (const kind of ["directional", "spot", "point"] as const)
+                        for (const volume of [false, true])
+                            prepared.set(
+                                `${kind}-${volume}`,
+                                createProfilePipelines(world, kind, volume),
+                            );
+                },
+            },
+        ],
     });
     apps.push(app);
     return app;
@@ -81,22 +96,15 @@ function pointGaussian(offset: number, volume: boolean): number {
     }, 0);
 }
 
-async function profile(
+function createProfilePipelines(
+    world: World,
     kind: "directional" | "spot" | "point",
     volume: boolean,
-): Promise<Float32Array> {
-    const device = fixture().world.gpu.device;
-    const resources: (GPUBuffer | GPUTexture)[] = [];
-    device.pushErrorScope("validation");
-    try {
-        const texture = device.createTexture({
-            size: [SIDE, SIDE],
-            format: "depth32float",
-            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-        });
-        resources.push(texture);
-        const fill = device.createShaderModule({
-            code: `
+) {
+    const device = world.gpu.device;
+    const label = `shadow-profile-${kind}-${volume ? "volume" : "surface"}`;
+    const fill = device.createShaderModule({
+        code: `
 @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
     let p = array<vec2f, 3>(vec2f(-1,-1), vec2f(3,-1), vec2f(-1,3));
     return vec4f(p[i], 0, 1);
@@ -104,28 +112,29 @@ async function profile(
 @fragment fn fs(@builtin(position) p: vec4f) -> @builtin(frag_depth) f32 {
     return select(0.8, 0.2, p.x < ${kind === "point" ? SIDE / 4 : SIDE / 2}.0);
 }`,
-        });
-        const fillPipeline = device.createRenderPipeline({
-            layout: "auto",
-            vertex: { module: fill, entryPoint: "vs" },
-            fragment: { module: fill, entryPoint: "fs", targets: [] },
-            depthStencil: {
-                format: "depth32float",
-                depthWriteEnabled: true,
-                depthCompare: "always",
-            },
-        });
-        const code = tgpu.resolve({
-            names: "strict",
-            externals: {
-                sampleSunShadow,
-                pointShadowOf: pointShadowRef(),
-                SunShadow,
-                PointCasters: pointCastersSchema(),
-                TileRects: tileRectsSchema(MAX_POINT_CASTERS * 6),
-                PointLightGpu,
-            },
-            template: `
+    });
+    const fillPipeline = device.createRenderPipeline({
+        label: `${label}-fill`,
+        layout: "auto",
+        vertex: { module: fill, entryPoint: "vs" },
+        fragment: { module: fill, entryPoint: "fs", targets: [] },
+        depthStencil: {
+            format: "depth32float",
+            depthWriteEnabled: true,
+            depthCompare: "always",
+        },
+    });
+    const code = tgpu.resolve({
+        names: "strict",
+        externals: {
+            sampleSunShadow,
+            pointShadowOf: pointShadowRef(),
+            SunShadow,
+            PointCasters: pointCastersSchema(),
+            TileRects: tileRectsSchema(MAX_POINT_CASTERS * 6),
+            PointLightGpu,
+        },
+        template: `
 @group(0) @binding(0) var shadowMap: texture_depth_2d;
 @group(0) @binding(1) var pointAtlas: texture_depth_2d;
 @group(0) @binding(2) var shadowSamp: sampler_comparison;
@@ -167,12 +176,32 @@ var<private> view: ProfileView;
     output[id.x] = pointShadowOf(light,normal,vec3f((0.5-2.0*offset/${SIDE}.0)*${TAN_HALF},0.7,1),1u);`
     }
 }`,
+    });
+    const module = device.createShaderModule({ code });
+    const pipeline = device.createComputePipeline({
+        label,
+        layout: "auto",
+        compute: { module, entryPoint: "main" },
+    });
+    precompile(world, label, () => [fillPipeline, pipeline]);
+    return { fillPipeline, pipeline };
+}
+
+async function profile(
+    kind: "directional" | "spot" | "point",
+    volume: boolean,
+): Promise<Float32Array> {
+    const device = fixture().world.gpu.device;
+    const { fillPipeline, pipeline } = prepared.get(`${kind}-${volume}`)!;
+    const resources: (GPUBuffer | GPUTexture)[] = [];
+    device.pushErrorScope("validation");
+    try {
+        const texture = device.createTexture({
+            size: [SIDE, SIDE],
+            format: "depth32float",
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
         });
-        const module = device.createShaderModule({ code });
-        const pipeline = device.createComputePipeline({
-            layout: "auto",
-            compute: { module, entryPoint: "main" },
-        });
+        resources.push(texture);
         const output = device.createBuffer({
             size: OFFSETS.length * 4,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,

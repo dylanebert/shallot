@@ -11,6 +11,7 @@ import {
 } from "../../core/rendering/global-transform";
 import { VIEW_BYTES } from "../../core/rendering/view";
 import { Transform } from "../../core/transform";
+import { precompile } from "../../engine";
 import { probeTexture } from "../../engine/runtime";
 import { maskLayoutPlain, maskVertex } from "../outline/passes";
 import { GLYPH_AT, GLYPH_BYTES } from "./glyph";
@@ -18,7 +19,47 @@ import { TextVertex } from "./pipeline";
 
 setDefaultTimeout(TIMEOUT.gpu);
 const subject = compileGpuFile(import.meta.path, async () => {
-    const app = await createTestGpuApp({ defaults: false, plugins: [RenderingPlugin] });
+    const textCode = tgpu.resolve([TextVertex], { names: "strict" });
+    const outlineCode = tgpu.resolve([maskVertex(maskLayoutPlain)], { names: "strict" });
+    let compiled: GPURenderPipeline[] = [];
+    const app = await createTestGpuApp({
+        defaults: false,
+        plugins: [
+            RenderingPlugin,
+            {
+                name: "PlacementShaders",
+                dependencies: [RenderingPlugin],
+                async initialize(world) {
+                    compiled = await Promise.all(
+                        [textCode, outlineCode].map(async (code, index) => {
+                            const label = index === 0 ? "placement-label" : "placement-outline";
+                            const device = world.gpu.device;
+                            const module = device.createShaderModule({
+                                code:
+                                    code +
+                                    `\n@fragment fn white() -> @location(0) vec4f { return vec4f(1); }`,
+                            });
+                            const pipeline = await device.createRenderPipelineAsync({
+                                label,
+                                layout: "auto",
+                                vertex: {
+                                    module,
+                                    entryPoint: index === 0 ? "TextVertex" : "maskVs",
+                                },
+                                fragment: {
+                                    module,
+                                    entryPoint: "white",
+                                    targets: [{ format: "rgba8unorm" }],
+                                },
+                            });
+                            precompile(world, label, () => [pipeline]);
+                            return pipeline;
+                        }),
+                    );
+                },
+            },
+        ],
+    });
     const world = app.world;
     const device = world.gpu.device;
     console.info("placement adapter:", world.gpu.adapter);
@@ -84,8 +125,6 @@ const subject = compileGpuFile(import.meta.path, async () => {
     const view = new Float32Array(VIEW_BYTES / 4);
     for (const i of [0, 5, 10, 15]) view[i] = 1;
     buffer("view", view, true);
-    const textCode = tgpu.resolve([TextVertex], { names: "strict" });
-    const outlineCode = tgpu.resolve([maskVertex(maskLayoutPlain)], { names: "strict" });
     const texture = device.createTexture({
         size: [32, 16],
         format: "rgba8unorm",
@@ -94,14 +133,7 @@ const subject = compileGpuFile(import.meta.path, async () => {
     world.own(texture);
     const pipelines = await Promise.all(
         [textCode, outlineCode].map(async (code, index) => {
-            const module = device.createShaderModule({
-                code: code + `\n@fragment fn white() -> @location(0) vec4f { return vec4f(1); }`,
-            });
-            const pipeline = await device.createRenderPipelineAsync({
-                layout: "auto",
-                vertex: { module, entryPoint: index === 0 ? "TextVertex" : "maskVs" },
-                fragment: { module, entryPoint: "white", targets: [{ format: "rgba8unorm" }] },
-            });
+            const pipeline = compiled[index]!;
             const entries = new Map<number, GPUBindGroupEntry[]>();
             for (const match of code.matchAll(
                 /@group\((\d+)\)\s*@binding\((\d+)\)\s*var(?:<[^>]+>)?\s+(\w+)\s*:/g,

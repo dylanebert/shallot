@@ -10,6 +10,7 @@ import {
     Camera,
     CorePipelinePlugin,
     globalTransformTable,
+    initialViewSampleCounts,
     PrepassSystem,
     RenderContext,
     RenderPhases,
@@ -23,6 +24,7 @@ import {
     ClearChangeMarksSystem,
     f32,
     type Plugin,
+    precompile,
     Registry,
     type System,
     u32,
@@ -517,11 +519,12 @@ function prepareText(
     state.lastPipeline = null;
     state.lastViewGroup = null;
     state.lastFontGroup = null;
-    const pipeline =
-        world.storage(Camera).antialias.get(eid) !== 0
-            ? state.colorPipelines.multisample
-            : state.colorPipelines.single;
-    if (!pipeline) return;
+    const key = world.storage(Camera).antialias.get(eid) ? "multisample" : "single";
+    state.colorPipelines[key] ??= createTextPipeline(
+        world,
+        world.resource(RenderContext).format,
+        key === "single" ? 1 : 4,
+    );
     for (let i = 0; i < phase.length; i++) {
         const item = phase.item(i);
         if (item.renderer === renderer) ensureTextFontGroup(world, state, item.batch);
@@ -543,11 +546,12 @@ function drawText(
     if (!viewGroup || !state.quad) return;
     const mesh = world.resource(Meshes).get(state.quad);
     if (!mesh) return;
-    const pipeline =
-        world.storage(Camera).antialias.get(eid) !== 0
-            ? state.colorPipelines.multisample
-            : state.colorPipelines.single;
-    if (!pipeline) return;
+    const key = world.storage(Camera).antialias.get(eid) ? "multisample" : "single";
+    const pipeline = (state.colorPipelines[key] ??= createTextPipeline(
+        world,
+        world.resource(RenderContext).format,
+        key === "single" ? 1 : 4,
+    ));
     const previous = start > 0 ? phase.item(start - 1) : undefined;
     if (previous?.renderer !== renderer) {
         state.lastPipeline = null;
@@ -654,10 +658,12 @@ export const TextPlugin: Plugin = {
             .$usage("storage")
             .$name("shallot-text-glyphs");
         const format = world.resource(RenderContext).format;
-        _textState.colorPipelines = {
-            single: createTextPipeline(world.gpu.root, format, 1),
-            multisample: createTextPipeline(world.gpu.root, format, 4),
-        };
+        precompile(world, "text-prepare", () => {
+            for (const samples of initialViewSampleCounts(world))
+                _textState.colorPipelines[samples === 1 ? "single" : "multisample"] =
+                    createTextPipeline(world, format, samples);
+            return [];
+        });
         _textState.viewGroups.clear();
         _textState.bindGroups.length = _textState.atlases.length;
         _textState.bindKeys.length = _textState.atlases.length;

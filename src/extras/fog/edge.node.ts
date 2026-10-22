@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { gpuScene } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
 import {
     attachTexture,
@@ -21,62 +21,71 @@ import {
 import { Fog, FogPlugin, NoFog } from ".";
 
 setDefaultTimeout(TIMEOUT.node);
-const subjects = gpuApps(import.meta.path, [
-    { defaults: false, plugins: [...DEFAULT_PLUGINS, FogPlugin] },
-]);
 const decode = (v: number) => {
     const x = v / 255;
     return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
 };
 const encode = (x: number) => 255 * (x <= 0.0031308 ? 12.92 * x : 1.055 * x ** (1 / 2.4) - 0.055);
+const scenes = [1, 0].map((antialias) =>
+    gpuScene(
+        import.meta.path,
+        { defaults: false, plugins: [...DEFAULT_PLUGINS, FogPlugin] },
+        (world) => {
+            const camera = world.create();
+            world.add(camera, Transform);
+            world.add(camera, Camera, {
+                mode: CameraMode.Orthographic,
+                size: 10,
+                near: 0.1,
+                far: 30,
+                antialias,
+            });
+            world.add(camera, StandardRenderer);
+            world.add(camera, Tonemapping, { method: TonemappingMethod.None });
+            const width = 160,
+                height = 90;
+            attachTexture(world, camera, { width, height });
+            const mats = world.resource(Materials);
+            const farRow = mats.add(StandardMaterial({ baseColor: [0, 0, 0, 1], unlit: true }));
+            const nearRow = mats.add(StandardMaterial({ baseColor: [0, 0, 0, 1], unlit: true }));
+            const wall = world.create();
+            world.add(wall, Transform, { translation: [0, 0, -20.5, 0], scale: [80, 80, 1, 0] });
+            world.add(wall, MeshInstance);
+            world.add(wall, MeshMaterial, farRow);
+            const near = world.create();
+            world.add(near, Transform, {
+                translation: [-2.7, 0, -4.5, 0],
+                scale: [5.4, 40, 1, 0],
+                rotation: [0, 0, Math.sin(0.075), Math.cos(0.075)],
+            });
+            world.add(near, MeshInstance);
+            world.add(near, MeshMaterial, nearRow);
+            const fog = world.create();
+            world.add(fog, Fog, {
+                color: 0xffffff,
+                density: 0.08,
+                absorption: 0,
+                scattering: 1,
+                // Only the medium's own light: its haze is color · (1 − T).
+                lightIntensity: 0,
+                viewDistance: 32,
+            });
+            return { camera, mats, nearRow, width, height, antialias };
+        },
+    ),
+);
+
 test("MSAA opaque edges blend fog at each covered surface depth", async () => {
-    const { world } = subjects()[0]!;
-    const camera = world.create();
-    world.add(camera, Transform);
-    world.add(camera, Camera, {
-        mode: CameraMode.Orthographic,
-        size: 10,
-        near: 0.1,
-        far: 30,
-        antialias: 1,
-    });
-    world.add(camera, StandardRenderer);
-    world.add(camera, Tonemapping, { method: TonemappingMethod.None });
-    const width = 160,
-        height = 90;
-    attachTexture(world, camera, { width, height });
-    const mats = world.resource(Materials);
-    const farRow = mats.add(StandardMaterial({ baseColor: [0, 0, 0, 1], unlit: true }));
-    const nearRow = mats.add(StandardMaterial({ baseColor: [0, 0, 0, 1], unlit: true }));
-    const wall = world.create();
-    world.add(wall, Transform, { translation: [0, 0, -20.5, 0], scale: [80, 80, 1, 0] });
-    world.add(wall, MeshInstance);
-    world.add(wall, MeshMaterial, farRow);
-    const near = world.create();
-    world.add(near, Transform, {
-        translation: [-2.7, 0, -4.5, 0],
-        scale: [5.4, 40, 1, 0],
-        rotation: [0, 0, Math.sin(0.075), Math.cos(0.075)],
-    });
-    world.add(near, MeshInstance);
-    world.add(near, MeshMaterial, nearRow);
-    const fog = world.create();
-    world.add(fog, Fog, {
-        color: 0xffffff,
-        density: 0.08,
-        absorption: 0,
-        scattering: 1,
-        // Only the medium's own light: its haze is color · (1 − T).
-        lightIntensity: 0,
-        viewDistance: 32,
-    });
-    const capture = async () => {
-        for (let i = 0; i < 3; i++) world.step(0);
-        return (await captureTexture(world, camera)).rgba;
-    };
     const reports = [];
-    for (const aa of [1, 0]) {
-        world.storage(Camera).antialias.set(camera, aa);
+    for (const scene of scenes) {
+        const {
+            world,
+            scene: { camera, mats, nearRow, width, height, antialias: aa },
+        } = scene();
+        const capture = async () => {
+            for (let i = 0; i < 3; i++) world.step(0);
+            return (await captureTexture(world, camera)).rgba;
+        };
         const actual = await capture();
         world.add(camera, NoFog);
         mats.update(nearRow, { baseColor: [1, 1, 1, 1] });

@@ -1,4 +1,5 @@
 import { mkdirSync } from "node:fs";
+import { pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, type Page, test } from "playwright/test";
 
 type SteppedWindow = {
@@ -8,6 +9,17 @@ type SteppedWindow = {
     adapter: { class: string; identity: string };
     jitter(): Promise<{ maxChanged: number; occupied: number; turn: number }>;
 };
+test.use(pipelineWarnings);
+
+test("the first frame has no late-pipeline warning", async ({ page }) => {
+    await page.goto("http://127.0.0.1:4196/");
+    await page.waitForFunction(() =>
+        performance
+            .getEntriesByType("measure")
+            .some((entry) => entry.name.endsWith(":first-update")),
+    );
+});
+
 test("jitter: turning at 144 Hz leaves the stationary view model silhouette fixed", async ({
     page,
 }) => {

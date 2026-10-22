@@ -1,4 +1,4 @@
-import { holdFrames } from "@dylanebert/shallot/testing";
+import { holdFrames, pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, type Page, test } from "playwright/test";
 
 async function energy(page: Page): Promise<number[]> {
@@ -15,6 +15,17 @@ async function energy(page: Page): Promise<number[]> {
         return sum.map((x) => x / 20);
     });
 }
+test.use(pipelineWarnings);
+
+test("the first frame has no late-pipeline warning", async ({ page }) => {
+    await page.goto("/");
+    await page.waitForFunction(() =>
+        performance
+            .getEntriesByType("measure")
+            .some((entry) => entry.name.endsWith(":first-update")),
+    );
+});
+
 test("the built yard serves its music and shared interaction HUD", async ({ page }) => {
     await holdFrames(page, ".reticle");
     await page.goto("/");

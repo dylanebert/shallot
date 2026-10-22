@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { gpuScene } from "../../../scripts/gpu.fixture";
 import { Meshes, MeshInstance } from "../../core/mesh";
 import { attachTexture, Camera, TransparentPhases } from "../../core/rendering";
 import { Transform } from "../../core/transform";
@@ -15,29 +15,36 @@ import {
 } from "./index";
 
 setDefaultTimeout(TIMEOUT.node);
-const subjects = gpuApps(import.meta.path, [
+const subject = gpuScene(
+    import.meta.path,
     { defaults: false, plugins: [MeshRenderPlugin, StandardRenderingPlugin] },
-]);
+    (world) => {
+        const materials = world.resource(Materials);
+        const opaque = materials.add(StandardMaterial());
+        const glass = materials.add(StandardMaterial(), { alphaMode: AlphaMode.Blend });
+        const mesh = world.resource(Meshes).entries().next().value![0];
+        const eid = world.create();
+        world.add(eid, Transform);
+        world.add(eid, MeshInstance, { mesh });
+        world.add(eid, MeshMaterial, opaque);
+        const cameras: number[] = [];
+        for (let i = 0; i < 2; i++) {
+            const camera = world.create();
+            world.add(camera, Transform, { translation: [0, 0, 5, 0] });
+            world.add(camera, Camera);
+            world.add(camera, StandardRenderer);
+            attachTexture(world, camera, { width: 16, height: 16 });
+            cameras.push(camera);
+        }
+        return { materials, opaque, glass, mesh, eid, cameras };
+    },
+);
 
 test("snapshot restore reconciles transparent candidates both ways and after destruction and eid reuse", () => {
-    const { world } = subjects()[0]!;
-    const materials = world.resource(Materials);
-    const opaque = materials.add(StandardMaterial());
-    const glass = materials.add(StandardMaterial(), { alphaMode: AlphaMode.Blend });
-    const mesh = world.resource(Meshes).entries().next().value![0];
-    const eid = world.create();
-    world.add(eid, Transform);
-    world.add(eid, MeshInstance, { mesh });
-    world.add(eid, MeshMaterial, opaque);
-    const cameras: number[] = [];
-    for (let i = 0; i < 2; i++) {
-        const camera = world.create();
-        world.add(camera, Transform, { translation: [0, 0, 5, 0] });
-        world.add(camera, Camera);
-        world.add(camera, StandardRenderer);
-        attachTexture(world, camera, { width: 16, height: 16 });
-        cameras.push(camera);
-    }
+    const {
+        world,
+        scene: { materials, opaque, glass, mesh, eid, cameras },
+    } = subject();
     world.step(0);
     const reads = spyOn(materials, "alphaMode");
     const frame = (transparent: boolean) => {

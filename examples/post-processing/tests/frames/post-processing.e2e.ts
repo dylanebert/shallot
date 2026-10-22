@@ -1,6 +1,9 @@
 import { mkdir, writeFile } from "node:fs/promises";
+import { pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, type Page, test } from "playwright/test";
 import { bodyHasFocus, dragRange, gameKeyMovesCamera, pointerControl } from "../pointer";
+
+test.use(pipelineWarnings);
 
 type SteppedWindow = Window & {
     captureScene?: () => Promise<number[]>;

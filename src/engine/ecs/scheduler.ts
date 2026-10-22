@@ -1,4 +1,4 @@
-import { sampleDiagnosticTime } from "../diagnostics";
+import { SYSTEM_MEASURE_PREFIX, sampleDiagnosticTime, userTimingSpan } from "../diagnostics";
 import type { World } from "./world";
 
 function invalidDelta(): never {
@@ -91,6 +91,8 @@ export class Scheduler {
     private readonly _names = new Map<System, string>();
     private readonly _nameCounters = new Map<string, number>();
     private readonly _measurement = new Float64Array(2);
+    /** The system executing synchronously, including setup; restored after nested runs. */
+    currentSystem?: string;
     /** Borrowed [monotonic seconds, CPU milliseconds], reused after the callback. */
     record?: (name: string, measurement: Readonly<Float64Array>) => void;
     /** optional fence-wait telemetry sink — installed by the profile plugin */
@@ -242,23 +244,11 @@ export class Scheduler {
         for (let i = 0; i < systems.length; i++) {
             const system = systems[i];
             if (this._errored.has(system)) continue;
+            const previous = this.currentSystem;
+            this.currentSystem = this._names.get(system);
             try {
-                if (!this._initialized.has(system)) {
-                    system.setup?.(world);
-                    this._initialized.add(system);
-                }
-                if (system.update) {
-                    if (record) {
-                        sampleDiagnosticTime(this._measurement);
-                        const t0 = this._measurement[0];
-                        system.update(world);
-                        sampleDiagnosticTime(this._measurement);
-                        this._measurement[1] = (this._measurement[0] - t0) * 1000;
-                        record(this._names.get(system) ?? "?", this._measurement);
-                    } else {
-                        system.update(world);
-                    }
-                }
+                if (this._initialized.has(system)) this.update(world, system, record);
+                else this.runFirst(world, system, record);
             } catch (e) {
                 if (!this.logAndPauseErrors) {
                     const name = this._names.get(system) ?? system.name ?? "?";
@@ -274,8 +264,33 @@ export class Scheduler {
                     `System "${this._names.get(system) ?? system.name ?? "?"}" threw and is paused until its next reload:`,
                     e,
                 );
+            } finally {
+                this.currentSystem = previous;
             }
         }
+    }
+
+    private update(world: World, system: System, record: Scheduler["record"]): void {
+        if (!system.update) return;
+        if (!record) {
+            system.update(world);
+            return;
+        }
+        sampleDiagnosticTime(this._measurement);
+        const t0 = this._measurement[0];
+        system.update(world);
+        sampleDiagnosticTime(this._measurement);
+        this._measurement[1] = (this._measurement[0] - t0) * 1000;
+        record(this._names.get(system) ?? "?", this._measurement);
+    }
+
+    /** Runs a system's setup and first update, each under a User Timing span. */
+    private runFirst(world: World, system: System, record: Scheduler["record"]): void {
+        const name = `${SYSTEM_MEASURE_PREFIX}${this._names.get(system) ?? system.name ?? "?"}`;
+        if (system.setup) userTimingSpan(`${name}:setup`, () => system.setup!(world));
+        this._initialized.add(system);
+        if (system.update)
+            userTimingSpan(`${name}:first-update`, () => this.update(world, system, record));
     }
 
     private getSorted(group: SystemGroup): System[] {

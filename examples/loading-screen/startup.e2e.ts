@@ -1,4 +1,4 @@
-import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { pipelineWarnings, TIMEOUT } from "@dylanebert/shallot/testing";
 import { expect, type Page, test } from "playwright/test";
 
 declare global {
@@ -32,6 +32,17 @@ async function holdEntry(page: Page): Promise<() => void> {
     await requested;
     return release;
 }
+
+test.use(pipelineWarnings);
+
+test("the first frame has no late-pipeline warning", async ({ page }) => {
+    await page.goto("/");
+    await page.waitForFunction(() =>
+        performance
+            .getEntriesByType("measure")
+            .some((entry) => entry.name.endsWith(":first-update")),
+    );
+});
 
 test("dragging passive title-card chrome selects no page text", async ({ page }) => {
     const release = await holdEntry(page);

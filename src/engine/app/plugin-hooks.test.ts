@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { HANDOFF_MARK, SYSTEM_MEASURE_PREFIX } from "../diagnostics";
 import type { Plugin } from "./index";
 import { createApp } from "./index";
 
@@ -150,4 +151,37 @@ test("initialize progress reaches Loading.update before an awaited hook resolves
 
     expect(updatedBeforeResolve).toBe(true);
     expect(updates).toContain(0.5);
+});
+
+test("the build marks its handoff after the loading cleanup, and measures each system's first run once", async () => {
+    performance.clearMarks(HANDOFF_MARK);
+    performance.clearMeasures();
+    let cleaned = Number.POSITIVE_INFINITY;
+    const app = await createApp({
+        defaults: false,
+        plugins: [{ name: "Trace", systems: [{ name: "first", setup() {}, update() {} }] }],
+        loading: {
+            show: () => () => {
+                cleaned = performance.now();
+            },
+            update() {},
+        },
+    });
+    try {
+        const handoff = performance.getEntriesByName(HANDOFF_MARK, "mark");
+        expect(handoff).toHaveLength(1);
+        expect(handoff[0]!.startTime).toBeGreaterThanOrEqual(cleaned);
+        app.world.step(1 / 60);
+        app.world.step(1 / 60);
+        const runs = performance
+            .getEntriesByType("measure")
+            .filter((entry) => entry.name.startsWith(`${SYSTEM_MEASURE_PREFIX}Trace/`));
+        expect(runs.map((entry) => entry.name)).toEqual([
+            "shallot:system:Trace/first:setup",
+            "shallot:system:Trace/first:first-update",
+        ]);
+        expect(runs[0]!.startTime).toBeGreaterThanOrEqual(handoff[0]!.startTime);
+    } finally {
+        app.dispose();
+    }
 });

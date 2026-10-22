@@ -133,28 +133,65 @@ const subjects = compileGpuFile(import.meta.path, async () => {
     // AA on and off with a prepass each, and an AA camera stacked over another on one target;
     // a shadowed sun and point light
     const scene: Bundled[] = (sink.into = []);
-    const lit = await createTestGpuApp({ defaults: false, plugins, device });
-    camera(lit.world, { antialias: 1 });
-    camera(lit.world, { antialias: 0 });
-    const lower = camera(lit.world, { antialias: 1 });
-    camera(lit.world, { antialias: 1, order: 1 }, lower);
-    surfaces(lit.world);
-    const sun = lit.world.create();
-    lit.world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, -0.3, -0.3, -1) });
-    lit.world.add(sun, DirectionalLight, { illuminance: 9406.831, shadowMapsEnabled: 1 });
-    const point = lit.world.create();
-    lit.world.add(point, Transform, { translation: [0, 1, 3, 0] });
-    lit.world.add(point, PointLight, { intensity: 788064.8, range: 20, shadowMapsEnabled: 1 });
+    const lit = await createTestGpuApp({
+        defaults: false,
+        device,
+        plugins: [
+            ...plugins,
+            {
+                name: "BundleLitScene",
+                dependencies: plugins,
+                initialize(world) {
+                    camera(world, { antialias: 1 });
+                    camera(world, { antialias: 0 });
+                    const lower = camera(world, { antialias: 1 });
+                    camera(world, { antialias: 1, order: 1 }, lower);
+                    surfaces(world);
+                    const sun = world.create();
+                    world.add(sun, Transform, {
+                        rotation: lookAtRotation(0, 0, 0, -0.3, -0.3, -1),
+                    });
+                    world.add(sun, DirectionalLight, {
+                        illuminance: 9406.831,
+                        shadowMapsEnabled: 1,
+                    });
+                    const point = world.create();
+                    world.add(point, Transform, { translation: [0, 1, 3, 0] });
+                    world.add(point, PointLight, {
+                        intensity: 788064.8,
+                        range: 20,
+                        shadowMapsEnabled: 1,
+                    });
+                },
+            },
+        ],
+    });
     const sceneError = await frames(lit.world, device);
 
     // a spot light is the only shadow caster
     const spotted: Bundled[] = (sink.into = []);
-    const spot = await createTestGpuApp({ defaults: false, plugins, device });
-    camera(spot.world, { antialias: 1 });
-    surfaces(spot.world);
-    const light = spot.world.create();
-    spot.world.add(light, Transform, { translation: [0, 0, 4, 0] });
-    spot.world.add(light, SpotLight, { intensity: 788064.8, range: 20, shadowMapsEnabled: 1 });
+    const spot = await createTestGpuApp({
+        defaults: false,
+        device,
+        plugins: [
+            ...plugins,
+            {
+                name: "BundleSpotScene",
+                dependencies: plugins,
+                initialize(world) {
+                    camera(world, { antialias: 1 });
+                    surfaces(world);
+                    const light = world.create();
+                    world.add(light, Transform, { translation: [0, 0, 4, 0] });
+                    world.add(light, SpotLight, {
+                        intensity: 788064.8,
+                        range: 20,
+                        shadowMapsEnabled: 1,
+                    });
+                },
+            },
+        ],
+    });
     const spotError = await frames(spot.world, device);
 
     return { owner, lit, spot, scene, sceneError, spotted, spotError };

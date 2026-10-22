@@ -1,15 +1,47 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { compileGpuFile, createTestGpuApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
+import { precompile, type World } from "../../engine";
 import { createRegather, prepareRegather, SHADOW_ARG_STRIDE } from "./regather";
 
 setDefaultTimeout(TIMEOUT.node);
+let reference: GPURenderPipeline;
+function referencePipeline(world: World) {
+    const device = world.gpu.device;
+    const shader = device.createShaderModule({
+        code: `
+@group(0) @binding(0) var<storage, read> payload: array<vec4u>;
+@vertex fn vs(@builtin(vertex_index) v: u32, @builtin(instance_index) i: u32) -> @builtin(position) vec4f {
+    let p = payload[i];
+    let corners = array<vec2f, 3>(vec2f(0, 0), vec2f(1, 0), vec2f(0, 1));
+    let xy = vec2f(f32(p.x % 128u + (p.w % 2u) * 128u), f32(p.x / 128u + (p.w / 2u) * 128u));
+    return vec4f((xy + corners[v] * 1.9) / 128.0 - 1.0, f32(p.y % 100u + 1u) / 128.0, 1);
+}`,
+    });
+    const pipeline = device.createRenderPipeline({
+        label: "regather-reference",
+        layout: "auto",
+        vertex: { module: shader, entryPoint: "vs" },
+        primitive: { topology: "triangle-list" },
+        depthStencil: { format: "depth32float", depthWriteEnabled: true, depthCompare: "less" },
+    });
+    precompile(world, "regather-reference", () => [pipeline]);
+    return pipeline;
+}
 const subject = compileGpuFile(import.meta.path, async () => {
     const app = await createTestGpuApp({
         defaults: false,
-        plugins: [{ name: "RegatherTest", gpu: { features: ["indirect-first-instance"] } }],
+        plugins: [
+            {
+                name: "RegatherTest",
+                gpu: { features: ["indirect-first-instance"] },
+                async initialize(world) {
+                    reference = referencePipeline(world);
+                    await prepareRegather(world, world.gpu.device, 16384);
+                },
+            },
+        ],
     });
-    await prepareRegather(app.world, app.world.gpu.device, 16384);
     return app;
 });
 afterAll(() => disposeGpuApps([subject()]));
@@ -81,22 +113,7 @@ test("parallel regather preserves every payload, mesh run and cascade depth agai
             expected.byteLength,
             referenceArgs.byteLength,
         );
-        const shader = device.createShaderModule({
-            code: `
-@group(0) @binding(0) var<storage, read> payload: array<vec4u>;
-@vertex fn vs(@builtin(vertex_index) v: u32, @builtin(instance_index) i: u32) -> @builtin(position) vec4f {
-    let p = payload[i];
-    let corners = array<vec2f, 3>(vec2f(0, 0), vec2f(1, 0), vec2f(0, 1));
-    let xy = vec2f(f32(p.x % 128u + (p.w % 2u) * 128u), f32(p.x / 128u + (p.w / 2u) * 128u));
-    return vec4f((xy + corners[v] * 1.9) / 128.0 - 1.0, f32(p.y % 100u + 1u) / 128.0, 1);
-}`,
-        });
-        const pipeline = device.createRenderPipeline({
-            layout: "auto",
-            vertex: { module: shader, entryPoint: "vs" },
-            primitive: { topology: "triangle-list" },
-            depthStencil: { format: "depth32float", depthWriteEnabled: true, depthCompare: "less" },
-        });
+        const pipeline = reference;
         const indices = buffer(new Uint32Array([0, 1, 2]), GPUBufferUsage.INDEX);
         const depthReads: GPUBuffer[] = [];
         for (const [instances, indirect] of [

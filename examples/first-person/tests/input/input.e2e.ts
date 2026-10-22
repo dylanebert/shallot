@@ -1,4 +1,7 @@
+import { pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, type Page, test } from "playwright/test";
+
+test.use(pipelineWarnings);
 
 type CaptureWindow = Window & { __capturedFrames?: Record<string, Uint8ClampedArray> };
 

@@ -5,6 +5,7 @@ import {
     DepthPrepassRequests,
     EXPOSURE_EV100_BLENDER,
     fullscreenVertex,
+    initialStackedViews,
     MainPassSystem,
     PrepassSystem,
     RenderContext,
@@ -823,6 +824,17 @@ export const FogPlugin: Plugin = {
         precompile(world, "fog-integrate", () => _fogState.fog.integratePipeline!);
         precompile(world, "fog", () => [pipeline]);
         precompile(world, "fog-msaa", () => [multisampledPipeline, interiorPipeline]);
+        precompile(world, "fog-stacked", () => {
+            const pipelines: GPURenderPipeline[] = [];
+            for (const view of initialStackedViews(world)) {
+                const eid = world.resolve(view.camera);
+                if (world.has(eid, NoFog)) continue;
+                const multisampled = world.storage(Camera).antialias.get(eid) !== 0;
+                pipelines.push(applyPipeline(world, format, multisampled, false, true));
+                if (multisampled) pipelines.push(applyPipeline(world, format, true, true, true));
+            }
+            return pipelines;
+        });
     },
 
     dispose(world: World) {

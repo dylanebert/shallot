@@ -13,14 +13,24 @@ const decode = (x: number) => {
     return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
 };
 test("a shaft mote adds at least five times an outside mote's display luminance without clipping", async () => {
-    const app = await openGpuApp({ plugins: [MotesPlugin] });
+    const app = await openGpuApp({
+        plugins: [
+            {
+                name: "CaptureMotes",
+                dependencies: [MotesPlugin],
+                initialize(world) {
+                    const { camera, player } = world.resource(Room);
+                    world.remove(player, Player);
+                    attachTexture(world, camera, { width: 1280, height: 720 });
+                    world.storage(Transform).translation.set(camera, 0, 1.7, 2, 0);
+                },
+            },
+        ],
+    });
     try {
         const { world } = app;
         console.log("mote adapter", world.gpu.adapter);
         const camera = world.resource(Room).camera;
-        world.remove(world.resource(Room).player, Player);
-        attachTexture(world, camera, { width: 1280, height: 720 });
-        world.storage(Transform).translation.set(camera, 0, 1.7, 2, 0);
         world.tick();
         const motes = world.resource(Motes);
         const positions = new Float32Array(MOTE_COUNT * 4);

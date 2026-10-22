@@ -1,7 +1,7 @@
-import { beforeAll } from "bun:test";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { fullscreenVertex } from "../../core/rendering";
+import { precompile, type World } from "../../engine";
 import { probeTexture } from "../../engine/runtime";
 import { DEFAULT_PLUGINS } from "../../standard";
 import { OutlinePlugin } from ".";
@@ -46,7 +46,14 @@ export const masks: { name: string; pixels: Pixel[] }[] = [
 ];
 export function outlineReference(path: string) {
     const subjects = gpuApps(path, [
-        { defaults: false, plugins: [...DEFAULT_PLUGINS, OutlinePlugin] },
+        {
+            defaults: false,
+            plugins: [
+                ...DEFAULT_PLUGINS,
+                OutlinePlugin,
+                { name: "OutlineReference", dependencies: [OutlinePlugin], initialize },
+            ],
+        },
     ]);
     let render: (
         pixels: Pixel[],
@@ -55,8 +62,7 @@ export function outlineReference(path: string) {
         coverage: Uint16Array;
         nearest: Uint16Array;
     }>;
-    beforeAll(() => {
-        const { world } = subjects()[0];
+    function initialize(world: World) {
         const { device, root } = world.gpu;
         const info = device.adapterInfo;
         console.info(
@@ -106,14 +112,21 @@ export function outlineReference(path: string) {
             [size, size],
         );
         const jfa = root.unwrap(
-            root.createRenderPipeline({
-                vertex: fullscreenVertex,
-                fragment: jfaFs,
-                targets: { format: "rg16uint" },
-                primitive: { topology: "triangle-list", cullMode: "none" },
-            }),
+            root
+                .createRenderPipeline({
+                    vertex: fullscreenVertex,
+                    fragment: jfaFs,
+                    targets: { format: "rg16uint" },
+                    primitive: { topology: "triangle-list", cullMode: "none" },
+                })
+                .$name("outline-reference-jfa"),
         );
-        const composite = root.unwrap(root.createComputePipeline({ compute: compositeKernel }));
+        const composite = root.unwrap(
+            root
+                .createComputePipeline({ compute: compositeKernel })
+                .$name("outline-reference-composite"),
+        );
+        precompile(world, "outline-reference", () => [jfa, composite]);
         const groups = Array.from({ length: MAX_JFA_PASSES }, (_, k) =>
             root.unwrap(
                 root.createBindGroup(jfaLayout, {
@@ -178,7 +191,7 @@ export function outlineReference(path: string) {
                 ),
             };
         };
-    });
+    }
     return { subjects, render: (pixels: Pixel[], width: number) => render(pixels, width) };
 }
 

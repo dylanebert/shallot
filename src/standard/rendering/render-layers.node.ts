@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import * as d from "typegpu/data";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { gpuScene } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
 import {
     attachTexture,
@@ -27,12 +27,9 @@ import { MeshDrawBuffers } from "./preprocess";
 import { Draws } from "./registry";
 
 setDefaultTimeout(TIMEOUT.node);
-const subjects = gpuApps(import.meta.path, [
-    { defaults: false, plugins: [StandardRenderingPlugin, MeshRenderPlugin] },
-]);
+const config = { defaults: false, plugins: [StandardRenderingPlugin, MeshRenderPlugin] };
 
-test("layer-1 meshes draw exactly once only in their camera; two-layer meshes draw in both; edits move them next frame", async () => {
-    const { world } = subjects()[0];
+const layered = gpuScene(import.meta.path, config, (world) => {
     const cameras = [0, 1].map((layer) => {
         const eid = world.create();
         world.add(eid, Transform, { translation: [0, 0, 5, 0] });
@@ -47,6 +44,14 @@ test("layer-1 meshes draw exactly once only in their camera; two-layer meshes dr
     world.add(mesh, MeshInstance);
     world.add(mesh, RenderLayers, { mask: 2 });
     world.add(mesh, MeshMaterial, world.resource(Materials).add(StandardMaterial({ unlit: true })));
+    return { cameras, mesh };
+});
+
+test("layer-1 meshes draw exactly once only in their camera; two-layer meshes draw in both; edits move them next frame", async () => {
+    const {
+        world,
+        scene: { cameras, mesh },
+    } = layered();
     const counts = async () => {
         world.step(0);
         const draw = [...world.resource(Draws).values()][0]!;
@@ -99,8 +104,7 @@ test("layer-1 meshes draw exactly once only in their camera; two-layer meshes dr
     }
 });
 
-test("blended meshes select layers before shared transparent sorting", async () => {
-    const { world } = subjects()[0];
+const blended = gpuScene(import.meta.path, config, (world) => {
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });
     world.add(camera, Camera, { antialias: 0 });
@@ -119,6 +123,14 @@ test("blended meshes select layers before shared transparent sorting", async () 
                 alphaMode: AlphaMode.Blend,
             }),
     );
+    return { camera, mesh };
+});
+
+test("blended meshes select layers before shared transparent sorting", async () => {
+    const {
+        world,
+        scene: { camera, mesh },
+    } = blended();
     const frame = async () => {
         world.step(0);
         return (await captureTexture(world, camera)).rgba;
@@ -145,8 +157,7 @@ for (const [name, Light] of [
     ["point", PointLight],
     ["spot", SpotLight],
 ] as const) {
-    test(`${name} layer 0 leaves a layer-1 mesh unlit; a two-layer light lights both views`, async () => {
-        const { world } = subjects()[0];
+    const lit = gpuScene(import.meta.path, config, (world) => {
         world.resource(GlobalAmbientLight).brightness = 0;
         const cameras = [1, 2].map((mask) => {
             const eid = world.create();
@@ -173,6 +184,13 @@ for (const [name, Light] of [
             world.storage(DirectionalLight).illuminance.set(light, 100000);
         else if (Light === PointLight) world.storage(PointLight).intensity.set(light, 500000);
         else world.storage(SpotLight).intensity.set(light, 500000);
+        return { cameras, mesh, light };
+    });
+    test(`${name} layer 0 leaves a layer-1 mesh unlit; a two-layer light lights both views`, async () => {
+        const {
+            world,
+            scene: { cameras, mesh, light },
+        } = lit();
         const brightness = async () => {
             world.step(0);
             const result: number[] = [];
@@ -201,8 +219,7 @@ for (const [name, Light] of [
     });
 }
 
-test("a layer-1 caster submits no shadow instances for layer-0 lights; shared light layers restore casting", async () => {
-    const { world } = subjects()[0];
+const casting = gpuScene(import.meta.path, config, (world) => {
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });
     world.add(camera, Camera);
@@ -219,6 +236,14 @@ test("a layer-1 caster submits no shadow instances for layer-0 lights; shared li
     const point = world.create();
     world.add(point, Transform, { translation: [2, 2, 3, 0] });
     world.add(point, PointLight, { shadowMapsEnabled: 1, range: 10 });
+    return { camera, mesh, sun, point };
+});
+
+test("a layer-1 caster submits no shadow instances for layer-0 lights; shared light layers restore casting", async () => {
+    const {
+        world,
+        scene: { camera, mesh, sun, point },
+    } = casting();
     const shadowCounts = async () => {
         world.step(0);
         const render = world.resource(RenderContext);

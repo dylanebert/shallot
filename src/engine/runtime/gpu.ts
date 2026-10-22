@@ -922,7 +922,10 @@ function compile({ label, force }: Forcer): unknown {
 
 /**
  * Queue pipeline compilation during `warm`; `createApp` drains after all plugins warm.
- * After that drain, compilation is serialized on arrival and the returned promise must be awaited.
+ * Create pipelines in a plugin's `initialize` or `warm` and register them here so they compile under
+ * the loading screen. Pipeline creation through `world.gpu.device` after the drain warns in every build,
+ * naming the pipeline, its owner and this rule. Callers using a raw or externally retained device own
+ * their preparation. Late compilation is serialized on arrival and its promise must be awaited.
  * Dawn can defer synchronous pipeline compilation until first dispatch; `force` must return pipelines,
  * not dispatch them. A zero-workgroup dispatch trips Dawn's unusual-workgroup-count warning.
  * `initAsync` compiles the pipeline core shared by its `.with()` bindings. Already-unwrapped pipelines
@@ -950,7 +953,8 @@ export function precompile(
         force,
         after: options.after ?? [],
         order: _precompileState.order++,
-        owner: options.owner ?? _pipelineGuards.get(world.gpu.device)?.plugin,
+        owner:
+            options.owner ?? world.currentSystem ?? _pipelineGuards.get(world.gpu.device)?.plugin,
     };
     if (_precompileState.drained) {
         const completion = _precompileState.late.then(
@@ -1243,6 +1247,7 @@ export async function requestGPU(
         own(resource: { destroy(): void }): void;
         resource?: <T>(declaration: Resource<T>) => T;
         prepare?: (gpu: WorldGpu) => void;
+        readonly currentSystem?: string;
     },
 ): Promise<WorldGpu> {
     // before anything resolves: typegpu binds the console method a TGSL `console.log` calls at
@@ -1301,6 +1306,7 @@ export async function requestGPU(
                   PipelineStorageBindingCounts | null
               >();
               const shaderSources = new WeakMap<GPUShaderModule, string>();
+              const shaderOwners = new WeakMap<GPUShaderModule, string>();
               pipelineGuardState = {
                   bindGroups: bindGroupLayouts,
                   layouts: pipelineLayouts,
@@ -1315,6 +1321,8 @@ export async function requestGPU(
               const trackedShaderModule = (descriptor: GPUShaderModuleDescriptor) => {
                   const module = createShaderModule(descriptor);
                   shaderSources.set(module, descriptor.code);
+                  if (pipelineGuardState?.plugin)
+                      shaderOwners.set(module, pipelineGuardState.plugin);
                   return module;
               };
               const trackedBindGroupLayout = (descriptor: GPUBindGroupLayoutDescriptor) => {
@@ -1348,7 +1356,15 @@ export async function requestGPU(
                   descriptor: GPUComputePipelineDescriptor | GPURenderPipelineDescriptor,
               ) => {
                   const name = descriptor.label || "<unnamed>";
-                  const plugin = pipelineGuardState?.plugin ?? "unattributed";
+                  const module =
+                      "compute" in descriptor
+                          ? descriptor.compute.module
+                          : descriptor.vertex.module;
+                  const plugin =
+                      owner.currentSystem ??
+                      pipelineGuardState?.plugin ??
+                      shaderOwners.get(module) ??
+                      "unattributed";
                   const counts =
                       descriptor.layout === "auto"
                           ? autoPipelineStorageBindings(shaderSources, descriptor)
@@ -1365,6 +1381,14 @@ export async function requestGPU(
                       counts,
                       limits.maxStorageBuffersPerShaderStage,
                   );
+                  if (owner.resource?.(precompileState).drained) {
+                      const warningOwner =
+                          owner.currentSystem ?? shaderOwners.get(module) ?? "unattributed";
+                      console.warn(
+                          `[shallot] Pipeline "${name}" owned by "${warningOwner}" created after the precompile drain. ` +
+                              "Create it in initialize or warm and register it with precompile.",
+                      );
+                  }
               };
               const trackedComputePipeline = (descriptor: GPUComputePipelineDescriptor) => {
                   checkPipeline(descriptor);

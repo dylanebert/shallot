@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import * as d from "typegpu/data";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { gpuScene } from "../../../scripts/gpu.fixture";
 import {
     attachTexture,
     BeginFrameSystem,
@@ -26,46 +26,52 @@ import {
 
 setDefaultTimeout(TIMEOUT.gpu);
 const Show = { create: () => ({ value: false }) };
-const subjects = gpuApps(import.meta.path, [
-    {
-        defaults: false,
-        plugins: [
-            {
-                name: "ArrowCheck",
-                dependencies: [LinesPlugin],
-                systems: [
-                    {
-                        name: "immediate",
-                        group: "draw",
-                        after: [BeginFrameSystem],
-                        before: LinesPlugin.systems,
-                        update(world) {
-                            if (world.resource(Show).value)
-                                drawArrow(
-                                    world,
-                                    [-5, -1.5, 0],
-                                    [1, -1.5, 0],
-                                    0xffffff,
-                                    { width: 3 },
-                                    1.8,
-                                );
+const subjects = (
+    [
+        {
+            defaults: false,
+            plugins: [
+                {
+                    name: "ArrowCheck",
+                    dependencies: [LinesPlugin],
+                    systems: [
+                        {
+                            name: "immediate",
+                            group: "draw",
+                            after: [BeginFrameSystem],
+                            before: LinesPlugin.systems,
+                            update(world) {
+                                if (world.resource(Show).value)
+                                    drawArrow(
+                                        world,
+                                        [-5, -1.5, 0],
+                                        [1, -1.5, 0],
+                                        0xffffff,
+                                        { width: 3 },
+                                        1.8,
+                                    );
+                            },
                         },
-                    },
-                ],
-            },
-        ],
-    },
-    { defaults: false, plugins: [LinesPlugin] },
-]);
+                    ],
+                },
+            ],
+        },
+        { defaults: false, plugins: [LinesPlugin] },
+    ] satisfies Parameters<typeof gpuScene>[1][]
+).map((config, index) =>
+    gpuScene(import.meta.path, config, (world) => {
+        const camera = world.create();
+        world.add(camera, Transform, { translation: [0, 0, index ? 5 : 0] });
+        world.add(camera, Camera, { mode: CameraMode.Orthographic, size: 5, clearColor: 0 });
+        world.add(camera, DebandDither, { enabled: 0 });
+        attachTexture(world, camera, { width: 128, height: 128 });
+        return camera;
+    }),
+);
 
 test("different-length retained and immediate arrows given the same tip length fill the same head from two views", async () => {
-    const { world } = subjects()[0];
+    const { world, scene: camera } = subjects[0]!();
     console.info("arrow adapter:", world.gpu.adapter);
-    const camera = world.create();
-    world.add(camera, Transform);
-    world.add(camera, Camera, { mode: CameraMode.Orthographic, size: 5, clearColor: 0 });
-    world.add(camera, DebandDither, { enabled: 0 });
-    attachTexture(world, camera, { width: 128, height: 128 });
     const arrow = world.create();
     world.add(arrow, Transform, { translation: [-2, 0, 0] });
     const asset = new GizmoAsset();
@@ -116,12 +122,7 @@ test("different-length retained and immediate arrows given the same tip length f
 });
 
 test("one asset's line, arrow and box move all fifteen primitives with its entity, leaving the asset unchanged", async () => {
-    const { world } = subjects()[1];
-    const camera = world.create();
-    world.add(camera, Transform, { translation: [0, 0, 5] });
-    world.add(camera, Camera, { mode: CameraMode.Orthographic, size: 5, clearColor: 0 });
-    world.add(camera, DebandDither, { enabled: 0 });
-    attachTexture(world, camera, { width: 128, height: 128 });
+    const { world, scene: camera } = subjects[1]!();
     const asset = new GizmoAsset();
     drawLine(asset, [-0.6, 0.6, 0], [0.6, 0.6, 0], 0xffaa55);
     drawArrow(asset, [-0.6, -0.6, 0], [0.6, -0.6, 0], 0x55aaff, undefined, 0.3, [0, 0, 1]);

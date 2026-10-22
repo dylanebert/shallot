@@ -15,11 +15,12 @@ import {
     uploadDiagnosticImages,
 } from "./receding-plane.fixture";
 
-import { hardwarePlaneReference } from "./receding-plane-reference.fixture";
+import { hardwarePlanePipeline, hardwarePlaneReference } from "./receding-plane-reference.fixture";
 
 setDefaultTimeout(TIMEOUT.gpu);
 const repeat = { addressModeU: ImageAddressMode.Repeat, addressModeV: ImageAddressMode.Repeat };
 const ids = { hardware: 0, manual: 0, nearest: 0 };
+let plane: ReturnType<typeof spawnRecedingPlane>;
 const subjects = gpuApps(import.meta.path, [
     {
         defaults: false,
@@ -28,7 +29,9 @@ const subjects = gpuApps(import.meta.path, [
             MeshRenderPlugin,
             {
                 name: "RecedingPlaneImages",
+                dependencies: [StandardRenderingPlugin, MeshRenderPlugin],
                 initialize(world) {
+                    world.resource(hardwarePlanePipeline);
                     // The default sampler takes the hardware path; repeat takes the manual one.
                     ids.hardware = registerImage(world, new Blob());
                     ids.manual = registerImage(world, new Blob(), { sampler: repeat });
@@ -40,6 +43,7 @@ const subjects = gpuApps(import.meta.path, [
                             mipmapFilter: ImageFilterMode.Nearest,
                         },
                     });
+                    plane = spawnRecedingPlane(world, ids.hardware, [{ width: 320, height: 180 }]);
                 },
             },
         ],
@@ -64,11 +68,10 @@ type Scene = {
 };
 let scene: Scene;
 let hardwareReference: Awaited<ReturnType<typeof hardwarePlaneReference>>;
-// Upload, the first frame's pipeline compilation and the reference are setup, outside the budget.
+// Upload and reference readback are setup, outside the budget.
 beforeAll(async () => {
     const { world } = subjects()[0];
     const images = uploadDiagnosticImages(world, 3);
-    const plane = spawnRecedingPlane(world, ids.hardware, [{ width: 320, height: 180 }]);
     await capturePlane(world, plane, ids.hardware);
     trilinearReference(320, 180);
     hardwareReference = await hardwarePlaneReference(world, images, 320, 180);

@@ -4,7 +4,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { gpuApps } from "../../../scripts/gpu.fixture";
-import { probeTexture } from "../../engine";
+import { precompile, probeTexture, type World } from "../../engine";
 import { type ImageAddressMode, ImageBindings, type ImageFilterMode, registerImage } from "./image";
 import { sampleImage } from "./image-sampling";
 import { RenderingPlugin } from "./substrate";
@@ -74,6 +74,16 @@ const fragment = tgpu.fragmentFn({ in: { pos: d.builtin.position }, out: d.vec4f
     }
     return sampleImage(layout.$.images, layout.$.sampler, layout.$.settings, uv, layer, dx, dy);
 });
+const pipelineKey = {
+    create: (world: World) =>
+        world.gpu.root
+            .createRenderPipeline({
+                vertex: fullscreenVertex,
+                fragment,
+                targets: { format: "rgba8unorm" },
+            })
+            .$name("image-sampler-comparison"),
+};
 const subjects = gpuApps(import.meta.path, [
     {
         defaults: false,
@@ -95,6 +105,9 @@ const subjects = gpuApps(import.meta.path, [
                             isDefault ? undefined : { sampler: c.sampler },
                         );
                     }
+                    precompile(world, "image-sampler-comparison", () =>
+                        world.resource(pipelineKey),
+                    );
                 },
             },
         ],
@@ -130,11 +143,7 @@ function prepare() {
             [size, size, cases.length],
         );
     }
-    const pipeline = root.createRenderPipeline({
-        vertex: fullscreenVertex,
-        fragment,
-        targets: { format: "rgba8unorm" },
-    });
+    const pipeline = world.resource(pipelineKey);
     const output = device.createTexture({
         size: [TILE * GRADIENTS.length, TILE * 2],
         format: "rgba8unorm",

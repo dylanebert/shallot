@@ -14,6 +14,7 @@ import { ImageBindings } from "../../core/rendering/image";
 import { Transform } from "../../core/transform";
 import {
     AlphaMode,
+    type MaterialHandle,
     Materials,
     MeshMaterial,
     MeshRenderPlugin,
@@ -25,6 +26,9 @@ import {
 setDefaultTimeout(TIMEOUT.gpu);
 let imageId = 0;
 let camera = 0;
+let eid = 0;
+let row: MaterialHandle;
+let masked: MaterialHandle;
 const subjects = gpuApps(import.meta.path, [
     {
         defaults: false,
@@ -33,6 +37,7 @@ const subjects = gpuApps(import.meta.path, [
             MeshRenderPlugin,
             {
                 name: "TwoColourImage",
+                dependencies: [StandardRenderingPlugin, MeshRenderPlugin],
                 initialize(world) {
                     const png =
                         "iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAEklEQVR4nGP4z8DwH4SRIKkCADRIH+EDrgQAAAAAAElFTkSuQmCC";
@@ -42,6 +47,24 @@ const subjects = gpuApps(import.meta.path, [
                             type: "image/png",
                         }),
                     );
+                    const mesh = world.resource(Meshes).add({
+                        name: "two-colour-quad",
+                        vertices: new Float32Array([
+                            -2, -2, 0, 0, 0, 0, 1, 0, 2, -2, 0, 1, 0, 0, 1, 0, 2, 2, 0, 1, 0, 0, 1,
+                            1, -2, 2, 0, 0, 0, 0, 1, 1,
+                        ]),
+                        indices: new Uint32Array([0, 1, 2, 0, 2, 3]),
+                    });
+                    const materials = world.resource(Materials);
+                    const values = StandardMaterial({ baseColorTexture: imageId, unlit: true });
+                    row = materials.add(values);
+                    masked = materials.add(values, { alphaMode: AlphaMode.Mask(0.375) });
+                    materials.update(masked, { baseColor: [0.5, 0.5, 0.5, 0.5] });
+                    eid = world.create();
+                    world.add(eid, Transform);
+                    world.add(eid, MeshInstance, { mesh });
+                    world.add(eid, MeshMaterial, row);
+                    attachTexture(world, camera, { width: 32, height: 32 });
                 },
             },
         ],
@@ -74,26 +97,7 @@ test("StandardMaterial samples both image halves at mesh UVs and multiplies base
     }
     device.queue.writeTexture({ texture: image }, pixels, { bytesPerRow: 16 }, [4, 4, 1]);
     world.resource(ImageBindings).images = image;
-    const mesh = world.resource(Meshes).add({
-        name: "two-colour-quad",
-        vertices: new Float32Array([
-            -2, -2, 0, 0, 0, 0, 1, 0, 2, -2, 0, 1, 0, 0, 1, 0, 2, 2, 0, 1, 0, 0, 1, 1, -2, 2, 0, 0,
-            0, 0, 1, 1,
-        ]),
-        indices: new Uint32Array([0, 1, 2, 0, 2, 3]),
-    });
     const materials = world.resource(Materials);
-    const row = materials.add(
-        StandardMaterial({
-            baseColorTexture: imageId,
-            unlit: true,
-        }),
-    );
-    const eid = world.create();
-    world.add(eid, Transform);
-    world.add(eid, MeshInstance, { mesh });
-    world.add(eid, MeshMaterial, row);
-    attachTexture(world, camera, { width: 32, height: 32 });
     for (const [factor, byte] of [
         [1, 255],
         [0.5, 188],
@@ -111,7 +115,8 @@ test("StandardMaterial samples both image halves at mesh UVs and multiplies base
         for (let x = 0; x < 2; x++) pixels[(y * 4 + x) * 4 + 3] = 128;
     }
     device.queue.writeTexture({ texture: image }, pixels, { bytesPerRow: 16 }, [4, 4, 1]);
-    materials.update(row, {}, { alphaMode: AlphaMode.Mask(0.375) });
+    world.remove(eid, MeshMaterial);
+    world.add(eid, MeshMaterial, masked);
     world.step(0);
     world.step(0);
     const { rgba } = await captureTexture(world, camera);

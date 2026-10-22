@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
-import { Diagnostic, DiagnosticsStore, type Plugin } from "../../engine";
+import { Diagnostic, DiagnosticsStore, type Plugin, precompile } from "../../engine";
 import { DEFAULT_PLUGINS } from "../../standard";
 import { DiagnosticsOverlayPlugin, ProfilePlugin } from "./index";
 
@@ -17,7 +17,7 @@ const allocate: Plugin = {
             format: "rgba8unorm",
             usage: GPUTextureUsage.TEXTURE_BINDING,
         });
-        device.createComputePipeline({
+        const pipeline = device.createComputePipeline({
             label: "before-profile",
             layout: "auto",
             compute: {
@@ -27,13 +27,38 @@ const allocate: Plugin = {
                 entryPoint: "main",
             },
         });
+        precompile(world, "before-profile", () => [pipeline]);
     },
 };
+const labels = ["example//compute", "", "%2F", "\ud800"];
+function labeledPipelines(labels: readonly string[]): Plugin {
+    return {
+        name: "DiagnosticLabels",
+        gpu: {},
+        initialize(world) {
+            const device = world.gpu.device;
+            const module = device.createShaderModule({
+                code: "@compute @workgroup_size(1) fn main() {}",
+            });
+            for (const label of labels) {
+                const pipeline = device.createComputePipeline({
+                    label,
+                    layout: "auto",
+                    compute: { module, entryPoint: "main" },
+                });
+                precompile(world, label, () => [pipeline]);
+            }
+        },
+    };
+}
 const apps = gpuApps(import.meta.path, [
-    { defaults: false, plugins: [allocate, ProfilePlugin] },
+    { defaults: false, plugins: [allocate, labeledPipelines(labels), ProfilePlugin] },
     { plugins: [...DEFAULT_PLUGINS, ProfilePlugin] },
     { defaults: false, plugins: [{ name: "NoProfile", gpu: {} }] },
-    { defaults: false, plugins: [allocate, DiagnosticsOverlayPlugin] },
+    {
+        defaults: false,
+        plugins: [allocate, labeledPipelines(["", "(unlabeled)"]), DiagnosticsOverlayPlugin],
+    },
 ]);
 
 test("three frames record the same named CPU diagnostic with and without the optional HUD", () => {
@@ -79,15 +104,7 @@ test("three frames record the same named CPU diagnostic with and without the opt
 test("arbitrary WebGPU labels and empty labels remain valid diagnostic components", () => {
     const world = apps()[0].world;
     const store = world.resource(DiagnosticsStore);
-    const module = world.gpu.device.createShaderModule({
-        code: "@compute @workgroup_size(1) fn main() {}",
-    });
-    for (const label of ["example//compute", "", "%2F", "\ud800"]) {
-        world.gpu.device.createComputePipeline({
-            label,
-            layout: "auto",
-            compute: { module, entryPoint: "main" },
-        });
+    for (const label of labels) {
         world.recordSink!(label, new Float64Array([0, 2]));
         world.gpu.indirect!(label, 1);
         const buffer = world.gpu.device.createBuffer({
@@ -110,15 +127,6 @@ test("arbitrary WebGPU labels and empty labels remain valid diagnostic component
 
 test("empty and literal unlabeled pipeline labels keep separate diagnostic histories", () => {
     const world = apps()[3].world;
-    const module = world.gpu.device.createShaderModule({
-        code: "@compute @workgroup_size(1) fn main() {}",
-    });
-    for (const label of ["", "(unlabeled)"])
-        world.gpu.device.createComputePipeline({
-            label,
-            layout: "auto",
-            compute: { module, entryPoint: "main" },
-        });
     const store = world.resource(DiagnosticsStore);
     expect(store.get("compile/%/elapsed")?.historyLength).toBe(1);
     expect(store.get("compile/(unlabeled)/elapsed")?.historyLength).toBe(1);

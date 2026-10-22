@@ -1,8 +1,19 @@
 import { mkdir } from "node:fs/promises";
-import { holdFrames } from "@dylanebert/shallot/testing";
+import { holdFrames, pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, type Page, test } from "playwright/test";
 import { methods } from "../src/settings";
 import { bodyHasFocus, gameKeyMovesCamera, pointerControl } from "./pointer";
+
+test.use(pipelineWarnings);
+
+test("the first frame has no late-pipeline warning", async ({ page }) => {
+    await page.goto("/");
+    await page.waitForFunction(() =>
+        performance
+            .getEntriesByType("measure")
+            .some((entry) => entry.name.endsWith(":first-update")),
+    );
+});
 
 test("panel controls retain orbit and the pattern stays framed while orbiting", async ({
     page,

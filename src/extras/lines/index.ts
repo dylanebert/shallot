@@ -2,6 +2,7 @@ import {
     BeginFrameSystem,
     Camera,
     CorePipelinePlugin,
+    initialViewSampleCounts,
     PrepassSystem,
     RenderContext,
     RenderPhases,
@@ -11,7 +12,7 @@ import {
 } from "../../core/rendering";
 import { composeGlobalTransform, GlobalTransform } from "../../core/transform";
 import type { Plugin, System, World } from "../../engine";
-import { component, f32 } from "../../engine";
+import { component, f32, precompile } from "../../engine";
 import { packColor } from "../../engine/utils";
 import { createLinePipeline, lineLayout, SEGMENT_FLOATS, viewLayout } from "./pipeline";
 import {
@@ -178,9 +179,12 @@ function drawLines(
     const viewGroup = state.viewGroups.get(view.slot)?.group;
     const segmentGroup = state.segmentGroup;
     if (!viewGroup || !segmentGroup) return;
-    const pipeline =
-        world.storage(Camera).antialias.get(eid) !== 0 ? state.multisample : state.single;
-    if (!pipeline) return;
+    const key = world.storage(Camera).antialias.get(eid) ? "multisample" : "single";
+    const pipeline = (state[key] ??= createLinePipeline(
+        world,
+        world.resource(RenderContext).format,
+        key === "single" ? 1 : 4,
+    ));
     const previous = start > 0 ? phase.item(start - 1) : undefined;
     if (previous?.renderer !== renderer) {
         state.lastPipeline = null;
@@ -241,8 +245,15 @@ export const LinesPlugin: Plugin = {
         warmSegments(world);
         const format = world.resource(RenderContext).format;
         const state = world.resource(lineRendererKey);
-        state.single = createLinePipeline(world.gpu.root, format, 1);
-        state.multisample = createLinePipeline(world.gpu.root, format, 4);
+        precompile(world, "lines-prepare", () => {
+            for (const samples of initialViewSampleCounts(world))
+                state[samples === 1 ? "single" : "multisample"] = createLinePipeline(
+                    world,
+                    format,
+                    samples,
+                );
+            return [];
+        });
     },
 
     dispose(world: World) {

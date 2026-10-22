@@ -1,6 +1,17 @@
-import { holdFrames } from "@dylanebert/shallot/testing";
+import { holdFrames, pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, test } from "playwright/test";
 import { bodyHasFocus, pointerControl } from "./pointer";
+
+test.use(pipelineWarnings);
+
+test("the first frame has no late-pipeline warning", async ({ page }) => {
+    await page.goto("/");
+    await page.waitForFunction(() =>
+        performance
+            .getEntriesByType("measure")
+            .some((entry) => entry.name.endsWith(":first-update")),
+    );
+});
 
 test("switching scenes resets the Bridge control and keeps the canvas", async ({ page }) => {
     const errors: string[] = [];

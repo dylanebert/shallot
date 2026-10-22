@@ -1,10 +1,11 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { gpuScene } from "../../../scripts/gpu.fixture";
 import { cube, Meshes, MeshInstance } from "../../core/mesh";
 import { clearMeshes } from "../../core/mesh/mesh";
 import { attachTexture, Camera, captureTexture } from "../../core/rendering";
 import { Transform } from "../../core/transform";
+import type { World } from "../../engine";
 import {
     AlphaMode,
     Draws,
@@ -21,9 +22,10 @@ import { DrawIndexedIndirect } from "./registry";
 
 setDefaultTimeout(TIMEOUT.node);
 const config = { defaults: false, plugins: [MeshRenderPlugin, StandardRenderingPlugin] };
-const subjects = gpuApps(import.meta.path, [config, config, config, config, config]);
-function scene(index: number) {
-    const { world } = subjects()[index]!;
+const subjects = Array.from({ length: 5 }, (_, index) =>
+    gpuScene(import.meta.path, config, (world) => initialize(world, index)),
+);
+function initialize(world: World, index: number) {
     const meshes = world.resource(Meshes);
     const handles = [0, 1, 2].map((i) =>
         meshes.add({ name: `cube-${i}`, ...cube([0.8, 0.8, 0.8]) }),
@@ -41,20 +43,31 @@ function scene(index: number) {
         world.add(eid, MeshMaterial, material);
         return eid;
     });
-    world.step(0);
-    world.step(0);
-    return { world, meshes, handles, camera, entities };
+    const second = index === 3 ? world.create() : undefined;
+    const masked =
+        index === 3
+            ? world.resource(Materials).add(StandardMaterial({ emissive: [1, 1, 1] }), {
+                  alphaMode: AlphaMode.Mask(0.5),
+              })
+            : undefined;
+    if (second !== undefined) {
+        world.add(second, Transform, { translation: [0, 0, 5, 0] });
+        world.add(second, Camera);
+        world.add(second, StandardRenderer);
+        attachTexture(world, second, { width: 96, height: 96 });
+    }
+    return { world, meshes, handles, camera, entities, second, masked };
+}
+function scene(index: number) {
+    const { scene } = subjects[index]!();
+    scene.world.step(0);
+    scene.world.step(0);
+    return scene;
 }
 test("clearing and repopulating meshes preserves alpha-key pair addressing in every view", async () => {
     const s = scene(3);
-    const second = s.world.create();
-    s.world.add(second, Transform, { translation: [0, 0, 5, 0] });
-    s.world.add(second, Camera);
-    s.world.add(second, StandardRenderer);
-    attachTexture(s.world, second, { width: 96, height: 96 });
-    const material = s.world
-        .resource(Materials)
-        .add(StandardMaterial({ emissive: [1, 1, 1] }), { alphaMode: AlphaMode.Mask(0.5) });
+    const second = s.second!;
+    const material = s.masked!;
     expect(s.world.resource(MaterialTypes).types.filter(Boolean).length).toBeGreaterThan(1);
     s.world.step(0);
     clearMeshes(s.world);

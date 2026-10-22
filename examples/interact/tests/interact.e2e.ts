@@ -1,4 +1,5 @@
 import { mkdirSync } from "node:fs";
+import { pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, type Page, test } from "playwright/test";
 
 type State = {
@@ -36,6 +37,17 @@ async function capture(page: Page, name: string) {
     await page.evaluate(() => window.capture());
     await page.screenshot({ path: `${process.env.SHALLOT_CAPTURE_DIR}/${name}.png` });
 }
+
+test.use(pipelineWarnings);
+
+test("the first frame has no late-pipeline warning", async ({ page }) => {
+    await page.goto("/");
+    await page.waitForFunction(() =>
+        performance
+            .getEntriesByType("measure")
+            .some((entry) => entry.name.endsWith(":first-update")),
+    );
+});
 
 test.describe("one interaction room", () => {
     test.describe.configure({ mode: "serial" });

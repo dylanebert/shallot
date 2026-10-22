@@ -1,7 +1,18 @@
-import { holdFrames } from "@dylanebert/shallot/testing";
+import { holdFrames, pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, test } from "playwright/test";
 import { capture } from "./capture";
 import { bodyHasFocus, pointerControl, tabSkipsChrome } from "./pointer";
+
+test.use(pipelineWarnings);
+
+test("the first frame has no late-pipeline warning", async ({ page }) => {
+    await page.goto("/");
+    await page.waitForFunction(() =>
+        performance
+            .getEntriesByType("measure")
+            .some((entry) => entry.name.endsWith(":first-update")),
+    );
+});
 
 test("dragging save chrome and its title selects no page text", async ({ page }) => {
     await holdFrames(page, ".save-hud");

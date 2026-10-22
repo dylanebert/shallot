@@ -8,6 +8,7 @@ import { sceneSwitcher } from "./sample";
 import { changeControl, type Scene, scenes } from "./scenes";
 import { createViewer } from "./view";
 
+const Viewer = { create: createViewer };
 const requested = new URL(location.href).searchParams.get("scene");
 const initial = requested && Object.hasOwn(scenes, requested) ? (requested as Scene) : "boxStack";
 await runApp({
@@ -19,9 +20,16 @@ await runApp({
         OrbitPlugin,
         LinesPlugin,
         GrabPlugin,
+        {
+            name: "SampleViewer",
+            dependencies: [OrbitPlugin],
+            initialize(world) {
+                world.resource(Viewer);
+            },
+        },
     ],
     ui(container, world) {
-        const replace = sceneSwitcher(world, createViewer(world));
+        const replace = sceneSwitcher(world, world.resource(Viewer));
         let component: ReturnType<typeof mount>;
         function select(scene: Scene): void {
             const bodies = replace(scene);

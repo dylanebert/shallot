@@ -183,6 +183,15 @@ async function expectPaintedStartup(
     return shot;
 }
 
+test("the first frame has no late-pipeline warning", async ({ page }) => {
+    await page.goto("/");
+    await page.waitForFunction(() =>
+        performance
+            .getEntriesByType("measure")
+            .some((entry) => entry.name.endsWith(":first-update")),
+    );
+});
+
 test("host paints contained semantic startup feedback before application entry, then hands off", async ({
     page,
 }) => {

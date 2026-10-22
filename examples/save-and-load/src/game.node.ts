@@ -19,15 +19,24 @@ setDefaultTimeout(TIMEOUT.node);
 let app: Awaited<ReturnType<typeof createApp>>;
 const records = new Map<string, string>();
 beforeAll(async () => {
-    app = await openGpuApp({ plugins: [Scene] });
+    app = await openGpuApp({
+        plugins: [
+            {
+                name: "CaptureGame",
+                dependencies: [Scene],
+                initialize(world) {
+                    attachTexture(world, world.resource(Game).camera, { width: 320, height: 180 });
+                    world.resource(Game).storage = {
+                        getItem: (key) => records.get(key) ?? null,
+                        setItem: (key, value) => {
+                            records.set(key, value);
+                        },
+                    };
+                },
+            },
+        ],
+    });
     const world = app.world;
-    attachTexture(world, world.resource(Game).camera, { width: 320, height: 180 });
-    world.resource(Game).storage = {
-        getItem: (key) => records.get(key) ?? null,
-        setItem: (key, value) => {
-            records.set(key, value);
-        },
-    };
     world.step(1 / 60);
     world.step(1 / 60);
 });

@@ -1,7 +1,19 @@
 import { mkdir } from "node:fs/promises";
+import { pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, type Page, test } from "playwright/test";
 import { settings } from "../src/settings";
 import { dragRange, gameKeyMovesCamera, pointerControl } from "./pointer";
+
+test.use(pipelineWarnings);
+
+test("the first frame has no late-pipeline warning", async ({ page }) => {
+    await page.goto("/");
+    await page.waitForFunction(() =>
+        performance
+            .getEntriesByType("measure")
+            .some((entry) => entry.name.endsWith(":first-update")),
+    );
+});
 
 test("each panel control leaves the orbit key working", async ({ page }) => {
     // Each step queues a full draw, and every pointer action then waits behind the queue; at 1280 px a

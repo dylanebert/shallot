@@ -1,9 +1,20 @@
 import { mkdir } from "node:fs/promises";
-import { holdFrames } from "@dylanebert/shallot/testing";
+import { holdFrames, pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, type Page, test } from "playwright/test";
 import { bodyHasFocus, dragRange, pointerControl, tabSkipsChrome } from "./pointer";
 
 const names = ["Lens distortion", "Chromatic aberration", "Vignette"];
+
+test.use(pipelineWarnings);
+
+test("the first frame has no late-pipeline warning", async ({ page }) => {
+    await page.goto("/");
+    await page.waitForFunction(() =>
+        performance
+            .getEntriesByType("measure")
+            .some((entry) => entry.name.endsWith(":first-update")),
+    );
+});
 
 test.describe(() => {
     let page: Page;

@@ -3,11 +3,11 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { gpuScene } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
 import { attachTexture, Camera, captureTexture, DirectionalLight } from "../../core/rendering";
 import { Transform } from "../../core/transform";
-import { ClearChangeMarksSystem, lookAtRotation, type World } from "../../engine";
+import { ClearChangeMarksSystem, lookAtRotation, precompile, type World } from "../../engine";
 import { probeBuffer } from "../../engine/runtime";
 import { DEFAULT_PLUGINS } from "../../standard";
 import { sunShadowView } from "./atlas";
@@ -82,14 +82,21 @@ const producer = {
         const root = world.gpu.root;
         const positions = root.createBuffer(d.arrayOf(d.vec4f, 128)).$usage("storage");
         const phase = root.createBuffer(d.u32, 0).$usage("uniform");
-        const pipeline = root.createComputePipeline({ compute: kernel });
-        const shadow = root.createComputePipeline({ compute: sampleShadow });
+        const pipeline = root
+            .createComputePipeline({ compute: kernel })
+            .$name("gpu-instance-producer");
+        const shadow = root
+            .createComputePipeline({ compute: sampleShadow })
+            .$name("gpu-instance-shadow-probe");
+        precompile(world, "gpu-instance-producer", () => [pipeline]);
+        precompile(world, "gpu-instance-shadow-probe", () => [shadow]);
         root.unwrap(pipeline);
         root.unwrap(shadow);
         return { positions, phase, pipeline, shadow };
     },
 };
-const subjects = gpuApps(import.meta.path, [
+const subject = gpuScene(
+    import.meta.path,
     {
         defaults: false,
         plugins: [
@@ -128,10 +135,10 @@ const subjects = gpuApps(import.meta.path, [
             },
         ],
     },
-]);
+    initialize,
+);
 
-test("compute-written eid positions move opaque entities, culling and shadow vertices in the next frame", async () => {
-    const { world } = subjects()[0];
+function initialize(world: World) {
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 6] });
     world.add(camera, Camera);
@@ -158,6 +165,13 @@ test("compute-written eid positions move opaque entities, culling and shadow ver
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
     world.own(samples);
+    return { camera, eids, samples };
+}
+test("compute-written eid positions move opaque entities, culling and shadow vertices in the next frame", async () => {
+    const {
+        world,
+        scene: { camera, eids, samples },
+    } = subject();
     async function frame(phase: number) {
         world.resource(producer).phase.write(phase);
         world.step(0);

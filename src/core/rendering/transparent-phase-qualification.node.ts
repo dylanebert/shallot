@@ -1,8 +1,8 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import * as d from "typegpu/data";
-import { gpuApps } from "../../../scripts/gpu.fixture";
-import type { World } from "../../engine";
+import { gpuScene } from "../../../scripts/gpu.fixture";
+import { precompile, type World } from "../../engine";
 import {
     AlphaMode,
     MaterialPlugin,
@@ -16,7 +16,7 @@ import {
 } from "../../standard/rendering";
 import { MeshDrawBuffers } from "../../standard/rendering/preprocess";
 import { Meshes, MeshInstance } from "../mesh";
-import { Transform } from "../transform";
+import { PrepareGlobalTransformSystem, Transform } from "../transform";
 import {
     attachTexture,
     Camera,
@@ -45,16 +45,7 @@ const TransitionMaterial = materialType({
     },
     defaults: { color: d.vec4f(1) },
 });
-const subjects = gpuApps(import.meta.path, [
-    ...Array.from({ length: 6 }, () => ({
-        defaults: false,
-        plugins: [StandardRenderingPlugin, MeshRenderPlugin],
-    })),
-    {
-        defaults: false,
-        plugins: [StandardRenderingPlugin, MeshRenderPlugin, MaterialPlugin(TransitionMaterial)],
-    },
-]);
+const config = { defaults: false, plugins: [StandardRenderingPlugin, MeshRenderPlugin] };
 
 function addCamera(
     world: World,
@@ -77,13 +68,15 @@ function addCamera(
 }
 
 function panePipeline(world: World, camera: number, z: number, color: readonly number[]) {
+    PrepareGlobalTransformSystem.update!(world);
+    const label = `phase-qualification-${camera}-${z}-${color.join("-")}`;
     const matrix = new Float32Array(16);
     computeViewProj(world, camera, 1, matrix);
     const clipZ = matrix[10]! * z + matrix[14]!;
     const w = matrix[11]! * z + matrix[15]!;
     const format = world.resource(RenderContext).format;
     const module = world.gpu.device!.createShaderModule({
-        label: `phase-qualification-${camera}-${z}`,
+        label,
         code: `
             @vertex fn vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4f {
                 var xy = vec2f(-1.0, -1.0);
@@ -96,8 +89,8 @@ function panePipeline(world: World, camera: number, z: number, color: readonly n
             }
         `,
     });
-    return world.gpu.device!.createRenderPipeline({
-        label: `phase-qualification-${camera}-${z}`,
+    const pipeline = world.gpu.device!.createRenderPipeline({
+        label,
         layout: "auto",
         vertex: { module, entryPoint: "vertex" },
         fragment: {
@@ -128,6 +121,8 @@ function panePipeline(world: World, camera: number, z: number, color: readonly n
             depthCompare: "greater-equal",
         },
     });
+    precompile(world, label, () => [pipeline]);
+    return pipeline;
 }
 
 function centerPixel(rgba: Uint8ClampedArray): number[] {
@@ -224,17 +219,21 @@ function expectedLayerComposite(
     return [...result.map(srgbByte), 255];
 }
 
-test("equal-depth composites are invariant to contribution order and snapshot restore", async () => {
-    const { world } = subjects()[0];
+const equalDepth = gpuScene(import.meta.path, config, (world) => {
     const camera = addCamera(world, { translation: [0, 0, 5, 0] });
     const first = world.create();
     const second = world.create();
-    await frame(world, [camera]);
-    let reverse = false;
     const pipelines = [
         panePipeline(world, camera, 0, [1, 0, 0]),
         panePipeline(world, camera, 0, [0, 0, 1]),
     ];
+    return { world, camera, first, second, pipelines };
+});
+test("equal-depth composites are invariant to contribution order and snapshot restore", async () => {
+    const {
+        scene: { world, camera, first, second, pipelines },
+    } = equalDepth();
+    let reverse = false;
     world.resource(RenderPhases).push({
         transparent(_world, _eid, _view, phase: TransparentPhase) {
             if (reverse) {
@@ -274,8 +273,7 @@ test("equal-depth composites are invariant to contribution order and snapshot re
     expect(restored).toEqual(initial);
 });
 
-test("transparent item and staging capacities grow mid-run while opposite views reverse the order", async () => {
-    const { world } = subjects()[1];
+const growing = gpuScene(import.meta.path, config, (world) => {
     const cameras = [
         addCamera(world, { translation: [0, 0, 5, 0] }),
         addCamera(world, { translation: [0, 0, -5, 0], rotation: [0, 1, 0, 0] }),
@@ -306,6 +304,23 @@ test("transparent item and staging capacities grow mid-run while opposite views 
         layers.push({ eid, z, color });
     };
     addPane(0, red, redColor);
+    return { world, cameras, addPane, red, blue, redColor, blueColor, entities, depths, layers };
+});
+test("transparent item and staging capacities grow mid-run while opposite views reverse the order", async () => {
+    const {
+        scene: {
+            world,
+            cameras,
+            addPane,
+            red,
+            blue,
+            redColor,
+            blueColor,
+            entities,
+            depths,
+            layers,
+        },
+    } = growing();
     await frame(world, cameras);
     const before = world.gpu.root.unwrap(world.resource(MeshDrawBuffers).transparentEids!).size;
 
@@ -331,8 +346,7 @@ test("transparent item and staging capacities grow mid-run while opposite views 
     expect(centerPixel(front)).not.toEqual(centerPixel(reverse));
 });
 
-test("transparent pipelines follow MSAA changes and remove entities or alpha-mode changes in the same run", async () => {
-    const { world } = subjects()[2];
+const multisampling = gpuScene(import.meta.path, config, (world) => {
     const camera = addCamera(world, { translation: [0, 0, 5, 0] });
     const materials = world.resource(Materials);
     const blend = materials.add(StandardMaterial({ baseColor: [1, 0.1, 0.1, 0.3], unlit: true }), {
@@ -354,6 +368,12 @@ test("transparent pipelines follow MSAA changes and remove entities or alpha-mod
         world.add(eid, MeshMaterial, blend);
         entities.push(eid);
     }
+    return { world, camera, entities, opaque, multiply };
+});
+test("transparent pipelines follow MSAA changes and remove entities or alpha-mode changes in the same run", async () => {
+    const {
+        scene: { world, camera, entities, opaque, multiply },
+    } = multisampling();
     await frame(world, [camera]);
     const expected = blendOverBlackPixel([1, 0.1, 0.1], 0.3, 3);
     const sentinel = [0, 1, 0, 1] as const;
@@ -387,22 +407,33 @@ test("transparent pipelines follow MSAA changes and remove entities or alpha-mod
     expect(remaining.item(0).batch).not.toBe(blendBatch);
 });
 
-test("transparent type and alpha-mode transitions render from their new draws", async () => {
-    const { world } = subjects()[6];
-    const camera = addCamera(world, { translation: [0, 0, 5, 0] });
-    const standard = world.resource(Materials);
-    const red = standard.add(StandardMaterial({ baseColor: [1, 0, 0, 0.5], unlit: true }), {
-        alphaMode: AlphaMode.Blend,
-    });
-    const blue = world
-        .resource(TransitionMaterial)
-        .add({ color: d.vec4f(0, 0, 1, 0.5) }, { alphaMode: AlphaMode.Blend });
-    const greenOpaque = standard.add(StandardMaterial({ baseColor: [0, 1, 0, 0.25], unlit: true }));
-    const eid = world.create();
-    world.add(eid, Transform, { scale: [2, 2, 0.02, 0] });
-    world.add(eid, MeshInstance);
-    world.add(eid, MeshMaterial, red);
+const transitions = gpuScene(
+    import.meta.path,
+    { ...config, plugins: [...config.plugins, MaterialPlugin(TransitionMaterial)] },
+    (world) => {
+        const camera = addCamera(world, { translation: [0, 0, 5, 0] });
+        const standard = world.resource(Materials);
+        const red = standard.add(StandardMaterial({ baseColor: [1, 0, 0, 0.5], unlit: true }), {
+            alphaMode: AlphaMode.Blend,
+        });
+        const blue = world
+            .resource(TransitionMaterial)
+            .add({ color: d.vec4f(0, 0, 1, 0.5) }, { alphaMode: AlphaMode.Blend });
+        const greenOpaque = standard.add(
+            StandardMaterial({ baseColor: [0, 1, 0, 0.25], unlit: true }),
+        );
+        const eid = world.create();
+        world.add(eid, Transform, { scale: [2, 2, 0.02, 0] });
+        world.add(eid, MeshInstance);
+        world.add(eid, MeshMaterial, red);
 
+        return { world, camera, eid, red, blue, greenOpaque };
+    },
+);
+test("transparent type and alpha-mode transitions render from their new draws", async () => {
+    const {
+        scene: { world, camera, eid, red, blue, greenOpaque },
+    } = transitions();
     const [before] = await frame(world, [camera]);
     expectPixelNear(centerPixel(before), [...blendOverBlackPixel([1, 0, 0], 0.5, 1), 255]);
     const phase = world.resource(TransparentPhases).get(camera)!;
@@ -429,8 +460,7 @@ test("transparent type and alpha-mode transitions render from their new draws", 
     expect(blueBatch).not.toBe(redBatch);
 });
 
-test("transparent mesh instances are culled independently for each view", async () => {
-    const { world } = subjects()[3];
+const culling = gpuScene(import.meta.path, config, (world) => {
     const cameras = [
         addCamera(world, { translation: [0, 0, 5, 0] }),
         addCamera(world, { translation: [0, 0, -5, 0] }),
@@ -444,21 +474,31 @@ test("transparent mesh instances are culled independently for each view", async 
     world.add(eid, Transform, { scale: [2, 2, 0.02, 0] });
     world.add(eid, MeshInstance);
     world.add(eid, MeshMaterial, material);
+    return { world, cameras };
+});
+test("transparent mesh instances are culled independently for each view", async () => {
+    const {
+        scene: { world, cameras },
+    } = culling();
     const [visible, culled] = await frame(world, cameras);
     expect(world.resource(TransparentPhases).get(cameras[0])!.length).toBe(1);
     expect(world.resource(TransparentPhases).get(cameras[1])!.length).toBe(0);
     expect(centerPixel(visible)).not.toEqual(centerPixel(culled));
 });
 
-test("only consecutive compatible items merge, and one steady frame submits once", async () => {
-    const { world } = subjects()[4];
+const batching = gpuScene(import.meta.path, config, (world) => {
     const camera = addCamera(world, { translation: [0, 0, 5, 0] });
-    await frame(world, [camera]);
     const pipelines = [
         panePipeline(world, camera, -1, [1, 0, 0]),
         panePipeline(world, camera, -0.5, [0, 1, 0]),
         panePipeline(world, camera, 0, [0, 0, 1]),
     ];
+    return { world, camera, pipelines };
+});
+test("only consecutive compatible items merge, and one steady frame submits once", async () => {
+    const {
+        scene: { world, camera, pipelines },
+    } = batching();
     const ranges: [number, number][] = [];
     world.resource(RenderPhases).push({
         transparent(_world, _eid, _view, phase: TransparentPhase) {
@@ -529,8 +569,7 @@ test("only consecutive compatible items merge, and one steady frame submits once
     }
 });
 
-test("a standard transparent surface cannot occlude a later, farther fragment with its own depth write", async () => {
-    const { world } = subjects()[5];
+const depthWrites = gpuScene(import.meta.path, config, (world) => {
     const camera = addCamera(world, { translation: [0, 0, 5, 0] });
     const vertices = (slope: number) =>
         new Float32Array([
@@ -587,6 +626,12 @@ test("a standard transparent surface cannot occlude a later, farther fragment wi
     world.add(first, Transform, { translation: [0, 0, -1, 0] });
     world.add(first, MeshInstance, { mesh: sloped });
     world.add(first, MeshMaterial, red);
+    return { world, camera, flat, blue };
+});
+test("a standard transparent surface cannot occlude a later, farther fragment with its own depth write", async () => {
+    const {
+        scene: { world, camera, flat, blue },
+    } = depthWrites();
     const [onlyFirst] = await frame(world, [camera]);
     const sample = (rgba: Uint8ClampedArray) =>
         Array.from(rgba.subarray((32 * 64 + 48) * 4, (32 * 64 + 48) * 4 + 4));

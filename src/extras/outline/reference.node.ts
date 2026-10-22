@@ -1,10 +1,12 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { gpuScene } from "../../../scripts/gpu.fixture";
 import { Meshes, MeshInstance } from "../../core/mesh";
 import { attachTexture, Camera, CameraMode } from "../../core/rendering";
 import { Transform } from "../../core/transform";
+import { DEFAULT_PLUGINS } from "../../standard";
 import { StandardRenderer } from "../../standard/rendering";
-import { Outline } from ".";
+import { Outline, OutlinePlugin } from ".";
 import { captureSeeds } from "./mask.fixture";
 import {
     coverage,
@@ -18,7 +20,7 @@ import {
 } from "./reference.fixture";
 
 setDefaultTimeout(TIMEOUT.node);
-const { render, subjects } = outlineReference(import.meta.path);
+const { render } = outlineReference(import.meta.path);
 for (const mask of masks)
     for (const width of widths) {
         test(`${mask.name}, width ${width}: exact CPU jump flood and coverage within one display code`, async () => {
@@ -50,37 +52,50 @@ for (const mask of masks)
         });
     }
 for (const mask of masks) {
+    const subject = gpuScene(
+        import.meta.path,
+        { defaults: false, plugins: [...DEFAULT_PLUGINS, OutlinePlugin] },
+        (world) => {
+            const camera = world.create();
+            world.add(camera, Transform, { translation: [0, 0, 5] });
+            world.add(camera, Camera, {
+                mode: CameraMode.Orthographic,
+                size: size / 2,
+                antialias: 0,
+            });
+            world.add(camera, StandardRenderer);
+            attachTexture(world, camera, { width: size, height: size });
+            // One world unit is one pixel. Quad edges fall on pixel boundaries.
+            const vertices: number[] = [],
+                indices: number[] = [];
+            for (const [x, y] of mask.pixels) {
+                const base = vertices.length / 8;
+                for (const [dx, dy] of [
+                    [0, 1],
+                    [1, 1],
+                    [1, 0],
+                    [0, 0],
+                ])
+                    vertices.push(x + dx! - size / 2, size / 2 - y - dy!, 0, 0, 0, 0, 1, 0);
+                indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+            }
+            const meshes = world.resource(Meshes);
+            const mesh = meshes.add({
+                name: mask.name,
+                vertices: new Float32Array(vertices),
+                indices: new Uint32Array(indices),
+            });
+            const entity = world.create();
+            world.add(entity, Transform);
+            world.add(entity, MeshInstance, { mesh });
+            world.add(entity, Outline, { width: 5.5 });
+            return { world, camera, entity, meshes, mesh };
+        },
+    );
     test(`${mask.name}: the real orthographic mesh mask seeds exactly the covered pixels before flooding`, async () => {
-        const { world } = subjects()[0];
-        const camera = world.create();
-        world.add(camera, Transform, { translation: [0, 0, 5] });
-        world.add(camera, Camera, { mode: CameraMode.Orthographic, size: size / 2, antialias: 0 });
-        world.add(camera, StandardRenderer);
-        attachTexture(world, camera, { width: size, height: size });
-        // One world unit is one pixel. Quad edges fall on pixel boundaries.
-        const vertices: number[] = [],
-            indices: number[] = [];
-        for (const [x, y] of mask.pixels) {
-            const base = vertices.length / 8;
-            for (const [dx, dy] of [
-                [0, 1],
-                [1, 1],
-                [1, 0],
-                [0, 0],
-            ])
-                vertices.push(x + dx! - size / 2, size / 2 - y - dy!, 0, 0, 0, 0, 1, 0);
-            indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
-        }
-        const meshes = world.resource(Meshes);
-        const mesh = meshes.add({
-            name: mask.name,
-            vertices: new Float32Array(vertices),
-            indices: new Uint32Array(indices),
-        });
-        const entity = world.create();
-        world.add(entity, Transform);
-        world.add(entity, MeshInstance, { mesh });
-        world.add(entity, Outline, { width: 5.5 });
+        const {
+            scene: { world, camera, entity, meshes, mesh },
+        } = subject();
         const capture = captureSeeds(world, camera, size, size);
         try {
             world.step(0);

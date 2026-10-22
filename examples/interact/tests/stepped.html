@@ -11,21 +11,23 @@ import { LocalPlayer, Player } from '../src/player';
 import { InteractionInput, Usable, Hint } from '../src/interact';
 import { hud } from '../src/hud';
 import { PhysicsWorldDefinition } from '@dylanebert/shallot/standard/physics';
-const app = await createApp({plugins:[RoomPlugin],setup(world){world.resource(PhysicsWorldDefinition).workerCount=1;}});
-const world = app.world;
-const room = world.resource(Room);
 const canvas = document.querySelector('canvas');
 let hudOnly = new URLSearchParams(location.search).has('hud');
 const captures = new URLSearchParams(location.search).has('captures');
-// Checks read a small final texture, as first-person does; manual PNGs retain the game's full canvas.
-if (!captures) {
- canvas.width=320; canvas.height=180;
- if(hudOnly) attachView(world,room.camera);
- else attachTexture(world, room.camera, {width:320, height:180});
- world.storage(Camera).antialias.set(room.camera,0);
- world.resource(PointShadows).atlas=512;
- world.resource(PointShadows).casters=1;
-}
+const app = await createApp({plugins:[{name:'SteppedScene',dependencies:[RoomPlugin],initialize(world){
+ // Checks read a small final texture; manual PNGs retain the game's full canvas.
+ if (!captures) {
+  const room=world.resource(Room);
+  canvas.width=320; canvas.height=180;
+  if(hudOnly) attachView(world,room.camera);
+  else attachTexture(world, room.camera, {width:320, height:180});
+  world.storage(Camera).antialias.set(room.camera,0);
+  world.resource(PointShadows).atlas=512;
+  world.resource(PointShadows).casters=1;
+ }
+}}],setup(world){world.resource(PhysicsWorldDefinition).workerCount=1;}});
+const world = app.world;
+const room = world.resource(Room);
 window.view=(pixels)=>{
  if(captures)return;
  detachView(world,room.camera);hudOnly=!pixels;

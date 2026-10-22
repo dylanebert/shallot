@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { gpuScene } from "../../../scripts/gpu.fixture";
 import { lookAtRotation, type Plugin } from "../../engine";
 import { Fog, FogPlugin, NoFog } from "../../extras/fog";
 import { Outline, OutlinePlugin } from "../../extras/outline";
@@ -56,15 +56,81 @@ const DetachInDrawPlugin: Plugin = {
         },
     ],
 };
-const subjects = gpuApps(import.meta.path, [
+const subject = gpuScene(
+    import.meta.path,
     {
         defaults: false,
         plugins: [...DEFAULT_PLUGINS, FogPlugin, OutlinePlugin, DetachInDrawPlugin],
     },
-]);
-
+    (world) => {
+        const camera = world.create();
+        world.add(camera, Transform, { translation: [0, 0, 5, 0] });
+        world.add(camera, Camera, { clearColor: 0x204060, antialias: 0 });
+        world.add(camera, AmbientLight, { brightness: 199.61915 });
+        world.add(camera, StandardRenderer);
+        world.add(camera, Tonemapping, { method: TonemappingMethod.KhronosPbrNeutral });
+        const layout = backgroundLayout({});
+        const id = registerBackground(world, {
+            name: "target-proof",
+            layout,
+            fs: tgpu.fn(
+                [BackgroundContext],
+                d.vec3f,
+            )(() => {
+                "use gpu";
+                return d.vec3f(0.12, 0.2, 0.35);
+            }),
+        });
+        world.add(camera, CameraBackground, { background: id });
+        attachTexture(world, camera, { width: 64, height: 64 });
+        const mesh = world.create();
+        world.add(mesh, Transform);
+        const material = world
+            .resource(Materials)
+            .add(StandardMaterial({ baseColor: [1, 0, 1, 1], perceptualRoughness: 1 }));
+        world.add(mesh, MeshInstance);
+        world.add(mesh, MeshMaterial, material);
+        world.add(mesh, Outline, { width: 3, color: 0x59ff7c });
+        const edgeMesh = world.create();
+        world.add(edgeMesh, Transform, {
+            translation: [-1.2, -0.55, 0.2, 0],
+            rotation: [0.0996005, 0.199201, 0, 0.974884],
+            scale: [0.65, 0.65, 0.65, 0],
+        });
+        world.add(edgeMesh, MeshInstance);
+        world.add(edgeMesh, MeshMaterial, material);
+        const sun = world.create();
+        world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, -0.4, -0.8, -0.5) });
+        world.add(sun, DirectionalLight, { illuminance: 4703.4155 });
+        world.add(sun, VolumetricLight);
+        world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
+        const fill = world.create();
+        world.add(fill, Transform);
+        world.add(fill, DirectionalLight, { color: 0x80c0ff, illuminance: 2500 });
+        const point = world.create();
+        world.add(point, Transform, { translation: [1, 1, 2, 0] });
+        world.add(point, PointLight, { intensity: 315225.92, range: 10, color: 0xff8844 });
+        world.add(point, VolumetricLight);
+        world.storage(PointLight).shadowMapsEnabled.set(point, 1);
+        const spot = world.create();
+        world.add(spot, Transform, { translation: [-1, 1, 3, 0] });
+        world.add(spot, SpotLight, {
+            intensity: 472838.89,
+            range: 10,
+            color: 0x4488ff,
+            innerAngle: (20 * Math.PI) / 180,
+            outerAngle: (40 * Math.PI) / 180,
+            shadowMapsEnabled: 1,
+        });
+        world.add(spot, VolumetricLight);
+        world.add(world.create(), Fog);
+        return { world, camera, fill };
+    },
+);
 test("view targets preserve non-uniform lit background, fog and outline frames for every AA and explicit depth request", async () => {
-    const { world } = subjects()[0];
+    const {
+        scene: { world, camera, fill },
+    } = subject();
     let renderPasses = 0;
     const device = world.gpu.device;
     const createEncoder = device.createCommandEncoder.bind(device);
@@ -77,67 +143,6 @@ test("view targets preserve non-uniform lit background, fog and outline frames f
         };
         return encoder;
     };
-    const camera = world.create();
-    world.add(camera, Transform, { translation: [0, 0, 5, 0] });
-    world.add(camera, Camera, { clearColor: 0x204060 });
-    world.add(camera, AmbientLight, { brightness: 199.61915 });
-    world.add(camera, StandardRenderer);
-    world.add(camera, Tonemapping, { method: TonemappingMethod.KhronosPbrNeutral });
-    const layout = backgroundLayout({});
-    const id = registerBackground(world, {
-        name: "target-proof",
-        layout,
-        fs: tgpu.fn(
-            [BackgroundContext],
-            d.vec3f,
-        )(() => {
-            "use gpu";
-            return d.vec3f(0.12, 0.2, 0.35);
-        }),
-    });
-    world.add(camera, CameraBackground, { background: id });
-    attachTexture(world, camera, { width: 64, height: 64 });
-    const mesh = world.create();
-    world.add(mesh, Transform);
-    const material = world
-        .resource(Materials)
-        .add(StandardMaterial({ baseColor: [1, 0, 1, 1], perceptualRoughness: 1 }));
-    world.add(mesh, MeshInstance);
-    world.add(mesh, MeshMaterial, material);
-    world.add(mesh, Outline, { width: 3, color: 0x59ff7c });
-    const edgeMesh = world.create();
-    world.add(edgeMesh, Transform, {
-        translation: [-1.2, -0.55, 0.2, 0],
-        rotation: [0.0996005, 0.199201, 0, 0.974884],
-        scale: [0.65, 0.65, 0.65, 0],
-    });
-    world.add(edgeMesh, MeshInstance);
-    world.add(edgeMesh, MeshMaterial, material);
-    const sun = world.create();
-    world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, -0.4, -0.8, -0.5) });
-    world.add(sun, DirectionalLight, { illuminance: 4703.4155 });
-    world.add(sun, VolumetricLight);
-    world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
-    const fill = world.create();
-    world.add(fill, Transform);
-    world.add(fill, DirectionalLight, { color: 0x80c0ff, illuminance: 2500 });
-    const point = world.create();
-    world.add(point, Transform, { translation: [1, 1, 2, 0] });
-    world.add(point, PointLight, { intensity: 315225.92, range: 10, color: 0xff8844 });
-    world.add(point, VolumetricLight);
-    world.storage(PointLight).shadowMapsEnabled.set(point, 1);
-    const spot = world.create();
-    world.add(spot, Transform, { translation: [-1, 1, 3, 0] });
-    world.add(spot, SpotLight, {
-        intensity: 472838.89,
-        range: 10,
-        color: 0x4488ff,
-        innerAngle: (20 * Math.PI) / 180,
-        outerAngle: (40 * Math.PI) / 180,
-        shadowMapsEnabled: 1,
-    });
-    world.add(spot, VolumetricLight);
-    world.add(world.create(), Fog);
     const directory = process.env.SHALLOT_TARGET_FRAMES;
     const frames: Uint8ClampedArray[][] = [[], []];
     for (const aa of [0, 1]) {
@@ -195,7 +200,7 @@ test("view targets preserve non-uniform lit background, fog and outline frames f
 });
 
 test("a destroyed camera's depth and main-pass targets are destroyed by the next frame", () => {
-    const { world } = subjects()[0];
+    const { world } = subject();
     const device = world.gpu.device;
     const createTexture = device.createTexture.bind(device);
     const live = new Set<string>();
@@ -233,7 +238,7 @@ test("a destroyed camera's depth and main-pass targets are destroyed by the next
 });
 
 test("a view detached between its prepass and main pass submits cleanly and frees its targets with that frame", async () => {
-    const { world } = subjects()[0];
+    const { world } = subject();
     const device = world.gpu.device;
     const createTexture = device.createTexture.bind(device);
     const live = new Set<string>();

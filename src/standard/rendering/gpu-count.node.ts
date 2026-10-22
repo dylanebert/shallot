@@ -1,9 +1,10 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
-import { Meshes, MeshInstance } from "../../core/mesh";
+import { Meshes, MeshInstance, MeshPlugin } from "../../core/mesh";
 import { attachTexture, Camera, captureTexture, DirectionalLight } from "../../core/rendering";
 import { Transform } from "../../core/transform";
+import { type AppConfig, precompile, type World } from "../../engine";
 import {
     AlphaMode,
     Draws,
@@ -17,15 +18,25 @@ import {
 import { MeshDrawBuffers, MeshPreprocessSystem } from "./preprocess";
 
 setDefaultTimeout(TIMEOUT.node);
-let value = 3;
-const subjects = gpuApps(import.meta.path, [
-    {
+const scenes = new WeakMap<World, ReturnType<typeof initialize>>();
+const subjects = gpuApps(import.meta.path, [config(false), config(true)]);
+function config(transparent: boolean): AppConfig {
+    let original: ReturnType<typeof geometry>;
+    let producer: { pipeline: GPUComputePipeline; group: GPUBindGroup } | undefined;
+    return {
         defaults: false,
         plugins: [
-            MeshRenderPlugin,
-            StandardRenderingPlugin,
             {
                 name: "count-producer",
+                dependencies: [MeshPlugin],
+                initialize(world) {
+                    original = geometry(world);
+                },
+                warm(world) {
+                    const scene = initialize(world, original, transparent);
+                    producer = scene.producer;
+                    scenes.set(world, scene);
+                },
                 systems: [
                     {
                         group: "draw",
@@ -41,12 +52,12 @@ const subjects = gpuApps(import.meta.path, [
                     },
                 ],
             },
+            MeshRenderPlugin,
+            StandardRenderingPlugin,
         ],
-    },
-]);
-let producer: { pipeline: GPUComputePipeline; group: GPUBindGroup } | undefined;
-async function setup() {
-    const { world } = subjects()[0]!;
+    };
+}
+function geometry(world: World) {
     const meshes = world.resource(Meshes);
     const vertices: number[] = [];
     for (let i = 0; i < 4; i++) {
@@ -58,11 +69,14 @@ async function setup() {
         ])
             vertices.push(x + dx!, y!, 0, 0, 0, 1, 0, 0);
     }
-    const original = meshes.add({
+    return meshes.add({
         name: "triangles",
         vertices: new Float32Array(vertices),
         indices: new Uint32Array(Array.from({ length: 12 }, (_, i) => i)),
     });
+}
+function initialize(world: World, original: ReturnType<typeof geometry>, transparent: boolean) {
+    const meshes = world.resource(Meshes);
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 4, 0] });
     world.add(camera, Camera);
@@ -71,7 +85,6 @@ async function setup() {
     world.add(sun, Transform);
     world.add(sun, DirectionalLight, { shadowMapsEnabled: 1 });
     attachTexture(world, camera, { width: 128, height: 64 });
-    world.step(0);
     const buffer = world.gpu.device.createBuffer({
         size: 16,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -92,29 +105,52 @@ async function setup() {
         MeshMaterial,
         world.resource(Materials).add(StandardMaterial({ emissive: [1, 1, 1] })),
     );
-    return { world, mesh, buffer, camera, eid };
-}
-let scene: Awaited<ReturnType<typeof setup>>;
-async function draw(count: number) {
-    scene ??= await setup();
-    const { world, mesh, buffer } = scene;
-    value = count;
+    if (transparent)
+        world.add(
+            eid,
+            MeshMaterial,
+            world
+                .resource(Materials)
+                .add(StandardMaterial({ emissive: [1, 1, 1] }), { alphaMode: AlphaMode.Blend }),
+        );
+    const input = world.gpu.device.createBuffer({
+        size: 4,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    world.own(input);
     const pipeline = world.gpu.device.createComputePipeline({
+        label: "count-producer",
         layout: "auto",
         compute: {
             module: world.gpu.device.createShaderModule({
-                code: `@group(0) @binding(0) var<storage, read_write> counts: array<u32>; @compute @workgroup_size(1) fn main() { counts[1] = ${value}u; }`,
+                code: "@group(0) @binding(0) var<storage, read_write> counts: array<u32>; @group(0) @binding(1) var<uniform> value: u32; @compute @workgroup_size(1) fn main() { counts[1] = value; }",
             }),
             entryPoint: "main",
         },
     });
-    producer = {
+    precompile(world, "count-producer", () => [pipeline]);
+    const producer = {
         pipeline,
         group: world.gpu.device.createBindGroup({
             layout: pipeline.getBindGroupLayout(0),
-            entries: [{ binding: 0, resource: { buffer } }],
+            entries: [
+                { binding: 0, resource: { buffer } },
+                { binding: 1, resource: { buffer: input } },
+            ],
         }),
     };
+    return { world, mesh, buffer, camera, eid, input, producer };
+}
+async function setup(index = 0) {
+    const { world } = subjects()[index];
+    world.step(0);
+    return scenes.get(world)!;
+}
+let scene: Awaited<ReturnType<typeof setup>>;
+async function draw(count: number) {
+    scene ??= await setup();
+    const { world, mesh } = scene;
+    world.gpu.device.queue.writeBuffer(scene.input, 0, new Uint32Array([count]));
     const target = world.resource(MeshDrawBuffers).drawArgs;
     const raw = target && world.gpu.root.unwrap(target);
     const queue = world.gpu.device.queue;
@@ -153,12 +189,7 @@ test("a producer compute pass sizes this frame's triangles and changes the next 
     expect(await draw(9)).toBe(9);
 });
 test("transparent draws honour the GPU count and its next-frame change", async () => {
-    scene ??= await setup();
-    const material = scene.world
-        .resource(Materials)
-        .add(StandardMaterial({ emissive: [1, 1, 1] }), { alphaMode: AlphaMode.Blend });
-    scene.world.storage(MeshMaterial).material.set(scene.eid, material.material);
-    scene.world.step(0);
+    scene = await setup(1);
     expect(await draw(3)).toBe(3);
     expect(await draw(9)).toBe(9);
 });
