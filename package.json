@@ -96,7 +96,7 @@
         "!examples/*/dist",
         "!examples/*/build",
         "!examples/*/.artifacts",
-        "!examples/*/test-results",
+        "!examples/**/test-results",
         "!src/standard/physics/solver/fixtures",
         "!src/standard/physics/oracle/**",
         "!src/extras/bloom/bevy/**",
