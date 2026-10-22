@@ -11,34 +11,62 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { BROWSER_CONFIG, TIMEOUT } from "@dylanebert/shallot/testing";
-import { type HandoffReport, observeHandoff, summarizeHandoff } from "./probe.mjs";
+import {
+    type HandoffReport,
+    HANDOFF_TIMING,
+    installPrimes,
+    observeHandoff,
+    PRIMES,
+    summarizeHandoff,
+} from "./probe.mjs";
+import { cpuIn, ROLES, startTrace, type Trace } from "./trace";
 import { type BrowserContext, chromium, type Page, webkit } from "playwright";
 import { bunChild } from "../../scripts/bun-child";
 
 // Per example, the gap from the loading screen's handoff to the first steady frame, with what ran in between:
 // each system's setup and first update, GPU calls and the UI mount. Warm runs load each example once unmeasured
 // first; cold runs measure the first load from an empty GPU cache.
-const USAGE = `Usage: bun diagnostics/first-frame/handoff.oracle.ts <chrome|webkit|safari> [--headed] [--cold] [example ...]
+const USAGE = `Usage: bun diagnostics/first-frame/handoff.oracle.ts <chrome|webkit|safari> [--headed] [--cold] [--trace] [--prime=<kind,...>] [example ...]
   chrome          installed Google Chrome, headless unless --headed; --cold gives each example a fresh profile
-  webkit          Playwright WebKit, headless
+  webkit          Playwright WebKit, headless; --cold moves
+                  $(getconf DARWIN_USER_CACHE_DIR)com.apple.WebKit.GPU+org.webkit.Playwright aside and launches
+                  a fresh browser per example, then restores the cache
   safari          the running Safari.app, in one window of its own whose URL this run sets; always headed.
                   --cold asks before quitting Safari, moves
                   $(getconf DARWIN_USER_CACHE_DIR)com.apple.WebKit.GPU+com.apple.Safari aside, quits and relaunches
                   Safari before each example, then restores the cache and relaunches Safari
+  --trace         webkit or safari: record each WebKit, Metal compiler and browser process's CPU time
+                  every millisecond and their stacks from the handoff, and print CPU per process in each
+                  segment of the handoff; tracing perturbs the timing it attributes, and leaves out
+                  processes running before the run, so it traces a cold run's fresh browser
+  --prime=<kinds> a what-if that models an engine move, from ${PRIMES.join(", ")}: probe.mjs's PRIMES
 A headed run takes the screen: keep its window frontmost and uncovered, since an occluded window's frames throttle.`;
 
 const args = process.argv.slice(2);
 const browserName = args[0];
 const headed = args.includes("--headed") || browserName === "safari";
 const cold = args.includes("--cold");
+const tracing = args.includes("--trace");
+const primes = (args.find((arg) => arg.startsWith("--prime="))?.slice("--prime=".length) ?? "")
+    .split(",")
+    .filter(Boolean);
 const only = args.slice(1).filter((arg) => !arg.startsWith("--"));
 const unknown = args
     .slice(1)
-    .filter((arg) => arg.startsWith("--") && arg !== "--headed" && arg !== "--cold");
+    .filter(
+        (arg) =>
+            arg.startsWith("--") &&
+            arg !== "--headed" &&
+            arg !== "--cold" &&
+            arg !== "--trace" &&
+            !arg.startsWith("--prime="),
+    );
 if (
     (browserName !== "chrome" && browserName !== "webkit" && browserName !== "safari") ||
     unknown.length ||
-    (browserName === "webkit" && (headed || cold))
+    primes.some((prime) => !(PRIMES as readonly string[]).includes(prime)) ||
+    (browserName === "webkit" && headed) ||
+    (browserName === "chrome" && tracing)
 )
     throw new Error(USAGE);
 
@@ -56,14 +84,15 @@ const outDir = join(tmpdir(), "shallot-first-frame");
 mkdirSync(outDir, { recursive: true });
 const outFile = join(
     outDir,
-    `${browserName}${headed ? "-headed" : ""}-${cold ? "cold" : "warm"}-${stamp}.jsonl`,
+    `${browserName}${headed ? "-headed" : ""}-${cold ? "cold" : "warm"}${primes.length ? `-prime-${primes.join("+")}` : ""}-${stamp}.jsonl`,
 );
 
-const safariCache = `${Bun.spawnSync(["getconf", "DARWIN_USER_CACHE_DIR"], { stdout: "pipe" }).stdout.toString().trim()}com.apple.WebKit.GPU+com.apple.Safari`;
+// The GPU process's shader caches for this browser: a cold run measures each example without them.
+const safariCache = `${Bun.spawnSync(["getconf", "DARWIN_USER_CACHE_DIR"], { stdout: "pipe" }).stdout.toString().trim()}com.apple.WebKit.GPU+${browserName === "webkit" ? "org.webkit.Playwright" : "com.apple.Safari"}`;
 const safariAside = `${safariCache}.shallot-aside`;
-if (browserName === "safari" && cold && existsSync(safariAside))
+if (browserName !== "chrome" && cold && existsSync(safariAside))
     throw new Error(
-        `${safariAside} is left from an interrupted cold run. Quit Safari and restore it before running again:\n  rm -rf '${safariCache}' && mv '${safariAside}' '${safariCache}'`,
+        `${safariAside} is left from an interrupted cold run. Quit the browser and restore it before running again:\n  rm -rf '${safariCache}' && mv '${safariAside}' '${safariCache}'`,
     );
 
 // A cold Safari run quits Safari before each example; it asks first, before the builds.
@@ -105,7 +134,9 @@ async function until(
 
 type HandoffRecord = Parameters<typeof summarizeHandoff>[0] & {
     handoff: number;
-    events: { kind: string; label: string; time: number; bytes?: number }[];
+    timeOrigin: number;
+    events: { kind: string; label: string; time: number; bytes?: number; end?: number }[];
+    drains: { label: string; at: number; done: number }[];
     measures: { name: string; start: number; duration: number }[];
 };
 
@@ -127,7 +158,15 @@ function detailOf(record: HandoffRecord, report: HandoffReport, adapter: string)
         record.events
             .filter((e) => e.kind === kind && frameOf(e.time) === frame)
             .reduce((sum, e) => sum + (e.bytes ?? 0), 0);
-    const pipelines = record.events.filter((e) => e.kind === "pipeline");
+    const created = record.events.filter((e) => e.kind === "pipeline");
+    const pipelines = created.filter((e) => e.time >= record.handoff);
+    const under = created.filter((e) => e.time < record.handoff);
+    const sync = under.filter((e) => e.end !== undefined);
+    const relative = (time: number) => ms(time - record.handoff);
+    const firstFrames = (kind: string) =>
+        record.events
+            .filter((e) => e.kind === kind && frameOf(e.time) >= 1 && frameOf(e.time) <= 4)
+            .map((e) => `${frameOf(e.time)}:${ms((e.end ?? e.time) - e.time)}`);
     const top = (list: { name: string; ms: number }[]) =>
         list
             .filter((r) => r.ms >= 1)
@@ -152,6 +191,24 @@ function detailOf(record: HandoffRecord, report: HandoffReport, adapter: string)
         },
         firstUpdate: { ms: ms(updates.reduce((a, r) => a + r.ms, 0)), top: top(updates) },
         pipelines: [...new Set(pipelines.map((p) => `${frameOf(p.time)}:${p.label}`))],
+        // Under the screen: creation calls, and the last one's return relative to the handoff.
+        created: {
+            count: under.length,
+            lastEnd: sync.length ? relative(Math.max(...sync.map((e) => e.end!))) : undefined,
+        },
+        // Each drain's start and completion relative to the handoff; a handoff drain longer than a
+        // frame is GPU-process work still queued when the screen came down.
+        drains: record.drains
+            .map((d) => ({ label: d.label, at: relative(d.at), done: relative(d.done) }))
+            .sort((a, b) => a.at - b.at),
+        acquire: firstFrames("acquire"),
+        submit: firstFrames("submit"),
+        stamps: record.stamps.slice(0, 6).map(relative),
+        frameStarts: record.frames.slice(0, 6).map(relative),
+        frameEnds: record.ends.slice(0, 6).map(relative),
+        // Epoch milliseconds of the handoff, to align a process trace's wall clock.
+        handoffEpoch: record.timeOrigin + record.handoff,
+        navigation: relative(0),
         // Under the screen at full progress: the precompile drain, `Loading.complete` and one frame.
         tail: ms(
             record.handoff -
@@ -168,9 +225,33 @@ function detailOf(record: HandoffRecord, report: HandoffReport, adapter: string)
     };
 }
 
+type Detail = ReturnType<typeof detailOf>;
+
+/** CPU per process in each segment of one load, from its trace. */
+function segmentsOf(detail: Detail, trace: Trace) {
+    const at = (relative: number) => detail.handoffEpoch + relative;
+    const settled = detail.gap;
+    const [start, end] = [detail.frameStarts[0] ?? 0, detail.frameEnds[0] ?? 0];
+    return {
+        ...trace,
+        segments: cpuIn(trace.cpu, [
+            ["under the screen", at(detail.navigation), at(0)],
+            ["handoff to frame 1", at(0), at(start)],
+            ["frame 1 callback", at(start), at(end)],
+            ["frame 1 end to settled", at(end), at(settled)],
+            ["settled, next 500 ms", at(settled), at(settled + 500)],
+        ]),
+    };
+}
+
 /** Loads `url` under the measurement probe and returns its record. */
-async function measure(page: Page, url: string) {
-    const handoff = await observeHandoff(page, { frames: FRAMES });
+async function measure(page: Page, url: string, traceName?: string) {
+    const handoff = await observeHandoff(page, { frames: FRAMES, primes });
+    const trace = traceName ? startTrace(outDir, traceName) : undefined;
+    if (trace)
+        await page.exposeFunction("__shallotHandoffBeacon", (window: "hook" | "handoff") =>
+            trace.beacon(window),
+        );
     await page.goto(url);
     const report = await handoff.report();
     const record = await page.evaluate(() =>
@@ -182,23 +263,28 @@ async function measure(page: Page, url: string) {
         const info = (await navigator.gpu?.requestAdapter())?.info;
         return info ? `${info.vendor} ${info.architecture}`.trim() : "none";
     });
-    return detailOf(record, report, adapter);
+    const detail = detailOf(record, report, adapter);
+    return trace ? { ...detail, trace: segmentsOf(detail, await trace.stop()) } : detail;
 }
 
-// Safari runs the same measurement probe as Playwright.
-let probe = "";
+// Safari runs the same measurement probe and primes as Playwright.
+let probe = primes.length
+    ? `(${installPrimes.toString()})(${JSON.stringify({ ...HANDOFF_TIMING, primes })});`
+    : "";
 await observeHandoff(
     {
         async addInitScript(fn: (arg: unknown) => void, arg: unknown) {
-            probe = `(${fn.toString()})(${JSON.stringify(arg)});`;
+            probe += `(${fn.toString()})(${JSON.stringify(arg)});`;
         },
     } as unknown as Page,
     { frames: FRAMES },
 );
 const REPORT_PATH = "/__shallot-handoff-report";
+const BEACON_PATH = "/__shallot-handoff-beacon";
 // Posts the record once the observed frames have run, with the adapter and any page errors.
 const reporter = `(() => {
     const errors = [];
+    ${tracing ? `window.__shallotHandoffBeacon = (window) => fetch("${BEACON_PATH}?window=" + window, { method: "POST" });` : ""}
     addEventListener("error", (event) => errors.push(String(event.message)));
     addEventListener("unhandledrejection", (event) => errors.push(String(event.reason?.message ?? event.reason)));
     const post = (body) => fetch("${REPORT_PATH}", { method: "POST", body: JSON.stringify({ ...body, errors }) });
@@ -223,6 +309,7 @@ type SafariReport = { record?: HandoffRecord; adapter?: string; failure?: string
 function injectingProxy(
     upstream: string,
     received: (body: SafariReport) => void,
+    beacon?: (window: "hook" | "handoff") => void,
 ) {
     return Bun.serve({
         port: 0,
@@ -231,6 +318,10 @@ function injectingProxy(
             const url = new URL(request.url);
             if (url.pathname === REPORT_PATH) {
                 received(await request.json());
+                return new Response("ok");
+            }
+            if (url.pathname === BEACON_PATH) {
+                beacon?.(url.searchParams.get("window") === "handoff" ? "handoff" : "hook");
                 return new Response("ok");
             }
             const response = await fetch(`${upstream}${url.pathname}${url.search}`);
@@ -290,7 +381,7 @@ process.on("SIGINT", () => {
 try {
     // One browser for every warm load; a cold run opens a fresh one per example.
     let open: () => Promise<{
-        load(url: string): Promise<Record<string, unknown>>;
+        load(url: string, traceName?: string): Promise<Record<string, unknown>>;
         close(): Promise<void>;
     }>;
     if (browserName === "safari") {
@@ -318,11 +409,16 @@ try {
                 return id of front window
             end tell`);
             return {
-                async load(url) {
+                async load(url, traceName) {
                     let received: SafariReport | undefined;
-                    const proxy = injectingProxy(url, (body) => {
-                        received = body;
-                    });
+                    const trace = traceName ? startTrace(outDir, traceName) : undefined;
+                    const proxy = injectingProxy(
+                        url,
+                        (body) => {
+                            received = body;
+                        },
+                        (window) => trace?.beacon(window),
+                    );
                     try {
                         osascript(
                             `tell application "Safari" to set URL of current tab of window id ${window} to "http://127.0.0.1:${proxy.port}/"`,
@@ -335,12 +431,15 @@ try {
                         const { record, adapter, failure, errors } = received!;
                         if (!record)
                             throw new Error(`${failure}; page errors: ${errors.join(" | ") || "none"}`);
+                        const detail = detailOf(record, summarizeHandoff(record), adapter!);
                         return {
-                            ...detailOf(record, summarizeHandoff(record), adapter!),
+                            ...detail,
+                            ...(trace ? { trace: segmentsOf(detail, await trace.stop()) } : {}),
                             errors,
                         };
                     } finally {
                         proxy.stop(true);
+                        await trace?.stop();
                     }
                 },
                 async close() {
@@ -353,6 +452,13 @@ try {
             };
         };
     } else {
+        if (browserName === "webkit" && cold) {
+            if (existsSync(safariCache)) renameSync(safariCache, safariAside);
+            cleanups.push(() => {
+                rmSync(safariCache, { recursive: true, force: true });
+                if (existsSync(safariAside)) renameSync(safariAside, safariCache);
+            });
+        }
         const launch = async (): Promise<BrowserContext> => {
             if (browserName === "webkit") {
                 const browser = await webkit.launch();
@@ -375,17 +481,23 @@ try {
         open = async () => {
             const context = await launch();
             return {
-                async load(url) {
+                async load(url, traceName) {
                     const page = await context.newPage();
                     page.setDefaultTimeout(TIMEOUT.browser);
                     await page.bringToFront();
                     try {
-                        return await measure(page, url);
+                        return await measure(page, url, traceName);
                     } finally {
                         await page.close();
                     }
                 },
-                close: () => context.close(),
+                async close() {
+                    await context.close();
+                    await context.browser()?.close();
+                    // A cold load needs a GPU process that has compiled nothing.
+                    if (browserName === "webkit" && cold)
+                        rmSync(safariCache, { recursive: true, force: true });
+                },
             };
         };
     }
@@ -415,7 +527,10 @@ try {
         try {
             await until(async () => (await fetch(url)).ok, `${example} preview`);
             if (warm) await session.load(url);
-            const detail = await session.load(url);
+            const detail = await session.load(
+                url,
+                tracing ? `${browserName}-${cold ? "cold" : "warm"}-${stamp}-${example}` : undefined,
+            );
             results.push({ example, browser: browserName, headed, cold, ...detail });
             console.log(`${example}: gap ${detail.gap} ms`);
         } catch (error) {
@@ -437,7 +552,7 @@ writeFileSync(outFile, `${results.map((result) => JSON.stringify(result)).join("
 const cell = (value: unknown) => (value === undefined ? "" : String(value));
 console.log(
     [
-        `\n${browserName}${headed ? " headed" : ""} ${cold ? "cold" : "warm"}, ${results[0]?.adapter ?? ""}`,
+        `\n${browserName}${headed ? " headed" : ""} ${cold ? "cold" : "warm"}${primes.length ? ` primed ${primes.join(", ")}` : ""}, ${results[0]?.adapter ?? ""}`,
         "| Example | Gap ms | 1st interval ms | Frame-1 CPU ms | First updates ms | UI ms | Late pipelines | Setups |",
         "|---|---|---|---|---|---|---|---|",
         ...results.map((r) =>
@@ -445,6 +560,19 @@ console.log(
                 ? `| ${r.example} | error: ${r.error} |`
                 : `| ${r.example} | ${cell(r.gap)} | ${cell((r.intervals as number[])[0])} | ${cell((r.frameCpu as number[])[1])} | ${cell((r.firstUpdate as { ms: number }).ms)} | ${cell(r.ui)} | ${(r.pipelines as string[]).length} | ${(r.setup as { count: number }).count} |`,
         ),
+        ...results.flatMap((r) => {
+            const trace = r.trace as ReturnType<typeof segmentsOf> | undefined;
+            if (!trace) return [];
+            return [
+                `\n${r.example}: CPU ms per process in each segment (traced; samples in ${outDir})`,
+                `| Segment | ms | ${ROLES.join(" | ")} | Top threads |`,
+                `|---|---|${ROLES.map(() => "---|").join("")}---|`,
+                ...trace.segments.map(
+                    (segment) =>
+                        `| ${segment.label} | ${segment.ms} | ${ROLES.map((role) => segment.cpu[role]).join(" | ")} | ${segment.top.join(", ")} |`,
+                ),
+            ];
+        }),
         `\nFull records: ${outFile}`,
     ].join("\n"),
 );
