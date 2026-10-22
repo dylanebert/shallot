@@ -1398,6 +1398,17 @@ export async function requestGPU(
                   checkPipeline(descriptor);
                   return createComputePipelineAsync(descriptor);
               };
+              const materializeRenderTargets = (
+                  descriptor: GPURenderPipelineDescriptor,
+              ): GPURenderPipelineDescriptor => ({
+                  ...descriptor,
+                  ...(descriptor.fragment && {
+                      fragment: {
+                          ...descriptor.fragment,
+                          targets: Array.from(descriptor.fragment.targets),
+                      },
+                  }),
+              });
               const bundleDescriptor = (
                   descriptor: GPURenderPipelineDescriptor,
               ): GPURenderBundleEncoderDescriptor => ({
@@ -1421,6 +1432,9 @@ export async function requestGPU(
               };
               const trackedRenderPipeline = (descriptor: GPURenderPipelineDescriptor) => {
                   checkPipeline(descriptor);
+                  if (owner.resource?.(precompileState).drained)
+                      return createRenderPipeline(descriptor);
+                  descriptor = materializeRenderTargets(descriptor);
                   return primeRenderBundle(
                       bundleDescriptor(descriptor),
                       createRenderPipeline(descriptor),
@@ -1428,6 +1442,9 @@ export async function requestGPU(
               };
               const trackedRenderPipelineAsync = (descriptor: GPURenderPipelineDescriptor) => {
                   checkPipeline(descriptor);
+                  if (owner.resource?.(precompileState).drained)
+                      return createRenderPipelineAsync(descriptor);
+                  descriptor = materializeRenderTargets(descriptor);
                   const bundle = bundleDescriptor(descriptor);
                   return createRenderPipelineAsync(descriptor).then((pipeline) =>
                       primeRenderBundle(bundle, pipeline),

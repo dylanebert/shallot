@@ -43,6 +43,18 @@ test("only pre-handoff render pipelines bind once in compatible throwaway bundle
     await page.waitForFunction(() => Reflect.get(window, "ready"));
     expect(await page.evaluate(() => Reflect.get(window, "primes"))).toEqual([
         {
+            label: "early-generator-sync",
+            colorFormats: ["rgba8unorm"],
+            depthStencilFormat: undefined,
+            sampleCount: 1,
+        },
+        {
+            label: "early-generator-async",
+            colorFormats: ["rgba8unorm"],
+            depthStencilFormat: undefined,
+            sampleCount: 1,
+        },
+        {
             label: "early-sync",
             colorFormats: ["rgba8unorm"],
             depthStencilFormat: "depth24plus-stencil8",

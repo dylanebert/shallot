@@ -17,15 +17,24 @@ const app = await createApp({
                 @fragment fn fs() -> @location(0) vec4f { return vec4f(1); }
             ` });
             const layout = device.createPipelineLayout({ bindGroupLayouts: [] });
-            create = (label, async, depthOnly = false) => {
+            create = (label, async, depthOnly = false, generator = false) => {
                 const descriptor = {
                     label, layout, vertex: { module, entryPoint: "vs" },
                     ...(depthOnly ? {} : { fragment: { module, entryPoint: "fs", targets: [{ format: "rgba8unorm" }] } }),
                     depthStencil: { format: "depth24plus-stencil8", depthWriteEnabled: true, depthCompare: "always" },
                     multisample: { count: depthOnly ? 1 : 4 },
                 };
+                if (generator) {
+                    delete descriptor.depthStencil;
+                    descriptor.multisample.count = 1;
+                    descriptor.fragment.targets = (function* () {
+                        yield { format: "rgba8unorm" };
+                    })();
+                }
                 return async ? device.createRenderPipelineAsync(descriptor) : device.createRenderPipeline(descriptor);
             };
+            create("early-generator-sync", false, false, true);
+            await create("early-generator-async", true, false, true);
             create("early-sync", false);
             await create("early-async", true);
             create("early-depth", false, true);
@@ -49,6 +58,8 @@ const app = await createApp({
         },
     }],
 });
+create("late-generator-sync", false, false, true);
+await create("late-generator-async", true, false, true);
 create("late-sync", false);
 await create("late-async", true);
 app.dispose();
