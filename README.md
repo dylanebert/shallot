@@ -94,7 +94,22 @@ verification checks each built asset's bytes and content type, a missing path's
 reports physics, it also requires threaded physics. A software adapter is named;
 its startup and loading checks are not hardware-play qualification.
 
-Unpublish: `CLOUDFLARE_ACCOUNT_ID=<account> bunx wrangler delete --name <name>`; with the least token, Wrangler may print a KV permission error after deleting the Worker.
+Cleanup and everything past publishing stay the provider's; Shallot adds no
+unpublish or list command. Run the project's pinned `bunx wrangler` from the
+project, substituting `shallot.publish.accountId` for `<account>` and `.name` for
+`<name>`:
+
+| Request | Cloudflare command or page |
+| --- | --- |
+| Login | `CLOUDFLARE_ACCOUNT_ID=<account> bunx wrangler login` (add `--device` remotely) |
+| Preview locally | `CLOUDFLARE_ACCOUNT_ID=<account> bunx wrangler dev --assets <web-build-directory>` |
+| Roll back | `CLOUDFLARE_ACCOUNT_ID=<account> bunx wrangler rollback --name <name>` |
+| See what is published | `https://dash.cloudflare.com/<account>/workers/overview` lists every Worker in the account; Wrangler has no account-wide list command |
+| Take the game down | `CLOUDFLARE_ACCOUNT_ID=<account> bunx wrangler delete --name <name>` |
+
+Confirm with the person before deleting. Wrangler auto-confirms without a TTY or
+in CI: it will not ask an agent. Deletion cannot be undone. With the least token,
+Wrangler may print a KV permission error after deleting the Worker.
 
 ### itch.io
 
@@ -119,6 +134,19 @@ itch.io's web UI owns the page: create it with Kind of project HTML and name it 
 project butler cannot find. On its Edit page, tick "This file will be played in the
 browser" and "SharedArrayBuffer support", and set Visibility to Public or
 Restricted, not Draft. Verification cannot see these settings; publish names them.
+
+For provider commands, use the quoted cached butler path printed by publish as
+`<butler>` and `shallot.publish.name` as `<user>/<game>`:
+
+| Request | itch.io command or page |
+| --- | --- |
+| Login | `"<butler>" login` |
+| Preview locally | `bun run preview` |
+| See what is published | `"<butler>" status <user>/<game>`; all pages at `https://itch.io/dashboard` |
+| Roll back | Check out an earlier commit, `bun run build`, then `"<butler>" push <web-build-directory> <user>/<game>:html5` |
+| Take the game down | Confirm with the person, then open `https://itch.io/dashboard`, choose the game's Edit page and set Visibility to Draft |
+
+butler owns builds, not page visibility; it cannot unpublish or delete a page.
 
 Publish adds no credentials to the build. Vite's client values, public files and
 source maps can still disclose what the project puts there. Never put secrets in them.

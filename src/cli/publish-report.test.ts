@@ -95,6 +95,28 @@ for (const target of ["cloudflare", "itch"] as const) {
                     expect(report).toContain("Build: ");
                     expect(report).toContain("Preview: ");
                     expect(report).toContain("Unpublish: ");
+                    if (target === "cloudflare") {
+                        for (const command of [
+                            "dev --assets <web-build-directory>",
+                            `rollback --name ${name}`,
+                            `delete --name ${name}`,
+                        ])
+                            expect(report).toContain(
+                                `CLOUDFLARE_ACCOUNT_ID=${accountId} bunx wrangler ${command}`,
+                            );
+                        expect(report).toContain(
+                            `Workers (all in this account): https://dash.cloudflare.com/${accountId}/workers/overview`,
+                        );
+                    } else {
+                        expect(report).toContain('Login: "fixture-butler" login');
+                        expect(report).toContain(`Status: "fixture-butler" status ${name}`);
+                        expect(report).toContain(
+                            `"fixture-butler" push <web-build-directory> ${name}:html5`,
+                        );
+                        expect(report).toContain(
+                            "Unpublish: https://itch.io/dashboard, Edit game, set Visibility to Draft",
+                        );
+                    }
                     expect(report).toContain("Engine started on a hardware adapter.");
                     expect(report).not.toContain("bulk provider output");
                     expect(report).not.toContain("provider chatter");

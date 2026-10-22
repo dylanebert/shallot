@@ -210,6 +210,28 @@ for (const template of ["minimal", "physics"])
         });
         expect(dry.exitCode, `${dry.stdout}\n${dry.stderr}`).toBe(0);
         expect(dry.stdout.toString()).toContain("--dry-run: exiting now");
+        if (template === "minimal") {
+            for (const args of [
+                ["login", "--help"],
+                ["login", "--device", "--help"],
+                ["dev", "--assets", directory, "--help"],
+                ["rollback", "--name", link.name, "--help"],
+                ["delete", "--name", link.name, "--dry-run"],
+            ]) {
+                const parsed = Bun.spawnSync(["node", wrangler, ...args], {
+                    cwd: scaffold,
+                    env: { ...env, CLOUDFLARE_ACCOUNT_ID: link.accountId },
+                    stdout: "pipe",
+                    stderr: "pipe",
+                });
+                expect(
+                    parsed.exitCode,
+                    `${args.join(" ")}: ${parsed.stdout}\n${parsed.stderr}`,
+                ).toBe(0);
+                if (args[0] === "delete")
+                    expect(parsed.stdout.toString()).toContain("--dry-run: exiting now");
+            }
+        }
         const port = await freePort();
         const child = spawn(
             "node",

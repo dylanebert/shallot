@@ -65,7 +65,17 @@ const commandUsage = {
   Non-interactive login: CLOUDFLARE_API_TOKEN; CLOUDFLARE_ACCOUNT_ID when ambiguous.
   Least CI token: custom, Account → Workers Scripts → Edit on the one account.
   The "Edit Cloudflare Workers" template is broader.
-  Terminal login: wrangler login; remote terminal: wrangler login --device.
+  Provider commands run from the project with its pinned Wrangler. Substitute
+  <account> and <name> from shallot.publish.accountId and .name:
+  Login: CLOUDFLARE_ACCOUNT_ID=<account> bunx wrangler login
+  Remote login: CLOUDFLARE_ACCOUNT_ID=<account> bunx wrangler login --device
+  Preview: CLOUDFLARE_ACCOUNT_ID=<account> bunx wrangler dev --assets <web-build-directory>
+  "Roll back": CLOUDFLARE_ACCOUNT_ID=<account> bunx wrangler rollback --name <name>
+  "Take the game down": CLOUDFLARE_ACCOUNT_ID=<account> bunx wrangler delete --name <name>
+  Confirm with the person before deleting: Wrangler auto-confirms without a TTY
+  or in CI. Deletion cannot be undone.
+  "See what is published": https://dash.cloudflare.com/<account>/workers/overview
+  lists every Worker in the account; Wrangler has no account-wide list command.
 
   itch: the page's html5 channel, 1,000 files, 200 MB per file, 500 MB in all.
   Create the page on itch.io with Kind of project HTML; shallot.publish (target
@@ -78,7 +88,18 @@ const commandUsage = {
   "SharedArrayBuffer support", and set Visibility to Public or Restricted, not
   Draft; verification cannot see these, so publish names them.
   Non-interactive login: butler's stored credentials or BUTLER_API_KEY.
-  Terminal login: butler login.
+  Use the quoted cached butler path printed by publish as <butler>, and
+  shallot.publish.name as <user>/<game>:
+  Login: "<butler>" login
+  Preview locally: bun run preview
+  "See what is published": "<butler>" status <user>/<game>
+  All pages and Edit: https://itch.io/dashboard, choose Edit for <game>.
+  "Take the game down": confirm with the person, then set Visibility to Draft
+  on that Edit page. butler cannot unpublish or delete a page.
+  "Roll back": check out an earlier commit, build with bun run build, then
+  "<butler>" push <web-build-directory> <user>/<game>:html5
+  Cleanup, preview, rollback and listing stay the providers'; Shallot adds no
+  unpublish or list command.
   butler's login key has wharf scope: builds on every project the identity can
   reach, not one game. An account-settings API key can be broader still.
 

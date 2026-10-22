@@ -362,7 +362,7 @@ const targets: {
                     }
                 },
                 get commands() {
-                    return `Preview: CLOUDFLARE_ACCOUNT_ID=${accountId} bunx wrangler dev --assets <web-build-directory>\nRollback: CLOUDFLARE_ACCOUNT_ID=${accountId} bunx wrangler rollback --name ${name}\nUnpublish: CLOUDFLARE_ACCOUNT_ID=${accountId} bunx wrangler delete --name ${name}\nAccount: ${accountId}`;
+                    return `Preview: CLOUDFLARE_ACCOUNT_ID=${accountId} bunx wrangler dev --assets <web-build-directory>\nRollback: CLOUDFLARE_ACCOUNT_ID=${accountId} bunx wrangler rollback --name ${name}\nUnpublish: CLOUDFLARE_ACCOUNT_ID=${accountId} bunx wrangler delete --name ${name}\nWorkers (all in this account): https://dash.cloudflare.com/${accountId}/workers/overview`;
                 },
             };
         },
@@ -432,7 +432,7 @@ const targets: {
                         buildUrl: itchBuildUrl(live.uploadId, live.buildId),
                     };
                 },
-                commands: `Preview: bun run preview\nStatus: ${butler} status ${project}\nRollback: publish an earlier commit again\nUnpublish: set Visibility to Draft in the game's Edit page on itch.io\n${itchPageSettings(project)}`,
+                commands: `Login: "${butler}" login\nPreview: bun run preview\nStatus: "${butler}" status ${project}\nRollback: check out an earlier commit, build with bun run build, then "${butler}" push <web-build-directory> ${project}:${ITCH_CHANNEL}\nUnpublish: https://itch.io/dashboard, Edit ${project.split("/")[1]}, set Visibility to Draft\n${itchPageSettings(project)}`,
             };
         },
     },
