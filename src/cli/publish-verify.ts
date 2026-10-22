@@ -90,7 +90,7 @@ export interface PublishHost {
  * Load anonymously, checking build bytes and actual startup. `url` is the build's root or its `.html`
  * document, beside which its files are served, and its query is sent with each file; `host` says how the host serves each file. startupTimeout bounds observation
  * waiting after navigation, in milliseconds. availabilityTimeout bounds retries of asset 404/5xx
- * answers across all assets from the first check, in milliseconds (default 120 seconds).
+ * answers and stale bytes across all assets from the first check, in milliseconds (default 120 seconds).
  */
 export async function verifyPublishedGame(
     browser: Browser,
@@ -132,12 +132,43 @@ export async function verifyPublishedGame(
                     throw error;
                 }
                 const status = response.status();
-                if (status === 200) break;
-                await response.body();
-                await response.dispose();
-                const answer = `${asset.path}: expected 200, got ${status}`;
+                let answer = `${asset.path}: expected 200, got ${status}`;
+                if (status === 200) {
+                    const type = response.headers()["content-type"]?.split(";")[0];
+                    const expected =
+                        (
+                            {
+                                html: "text/html",
+                                js: "application/javascript",
+                                css: "text/css",
+                            } as Record<string, string>
+                        )[asset.path.split(".").pop()!] ?? contentType(asset.path);
+                    if (
+                        !type ||
+                        (expected &&
+                            type !== expected &&
+                            !(expected === "application/javascript" && type === "text/javascript"))
+                    )
+                        throw new Error(
+                            `${asset.path}: expected ${expected ?? "a content type"}, got ${type}`,
+                        );
+                    for (const [name, value] of Object.entries(host.headers(asset.path))) {
+                        if (response.headers()[name.toLowerCase()] !== value)
+                            throw new Error(`${asset.path}: missing ${name}: ${value}`);
+                    }
+                    const built = readFileSync(join(directory, asset.path));
+                    const matches = (await response.body()).equals(
+                        host.bytes?.(asset.path, built) ?? built,
+                    );
+                    await response.dispose();
+                    if (matches) break;
+                    answer = `${asset.path}: the deployed bytes still differ from this build`;
+                } else {
+                    await response.body();
+                    await response.dispose();
+                    if (status !== 404 && (status < 500 || status > 599)) throw new Error(answer);
+                }
                 lastAnswer = answer;
-                if (status !== 404 && (status < 500 || status > 599)) throw new Error(answer);
                 const remaining = deadline - performance.now();
                 if (remaining <= 0)
                     throw new Error(
@@ -151,31 +182,6 @@ export async function verifyPublishedGame(
                     );
                 delay = Math.min(delay * 2, 5000);
             }
-            const type = response.headers()["content-type"]?.split(";")[0];
-            const expected =
-                (
-                    { html: "text/html", js: "application/javascript", css: "text/css" } as Record<
-                        string,
-                        string
-                    >
-                )[asset.path.split(".").pop()!] ?? contentType(asset.path);
-            if (
-                !type ||
-                (expected &&
-                    type !== expected &&
-                    !(expected === "application/javascript" && type === "text/javascript"))
-            )
-                throw new Error(
-                    `${asset.path}: expected ${expected ?? "a content type"}, got ${type}`,
-                );
-            const built = readFileSync(join(directory, asset.path));
-            if (!(await response.body()).equals(host.bytes?.(asset.path, built) ?? built))
-                throw new Error(`${asset.path}: the deployed bytes differ from this build`);
-            for (const [name, value] of Object.entries(host.headers(asset.path))) {
-                if (response.headers()[name.toLowerCase()] !== value)
-                    throw new Error(`${asset.path}: missing ${name}: ${value}`);
-            }
-            await response.dispose();
         }
         if (retried)
             publishProgress(

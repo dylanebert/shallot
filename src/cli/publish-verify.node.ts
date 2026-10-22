@@ -18,6 +18,8 @@ let control = "positive";
 let unavailable = 0;
 let requests = 0;
 let unavailableStatus = 404;
+let stale = 0;
+let documentRequests = 0;
 let browser: Awaited<ReturnType<typeof publishTestChromium>>;
 const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -45,10 +47,21 @@ const server = Bun.serve({
                 },
             });
         }
-        if (path === "/" || path === "/index.html" || control === "SPA fallback")
-            return new Response(readFileSync(join(directory, "index.html")), {
-                headers: { ...headers, "Content-Type": "text/html" },
-            });
+        if (path === "/" || path === "/index.html" || control === "SPA fallback") {
+            documentRequests++;
+            return new Response(
+                documentRequests <= stale
+                    ? "old build"
+                    : readFileSync(join(directory, "index.html")),
+                {
+                    headers: {
+                        ...headers,
+                        "Content-Type": "text/html",
+                        "Cache-Control": "no-cache",
+                    },
+                },
+            );
+        }
         return new Response("missing", { status: 404, headers: {} });
     },
 });
@@ -164,4 +177,48 @@ test("asset availability retries transient 404s and 5xx, but bounds persistent 4
         "Availability wait of 600 ms exhausted; game.js: expected 200, got 404",
     );
     expect(performance.now() - start).toBeLessThan(1500);
+});
+
+test("republish retries stale index bytes and bounds a permanently wrong deploy", async () => {
+    control = "positive";
+    writeFileSync(join(directory, "index.html"), html);
+    const assets = [{ path: "index.html", size: Buffer.byteLength(html) }];
+    try {
+        stale = 2;
+        documentRequests = 0;
+        expect(
+            await verifyPublishedGame(
+                browser,
+                server.url.href,
+                directory,
+                assets,
+                TIMEOUT.cheap,
+                undefined,
+                2000,
+            ),
+        ).toMatchObject({ hardware: false, adapter: "No GPU required" });
+        expect(documentRequests).toBe(4); // Three byte checks, then page navigation.
+        stale = Infinity;
+        documentRequests = 0;
+        const start = performance.now();
+        const failure = await verifyPublishedGame(
+            browser,
+            server.url.href,
+            directory,
+            assets,
+            TIMEOUT.cheap,
+            undefined,
+            600,
+        ).then(
+            () => "verified",
+            (error: Error) => error.message,
+        );
+        expect(failure).toContain(
+            "Availability wait of 600 ms exhausted; index.html: the deployed bytes still differ from this build",
+        );
+        expect(performance.now() - start).toBeLessThan(1500);
+        expect(documentRequests).toBe(2);
+    } finally {
+        stale = 0;
+    }
 });
