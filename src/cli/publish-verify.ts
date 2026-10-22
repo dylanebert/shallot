@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import { BROWSER_CONFIG, TIMEOUT } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import type { APIResponse, Browser, Page } from "playwright";
 import { CROSS_ORIGIN_ISOLATION, contentType } from "../project";
 import { publishProgress } from "./publish-output";
@@ -15,6 +15,19 @@ export interface PublishVerification {
     adapter: string;
     threads?: number;
     physicsStepped?: boolean;
+}
+
+export const PUBLISH_LAUNCH_OPTIONS = {
+    channel: "chromium",
+    chromiumSandbox: true,
+    args: ["--enable-unsafe-webgpu"],
+};
+
+function sandboxFailure(error: unknown): never {
+    throw new Error(
+        "Production verification requires Chromium's sandbox. Enable unprivileged user namespaces on Linux (and permit Chromium in AppArmor), or run on a host with a working Chromium sandbox. Publish never disables it.",
+        { cause: error },
+    );
 }
 
 export async function projectChromium(projectDir: string): Promise<Browser> {
@@ -32,15 +45,12 @@ export async function projectChromium(projectDir: string): Promise<Browser> {
         );
     }
     const { chromium } = (await import(modulePath)) as typeof import("playwright");
-    const launchOptions = {
-        ...BROWSER_CONFIG.use.launchOptions,
-        channel: BROWSER_CONFIG.use.channel,
-    };
+    const launchOptions = PUBLISH_LAUNCH_OPTIONS;
     try {
         return await chromium.launch(launchOptions);
     } catch (error) {
         if (!(error instanceof Error) || !error.message.includes("Executable doesn't exist"))
-            throw error;
+            sandboxFailure(error);
         publishProgress("Installing the project's Playwright Chromium.");
         const { spawnSync } = await import("node:child_process");
         const manifestPath = require.resolve("playwright/package.json");
@@ -51,7 +61,7 @@ export async function projectChromium(projectDir: string): Promise<Browser> {
             stdio: ["ignore", 2, 2],
         });
         if (result.status !== 0) throw new Error("Playwright Chromium installation failed.");
-        return chromium.launch(launchOptions);
+        return chromium.launch(launchOptions).catch(sandboxFailure);
     }
 }
 
