@@ -4,7 +4,7 @@ import { runVite } from "./vite-command";
 /** Build through the project's own Vite config. */
 export async function buildWeb(
     projectDir: string,
-    output: { outDir?: string; sourcemap?: boolean; stdout?: "inherit" | 2 } = {},
+    output: { outDir?: string; sourcemap?: boolean; stdout?: "inherit" | 2 | "quiet" } = {},
     args: string[] = [],
 ): Promise<void> {
     const outputArgs = [

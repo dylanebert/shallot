@@ -159,10 +159,12 @@ export function runButler(
 ): ButlerResult {
     const result = spawnSync(butler, terminal ? args : ["--json", ...args], {
         encoding: "utf8",
-        stdio: terminal ? "inherit" : ["ignore", "pipe", "pipe"],
+        stdio: terminal ? ["inherit", 2, 2] : ["ignore", "pipe", "pipe"],
         timeout,
         killSignal: "SIGKILL",
     });
+    if (result.status !== 0 && (result.stdout || result.stderr))
+        publishProgress((result.stdout ?? "") + (result.stderr ?? ""));
     if ((result.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT")
         throw new Error(`butler ${args[0]} did not answer within ${Math.ceil(timeout! / 1000)} s.`);
     if (result.error) throw result.error;

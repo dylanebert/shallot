@@ -46,7 +46,7 @@ export function runVite(
     projectDir: string,
     command: ViteCommand,
     args: string[] = [],
-    stdout: "inherit" | 2 = "inherit",
+    stdout: "inherit" | 2 | "quiet" = "inherit",
 ): number {
     let viteCli: string;
     try {
@@ -58,9 +58,13 @@ export function runVite(
     const result = Bun.spawnSync([process.execPath, viteCli, ...viteCliArgs(command, args)], {
         cwd: viteCwd(projectDir),
         stdin: "inherit",
-        stdout,
-        stderr: "inherit",
+        stdout: stdout === "quiet" ? "pipe" : stdout,
+        stderr: stdout === "quiet" ? "pipe" : "inherit",
     });
+    if (stdout === "quiet" && result.exitCode !== 0) {
+        process.stderr.write(result.stdout ?? "");
+        process.stderr.write(result.stderr ?? "");
+    }
     return result.exitCode;
 }
 

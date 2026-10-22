@@ -163,10 +163,14 @@ function installDev(projectDir: string, dependency: string): void {
     publishProgress(`Adding ${dependency} to the project's devDependencies.`);
     const result = spawnSync("bun", ["add", "--dev", dependency], {
         cwd: projectDir,
-        stdio: ["ignore", 2, 2],
+        stdio: ["ignore", "pipe", "pipe"],
+        encoding: "utf8",
     });
     if (result.error) throw result.error;
-    if (result.status !== 0) throw new Error(`Could not install ${dependency}.`);
+    if (result.status !== 0) {
+        publishProgress(result.stdout, result.stderr);
+        throw new Error(`Could not install ${dependency}.`);
+    }
 }
 
 interface Deployment {
@@ -350,8 +354,12 @@ const targets: {
                     link.name = name;
                     // Wrangler gives no lock: another Worker can appear between the absence check and deploy.
                     const result = run(["deploy"], interactive);
-                    if (!interactive) publishProgress(result.stdout, result.stderr);
-                    return cloudflareDeployment(result);
+                    try {
+                        return cloudflareDeployment(result);
+                    } catch (error) {
+                        if (!interactive) publishProgress(result.stdout, result.stderr);
+                        throw error;
+                    }
                 },
                 get commands() {
                     return `Preview: CLOUDFLARE_ACCOUNT_ID=${accountId} bunx wrangler dev --assets <web-build-directory>\nRollback: CLOUDFLARE_ACCOUNT_ID=${accountId} bunx wrangler rollback --name ${name}\nUnpublish: CLOUDFLARE_ACCOUNT_ID=${accountId} bunx wrangler delete --name ${name}\nAccount: ${accountId}`;
@@ -442,6 +450,7 @@ export async function publishProject(projectDir: string, targetName?: string): P
     const target = targets[chosen] as PublishTarget<PublishLink>;
     if (!targetName && !linked) publishProgress("Using publish target cloudflare.");
     const work = mkdtempSync(join(tmpdir(), "shallot-publish-"));
+    let playUrl: string;
     try {
         const directory = join(work, "web");
         const setup = await target.setup(
@@ -450,13 +459,12 @@ export async function publishProject(projectDir: string, targetName?: string): P
             publishInteraction(process.env, !!process.stdin.isTTY && !!process.stdout.isTTY),
             saved,
         );
-        await buildWeb(projectDir, { outDir: directory, stdout: 2 });
+        await buildWeb(projectDir, { outDir: directory, stdout: "quiet" });
         const assets = publishAssets(directory);
         preflightPublish(assets, target.limits);
         target.headers(directory);
         const deployed = await setup.deploy(directory);
         savePublishLink(projectDir, setup.link);
-        console.log(deployed.url);
         publishProgress(`Build: ${deployed.buildUrl}\n${setup.commands}`);
         const browser = await projectChromium(projectDir);
         try {
@@ -467,7 +475,9 @@ export async function publishProject(projectDir: string, targetName?: string): P
         } finally {
             await browser.close();
         }
+        playUrl = deployed.url;
     } finally {
         rmSync(work, { recursive: true, force: true });
     }
+    console.log(playUrl);
 }

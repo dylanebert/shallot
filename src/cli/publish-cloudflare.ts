@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
+import { publishProgress } from "./publish-output";
 
 export const WRANGLER_VERSION: string = JSON.parse(
     readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
@@ -67,6 +68,8 @@ export function runWrangler(
     outputPath: string,
     interactive = false,
 ): WranglerResult {
+    const quietDeploy = interactive && args[0] === "deploy";
+    const logPath = `${outputPath}.log`;
     const result = spawnSync("node", [cli, ...args], {
         cwd,
         env: {
@@ -74,6 +77,7 @@ export function runWrangler(
             WRANGLER_SEND_METRICS: "false",
             WRANGLER_LOG_SANITIZE: "true",
             WRANGLER_OUTPUT_FILE_PATH: outputPath,
+            ...(quietDeploy ? { WRANGLER_LOG: "warn", WRANGLER_LOG_PATH: logPath } : {}),
         },
         encoding: "utf8",
         stdio: interactive ? ["inherit", 2, 2] : ["ignore", "pipe", "pipe"],
@@ -85,6 +89,9 @@ export function runWrangler(
             );
         throw result.error;
     }
+    // Keep the terminal for provider prompts; Wrangler's debug log retains suppressed deploy output.
+    if (quietDeploy && result.status !== 0 && existsSync(logPath))
+        publishProgress(readFileSync(logPath, "utf8"));
     const entries = existsSync(outputPath)
         ? readFileSync(outputPath, "utf8")
               .trim()
