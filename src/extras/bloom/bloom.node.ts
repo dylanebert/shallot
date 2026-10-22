@@ -19,7 +19,7 @@ import { Bloom, BloomCompositeMode, BloomPlugin } from ".";
 import { bevyPipelines, renderBevy } from "./bevy.fixture";
 import { blendFactor, stateKey } from "./state";
 
-setDefaultTimeout(TIMEOUT.gpu);
+setDefaultTimeout(TIMEOUT.node);
 const width = 64;
 const height = 32;
 let eid = -1;

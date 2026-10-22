@@ -121,13 +121,6 @@ jobs:
             sudo apt-get "${apt_options[@]}" install -y mesa-vulkan-drivers
           fi
           sudo chmod -R a+rX "$apt_cache"
-      # llvmpipe compiles each draw's shader variant on first use; a cold cache charges that to the first test drawing it.
-      - uses: actions/cache@v5
-        if: matrix.os == 'ubuntu-latest'
-        with:
-          path: ~/.cache/mesa_shader_cache
-          key: mesa-shaders-${{ steps.runner-image.outputs.image }}-${{ runner.arch }}-${{ github.run_id }}
-          restore-keys: mesa-shaders-${{ steps.runner-image.outputs.image }}-${{ runner.arch }}-
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
