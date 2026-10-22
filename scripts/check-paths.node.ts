@@ -264,6 +264,7 @@ function separatorErrors(file: string, source: string): string[] {
 function toolingFiles(): string[] {
     const patterns = [
         "src/{project,cli,native,types}/**/*.{ts,js}",
+        "src/**/browser/*.config.ts",
         "{scripts,diagnostics,bin}/**/*.{ts,js,mjs}",
         "crates/*/scripts/**/*.ts",
     ];
