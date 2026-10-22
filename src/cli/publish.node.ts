@@ -220,6 +220,8 @@ for (const template of ["minimal", "physics"])
                 config,
                 "--port",
                 String(port),
+                "--inspector-port",
+                "0",
                 "--ip",
                 "127.0.0.1",
                 "--persist-to",
