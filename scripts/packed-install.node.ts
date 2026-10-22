@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { parse } from "@babel/parser";
@@ -14,6 +14,7 @@ import {
     packedInstall,
     projectFiles,
     ROOT,
+    removeExample,
     run,
 } from "./packed-install-fixture";
 
@@ -172,6 +173,7 @@ function nodeTestNames(path: string): string[] {
 for (const name of examples) {
     describe(name, () => {
         beforeAll(() => createExample(name), TIMEOUT.startup);
+        afterAll(() => removeExample(name), TIMEOUT.startup);
 
         test(`${name} creates and installs from the packed CLI`, () => {
             assertCreatedExample(name);

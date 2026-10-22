@@ -170,6 +170,12 @@ test("the Bun preload transforms engine TGSL and keeps it callable on the CPU", 
     created.set(name, { manifest: createdManifest, installOutput });
 }
 
+/** Remove `name`'s copy, so each example pays for its own install's removal rather than the scratch's. */
+export function removeExample(name: string): void {
+    created.delete(name);
+    if (install) removeTestDirectory(join(install.scratch, name));
+}
+
 export function assertCreatedExample(name: string): void {
     example(name);
     const { manifest, installOutput } = created.get(name)!;
