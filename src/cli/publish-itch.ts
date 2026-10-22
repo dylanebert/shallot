@@ -175,6 +175,8 @@ function failure(result: ButlerResult): string | undefined {
 }
 
 export const MISSING_BUTLER_LOGIN = "No credentials and stdin is not a terminal";
+export const BUTLER_LOGIN_REQUIRED =
+    "itch.io login is missing. Set BUTLER_API_KEY for non-interactive publish (https://itch.io/user/settings/api-keys); run butler login in a terminal.";
 
 export interface ItchChannel {
     uploadId: number;
@@ -185,10 +187,7 @@ export interface ItchChannel {
 /** Refuses butler's answers for a missing login and a missing project by what to do about them. */
 function refuseButlerFailure(name: string, command: string, result: ButlerResult): void {
     const message = failure(result);
-    if (message?.includes(MISSING_BUTLER_LOGIN))
-        throw new Error(
-            "itch.io login is missing. Set BUTLER_API_KEY for non-interactive publish (https://itch.io/user/settings/api-keys); run butler login in a terminal.",
-        );
+    if (message?.includes(MISSING_BUTLER_LOGIN)) throw new Error(BUTLER_LOGIN_REQUIRED);
     if (message?.includes("invalid game") || message?.includes("invalid target"))
         throw new Error(
             `itch.io has no project ${name} for this login. Create it at https://itch.io/game/new with Kind of project HTML, then publish again; package.json's shallot.publish.name names it.`,

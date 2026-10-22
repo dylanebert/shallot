@@ -20,6 +20,7 @@ import {
     workerExists,
 } from "./publish-cloudflare";
 import {
+    BUTLER_LOGIN_REQUIRED,
     BUTLER_STATUS_TIMEOUT,
     ensureButler,
     ITCH_CHANNEL,
@@ -386,6 +387,7 @@ const targets: {
                     `Invalid itch.io project ${JSON.stringify(name)}; use <user>/<game> as in its page's link.`,
                 );
             const project = name;
+            if (!interactive && !process.env.BUTLER_API_KEY) throw new Error(BUTLER_LOGIN_REQUIRED);
             const butler = await ensureButler();
             const status = (timeout = BUTLER_STATUS_TIMEOUT) =>
                 runButler(butler, ["status", `${project}:${ITCH_CHANNEL}`], { timeout });
