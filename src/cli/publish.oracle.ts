@@ -7,12 +7,13 @@ import { createInterface } from "node:readline/promises";
 import { bunChild } from "../../scripts/bun-child";
 import { packedInstall } from "../../scripts/packed-install-spawn";
 import { browserSessionPath } from "../../scripts/publish-browser-session";
+import { cleanupOracleWorkers } from "../../scripts/publish-oracle-cleanup";
 import { normalizePath } from "../project";
 import { cloudflareConfig, type WranglerResult, workerExists } from "./publish-cloudflare";
 import { BUTLER_VERSION } from "./publish-itch";
 
 // Real Cloudflare boundary: select with -t 'personal:.*Cloudflare' or -t 'CI:.*Cloudflare'.
-// Scratch projects and logins are retained; no Worker is deleted automatically.
+// Scratch projects and logins are retained. Successful trials delete their Workers; failures retain them for inspection.
 for (const trial of ["personal", "CI"] as const) {
     test(
         `${trial}: a packed scaffold publishes to Cloudflare`,
@@ -96,151 +97,194 @@ for (const trial of ["personal", "CI"] as const) {
                 "publish oracle scaffold install",
             );
             const projectCli = join(project, "node_modules/@dylanebert/shallot/bin/shallot.ts");
-            if (!personal) {
-                const url = run([projectCli, "publish"], project);
-                expect(new URL(url).hostname).toEndWith(".workers.dev");
-                const link = JSON.parse(readFileSync(path, "utf8")).shallot.publish;
-                expect(link.target).toBe("cloudflare");
-                expect(link.accountId).toBe(process.env.CLOUDFLARE_ACCOUNT_ID);
-                console.info(`CI verified link: ${url}\nRetained oracle scratch: ${root}`);
-                return;
-            }
-            const first = Bun.spawnSync({
-                ...bunChild([projectCli, "publish"]),
-                cwd: project,
-                env: trialEnv,
-                stdin: "inherit",
-                stdout: "inherit",
-                stderr: "inherit",
-            });
-            expect(first.exitCode).toBe(0);
-            const input = createInterface({ input: process.stdin, output: process.stdout });
-            let url: string;
+            const workers = new Set<string>();
+            let passed = false;
             try {
-                url = (
-                    await input.question(
-                        "Open the printed play link anonymously, judge that it plays, then paste that link here: ",
+                if (!personal) {
+                    const url = run([projectCli, "publish"], project);
+                    expect(new URL(url).hostname).toEndWith(".workers.dev");
+                    const link = JSON.parse(readFileSync(path, "utf8")).shallot.publish;
+                    expect(link.target).toBe("cloudflare");
+                    expect(link.accountId).toBe(process.env.CLOUDFLARE_ACCOUNT_ID);
+                    console.info(`CI verified link: ${url}\nRetained oracle scratch: ${root}`);
+                    passed = true;
+                    return;
+                }
+                const first = Bun.spawnSync({
+                    ...bunChild([projectCli, "publish"]),
+                    cwd: project,
+                    env: trialEnv,
+                    stdin: "inherit",
+                    stdout: "inherit",
+                    stderr: "inherit",
+                });
+                expect(first.exitCode).toBe(0);
+                const input = createInterface({ input: process.stdin, output: process.stdout });
+                let url: string;
+                try {
+                    url = (
+                        await input.question(
+                            "Open the printed play link anonymously, judge that it plays, then paste that link here: ",
+                        )
                     )
-                )
-                    .trim()
-                    .replace(/\/$/, "");
-            } finally {
-                input.close();
-            }
-            expect(new URL(url).hostname).toEndWith(".workers.dev");
-            const linked = JSON.parse(readFileSync(path, "utf8"));
-            const link = linked.shallot.publish;
-            expect(link.target).toBe("cloudflare");
-            expect(linked.devDependencies.wrangler).toBe("4.151.3");
-            const wrangler = join(project, "node_modules/wrangler/bin/wrangler.js");
-            const whoami = spawnSync("node", [wrangler, "whoami", "--json"], {
-                cwd: project,
-                env: trialEnv,
-                encoding: "utf8",
-                stdio: ["ignore", "pipe", "pipe"],
-            });
-            expect(whoami.status, whoami.stderr).toBe(0);
-            const identity = JSON.parse(whoami.stdout);
-            const accountId = link.accountId;
-            expect(accountId).toBeString();
-            expect(identity.accounts.map((account: { id: string }) => account.id)).toContain(
-                accountId,
-            );
-            const config = join(root, "wrangler.json");
-            writeFileSync(
-                config,
-                JSON.stringify(
-                    cloudflareConfig(join(root, "unused-assets"), { ...link, accountId }),
-                ),
-            );
-            let serial = 0;
-            const provider = (args: string[]): WranglerResult => {
-                const output = join(root, `provider-${serial++}.jsonl`);
-                const result = spawnSync("node", [wrangler, ...args, "--config", config], {
-                    cwd: root,
-                    env: { ...trialEnv, WRANGLER_OUTPUT_FILE_PATH: output },
+                        .trim()
+                        .replace(/\/$/, "");
+                } finally {
+                    input.close();
+                }
+                expect(new URL(url).hostname).toEndWith(".workers.dev");
+                const linked = JSON.parse(readFileSync(path, "utf8"));
+                const link = linked.shallot.publish;
+                expect(link.target).toBe("cloudflare");
+                expect(linked.devDependencies.wrangler).toBe("4.151.3");
+                const wrangler = join(project, "node_modules/wrangler/bin/wrangler.js");
+                const whoami = spawnSync("node", [wrangler, "whoami", "--json"], {
+                    cwd: project,
+                    env: trialEnv,
                     encoding: "utf8",
                     stdio: ["ignore", "pipe", "pipe"],
                 });
-                if (result.error) throw result.error;
-                return {
-                    status: result.status,
-                    stdout: result.stdout ?? "",
-                    stderr: result.stderr ?? "",
-                    entries: readFileSync(output, "utf8")
-                        .trim()
-                        .split("\n")
-                        .map((line) => JSON.parse(line)),
+                expect(whoami.status, whoami.stderr).toBe(0);
+                const identity = JSON.parse(whoami.stdout);
+                const accountId = link.accountId;
+                expect(accountId).toBeString();
+                expect(identity.accounts.map((account: { id: string }) => account.id)).toContain(
+                    accountId,
+                );
+                const config = join(root, "wrangler.json");
+                writeFileSync(
+                    config,
+                    JSON.stringify(
+                        cloudflareConfig(join(root, "unused-assets"), { ...link, accountId }),
+                    ),
+                );
+                let serial = 0;
+                const provider = (args: string[]): WranglerResult => {
+                    const output = join(root, `provider-${serial++}.jsonl`);
+                    const result = spawnSync("node", [wrangler, ...args, "--config", config], {
+                        cwd: root,
+                        env: { ...trialEnv, WRANGLER_OUTPUT_FILE_PATH: output },
+                        encoding: "utf8",
+                        stdio: ["ignore", "pipe", "pipe"],
+                    });
+                    if (result.error) throw result.error;
+                    return {
+                        status: result.status,
+                        stdout: result.stdout ?? "",
+                        stderr: result.stderr ?? "",
+                        entries: readFileSync(output, "utf8")
+                            .trim()
+                            .split("\n")
+                            .map((line) => JSON.parse(line)),
+                    };
                 };
-            };
-            const exists = provider(["versions", "list", "--json"]);
-            expect(workerExists(exists)).toBe(true);
-            const absent = provider([
-                "versions",
-                "list",
-                "--json",
-                "--name",
-                `shallot-absent-${crypto.randomUUID().slice(0, 8)}`,
-            ]);
-            expect(workerExists(absent)).toBe(false);
-            console.info("Recorded existence answers:", {
-                existingStatus: exists.status,
-                absentStatus: absent.status,
-                absentFailure: absent.entries.findLast((entry) => entry.type === "command-failed")
-                    ?.code,
-            });
-            const deployments = () => {
-                const result = provider(["deployments", "list", "--json"]);
-                expect(result.status, result.stderr).toBe(0);
-                return JSON.parse(result.stdout) as { id: string }[];
-            };
-            const firstDeployment = deployments().at(-1)!.id;
-            const collision = join(root, "collision");
-            cpSync(project, collision, {
-                recursive: true,
-                filter: (source) => !normalizePath(source).split("/").includes("node_modules"),
-            });
-            const collisionPath = join(collision, "package.json");
-            const collisionManifest = JSON.parse(readFileSync(collisionPath, "utf8"));
-            collisionManifest.name = link.name;
-            delete collisionManifest.shallot.publish;
-            writeFileSync(collisionPath, JSON.stringify(collisionManifest, null, 4));
-            packedInstall(
-                ["install", "--linker=isolated", "--no-progress"],
-                collision,
-                "publish collision fixture install",
-            );
-            const refused = Bun.spawnSync({
-                ...bunChild([
-                    join(collision, "node_modules/@dylanebert/shallot/bin/shallot.ts"),
-                    "publish",
-                ]),
-                cwd: collision,
-                env: trialEnv,
-                stdin: "ignore",
-                stdout: "pipe",
-                stderr: "pipe",
-            });
-            expect(refused.exitCode).toBe(1);
-            expect(refused.stderr.toString()).toContain(`Worker "${link.name}" already exists`);
-            expect(refused.stderr.toString()).toContain("shallot.publish.name");
-            expect(JSON.parse(readFileSync(collisionPath, "utf8")).shallot.publish).toBeUndefined();
-            expect(deployments().at(-1)!.id).toBe(firstDeployment);
-            const html = join(project, "index.html");
-            writeFileSync(
-                html,
-                readFileSync(html, "utf8").replace(
-                    "<title>minimal</title>",
-                    "<title>republished oracle</title>",
-                ),
-            );
-            expect(run([projectCli, "publish"], project)).toBe(url);
-            expect(deployments().at(-1)!.id).not.toBe(firstDeployment);
-            expect(await (await fetch(url)).text()).toContain("republished oracle");
-            expect(JSON.parse(readFileSync(path, "utf8")).shallot.publish).toEqual(link);
-            console.info(
-                `Qualified stable link: ${url}\nUnpublish deliberately: CLOUDFLARE_ACCOUNT_ID=${accountId} bunx wrangler delete --name ${link.name}\nRetained oracle scratch: ${root}`,
-            );
+                const exists = provider(["versions", "list", "--json"]);
+                expect(workerExists(exists)).toBe(true);
+                const absent = provider([
+                    "versions",
+                    "list",
+                    "--json",
+                    "--name",
+                    `shallot-absent-${crypto.randomUUID().slice(0, 8)}`,
+                ]);
+                expect(workerExists(absent)).toBe(false);
+                console.info("Recorded existence answers:", {
+                    existingStatus: exists.status,
+                    absentStatus: absent.status,
+                    absentFailure: absent.entries.findLast(
+                        (entry) => entry.type === "command-failed",
+                    )?.code,
+                });
+                const deployments = () => {
+                    const result = provider(["deployments", "list", "--json"]);
+                    expect(result.status, result.stderr).toBe(0);
+                    return JSON.parse(result.stdout) as { id: string }[];
+                };
+                const firstDeployment = deployments().at(-1)!.id;
+                const collision = join(root, "collision");
+                cpSync(project, collision, {
+                    recursive: true,
+                    filter: (source) => !normalizePath(source).split("/").includes("node_modules"),
+                });
+                const collisionPath = join(collision, "package.json");
+                const collisionManifest = JSON.parse(readFileSync(collisionPath, "utf8"));
+                collisionManifest.name = link.name;
+                delete collisionManifest.shallot.publish;
+                writeFileSync(collisionPath, JSON.stringify(collisionManifest, null, 4));
+                packedInstall(
+                    ["install", "--linker=isolated", "--no-progress"],
+                    collision,
+                    "publish collision fixture install",
+                );
+                workers.add(collisionManifest.name);
+                const refused = Bun.spawnSync({
+                    ...bunChild([
+                        join(collision, "node_modules/@dylanebert/shallot/bin/shallot.ts"),
+                        "publish",
+                    ]),
+                    cwd: collision,
+                    env: trialEnv,
+                    stdin: "ignore",
+                    stdout: "pipe",
+                    stderr: "pipe",
+                });
+                expect(refused.exitCode).toBe(1);
+                expect(refused.stderr.toString()).toContain(`Worker "${link.name}" already exists`);
+                expect(refused.stderr.toString()).toContain("shallot.publish.name");
+                expect(
+                    JSON.parse(readFileSync(collisionPath, "utf8")).shallot.publish,
+                ).toBeUndefined();
+                expect(deployments().at(-1)!.id).toBe(firstDeployment);
+                const html = join(project, "index.html");
+                writeFileSync(
+                    html,
+                    readFileSync(html, "utf8").replace(
+                        "<title>minimal</title>",
+                        "<title>republished oracle</title>",
+                    ),
+                );
+                expect(run([projectCli, "publish"], project)).toBe(url);
+                expect(deployments().at(-1)!.id).not.toBe(firstDeployment);
+                expect(await (await fetch(url)).text()).toContain("republished oracle");
+                expect(JSON.parse(readFileSync(path, "utf8")).shallot.publish).toEqual(link);
+                console.info(`Qualified stable link: ${url}\nRetained oracle scratch: ${root}`);
+                passed = true;
+            } finally {
+                const linked = JSON.parse(readFileSync(path, "utf8")).shallot?.publish;
+                workers.add(linked?.name ?? manifest.name);
+                cleanupOracleWorkers(
+                    workers,
+                    passed,
+                    (name) => {
+                        const result = spawnSync(
+                            "node",
+                            [
+                                join(project, "node_modules/wrangler/bin/wrangler.js"),
+                                "delete",
+                                "--name",
+                                name,
+                            ],
+                            {
+                                cwd: project,
+                                env: {
+                                    ...trialEnv,
+                                    CI: "true",
+                                    ...(linked?.accountId
+                                        ? { CLOUDFLARE_ACCOUNT_ID: linked.accountId }
+                                        : {}),
+                                },
+                                encoding: "utf8",
+                                stdio: ["ignore", "pipe", "pipe"],
+                            },
+                        );
+                        return {
+                            status: result.status,
+                            stderr: result.error?.message ?? result.stderr ?? "",
+                        };
+                    },
+                    console.info,
+                );
+            }
         },
         Number.POSITIVE_INFINITY,
     );
