@@ -62,7 +62,7 @@ afterAll(async () => {
     await removeTestDirectory(root);
 });
 
-test("the verifier rejects physics after worker startup falls back to the single artifact", async () => {
+test("the verifier rejects physics after worker startup falls back to the single artifact, before app startup", async () => {
     const project = join(root, "physics-fallback");
     mkdirSync(project);
     symlinkSync(join(repo, "node_modules"), join(project, "node_modules"), "junction");
@@ -76,9 +76,9 @@ test("the verifier rejects physics after worker startup falls back to the single
     writeFileSync(
         join(project, "index.html"),
         `<link rel="icon" href="data:,"><script type="module">
-            import { runApp } from "fixture-app";
+            import { createApp } from "fixture-app";
             import { StandardPhysicsPlugin } from "fixture-physics";
-            await runApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
+            await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
         </script>`,
     );
     directory = join(project, "dist");
@@ -86,7 +86,8 @@ test("the verifier rejects physics after worker startup falls back to the single
     blockWorkers = true;
     try {
         await expect(
-            verifyPublishedGame(browser, servers[0]!.url.href, directory, publishAssets(directory)),
+            // This control owns runtime fallback; the other cases verify every built asset's bytes.
+            verifyPublishedGame(browser, servers[0]!.url.href, directory, []),
         ).rejects.toThrow("Physics initialized the single artifact, not shared.");
     } finally {
         blockWorkers = false;

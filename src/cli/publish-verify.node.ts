@@ -68,14 +68,24 @@ for (const [fault, failure] of [
     ["SPA fallback", "A missing path answered 200, not 404"],
     ["absent isolation", "The published page is not cross-origin isolated"],
     ["no startup observation", `waitForFunction: Timeout ${TIMEOUT.cheap}ms exceeded`],
+    [
+        "single physics artifact before app startup",
+        "Physics initialized the single artifact, not shared.",
+    ],
 ] as const) {
     test(`the publish verifier ${failure ? `rejects ${fault}` : "accepts the isolated, observed positive control"}`, async () => {
         control = fault;
         unavailable = 0;
         requests = 0;
+        const startup =
+            fault === "no startup observation"
+                ? ""
+                : fault === "single physics artifact before app startup"
+                  ? 'dispatchEvent(new CustomEvent("shallot:startup",{detail:{kind:"physics",threads:1,artifact:"single"}}));'
+                  : script;
         writeFileSync(
             join(directory, "index.html"),
-            fault === "no startup observation" ? '<link rel="icon" href="data:,">' : html,
+            `<link rel="icon" href="data:,"><script>${startup}</script>`,
         );
         writeFileSync(join(directory, "game.js"), "const game = 1;\n");
         const assets = ["index.html", "game.js"].map((path) => ({

@@ -209,7 +209,10 @@ export async function verifyPublishedGame(
                     () => {
                         const status = (window as unknown as { __shallotPublish: BrowserStartup })
                             .__shallotPublish;
-                        return status.started && status.adapter !== undefined;
+                        return (
+                            status.artifact === "single" ||
+                            (status.started && status.adapter !== undefined)
+                        );
                     },
                     undefined,
                     { timeout: startupTimeout },
