@@ -7,7 +7,9 @@ import { browserSessionPath } from "./publish-browser-session";
 
 setDefaultTimeout(TIMEOUT.node);
 
-test("desktop opener uses the person's session while Wrangler config stays isolated", () => {
+test("POSIX desktop opener uses the person's session while Wrangler config stays isolated", () => {
+    if (process.platform !== "linux" && process.platform !== "darwin")
+        throw new Error("The desktop opener shim requires Linux or macOS with /bin/sh.");
     const root = mkdtempSync(join(tmpdir(), "shallot-browser-session-"));
     try {
         const bin = join(root, "stub-bin");
