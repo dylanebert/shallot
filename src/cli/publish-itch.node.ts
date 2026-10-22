@@ -176,7 +176,7 @@ test("a stuck butler is stopped, and the processing wait is bounded with it", as
     writeFileSync(stuck, "await Bun.sleep(60_000);\n");
     const started = Date.now();
     expect(() => runButler(process.execPath, [stuck], { timeout: stall })).toThrow(
-        "did not answer within 1 s",
+        `did not answer within ${Math.ceil(stall / 1000)} s`,
     );
     const limits: number[] = [];
     await expect(
