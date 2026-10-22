@@ -7,12 +7,20 @@ export interface OracleDeleteAnswer {
 export function cleanupOracleWorkers(
     names: Iterable<string>,
     passed: boolean,
+    accountId: string | undefined,
     remove: (name: string) => OracleDeleteAnswer,
     report: (message: string) => void,
 ): void {
     const failures: string[] = [];
     for (const name of new Set(names)) {
-        const command = `wrangler delete --name ${name}`;
+        if (!accountId) {
+            report(
+                `Retained Worker ${name}: account unresolved; resolve its account before deleting.`,
+            );
+            if (passed) failures.push(`${name}: account unresolved`);
+            continue;
+        }
+        const command = `CLOUDFLARE_ACCOUNT_ID=${accountId} wrangler delete --name ${name}`;
         if (!passed) {
             report(`Retained Worker for inspection: ${command}`);
             continue;

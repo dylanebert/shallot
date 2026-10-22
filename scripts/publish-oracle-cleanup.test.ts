@@ -8,6 +8,7 @@ for (const passed of [true, false]) {
         cleanupOracleWorkers(
             ["trial", "collision", "trial"],
             passed,
+            "account-a",
             (name) => {
                 deleted.push(name);
                 return { status: 0, stderr: "" };
@@ -19,12 +20,28 @@ for (const passed of [true, false]) {
             passed
                 ? ["Deleted Worker trial.", "Deleted Worker collision."]
                 : [
-                      "Retained Worker for inspection: wrangler delete --name trial",
-                      "Retained Worker for inspection: wrangler delete --name collision",
+                      "Retained Worker for inspection: CLOUDFLARE_ACCOUNT_ID=account-a wrangler delete --name trial",
+                      "Retained Worker for inspection: CLOUDFLARE_ACCOUNT_ID=account-a wrangler delete --name collision",
                   ],
         );
     });
 }
+
+test("an unresolved account never prints or executes an unbound delete", () => {
+    const reports: string[] = [];
+    cleanupOracleWorkers(
+        ["trial"],
+        false,
+        undefined,
+        () => {
+            throw new Error("must not delete");
+        },
+        (message) => reports.push(message),
+    );
+    expect(reports).toEqual([
+        "Retained Worker trial: account unresolved; resolve its account before deleting.",
+    ]);
+});
 
 test("a failed deletion reports the command, attempts remaining names and fails the trial", () => {
     const deleted: string[] = [];
@@ -33,6 +50,7 @@ test("a failed deletion reports the command, attempts remaining names and fails 
         cleanupOracleWorkers(
             ["trial", "collision"],
             true,
+            "account-a",
             (name) => {
                 deleted.push(name);
                 return name === "trial"
@@ -44,7 +62,7 @@ test("a failed deletion reports the command, attempts remaining names and fails 
     ).toThrow("trial: permission denied");
     expect(deleted).toEqual(["trial", "collision"]);
     expect(reports).toEqual([
-        "Could not delete Worker: wrangler delete --name trial",
+        "Could not delete Worker: CLOUDFLARE_ACCOUNT_ID=account-a wrangler delete --name trial",
         "Deleted Worker collision.",
     ]);
 });

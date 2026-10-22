@@ -262,6 +262,7 @@ for (const trial of ["personal", "CI"] as const) {
                     cleanupOracleWorkers(
                         workers,
                         passed,
+                        linked?.accountId ?? trialEnv.CLOUDFLARE_ACCOUNT_ID,
                         (name) => {
                             const result = spawnSync(
                                 "node",
