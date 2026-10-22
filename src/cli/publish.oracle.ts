@@ -412,6 +412,11 @@ for (const trial of ["personal", "CI"] as const) {
                 const cli = join(project, "node_modules/@dylanebert/shallot/bin/shallot.ts");
                 const url = "https://individualkex.itch.io/shallot-publish-test";
                 const html = join(project, "index.html");
+                if (personal)
+                    writeFileSync(
+                        html,
+                        `${readFileSync(html, "utf8")}\n<!-- publish oracle ${crypto.randomUUID()} -->\n`,
+                    );
                 const change = () => {
                     const before = readFileSync(html, "utf8");
                     const after = before.replace(
@@ -462,6 +467,10 @@ for (const trial of ["personal", "CI"] as const) {
                 };
                 if (personal) {
                     const first = publish(true);
+                    expect(first.report).toMatch(
+                        /Pushed build \d+; waiting for itch\.io to process it\./,
+                    );
+                    expect(first.report).not.toContain("itch.io already has this build");
                     expect(first.code, first.report).toBe(1);
                     expect(first.report).toContain("itch.io login is required.");
                     expect(first.report).toContain(
@@ -486,6 +495,10 @@ for (const trial of ["personal", "CI"] as const) {
                     expect(await verified()).toContain("<title>minimal</title>");
                     change();
                     const changed = publish(false);
+                    expect(changed.report).toMatch(
+                        /Pushed build \d+; waiting for itch\.io to process it\./,
+                    );
+                    expect(changed.report).not.toContain("itch.io already has this build");
                     expect(changed.code, changed.report).toBe(1);
                     expect(changed.report).toContain(
                         "Not verified yet: itch.io serves this build once its page is viewed.",

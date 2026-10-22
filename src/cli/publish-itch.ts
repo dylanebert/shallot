@@ -292,7 +292,7 @@ export const ITCH_HOST: PublishHost = {
 
 /** The page settings only itch.io's web UI shows, which verifying the frame document cannot see. */
 export function itchPageSettings(name: string): string {
-    return `Not verified, set on itch.io: on https://itch.io/dashboard, Edit ${name.split("/")[1]}; tick "This file will be played in the browser" on the ${ITCH_CHANNEL} upload and "SharedArrayBuffer support" under Embed options, and set Visibility to Public or Restricted, not Draft. Without them ${itchPageUrl(name)} offers no game, one without threads, or nothing to a visitor.`;
+    return `Not verified, set on itch.io: on https://itch.io/dashboard, Edit ${name.split("/")[1]}; tick "This file will be played in the browser" on the ${ITCH_CHANNEL} upload and "SharedArrayBuffer support" under Embed options, and set Visibility to Public or Restricted, not Draft. Recommended embed viewport: 960×540 (set in the web UI). Without them ${itchPageUrl(name)} offers no game, one without threads, or nothing to a visitor.`;
 }
 
 /**

@@ -216,6 +216,7 @@ test("the report names the page settings verification cannot see, and where to s
         '"This file will be played in the browser" on the html5 upload',
         '"SharedArrayBuffer support" under Embed options',
         "set Visibility to Public or Restricted, not Draft",
+        "Recommended embed viewport: 960×540 (set in the web UI)",
         page,
     ])
         expect(settings).toContain(part);
