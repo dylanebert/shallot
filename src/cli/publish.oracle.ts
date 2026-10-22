@@ -6,6 +6,7 @@ import { basename, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { bunChild } from "../../scripts/bun-child";
 import { packedInstall } from "../../scripts/packed-install-spawn";
+import { browserSessionPath } from "../../scripts/publish-browser-session";
 import { normalizePath } from "../project";
 import { cloudflareConfig, type WranglerResult, workerExists } from "./publish-cloudflare";
 import { BUTLER_VERSION } from "./publish-itch";
@@ -41,6 +42,7 @@ for (const trial of ["personal", "CI"] as const) {
                     ),
                 ),
                 HOME: home,
+                PATH: browserSessionPath(root),
                 XDG_CONFIG_HOME: home,
                 WRANGLER_SEND_METRICS: "false",
                 ...(personal
@@ -276,6 +278,7 @@ for (const trial of ["personal", "CI"] as const) {
                     ),
                 ),
                 HOME: home,
+                PATH: browserSessionPath(root),
                 XDG_CONFIG_HOME: join(home, "config"),
                 XDG_CACHE_HOME: join(home, "cache"),
                 XDG_DATA_HOME: join(home, "data"),

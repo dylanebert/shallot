@@ -30,7 +30,19 @@ export function spawnPackedInstall(
                 `stderr:\n${result.stderr.subarray(-8192).toString()}`,
         );
     }
-    if (result.exitCode !== 0) throw new Error(`${label} failed:\n${output}`);
+    if (result.exitCode !== 0) {
+        let remedy = "";
+        if (command.cmd.includes("--offline")) {
+            const cache = Bun.spawnSync([command.cmd[0]!, "pm", "cache"], {
+                cwd,
+                env: { ...process.env },
+                stdout: "pipe",
+                stderr: "pipe",
+            });
+            remedy = `\nBun cache (bun pm cache): ${cache.stdout.toString().trim() || cache.stderr.toString().trim()}\nFill this cache by running bun install --force in the checkout: ${resolve(import.meta.dir, "..")}\n`;
+        }
+        throw new Error(`${label} failed:\n${output}${remedy}`);
+    }
     return output;
 }
 

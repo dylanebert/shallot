@@ -20,6 +20,34 @@ setDefaultTimeout(TIMEOUT.node);
 
 const BOUND = 2000;
 
+test("an offline install failure names its cache and checkout recovery command", () => {
+    const scratch = mkdtempSync(join(tmpdir(), "shallot-offline-remedy-"));
+    try {
+        writeFileSync(
+            join(scratch, "package.json"),
+            JSON.stringify({ dependencies: { "is-number": "999.0.0" } }),
+        );
+        const cache = Bun.spawnSync(["bun", "pm", "cache"], { stdout: "pipe" })
+            .stdout.toString()
+            .trim();
+        let failure = "";
+        try {
+            spawnPackedInstall(
+                { cmd: ["bun", "install", "--offline"] },
+                scratch,
+                "offline fixture",
+            );
+        } catch (error) {
+            failure = String(error);
+        }
+        expect(failure).toContain("offline fixture failed:");
+        expect(failure).toContain(`Bun cache (bun pm cache): ${cache}`);
+        expect(failure).toContain("bun install --force in the checkout:");
+    } finally {
+        removeTestDirectory(scratch);
+    }
+});
+
 test("Bun children keep their host identity under a copy named node", () => {
     const scratch = mkdtempSync(join(tmpdir(), "shallot-bun-host-"));
     try {
