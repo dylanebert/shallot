@@ -52,3 +52,7 @@ world.add(eid, MeshMaterial, handle);
 // to ensure presence without resetting
 if (!world.has(eid, MeshMaterial)) world.add(eid, MeshMaterial);
 ```
+
+## Web builds name their files relative to the page
+
+`shallot()` now builds with Vite's `base: "./"` unless your config sets `base`, so the output loads under any path, as itch.io and a subpath host serve it. A game that serves its page at nested routes through the History API sets `base: "/"` in its Vite config to keep root-absolute URLs.

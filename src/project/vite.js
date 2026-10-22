@@ -98,7 +98,7 @@ function orphanedAssets(bundle) {
 /**
  * The Vite plugin set a Shallot project needs: `plugins: [shallot()]`. It carries TypeGPU's transform
  * alongside project support, and reaches engine source inside `node_modules`; a second pass corrupts
- * its metadata.
+ * its metadata. A build's base is `./`, so its output loads under any path, unless the config sets `base`.
  * @param {string} [projectDir]
  * @returns {import("vite").Plugin[]}
  */
@@ -116,6 +116,8 @@ export function shallot(projectDir) {
                 ...pluginPackages(absProjectDir),
             ];
             return {
+                // A published build may be served under any path, such as itch.io's /html/<upload>-<build>/.
+                ...(config.base === undefined && { base: "./" }),
                 resolve: { dedupe: sharedDependencies },
                 optimizeDeps: { exclude: sharedDependencies },
                 server: { headers: CROSS_ORIGIN_ISOLATION },
