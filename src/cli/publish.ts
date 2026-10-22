@@ -352,7 +352,7 @@ const targets: {
                     return cloudflareDeployment(result);
                 },
                 get commands() {
-                    return `Preview: bunx wrangler dev --assets <web-build-directory>\nRollback: bunx wrangler rollback --name ${name}\nUnpublish: bunx wrangler delete --name ${name}\nAccount: ${accountId}`;
+                    return `Preview: bunx wrangler dev --assets <web-build-directory>\nRollback: CLOUDFLARE_ACCOUNT_ID=${accountId} bunx wrangler rollback --name ${name}\nUnpublish: CLOUDFLARE_ACCOUNT_ID=${accountId} bunx wrangler delete --name ${name}\nAccount: ${accountId}`;
                 },
             };
         },
