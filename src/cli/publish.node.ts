@@ -15,9 +15,10 @@ import { basename, join, resolve } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { bunChild } from "../../scripts/bun-child";
 import { packedInstall } from "../../scripts/packed-install-spawn";
+import { publishTestChromium } from "../../scripts/publish-browser";
 import { removeTestDirectory } from "../../scripts/test-directory";
 import { cloudflareConfig, resolveWrangler, WRANGLER_VERSION } from "./publish-cloudflare";
-import { projectChromium, verifyPublishedGame } from "./publish-verify";
+import { verifyPublishedGame } from "./publish-verify";
 
 setDefaultTimeout(TIMEOUT.node);
 const repo = resolve(import.meta.dir, "../..");
@@ -47,7 +48,7 @@ function cleanEnv(home: string): NodeJS.ProcessEnv {
 
 for (const cause of ["device", "console", "page", "browser", "crash"] as const)
     test(`publish verification fails with the observed ${cause} failure before startup`, async () => {
-        const browser = await projectChromium(repo);
+        const browser = await publishTestChromium();
         const server = createHttpServer((request, response) => {
             if (request.url !== "/") {
                 response.writeHead(404).end();
@@ -237,9 +238,9 @@ for (const template of ["minimal", "physics"])
                 logs += chunk;
             });
             const exited = new Promise<void>((done) => child.once("exit", () => done()));
-            let browser: Awaited<ReturnType<typeof verify.projectChromium>> | undefined;
+            let browser: Awaited<ReturnType<typeof publishTestChromium>> | undefined;
             try {
-                browser = await verify.projectChromium(scaffold);
+                browser = await publishTestChromium();
                 const newContext = browser.newContext.bind(browser);
                 browser.newContext = async (...args) => {
                     const context = await newContext(...args);

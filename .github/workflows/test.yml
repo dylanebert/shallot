@@ -210,6 +210,8 @@ jobs:
         with:
           rustflags: ""
       - run: bun install --frozen-lockfile
+      - name: install Playwright Chromium
+        run: bunx playwright install chromium
       - name: Run Bun as node.exe
         if: matrix.os == 'windows-latest'
         shell: pwsh
@@ -292,6 +294,8 @@ jobs:
         with:
           node-version-file: .node-version
       - run: bun install --frozen-lockfile
+      - name: install Playwright Chromium
+        run: bunx playwright install chromium
       - name: install the shared kernel's nightly
         run: rustup toolchain install "$(grep -m1 -oE 'nightly-[0-9-]+' crates/physics/scripts/build-kernel.ts)" --component rust-src --target wasm32-unknown-unknown
       - name: build checked kernels

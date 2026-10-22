@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { chromium } from "playwright";
 import { bunChild } from "../../scripts/bun-child";
 import { removeTestDirectory } from "../../scripts/test-directory";
 import { CROSS_ORIGIN_ISOLATION } from "../project/isolation.js";
@@ -121,8 +122,8 @@ record({command:'build'});const directory=process.argv[process.argv.indexOf('--o
     );
     writeFileSync(
         join(project, "node_modules/playwright/index.js"),
-        `import {projectChromium} from ${JSON.stringify(join(repo, "src/cli/publish-verify.ts"))};
-export const chromium={async launch(){const browser=await projectChromium(${JSON.stringify(repo)}),create=browser.newContext.bind(browser);const map=(url)=>{const u=new URL(url);if(u.origin!=='https://fixture.workers.dev')throw Error('Unexpected external request');return ${JSON.stringify(server.url.origin)}+u.pathname;};browser.newContext=async(...args)=>{const context=await create(...args),get=context.request.get.bind(context.request),page=context.newPage.bind(context);context.request.get=(url,...args)=>get(map(url),...args);context.newPage=async()=>{const p=await page(),go=p.goto.bind(p);p.goto=(url,...args)=>go(map(url),...args);return p;};return context;};return browser;}};`,
+        `import {publishTestChromium} from ${JSON.stringify(join(repo, "scripts/publish-browser.ts"))};
+export const chromium={async launch(){const browser=await publishTestChromium(),create=browser.newContext.bind(browser);const map=(url)=>{const u=new URL(url);if(u.origin!=='https://fixture.workers.dev')throw Error('Unexpected external request');return ${JSON.stringify(server.url.origin)}+u.pathname;};browser.newContext=async(...args)=>{const context=await create(...args),get=context.request.get.bind(context.request),page=context.newPage.bind(context);context.request.get=(url,...args)=>get(map(url),...args);context.newPage=async()=>{const p=await page(),go=p.goto.bind(p);p.goto=(url,...args)=>go(map(url),...args);return p;};return context;};return browser;}};`,
     );
     const runner = join(root, "run.ts");
     writeFileSync(
@@ -140,6 +141,7 @@ export const chromium={async launch(){const browser=await projectChromium(${JSON
                 ...env,
                 PATH: `${bin}${delimiter}${process.env.PATH}`,
                 CI: "true",
+                SHALLOT_TEST_CHROMIUM: chromium.executablePath(),
                 HOME: join(root, "home"),
                 XDG_CONFIG_HOME: join(root, "home"),
                 ...(account ? { CLOUDFLARE_ACCOUNT_ID: account } : {}),

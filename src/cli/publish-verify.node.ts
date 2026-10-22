@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { publishTestChromium } from "../../scripts/publish-browser";
 import { removeTestDirectory } from "../../scripts/test-directory";
 import { CROSS_ORIGIN_ISOLATION } from "../project";
-import { projectChromium, verifyPublishedGame } from "./publish-verify";
+import { verifyPublishedGame } from "./publish-verify";
 
 setDefaultTimeout(TIMEOUT.node);
 const root = mkdtempSync(join(tmpdir(), "shallot-publish-controls-"));
@@ -14,7 +15,7 @@ mkdirSync(directory);
 const script = 'dispatchEvent(new CustomEvent("shallot:startup",{detail:{kind:"app"}}));';
 const html = `<link rel="icon" href="data:,"><script>${script}</script>`;
 let control = "positive";
-let browser: Awaited<ReturnType<typeof projectChromium>>;
+let browser: Awaited<ReturnType<typeof publishTestChromium>>;
 const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
@@ -43,7 +44,7 @@ const server = Bun.serve({
     },
 });
 beforeAll(async () => {
-    browser = await projectChromium(resolve(import.meta.dir, "../.."));
+    browser = await publishTestChromium();
 });
 afterAll(async () => {
     await browser?.close();
