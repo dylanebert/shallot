@@ -1252,6 +1252,12 @@ function normalizeThreads(v: number | undefined): number | undefined {
     return Math.max(0, Math.floor(v));
 }
 
+/** The initialized WASM artifact, including any startup fallback. */
+export function artifact(world: World | undefined): "shared" | "single" {
+    kernel(world);
+    return kernelState(world).sharedMemory === null ? "single" : "shared";
+}
+
 /** threads the kernel resolved to — 1 when it is running single-threaded. */
 export function threads(world: World | undefined): number {
     return kernelState(world).resolved;

@@ -71,6 +71,7 @@ import { BodyField, bodyField } from "./kernel/bodyrecords";
 import { EventKind, eventCount } from "./kernel/eventbuffers";
 import { readJointEventUserData } from "./kernel/jointcolumns";
 import {
+    artifact,
     kernel,
     type QueryCallback,
     rethrowQueryError,
@@ -2074,7 +2075,7 @@ export const StandardPhysicsPlugin: Plugin = {
         syncWorldDefinition(runtime.physicsWorld, definition);
         clearBodies(world, runtime);
         clearPhysicsEvents(world.resource(PhysicsEvents));
-        reportStartup({ kind: "physics", threads: threads(world) });
+        reportStartup({ kind: "physics", threads: threads(world), artifact: artifact(world) });
     },
 
     dispose(world) {
