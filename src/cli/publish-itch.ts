@@ -192,8 +192,8 @@ export function hasButlerCredentials(): boolean {
             ? join(home, "Library", "Application Support", "itch", "butler_creds")
             : join(home, ".config", "itch", "butler_creds"));
     try {
-        // An empty key also starts OAuth, even when butler's stdin is closed on Windows.
-        return readFileSync(identity, "utf8").trim().length > 0;
+        // Go's strings.TrimSpace also removes U+0085; an empty key starts OAuth on Windows.
+        return /[^\s\u0085]/u.test(readFileSync(identity, "utf8"));
     } catch {
         return false;
     }

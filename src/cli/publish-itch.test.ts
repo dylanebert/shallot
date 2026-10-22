@@ -250,8 +250,9 @@ test("a processed build not yet served refuses verification, naming the page to 
     }
 });
 
-for (const key of ["stored-key", "", " \n", undefined]) {
-    test(`non-interactive itch setup: ${key?.trim() ? "stored credentials reach the build" : `missing credentials (${JSON.stringify(key)}) refuse without login`}`, async () => {
+for (const key of ["stored-key", "", " \n", "\u0085", undefined]) {
+    const hasKey = key === "stored-key";
+    test(`non-interactive itch setup: ${hasKey ? "stored credentials reach the build" : `missing credentials (${JSON.stringify(key)}) refuse without login`}`, async () => {
         const directory = mkdtempSync(join(root, "credentials-"));
         const identity = join(directory, "butler_creds");
         if (key !== undefined) writeFileSync(identity, key);
@@ -277,11 +278,11 @@ for (const key of ["stored-key", "", " \n", undefined]) {
         );
         try {
             await expect(publishProject(directory)).rejects.toThrow(
-                key?.trim() ? "setup accepted; build reached" : "BUTLER_API_KEY",
+                hasKey ? "setup accepted; build reached" : "BUTLER_API_KEY",
             );
-            expect(run.mock.calls.map((call) => call[1][0])).toEqual(key?.trim() ? ["status"] : []);
-            expect(build).toHaveBeenCalledTimes(key?.trim() ? 1 : 0);
-            expect(ensure).toHaveBeenCalledTimes(key?.trim() ? 1 : 0);
+            expect(run.mock.calls.map((call) => call[1][0])).toEqual(hasKey ? ["status"] : []);
+            expect(build).toHaveBeenCalledTimes(hasKey ? 1 : 0);
+            expect(ensure).toHaveBeenCalledTimes(hasKey ? 1 : 0);
         } finally {
             ensure.mockRestore();
             run.mockRestore();
