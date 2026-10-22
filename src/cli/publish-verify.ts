@@ -187,8 +187,13 @@ export async function verifyPublishedGame(
             };
             page.on("pageerror", (error) => fail(error.message));
             page.on("console", (message) => {
-                if (message.type() === "error" && !host.foreign?.(message.location().url))
-                    fail(message.text());
+                const { url, lineNumber, columnNumber } = message.location();
+                if (message.type() === "error" && !host.foreign?.(url))
+                    fail(
+                        url
+                            ? `${url}:${lineNumber + 1}:${columnNumber + 1}: ${message.text()}`
+                            : message.text(),
+                    );
             });
             page.on("crash", () => fail("The published page crashed."));
             page.on("close", () => fail("The published page closed during verification."));

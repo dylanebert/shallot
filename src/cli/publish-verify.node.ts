@@ -113,6 +113,17 @@ for (const [fault, failure] of [
     });
 }
 
+test("page resource console failures name the resource URL", async () => {
+    control = "positive";
+    writeFileSync(
+        join(directory, "index.html"),
+        '<link rel="icon" href="data:,"><script src="/missing-startup.js"></script>',
+    );
+    await expect(
+        verifyPublishedGame(browser, server.url.href, directory, [], TIMEOUT.cheap),
+    ).rejects.toThrow(`${server.url.href}missing-startup.js`);
+});
+
 test("asset availability retries transient 404s and 5xx, but bounds persistent 404s", async () => {
     control = "positive";
     writeFileSync(join(directory, "index.html"), html);
