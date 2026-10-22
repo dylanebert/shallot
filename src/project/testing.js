@@ -86,7 +86,7 @@ export const WEB_SERVER_CONFIG = {
  * last; under `runApp`, each is one `world.step` and its draw. Input events, locator actions and screenshots
  * otherwise wait on scene draws, which a software adapter spaces by seconds. Call before navigating.
  * `ready` is a CSS selector or a self-contained in-page predicate, checked at each request until it first
- * holds. A reload or navigation starts a new document, whose frames run freely until `ready` holds again.
+ * holds once the standard loading screen is gone. A reload or navigation starts a new document, whose frames run freely until `ready` holds again.
  * @param {import("playwright/test").Page} page
  * @param {string | (() => boolean)} ready
  * @returns {Promise<{ run(count?: number): Promise<void> }>}
@@ -94,9 +94,12 @@ export const WEB_SERVER_CONFIG = {
 export async function holdFrames(page, ready) {
     await page.addInitScript(
         ({ selector, predicate }) => {
-            const isReady = selector
+            const holds = selector
                 ? () => document.querySelector(selector) !== null
                 : new Function(`return (${predicate})()`);
+            // runApp mounts its UI under the loading screen, which a held frame would never remove.
+            const isReady = () =>
+                document.querySelector("[data-shallot-loading]") === null && holds();
             const request = window.requestAnimationFrame.bind(window);
             const cancel = window.cancelAnimationFrame.bind(window);
             const held = new Map();

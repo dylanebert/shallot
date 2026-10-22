@@ -19,10 +19,7 @@ test("switching scenes resets the Bridge control and keeps the canvas", async ({
     const session = await page.context().newCDPSession(page);
     await session.send("Emulation.setHardwareConcurrencyOverride", { hardwareConcurrency: 1 });
     // Each switched scene steps and draws once; held frames keep the picker's clicks from waiting on draws.
-    const frames = await holdFrames(
-        page,
-        "body:not(:has([data-shallot-loading])) [aria-label='Scene navigation']",
-    );
+    const frames = await holdFrames(page, "[aria-label='Scene navigation']");
     await page.goto("/");
     const scene = page.getByRole("button", { name: "Scene", exact: true });
     await expect(scene).toBeEnabled();
