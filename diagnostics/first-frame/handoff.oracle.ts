@@ -176,6 +176,7 @@ function detailOf(record: HandoffRecord, report: HandoffReport, adapter: string)
     return {
         adapter,
         gap: report.gap,
+        loading: ms(record.handoff),
         intervals: report.intervals.slice(0, 4),
         steadyInterval: sorted[Math.floor(sorted.length / 2)],
         // Frame 0 is the handoff to the first frame's start; then each frame's callback time.
@@ -553,12 +554,12 @@ const cell = (value: unknown) => (value === undefined ? "" : String(value));
 console.log(
     [
         `\n${browserName}${headed ? " headed" : ""} ${cold ? "cold" : "warm"}${primes.length ? ` primed ${primes.join(", ")}` : ""}, ${results[0]?.adapter ?? ""}`,
-        "| Example | Gap ms | 1st interval ms | Frame-1 CPU ms | First updates ms | UI ms | Late pipelines | Setups |",
-        "|---|---|---|---|---|---|---|---|",
+        "| Example | Gap ms | Navigation to handoff ms | 1st interval ms | Frame-1 CPU ms | First updates ms | UI ms | Late pipelines | Setups |",
+        "|---|---|---|---|---|---|---|---|---|",
         ...results.map((r) =>
             r.error
                 ? `| ${r.example} | error: ${r.error} |`
-                : `| ${r.example} | ${cell(r.gap)} | ${cell((r.intervals as number[])[0])} | ${cell((r.frameCpu as number[])[1])} | ${cell((r.firstUpdate as { ms: number }).ms)} | ${cell(r.ui)} | ${(r.pipelines as string[]).length} | ${(r.setup as { count: number }).count} |`,
+                : `| ${r.example} | ${cell(r.gap)} | ${cell(r.loading)} | ${cell((r.intervals as number[])[0])} | ${cell((r.frameCpu as number[])[1])} | ${cell((r.firstUpdate as { ms: number }).ms)} | ${cell(r.ui)} | ${(r.pipelines as string[]).length} | ${(r.setup as { count: number }).count} |`,
         ),
         ...results.flatMap((r) => {
             const trace = r.trace as ReturnType<typeof segmentsOf> | undefined;

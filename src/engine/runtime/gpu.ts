@@ -1398,13 +1398,33 @@ export async function requestGPU(
                   checkPipeline(descriptor);
                   return createComputePipelineAsync(descriptor);
               };
+              const primeRenderBundle = (
+                  descriptor: GPURenderPipelineDescriptor,
+                  pipeline: GPURenderPipeline,
+              ) => {
+                  if (!owner.resource?.(precompileState).drained) {
+                      const bundle = d.createRenderBundleEncoder({
+                          colorFormats: Array.from(
+                              descriptor.fragment?.targets ?? [],
+                              (target) => target?.format ?? null,
+                          ),
+                          depthStencilFormat: descriptor.depthStencil?.format,
+                          sampleCount: descriptor.multisample?.count ?? 1,
+                      });
+                      bundle.setPipeline(pipeline);
+                      bundle.finish();
+                  }
+                  return pipeline;
+              };
               const trackedRenderPipeline = (descriptor: GPURenderPipelineDescriptor) => {
                   checkPipeline(descriptor);
-                  return createRenderPipeline(descriptor);
+                  return primeRenderBundle(descriptor, createRenderPipeline(descriptor));
               };
               const trackedRenderPipelineAsync = (descriptor: GPURenderPipelineDescriptor) => {
                   checkPipeline(descriptor);
-                  return createRenderPipelineAsync(descriptor);
+                  return createRenderPipelineAsync(descriptor).then((pipeline) =>
+                      primeRenderBundle(descriptor, pipeline),
+                  );
               };
               const queueMethods: MethodCache = new Map();
               const deviceMethods: MethodCache = new Map();

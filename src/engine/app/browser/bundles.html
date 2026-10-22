@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="UTF-8"><link rel="icon" href="data:,"><title>Pipeline bundle preparation</title></head>
+<body>
+<script type="module">
+import { createApp } from "@dylanebert/shallot";
+let create;
+const app = await createApp({
+    defaults: false,
+    plugins: [{
+        name: "BundleOwner",
+        gpu: {},
+        async initialize(world) {
+            const device = world.gpu.device;
+            const module = device.createShaderModule({ code: `
+                @vertex fn vs() -> @builtin(position) vec4f { return vec4f(0, 0, 0, 1); }
+                @fragment fn fs() -> @location(0) vec4f { return vec4f(1); }
+            ` });
+            const layout = device.createPipelineLayout({ bindGroupLayouts: [] });
+            create = (label, async, depthOnly = false) => {
+                const descriptor = {
+                    label, layout, vertex: { module, entryPoint: "vs" },
+                    ...(depthOnly ? {} : { fragment: { module, entryPoint: "fs", targets: [{ format: "rgba8unorm" }] } }),
+                    depthStencil: { format: "depth24plus-stencil8", depthWriteEnabled: true, depthCompare: "always" },
+                    multisample: { count: depthOnly ? 1 : 4 },
+                };
+                return async ? device.createRenderPipelineAsync(descriptor) : device.createRenderPipeline(descriptor);
+            };
+            create("early-sync", false);
+            await create("early-async", true);
+            create("early-depth", false, true);
+        },
+    }],
+});
+create("late-sync", false);
+await create("late-async", true);
+app.dispose();
+window.ready = true;
+</script>
+</body>
+</html>
