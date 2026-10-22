@@ -81,6 +81,43 @@ async function expectPaintedLabel(page: Page) {
 
 test.use(pipelineWarnings);
 
+test("the first frame does not resize a configured canvas", async ({ page }) => {
+    await page.addInitScript(() => {
+        const configured = new WeakSet<HTMLCanvasElement>();
+        const writes: string[] = [];
+        Object.assign(window, { configuredCanvasResizes: writes });
+        const configure = GPUCanvasContext.prototype.configure;
+        GPUCanvasContext.prototype.configure = function (descriptor) {
+            configured.add(this.canvas as HTMLCanvasElement);
+            return configure.call(this, descriptor);
+        };
+        for (const axis of ["width", "height"] as const) {
+            const descriptor = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, axis)!;
+            Object.defineProperty(HTMLCanvasElement.prototype, axis, {
+                ...descriptor,
+                set(value: number) {
+                    if (configured.has(this) && descriptor.get!.call(this) !== value)
+                        writes.push(axis);
+                    descriptor.set!.call(this, value);
+                },
+            });
+        }
+    });
+    await page.goto("/");
+    await page.waitForFunction(() =>
+        performance
+            .getEntriesByType("measure")
+            .some((entry) => entry.name.endsWith(":first-update")),
+    );
+    expect(
+        await page.evaluate(
+            () =>
+                (window as unknown as { configuredCanvasResizes: string[] })
+                    .configuredCanvasResizes,
+        ),
+    ).toEqual([]);
+});
+
 test("the first frame has no late-pipeline warning", async ({ page }) => {
     await page.goto("/");
     await page.waitForFunction(() =>

@@ -335,14 +335,6 @@ export function attachCanvas(world: World, eid: number, canvas: HTMLCanvasElemen
     // later legitimate attach from a different live World warns spuriously.
     if (devEnabled()) trackCanvasOwner(canvas, world);
 
-    const linearFormat = navigator.gpu.getPreferredCanvasFormat();
-    context.configure({
-        device: rawDevice(world.gpu.device),
-        format: linearFormat,
-        alphaMode: "premultiplied",
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
-    });
-
     const rect = canvas.getBoundingClientRect();
     const viewportIndex =
         typeof document === "undefined"
@@ -370,6 +362,13 @@ export function attachCanvas(world: World, eid: number, canvas: HTMLCanvasElemen
         target: ++world.resource(viewResourcesKey).lastTarget,
         sortedIndexForTarget: 0,
     };
+    sizeView(world, eid, view);
+    context.configure({
+        device: rawDevice(world.gpu.device),
+        format: navigator.gpu.getPreferredCanvasFormat(),
+        alphaMode: "premultiplied",
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+    });
     _views.set(eid, view);
     _canvasViews.set(canvas, { world, view });
 }
