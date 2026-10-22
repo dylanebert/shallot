@@ -249,7 +249,11 @@ let buildTail: Promise<void> = Promise.resolve();
  * for the managed loop.
  */
 export function createApp(config: AppConfig): Promise<App> {
-    const pending = buildTail.then(() => buildNow(config));
+    return queueBuild(config);
+}
+
+function queueBuild(config: AppConfig, beforeHandoff?: (world: World) => void): Promise<App> {
+    const pending = buildTail.then(() => buildNow(config, beforeHandoff));
     buildTail = pending.then(
         () => undefined,
         () => undefined,
@@ -257,7 +261,7 @@ export function createApp(config: AppConfig): Promise<App> {
     return pending;
 }
 
-async function buildNow(config: AppConfig): Promise<App> {
+async function buildNow(config: AppConfig, beforeHandoff?: (world: World) => void): Promise<App> {
     let world!: World;
     let loading: Loading | undefined;
     let cleanup: (() => void) | undefined;
@@ -370,6 +374,7 @@ async function buildNow(config: AppConfig): Promise<App> {
             loading?.update((warmBase + progress) / total);
         });
 
+        beforeHandoff?.(world);
         loading?.update(1);
         await loading?.complete?.();
         if (cleanup) {
@@ -467,14 +472,7 @@ export function mountOverlay(canvas: HTMLElement | null, world?: World): HTMLDiv
  */
 export async function runApp(config: AppConfig): Promise<App> {
     const loading = config.loading ?? _defaultLoading?.();
-    const app = await createApp({ ...config, loading });
-    try {
-        const world = app.world;
-        world.logAndPauseSystemErrors();
-        const gpu = world.gpuIfAvailable;
-        const device = gpu?.device;
-        const pending = gpu?.pending;
-        const sync = gpu?.sync;
+    const app = await queueBuild({ ...config, loading }, (world) => {
         // World-owned UI cleanup also covers direct world.dispose(), after plugin hooks on App.dispose.
         if (config.ui && Runtime === "web") {
             const ui = config.ui;
@@ -483,7 +481,14 @@ export async function runApp(config: AppConfig): Promise<App> {
             );
             if (uiCleanup) world.onDispose(uiCleanup);
         }
-
+    });
+    try {
+        const world = app.world;
+        world.logAndPauseSystemErrors();
+        const gpu = world.gpuIfAvailable;
+        const device = gpu?.device;
+        const pending = gpu?.pending;
+        const sync = gpu?.sync;
         let disposed = false;
         let startupReported = false;
         const failure = device && observeDevice(device);

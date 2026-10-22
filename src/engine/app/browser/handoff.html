@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+    <head><meta charset="UTF-8" /><title>UI handoff</title></head>
+    <body>
+        <canvas></canvas>
+        <script type="module">
+            import { runApp } from "@dylanebert/shallot";
+            const events = [];
+            window.events = events;
+            let initialized = false;
+            let warmed = false;
+            try {
+                const app = await runApp({
+                    defaults: false,
+                    plugins: [{
+                        name: "UI lifecycle",
+                        initialize() { initialized = true; },
+                        warm() { warmed = true; },
+                        dispose() { events.push("plugin dispose"); },
+                    }],
+                    loading: {
+                        show() {
+                            events.push("show");
+                            return () => events.push("remove screen");
+                        },
+                        update() {},
+                        complete() { events.push("complete"); },
+                        error() { events.push("error"); },
+                    },
+                    ui(overlay, world) {
+                        if (!initialized || !warmed || !overlay.isConnected) throw new Error("UI before build");
+                        if (!world.resource) throw new Error("missing world");
+                        events.push("mount");
+                        if (location.search) throw new Error("mount failure");
+                        return () => events.push("UI cleanup");
+                    },
+                });
+                app.dispose();
+                app.dispose();
+            } catch {
+                events.push("rejected");
+            }
+            window.done = true;
+        </script>
+    </body>
+</html>

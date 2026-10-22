@@ -20,7 +20,10 @@ test.describe(() => {
     test.beforeAll(async ({ browser }) => {
         page = await browser.newPage({ viewport: { width: 1280, height: 720 }, hasTouch: true });
         page.on("pageerror", (error) => errors.push(error.message));
-        frames = await holdFrames(page, "[aria-label='Cube controls']");
+        frames = await holdFrames(
+            page,
+            "body:not(:has([data-shallot-loading])) [aria-label='Cube controls']",
+        );
         await page.goto("/");
         await page.getByRole("region", { name: "Cube controls" }).waitFor();
     });

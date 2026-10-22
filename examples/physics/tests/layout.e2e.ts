@@ -11,7 +11,10 @@ async function heldPage(browser: Browser, options: Parameters<Browser["newContex
     const page = await (await browser.newContext(options)).newPage();
     const session = await page.context().newCDPSession(page);
     await session.send("Emulation.setHardwareConcurrencyOverride", { hardwareConcurrency: 1 });
-    await holdFrames(page, "[aria-label='Scene navigation']");
+    await holdFrames(
+        page,
+        "body:not(:has([data-shallot-loading])) [aria-label='Scene navigation']",
+    );
     await page.goto("/");
     return page;
 }
