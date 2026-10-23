@@ -1,0 +1,52 @@
+# shallot
+
+> webgpu game engine. fast by default, instant iteration, runs where webgpu does.
+
+Start with the README; `bun create shallot --help` lists examples for the problem you have.
+
+## Read
+
+- [README](https://raw.githubusercontent.com/dylanebert/shallot/v0.10.1/README.md): quick start and examples.
+- [Examples](https://github.com/dylanebert/shallot/tree/v0.10.1/examples): `bun create shallot --help` lists them.
+
+## Start
+
+```
+# install bun
+curl -fsSL https://bun.sh/install | bash
+
+# new project
+bun create shallot my-game
+cd my-game
+bun install
+
+# list commands
+bunx shallot --help
+
+# run the game
+bun run dev
+```
+
+open the url in a [supported browser](https://caniuse.com/webgpu).
+
+get started by exploring examples. start from one:
+
+```
+# list them
+bun create shallot --help
+
+# copy one
+bun create shallot <name> --template <name>
+cd <name>
+bun install
+bun run dev
+```
+
+The site's `bunx playwright test` checks that the existing built artifact starts headlessly under `/shallot/`. Run `bun scripts/build-site.ts` first; missing or stale output fails. Rendering and device evidence belong to Shallot's example checks and RUM.
+
+## Links
+
+- Source: https://github.com/dylanebert/shallot
+- Package: https://www.npmjs.com/package/@dylanebert/shallot
+- Examples: https://dylanebert.com/shallot/
+- Brand: https://dylanebert.com/shallot/brand/

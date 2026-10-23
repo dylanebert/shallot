@@ -1,0 +1,122 @@
+{
+    "recipe": 2,
+    "buildId": "27c1f1871ab315de3997184efd22b858a6afcbc48011074f1c41edc68fe25d3e",
+    "mode": {
+        "kind": "prod",
+        "version": "0.10.1"
+    },
+    "demos": {
+        "bloom": "9c9ddb5733c51dcc0705812666f23d0f",
+        "city": "268551d00d0b54ba9ebafcacc392bbe4",
+        "color-grading": "27b1c72e246854d117914e667d79fe56",
+        "day-night-cycle": "d1c9ecf8c13f49ddeb7e9627cdbc3149",
+        "embedded-scene": "4f488c8fb0b06472856eee55cf0c1031",
+        "first-person": "499eef3e372adb15007ac84860dbd5ac",
+        "hud": "64612117e14820e2cb73b065eaea0f4a",
+        "interact": "f4bcceebf694f42ed529a37ca9e93bc5",
+        "lit-interior": "2b79e36cd748c9804b325def265a2076",
+        "loading-screen": "02864a3c32dca41224ebb2b21a43f8e1",
+        "materials": "8b1ceaec2feccb3f082feb28d2493c1c",
+        "minimal": "20c35b2a59278356341bff1bd7899d8f",
+        "particles": "0315c1f25e66f1ca06ca06d0cb80634c",
+        "physics": "7805050922997e9d59c7efbcff4a7fc8",
+        "post-processing": "1b11656535949f2e4f1ff518ce0d0327",
+        "save-and-load": "6455c2208e8784c8a66d59bd88d7db35",
+        "sound": "8864a33f2f15c919e852d31e71418480",
+        "tonemapping": "57c3da3ad7446426753beafd4201205d",
+        "view-model": "37d6ab57517c18c7edfa7e7ae5e50018",
+        "volumetric-fog": "576ba98e4fe4a558f54bcabb323da165",
+        "voxel": "8e54a0a240f5ac8dbc158870d6883527",
+        "world-ui": "89a947815e8b086588b7eb74bdf5aa41"
+    },
+    "shallot": {
+        "bloom": {
+            "version": "0.10.1",
+            "contentHash": "6c6e541c8d94f8b63e7b8f6fcadb7f2193af7043900beb559174801971b9be7a"
+        },
+        "city": {
+            "version": "0.10.1",
+            "contentHash": "6c6e541c8d94f8b63e7b8f6fcadb7f2193af7043900beb559174801971b9be7a"
+        },
+        "color-grading": {
+            "version": "0.10.1",
+            "contentHash": "6c6e541c8d94f8b63e7b8f6fcadb7f2193af7043900beb559174801971b9be7a"
+        },
+        "day-night-cycle": {
+            "version": "0.10.1",
+            "contentHash": "6c6e541c8d94f8b63e7b8f6fcadb7f2193af7043900beb559174801971b9be7a"
+        },
+        "embedded-scene": {
+            "version": "0.10.1",
+            "contentHash": "6c6e541c8d94f8b63e7b8f6fcadb7f2193af7043900beb559174801971b9be7a"
+        },
+        "first-person": {
+            "version": "0.10.1",
+            "contentHash": "6c6e541c8d94f8b63e7b8f6fcadb7f2193af7043900beb559174801971b9be7a"
+        },
+        "hud": {
+            "version": "0.10.1",
+            "contentHash": "6c6e541c8d94f8b63e7b8f6fcadb7f2193af7043900beb559174801971b9be7a"
+        },
+        "interact": {
+            "version": "0.10.1",
+            "contentHash": "6c6e541c8d94f8b63e7b8f6fcadb7f2193af7043900beb559174801971b9be7a"
+        },
+        "lit-interior": {
+            "version": "0.10.1",
+            "contentHash": "6c6e541c8d94f8b63e7b8f6fcadb7f2193af7043900beb559174801971b9be7a"
+        },
+        "loading-screen": {
+            "version": "0.10.1",
+            "contentHash": "6c6e541c8d94f8b63e7b8f6fcadb7f2193af7043900beb559174801971b9be7a"
+        },
+        "materials": {
+            "version": "0.10.1",
+            "contentHash": "6c6e541c8d94f8b63e7b8f6fcadb7f2193af7043900beb559174801971b9be7a"
+        },
+        "minimal": {
+            "version": "0.10.1",
+            "contentHash": "6c6e541c8d94f8b63e7b8f6fcadb7f2193af7043900beb559174801971b9be7a"
+        },
+        "particles": {
+            "version": "0.10.1",
+            "contentHash": "6c6e541c8d94f8b63e7b8f6fcadb7f2193af7043900beb559174801971b9be7a"
+        },
+        "physics": {
+            "version": "0.10.1",
+            "contentHash": "6c6e541c8d94f8b63e7b8f6fcadb7f2193af7043900beb559174801971b9be7a"
+        },
+        "post-processing": {
+            "version": "0.10.1",
+            "contentHash": "6c6e541c8d94f8b63e7b8f6fcadb7f2193af7043900beb559174801971b9be7a"
+        },
+        "save-and-load": {
+            "version": "0.10.1",
+            "contentHash": "6c6e541c8d94f8b63e7b8f6fcadb7f2193af7043900beb559174801971b9be7a"
+        },
+        "sound": {
+            "version": "0.10.1",
+            "contentHash": "6c6e541c8d94f8b63e7b8f6fcadb7f2193af7043900beb559174801971b9be7a"
+        },
+        "tonemapping": {
+            "version": "0.10.1",
+            "contentHash": "6c6e541c8d94f8b63e7b8f6fcadb7f2193af7043900beb559174801971b9be7a"
+        },
+        "view-model": {
+            "version": "0.10.1",
+            "contentHash": "6c6e541c8d94f8b63e7b8f6fcadb7f2193af7043900beb559174801971b9be7a"
+        },
+        "volumetric-fog": {
+            "version": "0.10.1",
+            "contentHash": "6c6e541c8d94f8b63e7b8f6fcadb7f2193af7043900beb559174801971b9be7a"
+        },
+        "voxel": {
+            "version": "0.10.1",
+            "contentHash": "6c6e541c8d94f8b63e7b8f6fcadb7f2193af7043900beb559174801971b9be7a"
+        },
+        "world-ui": {
+            "version": "0.10.1",
+            "contentHash": "6c6e541c8d94f8b63e7b8f6fcadb7f2193af7043900beb559174801971b9be7a"
+        }
+    }
+}
