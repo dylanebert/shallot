@@ -60,9 +60,14 @@ export {
     type ProducerTable,
     pbrInputFromStandardMaterial,
     registerProducerTable,
+    ScreenSpaceAmbientOcclusion,
+    ScreenSpaceAmbientOcclusionPlugin,
+    ScreenSpaceAmbientOcclusionQualityLevel,
     StandardMaterial,
     StandardRenderer,
     StandardRenderingPlugin,
+    SurfaceOcclusion,
+    surfaceOcclusion,
     VertexMaterialType,
 } from "./rendering";
 

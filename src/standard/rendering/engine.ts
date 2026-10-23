@@ -32,6 +32,11 @@ export const engineLayout = tgpu
             access: "readonly",
             visibility: ["vertex", "fragment"],
         },
+        ambientOcclusion: {
+            texture: d.texture2d(),
+            sampleType: "unfilterable-float",
+            visibility: ["vertex", "fragment"],
+        },
     })
     .$idx(0);
 
@@ -50,6 +55,42 @@ export const fragCoord = tgpu.privateVar(d.vec4f, d.vec4f(0));
 export const pointScale = tgpu.privateVar(d.f32, 0);
 
 const pointShadowOf = pointShadowRef();
+
+export const SurfaceOcclusion = d.struct({ diffuse: d.vec3f, specular: d.f32 });
+/** Bevy pbr_fragment.wesl:538–545. Specular applies only to indirect specular radiance,
+ * not to the punctual-light BRDF; standard currently supplies only diffuse indirect light. */
+export const surfaceOcclusion = tgpu.fn(
+    [d.vec3f, d.f32, d.f32, d.f32],
+    SurfaceOcclusion,
+)((baseColor, material, ndotv, perceptualRoughness) => {
+    "use gpu";
+    let visibility = d.f32(1);
+    if (pointScale.$ !== 0 && ssaoEnabled())
+        visibility = std.textureLoad(engineLayout.$.ambientOcclusion, d.vec2i(fragCoord.$.xy), 0).x;
+    const a = std.sub(std.mul(2.0404, baseColor), 0.3324);
+    const b = std.add(std.mul(-4.7951, baseColor), 0.6417);
+    const c = std.add(std.mul(2.7552, baseColor), 0.6903);
+    const x = d.vec3f(visibility);
+    const multibounce = std.max(x, std.mul(std.add(std.mul(std.add(std.mul(x, a), b), x), c), x));
+    return SurfaceOcclusion({
+        diffuse: std.min(d.vec3f(material), multibounce),
+        specular: std.saturate(
+            std.pow(
+                ndotv + visibility,
+                std.exp2(-16 * perceptualRoughness * perceptualRoughness - 1),
+            ) -
+                1 +
+                visibility,
+        ),
+    });
+});
+const ssaoEnabled = tgpu.fn(
+    [],
+    d.bool,
+)(() => {
+    "use gpu";
+    return std.textureDimensions(engineLayout.$.ambientOcclusion).x > 1;
+});
 
 // Vertex shading statically reaches the point receiver even when pointScale is zero.
 // Depth pipelines need a fully-lit stub to avoid binding or sampling the atlas they write.
@@ -105,7 +146,7 @@ export const litPbr = tgpu.fn(
 )((s, normal, world, V) => {
     "use gpu";
     const exposure = engineLayout.$.view.exposure;
-    const indirect = indirectLight(
+    let indirect = indirectLight(
         IndirectLightInput({
             worldPosition: world,
             normal,
@@ -114,6 +155,16 @@ export const litPbr = tgpu.fn(
             ambientRadiance: engineLayout.$.view.ambientColor.rgb,
         }),
     );
+    if (pointScale.$ !== 0 && ssaoEnabled()) {
+        const occlusion = surfaceOcclusion(
+            s.albedo,
+            s.occlusion,
+            std.max(std.dot(normal, V), 0),
+            s.roughness,
+        );
+        // indirectLight already applied material occlusion; replace it with the per-channel minimum.
+        if (s.occlusion > 0) indirect = std.mul(indirect, std.div(occlusion.diffuse, s.occlusion));
+    }
     let radiance = d.vec3f(std.mul(std.mul(indirect, exposure), s.albedo));
     for (let i = d.u32(0); i < engineLayout.$.lighting.directionalCount; i++) {
         const light = engineLayout.$.lighting.directionalLights[i];

@@ -21,6 +21,7 @@ const pipelineCounts: Record<string, number> = {
     "default plugins": 24, // Unlit became a StandardMaterial branch; it no longer compiles its own
     // color, prepass, point-shadow or cascade-shadow pipeline.
     "producer table": 27,
+    ScreenSpaceAmbientOcclusion: 29, // two prepass copies, mip reduction, visibility bitmask AO and denoise
     Fog: 33, // single-sample and multisampled column depth, grid lighting and application; filter and integration
     Outline: 29, // three mask variants, jump flood and composite
     EffectStack: 25,

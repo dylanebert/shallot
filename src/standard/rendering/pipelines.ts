@@ -54,6 +54,7 @@ import {
 } from "./material-type";
 import type { Draw } from "./registry";
 import { sampleSunShadow } from "./shade";
+import { ssaoTexture } from "./ssao";
 
 const ALPHA_BLEND: GPUBlendState = {
     color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
@@ -276,6 +277,7 @@ export function engineCache(world: World, quant: GPUBuffer): Map<number, GPUBind
  * light-cull outputs / materials / the dequant table), built lazily into `quant`'s
  * {@link engineCache}. */
 const engineCacheLights = new WeakMap<Map<number, GPUBindGroup>, GPUBuffer>();
+const engineCacheOcclusion = new WeakMap<GPUBindGroup, GPUTextureView>();
 
 export function engineGroup(
     world: World,
@@ -291,8 +293,9 @@ export function engineGroup(
         engineCacheLights.set(cache, pointLights);
     }
 
+    const occlusion = ssaoTexture(world, slot);
     const cached = cache.get(slot);
-    if (cached) return cached;
+    if (cached && engineCacheOcclusion.get(cached) === occlusion) return cached;
     const group = world.gpu.root.unwrap(
         world.gpu.root.createBindGroup(engineLayout, {
             frame: world.resource(Frame).buffer!,
@@ -300,8 +303,10 @@ export function engineGroup(
             lighting: viewLighting(world, slot),
             pointLights,
             meshQuant: quant,
+            ambientOcclusion: occlusion,
         }),
     );
+    engineCacheOcclusion.set(group, occlusion);
     cache.set(slot, group);
     return group;
 }

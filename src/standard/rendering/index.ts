@@ -12,7 +12,7 @@ export {
 export { Clusters, clusterCell, LightClusters, LightCull } from "./cluster";
 export type { Background, BackgroundHandle } from "./contract";
 export { BackgroundContext, Backgrounds, backgroundLayout, registerBackground } from "./contract";
-export { engineLayout, lit } from "./engine";
+export { engineLayout, lit, SurfaceOcclusion, surfaceOcclusion } from "./engine";
 export type { FogSource } from "./fog";
 export { FogInput, registerFogSource } from "./fog";
 export {
@@ -82,6 +82,11 @@ export {
     PointShadows,
     pointComboEids,
 } from "./shadows";
+export {
+    ScreenSpaceAmbientOcclusion,
+    ScreenSpaceAmbientOcclusionPlugin,
+    ScreenSpaceAmbientOcclusionQualityLevel,
+} from "./ssao";
 export {
     applyPbrLighting,
     extendedMaterial,

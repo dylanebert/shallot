@@ -12,6 +12,7 @@ import {
     ProfilePlugin,
     RenderingPlugin,
     registerProducerTable,
+    ScreenSpaceAmbientOcclusionPlugin,
     SpritePlugin,
     StandardMaterial,
     StandardPhysicsPlugin,
@@ -57,6 +58,10 @@ export const compileSubjects = [
         },
     },
     { name: "Fog", config: { plugins: [FogPlugin] } },
+    {
+        name: "ScreenSpaceAmbientOcclusion",
+        config: { plugins: [ScreenSpaceAmbientOcclusionPlugin] },
+    },
     { name: "Outline", config: { plugins: [OutlinePlugin] } },
     { name: "EffectStack", config: { plugins: [EffectStackPlugin] } },
     { name: "Sprite", config: { plugins: [SpritePlugin] } },
