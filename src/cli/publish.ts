@@ -200,7 +200,8 @@ interface PublishTarget<Link extends PublishLink> {
         deployment: Deployment,
         directory: string,
         assets: PublishAsset[],
-    ): Promise<PublishVerification>;
+        interactive: boolean,
+    ): Promise<PublishVerification | undefined>;
 }
 
 const targets: {
@@ -380,15 +381,10 @@ const targets: {
         // itch.io serves the build with its own headers.
         headers() {},
         // itch.io's page answers a bot check to every automated client; its frame document does not.
-        async verify(browser, deployment, directory, assets) {
-            return verifyPublishedGame(
-                browser,
-                await liveItchBuild(deployment.url, deployment.buildUrl),
-                directory,
-                assets,
-                TIMEOUT.startup,
-                ITCH_HOST,
-            );
+        async verify(browser, deployment, directory, assets, interactive) {
+            const url = await liveItchBuild(deployment.url, deployment.buildUrl, interactive);
+            if (!url) return;
+            return verifyPublishedGame(browser, url, directory, assets, TIMEOUT.startup, ITCH_HOST);
         },
         async setup(_projectDir, _work, interactive, saved) {
             let name = saved?.name;
@@ -461,12 +457,11 @@ export async function publishProject(projectDir: string, targetName?: string): P
     let playUrl: string;
     try {
         const directory = join(work, "web");
-        const setup = await target.setup(
-            projectDir,
-            work,
-            publishInteraction(process.env, !!process.stdin.isTTY && !!process.stdout.isTTY),
-            saved,
+        const interactive = publishInteraction(
+            process.env,
+            !!process.stdin.isTTY && !!process.stdout.isTTY,
         );
+        const setup = await target.setup(projectDir, work, interactive, saved);
         await buildWeb(projectDir, { outDir: directory, stdout: "quiet" });
         const assets = publishAssets(directory);
         preflightPublish(assets, target.limits);
@@ -476,10 +471,17 @@ export async function publishProject(projectDir: string, targetName?: string): P
         publishProgress(`Build: ${deployed.buildUrl}\n${setup.commands}`);
         const browser = await projectChromium(projectDir);
         try {
-            const verification = await target.verify(browser, deployed, directory, assets);
-            publishProgress(
-                `${verification.hardware ? "Engine started on a hardware adapter." : "Engine started; loading, headers and assets verified, not hardware play."}${verification.threads === undefined ? "" : ` Physics ${verification.physicsStepped ? "stepped" : "initialized"} on ${verification.threads} threads.`}\nAdapter: ${verification.adapter}`,
+            const verification = await target.verify(
+                browser,
+                deployed,
+                directory,
+                assets,
+                interactive,
             );
+            if (verification)
+                publishProgress(
+                    `${verification.hardware ? "Engine started on a hardware adapter." : "Engine started; loading, headers and assets verified, not hardware play."}${verification.threads === undefined ? "" : ` Physics ${verification.physicsStepped ? "stepped" : "initialized"} on ${verification.threads} threads.`}\nAdapter: ${verification.adapter}`,
+                );
         } finally {
             await browser.close();
         }

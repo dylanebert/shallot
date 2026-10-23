@@ -127,8 +127,9 @@ files, 200 MB per file and 500 MB in all, and serves the build with its own head
 publish waits until itch.io has processed the build, then plays the document the
 page's embed frames on `html.itch.zone`: itch.io puts its pages behind a bot check
 for automated browsers. itch.io serves a new build only once its page is next
-viewed; until then publish exits nonzero naming the page to open, and the next run
-verifies it.
+viewed. Until then, interactive publish refuses; without interaction it succeeds
+but reports the build unverified, naming the page and build. Open the page, then
+publish again to verify it.
 
 itch.io's web UI owns the page: create it with Kind of project HTML and name it in
 `package.json` as `{"target": "itch", "name": "<user>/<game>"}`; publish refuses a

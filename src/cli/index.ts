@@ -84,8 +84,9 @@ const commandUsage = {
   itch, name <user>/<game>) names it. itch.io's butler is fetched at its pinned
   version into Shallot's cache and owns login and credentials. Verification plays
   the build's document on html.itch.zone, which the page's embed frames; itch.io
-  serves a new build once its page is next viewed, so publish names the page to
-  open and the next run verifies it. On the
+  serves a new build once its page is next viewed. Until then, interactive publish
+  refuses; without interaction it succeeds but reports the build unverified,
+  naming the page and build. Open the page, then publish again to verify it. On the
   page's Edit page, tick "This file will be played in the browser" and
   "SharedArrayBuffer support", and set Visibility to Public or Restricted, not
   Draft; verification cannot see these, so publish names them.

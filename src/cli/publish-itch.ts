@@ -326,15 +326,21 @@ export function itchPageSettings(name: string): string {
  * itch.io puts a processed build on its HTML CDN only once its page is viewed, and then removes the build it
  * replaces; until then the frame document answers 404, which the CDN's edge caches for 31 days. So the
  * document is read with a fresh query, as the page frames it with `?v=`, and the same URL is verified.
- * Refuses a build not yet live.
+ * Refuses a build not yet live when interactive; otherwise reports the verification limit.
  */
-export async function liveItchBuild(pageUrl: string, buildUrl: string): Promise<string> {
+export async function liveItchBuild(
+    pageUrl: string,
+    buildUrl: string,
+    interactive = true,
+): Promise<string | undefined> {
     const url = `${buildUrl}?v=${Date.now()}`;
     const response = await fetch(url);
     await response.body?.cancel();
-    if (response.status === 404)
-        throw new Error(
-            `Not verified yet: itch.io serves this build once its page is viewed. Open ${pageUrl}, then run shallot publish again to verify ${buildUrl}.`,
-        );
+    if (response.status === 404) {
+        const message = `Not verified yet: itch.io serves this build once its page is viewed. Open ${pageUrl}, then run shallot publish again to verify ${buildUrl}.`;
+        if (interactive) throw new Error(message);
+        publishProgress(message);
+        return;
+    }
     return url;
 }

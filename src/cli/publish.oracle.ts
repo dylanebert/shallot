@@ -448,7 +448,7 @@ for (const trial of ["personal", "CI"] as const) {
                     const report = result.stderr.toString();
                     process.stderr.write(report);
                     expect(JSON.parse(readFileSync(path, "utf8")).shallot.publish).toEqual(link);
-                    // Publish prints the play link only once verification passes.
+                    // A successful publish ends with the play link, including a processed itch build awaiting a page view.
                     if (!terminal)
                         expect(result.stdout?.toString().trim()).toBe(
                             result.exitCode === 0 ? url : "",
@@ -504,15 +504,26 @@ for (const trial of ["personal", "CI"] as const) {
                         /Pushed build \d+; waiting for itch\.io to process it\./,
                     );
                     expect(changed.report).not.toContain("itch.io already has this build");
-                    expect(changed.code, changed.report).toBe(1);
+                    expect(changed.code, changed.report).toBe(0);
                     expect(changed.report).toContain(
                         "Not verified yet: itch.io serves this build once its page is viewed.",
                     );
                     await play();
-                } else change();
-                const served = await verified();
-                if (personal) expect(served).toContain(marker);
-                expect(served).toContain("<title>republished oracle</title>");
+                    const served = await verified();
+                    expect(served).toContain(marker);
+                    expect(served).toContain("<title>republished oracle</title>");
+                } else {
+                    change();
+                    const result = publish(false);
+                    expect(result.code, result.report).toBe(0);
+                    expect(result.report).toContain(
+                        "Not verified yet: itch.io serves this build once its page is viewed.",
+                    );
+                    expect(result.report).toContain(
+                        `Open ${url}, then run shallot publish again to verify https://html.itch.zone/`,
+                    );
+                    expect(result.report).not.toContain("Engine started");
+                }
                 console.info(
                     `Qualified itch.io ${trial} link: ${url}\nRetained oracle scratch: ${root}`,
                 );

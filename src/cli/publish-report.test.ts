@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser } from "playwright";
@@ -12,13 +12,15 @@ import * as verify from "./publish-verify";
 for (const scenario of [
     "cloudflare",
     "itch",
+    "itch-pending",
     "wrangler.json",
     "wrangler.jsonc",
     "wrangler.toml",
 ] as const) {
-    const target = scenario === "itch" ? "itch" : "cloudflare";
+    const target = scenario.startsWith("itch") ? "itch" : "cloudflare";
+    const pending = scenario === "itch-pending";
     const conflict = scenario.startsWith("wrangler.");
-    for (const fails of [false, true]) {
+    for (const fails of pending ? [false] : [false, true]) {
         test(`${scenario} report: ${fails ? "verification failure withholds stdout" : "stdout is only the final play link"}`, async () => {
             const root = mkdtempSync(join(tmpdir(), "shallot-report-"));
             const directory = join(root, "project");
@@ -74,12 +76,17 @@ for (const scenario of [
                     ],
                 }),
                 spyOn(itch, "ensureButler").mockResolvedValue("fixture-butler"),
-                spyOn(itch, "runButler").mockReturnValue({ status: 0, stderr: "", entries: [] }),
-                spyOn(itch, "itchChannel").mockReturnValue({ uploadId: 1 }),
-                spyOn(itch, "itchPush").mockReturnValue(2),
-                spyOn(itch, "waitForItchBuild").mockResolvedValue({ uploadId: 1, buildId: 2 }),
-                spyOn(itch, "liveItchBuild").mockResolvedValue(
-                    "https://html.itch.zone/html/1-2/index.html",
+                spyOn(itch, "runButler").mockImplementation((_butler, args) => {
+                    const recorded = JSON.parse(
+                        readFileSync(join(import.meta.dir, "fixtures/publish-itch.json"), "utf8"),
+                    );
+                    return {
+                        ...recorded[args[0] === "push" ? "pushCreated" : "statusCompleted"],
+                        stderr: "",
+                    };
+                }),
+                spyOn(globalThis, "fetch").mockResolvedValue(
+                    new Response(null, { status: pending ? 404 : 200 }),
                 ),
                 spyOn(verify, "projectChromium").mockResolvedValue({
                     close: async () => {
@@ -142,7 +149,16 @@ for (const scenario of [
                             "Unpublish: https://itch.io/dashboard, Edit game, set Visibility to Draft",
                         );
                     }
-                    expect(report).toContain("Engine started on a hardware adapter.");
+                    if (pending) {
+                        expect(report).toContain(
+                            `Not verified yet: itch.io serves this build once its page is viewed. Open ${url}, then run shallot publish again to verify https://html.itch.zone/html/19938966-2182067/index.html.`,
+                        );
+                        expect(verify.verifyPublishedGame).not.toHaveBeenCalled();
+                        expect(report).not.toContain("Engine started");
+                    } else {
+                        expect(report).toContain("Engine started on a hardware adapter.");
+                        expect(verify.verifyPublishedGame).toHaveBeenCalledTimes(1);
+                    }
                     expect(report).not.toContain("bulk provider output");
                     expect(report).not.toContain("provider chatter");
                 }
