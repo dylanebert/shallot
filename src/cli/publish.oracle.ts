@@ -12,6 +12,21 @@ import { normalizePath } from "../project";
 import { cloudflareConfig, type WranglerResult, workerExists } from "./publish-cloudflare";
 import { BUTLER_VERSION } from "./publish-itch";
 
+async function confirmPlay(url: string, instruction: string) {
+    console.info(instruction);
+    console.info(url);
+    const input = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+        const answer = await input.question("Does it play? [y/N] ");
+        expect(
+            ["y", "yes"].includes(answer.trim().toLowerCase()),
+            `Play judgment failed: the person answered ${JSON.stringify(answer)}.`,
+        ).toBe(true);
+    } finally {
+        input.close();
+    }
+}
+
 // Real Cloudflare boundary: select with -t 'personal:.*Cloudflare' or -t 'CI:.*Cloudflare'.
 // Successful trials remove scratch logins and delete their Workers; failures retain them for inspection.
 for (const trial of ["personal", "CI"] as const) {
@@ -98,6 +113,9 @@ for (const trial of ["personal", "CI"] as const) {
                     project,
                     "publish oracle scaffold install",
                 );
+                const html = join(project, "index.html");
+                const marker = `<!-- publish oracle ${crypto.randomUUID()} -->`;
+                writeFileSync(html, `${readFileSync(html, "utf8")}\n${marker}\n`);
                 const projectCli = join(project, "node_modules/@dylanebert/shallot/bin/shallot.ts");
                 const workers = new Set<string>();
                 let passed = false;
@@ -108,6 +126,8 @@ for (const trial of ["personal", "CI"] as const) {
                         const link = JSON.parse(readFileSync(path, "utf8")).shallot.publish;
                         expect(link.target).toBe("cloudflare");
                         expect(link.accountId).toBe(process.env.CLOUDFLARE_ACCOUNT_ID);
+                        expect(new URL(url).hostname).toStartWith(`${link.name}.`);
+                        expect(await (await fetch(url)).text()).toContain(marker);
                         console.info(`CI verified link: ${url}\nRetained oracle scratch: ${root}`);
                         passed = true;
                         qualified = true;
@@ -118,27 +138,18 @@ for (const trial of ["personal", "CI"] as const) {
                         cwd: project,
                         env: trialEnv,
                         stdin: "inherit",
-                        stdout: "inherit",
+                        stdout: "pipe",
                         stderr: "inherit",
                     });
                     expect(first.exitCode).toBe(0);
-                    const input = createInterface({ input: process.stdin, output: process.stdout });
-                    let url: string;
-                    try {
-                        url = (
-                            await input.question(
-                                "Open the printed play link anonymously, judge that it plays, then paste that link here: ",
-                            )
-                        )
-                            .trim()
-                            .replace(/\/$/, "");
-                    } finally {
-                        input.close();
-                    }
+                    const url = first.stdout.toString().trim();
+                    await confirmPlay(url, "Open this link in a fresh anonymous browser session.");
+                    expect(await (await fetch(url)).text()).toContain(marker);
                     expect(new URL(url).hostname).toEndWith(".workers.dev");
                     const linked = JSON.parse(readFileSync(path, "utf8"));
                     const link = linked.shallot.publish;
                     expect(link.target).toBe("cloudflare");
+                    expect(new URL(url).hostname).toStartWith(`${link.name}.`);
                     expect(linked.devDependencies.wrangler).toBe("4.151.3");
                     const wrangler = join(project, "node_modules/wrangler/bin/wrangler.js");
                     const whoami = spawnSync("node", [wrangler, "whoami", "--json"], {
@@ -241,7 +252,6 @@ for (const trial of ["personal", "CI"] as const) {
                         JSON.parse(readFileSync(collisionPath, "utf8")).shallot.publish,
                     ).toBeUndefined();
                     expect(deployments().at(-1)!.id).toBe(firstDeployment);
-                    const html = join(project, "index.html");
                     const before = readFileSync(html, "utf8");
                     const after = before.replace(
                         /<title>[^<]*<\/title>/,
@@ -251,7 +261,9 @@ for (const trial of ["personal", "CI"] as const) {
                     writeFileSync(html, after);
                     expect(run([projectCli, "publish"], project)).toBe(url);
                     expect(deployments().at(-1)!.id).not.toBe(firstDeployment);
-                    expect(await (await fetch(url)).text()).toContain("republished oracle");
+                    const served = await (await fetch(url)).text();
+                    expect(served).toContain(marker);
+                    expect(served).toContain("<title>republished oracle</title>");
                     expect(JSON.parse(readFileSync(path, "utf8")).shallot.publish).toEqual(link);
                     console.info(`Qualified stable link: ${url}\nRetained oracle scratch: ${root}`);
                     passed = true;
@@ -412,11 +424,8 @@ for (const trial of ["personal", "CI"] as const) {
                 const cli = join(project, "node_modules/@dylanebert/shallot/bin/shallot.ts");
                 const url = "https://individualkex.itch.io/shallot-publish-test";
                 const html = join(project, "index.html");
-                if (personal)
-                    writeFileSync(
-                        html,
-                        `${readFileSync(html, "utf8")}\n<!-- publish oracle ${crypto.randomUUID()} -->\n`,
-                    );
+                const marker = `<!-- publish oracle ${crypto.randomUUID()} -->`;
+                if (personal) writeFileSync(html, `${readFileSync(html, "utf8")}\n${marker}\n`);
                 const change = () => {
                     const before = readFileSync(html, "utf8");
                     const after = before.replace(
@@ -441,20 +450,11 @@ for (const trial of ["personal", "CI"] as const) {
                     if (!terminal) expect(result.stdout?.toString().trim()).toBe(url);
                     return { code: result.exitCode, report };
                 };
-                const play = async () => {
-                    const input = createInterface({ input: process.stdin, output: process.stdout });
-                    try {
-                        expect(
-                            (
-                                await input.question(
-                                    `Open ${url} in a fresh anonymous browser session. Type the Restricted page password only in the browser, run the game, and judge that it plays. Type plays to confirm: `,
-                                )
-                            ).trim(),
-                        ).toBe("plays");
-                    } finally {
-                        input.close();
-                    }
-                };
+                const play = () =>
+                    confirmPlay(
+                        url,
+                        "Open this Restricted page in your own logged-in owner browser. Publish's verifier loads the build's frame document without a login.",
+                    );
                 const verified = async () => {
                     const result = publish(false);
                     expect(result.code, result.report).toBe(0);
@@ -492,7 +492,7 @@ for (const trial of ["personal", "CI"] as const) {
                     expect(version.exitCode).toBe(0);
                     expect(`${version.stdout}${version.stderr}`).toContain(`v${BUTLER_VERSION},`);
                     await play();
-                    expect(await verified()).toContain("<title>minimal</title>");
+                    expect(await verified()).toContain(marker);
                     change();
                     const changed = publish(false);
                     expect(changed.report).toMatch(
@@ -505,7 +505,9 @@ for (const trial of ["personal", "CI"] as const) {
                     );
                     await play();
                 } else change();
-                expect(await verified()).toContain("<title>republished oracle</title>");
+                const served = await verified();
+                if (personal) expect(served).toContain(marker);
+                expect(served).toContain("<title>republished oracle</title>");
                 console.info(
                     `Qualified itch.io ${trial} link: ${url}\nRetained oracle scratch: ${root}`,
                 );
