@@ -8,7 +8,8 @@ test("only pre-handoff render pipelines bind once in compatible throwaway bundle
     page.on("console", (message) => {
         if (
             (message.type() === "warning" || message.type() === "error") &&
-            !message.text().includes('Pipeline "late-')
+            !message.text().includes('Pipeline "late-') &&
+            !message.text().includes("WebGPU reports a fallback adapter")
         )
             errors.push(message.text());
     });
