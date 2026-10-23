@@ -53,6 +53,14 @@ world.add(eid, MeshMaterial, handle);
 if (!world.has(eid, MeshMaterial)) world.add(eid, MeshMaterial);
 ```
 
+## AgX uses a default-contrast LUT
+
+`TonemappingMethod.AgX` now uses a log transform and default-contrast LUT instead of the analytic approximation. Its displayed colors change without an API change. Review AgX scenes and capture expectations; retune exposure or color grading if your look depended on the old approximation.
+
+## Optional Playwright peer requires 1.64.1
+
+If your project installs Playwright for browser checks or publishing verification, update it to `^1.64.1` and run `bunx playwright install chromium` to install its matching browser. Projects without Playwright do not need to add it unless they use a command that requires it.
+
 ## Web builds name their files relative to the page
 
 `shallot()` now builds with Vite's `base: "./"` unless your config sets `base`, so the output loads under any path, as itch.io and a subpath host serve it. A game that serves its page at nested routes through the History API sets `base: "/"` in its Vite config to keep root-absolute URLs.
