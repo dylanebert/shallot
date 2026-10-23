@@ -244,10 +244,10 @@ function tierJob(tier: string, tiers: Record<string, boolean>, typecheck: boolea
     job += `      - run: |
           bun install
 `;
-    if (tier === "cheap" && typecheck)
+    if (tier === "cheap")
         job += `      - name: typecheck
         run: |
-          bun run typecheck
+          ${typecheck ? "bun run typecheck" : "bun check"}
 `;
     if (tier === "cheap" && tiers.cheap)
         job += `      - name: cheap tier
@@ -269,7 +269,7 @@ function testWorkflow(projectDir: string): string {
     const tiers = tierFiles(projectDir);
     const typecheck = hasComponents(projectDir);
     const jobs = Object.keys(tiers)
-        .filter((tier) => tiers[tier] || (tier === "cheap" && typecheck))
+        .filter((tier) => tiers[tier] || tier === "cheap")
         .map((tier) => tierJob(tier, tiers, typecheck))
         .join("\n");
     return `name: test

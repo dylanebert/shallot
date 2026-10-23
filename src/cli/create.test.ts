@@ -19,6 +19,11 @@ for (const { name } of templates) {
             const workflow = Bun.YAML.parse(source) as {
                 jobs: Record<string, { steps: { run?: string; uses?: string }[] }>;
             };
+            const components = JSON.parse(readFileSync(join(destination, "package.json"), "utf8"))
+                .scripts.typecheck;
+            expect(workflow.jobs.cheap!.steps.map((step) => step.run?.trim())).toContain(
+                components ? "bun run typecheck" : "bun check",
+            );
             const jobs = [
                 ...source
                     .split("\njobs:\n")[1]!

@@ -115,15 +115,7 @@ function files(dir: string, prefix = ""): string[] {
 
 function expectedJobs(templateFiles: string[]): string[] {
     return [
-        {
-            name: "cheap",
-            // A Svelte component brings svelte-check, which runs in the cheap job.
-            exists: templateFiles.some(
-                (file) =>
-                    (/\.test\.ts$/.test(file) && !/\.gpu\.test\.ts$/.test(file)) ||
-                    /\.svelte$/.test(file),
-            ),
-        },
+        { name: "cheap", exists: true },
         { name: "gpu", exists: templateFiles.some((file) => /\.gpu\.test\.ts$/.test(file)) },
         { name: "node", exists: templateFiles.some((file) => /\.node\.ts$/.test(file)) },
         { name: "browser", exists: templateFiles.some((file) => /\.e2e\.ts$/.test(file)) },
@@ -236,6 +228,8 @@ test("create writes exactly the 18-file minimal project", () => {
     expect(runCreate([destination])).toBe(0);
     expect(files(destination).sort()).toEqual([...MINIMAL_FILES].sort());
     assertProject(destination, MINIMAL_TEMPLATE_FILES);
+    const workflow = readFileSync(join(destination, ".github/workflows/test.yml"), "utf8");
+    expect(workflow).toContain("      - name: typecheck\n        run: |\n          bun check\n");
 });
 
 test("generated agent rules equal the skill body without frontmatter", () => {
@@ -244,6 +238,7 @@ test("generated agent rules equal the skill body without frontmatter", () => {
     const skill = readFileSync(join(ROOT, "src/cli/skill.md"), "utf8");
     const body = skill.split("\n---\n\n")[1];
     expect(body).toBeDefined();
+    expect(body).toContain("Before you finish, run `bun check` and `bun test` once;");
     expect(readFileSync(join(destination, "AGENTS.md"), "utf8")).toBe(body!);
 });
 

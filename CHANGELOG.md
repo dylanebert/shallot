@@ -13,6 +13,7 @@ a release for putting games in people's hands: layered camera views, picture eff
 - **light the air.** walk through haze lit by sunlight, spotlights and light bulbs in the new `volumetric-fog` example, with fog streaks along surfaces viewed edge-on fixed; `particles` now focuses on floating specks simulated by the graphics processor
 - **smoother startup.** `minimal` and `materials` prepare rendering under the loading screen rather than stalling the first frames when safari starts without cached graphics work; ios rendering is fixed too. graphics processor failures stop play with an explanation instead of continuing to draw
 - **desktop apps.** windows builds need no separate llvm tools install, unsupported attempts to build or run mac or linux apps from another operating system fail early, and mac apps bundled with chromium no longer prompt for the login keychain. `bunx shallot build --help` lists target status and requirements, including macos 26 when using the system's built-in web view
+- **checks for new projects.** a new project's CI checks your code for type errors before running its tests, and its agent guidance asks for the same check before finishing
 
 ### changes
 
