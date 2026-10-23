@@ -448,7 +448,11 @@ for (const trial of ["personal", "CI"] as const) {
                     const report = result.stderr.toString();
                     process.stderr.write(report);
                     expect(JSON.parse(readFileSync(path, "utf8")).shallot.publish).toEqual(link);
-                    if (!terminal) expect(result.stdout?.toString().trim()).toBe(url);
+                    // Publish prints the play link only once verification passes.
+                    if (!terminal)
+                        expect(result.stdout?.toString().trim()).toBe(
+                            result.exitCode === 0 ? url : "",
+                        );
                     return { code: result.exitCode, report };
                 };
                 const play = () =>
