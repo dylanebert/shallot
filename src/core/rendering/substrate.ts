@@ -109,6 +109,9 @@ export {
     DepthPrepass,
     type DepthPrepassRequest,
     DepthPrepassRequests,
+    NORMAL_FORMAT,
+    NormalPrepass,
+    NormalPrepassRequests,
     SAMPLE_COUNT,
 } from "./targets";
 

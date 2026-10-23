@@ -123,6 +123,8 @@ export interface View {
     framebufferFormat?: GPUTextureFormat;
     present: GPUTextureView | null;
     depth: GPUTextureView | null;
+    /** Encoded world normals at depth's sample count; null unless requested for this frame. */
+    normal: GPUTextureView | null;
     /** CPU-only world-to-view matrix shared by camera sorting and clustered-light packing. */
     viewFromWorld?: Float32Array;
     slot: number;
@@ -319,6 +321,7 @@ export function attachCanvas(world: World, eid: number, canvas: HTMLCanvasElemen
             framebuffer: null,
             present: null,
             depth: null,
+            normal: null,
             viewFromWorld: new Float32Array(16),
             slot: 0,
             camera: world.ref(eid),
@@ -356,6 +359,7 @@ export function attachCanvas(world: World, eid: number, canvas: HTMLCanvasElemen
         framebuffer: null,
         present: null,
         depth: null,
+        normal: null,
         viewFromWorld: new Float32Array(16),
         slot: 0,
         camera: world.ref(eid),
@@ -555,6 +559,7 @@ export function attachView(world: World, eid: number): void {
         framebuffer: null,
         present: null,
         depth: null,
+        normal: null,
         viewFromWorld: new Float32Array(16),
         slot: 0,
         camera: world.ref(eid),

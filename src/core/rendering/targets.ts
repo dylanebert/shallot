@@ -12,6 +12,12 @@ export const SAMPLE_COUNT = 4;
 /** Explicitly request the camera's stored depth lane, published as `view.depth`. */
 export const DepthPrepass = component("DepthPrepass", {});
 
+/** Request world-space normals, encoded as normal * 0.5 + 0.5 in `view.normal`. */
+export const NormalPrepass = component("NormalPrepass", {});
+export const NORMAL_FORMAT: GPUTextureFormat = "rgb10a2unorm";
+/** Plugins request normals per camera; a normal request also requests stored depth. */
+export const NormalPrepassRequests = { create: () => [] as DepthPrepassRequest[] };
+
 /** A plugin's per-camera request for the shared stored depth lane. */
 export type DepthPrepassRequest = (world: World, eid: number, view: View) => boolean;
 
@@ -68,6 +74,7 @@ function createTargets() {
     };
     return {
         depth: new Map<number, Target>(),
+        normal: new Map<number, Target>(),
         colorTargets: new Map<number, ColorTargets>(),
         clearValue,
         clearPacked: -1,
@@ -91,6 +98,9 @@ export function releaseViewTargets(world: World, eid: number): void {
     const state = world.resource(viewTargetsKey);
     const depth = state.depth.get(eid);
     const color = state.colorTargets.get(eid);
+    const normal = state.normal.get(eid);
+    if (normal) world.retireGpuResource(normal.texture);
+    state.normal.delete(eid);
     if (depth) world.retireGpuResource(depth.texture);
     if (color?.color) world.retireGpuResource(color.color);
     if (color) world.retireGpuResource(color.depth);
@@ -106,6 +116,8 @@ export function disposeViewTargets(world: World): void {
         c.color?.destroy();
         c.depth.destroy();
     }
+    for (const c of state.normal.values()) c.texture.destroy();
+    state.normal.clear();
     state.depth.clear();
     state.colorTargets.clear();
 }
@@ -130,14 +142,63 @@ function depthView(world: World, eid: number, w: number, h: number): GPUTextureV
     return view;
 }
 
+export function releaseNormalTarget(world: World, eid: number): void {
+    const targets = world.resource(viewTargetsKey).normal;
+    const normal = targets.get(eid);
+    if (normal) world.retireGpuResource(normal.texture);
+    targets.delete(eid);
+}
+
 /** Prepass attachments publish the requested outputs; the caller opens and records the pass. */
-export function prepassDescriptor(world: World, eid: number, view: View): GPURenderPassDescriptor {
+export function prepassDescriptor(
+    world: World,
+    eid: number,
+    view: View,
+    normals = false,
+): GPURenderPassDescriptor {
     const depth = depthView(world, eid, view.width, view.height);
     view.depth = depth;
+    const state = world.resource(viewTargetsKey);
+    let normal = state.normal.get(eid);
+    const sampleCount = state.depth.get(eid)!.sampleCount;
+    if (
+        normal &&
+        (!normals ||
+            normal.w !== view.width ||
+            normal.h !== view.height ||
+            normal.sampleCount !== sampleCount)
+    ) {
+        world.retireGpuResource(normal.texture);
+        state.normal.delete(eid);
+        normal = undefined;
+    }
+    if (normals && !normal) {
+        const texture = world.gpu.device.createTexture({
+            label: `standard-normal-${eid}`,
+            size: { width: view.width, height: view.height },
+            format: NORMAL_FORMAT,
+            sampleCount,
+            usage:
+                GPUTextureUsage.RENDER_ATTACHMENT |
+                GPUTextureUsage.TEXTURE_BINDING |
+                GPUTextureUsage.COPY_SRC,
+        });
+        normal = {
+            texture,
+            view: texture.createView(),
+            w: view.width,
+            h: view.height,
+            sampleCount,
+        };
+        state.normal.set(eid, normal);
+    }
+    view.normal = normal?.view ?? null;
     return {
         label: `standard-prepass/${eid}`,
         timestampWrites: world.gpu.span?.("standard:prepass"),
-        colorAttachments: [],
+        colorAttachments: normal
+            ? [{ view: normal.view, loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 0] }]
+            : [],
         depthStencilAttachment: {
             view: depth,
             depthLoadOp: "clear",

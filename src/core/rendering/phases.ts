@@ -9,7 +9,10 @@ import {
     DepthPrepassRequests,
     disposeViewTargets,
     initializeViewTargets,
+    NormalPrepass,
+    NormalPrepassRequests,
     prepassDescriptor,
+    releaseNormalTarget,
 } from "./targets";
 import { TonemappingPlugin, TonemappingSystem } from "./tonemapping-state";
 import { type View, Views } from "./view";
@@ -284,7 +287,18 @@ function recordDepthPrepass(this: World, view: View, eid: number): void {
     if (!view.framebuffer) return;
     const encoder = this.frameEncoder()!;
     view.depth = null;
-    let requested = this.has(eid, DepthPrepass);
+    view.normal = null;
+    let normals = this.has(eid, NormalPrepass);
+    if (!normals) {
+        const requests = this.resource(NormalPrepassRequests);
+        for (let i = 0; i < requests.length; i++) {
+            if (requests[i]!(this, eid, view)) {
+                normals = true;
+                break;
+            }
+        }
+    }
+    let requested = normals || this.has(eid, DepthPrepass);
     if (!requested) {
         const requests = this.resource(DepthPrepassRequests);
         for (let i = 0; i < requests.length; i++) {
@@ -294,8 +308,11 @@ function recordDepthPrepass(this: World, view: View, eid: number): void {
             }
         }
     }
-    if (!requested) return;
-    const pass = beginRenderPass(encoder, prepassDescriptor(this, eid, view));
+    if (!requested) {
+        releaseNormalTarget(this, eid);
+        return;
+    }
+    const pass = beginRenderPass(encoder, prepassDescriptor(this, eid, view, normals));
     const renderers = this.resource(RenderPhases);
     for (let i = 0; i < renderers.length; i++) renderers[i].prepass?.(this, eid, view, pass);
     endRenderPass(pass);
@@ -385,11 +402,12 @@ export const CorePipelinePlugin: Plugin = {
     name: "CorePipeline",
     dependencies: [RenderingPlugin],
     systems: [PrepassSystem, MainPassSystem, TonemappingSystem],
-    components: [...(TonemappingPlugin.components ?? []), DepthPrepass],
+    components: [...(TonemappingPlugin.components ?? []), DepthPrepass, NormalPrepass],
     initialize(world) {
         initializeViewTargets(world);
         world.resource(RenderPhases);
         world.resource(DepthPrepassRequests);
+        world.resource(NormalPrepassRequests);
         TonemappingPlugin.initialize?.(world);
     },
     warm: TonemappingPlugin.warm,

@@ -10,11 +10,16 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { decodePos, decodeUv, MeshQuant, meshIdOf } from "../../core/mesh";
 import {
+    Camera,
     DEPTH_FORMAT,
     Frame,
     fullscreenVertex,
+    NORMAL_FORMAT,
+    NormalPrepass,
+    NormalPrepassRequests,
     RenderContext,
     SAMPLE_COUNT,
+    Views,
     Xform,
     xformNormal,
     xformPoint,
@@ -168,6 +173,8 @@ export interface CompiledMaterial {
     // clipped surfaces use the main stream for their authored cutoff. The lane matches the camera's MSAA count.
     prepass: TgpuRenderPipeline<any> | null;
     prepassSingle: TgpuRenderPipeline<any> | null;
+    normal: TgpuRenderPipeline<any> | null;
+    normalSingle: TgpuRenderPipeline<any> | null;
     // the point/cascade shadow-atlas pipelines. `null` when the type opts out of that shadow route.
     point: TgpuRenderPipeline<any> | null;
     cascade: TgpuRenderPipeline<any> | null;
@@ -783,7 +790,7 @@ function prepassVs(surface: AnyMaterialType) {
         .$name(`${surface.name}PrepassVs`);
 }
 
-function clipFs(surface: AnyMaterialType) {
+function clipFs(surface: AnyMaterialType, normals = false) {
     const needUv = !!surface.fragmentInputs?.uv;
     const needLocalPos = !!surface.fragmentInputs?.localPos;
     const fragment = materialFragmentFunction(surface);
@@ -801,7 +808,7 @@ function clipFs(surface: AnyMaterialType) {
         ...fragmentInterstage(surface),
     };
     return tgpu
-        .fragmentFn({ in: input, out: d.Void })((fin) => {
+        .fragmentFn({ in: input, out: normals ? colorOutput : d.Void })((fin) => {
             "use gpu";
             const ctx = Ctx({
                 eid: fin.eid,
@@ -819,6 +826,13 @@ function clipFs(surface: AnyMaterialType) {
             const color = fragment(ctx);
             const cutoff = fin.alphaCutoff;
             if (color.a < cutoff) std.discard();
+            if (normals)
+                return {
+                    color: d.vec4f(
+                        std.add(std.mul(std.normalize(fin.worldNormal), 0.5), d.vec3f(0.5)),
+                        1,
+                    ),
+                } as never;
         })
         .$name(`${surface.name}ClipFs`);
 }
@@ -862,7 +876,7 @@ function clipVaryingCopier(surface: AnyMaterialType) {
     return { varyingSchema, copier };
 }
 
-function varyingClipFs(surface: AnyMaterialType) {
+function varyingClipFs(surface: AnyMaterialType, normals = false) {
     const needUv = !!surface.fragmentInputs?.uv;
     const needLocalPos = !!surface.fragmentInputs?.localPos;
     const { varyingSchema, copier } = clipVaryingCopier(surface);
@@ -881,7 +895,7 @@ function varyingClipFs(surface: AnyMaterialType) {
     return tgpu
         .fragmentFn({
             in: entryIn as unknown as typeof entryIn & { v0: d.Vec3f },
-            out: d.Void,
+            out: normals ? colorOutput : d.Void,
         })((input) => {
             "use gpu";
             const color = copier(
@@ -898,6 +912,13 @@ function varyingClipFs(surface: AnyMaterialType) {
             );
             const cutoff = input.alphaCutoff;
             if (color.a < cutoff) std.discard();
+            if (normals)
+                return {
+                    color: d.vec4f(
+                        std.add(std.mul(std.normalize(input.worldNormal), 0.5), d.vec3f(0.5)),
+                        1,
+                    ),
+                } as never;
         })
         .$name(`${surface.name}ClipFs`);
 }
@@ -1367,6 +1388,8 @@ export function compileMaterial<
                 ? null
                 : compilePrepass(world, surface, alphaPipelineKey),
         prepassSingle: null,
+        normal: null,
+        normalSingle: null,
         point: null,
         cascade: null,
         single: null,
@@ -1469,12 +1492,25 @@ const depthOnlyFs = tgpu
     })
     .$name("prepassDepthOnlyFs");
 
-/** Opaque uses the compact depth stream; Mask and AlphaToCoverage use alpha-tested material inputs. */
+const normalOnlyFs = tgpu
+    .fragmentFn({ in: { worldNormal: d.vec3f }, out: colorOutput })((input) => {
+        "use gpu";
+        return {
+            color: d.vec4f(
+                std.add(std.mul(std.normalize(input.worldNormal), 0.5), d.vec3f(0.5)),
+                1,
+            ),
+        };
+    })
+    .$name("prepassNormalFs");
+
+/** Opaque uses the compact depth stream unless normals are requested; clipped inputs retain material alpha. */
 function compilePrepass(
     world: World,
     surface: AnyMaterialType,
     alphaPipelineKey: number,
     sampleCount = SAMPLE_COUNT,
+    normals = false,
 ): TgpuRenderPipeline<any> | null {
     if (
         alphaPipelineKey === AlphaPipelineKey.Blend ||
@@ -1495,14 +1531,18 @@ function compilePrepass(
     const varying = !!surface.varyings && Object.keys(surface.varyings).length > 0;
     const depthOnly = root
         .createRenderPipeline({
-            vertex: clip
-                ? varying
-                    ? varyingVs(surface, true)
-                    : colorVs(surface, true)
-                : prepassVs(surface),
+            vertex:
+                clip || normals
+                    ? varying
+                        ? varyingVs(surface, true)
+                        : colorVs(surface, true)
+                    : prepassVs(surface),
             fragment: clip
-                ? ((varying ? varyingClipFs(surface) : clipFs(surface)) as never)
-                : depthOnlyFs,
+                ? ((varying ? varyingClipFs(surface, normals) : clipFs(surface, normals)) as never)
+                : normals
+                  ? (normalOnlyFs as never)
+                  : depthOnlyFs,
+            targets: (normals ? { color: { format: NORMAL_FORMAT } } : undefined) as never,
             primitive,
             depthStencil,
             multisample: { count: sampleCount },
@@ -2269,6 +2309,29 @@ export function getBackground(world: World, bg: AnyBackground): CompiledBackgrou
     return compiled;
 }
 
+export function ensureNormalPrepass(
+    world: World,
+    t: CompiledMaterial,
+    single: boolean,
+): TgpuRenderPipeline<any> | null {
+    if (!t.prepass) return null;
+    if (single)
+        return (t.normalSingle ??= compilePrepass(
+            world,
+            t.owner,
+            t.args.alphaPipelineKey,
+            1,
+            true,
+        ));
+    return (t.normal ??= compilePrepass(
+        world,
+        t.owner,
+        t.args.alphaPipelineKey,
+        SAMPLE_COUNT,
+        true,
+    ));
+}
+
 /** Prepare every material parameter table, pipeline and background at warm, before the first draw.
  * `singleSample` also prepares each material's AA-off variant, for a no-AA camera present at warm.
  * `stacked` prepares AlphaToCoverage for an initially stacked multisampled camera.
@@ -2296,6 +2359,21 @@ export async function preparePipelines(
             if (!(alphaKeys & (1 << alphaPipelineKey))) continue;
             const compiled = compileMaterial(world, type, capacity, alphaPipelineKey);
             if (singleSample) ensureSingle(world, compiled);
+            world.resource(Views).forEach((view, eid) => {
+                if (
+                    world.has(eid, NormalPrepass) ||
+                    world
+                        .resource(NormalPrepassRequests)
+                        .some((request) => request(world, eid, view))
+                ) {
+                    const pipeline = ensureNormalPrepass(
+                        world,
+                        compiled,
+                        world.storage(Camera).antialias.get(eid) === 0,
+                    );
+                    if (pipeline) world.gpu.root.unwrap(pipeline);
+                }
+            });
             if (stacked && alphaPipelineKey === AlphaPipelineKey.AlphaToCoverage) {
                 const pipeline = ensureStacked(world, compiled);
                 precompile(world, precompileScope(world, "standard-stacked"), () => pipeline);

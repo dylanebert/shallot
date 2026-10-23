@@ -22,6 +22,7 @@ import {
     globalTransformTable,
     initialStackedViews,
     MainPassSystem,
+    NORMAL_FORMAT,
     PrepassSystem,
     RenderContext,
     RenderPhases,
@@ -93,6 +94,7 @@ import {
     compileMaterial,
     engineCache,
     engineGroup,
+    ensureNormalPrepass,
     ensureSingle,
     ensureStacked,
     getBackground,
@@ -626,6 +628,8 @@ function renderPrepass(
     if (!view.framebuffer) return;
     const antialias = world.storage(Camera).antialias.get(eid) !== 0;
     _standardRendererState.prepassBundleDesc.sampleCount = antialias ? SAMPLE_COUNT : 1;
+    _standardRendererState.prepassBundleDesc.colorFormats.length = view.normal ? 1 : 0;
+    if (view.normal) _standardRendererState.prepassBundleDesc.colorFormats[0] = NORMAL_FORMAT;
     if (!antialias) {
         for (let i = 0; i < count; i++) {
             const material = items[i]!.r.t;
@@ -637,11 +641,15 @@ function renderPrepass(
     const shadow = shadowGroup(world);
     for (let i = 0; i < count; i++) {
         const { draw, r } = items[i];
-        const pipe = antialias ? r.t.prepass : r.t.prepassSingle;
-        const group = r.g.depth;
+        const pipe = view.normal
+            ? ensureNormalPrepass(world, r.t, !antialias)
+            : antialias
+              ? r.t.prepass
+              : r.t.prepassSingle;
+        const group = view.normal ? r.g.color : r.g.depth;
         if (pipe && group) {
             const step = bundleDraw(_standardRendererState.prepassProgram, draws);
-            step.pipeline = boundPipeline(r.g, pipe, group, true, r.index) as never;
+            step.pipeline = boundPipeline(r.g, pipe, group, !view.normal, r.index) as never;
             step.layout0 = engineLayout;
             step.group0 = engineGroup(world, r.g.engineCache, view.slot, r.g.quant);
             step.layout1 = shadowLayout;
