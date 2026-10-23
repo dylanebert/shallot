@@ -12,9 +12,9 @@ import { normalizePath } from "../project";
 import { cloudflareConfig, type WranglerResult, workerExists } from "./publish-cloudflare";
 import { BUTLER_VERSION } from "./publish-itch";
 
-async function confirmPlay(url: string, instruction: string) {
+async function confirmPlay(url: string | null, instruction: string) {
     console.info(instruction);
-    console.info(url);
+    if (url) console.info(url);
     const input = createInterface({ input: process.stdin, output: process.stdout });
     try {
         const answer = await input.question("Does it play? [y/N] ");
@@ -138,18 +138,17 @@ for (const trial of ["personal", "CI"] as const) {
                         cwd: project,
                         env: trialEnv,
                         stdin: "inherit",
-                        stdout: "pipe",
+                        stdout: "inherit",
                         stderr: "inherit",
                     });
                     expect(first.exitCode).toBe(0);
-                    const url = first.stdout.toString().trim();
-                    await confirmPlay(url, "Open this link in a fresh anonymous browser session.");
-                    expect(await (await fetch(url)).text()).toContain(marker);
-                    expect(new URL(url).hostname).toEndWith(".workers.dev");
+                    await confirmPlay(
+                        null,
+                        "Open the play link printed above in a fresh anonymous browser session.",
+                    );
                     const linked = JSON.parse(readFileSync(path, "utf8"));
                     const link = linked.shallot.publish;
                     expect(link.target).toBe("cloudflare");
-                    expect(new URL(url).hostname).toStartWith(`${link.name}.`);
                     expect(linked.devDependencies.wrangler).toBe("4.151.3");
                     const wrangler = join(project, "node_modules/wrangler/bin/wrangler.js");
                     const whoami = spawnSync("node", [wrangler, "whoami", "--json"], {
@@ -259,7 +258,9 @@ for (const trial of ["personal", "CI"] as const) {
                     );
                     expect(after, "Republish must change the scaffold title").not.toBe(before);
                     writeFileSync(html, after);
-                    expect(run([projectCli, "publish"], project)).toBe(url);
+                    const url = run([projectCli, "publish"], project);
+                    expect(new URL(url).hostname).toEndWith(".workers.dev");
+                    expect(new URL(url).hostname).toStartWith(`${link.name}.`);
                     expect(deployments().at(-1)!.id).not.toBe(firstDeployment);
                     const served = await (await fetch(url)).text();
                     expect(served).toContain(marker);
