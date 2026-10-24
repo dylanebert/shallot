@@ -1,6 +1,7 @@
-import { type Plugin, runApp } from "@dylanebert/shallot";
+import { type Plugin, runApp, ScreenSpaceAmbientOcclusionPlugin } from "@dylanebert/shallot";
 import { EXAMPLE_CONTROLS, PALETTES, type PaletteName } from "./palette";
 import { DIAGNOSTIC_PLUGINS, SCENES, type SceneDefinition } from "./scenes";
+import { addAmbientOcclusion } from "./ssao";
 
 const query = new URLSearchParams(location.search);
 const sceneId = query.get("scene") ?? SCENES[0]!.id;
@@ -37,12 +38,17 @@ function mountUi(container: HTMLElement): () => void {
     return () => panel.remove();
 }
 
-const plugins = [...DIAGNOSTIC_PLUGINS, ...(scene.plugins ?? [])];
+const plugins = [
+    ...DIAGNOSTIC_PLUGINS,
+    ...(scene.plugins ?? []),
+    ScreenSpaceAmbientOcclusionPlugin,
+];
 const scenePlugin: Plugin = {
     name: `DefaultLook/${scene.id}`,
     dependencies: plugins,
     initialize(world) {
         scene.build(world, palette);
+        addAmbientOcclusion(world, query.get("ssao") ?? "Off");
     },
 };
 

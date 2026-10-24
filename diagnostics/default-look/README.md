@@ -1,0 +1,23 @@
+# Default-look SSAO evidence
+
+From the repository root:
+
+```sh
+bun diagnostics/default-look/run.ts --ssao
+bun diagnostics/default-look/run.ts --cost --resolution=3024x1964
+```
+
+`--ssao` captures every fixed scene in aperture-carbon with SSAO Off, Low, Medium, High, Ultra and Custom. Custom uses the component's defaults (3 slices and 3 samples per side); thickness and radius are unchanged for every quality. Captures use 1280×720 device pixels and fixed noise. Open `test-results/default-look/index.html` to compare them. PNGs live in `test-results/default-look/aperture-carbon/<quality>/`. Without a flag the existing palette comparison still runs.
+
+For repeatability, hash the 24 PNGs and comparison page, repeat the same command on the same adapter and browser, then check the saved hashes:
+
+```sh
+find test-results/default-look/aperture-carbon -mindepth 2 -name '*.png' -print | sort | xargs shasum -a 256 > /tmp/ssao.sha256
+shasum -a 256 test-results/default-look/index.html >> /tmp/ssao.sha256
+bun diagnostics/default-look/run.ts --ssao
+shasum -a 256 -c /tmp/ssao.sha256
+```
+
+`--cost` runs the cost page unattended in headless Chromium on a hardware adapter and writes `test-results/default-look/cost.json` and a static `test-results/default-look/cost.html` report. Open the latter to read the completed table without rerunning the measurement. Resolution defaults to the M4 Max seat's 3024×1964 native panel size; pass the measured native resolution for another host. The capture resolution is independent of this setting. Preserve each JSON file before repeating the run. To regenerate the report without measuring again, run `bun diagnostics/default-look/render-cost.ts <saved-cost.json>`. Compare every frame and GPU-span median, not just an aggregate. The first run is not discarded automatically, and no unstable row is filtered out.
+
+The cost page steps one frame at a time without rAF pacing. Frame time covers `world.step` through its submission fence, including rendering, profiling and host/GPU synchronization; it is not a refresh interval or GPU-only total. A 120-second Ultra run warms the device before the table; each row then warms for 10 seconds and samples for 20 seconds. SSAO's seven GPU spans include preprocess, four separately dispatched depth mips, evaluation and denoise. They exclude the prepasses and PBR draw that consume the result; the frame time includes those. GPU timing uses ProfilePlugin's asynchronous readback. When `timestamp-query` is unavailable the row says so and reports frame time alone. Browser, adapter, backing resolution and sample counts accompany each result. Keep the page foreground and the viewport unchanged during measurement.
