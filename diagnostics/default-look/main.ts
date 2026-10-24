@@ -1,4 +1,6 @@
 import { type Plugin, runApp, ScreenSpaceAmbientOcclusionPlugin } from "@dylanebert/shallot";
+import { probeTexture } from "../../src/engine/runtime";
+import { ssaoState } from "../../src/standard/rendering/ssao";
 import { EXAMPLE_CONTROLS, PALETTES, type PaletteName } from "./palette";
 import { DIAGNOSTIC_PLUGINS, SCENES, type SceneDefinition } from "./scenes";
 import { addAmbientOcclusion } from "./ssao";
@@ -57,5 +59,17 @@ const app = await runApp({
     pixelRatio: 1,
     ui: scene.ui ? mountUi : undefined,
 });
+export async function captureAo(): Promise<string> {
+    const camera = app.world.resource(ssaoState).cameras.values().next().value;
+    if (!camera) throw new Error("No SSAO output to capture");
+    const probe = await probeTexture(app.world, camera.textures.at(-1)!);
+    const bytes = new Uint8Array(probe.bytes);
+    let binary = "";
+    for (let offset = 0; offset < bytes.length; offset += 65536) {
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + 65536));
+    }
+    return btoa(binary);
+}
+
 window.addEventListener("pagehide", () => app.dispose(), { once: true });
 document.body.dataset.ready = `${paletteName}/${scene.id}`;

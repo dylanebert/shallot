@@ -139,7 +139,8 @@ function allocate(world: World, view: View, multisampled: boolean): CameraAo {
         return result;
     }
     const mipCount = Math.min(5, Math.floor(Math.log2(Math.min(width, height))) + 1);
-    const depth = texture("r32float", mipCount);
+    // WebGPU-core compute storage is rgba16float; its red channel supplies Bevy's filtered depth.
+    const depth = texture("rgba16float", mipCount);
     const normal = texture("rgba16float");
     const noisy = texture("r32float");
     const edges = texture("r32uint");
@@ -177,6 +178,11 @@ function allocate(world: World, view: View, multisampled: boolean): CameraAo {
             view: world.resource(RenderContext).viewBuffers[view.slot],
             settings,
             depth: depth.createView(),
+            depthSampler: device.createSampler({
+                magFilter: "linear",
+                minFilter: "linear",
+                mipmapFilter: "linear",
+            }),
             normals: normal.createView(),
             noise: state.noise!,
             output: noisy.createView(),

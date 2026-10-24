@@ -9,6 +9,8 @@ bun diagnostics/default-look/run.ts --cost --resolution=3024x1964
 
 `--ssao` captures every fixed scene in aperture-carbon with SSAO Off, Low, Medium, High, Ultra and Custom. Custom uses the component's defaults (3 slices and 3 samples per side); thickness and radius are unchanged for every quality. Captures use 1280×720 device pixels and fixed noise. Open `test-results/default-look/index.html` to compare them. PNGs live in `test-results/default-look/aperture-carbon/<quality>/`. Without a flag the existing palette comparison still runs.
 
+Add `--ao` to `--ssao` to save the denoised AO alongside each enabled PNG as `<scene>.f32`: 1280×720 tightly packed float32 visibility values in row order (0 occluded, 1 visible). Compare two saved quality directories with `bun diagnostics/default-look/compare-ao.ts <before-aperture-carbon> <after-aperture-carbon>`. It reports maximum and mean absolute difference over every pixel, including unchanged pixels, without display encoding.
+
 For repeatability, hash the 24 PNGs and comparison page, repeat the same command on the same adapter and browser, then check the saved hashes:
 
 ```sh

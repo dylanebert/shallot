@@ -20,13 +20,13 @@ const common = {
 export const copyLayout = tgpu.bindGroupLayout({
     depth: { texture: d.textureDepth2d() },
     normals: { texture: d.texture2d() },
-    outputDepth: { storageTexture: d.textureStorage2d("r32float", "write-only") },
+    outputDepth: { storageTexture: d.textureStorage2d("rgba16float", "write-only") },
     outputNormals: { storageTexture: d.textureStorage2d("rgba16float", "write-only") },
 });
 export const copyMsaaLayout = tgpu.bindGroupLayout({
     depth: { texture: d.textureDepthMultisampled2d() },
     normals: { texture: d.textureMultisampled2d(), sampleType: "unfilterable-float" },
-    outputDepth: { storageTexture: d.textureStorage2d("r32float", "write-only") },
+    outputDepth: { storageTexture: d.textureStorage2d("rgba16float", "write-only") },
     outputNormals: { storageTexture: d.textureStorage2d("rgba16float", "write-only") },
 });
 const copyDepth = tgpu.fn(
@@ -72,8 +72,8 @@ export function copyKernel(multisampled: boolean) {
     );
 }
 export const mipLayout = tgpu.bindGroupLayout({
-    depth: { texture: d.texture2d(), sampleType: "unfilterable-float" },
-    output: { storageTexture: d.textureStorage2d("r32float", "write-only") },
+    depth: { texture: d.texture2d() },
+    output: { storageTexture: d.textureStorage2d("rgba16float", "write-only") },
 });
 const weightedAverage = tgpu.fn(
     [d.vec4f],
@@ -108,13 +108,13 @@ export const mipKernel = tgpu.computeFn({
 });
 export const aoLayout = tgpu.bindGroupLayout({
     ...common,
-    depth: { texture: d.texture2d(), sampleType: "unfilterable-float" },
+    depth: { texture: d.texture2d() },
+    depthSampler: { sampler: "filtering" },
     normals: { texture: d.texture2d() },
     noise: { texture: d.texture2d(d.u32) },
     output: { storageTexture: d.textureStorage2d("r32float", "write-only") },
     edges: { storageTexture: d.textureStorage2d("r32uint", "write-only") },
 });
-// WebGPU does not guarantee float32-filterable. Interpolate explicitly, including between mips.
 const depthAt = tgpu.fn(
     [d.vec2i, d.i32],
     d.f32,
@@ -122,20 +122,6 @@ const depthAt = tgpu.fn(
     "use gpu";
     const last = s.sub(d.vec2i(s.textureDimensions(aoLayout.$.depth, mip)), 1);
     return s.textureLoad(aoLayout.$.depth, s.clamp(px, d.vec2i(0), last), mip).x;
-});
-const depthBilinear = tgpu.fn(
-    [d.vec2f, d.i32],
-    d.f32,
-)((uv, mip) => {
-    "use gpu";
-    const p = s.sub(s.mul(uv, d.vec2f(s.textureDimensions(aoLayout.$.depth, mip))), 0.5);
-    const px = d.vec2i(s.floor(p));
-    const f = s.fract(p);
-    return s.mix(
-        s.mix(depthAt(px, mip), depthAt(s.add(px, d.vec2i(1, 0)), mip), f.x),
-        s.mix(depthAt(s.add(px, d.vec2i(0, 1)), mip), depthAt(s.add(px, d.vec2i(1)), mip), f.x),
-        f.y,
-    );
 });
 const position = tgpu.fn(
     [d.f32, d.vec2f],
@@ -151,9 +137,7 @@ const samplePosition = tgpu.fn(
     d.vec3f,
 )((uv, mip) => {
     "use gpu";
-    const lower = d.i32(s.floor(mip));
-    const upper = s.min(lower + 1, d.i32(s.textureNumLevels(aoLayout.$.depth)) - 1);
-    return position(s.mix(depthBilinear(uv, lower), depthBilinear(uv, upper), s.fract(mip)), uv);
+    return position(s.textureSampleLevel(aoLayout.$.depth, aoLayout.$.depthSampler, uv, mip).x, uv);
 });
 const fastAcos = tgpu.fn(
     [d.f32],

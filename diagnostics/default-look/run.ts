@@ -215,6 +215,17 @@ try {
                     await mkdir(directory, { recursive: true });
                     const path = resolve(directory, `${scene.id}.png`);
                     await page.screenshot({ path, animations: "disabled" });
+                    if (process.argv.includes("--ao") && quality !== "Off") {
+                        const base64 = await page.evaluate(async () => {
+                            const modulePath = "/diagnostics/default-look/main.ts";
+                            const { captureAo } = await import(modulePath);
+                            return captureAo();
+                        });
+                        await writeFile(
+                            path.replace(/\.png$/, ".f32"),
+                            Buffer.from(base64, "base64"),
+                        );
+                    }
                     console.log(`Captured ${ready}: ${path}`);
                 }
             }
