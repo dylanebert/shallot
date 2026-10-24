@@ -27,7 +27,7 @@ import { BROWSER_CONFIG } from "@dylanebert/shallot/testing";
 import { shallot } from "@dylanebert/shallot/vite";
 import { chromium, type Page } from "playwright";
 import { createServer as createViteServer } from "vite";
-import { costReport } from "./cost-report";
+import { type CostRow, costReport } from "./cost-report";
 import { PALETTES } from "./palette";
 import { reportHtml } from "./report";
 import { SCENES } from "./scenes";
@@ -178,23 +178,50 @@ try {
     console.log(`Default-look WebGPU adapter: ${JSON.stringify(adapter)}`);
 
     if (cost) {
-        page.on("console", (message) => console.log(message.text()));
-        await page.goto(`http://127.0.0.1:${address.port}/diagnostics/default-look/cost.html`);
-        await page.waitForFunction(
-            () => document.body.dataset.complete || document.body.dataset.error,
-            undefined,
-            { timeout: 0 },
-        );
-        const error = await page.locator("body").getAttribute("data-error");
-        if (error) throw new Error(error);
-        if (errors.length) throw new Error(errors.join("; "));
+        const qualification = process.argv.includes("--qualify");
+        const scene =
+            process.argv.find((arg) => arg.startsWith("--scene="))?.split("=")[1] ??
+            "primitives-greybox";
+        const quality =
+            process.argv.find((arg) => arg.startsWith("--quality="))?.split("=")[1] ?? "High";
+        const rows: CostRow[] = [];
+        await page.close();
+        for (let repeat = 0; repeat < (qualification ? 1 : 3); repeat++) {
+            for (const level of qualification || quality === "Off" ? [quality] : ["Off", quality]) {
+                const trial = await browser.newPage({
+                    viewport: { width, height },
+                    deviceScaleFactor: 1,
+                });
+                trial.on("pageerror", (error) => errors.push(error.message));
+                trial.on("console", (message) => console.log(message.text()));
+                try {
+                    const query = qualification
+                        ? "qualify"
+                        : new URLSearchParams({ scene, quality: level }).toString();
+                    await trial.goto(
+                        `http://127.0.0.1:${address.port}/diagnostics/default-look/cost.html?${query}`,
+                    );
+                    await trial.waitForFunction(
+                        () => document.body.dataset.complete || document.body.dataset.error,
+                        undefined,
+                        { timeout: 0 },
+                    );
+                    const error = await trial.locator("body").getAttribute("data-error");
+                    if (error) throw new Error(error);
+                    if (errors.length) throw new Error(errors.join("; "));
+                    const measurements: CostRow[] = JSON.parse(
+                        (await trial.locator("#results").textContent())!,
+                    );
+                    rows.push(...measurements.map((row) => ({ ...row, trial: repeat + 1 })));
+                } finally {
+                    await trial.close();
+                }
+            }
+        }
         await mkdir(outputRoot, { recursive: true });
-        const result = await page.locator("#results").textContent();
-        await writeFile(resolve(outputRoot, "cost.json"), result!);
-        await writeFile(
-            resolve(outputRoot, "cost.html"),
-            costReport(costHtml, JSON.parse(result!)),
-        );
+        const result = JSON.stringify(rows, null, 2);
+        await writeFile(resolve(outputRoot, "cost.json"), result);
+        await writeFile(resolve(outputRoot, "cost.html"), costReport(costHtml, rows));
         console.log(result);
         console.log(`Cost page: ${resolve(outputRoot, "cost.html")}`);
     } else {

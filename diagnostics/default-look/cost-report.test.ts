@@ -32,6 +32,12 @@ test("saved cost JSON renders the live page's cells without running its measurem
     expect(html.match(/<tr>/g)?.length).toBe(2);
 });
 
+test("fresh-page trials stay separate in the saved cost report", () => {
+    expect(costCells({ ...row, trial: 1 })[5]).toBe("1");
+    expect(costCells({ ...row, trial: 3 })[5]).toBe("3");
+    expect(costCells(row)[5]).toBe("—");
+});
+
 test("missing timestamp-query is reported as unavailable, not as zero GPU cost", () => {
     const cells = costCells({
         ...row,

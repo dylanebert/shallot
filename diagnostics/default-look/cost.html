@@ -15,12 +15,15 @@
 <body>
     <h1>SSAO cost</h1>
     <p>Unpaced stepped frames, CPU start through GPU submission fence; not display refresh intervals.
-        Native viewport device pixels. A 120-second Ultra device warm-up precedes the table;
-        then 10 seconds warm-up and 20 seconds measured per scene and quality.
+        Native viewport device pixels. Bench: one scene and quality, 30 warm frames,
+        then medians over the last 60 of 120 queued frames, as in the fog bench.
+        The driver defaults to Off and High on three fresh pages each.
+        Explicit qualification: 120-second Ultra device warm-up, then all scenes and qualities,
+        with 10 seconds warm-up and 20 seconds measured per row.
         GPU spans are asynchronous per-pass elapsed times, not frame totals. Profiling is enabled for every row, including Off.
         Keep this tab foreground; do not resize during a run. Custom uses the component defaults (3 slices, 3 samples per side).</p>
     <p id="status">Running…</p>
-    <table><thead><tr><th>Scene</th><th>Quality</th><th>Resolution</th><th>Frame median (ms)</th><th>GPU span medians</th></tr></thead><tbody></tbody></table>
+    <table><thead><tr><th>Scene</th><th>Quality</th><th>Resolution</th><th>Frame median (ms)</th><th>GPU span medians</th><th>Page</th></tr></thead><tbody></tbody></table>
     <details><summary>JSON with adapter, browser and sample counts</summary><pre id="results"></pre></details>
     <canvas></canvas>
     <script type="module" src="./cost.ts"></script>

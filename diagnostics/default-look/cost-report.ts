@@ -1,4 +1,6 @@
 export interface CostRow {
+    trial?: number;
+    protocol?: string;
     scene: string;
     quality: string;
     adapter: { vendor: string; architecture: string; device: string; description: string };
@@ -22,6 +24,7 @@ export function costCells(row: CostRow): string[] {
                   .map(([name, ms]) => `${name}: ${ms.toFixed(6)} ms`)
                   .join("\n") || "—"
             : row.timestampQuery,
+        row.trial?.toString() ?? "—",
     ];
 }
 
