@@ -1,4 +1,5 @@
 import {
+    Camera,
     CharacterPlugin,
     type createApp,
     DEFAULT_PLUGINS,
@@ -7,16 +8,22 @@ import {
     InputPlugin,
     Materials,
     Meshes,
+    MeshInstance,
+    MeshMaterial,
     OrbitPlugin,
     OutlinePlugin,
     ProfilePlugin,
     RenderingPlugin,
     registerProducerTable,
+    ScreenSpaceAmbientOcclusion,
     ScreenSpaceAmbientOcclusionPlugin,
     SpritePlugin,
     StandardMaterial,
     StandardPhysicsPlugin,
+    StandardRenderer,
+    Transform,
 } from "@dylanebert/shallot";
+import { attachTexture, Views } from "../src/core/rendering";
 import { rawDevice } from "../src/engine/runtime";
 import { createTestGpuApp, disposeGpuApps, gpuRequirements } from "./gpu.fixture";
 
@@ -67,9 +74,37 @@ export const compileSubjects = [
     { name: "Sprite", config: { plugins: [SpritePlugin] } },
 ] satisfies { name: string; config: Parameters<typeof createApp>[0] }[];
 
+export function initialSsaoCamera(antialias: number): Parameters<typeof createApp>[0] {
+    return {
+        plugins: [
+            ScreenSpaceAmbientOcclusionPlugin,
+            {
+                name: "InitialSsaoCamera",
+                dependencies: [...DEFAULT_PLUGINS, ScreenSpaceAmbientOcclusionPlugin],
+                initialize(world) {
+                    const camera = world.create();
+                    world.add(camera, Transform, { translation: [0, 0, 4, 0] });
+                    world.add(camera, Camera, { antialias });
+                    world.add(camera, StandardRenderer);
+                    world.add(camera, ScreenSpaceAmbientOcclusion);
+                    const mesh = world.create();
+                    world.add(mesh, Transform);
+                    world.add(mesh, MeshInstance);
+                    world.add(
+                        mesh,
+                        MeshMaterial,
+                        world.resource(Materials).add(StandardMaterial()),
+                    );
+                },
+            },
+        ],
+    };
+}
+
 export async function measureCompile(
     config: Parameters<typeof createApp>[0],
     onPipeline?: (label: string) => void,
+    draw = false,
 ) {
     const plugins = [
         ...DEFAULT_PLUGINS,
@@ -103,7 +138,20 @@ export async function measureCompile(
         const start = performance.now();
         app = await createTestGpuApp({ ...config, device });
         await device.queue.onSubmittedWorkDone();
-        return { pipelines, ms: performance.now() - start };
+        const warmPipelines = pipelines;
+        if (draw) {
+            for (const camera of app.world.query([Camera, StandardRenderer])) {
+                if (!app.world.resource(Views).has(camera))
+                    attachTexture(app.world, camera, { width: 64, height: 64 });
+            }
+            app.world.step(1 / 60);
+            await app.world.frameFence;
+        }
+        return {
+            pipelines,
+            latePipelines: pipelines - warmPipelines,
+            ms: performance.now() - start,
+        };
     } finally {
         app?.dispose();
         for (const [index, name] of methods.entries()) Reflect.set(device, name, originals[index]);

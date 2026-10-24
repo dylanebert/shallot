@@ -2351,6 +2351,17 @@ export async function preparePipelines(
     // Create its parameter table at warm so the defaults reach the first frame's upload.
     // TypeGPU defers resolve and device pipeline creation until first use. root.unwrap forces
     // both at warm so resolution/validation errors surface here, not mid-frame on the first draw.
+    const normalSamples = new Set<number>();
+    const normalRequests = world.resource(NormalPrepassRequests);
+    for (const eid of world.query([Camera])) {
+        const view = world.resource(Views).get(eid);
+        if (
+            world.has(eid, NormalPrepass) ||
+            normalRequests.some((request) => request(world, eid, view))
+        ) {
+            normalSamples.add(world.storage(Camera).antialias.get(eid) === 0 ? 1 : SAMPLE_COUNT);
+        }
+    }
     for (const type of world.resource(MaterialTypes).types) {
         if (!type) continue;
         const source = materialSource(world, type);
@@ -2364,21 +2375,15 @@ export async function preparePipelines(
             if (!(alphaKeys & (1 << alphaPipelineKey))) continue;
             const compiled = compileMaterial(world, type, capacity, alphaPipelineKey);
             if (singleSample) ensureSingle(world, compiled);
-            world.resource(Views).forEach((view, eid) => {
-                if (
-                    world.has(eid, NormalPrepass) ||
-                    world
-                        .resource(NormalPrepassRequests)
-                        .some((request) => request(world, eid, view))
-                ) {
-                    const pipeline = ensureNormalPrepass(
+            for (const samples of normalSamples) {
+                const pipeline = ensureNormalPrepass(world, compiled, samples === 1);
+                if (pipeline)
+                    precompile(
                         world,
-                        compiled,
-                        world.storage(Camera).antialias.get(eid) === 0,
+                        precompileScope(world, "standard-normal-prepass"),
+                        () => pipeline,
                     );
-                    if (pipeline) world.gpu.root.unwrap(pipeline);
-                }
-            });
+            }
             if (stacked && alphaPipelineKey === AlphaPipelineKey.AlphaToCoverage) {
                 const pipeline = ensureStacked(world, compiled);
                 precompile(world, precompileScope(world, "standard-stacked"), () => pipeline);

@@ -15,8 +15,11 @@ export const DepthPrepass = component("DepthPrepass", {});
 /** Request world-space normals, encoded as normal * 0.5 + 0.5 in `view.normal`. */
 export const NormalPrepass = component("NormalPrepass", {});
 export const NORMAL_FORMAT: GPUTextureFormat = "rgb10a2unorm";
-/** Plugins request normals per camera; a normal request also requests stored depth. */
-export const NormalPrepassRequests = { create: () => [] as DepthPrepassRequest[] };
+/** Plugins request normals per camera; a normal request also requests stored depth.
+ * Preparation checks initial cameras before they necessarily have a bound view. */
+export const NormalPrepassRequests = {
+    create: () => [] as ((world: World, eid: number, view?: View) => boolean)[],
+};
 
 /** A plugin's per-camera request for the shared stored depth lane. */
 export type DepthPrepassRequest = (world: World, eid: number, view: View) => boolean;

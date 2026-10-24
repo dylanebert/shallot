@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { RenderingPlugin } from "@dylanebert/shallot";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { compileSubjects, measureCompile } from "./compile.fixture";
+import { compileSubjects, initialSsaoCamera, measureCompile } from "./compile.fixture";
 
 setDefaultTimeout(TIMEOUT.node);
 
@@ -37,6 +37,24 @@ for (const subject of compileSubjects) {
         expect(labels.filter((label) => label === "upscaling")).toHaveLength(
             result.pipelines ? 1 : 0,
         );
+    });
+}
+
+for (const antialias of [0, 1]) {
+    test(`an initial SSAO camera (${antialias ? "4x" : "1x"}) compiles no pipeline after the drain`, async () => {
+        const labels: string[] = [];
+        const result = await measureCompile(
+            initialSsaoCamera(antialias),
+            (label) => labels.push(label),
+            true,
+        );
+        expect(result.pipelines).toBe(antialias ? 31 : 35);
+        expect(result.latePipelines).toBe(0);
+        expect(
+            labels.filter(
+                (label) => label === `standard-prepass-StandardMaterial-0-${antialias ? 4 : 1}x`,
+            ),
+        ).toHaveLength(2);
     });
 }
 
