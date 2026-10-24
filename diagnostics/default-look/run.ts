@@ -135,6 +135,37 @@ const server = createHttpServer((request, response) => {
 });
 
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+let launch: ReturnType<typeof chromium.launch> | undefined;
+let cleanupPromise: Promise<void> | undefined;
+let cancelled: number | undefined;
+function cleanup(): Promise<void> {
+    return (cleanupPromise ??= (async () => {
+        try {
+            await (await launch)?.close();
+        } finally {
+            if (server.listening) {
+                await new Promise<void>((resolve_, reject) => {
+                    server.close((error) => (error ? reject(error) : resolve_()));
+                });
+            }
+            await vite.close();
+        }
+    })());
+}
+function cancel(code: number): void {
+    cancelled = code;
+    void cleanup().then(
+        () => process.exit(code),
+        (error) => {
+            console.error(error);
+            process.exit(code);
+        },
+    );
+}
+const interrupt = () => cancel(130);
+const terminate = () => cancel(143);
+process.once("SIGINT", interrupt);
+process.once("SIGTERM", terminate);
 try {
     await new Promise<void>((resolve_, reject) => {
         server.once("error", reject);
@@ -144,11 +175,13 @@ try {
     if (!address || typeof address === "string")
         throw new Error("Could not bind diagnostic server");
 
-    browser = await chromium.launch({
+    if (cancelled) throw new Error("Capture cancelled");
+    browser = await (launch = chromium.launch({
         headless: true,
         channel: BROWSER_CONFIG.use.channel,
         ...BROWSER_CONFIG.use.launchOptions,
-    });
+    }));
+    if (cancelled) throw new Error("Capture cancelled");
     const page = await browser.newPage({
         viewport: cost ? { width, height } : { width: 1280, height: 720 },
         deviceScaleFactor: 1,
@@ -265,10 +298,11 @@ try {
         );
         console.log(`Comparison page: ${resolve(outputRoot, "index.html")}`);
     }
+} catch (error) {
+    if (!cancelled) throw error;
 } finally {
-    await browser?.close();
-    await new Promise<void>((resolve_, reject) => {
-        server.close((error) => (error ? reject(error) : resolve_()));
-    });
-    await vite.close();
+    await cleanup();
+    process.off("SIGINT", interrupt);
+    process.off("SIGTERM", terminate);
+    if (cancelled) process.exitCode = cancelled;
 }
