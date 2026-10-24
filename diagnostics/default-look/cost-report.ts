@@ -1,3 +1,35 @@
+export const costHtml = `<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SSAO cost — default look</title>
+    <style>
+        body { background: #1c1917; color: #eee; font: 14px monospace; padding: 16px; }
+        table { border-collapse: collapse; }
+        th, td { text-align: left; padding: 8px; border: 1px solid #57534e; vertical-align: top; white-space: pre; }
+        canvas { position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; z-index: -1; visibility: hidden; }
+        pre { white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <h1>SSAO cost</h1>
+    <p>Unpaced stepped frames, CPU start through GPU submission fence; not display refresh intervals.
+        Native viewport device pixels. Bench: one scene and quality, 30 warm frames,
+        then medians over the last 60 of 120 queued frames, as in the fog bench.
+        The driver defaults to Off and every quality level on seven fresh pages each.
+        Explicit qualification: 120-second Ultra device warm-up, then all scenes and qualities,
+        with 10 seconds warm-up and 20 seconds measured per row.
+        GPU spans are asynchronous per-pass elapsed times, not frame totals. Profiling is enabled for every row, including Off.
+        Keep this tab foreground; do not resize during a run. Custom uses the component defaults (3 slices, 3 samples per side).</p>
+    <p id="status">Running…</p>
+    <table><thead><tr><th>Scene</th><th>Quality</th><th>Resolution</th><th>Frame median (ms)</th><th>GPU span medians</th><th>Page</th></tr></thead><tbody></tbody></table>
+    <details><summary>JSON with adapter, browser and sample counts</summary><pre id="results"></pre></details>
+    <canvas></canvas>
+    <script type="module" src="/diagnostics/default-look/cost.ts"></script>
+</body>
+</html>`;
+
 export interface CostRow {
     trial?: number;
     protocol?: string;
@@ -32,7 +64,7 @@ function escapeHtml(value: string): string {
     return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
-export function costReport(template: string, rows: readonly CostRow[]): string {
+export function costReport(rows: readonly CostRow[]): string {
     const table = rows
         .map(
             (row) =>
@@ -41,7 +73,7 @@ export function costReport(template: string, rows: readonly CostRow[]): string {
                     .join("")}</tr>`,
         )
         .join("\n");
-    return template
+    return costHtml
         .replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, "")
         .replace('<p id="status">Running…</p>', '<p id="status">Complete — saved measurements</p>')
         .replace("<tbody></tbody>", `<tbody>${table}</tbody>`)

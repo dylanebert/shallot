@@ -1,33 +1,69 @@
 /*
-# Default-look scene captures
+# Default-look captures and SSAO cost
 
-SSAO capture and cost commands are in `diagnostics/default-look/README.md`.
-
-`scenes.ts` is the fixed scene set. `palette.ts` is its shared material-colour table; adding a palette renders the same scene list under a `test-results/default-look/<palette>/` directory.
-
-Run the capture tool from the repository root:
+Run from the repository root. The tool serves its pages and drives headless
+Chromium; a hardware WebGPU adapter is required, and software adapters are refused.
 
 ```sh
-bun diagnostics/default-look/run.ts
+bun diagnostics/default-look/run.ts                 # all scenes and palettes
+bun diagnostics/default-look/run.ts --ssao          # aperture-carbon, all qualities
+bun diagnostics/default-look/run.ts --ssao --ao     # also save raw AO
+bun diagnostics/default-look/run.ts --cost          # seven-page representative bench
+bun diagnostics/default-look/run.ts --cost --qualify # exhaustive, for a proposed default
 ```
 
-The tool serves the scene page, drives headless Chromium at a 1280×720 viewport and device scale 1, and writes one PNG per scene and palette under the ignored `test-results/` directory. `test-results/default-look/index.html` compares the captures and lists colour values with range statuses. Candidate hard-bound violations fail the report; theme role ranges are reported as a reference, and the unchanged baseline's violations are shown. It requires a hardware WebGPU adapter and refuses software adapters. To verify repeatability on the same machine, save the image and page hashes, rerun the tool, and compare:
+`scenes.ts` owns the fixed scenes and `palette.ts` their material colours.
+Captures use 1280×720 device pixels. Without flags, each palette gets its own
+`test-results/default-look/<palette>/` directory; index.html compares the PNGs
+and reports colour bounds. Candidate hard-bound violations fail the report;
+theme ranges and the unchanged baseline's violations remain reference data.
 
+--ssao captures Off, Low, Medium, High, Ultra and Custom under
+`test-results/default-look/aperture-carbon/<quality>/`, with a comparison index.html.
+Custom uses the component defaults (3 slices, 3 samples per side); radius and
+thickness are unchanged. --ao adds a tightly packed 1280×720 float32 .f32 file
+beside each enabled PNG: denoised visibility, 0 occluded to 1 visible, in row order.
+Compare all pixels without display encoding:
+`bun diagnostics/default-look/compare-ao.ts <before-aperture-carbon> <after-aperture-carbon>`.
+
+To check repeatability on the same adapter and browser:
 ```sh
-shasum -a 256 test-results/default-look/{current,dev-orange,aperture-carbon,current-in-range,dev-orange-neutral}/*.png test-results/default-look/index.html > /tmp/default-look.sha256
-bun diagnostics/default-look/run.ts
-shasum -a 256 test-results/default-look/{current,dev-orange,aperture-carbon,current-in-range,dev-orange-neutral}/*.png test-results/default-look/index.html | diff -u /tmp/default-look.sha256 -
+find test-results/default-look/aperture-carbon -mindepth 2 -name '*.png' -print | sort | xargs shasum -a 256 > /tmp/ssao.sha256
+shasum -a 256 test-results/default-look/index.html >> /tmp/ssao.sha256
+bun diagnostics/default-look/run.ts --ssao
+shasum -a 256 -c /tmp/ssao.sha256
 ```
+
+--cost defaults to primitives-greybox, Off and every quality, on seven fresh pages
+per level. Each page warms for 30 frames, then reports medians over the last 60 of
+120 queue-awaited frames, as in the fog bench. The extra frames let asynchronous
+GPU diagnostics fill. --scene=<id> selects another scene; --quality=<level> narrows
+to Off and that level, while --quality=all is the default. --pages=<count> overrides
+seven. Every page is reported separately, without pooling, filtering or retries.
+--resolution=3024x1964 is the default native M4 Max panel backing size; override it
+for another host. This setting does not change capture resolution.
+
+Frame time covers world.step through its submission fence, including profiling,
+the prepasses, PBR draw and host/GPU synchronization; it is not a refresh interval
+or GPU-only total. The seven standard:ssao-* GPU spans cover preprocess, four depth
+mips, evaluation and denoise, not the prepasses or PBR draw. Without timestamp-query,
+rows say so and report frame time alone. Keep the viewport unchanged and foreground.
+
+--qualify explicitly runs all scenes and qualities: 120 seconds Ultra device warm-up,
+then 10 seconds warm-up and 20 seconds measurement per row. It is not the default bench.
+Both modes write ignored test-results/default-look/cost.json and a static cost.html.
+Preserve each JSON before another run; compare every frame/span median, not just a
+sum. Regenerate the report without measuring: `bun diagnostics/default-look/render-cost.ts <saved-cost.json>`.
 */
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import { resolve } from "node:path";
 import { BROWSER_CONFIG } from "@dylanebert/shallot/testing";
 import { shallot } from "@dylanebert/shallot/vite";
 import { chromium, type Page } from "playwright";
 import { createServer as createViteServer } from "vite";
-import { type CostRow, costReport } from "./cost-report";
+import { type CostRow, costHtml, costReport } from "./cost-report";
 import { PALETTES } from "./palette";
 import { reportHtml } from "./report";
 import { SCENES } from "./scenes";
@@ -110,7 +146,6 @@ const vite = await createViteServer({
     server: { middlewareMode: true, hmr: false },
     appType: "custom",
 });
-const costHtml = await readFile(resolve(import.meta.dir, "cost.html"), "utf8");
 const server = createHttpServer((request, response) => {
     const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
     if (pathname === "/diagnostics/default-look/cost.html") {
@@ -265,7 +300,7 @@ try {
         await mkdir(outputRoot, { recursive: true });
         const result = JSON.stringify(rows, null, 2);
         await writeFile(resolve(outputRoot, "cost.json"), result);
-        await writeFile(resolve(outputRoot, "cost.html"), costReport(costHtml, rows));
+        await writeFile(resolve(outputRoot, "cost.html"), costReport(rows));
         console.log(result);
         console.log(`Cost page: ${resolve(outputRoot, "cost.html")}`);
     } else {

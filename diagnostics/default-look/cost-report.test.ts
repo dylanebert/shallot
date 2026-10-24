@@ -1,8 +1,6 @@
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
 import { type CostRow, costCells, costReport } from "./cost-report";
 
-const template = readFileSync(new URL("./cost.html", import.meta.url), "utf8");
 const row: CostRow = {
     scene: "<scene>",
     quality: "Medium",
@@ -22,7 +20,7 @@ const row: CostRow = {
 };
 
 test("saved cost JSON renders the live page's cells without running its measurement script", () => {
-    const html = costReport(template, [row]);
+    const html = costReport([row]);
     expect(html).not.toContain("<script");
     expect(html).toContain("Complete — saved measurements");
     expect(html).toContain("&lt;scene&gt;");
