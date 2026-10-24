@@ -216,11 +216,22 @@ try {
             process.argv.find((arg) => arg.startsWith("--scene="))?.split("=")[1] ??
             "primitives-greybox";
         const quality =
-            process.argv.find((arg) => arg.startsWith("--quality="))?.split("=")[1] ?? "High";
+            process.argv.find((arg) => arg.startsWith("--quality="))?.split("=")[1] ?? "all";
+        const pages = Number(
+            process.argv.find((arg) => arg.startsWith("--pages="))?.split("=")[1] ?? 7,
+        );
+        if (!Number.isInteger(pages) || pages < 1)
+            throw new Error("Expected --pages=<positive integer>");
         const rows: CostRow[] = [];
         await page.close();
-        for (let repeat = 0; repeat < (qualification ? 1 : 3); repeat++) {
-            for (const level of qualification || quality === "Off" ? [quality] : ["Off", quality]) {
+        for (let repeat = 0; repeat < (qualification ? 1 : pages); repeat++) {
+            const levels =
+                qualification || quality === "Off"
+                    ? [quality]
+                    : quality === "all"
+                      ? AO_LEVELS
+                      : ["Off", quality];
+            for (const level of levels) {
                 const trial = await browser.newPage({
                     viewport: { width, height },
                     deviceScaleFactor: 1,
