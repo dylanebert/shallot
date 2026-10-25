@@ -1,28 +1,20 @@
 import { expect, spyOn, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { type Plugin, World } from "@dylanebert/shallot";
 import { DiagnosticsOverlayPlugin, ProfilePlugin } from "@dylanebert/shallot/extras";
-import { AppPlugin as city } from "../examples/city/src/app";
-import { AppPlugin as cycle } from "../examples/day-night-cycle/src/app";
-import { AppPlugin as firstPerson } from "../examples/first-person/src/app";
-import { AppPlugin as interact } from "../examples/interact/src/app";
-import { AppPlugin as interior } from "../examples/lit-interior/src/app";
-import { AppPlugin as materials } from "../examples/materials/src/app";
-import { MotesPlugin } from "../examples/particles/src/motes";
-import { AppPlugin as voxel } from "../examples/voxel/src/app";
-import { AppPlugin as worldUi } from "../examples/world-ui/src/app";
 
-const examples = [
-    ["city", city],
-    ["voxel", voxel],
-    ["lit-interior", interior],
-    ["day-night-cycle", cycle],
-    ["materials", materials],
-    ["first-person", firstPerson],
-    ["interact", interact],
-    ["world-ui", worldUi],
-    ["particles", MotesPlugin],
-] as const;
+const exclusions = new Set([
+    "minimal",
+    "hud",
+    "sound",
+    "loading-screen",
+    "save-and-load",
+    "embedded-scene",
+]);
+const examples = readdirSync(new URL("../examples/", import.meta.url), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !exclusions.has(entry.name))
+    .map((entry) => entry.name)
+    .sort();
 
 function composition(plugin: Plugin, result = new Set<Plugin>()): Set<Plugin> {
     if (result.has(plugin)) return result;
@@ -31,16 +23,20 @@ function composition(plugin: Plugin, result = new Set<Plugin>()): Set<Plugin> {
     return result;
 }
 
-for (const [name, plugin] of examples) {
-    test(`${name}'s entry composes the profiler closed until F3, then open`, () => {
+for (const name of examples) {
+    test(`${name}'s entry composes the profiler closed until F3, then open`, async () => {
         const html = readFileSync(
             new URL(`../examples/${name}/index.html`, import.meta.url),
             "utf8",
         );
-        expect(html).toMatch(
-            name === "particles" ? /plugins:\s*\[MotesPlugin\]/ : /plugins:\s*\[AppPlugin\]/,
-        );
-        const plugins = composition(plugin);
+        const motes = name === "particles" || name === "volumetric-fog";
+        const entry =
+            name === "physics"
+                ? readFileSync(new URL("../examples/physics/src/main.ts", import.meta.url), "utf8")
+                : html;
+        expect(entry).toMatch(motes ? /plugins:\s*\[MotesPlugin\]/ : /plugins:\s*\[AppPlugin\]/);
+        const module = await import(`../examples/${name}/src/${motes ? "motes" : "app"}.ts`);
+        const plugins = composition(motes ? module.MotesPlugin : module.AppPlugin);
         expect(plugins.has(DiagnosticsOverlayPlugin)).toBe(true);
         expect(plugins.has(ProfilePlugin)).toBe(true);
         if (name === "particles") {

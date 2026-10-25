@@ -17,13 +17,12 @@
             import { captureFrame } from "@dylanebert/shallot/rendering";
             import { flushSync } from "svelte";
             import { hud } from "../src/hud";
-            import { ScenePlugin } from "../src/scene";
+            import { AppPlugin } from "../src/app";
 
             const canvas = document.querySelector("canvas");
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
-            const app = await createApp({ plugins: [ScenePlugin] });
-            window.timestampQueries = app.world.gpu.device.features.has("timestamp-query");
+            const app = await createApp({ plugins: [AppPlugin] });
             const { Orbit } = await import("@dylanebert/shallot/extras");
             window.controlsKey = () => {
                 app.world.step(1 / 60);

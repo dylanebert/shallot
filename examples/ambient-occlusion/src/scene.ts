@@ -17,7 +17,7 @@ import {
     Transform,
     type World,
 } from "@dylanebert/shallot";
-import { Orbit, OrbitPlugin, ProfilePlugin } from "@dylanebert/shallot/extras";
+import { Orbit, OrbitPlugin } from "@dylanebert/shallot/extras";
 
 export const Scene: Resource<{ camera: number; cubes: number[]; sphere: number }> = {
     create: () => ({ camera: -1, cubes: [], sphere: -1 }),
@@ -31,7 +31,7 @@ export function setOcclusion(world: World, enabled: boolean): void {
 
 export const ScenePlugin: Plugin = {
     name: "AmbientOcclusionScene",
-    dependencies: [ScreenSpaceAmbientOcclusionPlugin, OrbitPlugin, ProfilePlugin],
+    dependencies: [ScreenSpaceAmbientOcclusionPlugin, OrbitPlugin],
     initialize(world) {
         const scene = world.resource(Scene);
         const camera = world.create();

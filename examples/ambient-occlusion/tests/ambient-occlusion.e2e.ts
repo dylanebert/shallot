@@ -27,13 +27,22 @@ async function difference(page: Page, a: number, b: number): Promise<number> {
 
 test.use(pipelineWarnings);
 
-test("the first frame has no late-pipeline warning", async ({ page }) => {
+test("the first frame has no late-pipeline warning and F3 toggles the profiler", async ({
+    page,
+}) => {
     await page.goto("/");
     await page.waitForFunction(() =>
         performance
             .getEntriesByType("measure")
             .some((entry) => entry.name.endsWith(":first-update")),
     );
+    await expect(page.getByLabel("GPU time")).toHaveCount(0);
+    const profiler = page.locator("[data-shallot-profile]");
+    await expect(profiler).toHaveCount(0);
+    await page.keyboard.press("F3");
+    await expect(profiler).toBeVisible();
+    await page.keyboard.press("F3");
+    await expect(profiler).toHaveCount(0);
 });
 
 test("every ambient occlusion control changes the captured frame and off restores the unoccluded frame", async ({
@@ -43,26 +52,12 @@ test("every ambient occlusion control changes the captured frame and off restore
     page.on("pageerror", (error) => errors.push(error.message));
     await page.goto("http://127.0.0.1:4276/tests/stepped.html");
     await page.waitForFunction(() => "captureScene" in window);
-    const timestamps = await page.evaluate(
-        () => (window as unknown as { timestampQueries: boolean }).timestampQueries,
-    );
-    const timing = page.getByLabel("GPU time");
-    await expect(timing).toHaveText("—");
-    if (timestamps) {
-        await expect
-            .poll(async () => {
-                await capture(page);
-                return timing.textContent();
-            })
-            .toMatch(/^(?!0\.00)\d+\.\d{2} ms$/);
-    } else await expect(timing).toHaveText("—");
     const toggle = page.getByRole("checkbox");
     const panel = page.getByRole("region", { name: "Ambient occlusion controls" });
     const bounds = await panel.boundingBox();
     const occluded = await capture(page);
     await toggle.uncheck();
     const off = await capture(page);
-    await expect(timing).toHaveText(timestamps ? "0.00 ms" : "—");
     expect(await difference(page, occluded, off)).toBeGreaterThan(0.1);
     const pixels = await page.evaluate(
         ([on, off]) => {
@@ -125,22 +120,10 @@ for (const viewport of [
         await page.setViewportSize(viewport);
         await page.goto("http://127.0.0.1:4276/tests/stepped.html");
         await page.waitForFunction(() => "captureScene" in window);
-        await expect
-            .poll(async () => {
-                await capture(page);
-                return page.getByLabel("GPU time").textContent();
-            })
-            .toMatch(
-                (await page.evaluate(
-                    () => (window as unknown as { timestampQueries: boolean }).timestampQueries,
-                ))
-                    ? /^(?!0\.00)\d+\.\d{2} ms$/
-                    : /^—$/,
-            );
+        await capture(page);
         const panel = page.getByRole("region", { name: "Ambient occlusion controls" });
         await panel.waitFor();
         await page.evaluate(() => document.fonts.ready);
-        await expect(page.getByLabel("GPU time")).toHaveText(/^(?:\d+\.\d{2} ms|—)$/);
         const bounds = (await panel.boundingBox())!;
         expect(bounds.x).toBeGreaterThanOrEqual(0);
         expect(bounds.y + bounds.height).toBeLessThanOrEqual(viewport.height);
@@ -173,7 +156,6 @@ for (const viewport of [
         expect(await panel.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
         for (const label of await panel.locator(".row > label").all())
             expect(await label.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
-        await expect(page.getByLabel("GPU time")).not.toHaveText("0.00 ms");
         if (process.env.SHALLOT_CAPTURE_DIR) {
             await mkdir(process.env.SHALLOT_CAPTURE_DIR, { recursive: true });
             await page.screenshot({
@@ -183,13 +165,6 @@ for (const viewport of [
         const toggle = page.getByRole("checkbox");
         await toggle.uncheck();
         await capture(page);
-        await expect(page.getByLabel("GPU time")).toHaveText(
-            (await page.evaluate(
-                () => (window as unknown as { timestampQueries: boolean }).timestampQueries,
-            ))
-                ? "0.00 ms"
-                : "—",
-        );
         if (process.env.SHALLOT_CAPTURE_DIR && viewport.width === 1280)
             await page.screenshot({ path: `${process.env.SHALLOT_CAPTURE_DIR}/off-1280.png` });
         expect(await panel.boundingBox()).toEqual(bounds);
@@ -250,12 +225,7 @@ test("native touch toggles, summary and range activate without taking game keys"
             expect((await row.boundingBox())!.height).toBeGreaterThanOrEqual(44);
         if (process.env.SHALLOT_CAPTURE_DIR) {
             await page.evaluate(() => document.fonts.ready);
-            await expect
-                .poll(async () => {
-                    await capture(page);
-                    return page.getByLabel("GPU time").textContent();
-                })
-                .toMatch(/^(?!0\.00)\d+\.\d{2} ms$|^—$/);
+            await capture(page);
             await page.screenshot({ path: `${process.env.SHALLOT_CAPTURE_DIR}/touch-390.png` });
         }
         await expect(toggle).toBeChecked();

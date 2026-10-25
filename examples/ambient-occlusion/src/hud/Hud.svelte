@@ -1,12 +1,9 @@
 <script lang="ts">
-    import { onMount } from "svelte";
     import type { World } from "@dylanebert/shallot";
     import "./controls.css";
     import { setOcclusion } from "../scene";
-    import { settings, setSetting, setQuality, cost } from "../settings";
+    import { settings, setSetting, setQuality } from "../settings";
     let { world }: { world: World } = $props();
-    let timing = $state("—");
-    onMount(() => { const id = setInterval(() => timing = cost(world), 100); return () => clearInterval(id); });
     let enabled = $state(true);
     let values = $state(settings.map(control => Number(control.value)));
     let mode = $state(2);
@@ -46,6 +43,5 @@
                 {/each}
             </fieldset>
         </section>
-        <div class="row"><span>GPU time</span><output aria-label="GPU time">{timing}</output></div>
     </div>
 </details>

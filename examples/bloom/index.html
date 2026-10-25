@@ -18,9 +18,9 @@
         <script type="module">
             import { runApp } from "@dylanebert/shallot";
             import { hud } from "./src/hud";
-            import { ScenePlugin } from "./src/scene";
+            import { AppPlugin } from "./src/app";
 
-            await runApp({ plugins: [ScenePlugin], ui: hud });
+            await runApp({ plugins: [AppPlugin], ui: hud });
         </script>
     </body>
 </html>
