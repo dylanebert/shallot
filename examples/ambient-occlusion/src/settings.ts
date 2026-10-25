@@ -28,10 +28,16 @@ export function cost(world: World): string {
     if (store.get("render/timestamp_query")?.value() !== 1) return "—";
     if (!world.has(world.resource(Scene).camera, ScreenSpaceAmbientOcclusion)) return "0.00 ms";
     let total = 0;
+    let measured = false;
     for (const diagnostic of store.iter()) {
         const path = diagnostic.path.path;
-        if (path.startsWith("render/standard:ssao-") && path.endsWith("/elapsed_gpu"))
-            total += diagnostic.value() ?? 0;
+        if (path.startsWith("render/standard:ssao-") && path.endsWith("/elapsed_gpu")) {
+            const value = diagnostic.value();
+            if (value !== undefined) {
+                total += value;
+                measured = true;
+            }
+        }
     }
-    return `${total.toFixed(2)} ms`;
+    return measured ? `${total.toFixed(2)} ms` : "—";
 }

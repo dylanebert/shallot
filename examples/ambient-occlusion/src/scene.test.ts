@@ -1,5 +1,10 @@
 import { expect, test } from "bun:test";
-import { DiagnosticsStore, ScreenSpaceAmbientOcclusion, World } from "@dylanebert/shallot";
+import {
+    Diagnostic,
+    DiagnosticsStore,
+    ScreenSpaceAmbientOcclusion,
+    World,
+} from "@dylanebert/shallot";
 import { Scene } from "./scene";
 import { cost, setQuality, setSetting, settings } from "./settings";
 
@@ -46,6 +51,9 @@ test("cost sums only SSAO GPU spans, clears while off and reports unavailable ti
         const store = world.resource(DiagnosticsStore);
         expect(cost(world)).toBe("—");
         store.record("render/timestamp_query", 1);
+        expect(cost(world)).toBe("—");
+        store.add(new Diagnostic("render/standard:ssao-preprocess/elapsed_gpu"));
+        expect(cost(world)).toBe("—");
         store.record("render/standard:ssao-preprocess/elapsed_gpu", 0.2);
         store.record("render/standard:ssao-evaluate/elapsed_gpu", 0.8);
         store.record("render/standard:ssao-evaluate/elapsed_cpu", 30);

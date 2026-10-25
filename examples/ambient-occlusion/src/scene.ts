@@ -38,9 +38,10 @@ export const ScenePlugin: Plugin = {
         scene.camera = camera;
         world.add(camera, Camera, { clearColor: 0x191816 });
         world.add(camera, StandardRenderer);
+        const phone = typeof window !== "undefined" && window.innerWidth <= 480;
         world.add(camera, Orbit, {
-            pan: [0, 0, 0],
-            distance: Math.sqrt(12),
+            pan: [0, phone ? 1.5 : 0, 0],
+            distance: phone ? 7 : Math.sqrt(12),
             yaw: Math.atan2(-2, -2),
             pitch: Math.atan2(2, Math.hypot(2, 2)),
         });
@@ -55,7 +56,7 @@ export const ScenePlugin: Plugin = {
         const s = Math.sin((-0.15 * Math.PI) / 2);
         const c = Math.cos((-0.15 * Math.PI) / 2);
         world.add(sun, Transform, { rotation: [c * s, s * c, -s * s, c * c] });
-        Object.assign(world.resource(GlobalAmbientLight), { color: 0x8fa8cc, brightness: 80 });
+        Object.assign(world.resource(GlobalAmbientLight), { color: 0x8fa8cc, brightness: 1000 });
         const meshes = world.resource(Meshes);
         const materials = world.resource(Materials);
         const box = meshes.add({ name: "Unit cube", ...cube([1, 1, 1]) });

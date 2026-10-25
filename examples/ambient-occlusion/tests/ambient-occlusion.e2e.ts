@@ -47,6 +47,7 @@ test("every ambient occlusion control changes the captured frame and off restore
         () => (window as unknown as { timestampQueries: boolean }).timestampQueries,
     );
     const timing = page.getByLabel("GPU time");
+    await expect(timing).toHaveText("—");
     if (timestamps) {
         await expect
             .poll(async () => {
@@ -75,12 +76,15 @@ test("every ambient occlusion control changes the captured frame and off restore
                 creaseOff: sample(off, 640, 260),
                 farOn: sample(on, 520, 220),
                 farOff: sample(off, 520, 220),
+                sphereOn: sample(on, 640, 440),
+                sphereOff: sample(off, 640, 440),
             };
         },
         [occluded, off],
     );
-    expect(pixels.creaseOn).toBeLessThan(pixels.creaseOff);
-    expect(Math.abs(pixels.farOn - pixels.farOff)).toBeLessThanOrEqual(3);
+    expect(pixels.creaseOff - pixels.creaseOn).toBeGreaterThan(60);
+    expect(pixels.sphereOff - pixels.sphereOn).toBeGreaterThan(20);
+    expect(Math.abs(pixels.farOn - pixels.farOff) / 3).toBeLessThanOrEqual(2);
     expect(await panel.boundingBox()).toEqual(bounds);
     for (const slider of await page.getByRole("slider").all()) await expect(slider).toBeDisabled();
     await toggle.check();
@@ -119,7 +123,20 @@ for (const viewport of [
 ]) {
     test(`default view and usable controls at ${viewport.width}px`, async ({ page }) => {
         await page.setViewportSize(viewport);
-        await page.goto("/");
+        await page.goto("http://127.0.0.1:4276/tests/stepped.html");
+        await page.waitForFunction(() => "captureScene" in window);
+        await expect
+            .poll(async () => {
+                await capture(page);
+                return page.getByLabel("GPU time").textContent();
+            })
+            .toMatch(
+                (await page.evaluate(
+                    () => (window as unknown as { timestampQueries: boolean }).timestampQueries,
+                ))
+                    ? /^(?!0\.00)\d+\.\d{2} ms$/
+                    : /^—$/,
+            );
         const panel = page.getByRole("region", { name: "Ambient occlusion controls" });
         await panel.waitFor();
         await page.evaluate(() => document.fonts.ready);
@@ -128,6 +145,31 @@ for (const viewport of [
         expect(bounds.x).toBeGreaterThanOrEqual(0);
         expect(bounds.y + bounds.height).toBeLessThanOrEqual(viewport.height);
         expect(bounds.x + bounds.width).toBeLessThanOrEqual(viewport.width);
+        if (viewport.width === 390) {
+            const subject = await page.evaluate(() => {
+                const frames = (window as unknown as CaptureWindow).captures;
+                const rgba = frames[frames.length - 1];
+                let left = 390,
+                    right = 0,
+                    top = 844,
+                    bottom = 0;
+                for (let y = 0; y < 844; y++)
+                    for (let x = 0; x < 390; x++) {
+                        const at = (y * 390 + x) * 4;
+                        if (Math.max(rgba[at], rgba[at + 1], rgba[at + 2]) <= 45) continue;
+                        left = Math.min(left, x);
+                        right = Math.max(right, x);
+                        top = Math.min(top, y);
+                        bottom = Math.max(bottom, y);
+                    }
+                return { left, right, top, bottom };
+            });
+            expect(subject.left).toBeGreaterThanOrEqual(16);
+            expect(subject.right).toBeLessThan(374);
+            expect(subject.top).toBeGreaterThan(bounds.y + bounds.height + 16);
+            expect(subject.bottom).toBeLessThan(828);
+            expect(subject.right - subject.left).toBeGreaterThan(200);
+        }
         expect(await panel.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
         for (const label of await panel.locator(".row > label").all())
             expect(await label.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
@@ -140,6 +182,16 @@ for (const viewport of [
         }
         const toggle = page.getByRole("checkbox");
         await toggle.uncheck();
+        await capture(page);
+        await expect(page.getByLabel("GPU time")).toHaveText(
+            (await page.evaluate(
+                () => (window as unknown as { timestampQueries: boolean }).timestampQueries,
+            ))
+                ? "0.00 ms"
+                : "—",
+        );
+        if (process.env.SHALLOT_CAPTURE_DIR && viewport.width === 1280)
+            await page.screenshot({ path: `${process.env.SHALLOT_CAPTURE_DIR}/off-1280.png` });
         expect(await panel.boundingBox()).toEqual(bounds);
         await toggle.check();
         const slider = page.getByRole("slider").last();
@@ -198,7 +250,12 @@ test("native touch toggles, summary and range activate without taking game keys"
             expect((await row.boundingBox())!.height).toBeGreaterThanOrEqual(44);
         if (process.env.SHALLOT_CAPTURE_DIR) {
             await page.evaluate(() => document.fonts.ready);
-            await capture(page);
+            await expect
+                .poll(async () => {
+                    await capture(page);
+                    return page.getByLabel("GPU time").textContent();
+                })
+                .toMatch(/^(?!0\.00)\d+\.\d{2} ms$|^—$/);
             await page.screenshot({ path: `${process.env.SHALLOT_CAPTURE_DIR}/touch-390.png` });
         }
         await expect(toggle).toBeChecked();
