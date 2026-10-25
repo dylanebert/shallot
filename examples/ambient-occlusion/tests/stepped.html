@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>ambient-occlusion, stepped</title>
+        <style>
+            * { box-sizing: border-box; margin: 0; }
+            html, body, canvas { width: 100%; height: 100%; }
+            body { overflow: hidden; background: #191816; }
+            canvas { display: block; }
+        </style>
+    </head>
+    <body>
+        <canvas width="1280" height="720"></canvas>
+        <script type="module">
+            import { createApp, mountOverlay } from "@dylanebert/shallot";
+            import { captureFrame } from "@dylanebert/shallot/rendering";
+            import { flushSync } from "svelte";
+            import { hud } from "../src/hud";
+            import { ScenePlugin } from "../src/scene";
+
+            const canvas = document.querySelector("canvas");
+            const app = await createApp({ plugins: [ScenePlugin] });
+            window.timestampQueries = app.world.gpu.device.features.has("timestamp-query");
+            const { Orbit } = await import("@dylanebert/shallot/extras");
+            window.controlsKey = () => {
+                app.world.step(1 / 60);
+                const camera = [...app.world.query([Orbit])][0];
+                return app.world.storage(Orbit).yaw.get(camera);
+            };
+            hud(mountOverlay(canvas, app.world), app.world);
+            flushSync();
+            window.captureScene = async () => {
+                flushSync();
+                const pending = captureFrame(canvas);
+                app.world.step(0);
+                const image = await pending;
+                return Array.from(image.rgba);
+            };
+        </script>
+    </body>
+</html>
