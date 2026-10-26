@@ -166,6 +166,7 @@ export function extendedMaterial(
 const vertexVaryings = { litColor: d.vec4f };
 /**
  * Built-in Gouraud material: standard lighting is evaluated once per vertex and interpolated.
+ * Does not light point or spot lights or receive sun shadows (litPbr's vertex-stage limit).
  * Ignores baseColorTexture; its interpolated colour uses baseColor alone.
  */
 export const VertexMaterialType = materialType({

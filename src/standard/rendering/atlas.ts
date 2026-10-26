@@ -1,6 +1,6 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
-import { DEPTH_FORMAT, Views } from "../../core/rendering";
+import { DEPTH_FORMAT, presentingViews, type View, Views } from "../../core/rendering";
 import type { World } from "../../engine";
 import {
     beginComputePass,
@@ -58,6 +58,8 @@ import {
 
 interface AtlasState {
     sunCasting: boolean;
+    shadowView: View | null;
+    presentingViews: readonly View[];
     shadowSampler: GPUSampler | null;
     fallbackDepth: GPUTexture | null;
     fallbackView: GPUTextureView | null;
@@ -139,6 +141,8 @@ function createAtlasState(world: World): AtlasState {
     };
     return {
         sunCasting: false,
+        shadowView: null,
+        presentingViews: presentingViews(world),
         shadowSampler: null,
         fallbackDepth: null,
         fallbackView: null,
@@ -328,6 +332,15 @@ export function setPointFrames(world: World, frames: PointShadowFrame[], count: 
 
     _atlasState.pointFrames = frames;
     _atlasState.pointFrameCount = count;
+}
+
+export function setShadowView(world: World, view: View | null): void {
+    world.resource(atlasStateKey).shadowView = view;
+}
+
+function shadowViewSlot(state: AtlasState): number {
+    const view = state.shadowView;
+    return view && state.presentingViews[view.slot] === view ? view.slot : 0;
 }
 
 /** the point/spot atlas's re-gather instance ({@link createRegather} "point") — `forward.ts`'s
@@ -865,12 +878,14 @@ export function renderPointShadows(
     );
     endComputePass(cpass);
 
-    // one pass into the whole atlas — one indirect draw per casting mesh, the VS placing each re-gathered
-    // instance into its combo's tile. The point VS projects by faceVP (not view), so the ViewUniforms buffer bound
-    // at slot 0 is an unread placeholder
+    // Every tile binds the camera the shadows are fit to (Godot's MAIN_CAM_INV_VIEW_MATRIX,
+    // godotengine/godot#72638, 4.3). Bevy's bevy_pbr/src/render/light.rs binds each light
+    // view; one bundle across all tiles cannot. The light's view is not exposed.
+    // A main camera without a presenting view falls back to slot 0.
     _atlasState.pointShadowDepth.view = _atlasState.pointAtlasView!;
     _atlasState.pointShadowPass.timestampWrites = world.gpu.span?.("standard:pointshadow");
     const group1 = pointGroup1(world);
+    const viewSlot = shadowViewSlot(_atlasState);
     const args = _pointRegather.args()!;
     for (let i = 0; i < D; i++) {
         const { r } = _atlasState.castDraws[i];
@@ -878,7 +893,7 @@ export function renderPointShadows(
         step.material = r.t.owner.name;
         step.pipeline = boundPipeline(r.g, r.t.point!, r.g.point!, true, r.index) as never;
         step.layout0 = engineLayout;
-        step.group0 = engineGroup(world, r.g.engineCache, 0, r.g.quant, true);
+        step.group0 = engineGroup(world, r.g.engineCache, viewSlot, r.g.quant, true);
         step.layout1 = pointLayout;
         step.group1 = group1;
         step.layout2 = null;
@@ -1076,6 +1091,7 @@ export function renderCascades(
         );
         endComputePass(cpass);
 
+        const viewSlot = shadowViewSlot(_atlasState);
         _atlasState.cascadeShadowDepth.view = _atlasState.cascadeAtlasView!;
         _atlasState.cascadeShadowDepth.depthLoadOp = b === 0 ? "clear" : "load";
         _atlasState.cascadeShadowPass.timestampWrites = world.gpu.span?.("standard:cascadeshadow");
@@ -1085,7 +1101,7 @@ export function renderCascades(
             step.material = r.t.owner.name;
             step.pipeline = boundPipeline(r.g, r.t.cascade!, r.g.cascade!, true, r.index) as never;
             step.layout0 = engineLayout;
-            step.group0 = engineGroup(world, r.g.engineCache, 0, r.g.quant, true);
+            step.group0 = engineGroup(world, r.g.engineCache, viewSlot, r.g.quant, true);
             step.layout1 = cascadeLayout;
             step.group1 = group1;
             step.layout2 = null;

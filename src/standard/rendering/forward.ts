@@ -31,6 +31,7 @@ import {
     renderLayers,
     SAMPLE_COUNT,
     type TransparentPhase,
+    Views,
 } from "../../core/rendering";
 import { GlobalTransform } from "../../core/transform";
 import type { Plugin, System, World } from "../../engine";
@@ -47,6 +48,7 @@ import {
     renderPointShadows,
     resetShadowAtlas,
     setPointFrames,
+    setShadowView,
     shadowGroup,
     shadowLayout,
     shadowReady,
@@ -468,7 +470,7 @@ function materialWarning(
  * Resolves compiled pipelines and caches group-2 state by draw name. Reuses the groups while the
  * material type, layout and bound resource identities are unchanged.
  * Group 0 is cached per view slot and shared by draws using the same quant buffer; atlas passes
- * use that cache's unread slot-zero view placeholder.
+ * bind the camera the shadows are fit to for every tile, not the light's view.
  */
 function recordMaterial(
     world: World,
@@ -1340,6 +1342,7 @@ const ShadowCameraSystem: System = {
         }
         const casters = updatePointShadows(world, main, _standardRendererState.pointFrames);
         setPointFrames(world, _standardRendererState.pointFrames, casters);
+        setShadowView(world, world.resource(Views).get(main) ?? null);
         updateCascades(world, main);
         // Allocate re-gather lists before record() caches the groups that bind them. Allocation clears
         // that cache, so the first casting frame binds the new list without a one-frame delay.

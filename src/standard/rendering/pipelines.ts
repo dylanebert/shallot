@@ -212,7 +212,8 @@ export interface CompiledMaterial {
  * opaque depth uses the distinct layout.depthVariant object and 8-byte position stream, while clipped
  * depth and a material vertex function need the main stream's normals and UVs. Atlas groups substitute re-gathered eids.
  * engineCache holds group-0 instances per view slot, shared by draws using the same quant buffer.
- * Atlas passes use its unread slot-zero ViewUniforms placeholder; their VS uses a tile viewProj instead.
+ * Every atlas tile binds the camera the shadows are fit to; projection uses the tile viewProj.
+ * The light's view is not exposed.
  */
 export type MaterialGroupEntry = {
     producer: import("./producer-table").ProducerTable | null;

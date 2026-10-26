@@ -81,6 +81,12 @@ import {
     ViewUniforms,
 } from "./view";
 
+/** @internal This frame's presenting views indexed by shading slot, filled by BeginFrameSystem;
+ * the array is retained and refilled every frame. */
+export function presentingViews(world: World): readonly ViewSlot[] {
+    return world.resource(renderFrameKey).presentingViews;
+}
+
 /** Fixed read-only cull table, shared by camera and shadow slots. */
 export const CullVolumes = d.arrayOf(d.vec4f, MAX_SLOTS * (CULL_VOLUME_FLOATS / 4));
 const AMBIENT_COLOR_F32 = d.memoryLayoutOf(ViewUniforms, (view) => view.ambientColor).offset / 4;
@@ -472,7 +478,8 @@ export const BeginFrameSystem: System = {
         const count = shadeCount + depthCount;
         _renderFrame.slotViews.length = count;
         _render.viewCount = count;
-        // Depth-only slots bind no ViewUniforms buffer; atlas pipelines use an unread slot-zero placeholder.
+        // Depth-only slots bind no ViewUniforms buffer; shadow atlases bind the camera the shadows
+        // are fit to when it presents, otherwise slot 0.
         const viewFloats = VIEW_BYTES / 4;
         for (let slot = 0; slot < _render.shadeCount; slot++) {
             device.queue.writeBuffer(
