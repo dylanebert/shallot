@@ -26,8 +26,8 @@ for (const name of [
             .click();
         await expect(picker).toHaveText(name);
         await expect(picker).toBeEnabled();
-        // Let the orbit camera settle on the selected scene before capturing its view.
-        await frames.run(6);
+        // Advance the camera transition without running an unbounded presentation loop.
+        await frames.run(4);
         await capture(page, name.replaceAll(" ", "-").toLowerCase(), frames);
         expect(errors).toEqual([]);
     });
