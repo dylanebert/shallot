@@ -80,8 +80,8 @@ test("body re-add visits only its dependents after retargeting and reusable snap
         world.add(body, Body);
         world.step(1 / 60);
     }
-    const shapes = () => shape.mock.calls.map((call) => call[3]).sort((x, y) => x - y);
-    const joints = () => joint.mock.calls.map((call) => call[2]).sort((x, y) => x - y);
+    const shapes = () => shape.mock.calls.map((call) => call[3]);
+    const joints = () => joint.mock.calls.map((call) => call[2]);
     try {
         readd(a);
         expect(shapes()).toEqual([a, child]);
@@ -100,6 +100,7 @@ test("body re-add visits only its dependents after retargeting and reusable snap
         for (let i = 0; i < 2; i++) {
             world.restore(image);
             readd(b);
+            // Body destruction makes both shapes new creations, queued in list join order.
             expect(shapes()).toEqual([b, child]);
             expect(joints()).toEqual([hinge, ball]);
             expect(checked).toHaveBeenCalledTimes(0);
@@ -108,6 +109,77 @@ test("body re-add visits only its dependents after retargeting and reusable snap
         shape.mockRestore();
         joint.mockRestore();
         checked.mockRestore();
+        await app.dispose();
+    }
+});
+
+test("re-adding a Body realizes its separate shapes in dependency join order", async () => {
+    const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
+    const world = app.world;
+    const body = world.create();
+    world.add(body, Body);
+    const first = world.create();
+    world.add(first, Shape, { body });
+    const second = world.create();
+    world.add(second, Shape, { body });
+    world.step(1 / 60);
+    world.step(1 / 60);
+    const shape = spyOn(marshal, "marshalShape");
+    try {
+        world.remove(body, Body);
+        world.add(body, Body);
+        world.step(1 / 60);
+        expect(shape.mock.calls.map((call) => call[3])).toEqual([first, second]);
+    } finally {
+        shape.mockRestore();
+        await app.dispose();
+    }
+});
+
+test("retargets and re-added Shapes join the destination list at its end through restore", async () => {
+    const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
+    const world = app.world;
+    const a = world.create(),
+        b = world.create();
+    world.add(a, Body);
+    world.add(b, Body);
+    const first = world.create();
+    world.add(first, Shape, { body: a });
+    const second = world.create();
+    world.add(second, Shape, { body: b });
+    world.step(1 / 60);
+    world.step(1 / 60);
+    const shape = spyOn(marshal, "marshalShape");
+    function readd(): number[] {
+        shape.mockClear();
+        world.remove(b, Body);
+        world.add(b, Body);
+        world.step(1 / 60);
+        return shape.mock.calls.map((call) => call[3]);
+    }
+    try {
+        world.storage(Shape).body.set(first, b);
+        world.step(1 / 60);
+        world.step(1 / 60);
+        expect(readd()).toEqual([second, first]);
+        const image = world.snapshot();
+        world.storage(Shape).body.set(second, a);
+        world.step(1 / 60);
+        world.storage(Shape).body.set(second, b);
+        world.step(1 / 60);
+        world.step(1 / 60);
+        expect(readd()).toEqual([first, second]);
+        world.remove(first, Shape);
+        world.add(first, Shape, { body: b });
+        world.step(1 / 60);
+        world.step(1 / 60);
+        expect(readd()).toEqual([second, first]);
+        for (let i = 0; i < 2; i++) {
+            world.restore(image);
+            expect(readd()).toEqual([second, first]);
+        }
+    } finally {
+        shape.mockRestore();
         await app.dispose();
     }
 });

@@ -12,6 +12,7 @@ import {
     createFieldCandidates,
     type FieldCandidates,
     markFieldCandidate,
+    requeueFieldCandidate,
 } from "./field-candidates";
 import * as C from "./kernel/columns";
 import {
@@ -87,9 +88,9 @@ export function markBodyJointCandidates(cache: ConstraintCache, body: number): v
         const a = cache.dependenciesA[i],
             b = cache.dependenciesB[i];
         for (let eid = a.first(body); eid !== 0; eid = a.following(eid))
-            markFieldCandidate(cache.candidates[i], eid);
+            requeueFieldCandidate(cache.candidates[i], eid);
         for (let eid = b.first(body); eid !== 0; eid = b.following(eid))
-            markFieldCandidate(cache.candidates[i], eid);
+            requeueFieldCandidate(cache.candidates[i], eid);
     }
 }
 function warnOnce(warned: Set<number>, key: number, message: string): void {
@@ -1004,6 +1005,7 @@ export function syncJoints(
         let live = cache.liveJoints.get(binding.index);
         for (let candidate = 0; candidate < candidates.count; candidate++) {
             const eid = candidates.eids[candidate];
+            if (eid === 0) continue;
             const fieldMask = candidates.fieldMarks[eid];
             const key = identity(binding.index, eid);
             const joint = live?.get(eid);
@@ -1078,7 +1080,7 @@ export function captureConstraints(cache: ConstraintCache, state: WorldState): C
         const pending = cache.candidates[index];
         for (let i = 0; i < pending.count; i++) {
             const eid = pending.eids[i];
-            candidates.push([index, eid, pending.fieldMarks[eid]]);
+            if (eid !== 0) candidates.push([index, eid, pending.fieldMarks[eid]]);
         }
     }
     return {

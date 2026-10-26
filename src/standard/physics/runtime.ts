@@ -53,6 +53,7 @@ import {
     createFieldCandidates,
     type FieldCandidates,
     markFieldCandidate,
+    requeueFieldCandidate,
 } from "./field-candidates";
 import {
     captureGeometryBuilds,
@@ -594,7 +595,6 @@ function forget(world: World, runtime: PhysicsRuntime, eid: number): void {
             runtime.shapeRecreationState.delete(shapeEid);
             runtime.shapeRemovalMass.delete(shapeEid);
             runtime.warnedShapes.delete(shapeEid);
-            markFieldCandidate(runtime.shapeCandidates, shapeEid);
         }
     markBodyDependents(runtime, eid);
     for (let fieldIndex = 0; fieldIndex < 32; fieldIndex++)
@@ -1170,7 +1170,7 @@ function captureBodyCandidates(candidates: FieldCandidates): [number, number][] 
     const pending: [number, number][] = [];
     for (let i = 0; i < candidates.count; i++) {
         const eid = candidates.eids[i];
-        pending.push([eid, candidates.fieldMarks[eid]]);
+        if (eid !== 0) pending.push([eid, candidates.fieldMarks[eid]]);
     }
     return pending;
 }
@@ -1818,7 +1818,7 @@ function removeShape(
 function markBodyDependents(runtime: PhysicsRuntime, body: number): void {
     const dependencies = runtime.shapeDependencies;
     for (let eid = dependencies.first(body); eid !== 0; eid = dependencies.following(eid))
-        markFieldCandidate(runtime.shapeCandidates, eid);
+        requeueFieldCandidate(runtime.shapeCandidates, eid);
     markBodyJointCandidates(runtime.constraints, body);
 }
 
@@ -1854,11 +1854,12 @@ function syncShapes(world: World, runtime: PhysicsRuntime, checkScale = true): v
     let pending = 0;
     for (let i = 0; i < count; i++) {
         const eid = candidates.eids[i];
+        if (eid === 0) continue;
         const mask = candidates.fieldMarks[eid];
         if (!world.has(eid, ShapeComponent)) {
             runtime.shapeDependencies.set(eid, 0);
             removeShape(runtime, eid);
-            candidates.seen[eid] = 0;
+            candidates.positions[eid] = 0;
             candidates.fieldMarks[eid] = 0;
             continue;
         }
@@ -1875,17 +1876,19 @@ function syncShapes(world: World, runtime: PhysicsRuntime, checkScale = true): v
         if (!bodyEid) {
             removeShape(runtime, eid, updateBodyMass);
             warnShape(runtime, eid, new Error("body reference is no longer valid"));
-            candidates.seen[eid] = 0;
+            candidates.positions[eid] = 0;
             candidates.fieldMarks[eid] = 0;
             continue;
         }
         if (!world.has(bodyEid, Body)) {
-            candidates.eids[pending++] = eid;
+            candidates.eids[pending] = eid;
+            candidates.positions[eid] = ++pending;
             continue;
         }
         const body = runtime.bodies.get(bodyEid);
         if (!body || !world.resolve(body.stamp)) {
-            candidates.eids[pending++] = eid;
+            candidates.eids[pending] = eid;
+            candidates.positions[eid] = ++pending;
             continue;
         }
 
@@ -1900,7 +1903,8 @@ function syncShapes(world: World, runtime: PhysicsRuntime, checkScale = true): v
             } catch (error) {
                 removeShape(runtime, eid, updateBodyMass);
                 warnShape(runtime, eid, error);
-                candidates.eids[pending++] = eid;
+                candidates.eids[pending] = eid;
+                candidates.positions[eid] = ++pending;
                 continue;
             }
             const previous = runtime.shapeRecreationState.get(eid);
@@ -1925,7 +1929,8 @@ function syncShapes(world: World, runtime: PhysicsRuntime, checkScale = true): v
                 }
             } catch (error) {
                 warnShape(runtime, eid, error);
-                candidates.eids[pending++] = eid;
+                candidates.eids[pending] = eid;
+                candidates.positions[eid] = ++pending;
                 continue;
             }
         }
@@ -1938,7 +1943,8 @@ function syncShapes(world: World, runtime: PhysicsRuntime, checkScale = true): v
                 runtime.warnedShapes.delete(eid);
             } catch (error) {
                 warnShape(runtime, eid, error);
-                candidates.eids[pending++] = eid;
+                candidates.eids[pending] = eid;
+                candidates.positions[eid] = ++pending;
                 continue;
             }
         }
@@ -1947,7 +1953,7 @@ function syncShapes(world: World, runtime: PhysicsRuntime, checkScale = true): v
             eid,
             captureShapeRecreationState(world, binding, eid, runtime.shapeRecreationState.get(eid)),
         );
-        candidates.seen[eid] = 0;
+        candidates.positions[eid] = 0;
         candidates.fieldMarks[eid] = 0;
     }
     candidates.count = pending;

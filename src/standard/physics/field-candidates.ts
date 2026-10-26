@@ -2,7 +2,8 @@ import type { World } from "../../engine";
 
 export interface FieldCandidates {
     eids: number[];
-    seen: Uint8Array;
+    /** Queue slot plus one; zero means absent. */
+    positions: Uint32Array;
     fieldMarks: Uint32Array;
     count: number;
 }
@@ -13,16 +14,16 @@ export interface FieldCandidateBinding {
 }
 
 export function createFieldCandidates(): FieldCandidates {
-    return { eids: [], seen: new Uint8Array(16), fieldMarks: new Uint32Array(16), count: 0 };
+    return { eids: [], positions: new Uint32Array(16), fieldMarks: new Uint32Array(16), count: 0 };
 }
 
 function ensureCandidateCapacity(candidates: FieldCandidates, eid: number): void {
-    if (eid < candidates.seen.length) return;
-    let capacity = candidates.seen.length;
+    if (eid < candidates.positions.length) return;
+    let capacity = candidates.positions.length;
     while (capacity <= eid) capacity *= 2;
-    const seen = new Uint8Array(capacity);
-    seen.set(candidates.seen);
-    candidates.seen = seen;
+    const positions = new Uint32Array(capacity);
+    positions.set(candidates.positions);
+    candidates.positions = positions;
     const fieldMarks = new Uint32Array(capacity);
     fieldMarks.set(candidates.fieldMarks);
     candidates.fieldMarks = fieldMarks;
@@ -38,13 +39,24 @@ export function markFieldCandidate(
     fieldIndex?: number,
 ): void {
     ensureCandidateCapacity(candidates, eid);
-    if (candidates.seen[eid] === 0) {
-        candidates.seen[eid] = 1;
+    if (candidates.positions[eid] === 0) {
         candidates.eids[candidates.count++] = eid;
+        candidates.positions[eid] = candidates.count;
     }
     // Components wider than one mask word fall back to comparing every field, never alias a low bit.
     if (fieldIndex !== undefined)
         candidates.fieldMarks[eid] |= fieldIndex < 32 ? 1 << fieldIndex : 0xffffffff;
+}
+
+/** Moves a candidate to the queue's end without losing field marks; zero slots are tombstones. */
+export function requeueFieldCandidate(candidates: FieldCandidates, eid: number): void {
+    const position = candidates.positions[eid] ?? 0;
+    if (position !== 0) {
+        if (position === candidates.count) return;
+        candidates.eids[position - 1] = 0;
+        candidates.positions[eid] = 0;
+    }
+    markFieldCandidate(candidates, eid);
 }
 
 export function captureFieldCandidate(
@@ -82,7 +94,7 @@ export function captureFieldCandidates(
 export function clearFieldCandidates(candidates: FieldCandidates): void {
     for (let i = 0; i < candidates.count; i++) {
         const eid = candidates.eids[i];
-        candidates.seen[eid] = 0;
+        candidates.positions[eid] = 0;
         candidates.fieldMarks[eid] = 0;
     }
     candidates.count = 0;
