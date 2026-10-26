@@ -134,7 +134,8 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     private _activeConsumers: Consumer[] = [];
     private _componentBindings: ComponentBinding[] = [];
     private _boundDirty = new Uint8Array(0);
-    private _seeds = 0;
+    private _seedRows = new Uint32Array(0);
+    private _seedCount = 0;
     private _membershipCounts = new Uint32Array(0);
     private _presenceBindings: PresenceBinding[] = [];
     private _presenceUnsubscribes: (() => void)[] = [];
@@ -484,11 +485,6 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         if (encoded === 0) return;
         const row = encoded - 1;
         this._eidToRow[eid] = 0;
-        // The next acquire seeds this row again.
-        if (this._boundDirty[row] !== 0) {
-            this._boundDirty[row] = 0;
-            this._seeds--;
-        }
         this._freeRows[this._freeCount++] = row;
         this._mapDirty = true;
         this.deactivateRow(row);
@@ -678,56 +674,70 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     }
 
     private seed(row: number): void {
-        if (this._boundDirty[row] !== 0) return;
+        if (!this._view || this._componentBindings.length === 0 || this._boundDirty[row] !== 0)
+            return;
         this._boundDirty[row] = 1;
-        this._seeds++;
+        this._seedRows[this._seedCount++] = row;
     }
 
     private fillBoundFields(): void {
         const view = this._view;
         if (!view || this._componentBindings.length === 0) return;
-        if (this._seeds === 0) {
+        if (this._seedCount === 0) {
             this.fillChangedFields(view);
             return;
         }
-        for (let i = 0; i < this._activeCount; i++) {
-            const eid = this._activeRows[i * 2];
-            const row = this._activeRows[i * 2 + 1];
-            const seed = this._boundDirty[row] !== 0;
-            let changed = false;
+        this.fillSeededRows(view);
+        this.fillChangedFields(view);
+        this.settleSeeds();
+    }
+
+    // A seeded row takes every bound field in binding order, so the changed pass skips it.
+    private fillSeededRows(view: DataView): void {
+        const rows = this._seedRows;
+        for (let i = 0; i < this._seedCount; i++) {
+            const row = rows[i];
+            const index = this._activeIndex[row];
+            if (index < 0) continue;
+            const eid = this._activeRows[index * 2];
             for (const binding of this._componentBindings) {
                 // Other producers may acquire rows in this table without this component.
                 if (binding.ownsRows && !this._world.has(eid, binding.component)) continue;
                 for (const field of binding.fields) {
-                    if (!seed && (field.source.dirty[eid >>> 5] & (1 << (eid & 31))) === 0)
-                        continue;
                     const column = field.source.column;
                     const sourceBase = eid * field.sourceLanes;
                     const targetBase = row * this.rowBytes + field.offset;
-                    let fieldChanged = seed;
-                    for (let lane = 0; lane < field.lanes; lane++) {
-                        const value = column[sourceBase + lane] ?? 0;
-                        if (writeLane(view, targetBase + lane * 4, field.format, value))
-                            fieldChanged = true;
-                    }
-                    changed ||= fieldChanged;
+                    for (let lane = 0; lane < field.lanes; lane++)
+                        writeLane(
+                            view,
+                            targetBase + lane * 4,
+                            field.format,
+                            column[sourceBase + lane] ?? 0,
+                        );
                 }
             }
-            if (seed) {
-                this._boundDirty[row] = 0;
-                this._seeds--;
-            }
-            if (changed) {
-                this._dirtyFirst = Math.min(this._dirtyFirst, row);
-                this._dirtyLast = Math.max(this._dirtyLast, row);
-            }
+            this._dirtyFirst = Math.min(this._dirtyFirst, row);
+            this._dirtyLast = Math.max(this._dirtyLast, row);
         }
     }
 
-    // Without pending seeds, only marked eids can differ from their rows.
+    // A released or deactivated row keeps its seed until its next activation.
+    private settleSeeds(): void {
+        const rows = this._seedRows;
+        let kept = 0;
+        for (let i = 0; i < this._seedCount; i++) {
+            const row = rows[i];
+            if (this._activeIndex[row] < 0) rows[kept++] = row;
+            else this._boundDirty[row] = 0;
+        }
+        this._seedCount = kept;
+    }
+
+    // Outside seeded rows, only marked eids can differ from their rows.
     private fillChangedFields(view: DataView): void {
         const eidToRow = this._eidToRow;
         const activeIndex = this._activeIndex;
+        const seeded = this._boundDirty;
         for (const binding of this._componentBindings) {
             for (const field of binding.fields) {
                 const dirty = field.source.dirty;
@@ -742,7 +752,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
                         const encoded = eid < eidToRow.length ? eidToRow[eid] : 0;
                         if (encoded === 0) continue;
                         const row = encoded - 1;
-                        if (activeIndex[row] < 0) continue;
+                        if (activeIndex[row] < 0 || seeded[row] !== 0) continue;
                         if (binding.ownsRows && !this._world.has(eid, binding.component)) continue;
                         const sourceBase = eid * field.sourceLanes;
                         const targetBase = row * this.rowBytes + field.offset;
@@ -836,6 +846,9 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         const dirty = new Uint8Array(capacity);
         dirty.set(this._boundDirty);
         this._boundDirty = dirty;
+        const seeds = new Uint32Array(capacity);
+        seeds.set(this._seedRows);
+        this._seedRows = seeds;
     }
 
     private replaceRecordBuffer(oldCapacity: number): void {

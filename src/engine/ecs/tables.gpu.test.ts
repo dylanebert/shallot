@@ -901,3 +901,126 @@ test("bound table skips a marked field for an inactive row", async () => {
     expect(bytes.getFloat32(row * table.rowBytes, true)).toBe(before);
     expect(table.lastUploadPath).toBe("none");
 });
+
+const SeedSource = { value: f32 };
+const SeedOwner = {};
+const SeedOther = {};
+const seeded = subject(
+    "SeededRowTableProbe",
+    [
+        component("SeedSource", SeedSource),
+        component("SeedOwner", SeedOwner),
+        component("SeedOther", SeedOther),
+    ],
+    (world) => {
+        const table = world.table("seeded-row-table-probe", d.struct({ value: d.f32 }));
+        table.bindFields(SeedSource, { value: "value" });
+        table.bindMembership(SeedOwner);
+        return table;
+    },
+);
+
+test("a row acquired after its fields were written gathers them, visiting only that row", async () => {
+    const { world, table } = seeded();
+    for (let i = 0; i < 1000; i++) {
+        const eid = world.create();
+        world.add(eid, SeedSource, { value: i });
+        world.add(eid, SeedOwner);
+    }
+    await stepAndValidate(world, "fill resident rows");
+    const late = world.create();
+    world.add(late, SeedSource, { value: 7.5 });
+    await stepAndValidate(world, "clear the late entity's marks");
+
+    world.add(late, SeedOwner);
+    const has = world.has.bind(world);
+    let visits = 0;
+    world.has = (eid, component) => {
+        visits++;
+        return has(eid, component);
+    };
+    try {
+        table.prepareUpload();
+    } finally {
+        delete (world as { has?: unknown }).has;
+    }
+
+    const row = table.rowIndex(late);
+    expect(table.view.getFloat32(row * table.rowBytes, true)).toBe(7.5);
+    expect(table.pendingUploadSize).toBe(table.rowBytes);
+    expect(visits).toBeLessThan(10);
+    table.upload();
+});
+
+const SeedPrimary = { value: f32 };
+const SeedSecondary = {};
+const seededOwners = subject(
+    "SeededOwnerTableProbe",
+    [component("SeedPrimary", SeedPrimary), component("SeedSecondary", SeedSecondary)],
+    (world) => {
+        const table = world.table("seeded-owner-table-probe", d.struct({ value: d.f32 }));
+        table.bindComponent(SeedPrimary, { value: "value" });
+        table.bindMembership(SeedSecondary);
+        return table;
+    },
+);
+
+test("a seeded row skips the fields of a row owner it does not hold", async () => {
+    const { world, table } = seededOwners();
+    const eid = world.create();
+    world.storage(SeedPrimary).value.set(eid, 73.25);
+    world.add(eid, SeedSecondary);
+    table.prepareUpload();
+
+    expect(table.view.getFloat32(table.rowIndex(eid) * table.rowBytes, true)).toBe(0);
+    table.upload();
+});
+
+const SeedInactive = { value: f32 };
+const seededInactive = subject(
+    "SeededInactiveTableProbe",
+    [component("SeedInactive", SeedInactive)],
+    (world) => {
+        const table = world.table("seeded-inactive-table-probe", d.struct({ value: d.f32 }));
+        table.bindComponent(SeedInactive, { value: "value" });
+        return table;
+    },
+);
+
+test("a row deactivated before its seed fills on reactivation", async () => {
+    const { world, table } = seededInactive();
+    const eid = world.create();
+    world.add(eid, SeedInactive, { value: 5 });
+    table.deactivate(eid);
+    await stepAndValidate(world, "upload with the seeded row inactive");
+    const row = table.rowIndex(eid);
+    expect(table.view.getFloat32(row * table.rowBytes, true)).toBe(0);
+
+    table.activate(eid);
+    table.prepareUpload();
+    expect(table.view.getFloat32(row * table.rowBytes, true)).toBe(5);
+    expect(table.pendingUploadSize).toBe(table.rowBytes);
+    table.upload();
+});
+
+test("row churn without an upload keeps pending seeds within the table's rows", () => {
+    const { world } = seeded();
+    const table = world.table("seed-churn-unbound", d.struct({ value: d.f32 }));
+    const gpuOnly = world.table("seed-churn-gpu-only", d.struct({ value: d.f32 }), {
+        gpuOnly: true,
+    });
+    const bound = world.table("seed-churn-with-fields", d.struct({ value: d.f32 }));
+    bound.bindFields(SeedSource, { value: "value" });
+    const pending = (subject: ReturnType<World["table"]>) =>
+        (subject as unknown as { _seedCount: number })._seedCount;
+    for (let cycle = 0; cycle < 100; cycle++) {
+        for (const subject of [table, gpuOnly, bound]) {
+            subject.acquire(cycle % 3);
+            subject.release(cycle % 3);
+        }
+    }
+    expect(pending(table)).toBe(0);
+    expect(pending(gpuOnly)).toBe(0);
+    expect(pending(bound)).toBeLessThanOrEqual(bound.capacity);
+    for (const subject of [table, gpuOnly, bound]) subject.dispose();
+});
