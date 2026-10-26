@@ -44,6 +44,14 @@ for (const name of [
                 await frames.run(1);
                 await capture(page, `falling-trees-${size}cm`, frames);
             }
+            await page.setViewportSize({ width: 390, height: 844 });
+            await frames.run(2);
+            const panel = page.getByRole("radiogroup", { name: "Grid size", exact: true });
+            const bounds = await panel.boundingBox();
+            expect(bounds).not.toBeNull();
+            expect(bounds!.x).toBeGreaterThanOrEqual(0);
+            expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
+            await capture(page, "falling-trees-phone", frames);
         }
         expect(errors).toEqual([]);
     });
