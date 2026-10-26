@@ -633,6 +633,18 @@ function writeMeshBounds(world: World, device: GPUDevice): void {
 
 type DrawSlot = { draw: Draw; active: boolean; seen: boolean };
 
+/** Whether this exact draw is a reserved entity-pair recipe, including pairs with no live rows. @internal */
+export function isMeshInstanceDraw(world: World, draw: Draw): boolean {
+    const state = world.resource(meshPreprocessKey);
+    const index = world.resource(meshResourcesKey).meshes.index(draw.mesh);
+    return (
+        index !== undefined &&
+        state.drawLookup[draw.materialType * ALPHA_PIPELINE_KEY_COUNT + draw.alphaPipelineKey]?.[
+            index
+        ]?.draw === draw
+    );
+}
+
 function publishDraw(
     world: World,
     table: number,

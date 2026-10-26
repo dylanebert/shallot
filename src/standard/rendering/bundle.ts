@@ -1,12 +1,14 @@
 import type { TgpuBindGroupLayout, TgpuRenderPipeline } from "typegpu";
 import { isBuffer } from "typegpu";
 import type { World } from "../../engine";
+import { rethrowMaterialError } from "./material-type";
 import type { Draw } from "./registry";
 
 // Bundles avoid per-draw recording on frames whose draws, resource identities and pass shape are unchanged.
 
 export interface BundleDraw {
     pipeline: TgpuRenderPipeline<never> | null;
+    material: string | null;
     layout0: TgpuBindGroupLayout | null;
     group0: GPUBindGroup | null;
     layout1: TgpuBindGroupLayout | null;
@@ -52,6 +54,7 @@ export function bundleDraw(program: BundleDraw[], i: number): BundleDraw {
     if (entry) return entry;
     entry = {
         pipeline: null,
+        material: null,
         layout0: null,
         group0: null,
         layout1: null,
@@ -118,16 +121,22 @@ export function recordBundle(
         encoder.setBindGroup(step.layout0 as TgpuBindGroupLayout, step.group0 as GPUBindGroup);
         encoder.setBindGroup(step.layout1 as TgpuBindGroupLayout, step.group1 as GPUBindGroup);
         if (step.layout2 && step.group2) encoder.setBindGroup(step.layout2, step.group2);
-        if (step.indirect) {
-            const raw = isBuffer(step.indirect)
-                ? world.gpu.root.unwrap(step.indirect)
-                : (step.indirect as GPUBuffer);
-            encoder.drawIndexedIndirect(raw, step.offset);
-        } else {
-            encoder.draw(step.offset);
+        try {
+            if (step.indirect) {
+                const raw = isBuffer(step.indirect)
+                    ? world.gpu.root.unwrap(step.indirect)
+                    : (step.indirect as GPUBuffer);
+                encoder.drawIndexedIndirect(raw, step.offset);
+            } else {
+                encoder.draw(step.offset);
+            }
+        } catch (error) {
+            if (step.material) rethrowMaterialError(step.material, error);
+            throw error;
         }
         const kept = bundleDraw(pass.program, i);
         kept.pipeline = step.pipeline;
+        kept.material = step.material;
         kept.layout0 = step.layout0;
         kept.group0 = step.group0;
         kept.layout1 = step.layout1;

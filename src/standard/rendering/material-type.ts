@@ -9,6 +9,20 @@ import type { GpuTable, Plugin, Resource, World } from "../../engine";
 import { type ComponentStorage, type LaneFormat, laneLayout, writeLane } from "../../engine/ecs";
 import { MeshInstanceInput, MeshMaterial } from "./material-data";
 
+/** Add the material contract to TypeGPU's unfilled-slot error at a pipeline resolution boundary. @internal */
+export function rethrowMaterialError(name: string, error: unknown): never {
+    const message = String(error);
+    for (const read of ["Depth", "Normal"]) {
+        if (message.includes(`Missing value for 'slot:prepass${read}'`)) {
+            throw new Error(
+                `Material type "${name}" requires readsPrepass.${read.toLowerCase()} for prepass${read}`,
+                { cause: error },
+            );
+        }
+    }
+    throw error;
+}
+
 type ShaderStage = "vertex" | "fragment";
 const VS_FS: ShaderStage[] = ["vertex", "fragment"];
 

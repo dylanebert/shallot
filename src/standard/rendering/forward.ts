@@ -82,6 +82,7 @@ import {
     MaterialTypes,
     materialSource,
     registerMaterialType,
+    rethrowMaterialError,
     TransparentMeshes,
 } from "./material-type";
 import { materialAttributeError } from "./mesh-attributes";
@@ -114,7 +115,12 @@ import {
     ResolvePrepassTexturesSystem,
     warmPrepassTextures,
 } from "./prepass-textures";
-import { MeshDrawBuffers, MeshPreprocessSystem, meshInstanceTable } from "./preprocess";
+import {
+    isMeshInstanceDraw,
+    MeshDrawBuffers,
+    MeshPreprocessSystem,
+    meshInstanceTable,
+} from "./preprocess";
 import { producerCapacity } from "./producer-pack";
 import { producerTables } from "./producer-table";
 import { initializeRegatherState, prepareRegather } from "./regather";
@@ -137,6 +143,8 @@ interface StandardRendererState {
     warned: Set<string>;
     frameDraws: FrameDraw[];
     frameCount: number;
+    depthReadLayers: number;
+    normalReadLayers: number;
     frameDrawPairs: (FrameDraw | null)[];
     framePairCount: number;
     resolveCapacity: number;
@@ -181,6 +189,8 @@ function createStandardRendererState(): StandardRendererState {
         warned: new Set(),
         frameDraws: [],
         frameCount: 0,
+        depthReadLayers: 0,
+        normalReadLayers: 0,
         frameDrawPairs: [],
         framePairCount: 0,
         resolveCapacity: 0,
@@ -603,6 +613,8 @@ function resolveDraws(world: World, capacity: number): void {
     const pairCount =
         world.resource(MaterialTypes).types.length * ALPHA_PIPELINE_KEY_COUNT * meshCount;
     state.frameCount = 0;
+    state.depthReadLayers = 0;
+    state.normalReadLayers = 0;
     // null, not undefined: V8 can hold undefined in a double array, so each refill would reallocate it twice
     state.frameDrawPairs.fill(null, 0, state.framePairCount);
     state.framePairCount = pairCount;
@@ -610,6 +622,33 @@ function resolveDraws(world: World, capacity: number): void {
     state.resolveCapacity = capacity;
     state.resolveMeshCount = meshCount;
     world.resource(Draws).forEach(state.resolveDrawCallback!);
+    const types = world.resource(MaterialTypes).types;
+    let declared = false;
+    for (let i = 0; i < types.length; i++)
+        if (types[i]?.readsPrepass) {
+            declared = true;
+            break;
+        }
+    if (!declared) return;
+    const materials = world.storage(MeshMaterial);
+    const instances = world.storage(MeshInstance);
+    const meshes = world.resource(meshResourcesKey).meshes;
+    for (const eid of world.query(PREPASS_READERS)) {
+        const type = materials.type.get(eid);
+        const reads = types[type]?.readsPrepass;
+        if (!reads) continue;
+        const index = meshes.index(instances.mesh.get(eid));
+        if (index === undefined) continue;
+        const source = world.resource(MaterialTypes).sources[type];
+        const alpha =
+            source?.alphaMode(materials.material.get(eid)) ?? materials.alphaMode.get(eid);
+        const pair =
+            (type * ALPHA_PIPELINE_KEY_COUNT + alphaPipelineKey(alpha)) * meshCount + index;
+        if (!state.frameDrawPairs[pair]) continue;
+        const layers = renderLayers(world, eid);
+        if (reads.depth) state.depthReadLayers |= layers;
+        if (reads.normal) state.normalReadLayers |= layers;
+    }
 }
 
 function resolveDraw(world: World, draw: Draw, capacity: number, meshCount: number): void {
@@ -617,6 +656,13 @@ function resolveDraw(world: World, draw: Draw, capacity: number, meshCount: numb
     const item = record(world, draw, capacity);
     if (!item) return;
     state.frameDraws[state.frameCount++] = item;
+    const reads = item.r.t.owner.readsPrepass;
+    if (reads && !isMeshInstanceDraw(world, draw)) {
+        // Public indirect draws have no CPU visibility/layer contract. GPU-only producers use layer 0.
+        const layers = item.r.g.producer ? 1 : -1;
+        if (reads.depth) state.depthReadLayers |= layers;
+        if (reads.normal) state.normalReadLayers |= layers;
+    }
     const pair =
         (draw.materialType * ALPHA_PIPELINE_KEY_COUNT + draw.alphaPipelineKey) * meshCount +
         world.resource(meshResourcesKey).meshes.index(draw.mesh)!;
@@ -659,6 +705,7 @@ function renderPrepass(
         const group = view.normal ? r.g.color : r.g.depth;
         if (pipe && group) {
             const step = bundleDraw(_standardRendererState.prepassProgram, draws);
+            step.material = r.t.owner.name;
             step.pipeline = boundPipeline(r.g, pipe, group, !view.normal, r.index) as never;
             step.layout0 = engineLayout;
             step.group0 = engineGroup(world, r.g.engineCache, view.slot, r.g.quant, true);
@@ -749,6 +796,7 @@ function drawColor(
 ): void {
     const { draw, r } = item;
     const step = bundleDraw(program, at);
+    step.material = r.t.owner.name;
     step.pipeline = boundPipeline(r.g, pipe, r.g.color, false, r.index) as never;
     step.layout0 = engineLayout;
     step.group0 = engineGroup(world, r.g.engineCache, slot, r.g.quant);
@@ -821,6 +869,7 @@ function renderColor(
         const group = backgroundGroup(world, bg, ct);
         if (group) {
             const step = bundleDraw(_standardRendererState.colorProgram, draws++);
+            step.material = null;
             step.pipeline = (aa ? ct.color : ct.single) as never;
             step.layout0 = engineLayout;
             step.group0 = engineGroup(world, ct.engineCache, view.slot, bgQuant(world));
@@ -1191,7 +1240,12 @@ function drawTransparent(
     const pipeline = transparentPipeline(world, item, eids, antialias)!;
     const group0 = engineGroup(world, item.r.g.engineCache, view.slot, item.r.g.quant);
     const group1 = shadowGroup(world);
-    const rawPipeline = world.gpu.root.unwrap(pipeline);
+    let rawPipeline: GPURenderPipeline;
+    try {
+        rawPipeline = world.gpu.root.unwrap(pipeline);
+    } catch (error) {
+        rethrowMaterialError(item.r.t.owner.name, error);
+    }
     pass.setPipeline(rawPipeline);
     pass.setBindGroup(0, group0);
     pass.setBindGroup(1, group1);
@@ -1371,30 +1425,12 @@ export const StandardRenderingPlugin: Plugin = {
     initialize(world) {
         const requests = (world: World, eid: number, read: "depth" | "normal") => {
             if (!world.has(eid, StandardRenderer)) return false;
-            const types = world.resource(MaterialTypes).types;
-            let declared = false;
-            for (let i = 0; i < types.length; i++)
-                if (types[i]?.readsPrepass?.[read]) {
-                    declared = true;
-                    break;
-                }
-            if (!declared) return false;
-            const materials = world.storage(MeshMaterial);
-            const layers = renderLayers(world, eid);
-            for (const mesh of world.query(PREPASS_READERS)) {
-                if (
-                    (renderLayers(world, mesh) & layers) !== 0 &&
-                    types[materials.type.get(mesh)]?.readsPrepass?.[read]
-                )
-                    return true;
-            }
-            // GPU-only producer counts are not observed by the CPU; their declared pairs request the lane.
-            if (layers & 1)
-                for (const entry of world.resource(producerTables).tables) {
-                    for (const material of entry.materials)
-                        if (types[material.type]?.readsPrepass?.[read]) return true;
-                }
-            return false;
+            const state = world.resource(standardRendererStateKey);
+            return (
+                ((read === "depth" ? state.depthReadLayers : state.normalReadLayers) &
+                    renderLayers(world, eid)) !==
+                0
+            );
         };
         world.resource(DepthPrepassRequests).push((world, eid) => requests(world, eid, "depth"));
         world.resource(NormalPrepassRequests).push((world, eid) => requests(world, eid, "normal"));

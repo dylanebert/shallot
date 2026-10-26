@@ -55,6 +55,7 @@ import {
     MaterialTypes,
     MeshVertexInput as MaterialVertexInput,
     materialSource,
+    rethrowMaterialError,
 } from "./material-type";
 import { prepassTextures } from "./prepass-textures";
 import type { Draw } from "./registry";
@@ -1291,23 +1292,15 @@ function materialRoot(world: World, surface: AnyMaterialType) {
     if (surface.readsPrepass?.normal) root = root.with(prepassNormalSlot, prepassNormalRead);
     return root;
 }
-function resolveMaterialPipeline<T extends TgpuRenderPipeline<any>>(
-    surface: AnyMaterialType,
+function prepareMaterialPipeline<T extends TgpuRenderPipeline<any>>(
+    world: World,
+    name: string,
     pipeline: T,
 ): T {
     try {
-        tgpu.resolve([pipeline]);
+        world.gpu.root.unwrap(pipeline);
     } catch (error) {
-        const message = String(error);
-        for (const read of ["Depth", "Normal"]) {
-            if (message.includes(`Missing value for 'slot:prepass${read}'`)) {
-                throw new Error(
-                    `Material type "${surface.name}" requires readsPrepass.${read.toLowerCase()} for prepass${read}`,
-                    { cause: error },
-                );
-            }
-        }
-        throw error;
+        rethrowMaterialError(name, error);
     }
     return pipeline;
 }
@@ -1387,7 +1380,6 @@ export function compileMaterial<
             },
         })
         .$name(`standard-${name}`);
-    resolveMaterialPipeline(surface, pipeline);
     const compiled: CompiledMaterial = {
         owner: surface as AnyMaterialType,
         layout: surface.layout as MaterialLayout<Record<string, MaterialBinding>, AnyWgslStruct>,
@@ -1458,7 +1450,6 @@ export function ensureSingle(world: World, t: CompiledMaterial): void {
             multisample: { count: 1 },
         })
         .$name(`standard-${name}-1x`);
-    resolveMaterialPipeline(t.owner, pipeline);
     t.single = { color: transparent ? null : pipeline, transparent: transparent ? pipeline : null };
     if (t.prepass) t.prepassSingle = compilePrepass(world, t.owner, alphaPipelineKey, 1);
 }
@@ -1490,7 +1481,7 @@ export function ensureStacked(world: World, t: CompiledMaterial): TgpuRenderPipe
             multisample: { count: SAMPLE_COUNT },
         })
         .$name(`standard-${name}-stacked`);
-    return resolveMaterialPipeline(surface, t.stacked);
+    return t.stacked;
 }
 
 // Every pipeline recorded into a render bundle has a fragment stage: WebKit rejects a vertex-only pipeline
@@ -1560,7 +1551,7 @@ function compilePrepass(
             multisample: { count: sampleCount },
         })
         .$name(`standard-prepass-${surface.name}-${alphaPipelineKey}-${sampleCount}x`);
-    return surface.readsPrepass ? resolveMaterialPipeline(surface, depthOnly) : depthOnly;
+    return depthOnly;
 }
 
 // Tile bounds arrive in pixels with atlas scaling already applied by the VS, so one seam-discard
@@ -2145,10 +2136,6 @@ function compileShadow(
             multisample: { count: 1 },
         })
         .$name(`standard-cascade-${surface.name}-${alphaPipelineKey}`);
-    if (surface.readsPrepass) {
-        resolveMaterialPipeline(surface, point);
-        resolveMaterialPipeline(surface, cascade);
-    }
     return { point, cascade };
 }
 
@@ -2353,15 +2340,15 @@ export async function preparePipelines(
             for (const samples of normalSamples) {
                 const pipeline = ensureNormalPrepass(world, compiled, samples === 1);
                 if (pipeline)
-                    precompile(
-                        world,
-                        precompileScope(world, "standard-normal-prepass"),
-                        () => pipeline,
+                    precompile(world, precompileScope(world, "standard-normal-prepass"), () =>
+                        prepareMaterialPipeline(world, type.name, pipeline),
                     );
             }
             if (stacked && alphaPipelineKey === AlphaPipelineKey.AlphaToCoverage) {
                 const pipeline = ensureStacked(world, compiled);
-                precompile(world, precompileScope(world, "standard-stacked"), () => pipeline);
+                precompile(world, precompileScope(world, "standard-stacked"), () =>
+                    prepareMaterialPipeline(world, type.name, pipeline),
+                );
             }
             for (const p of [
                 compiled.color,
@@ -2374,7 +2361,7 @@ export async function preparePipelines(
                 compiled.prepassSingle,
                 compiled.stacked,
             ]) {
-                if (p) world.gpu.root.unwrap(p);
+                if (p) prepareMaterialPipeline(world, type.name, p);
             }
         }
     }

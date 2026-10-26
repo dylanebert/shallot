@@ -875,6 +875,7 @@ export function renderPointShadows(
     for (let i = 0; i < D; i++) {
         const { r } = _atlasState.castDraws[i];
         const step = bundleDraw(_atlasState.pointProgram, i);
+        step.material = r.t.owner.name;
         step.pipeline = boundPipeline(r.g, r.t.point!, r.g.point!, true, r.index) as never;
         step.layout0 = engineLayout;
         step.group0 = engineGroup(world, r.g.engineCache, 0, r.g.quant, true);
@@ -1081,6 +1082,7 @@ export function renderCascades(
         for (let i = 0; i < D; i++) {
             const { r } = batch.draws[i];
             const step = bundleDraw(_atlasState.cascadeProgram, i);
+            step.material = r.t.owner.name;
             step.pipeline = boundPipeline(r.g, r.t.cascade!, r.g.cascade!, true, r.index) as never;
             step.layout0 = engineLayout;
             step.group0 = engineGroup(world, r.g.engineCache, 0, r.g.quant, true);

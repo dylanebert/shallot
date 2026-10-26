@@ -1,4 +1,4 @@
-// The canonical engine substrate: the pass-invariant group-0 layout every standard pipeline binds,
+// The canonical engine substrate: the shared group-0 layout every standard pipeline binds,
 // plus `lit` / `litPbr` / `clusterOf` and their four private seams, authored
 // once against that layout.
 
@@ -13,9 +13,11 @@ import { distanceAttenuation, LightingGpu, PointLightGpu, spotFactor } from "./l
 import { brdf, brdfSphere, Pbr, pointShadowRef } from "./shade";
 
 /**
- * the canonical engine group-0 layout: every pass-invariant binding a standard pipeline reads — frame / view /
- * lighting uniforms and two storage tables: clustered lights and mesh dequantization. `vertices` is deliberately absent: it's pass-variant (color binds the 16 B main stream,
- * prepass/shadow the 8 B position stream) and moves into the material-type group (2). Pinned at group 0.
+ * The shared group-0 layout for standard pipelines. Bindings vary by view and pass: color reads
+ * this frame's prepass textures; depth passes bind zero stubs to avoid sampling their attachments.
+ * Holds frame, view and lighting uniforms, clustered lights, mesh dequantization, AO and prepass
+ * textures. Vertex streams belong to material group 2: color reads the 16-byte stream, compact
+ * depth passes the 8-byte position stream.
  */
 export const engineLayout = tgpu
     .bindGroupLayout({
@@ -62,13 +64,9 @@ export const prepassNormalRead = tgpu.fn(
     d.vec3f,
 )((coord) => {
     "use gpu";
-    if (std.textureDimensions(engineLayout.$.prepassNormal).x === 1) return d.vec3f(0);
-    return std.normalize(
-        std.sub(
-            std.mul(std.textureLoad(engineLayout.$.prepassNormal, d.vec2i(coord.xy), 0).xyz, 2),
-            1,
-        ),
-    );
+    const encoded = std.textureLoad(engineLayout.$.prepassNormal, d.vec2i(coord.xy), 0).xyz;
+    if (std.all(std.eq(encoded, d.vec3f(0)))) return d.vec3f(0);
+    return std.normalize(std.sub(std.mul(encoded, 2), 1));
 });
 export const prepassDepthSlot = tgpu.slot<typeof prepassDepthRead>().$name("prepassDepth");
 export const prepassNormalSlot = tgpu.slot<typeof prepassNormalRead>().$name("prepassNormal");
@@ -85,7 +83,8 @@ export const prepassDepth = tgpu.fn(
 });
 /** This view's prepass world-space unit normal this frame.
  * Calling without readsPrepass.normal is refused. Cameras without a prepass this frame and
- * depth passes read vec3f(0); 4x antialiasing reads sample 0. */
+ * depth passes read vec3f(0). Cleared prepass pixels also read vec3f(0): their zero texel
+ * encodes no unit normal. 4x antialiasing reads sample 0. */
 export const prepassNormal = tgpu.fn(
     [d.vec4f],
     d.vec3f,
