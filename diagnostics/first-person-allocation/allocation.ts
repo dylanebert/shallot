@@ -65,10 +65,9 @@ export interface TransitionSample extends AllocationSample {
 const SAMPLER = resolve(import.meta.dir, "allocation-sampler.mjs");
 /**
  * Files copied beside every bundle under their own names, because Bun.build does not emit
- * `new URL(asset, import.meta.url)` assets: Text's default font. scripts/changed-tests.ts counts
- * them among every gate's inputs.
+ * `new URL(asset, import.meta.url)` assets: Text's default font.
  */
-export const ALLOCATION_BUNDLE_ASSETS: readonly string[] = [
+const ALLOCATION_BUNDLE_ASSETS: readonly string[] = [
     resolve(import.meta.dir, "../../src/extras/text/Inter-Regular.ttf"),
 ];
 
@@ -236,7 +235,7 @@ async function runSampler(
 }
 
 /** The options that bundle `entry` for the Node sampler, without an output directory. */
-export async function allocationBuildConfig(entry: string): Promise<Bun.BuildConfig> {
+async function allocationBuildConfig(entry: string): Promise<Bun.BuildConfig> {
     const { shallot } = await import("@dylanebert/shallot/bun");
     return {
         entrypoints: [entry],
