@@ -3,6 +3,7 @@ import type { Quat, Transform, Vec3 } from "./api";
 import { makeJointId } from "./api/config";
 import type { JointBinding, JointDef } from "./authoring";
 import { fieldMarked, JOINT_KIND_COUNT, jointDef } from "./authoring";
+import { BodyDependencies } from "./body-dependencies";
 import { froundConfig } from "./common/config";
 import { HUGE, LINEAR_SLOP } from "./common/constants";
 import type { EntityId } from "./common/ids";
@@ -65,29 +66,30 @@ export interface ConstraintCache {
     liveJoints: Map<number, Map<number, EntityId>>;
     candidates: FieldCandidates[];
     warnedJoints: Set<number>;
+    dependenciesA: BodyDependencies[];
+    dependenciesB: BodyDependencies[];
 }
 export function createConstraintCache(): ConstraintCache {
     return {
         liveJoints: new Map(),
         candidates: Array.from({ length: JOINT_KIND_COUNT }, createFieldCandidates),
         warnedJoints: new Set(),
+        dependenciesA: Array.from({ length: JOINT_KIND_COUNT }, () => new BodyDependencies()),
+        dependenciesB: Array.from({ length: JOINT_KIND_COUNT }, () => new BodyDependencies()),
     };
 }
 
 function identity(index: number, eid: number): number {
     return eid * JOINT_KIND_COUNT + index;
 }
-export function markAllJointCandidates(
-    world: World,
-    cache: ConstraintCache,
-    bindings: readonly JointBinding[],
-): void {
-    for (let i = 0; i < bindings.length; i++) {
-        const binding = bindings[i];
-        const candidates = cache.candidates[binding.index];
-        for (const eid of world.query([binding.component])) markFieldCandidate(candidates, eid);
-        const live = cache.liveJoints.get(binding.index);
-        if (live) for (const eid of live.keys()) markFieldCandidate(candidates, eid);
+export function markBodyJointCandidates(cache: ConstraintCache, body: number): void {
+    for (let i = 0; i < cache.candidates.length; i++) {
+        const a = cache.dependenciesA[i],
+            b = cache.dependenciesB[i];
+        for (let eid = a.first(body); eid !== 0; eid = a.following(eid))
+            markFieldCandidate(cache.candidates[i], eid);
+        for (let eid = b.first(body); eid !== 0; eid = b.following(eid))
+            markFieldCandidate(cache.candidates[i], eid);
     }
 }
 function warnOnce(warned: Set<number>, key: number, message: string): void {
@@ -1011,6 +1013,8 @@ export function syncJoints(
             }
             const a = (binding.storage.a as ScalarField).get(eid);
             const b = (binding.storage.b as ScalarField).get(eid);
+            cache.dependenciesA[binding.index].set(eid, a);
+            cache.dependenciesB[binding.index].set(eid, b);
             const bodyA = bodies.get(a);
             const bodyB = bodies.get(b);
             if (onlyKind !== undefined && (!bodyA || !bodyB)) continue;
@@ -1048,6 +1052,8 @@ export function removeAuthoredJoint(
     kind: number,
     eid: number,
 ): void {
+    cache.dependenciesA[kind].set(eid, 0);
+    cache.dependenciesB[kind].set(eid, 0);
     const live = cache.liveJoints.get(kind);
     const joint = live?.get(eid);
     if (joint && jointIsValid(state, joint)) destroyJointInternal(state, joint.index1 - 1, true);
@@ -1058,6 +1064,8 @@ export function removeAuthoredJoint(
 export interface ConstraintIds {
     joints: [number, number, number, number][];
     candidates: [number, number, number][];
+    dependenciesA: ReturnType<BodyDependencies["snapshot"]>[];
+    dependenciesB: ReturnType<BodyDependencies["snapshot"]>[];
 }
 export function captureConstraints(cache: ConstraintCache, state: WorldState): ConstraintIds {
     const joints: ConstraintIds["joints"] = [];
@@ -1073,7 +1081,12 @@ export function captureConstraints(cache: ConstraintCache, state: WorldState): C
             candidates.push([index, eid, pending.fieldMarks[eid]]);
         }
     }
-    return { joints, candidates };
+    return {
+        joints,
+        candidates,
+        dependenciesA: cache.dependenciesA.map((index) => index.snapshot()),
+        dependenciesB: cache.dependenciesB.map((index) => index.snapshot()),
+    };
 }
 export function restoreConstraints(
     cache: ConstraintCache,
@@ -1087,6 +1100,10 @@ export function restoreConstraints(
         live.set(eid, { index1, world0: state.worldId, generation });
     }
     cache.liveJoints = liveJoints;
+    for (let i = 0; i < cache.candidates.length; i++) {
+        cache.dependenciesA[i].restore(ids.dependenciesA[i]);
+        cache.dependenciesB[i].restore(ids.dependenciesB[i]);
+    }
     for (const candidates of cache.candidates) clearFieldCandidates(candidates);
     for (const [index, eid, fieldMask] of ids.candidates) {
         markFieldCandidate(cache.candidates[index], eid);
@@ -1096,6 +1113,8 @@ export function restoreConstraints(
 }
 export function resetConstraints(cache: ConstraintCache): void {
     cache.liveJoints.clear();
+    for (const index of cache.dependenciesA) index.clear();
+    for (const index of cache.dependenciesB) index.clear();
     for (const candidates of cache.candidates) clearFieldCandidates(candidates);
     cache.warnedJoints.clear();
 }
