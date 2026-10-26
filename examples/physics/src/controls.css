@@ -29,6 +29,7 @@
 .ec .dependents .row { grid-template-columns: calc(var(--label) - var(--s2) - var(--hair)) minmax(var(--zero), 1fr); }
 .ec label { cursor: default; }
 .ec input { margin: var(--zero); font: inherit; }
+.ec input[type='radio'] { accent-color: var(--gold); }
 .ec input[type='checkbox'] { appearance: none; flex-shrink: var(--none); width: var(--check); height: var(--check); border: var(--hair) solid var(--muted); border-radius: var(--radius); background: var(--raised); display: grid; place-content: center; cursor: default; }
 .ec input[type='checkbox']:checked { background: var(--dim); border-color: var(--muted); }
 .ec input[type='checkbox']:checked::after { content: '✓'; color: var(--ink); }
