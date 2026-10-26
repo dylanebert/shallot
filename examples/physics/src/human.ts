@@ -10,7 +10,7 @@ import {
     Transform,
     type World,
 } from "@dylanebert/shallot";
-import bones from "./human.json";
+import bones from "./human.json" with { type: "json" };
 
 const f = Math.fround;
 const degrees = f(0.01745329251);
