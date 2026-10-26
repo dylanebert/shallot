@@ -258,6 +258,7 @@ export const TransparentPhases: Resource<Map<number, TransparentPhase>> = {
 
 /** Records into a core-owned pass. Records must not end the pass. Renderers contribute transparent items to the shared sorted phase, prepare view-specific data before the pass, then draw only consecutive compatible items. */
 export interface PhaseRenderer {
+    /** Records into the core-owned depth prepass. When `view.normal` is set the pass also has a `NORMAL_FORMAT` color target: a pipeline drawn here must declare it and write world normals, encoded as `normal * 0.5 + 0.5`. Must not end the pass. */
     prepass?(world: World, eid: number, view: View, pass: GPURenderPassEncoder): void;
     opaque?(world: World, eid: number, view: View, pass: GPURenderPassEncoder): void;
     /** Records into the core-owned main pass after every renderer's opaque record and before the first transparent draw. Must not end the pass. */
