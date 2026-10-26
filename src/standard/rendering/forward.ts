@@ -545,8 +545,10 @@ function recordMaterial(
         draw.alphaPipelineKey === AlphaPipelineKey.Blend ||
         draw.alphaPipelineKey === AlphaPipelineKey.Premultiplied ||
         draw.alphaPipelineKey === AlphaPipelineKey.Multiply;
-    const depthLayout = clip ? surface.layout : surface.layout.depthVariant;
-    const depthVertices = clip ? mesh.vertices : mesh.position;
+    // A vertex function reads the mesh normal and uv, which only the main stream carries.
+    const mainDepth = clip || !!surface.vertex;
+    const depthLayout = mainDepth ? surface.layout : surface.layout.depthVariant;
+    const depthVertices = mainDepth ? mesh.vertices : mesh.position;
     const entry: MaterialGroupEntry = {
         owner: surface,
         producer,

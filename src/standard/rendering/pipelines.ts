@@ -202,7 +202,7 @@ export interface CompiledMaterial {
 /**
  * Slot-independent group-2 state, one entry per draw. Color uses the layout's 16-byte main stream;
  * opaque depth uses the distinct layout.depthVariant object and 8-byte position stream, while clipped
- * depth needs main-stream UVs. Atlas groups substitute re-gathered eids.
+ * depth and a material vertex function need the main stream's normals and UVs. Atlas groups substitute re-gathered eids.
  * engineCache holds group-0 instances per view slot, shared by draws using the same quant buffer.
  * Atlas passes use its unread slot-zero ViewUniforms placeholder; their VS uses a tile viewProj instead.
  */
@@ -718,17 +718,13 @@ function colorFs(
 }
 
 // Host surface objects cannot cross a TGSL helper boundary; this entry closes over its depth layout.
+// Only a material without a vertex function reaches it: the 8-byte stream carries no normal or uv.
 function prepassVs(surface: AnyMaterialType) {
     const instanced = isInstanced(surface);
-    const hasVs = !!surface.vertex;
-    const vsFn = materialVertexFunction(surface);
     const layout = surface.layout.depthVariant;
     const bound = layout.$ as unknown as {
         eids: any[];
         globalTransforms: any[];
-        globalTransformRows: any[];
-        partRowMap: any[];
-        meshInstances: any[];
     };
     return tgpu
         .vertexFn({
@@ -738,54 +734,13 @@ function prepassVs(surface: AnyMaterialType) {
             "use gpu";
             const v = layout.$.vertices[input.vidx];
             const mq = engineLayout.$.meshQuant[meshIdOf(v.y)];
-            const localPos = decodePos(v.x, v.y, mq);
-            // the depth-only default, pinned
-            // for the life of the vs, never touched by the instance transform below; a `vs` chunk reading `vsIn.localNormal` sees this default,
-            // not the transformed `worldNormal`
-            const localNormal = d.vec3f(0, 0, 1);
-            const uv = d.vec2f(0, 0);
-            let row = d.u32(0xffffffff);
-            let eid = d.u32(0);
-            let world = d.vec4f(localPos, 1);
-            let worldNormal = d.vec3f(localNormal);
-            const color = d.vec4f(1);
-            let material = d.u32(0);
-            let xform = identityXform();
+            let world = d.vec4f(decodePos(v.x, v.y, mq), 1);
             if (instanced) {
                 const instance = bound.eids[input.iid];
-                eid = instance.x;
-                row = producerRow(instance);
-                const encodedMeshInstance = instance.z;
-                if (encodedMeshInstance !== 0) {
-                    const meshInstance = bound.meshInstances[encodedMeshInstance - 1];
-                    material = meshInstance.material;
-                }
-                xform = Xform(bound.globalTransforms[instance.y]);
+                const xform = Xform(bound.globalTransforms[instance.y]);
                 world = d.vec4f(xformPoint(xform, world.xyz), world.w);
-                worldNormal = d.vec3f(xformNormal(xform, worldNormal));
             }
-            let clip = d.vec4f(0);
-            if (hasVs) {
-                const patched = vsFn!(
-                    MaterialVertexInput({
-                        localPos,
-                        localNormal,
-                        uv,
-                        vidx: input.vidx,
-                        eid,
-                        row,
-                        iid: input.iid,
-                        xform,
-                        world,
-                        worldNormal,
-                        color,
-                        material,
-                    }),
-                );
-                world = d.vec4f(patched.world);
-                worldNormal = d.vec3f(patched.worldNormal);
-            }
-            clip = d.vec4f(std.mul(engineLayout.$.view.viewProj, world));
+            const clip = std.mul(engineLayout.$.view.viewProj, world);
             // TypeGPU indexes layouts by group number; using only groups 0 and 2 leaves a hole
             // that Dawn rejects at pipeline creation. The returned zero keeps group 1 live;
             // renderPrepass binds shadowGroup there, but the stub receiver never samples it.
@@ -1509,7 +1464,7 @@ const normalOnlyFs = tgpu
     })
     .$name("prepassNormalFs");
 
-/** Opaque uses the compact depth stream unless normals are requested; clipped inputs retain material alpha. */
+/** Opaque uses the compact depth stream unless normals or a vertex function need the main stream; clipped inputs retain material alpha. */
 function compilePrepass(
     world: World,
     surface: AnyMaterialType,
@@ -1536,12 +1491,16 @@ function compilePrepass(
     const varying = !!surface.varyings && Object.keys(surface.varyings).length > 0;
     const depthOnly = root
         .createRenderPipeline({
+            // Depth alone reads no varyings, so a vertex function's opaque depth takes the main
+            // stream without them.
             vertex:
                 clip || normals
                     ? varying
                         ? varyingVs(surface, true)
                         : colorVs(surface, true)
-                    : prepassVs(surface),
+                    : surface.vertex
+                      ? colorVs(surface, true)
+                      : prepassVs(surface),
             fragment: clip
                 ? ((varying ? varyingClipFs(surface, normals) : clipFs(surface, normals)) as never)
                 : normals
@@ -1584,15 +1543,10 @@ function shadowVs(
     cascade: boolean,
     _capacity: number,
 ) {
-    const hasVs = !!surface.vertex;
-    const vsFn = materialVertexFunction(surface);
     const layout = surface.layout.depthVariant;
     const bound = layout.$ as unknown as {
         eids: any[];
         globalTransforms: any[];
-        globalTransformRows: any[];
-        partRowMap: any[];
-        meshInstances: any[];
     };
     const shadowBound = shadowGroup.$ as unknown as {
         faceVP: { m: any[] };
@@ -1608,44 +1562,10 @@ function shadowVs(
             const v = layout.$.vertices[input.vidx];
             const mq = engineLayout.$.meshQuant[meshIdOf(v.y)];
             const localPos = decodePos(v.x, v.y, mq);
-            // the depth-only default — never touched by the instance transform, matching
-            // `prepassVs`'s pinned law
-            const localNormal = d.vec3f(0, 0, 1);
-            const uv = d.vec2f(0, 0);
             const instance = bound.eids[input.iid];
-            const eid = instance.x;
-            const row = producerRow(instance);
             const combo = instance.w;
-            const color = d.vec4f(1);
-            let material = d.u32(0);
-            const encodedMeshInstance = instance.z;
-            if (encodedMeshInstance !== 0) {
-                const meshInstance = bound.meshInstances[encodedMeshInstance - 1];
-                material = meshInstance.material;
-            }
             const xform = Xform(bound.globalTransforms[instance.y]);
-            let world = d.vec4f(xformPoint(xform, localPos), 1);
-            let worldNormal = d.vec3f(xformNormal(xform, localNormal));
-            if (hasVs) {
-                const patched = vsFn!(
-                    MaterialVertexInput({
-                        localPos,
-                        localNormal,
-                        uv,
-                        vidx: input.vidx,
-                        eid,
-                        row,
-                        iid: input.iid,
-                        xform,
-                        world,
-                        worldNormal,
-                        color,
-                        material,
-                    }),
-                );
-                world = d.vec4f(patched.world);
-                worldNormal = d.vec3f(patched.worldNormal);
-            }
+            const world = d.vec4f(xformPoint(xform, localPos), 1);
             const m = shadowBound.comboMeta.m[combo];
             const rect = cascade
                 ? shadowBound.tileRects.rects[m.x]
@@ -2119,8 +2039,8 @@ function clipShadowFs(surface: AnyMaterialType) {
 
 /**
  * Compile a `MaterialType`'s point and cascade shadow-atlas pipelines when its depth settings enable
- * them. Opaque types share {@link shadowFs}; clipped types use their wider cutoff
- * vertex/fragment pair. Each closes over its own `pointLayout` / `cascadeLayout` group-1 and
+ * them. Opaque types share {@link shadowFs}, behind the clipped vertex stage when a vertex function
+ * needs the main stream; clipped types use their wider cutoff vertex/fragment pair. Each closes over its own `pointLayout` / `cascadeLayout` group-1 and
  * reads its atlas side from `comboMeta.z`, so neither bakes a shadow setting.
  */
 function compileShadow(
@@ -2151,7 +2071,9 @@ function compileShadow(
                 ? varying
                     ? varyingShadowVs(surface, pointLayout, false, capacity)
                     : clipShadowVs(surface, pointLayout, false, capacity)
-                : shadowVs(surface, pointLayout, false, capacity),
+                : surface.vertex
+                  ? clipShadowVs(surface, pointLayout, false, capacity)
+                  : shadowVs(surface, pointLayout, false, capacity),
             fragment: clip
                 ? ((varying ? varyingShadowFs(surface) : clipShadowFs(surface)) as never)
                 : shadowFs,
@@ -2166,7 +2088,9 @@ function compileShadow(
                 ? varying
                     ? varyingShadowVs(surface, cascadeLayout, true, capacity)
                     : clipShadowVs(surface, cascadeLayout, true, capacity)
-                : shadowVs(surface, cascadeLayout, true, capacity),
+                : surface.vertex
+                  ? clipShadowVs(surface, cascadeLayout, true, capacity)
+                  : shadowVs(surface, cascadeLayout, true, capacity),
             fragment: clip
                 ? ((varying ? varyingShadowFs(surface) : clipShadowFs(surface)) as never)
                 : shadowFs,
