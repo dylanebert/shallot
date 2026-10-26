@@ -243,7 +243,8 @@ export class Scheduler {
         const systems = this.getSorted(group);
         for (let i = 0; i < systems.length; i++) {
             const system = systems[i];
-            if (this._errored.has(system)) continue;
+            // A system removed by an earlier one in this pass stays out until it is added again.
+            if (!this._systems.has(system) || this._errored.has(system)) continue;
             const previous = this.currentSystem;
             this.currentSystem = this._names.get(system);
             try {

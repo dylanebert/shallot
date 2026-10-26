@@ -86,6 +86,77 @@ test("a failed frame carries field marks into the next frame", () => {
     }
 });
 
+test("a system removed by an earlier system in its group skips that pass and reruns setup when added again", () => {
+    const world = new World();
+    const log: string[] = [];
+    let remove = false;
+    const removed: System = {
+        name: "removed",
+        setup: () => log.push("setup"),
+        update: () => log.push("update"),
+    };
+    world.addSystem({
+        before: [removed],
+        update(world) {
+            if (remove) world.removeSystem(removed);
+        },
+    });
+    world.addSystem(removed);
+    try {
+        world.step();
+        remove = true;
+        world.step();
+        remove = false;
+        expect(log).toEqual(["setup", "update"]);
+        world.step();
+        world.addSystem(removed);
+        world.step();
+        expect(log).toEqual(["setup", "update", "setup", "update"]);
+    } finally {
+        world.dispose();
+    }
+});
+
+test("a paused system removed by an earlier system in its group resumes when added again", () => {
+    const world = new World();
+    world.logAndPauseSystemErrors();
+    const errors = spyOn(console, "error").mockImplementation(() => {});
+    const log: string[] = [];
+    let remove = false;
+    let fail = true;
+    const paused: System = {
+        name: "paused",
+        setup: () => log.push("setup"),
+        update() {
+            log.push("update");
+            if (fail) throw new Error("broken");
+        },
+    };
+    world.addSystem({
+        before: [paused],
+        update(world) {
+            if (remove) world.removeSystem(paused);
+        },
+    });
+    world.addSystem(paused);
+    try {
+        world.step();
+        remove = true;
+        world.step();
+        remove = false;
+        expect(log).toEqual(["setup", "update"]);
+        expect(errors).toHaveBeenCalledTimes(1);
+        fail = false;
+        world.addSystem(paused);
+        world.step();
+        world.step();
+        expect(log).toEqual(["setup", "update", "setup", "update", "update"]);
+    } finally {
+        errors.mockRestore();
+        world.dispose();
+    }
+});
+
 test("CPU timing borrows one reusable timestamp-and-duration buffer without losing precision", () => {
     const scheduler = new Scheduler();
     scheduler.register({ name: "work", group: "simulation", update() {} }, "owner");
