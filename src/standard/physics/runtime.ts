@@ -1957,6 +1957,7 @@ function syncShapes(world: World, runtime: PhysicsRuntime, checkScale = true): v
         candidates.fieldMarks[eid] = 0;
     }
     candidates.count = pending;
+    candidates.tombstones = 0;
 }
 
 function realizeMemberships(world: World, runtime: PhysicsRuntime): void {

@@ -31,6 +31,44 @@ test("requeue appends in consumption order without losing marks or duplicating l
     expect(candidates.eids.slice(0, candidates.count)).toEqual([100]);
 });
 
+test("100000 alternating requeues retain two live candidates in bounded slots without replacing storage", () => {
+    const candidates = createFieldCandidates();
+    markFieldCandidate(candidates, 1, 2);
+    markFieldCandidate(candidates, 2, 4);
+    const eids = candidates.eids,
+        positions = candidates.positions,
+        marks = candidates.fieldMarks;
+    let maximum = 0;
+    for (let i = 0; i < 100000; i++) {
+        requeueFieldCandidate(candidates, (i % 2) + 1);
+        maximum = Math.max(maximum, candidates.count);
+    }
+    expect(maximum).toBeLessThanOrEqual(4);
+    expect(candidates.eids.length).toBeLessThanOrEqual(5);
+    expect(candidates.eids.slice(0, candidates.count).filter((eid) => eid !== 0)).toEqual([1, 2]);
+    for (let i = 0; i < candidates.count; i++) {
+        const eid = candidates.eids[i];
+        if (eid !== 0) expect(candidates.positions[eid]).toBe(i + 1);
+    }
+    expect(candidates.fieldMarks[1]).toBe(1 << 2);
+    expect(candidates.fieldMarks[2]).toBe(1 << 4);
+    expect(candidates.eids).toBe(eids);
+    expect(candidates.positions).toBe(positions);
+    expect(candidates.fieldMarks).toBe(marks);
+    clearFieldCandidates(candidates);
+    markFieldCandidate(candidates, 2);
+    markFieldCandidate(candidates, 1);
+    requeueFieldCandidate(candidates, 2);
+    expect(candidates.eids.slice(0, candidates.count).filter((eid) => eid !== 0)).toEqual([1, 2]);
+    requeueFieldCandidate(candidates, 1);
+    requeueFieldCandidate(candidates, 2);
+    expect(candidates.eids.slice(0, candidates.count)).toEqual([1, 2]);
+    expect(candidates.positions[1]).toBe(1);
+    expect(candidates.positions[2]).toBe(2);
+    expect(candidates.fieldMarks[1]).toBe(0);
+    expect(candidates.fieldMarks[2]).toBe(0);
+});
+
 test("marks above one word compare every field without aliasing a low field", () => {
     const world = new World();
     const binding = shapeBinding(world);

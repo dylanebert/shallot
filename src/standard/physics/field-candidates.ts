@@ -6,6 +6,7 @@ export interface FieldCandidates {
     positions: Uint32Array;
     fieldMarks: Uint32Array;
     count: number;
+    tombstones: number;
 }
 
 export interface FieldCandidateBinding {
@@ -14,7 +15,13 @@ export interface FieldCandidateBinding {
 }
 
 export function createFieldCandidates(): FieldCandidates {
-    return { eids: [], positions: new Uint32Array(16), fieldMarks: new Uint32Array(16), count: 0 };
+    return {
+        eids: [],
+        positions: new Uint32Array(16),
+        fieldMarks: new Uint32Array(16),
+        count: 0,
+        tombstones: 0,
+    };
 }
 
 function ensureCandidateCapacity(candidates: FieldCandidates, eid: number): void {
@@ -55,8 +62,21 @@ export function requeueFieldCandidate(candidates: FieldCandidates, eid: number):
         if (position === candidates.count) return;
         candidates.eids[position - 1] = 0;
         candidates.positions[eid] = 0;
+        candidates.tombstones++;
     }
     markFieldCandidate(candidates, eid);
+    // Charge each stable compaction to the tombstones accumulated since the last one.
+    if (candidates.tombstones > candidates.count - candidates.tombstones) {
+        let live = 0;
+        for (let i = 0; i < candidates.count; i++) {
+            const queued = candidates.eids[i];
+            if (queued === 0) continue;
+            candidates.eids[live++] = queued;
+            candidates.positions[queued] = live;
+        }
+        candidates.count = live;
+        candidates.tombstones = 0;
+    }
 }
 
 export function captureFieldCandidate(
@@ -98,4 +118,5 @@ export function clearFieldCandidates(candidates: FieldCandidates): void {
         candidates.fieldMarks[eid] = 0;
     }
     candidates.count = 0;
+    candidates.tombstones = 0;
 }
