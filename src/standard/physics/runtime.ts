@@ -1008,6 +1008,43 @@ export function applyTorque(world: World, eid: number, torque: Vec3, wake = true
     bodyApplyTorque(state, body.index1 - 1, stateVector, wake);
 }
 
+/** Geometry-weighted radial impulse; distances and position are in meters. Negative impulsePerArea implodes. */
+export interface ExplosionDef {
+    maskBits: bigint;
+    position: Pos;
+    radius: number;
+    falloff: number;
+    impulsePerArea: number;
+}
+
+export function defaultExplosionDef(): ExplosionDef {
+    return {
+        maskBits: 0xffffffffffffffffn,
+        position: { x: 0, y: 0, z: 0 },
+        radius: 0,
+        falloff: 0,
+        impulsePerArea: 0,
+    };
+}
+
+/** Applies an immediate radial impulse to bound dynamic shapes, waking affected bodies.
+ * Bodies added since the last fixed sync are not considered. Shape.explosionScale weights each shape's projected area. */
+export function explode(world: World, def: ExplosionDef): void {
+    const state = runtimeFor(world).physicsWorld;
+    if (!state) return;
+    kernel(state.ecsState).worldExplode(
+        state.worldId,
+        Number((def.maskBits >> 32n) & 0xffffffffn),
+        Number(def.maskBits & 0xffffffffn),
+        def.position.x,
+        def.position.y,
+        def.position.z,
+        def.radius,
+        def.falloff,
+        def.impulsePerArea,
+    );
+}
+
 /** Applies a one-shot world impulse in newton-seconds at a world point; off-center impulses also change angular velocity. `wake` defaults true. Box3D ignores static and kinematic bodies; a body added since the last fixed sync ignores it and spawns with `Body.linearVelocity` and `Body.angularVelocity`. */
 export function applyLinearImpulse(
     world: World,

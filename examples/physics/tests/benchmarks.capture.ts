@@ -15,6 +15,8 @@ for (const name of [
     "Convex Pile",
     "Candy Cups",
     "Falling Trees",
+    "Explosion",
+    "Destruction",
 ]) {
     test(`${name} look review`, async ({ page }) => {
         const errors: string[] = [];
@@ -35,6 +37,12 @@ for (const name of [
         // Advance the camera transition without running an unbounded presentation loop.
         await frames.run(4);
         await capture(page, name.replaceAll(" ", "-").toLowerCase(), frames);
+        if (name === "Explosion") {
+            await page.getByLabel("Magnitude", { exact: true }).fill("1500");
+            await page.getByRole("button", { name: "Explode", exact: true }).click();
+            await frames.run(4);
+            await capture(page, "explosion-fired", frames);
+        }
         if (name === "Falling Trees") {
             for (const size of [50, 25, 100]) {
                 await page.getByRole("radio", { name: `${size}cm`, exact: true }).check();

@@ -64,6 +64,26 @@ export function shapePresentation(world: World, scene: Scene, eid: number) {
     };
 }
 
+function destructionRings() {
+    const lines: { a: [number, number, number]; b: [number, number, number]; color: number }[] = [];
+    for (const [radius, color] of [
+        [2.5, 0x00ffff],
+        [3.75, 0xfff8dc],
+    ] as const)
+        for (let axis = 0; axis < 3; axis++)
+            for (let i = 0; i < 24; i++) {
+                const point = (index: number): [number, number, number] => {
+                    const p: [number, number, number] = [0, 5, 0];
+                    const angle = (index * 2 * Math.PI) / 24;
+                    p[(axis + 1) % 3]! += radius * Math.cos(angle);
+                    p[(axis + 2) % 3]! += radius * Math.sin(angle);
+                    return p;
+                };
+                lines.push({ a: point(i), b: point(i + 1), color });
+            }
+    return lines;
+}
+
 export function scenePresentation(world: World, scene: Scene) {
     const shapes = Array.from(world.query([Shape]), (eid) => shapePresentation(world, scene, eid));
     const { gridExtent: extent, gridSpacing: spacing } = scenes[scene];
@@ -78,6 +98,7 @@ export function scenePresentation(world: World, scene: Scene) {
     return {
         shapes,
         grid: { lines, width: 1, opacity: 0.3 },
+        explosion: scene === "destruction" ? destructionRings() : [],
         ground:
             scene === "sensor"
                 ? {

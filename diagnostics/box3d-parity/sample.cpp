@@ -41,6 +41,7 @@ template<class T> void DrawAxes( T, float ) {}
 int MakeColor( int color ) { return color; }
 void DrawPoint( b3Pos, float, int ) {}
 void DrawLine( b3Pos, b3Pos, int ) {}
+void DrawWireSphere( b3WorldTransform, const b3Sphere*, int, int ) {}
 void DrawString3D( b3Pos, int, const char*, ... ) {}
 namespace ImGui
 {
@@ -142,6 +143,7 @@ public:
 		printf( "\n" );
 		++m_stepCount;
 	}
+	bool m_stepWhilePaused = true;
 	int m_stepCount = 0;
 	static constexpr bool m_isDebug = false;
 	float m_shadowSplitFar = 0;
@@ -180,6 +182,8 @@ int main( int argc, char** argv )
 		{ "convexPile", BenchmarkConvexPile::Create },
 		{ "candyCups", CandyCups::Create },
 		{ "fallingTrees", BenchmarkFallingTrees::Create },
+		{ "explosion", BenchmarkExplosion::Create },
+		{ "destruction", BenchmarkDestruction::Create },
 		{ "box_stack", BoxStack::Create }, { "bridge", Bridge::Create },
 		{ "revolute", RevoluteJoint::Create }, { "prismatic", PrismaticJoint::Create },
 		{ "wheel", WheelJoint::Create }, { "filter", FilterJoint::Create }, { "parallel", ParallelJoint::Create },

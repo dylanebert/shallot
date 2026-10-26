@@ -135,6 +135,8 @@ mod draw;
 #[cfg(any(target_arch = "wasm32", test))]
 mod events;
 #[cfg(target_arch = "wasm32")]
+mod explosion;
+#[cfg(target_arch = "wasm32")]
 #[cfg(target_arch = "wasm32")]
 mod geo;
 pub mod geometry_read;

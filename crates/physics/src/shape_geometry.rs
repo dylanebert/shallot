@@ -413,7 +413,7 @@ mod wasm {
     }
 }
 #[cfg(target_arch = "wasm32")]
-pub(crate) use wasm::{bounds, extent, finish_geometry_in_world, mass};
+pub(crate) use wasm::{bounds, centroid, extent, finish_geometry_in_world, mass};
 
 #[cfg(test)]
 #[path = "shape_geometry_tests.rs"]

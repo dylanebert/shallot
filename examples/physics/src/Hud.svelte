@@ -1,8 +1,20 @@
 <script lang="ts">
     import "./controls.css";
+    import type { World } from "@dylanebert/shallot";
+    import { onMount } from "svelte";
+    import { BenchmarkSample } from "./benchmarks";
     import { formatValue } from "./control-format";
     import { categories, controlValues, scenes, enabledControls, type Scene } from "./scenes";
-    let { scene, select, change }: { scene: Scene; select: (scene: Scene) => void; change: (name: string, value: number, values: Record<string, number>) => void } = $props();
+    let { world, scene, select, change }: { world: World; scene: Scene; select: (scene: Scene) => void; change: (name: string, value: number, values: Record<string, number>) => void } = $props();
+    let timings = $state({ spawn: 0, destroy: 0 });
+    onMount(() => {
+        if (scene !== "destruction") return;
+        const timer = setInterval(() => {
+            const sample = world.resource(BenchmarkSample);
+            timings = { spawn: sample.spawnMilliseconds, destroy: sample.destroyMilliseconds };
+        }, 100);
+        return () => clearInterval(timer);
+    });
     let values = $state(controlValues(scene));
     const controls = $derived(enabledControls(scene, values));
     function update(name: string, value: number) { change(name, value, values); }
@@ -39,6 +51,7 @@
         <button tabindex="-1" onfocus={(event) => event.currentTarget.blur()} aria-label="Next scene" onclick={() => step(1)}>&gt;</button>
     </nav>
 </section>
+{#if scene === "destruction"}<div class="ec input-help">spawn = {timings.spawn.toFixed(2)} ms<br />destroy = {timings.destroy.toFixed(2)} ms</div>{/if}
 {#if scene === "contact"}<span class="ec input-help">WASD to roll</span>{/if}
 {#if scenes[scene].controls}
     {#snippet fields(parent?: string)}

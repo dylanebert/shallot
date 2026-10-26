@@ -18,6 +18,7 @@ await runApp({
             component = mount(Hud, {
                 target: container,
                 props: {
+                    world,
                     scene,
                     select,
                     change: (name: string, value: number, values: Record<string, number>) =>

@@ -13,6 +13,8 @@ import {
 } from "@dylanebert/shallot";
 import {
     computeCosSin,
+    defaultExplosionDef,
+    explode,
     PhysicsWorldDefinition,
     rotationFromAxisAngle,
     StandardPhysicsPlugin,
@@ -152,6 +154,11 @@ function jointGrid(world: World): number[] {
 }
 export const BenchmarkSample = {
     create: () => ({
+        explosionPending: false,
+        destructionBodies: [] as number[],
+        randomSeed: 12345,
+        spawnMilliseconds: 0,
+        destroyMilliseconds: 0,
         degrees: 0,
         pusher: 0,
         scene: "",
@@ -168,6 +175,16 @@ const BeforeBenchmark: System = {
     before: [StepPhysicsSystem],
     update(world) {
         const sample = world.resource(BenchmarkSample);
+        if (sample.scene === "destruction" && sample.explosionPending) {
+            sample.explosionPending = false;
+            explode(world, {
+                ...defaultExplosionDef(),
+                radius: 2.5,
+                falloff: 1.25,
+                position: { x: 0, y: 5, z: 0 },
+                impulsePerArea: 1000,
+            });
+        }
         if (sample.scene !== "junkyard") return;
         const dt = f(1 / 60);
         sample.degrees = f(sample.degrees + f(-6 * dt));
@@ -208,6 +225,108 @@ const SpawnBenchmark: System = {
         if (!filling) sample.columnIndex = (sample.columnIndex + 1) % 10;
     },
 };
+function gridGround(world: World): number {
+    const geometry = world.resource(PhysicsMeshes).add({
+        name: "grid",
+        grid: { xCount: 40, zCount: 40, cellWidth: 1, materialCount: 0, identifyEdges: true },
+    });
+    const eid = world.create();
+    world.add(eid, Body);
+    world.add(eid, Shape, { kind: ShapeKind.Mesh, geometry });
+    return eid;
+}
+function explosion(world: World): number[] {
+    const base = gridGround(world);
+    for (const [halfExtents, position] of [
+        [
+            [20, 1, 0.1],
+            [0, 1, -20],
+        ],
+        [
+            [20, 1, 0.1],
+            [0, 1, 20],
+        ],
+        [
+            [0.1, 1, 20],
+            [-20, 1, 0],
+        ],
+        [
+            [0.1, 1, 20],
+            [20, 1, 0],
+        ],
+    ] as const)
+        shape(
+            world,
+            base,
+            world.resource(Hulls).add({
+                name: "wall",
+                halfExtents,
+                transform: { position, rotation: [0, 0, 0, 1] },
+            }),
+        );
+    const geometry = world
+        .resource(Hulls)
+        .add({ name: "cylinder", cylinder: { height: 0.5, radius: 0.2, yOffset: 0, sides: 15 } });
+    const bodies: number[] = [];
+    for (let i = -16; i <= 16; i++)
+        for (let k = -16; k <= 16; k++) {
+            const eid = body(world, geometry, [i, 0, k]);
+            world.storage(Shape).explosionScale.set(eid, 2);
+            bodies.push(eid);
+        }
+    return bodies;
+}
+function spawnDestruction(world: World): number[] {
+    const sample = world.resource(BenchmarkSample);
+    const start = performance.now();
+    const a = f(2.5 / 20);
+    const geometry = box(world, [f(f(0.8) * a), f(f(0.8) * a), f(f(0.8) * a)]);
+    const bodies: number[] = [];
+    for (let i = 0; i < 20; i++)
+        for (let j = 0; j < 20; j++)
+            for (let k = 0; k < 20; k++) {
+                let x = sample.randomSeed;
+                x ^= x << 13;
+                x ^= x >>> 17;
+                x ^= x << 5;
+                sample.randomSeed = x >>> 0;
+                if ((sample.randomSeed % 32768) % 2 === 0) continue;
+                bodies.push(
+                    body(world, geometry, [
+                        f((2 * i - 19) * a),
+                        f((2 * j + 1) * a),
+                        f((2 * k - 19) * a),
+                    ]),
+                );
+            }
+    sample.destructionBodies = bodies;
+    sample.explosionPending = true;
+    sample.spawnMilliseconds = performance.now() - start;
+    return bodies;
+}
+function destruction(world: World): number[] {
+    gridGround(world);
+    Object.assign(world.resource(BenchmarkSample), {
+        scene: "destruction",
+        step: 0,
+        randomSeed: 12345,
+        destroyMilliseconds: 0,
+    });
+    return spawnDestruction(world);
+}
+const AfterDestruction: System = {
+    name: "destruction-after-step",
+    group: "fixed",
+    after: [StepPhysicsSystem],
+    update(world) {
+        const sample = world.resource(BenchmarkSample);
+        if (sample.scene !== "destruction" || ++sample.step % 140 !== 0) return;
+        const start = performance.now();
+        for (const eid of sample.destructionBodies) world.destroy(eid);
+        sample.destroyMilliseconds = performance.now() - start;
+        spawnDestruction(world);
+    },
+};
 function rain(world: World): number[] {
     const meshes = world.resource(PhysicsMeshes);
     const grid = meshes.add({
@@ -238,7 +357,7 @@ function rain(world: World): number[] {
 export const BenchmarkSamplePlugin: Plugin = {
     name: "BenchmarkSample",
     dependencies: [StandardPhysicsPlugin, TreeSamplePlugin],
-    systems: [SpawnBenchmark, BeforeBenchmark],
+    systems: [SpawnBenchmark, BeforeBenchmark, AfterDestruction],
     recovery: (world) => ({
         snapshot: () => structuredClone(world.resource(BenchmarkSample)),
         restore: (state: ReturnType<typeof BenchmarkSample.create>) =>
@@ -412,6 +531,40 @@ function candyCups(world: World): number[] {
     return bodies;
 }
 export const benchmarkScenes = {
+    explosion: {
+        construct: explosion,
+        gridExtent: 20,
+        gridSpacing: 1,
+        camera: { yaw: 45, pitch: 20, distance: 30, target: [0, 0, 0] },
+        controls: {
+            Magnitude: { label: "Magnitude", value: 1000, min: 0, max: 2000, step: 1, set() {} },
+            Explode: {
+                label: "Explode",
+                value: 0,
+                button: true,
+                set(
+                    world: World,
+                    _bodies: readonly number[],
+                    _value: number,
+                    values: Record<string, number>,
+                ) {
+                    explode(world, {
+                        ...defaultExplosionDef(),
+                        radius: 16,
+                        position: { x: 0, y: -4, z: 0 },
+                        impulsePerArea: values.Magnitude!,
+                    });
+                },
+            },
+        },
+    },
+    destruction: {
+        construct: destruction,
+        gridExtent: 20,
+        gridSpacing: 1,
+        camera: { yaw: 0, pitch: 40, distance: 30, target: [0, 0, 0] },
+        controls: undefined,
+    },
     fallingTrees: {
         construct: fallingTrees,
         gridExtent: 100,

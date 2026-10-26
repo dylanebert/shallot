@@ -180,6 +180,13 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         width: presentation.grid.width,
         opacity: presentation.grid.opacity,
     });
+    if (presentation.explosion.length) {
+        const rings = world.create();
+        const asset = new GizmoAsset();
+        for (const { a, b, color } of presentation.explosion) drawLine(asset, a, b, color);
+        world.add(rings, Transform);
+        world.add(rings, Gizmo, { handle: registerGizmo(world, asset), width: 2 });
+    }
     const views = new Map<EntityRef, MeshHandle>();
     const labels: number[] = [];
     function updateShapes(world: World): void {

@@ -130,6 +130,17 @@ export type Kernel = {
     bodyDestroyWorld(world: number, id: number): void;
     residentResetWorld(world: number): void;
     worldDestroyKernel(world: number): void;
+    worldExplode(
+        world: number,
+        maskHi: number,
+        maskLo: number,
+        x: number,
+        y: number,
+        z: number,
+        radius: number,
+        falloff: number,
+        impulsePerArea: number,
+    ): void;
     shapeSetFilter64(
         world: number,
         id: number,

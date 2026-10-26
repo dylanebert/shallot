@@ -9,6 +9,26 @@ import { sampleGold } from "../../examples/physics/tests/gold";
 // small determinism scenes hold scheduling and cross-host equality.
 setDefaultTimeout(0);
 
+test("explosion magnitude and button sequence equals every recorded native step", async () => {
+    const gold = sampleGold(await Bun.file(new URL("../../examples/physics/tests/explosion.controls.gold.txt", import.meta.url)).text());
+    const sequence = (await Bun.file(new URL("../../examples/physics/tests/explosion.controls.txt", import.meta.url)).text()).trim().split("\n").map(line => {
+        const [step, name, value] = line.split("\t");
+        return { step: Number(step), name: name!, value: Number(value) };
+    });
+    const start = performance.now();
+    const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin, BenchmarkSamplePlugin] });
+    try {
+        const bodies = sceneSwitcher(app.world)("explosion");
+        const values = controlValues("explosion");
+        for (const [step, expected] of gold.entries()) {
+            for (const change of sequence.filter(change => change.step === step)) changeControl(app.world, "explosion", bodies, values, change.name, change.value);
+            app.world.tick();
+            expect(hashPhysics(app.world), `controlled step ${step} hash`).toBe(expected.hash);
+        }
+    } finally { app.dispose(); }
+    console.log(`explosion controls: ${(performance.now() - start).toFixed(0)} ms; ${gold.length} recorded steps; 1 solver thread`);
+});
+
 test("fallingTrees grid-size sequence equals every recorded native step", async () => {
     const gold = sampleGold(await Bun.file(new URL("../../examples/physics/tests/fallingTrees.controls.gold.txt", import.meta.url)).text());
     const sequence = (await Bun.file(new URL("../../examples/physics/tests/fallingTrees.controls.txt", import.meta.url)).text()).trim().split("\n").map(line => {

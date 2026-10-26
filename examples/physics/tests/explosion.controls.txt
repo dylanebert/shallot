@@ -1,0 +1,4 @@
+60	Magnitude	750
+61	Explode	1
+180	Magnitude	1500
+181	Explode	1
