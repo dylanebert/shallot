@@ -21,6 +21,8 @@ import { ScreenSpaceAmbientOcclusion, ScreenSpaceAmbientOcclusionPlugin, ssaoSta
 
 setDefaultTimeout(TIMEOUT.gpu);
 const cameras: number[] = [];
+/** [1-wide, 2-wide] cameras with SSAO, then the same pair without it. */
+const narrow: number[] = [];
 let sun = 0;
 function scene(world: World) {
     const material = world
@@ -52,6 +54,20 @@ function scene(world: World) {
         });
         attachTexture(world, camera, { width: 256, height: 192 });
         cameras.push(camera);
+    }
+    for (const ssao of [true, false]) {
+        for (const width of [1, 2]) {
+            const camera = world.create();
+            world.add(camera, Transform, {
+                translation: [0, 6, 3, 0],
+                rotation: lookAtRotation(0, 6, 3, 0, 0, 0),
+            });
+            world.add(camera, Camera);
+            world.add(camera, StandardRenderer);
+            if (ssao) world.add(camera, ScreenSpaceAmbientOcclusion, { qualityLevel: 1 });
+            attachTexture(world, camera, { width, height: 192 });
+            narrow.push(camera);
+        }
     }
 }
 const subjects = gpuApps(import.meta.path, [
@@ -149,4 +165,52 @@ test("every quality runs with and without MSAA, including Custom", async () => {
             expect(world.resource(Views).get(eid)!.normal).not.toBeNull();
         }
     }
+});
+test("a 1-wide view occludes as a 2-wide one does, and a view without SSAO is unoccluded", async () => {
+    const { world } = subjects()[0];
+    world.step(1 / 60);
+    async function colour(eid: number) {
+        const result = await probeTexture(world, offscreenTexture(world, eid)!);
+        return new Float16Array(result.bytes);
+    }
+    const [one, two, plainOne, plainTwo] = await Promise.all(narrow.map(colour));
+    const luminance = (rgba: Float16Array, at: number) =>
+        rgba[at]! * 0.2126 + rgba[at + 1]! * 0.7152 + rgba[at + 2]! * 0.0722;
+    /** each row's least luminance ratio of `lit` to `plain` over its columns, and how many
+     * channels differ and brighten. A 1-wide view's slices sample no columns beside its own, so it occludes
+     * less than a 2-wide one, but no channel brightens. */
+    function occlusion(lit: Float16Array, plain: Float16Array, width: number) {
+        const ratios: number[] = [];
+        for (let row = 0; row < 192; row++) {
+            let ratio = Infinity;
+            for (let column = 0; column < width; column++) {
+                const at = (row * width + column) * 4;
+                const unoccluded = luminance(plain, at);
+                if (unoccluded > 0) ratio = Math.min(ratio, luminance(lit, at) / unoccluded);
+            }
+            ratios.push(ratio);
+        }
+        let changed = 0;
+        let brightened = 0;
+        for (let i = 0; i < lit.length; i++) {
+            if (lit[i] !== plain[i]) changed++;
+            if (lit[i]! > plain[i]!) brightened++;
+        }
+        return { ratios, changed, brightened };
+    }
+    const wide = occlusion(two!, plainTwo!, 2);
+    const thin = occlusion(one!, plainOne!, 1);
+    expect(Math.min(...wide.ratios)).toBeLessThan(0.8);
+    expect(Math.min(...thin.ratios)).toBeLessThan(0.8);
+    expect(thin.brightened).toBe(0);
+    expect(thin.changed / one!.length).toBeGreaterThan((0.5 * wide.changed) / two!.length);
+    world.remove(narrow[0]!, ScreenSpaceAmbientOcclusion);
+    world.remove(narrow[1]!, ScreenSpaceAmbientOcclusion);
+    world.step(1 / 60);
+    const [stubOne, stubTwo, againOne, againTwo] = await Promise.all(narrow.map(colour));
+    expect(stubOne).toEqual(againOne!);
+    expect(stubTwo).toEqual(againTwo!);
+    expect(againOne).toEqual(plainOne!);
+    world.add(narrow[0]!, ScreenSpaceAmbientOcclusion, { qualityLevel: 1 });
+    world.add(narrow[1]!, ScreenSpaceAmbientOcclusion, { qualityLevel: 1 });
 });
