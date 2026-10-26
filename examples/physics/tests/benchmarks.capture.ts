@@ -27,7 +27,7 @@ for (const name of [
         await expect(picker).toHaveText(name);
         await expect(picker).toBeEnabled();
         // Let the orbit camera settle on the selected scene before capturing its view.
-        await frames.run(12);
+        await frames.run(6);
         await capture(page, name.replaceAll(" ", "-").toLowerCase(), frames);
         expect(errors).toEqual([]);
     });
