@@ -6,23 +6,23 @@ test("each picker label selects its scene in its category, exactly once", () => 
         {
             name: "Benchmark",
             scenes: [
+                { id: "candyCups", name: "Candy Cups" },
+                { id: "chains", name: "Chains" },
+                { id: "convexPile", name: "Convex Pile" },
+                { id: "destruction", name: "Destruction" },
+                { id: "explosion", name: "Explosion" },
+                { id: "fallingBoxes", name: "Falling Boxes" },
+                { id: "fallingTrees", name: "Falling Trees" },
                 { id: "heightField", name: "Height Field" },
                 { id: "hull", name: "Hull" },
-                { id: "largePyramid", name: "Large Pyramid" },
-                { id: "widePyramid", name: "Wide Pyramid" },
-                { id: "manyPyramids", name: "Many Pyramids" },
-                { id: "fallingBoxes", name: "Falling Boxes" },
                 { id: "jointGrid", name: "Joint Grid" },
-                { id: "rain", name: "Rain" },
                 { id: "junkyard", name: "Junkyard" },
-                { id: "washer", name: "Washer" },
-                { id: "convexPile", name: "Convex Pile" },
-                { id: "candyCups", name: "Candy Cups" },
-                { id: "fallingTrees", name: "Falling Trees" },
-                { id: "chains", name: "Chains" },
+                { id: "largePyramid", name: "Large Pyramid" },
+                { id: "manyPyramids", name: "Many Pyramids" },
+                { id: "rain", name: "Rain" },
                 { id: "benchmarkSensor", name: "Sensor" },
-                { id: "explosion", name: "Explosion" },
-                { id: "destruction", name: "Destruction" },
+                { id: "washer", name: "Washer" },
+                { id: "widePyramid", name: "Wide Pyramid" },
             ],
         },
         {
@@ -51,4 +51,11 @@ test("each picker label selects its scene in its category, exactly once", () => 
     expect(
         categories.flatMap((category) => category.scenes.map((scene): string => scene.id)).sort(),
     ).toEqual(Object.keys(scenes).sort());
+});
+
+test("each category lists its scenes alphabetically, as Box3D's samples app sorts them", () => {
+    for (const category of categories) {
+        const names = category.scenes.map((scene) => scene.name);
+        expect(names, category.name).toEqual([...names].sort((a, b) => a.localeCompare(b)));
+    }
 });
