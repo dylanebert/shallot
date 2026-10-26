@@ -29,5 +29,5 @@ export function querySteps(scene: "heightField" | "hull", text: string): string[
 }
 
 export function digestMismatch(scene: string, step: number): string {
-    return `${scene} step ${step}; full native and Shallot records: bun diagnostics/box3d-parity/records.ts ${scene} ${step} (set BOX3D to the native checkout)`;
+    return `${scene} step ${step}; compare native and Shallot records: bun diagnostics/box3d-parity/records.ts ${scene} ${step} (set BOX3D to the native checkout; --full dumps both)`;
 }

@@ -8,6 +8,7 @@ import { eventRecord, querySteps } from "../../examples/physics/tests/digest";
 import { sampleGold } from "../../examples/physics/tests/gold";
 import { run } from "./native";
 import { sampleBinary } from "./sample";
+import { compareRecords } from "./record-diff";
 import { fileURLToPath } from "node:url";
 
 export async function queryRecords(scene: "heightField" | "hull"): Promise<string> {
@@ -46,9 +47,10 @@ export function sensorEvents(world: Parameters<typeof hashPhysics>[0]): (number 
 }
 
 if (import.meta.main) {
-    const [scene, index] = process.argv.slice(2);
+    const [scene, index, flag, ...extra] = process.argv.slice(2);
+    if ((flag !== undefined && flag !== "--full") || extra.length) throw new Error("optional flag: --full");
     const step = Number(index);
-    if (!index || !Number.isInteger(step) || step < 0 || (scene !== "benchmarkSensor" && scene !== "heightField" && scene !== "hull") || step >= (scene === "benchmarkSensor" ? 3000 : scene === "heightField" ? 2 : 1)) throw new Error("usage: BOX3D=<checkout> bun diagnostics/box3d-parity/records.ts <benchmarkSensor|heightField|hull> <zero-based-step>");
+    if (!index || !Number.isInteger(step) || step < 0 || (scene !== "benchmarkSensor" && scene !== "heightField" && scene !== "hull") || step >= (scene === "benchmarkSensor" ? 3000 : scene === "heightField" ? 2 : 1)) throw new Error("usage: BOX3D=<checkout> bun diagnostics/box3d-parity/records.ts <benchmarkSensor|heightField|hull> <zero-based-step> [--full]");
     let native: string;
     let actual: string;
     if (scene === "benchmarkSensor") {
@@ -64,5 +66,8 @@ if (import.meta.main) {
         native = querySteps(scene, run([sampleBinary(), scene, scene === "hull" ? "1" : "2", ...(scene === "hull" ? [] : [sequence])]))[step]!;
         actual = querySteps(scene, await queryRecords(scene))[step]!;
     }
-    console.log(`native ${scene} step ${step}\n${native}Shallot ${scene} step ${step}\n${actual}`);
+    const result = compareRecords(scene, step, native, actual);
+    console.log(result.message);
+    if (flag === "--full") console.log(`native ${scene} step ${step}\n${native}Shallot ${scene} step ${step}\n${actual}`);
+    process.exitCode = result.equal ? 0 : 1;
 }
