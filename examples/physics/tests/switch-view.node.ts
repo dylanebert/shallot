@@ -6,7 +6,7 @@ import { openGpuApp } from "@dylanebert/shallot/testing/gpu";
 import { EventSamplePlugin, SampleInputPlugin } from "../src/events";
 import { Grab, GrabPlugin } from "../src/grab";
 import { sceneSwitcher } from "../src/sample";
-import { type Scene, scenes } from "../src/scenes";
+import { categories } from "../src/scenes";
 import { createViewer, GrabFeedback } from "../src/view";
 
 setDefaultTimeout(TIMEOUT.node);
@@ -34,7 +34,9 @@ test("scene presentation releases old meshes, systems and grab feedback in the r
     try {
         const world = app.world;
         const select = sceneSwitcher(world, world.resource(Viewer));
-        for (const scene of Object.keys(scenes) as Scene[]) {
+        for (const { id: scene } of categories
+            .filter((category) => category.name !== "Benchmark")
+            .flatMap((category) => category.scenes)) {
             select(scene);
             const meshes = world.resource(Meshes);
             if (scene === "sensor") {
