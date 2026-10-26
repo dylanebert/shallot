@@ -223,11 +223,6 @@ export function initializeMeshPreprocess(world: World): void {
             if (present) seedDefault(eid);
         }),
     );
-    world.onDispose(
-        world.observeMembership(MeshMaterial, (eid, present) => {
-            if (!present && world.has(eid, MeshInstance)) seedDefault(eid);
-        }),
-    );
     for (const eid of world.query([MeshInstance])) seedDefault(eid);
 }
 
