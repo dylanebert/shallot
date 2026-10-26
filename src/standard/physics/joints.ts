@@ -612,6 +612,10 @@ function applyScalarEdits(
     for (const [field] of edits) {
         if (!fieldMarked(binding, mask, field)) continue;
         const value = jointValue(binding, eid, field);
+        if (!differs(value, readJointScalar(state, id, binding.kind, field))) {
+            clearFieldWarning(warned, binding, key, field);
+            continue;
+        }
         // Motor speed keeps its own finite check and write: sending a steady motor-speed edit through
         // setterAccepts or writeJointScalar allocates (joint-allocation.node.ts).
         const finiteMotorSpeed =
@@ -624,18 +628,16 @@ function applyScalarEdits(
             continue;
         }
         clearFieldWarning(warned, binding, key, field);
-        if (differs(value, readJointScalar(state, id, binding.kind, field))) {
-            if (field === "motorSpeed") {
-                const k = kernel(state.ecsState);
-                k.bodySetActiveWorld(state.worldId);
-                const column = JOINT_SCALAR_COLUMNS[binding.kind][field];
-                jointViews(k).floats[(k.jointSimPtr(id) >>> 2) + column] = Math.fround(value);
-                state.locked = true;
-                k.jointWakeBodies(state.worldId, id);
-                state.locked = false;
-            } else {
-                writeJointScalar(state, id, binding.kind, field, value);
-            }
+        if (field === "motorSpeed") {
+            const k = kernel(state.ecsState);
+            k.bodySetActiveWorld(state.worldId);
+            const column = JOINT_SCALAR_COLUMNS[binding.kind][field];
+            jointViews(k).floats[(k.jointSimPtr(id) >>> 2) + column] = Math.fround(value);
+            state.locked = true;
+            k.jointWakeBodies(state.worldId, id);
+            state.locked = false;
+        } else {
+            writeJointScalar(state, id, binding.kind, field, value);
         }
     }
 }
@@ -987,8 +989,13 @@ export function syncJoints(
     bodies: ReadonlyMap<number, EntityId>,
     ecs: World,
     bindings: readonly JointBinding[],
+    onlyKind?: number,
 ): void {
-    for (let i = 0; i < bindings.length; i++) {
+    for (
+        let i = onlyKind ?? 0;
+        i < (onlyKind === undefined ? bindings.length : onlyKind + 1);
+        i++
+    ) {
         const binding = bindings[i];
         const candidates = cache.candidates[binding.index];
         if (candidates.count === 0) continue;
@@ -999,16 +1006,14 @@ export function syncJoints(
             const key = identity(binding.index, eid);
             const joint = live?.get(eid);
             if (!ecs.has(eid, binding.component)) {
-                if (joint && jointIsValid(state, joint))
-                    destroyJointInternal(state, joint.index1 - 1, true);
-                live?.delete(eid);
-                clearJointWarnings(cache.warnedJoints, key);
+                removeAuthoredJoint(cache, state, binding.index, eid);
                 continue;
             }
             const a = (binding.storage.a as ScalarField).get(eid);
             const b = (binding.storage.b as ScalarField).get(eid);
             const bodyA = bodies.get(a);
             const bodyB = bodies.get(b);
+            if (onlyKind !== undefined && (!bodyA || !bodyB)) continue;
             if (joint && bodyEndpointsMatch(state, joint, bodyA, bodyB)) {
                 applyJointFields(
                     binding,
@@ -1035,6 +1040,19 @@ export function syncJoints(
         }
         clearFieldCandidates(candidates);
     }
+}
+
+export function removeAuthoredJoint(
+    cache: ConstraintCache,
+    state: WorldState,
+    kind: number,
+    eid: number,
+): void {
+    const live = cache.liveJoints.get(kind);
+    const joint = live?.get(eid);
+    if (joint && jointIsValid(state, joint)) destroyJointInternal(state, joint.index1 - 1, true);
+    live?.delete(eid);
+    clearJointWarnings(cache.warnedJoints, identity(kind, eid));
 }
 
 export interface ConstraintIds {

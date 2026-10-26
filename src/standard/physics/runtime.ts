@@ -1,6 +1,7 @@
 /// <reference types="@webgpu/types" />
 
 import { Body, BodyType, PhysicsPlugin, Shape as ShapeComponent } from "../../core/physics";
+import { PhysicsCreationOrder } from "../../core/physics/creation-order";
 import {
     claimTransformPose,
     GlobalTransform,
@@ -63,6 +64,7 @@ import {
     captureConstraints,
     createConstraintCache,
     markAllJointCandidates,
+    removeAuthoredJoint,
     resetConstraints,
     restoreConstraints,
     syncJoints,
@@ -151,6 +153,7 @@ interface PhysicsRuntime {
     bodyCandidates: FieldCandidates;
     poseCandidates: FieldCandidates;
     shapeCandidates: FieldCandidates;
+    creationCandidates: FieldCandidates;
     warnedBodyFields: Set<number>;
     shapes: Map<number, EntityId>;
     shapeBodies: Map<number, number>;
@@ -233,6 +236,7 @@ function newRuntime(): PhysicsRuntime {
         bodyCandidates: createFieldCandidates(),
         poseCandidates: createFieldCandidates(),
         shapeCandidates: createFieldCandidates(),
+        creationCandidates: createFieldCandidates(),
         warnedBodyFields: new Set(),
         shapes: new Map(),
         shapeBodies: new Map(),
@@ -1750,7 +1754,7 @@ function collectStale(this: StaleScan, _body: unknown, eid: number): void {
     if (!this.world!.has(eid, Body)) this.eids[this.count++] = eid;
 }
 
-// Body creation order affects solver determinism; callers visit in ascending eid order.
+// New memberships reach this in authoring order, before the field reconciliation.
 // Returns true when a new solver body was bound.
 function visitBody(
     world: World,
@@ -1815,13 +1819,13 @@ function markScaledShape(this: World, body: number, eid: number): void {
         markFieldCandidate(runtime.shapeCandidates, eid);
 }
 
-function syncShapes(world: World, runtime: PhysicsRuntime): void {
+function syncShapes(world: World, runtime: PhysicsRuntime, checkScale = true): void {
     const state = runtime.physicsWorld;
     if (!state) return;
     const candidates = runtime.shapeCandidates;
     const binding = shapeBinding(world);
     const scaleDirty = world.fieldStorage(Transform, "scale").dirty;
-    for (let word = 0; word < scaleDirty.length; word++) {
+    for (let word = 0; checkScale && word < scaleDirty.length; word++) {
         if (scaleDirty[word] === 0) continue;
         runtime.shapeBodies.forEach(markScaledShape, world);
         break;
@@ -1927,6 +1931,63 @@ function syncShapes(world: World, runtime: PhysicsRuntime): void {
     candidates.count = pending;
 }
 
+function realizeMemberships(world: World, runtime: PhysicsRuntime): boolean {
+    const journal = world.resource(PhysicsCreationOrder);
+    const state = runtime.physicsWorld!;
+    const bindings = jointBindings(world);
+    const scratch = runtime.creationCandidates;
+    let bodiesChanged = false;
+    for (let at = 0; at < journal.count; at += 4) {
+        const component = journal.components[journal.entries[at]];
+        let jointKind = -1;
+        if (component !== Body && component !== ShapeComponent) {
+            for (let i = 0; i < bindings.length; i++) {
+                if (bindings[i].component === component) {
+                    jointKind = i;
+                    break;
+                }
+            }
+        }
+        const eid = journal.entries[at + 1];
+        const reference = journal.entries[at + 2] as EntityRef;
+        const present = journal.entries[at + 3] !== 0;
+        if (!present) {
+            if (component === Body) {
+                if (runtime.bodies.has(eid)) {
+                    forget(world, runtime, eid);
+                    bodiesChanged = true;
+                }
+            } else if (component === ShapeComponent) removeShape(runtime, eid);
+            else removeAuthoredJoint(runtime.constraints, state, jointKind, eid);
+            continue;
+        }
+        if (world.resolve(reference) !== eid) continue;
+        if (component === Body) {
+            if (world.has(eid, Body) && visitBody(world, runtime, state, eid)) bodiesChanged = true;
+        } else if (component === ShapeComponent) {
+            if (!world.has(eid, ShapeComponent)) continue;
+            const candidates = runtime.shapeCandidates;
+            markFieldCandidate(candidates, eid);
+            runtime.shapeCandidates = scratch;
+            markFieldCandidate(scratch, eid);
+            syncShapes(world, runtime, false);
+            clearFieldCandidates(scratch);
+            runtime.shapeCandidates = candidates;
+        } else {
+            const index = jointKind;
+            if (!world.has(eid, bindings[index].component)) continue;
+            const candidates = runtime.constraints.candidates[index];
+            markFieldCandidate(candidates, eid);
+            runtime.constraints.candidates[index] = scratch;
+            markFieldCandidate(scratch, eid);
+            syncJoints(runtime.constraints, state, runtime.bodies, world, bindings, index);
+            runtime.constraints.candidates[index] = candidates;
+        }
+    }
+    journal.count = 0;
+    return bodiesChanged;
+}
+
 const SyncSystem: System = {
     name: "physics-sync",
     group: "fixed",
@@ -1937,7 +1998,7 @@ const SyncSystem: System = {
         if (!physicsWorld) return;
         captureFieldCandidate(world, runtime.bodyCandidates, bodyBinding(world));
         captureFieldCandidate(world, runtime.shapeCandidates, shapeBinding(world));
-        let bodySetChanged = false;
+        let bodySetChanged = realizeMemberships(world, runtime);
         let ended = false;
         if (runtime.full) {
             runtime.full = false;
@@ -2014,10 +2075,13 @@ export const SyncPhysicsWorldDefinitionSystem: System = {
  */
 export const StandardPhysicsPlugin: Plugin = {
     name: "StandardPhysics",
-    recovery: (world) => ({
-        snapshot: () => capturePhysics(world),
-        restore: (image: PhysicsSnapshot) => recoverPhysics(world, image),
-    }),
+    recovery(world) {
+        world.resource(PhysicsCreationOrder).recording = true;
+        return {
+            snapshot: () => capturePhysics(world),
+            restore: (image: PhysicsSnapshot) => recoverPhysics(world, image),
+        };
+    },
     dependencies: [PhysicsPlugin],
     systems: [
         SyncSystem,

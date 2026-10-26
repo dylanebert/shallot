@@ -65,6 +65,8 @@ void Separator() {}
 void PopItemWidth() {}
 }
 void SetGroundShape( b3ShapeId ) {}
+struct GuiDraw { bool drawJoints = true; };
+GuiDraw* GetGuiDraw() { static GuiDraw draw; return &draw; }
 
 struct SampleContext
 {
@@ -96,6 +98,15 @@ public:
 		b3World_SetContactRecycleDistance( m_worldId, context->recycleDistance );
 	}
 	virtual ~Sample() { b3DestroyWorld( m_worldId ); }
+	void CreateWorld( const b3Capacity* capacity ) {
+		b3DestroyWorld( m_worldId );
+		b3WorldDef def = b3DefaultWorldDef();
+		def.workerCount = m_context->workerCount;
+		def.enableSleep = m_context->enableSleep;
+		def.capacity = capacity ? *capacity : b3Capacity{};
+		m_worldId = b3CreateWorld( &def );
+		b3World_SetContactRecycleDistance( m_worldId, m_context->recycleDistance );
+	}
 	virtual bool DrawControls() { return false; }
 	virtual void Render() {}
 	void DrawTextLine( const char*, ... ) {}
@@ -123,7 +134,9 @@ public:
 		printf( "%016llx", (unsigned long long)m_stepHash );
 		if ( recordEvents ) PrintEvents( m_worldId );
 		printf( "\n" );
+		++m_stepCount;
 	}
+	int m_stepCount = 0;
 	static constexpr bool m_isDebug = false;
 	float m_shadowSplitFar = 0;
 	uint64_t m_stepHash = 0;
@@ -154,6 +167,7 @@ int main( int argc, char** argv )
 		{ "largePyramid", BenchmarkLargePyramid::Create }, { "widePyramid", BenchmarkWidePyramid::Create },
 		{ "manyPyramids", BenchmarkManyPyramids::Create }, { "jointGrid", BenchmarkJointGrid::Create },
 		{ "fallingBoxes", FallingBoxes::Create },
+		{ "rain", BenchmarkRain::Create },
 		{ "box_stack", BoxStack::Create }, { "bridge", Bridge::Create },
 		{ "revolute", RevoluteJoint::Create }, { "prismatic", PrismaticJoint::Create },
 		{ "wheel", WheelJoint::Create }, { "filter", FilterJoint::Create }, { "parallel", ParallelJoint::Create },
