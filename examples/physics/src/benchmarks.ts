@@ -361,7 +361,43 @@ function washer(world: World): number[] {
     }
     return bodies;
 }
+function convexPile(world: World): number[] {
+    ground(world, 250);
+    let state = 42;
+    function random(): number {
+        state = (Math.imul(state, 2147001325) + 715136305) >>> 0;
+        return f(f((state & 0xffff) / 65535) - 0.5);
+    }
+    const points: number[] = [];
+    for (let i = 0; i < 32; i++) {
+        let x: number, y: number, z: number, length: number;
+        do {
+            x = random();
+            y = random();
+            z = random();
+            length = f(f(f(x * x) + f(y * y)) + f(z * z));
+        } while (length > 0.25);
+        const inv = f(1 / f(Math.sqrt(length)));
+        points.push(f(2 * f(inv * x)), f(2 * f(inv * y)), f(2 * f(inv * z)));
+    }
+    const geometry = world
+        .resource(Hulls)
+        .add({ name: "convex", points: new Float32Array(points), maxVertexCount: 32 });
+    const bodies: number[] = [];
+    for (let layer = 0; layer < 80; layer++)
+        for (let z = 0; z < 8; z++)
+            for (let x = 0; x < 8; x++)
+                bodies.push(body(world, geometry, [(x - 4) * 4, 2 + 4 * layer, (z - 4) * 4]));
+    return bodies;
+}
 export const benchmarkScenes = {
+    convexPile: {
+        construct: convexPile,
+        gridExtent: 250,
+        gridSpacing: 10,
+        camera: { yaw: 45, pitch: 20, distance: 100, target: [0, 40, 0] },
+        controls: undefined,
+    },
     washer: {
         construct: washer,
         gridExtent: 60,

@@ -39,6 +39,7 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
             { id: "rain", name: "Rain" },
             { id: "junkyard", name: "Junkyard" },
             { id: "washer", name: "Washer" },
+            { id: "convexPile", name: "Convex Pile" },
         ],
     },
     {
