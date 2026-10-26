@@ -21,6 +21,7 @@ import {
     setTargetTransform,
 } from "@dylanebert/shallot/standard/physics";
 import { human } from "./human";
+import { fallingTrees, TreeSamplePlugin, treeControls } from "./trees";
 
 const f = Math.fround;
 function box(world: World, halfExtents: [number, number, number]): number {
@@ -236,7 +237,7 @@ function rain(world: World): number[] {
 }
 export const BenchmarkSamplePlugin: Plugin = {
     name: "BenchmarkSample",
-    dependencies: [StandardPhysicsPlugin],
+    dependencies: [StandardPhysicsPlugin, TreeSamplePlugin],
     systems: [SpawnBenchmark, BeforeBenchmark],
     recovery: (world) => ({
         snapshot: () => structuredClone(world.resource(BenchmarkSample)),
@@ -411,6 +412,13 @@ function candyCups(world: World): number[] {
     return bodies;
 }
 export const benchmarkScenes = {
+    fallingTrees: {
+        construct: fallingTrees,
+        gridExtent: 100,
+        gridSpacing: 10,
+        camera: { yaw: 20, pitch: 0, distance: 140, target: [0, 15, 0] },
+        controls: treeControls,
+    },
     candyCups: {
         construct: candyCups,
         gridExtent: 60,

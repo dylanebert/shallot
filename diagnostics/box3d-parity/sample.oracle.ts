@@ -82,6 +82,7 @@ for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "f
 }
 
 const benchmarkMutations: Record<string, [string, string]> = {
+    fallingTrees: ["int bodyCount = BENCHMARK_DEBUG ? 10 : 50;", "int bodyCount = BENCHMARK_DEBUG ? 10 : 49;"],
     candyCups: ["constexpr int n = m_isDebug ? 4 : 16;", "constexpr int n = m_isDebug ? 4 : 15;"],
     convexPile: ["float amplitude = 2.0f;", "float amplitude = 2.1f;"],
     washer: ["float motorSpeed = 25.0f;", "float motorSpeed = 26.0f;"],
@@ -98,6 +99,13 @@ for (const [scene, [before, after]] of Object.entries(benchmarkMutations)) {
         const hashes = run([sampleBinary(), scene, String(steps)]);
         equalSampleSteps(run([sampleBinary(), scene, String(steps)]), hashes, `${scene} repeat`);
         equalSampleSteps(hashes, readFileSync(new URL(`../../examples/physics/tests/${scene}.gold.txt`, import.meta.url), "utf8"), scene);
+        if (scene === "fallingTrees") {
+            const sequence = fileURLToPath(new URL("../../examples/physics/tests/fallingTrees.controls.txt", import.meta.url));
+            const controlled = run([sampleBinary(), scene, String(steps), sequence]);
+            equalSampleSteps(run([sampleBinary(), scene, String(steps), sequence]), controlled, `${scene} controls repeat`);
+            equalSampleSteps(controlled, readFileSync(new URL("../../examples/physics/tests/fallingTrees.controls.gold.txt", import.meta.url), "utf8"), `${scene} controls`);
+            expect(controlled).not.toBe(hashes);
+        }
         const copy = mkdtempSync(join(tmpdir(), "box3d-benchmark-mutation-"));
         try {
             mkdirSync(join(copy, "samples"));

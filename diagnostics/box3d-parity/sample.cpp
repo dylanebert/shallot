@@ -51,6 +51,11 @@ bool SliderFloat( const char* name, float* value, float, float, const char* ) {
         if ( change.step == currentStep && change.name == name ) { *value = change.value; return true; }
     return false;
 }
+bool RadioButton( const char* name, int* value, int selected ) {
+    float pressed = 0;
+    if ( SliderFloat( name, &pressed, 0, 1, "" ) && pressed != 0 ) { *value = selected; return true; }
+    return false;
+}
 bool Checkbox( const char* name, bool* value ) {
     float result = *value ? 1.0f : 0.0f;
     bool changed = SliderFloat( name, &result, 0, 1, "" );
@@ -98,6 +103,7 @@ public:
 		b3World_SetContactRecycleDistance( m_worldId, context->recycleDistance );
 	}
 	virtual ~Sample() { b3DestroyWorld( m_worldId ); }
+	void ResetProfile() { m_stepCount = 0; }
 	void CreateWorld( const b3Capacity* capacity ) {
 		b3DestroyWorld( m_worldId );
 		b3WorldDef def = b3DefaultWorldDef();
@@ -161,6 +167,7 @@ int main( int argc, char** argv )
 		return 2;
 	}
 	recordEvents = !strcmp( argv[1], "joint" ) || !strcmp( argv[1], "sensor" ) || !strcmp( argv[1], "contact" ) || !strcmp( argv[1], "hit" ) || !strcmp( argv[1], "motor" );
+	b3SetLogFcn( []( const char* message ) { fprintf( stderr, "%s\n", message ); } );
 	SampleContext context;
 	struct Entry { const char* name; Sample* (*create)(SampleContext*); };
 	const Entry entries[] = {
@@ -172,6 +179,7 @@ int main( int argc, char** argv )
 		{ "washer", BenchmarkWasher::Create },
 		{ "convexPile", BenchmarkConvexPile::Create },
 		{ "candyCups", CandyCups::Create },
+		{ "fallingTrees", BenchmarkFallingTrees::Create },
 		{ "box_stack", BoxStack::Create }, { "bridge", Bridge::Create },
 		{ "revolute", RevoluteJoint::Create }, { "prismatic", PrismaticJoint::Create },
 		{ "wheel", WheelJoint::Create }, { "filter", FilterJoint::Create }, { "parallel", ParallelJoint::Create },

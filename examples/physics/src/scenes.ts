@@ -41,6 +41,7 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
             { id: "washer", name: "Washer" },
             { id: "convexPile", name: "Convex Pile" },
             { id: "candyCups", name: "Candy Cups" },
+            { id: "fallingTrees", name: "Falling Trees" },
         ],
     },
     {
@@ -73,6 +74,7 @@ export interface Control {
     max?: number;
     step?: number;
     button?: boolean;
+    options?: readonly { label: string; value: number }[];
     when?: readonly string[];
     set(
         world: World,

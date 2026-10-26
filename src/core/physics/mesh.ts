@@ -12,8 +12,9 @@ export type PhysicsMesh =
     | MeshDefinition
     | ({
           name: string;
-      } /** Box3D's b3CreateGridMesh: a centered XZ grid, with cell width in meters. */ & (
+      } & (
           | {
+                /** Box3D's b3CreateGridMesh: a centered XZ grid, with cell width in meters. */
                 grid: {
                     xCount: number;
                     zCount: number;
@@ -22,8 +23,19 @@ export type PhysicsMesh =
                     identifyEdges: boolean;
                 };
             }
-          /** Box3D's b3CreateTorusMesh: a torus about Z, with radius and thickness in meters. */
           | {
+                /** Box3D's b3CreateWaveMesh: an XZ wave grid; amplitude and cell width are meters, frequencies are radians per row/column. */
+                wave: {
+                    xCount: number;
+                    zCount: number;
+                    cellWidth: number;
+                    amplitude: number;
+                    rowFrequency: number;
+                    columnFrequency: number;
+                };
+            }
+          | {
+                /** Box3D's b3CreateTorusMesh: a torus about Z, with radius and thickness in meters. */
                 torus: {
                     radialResolution: number;
                     tubularResolution: number;

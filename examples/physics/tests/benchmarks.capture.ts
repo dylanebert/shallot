@@ -14,6 +14,7 @@ for (const name of [
     "Washer",
     "Convex Pile",
     "Candy Cups",
+    "Falling Trees",
 ]) {
     test(`${name} look review`, async ({ page }) => {
         const errors: string[] = [];
@@ -34,6 +35,16 @@ for (const name of [
         // Advance the camera transition without running an unbounded presentation loop.
         await frames.run(4);
         await capture(page, name.replaceAll(" ", "-").toLowerCase(), frames);
+        if (name === "Falling Trees") {
+            for (const size of [50, 25, 100]) {
+                await page.getByRole("radio", { name: `${size}cm`, exact: true }).check();
+                await expect(
+                    page.getByRole("radio", { name: `${size}cm`, exact: true }),
+                ).toBeChecked();
+                await frames.run(1);
+                await capture(page, `falling-trees-${size}cm`, frames);
+            }
+        }
         expect(errors).toEqual([]);
     });
 }

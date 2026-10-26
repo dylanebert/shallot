@@ -46,6 +46,15 @@
                 <fieldset class="section" disabled={!(name in controls)}>
                     {#if control.button}
                         <button tabindex="-1" onfocus={(event) => event.currentTarget.blur()} onclick={() => update(name, 1)}>{control.label}</button>
+                    {:else if control.options}
+                        <div class="row" role="radiogroup" aria-label={control.label}>
+                            <span>{control.label}</span>
+                            <div>
+                                {#each control.options as option}
+                                    <label><input tabindex="-1" type="radio" name={name} checked={values[name] === option.value} onchange={() => update(name, option.value)} />{option.label}</label>
+                                {/each}
+                            </div>
+                        </div>
                     {:else if control.min === undefined}
                         <label class="row toggle"><span>{control.label}</span><input tabindex="-1" onfocus={(event) => event.currentTarget.blur()} type="checkbox" style:font-family="var(--mono)" checked={!!values[name]} onchange={(event) => update(name, Number(event.currentTarget.checked))} /></label>
                     {:else}

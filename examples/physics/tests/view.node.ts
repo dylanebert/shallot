@@ -149,6 +149,7 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 washer: 60,
                 convexPile: 250,
                 candyCups: 60,
+                fallingTrees: 100,
             }[id];
             const grid = presentation.grid;
             const spacing = grid.lines[2]!.a[2] - grid.lines[0]!.a[2];

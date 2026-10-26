@@ -29,7 +29,13 @@ import {
 import { type CompoundData, createCompound, MAX_COMPOUND_MESH_MATERIALS } from "./shapes/compound";
 import { createHeightField, type HeightFieldData } from "./shapes/heightfield";
 import type { HullData } from "./shapes/hull";
-import { createGridMesh, createMesh, createTorusMesh, type MeshData } from "./shapes/mesh";
+import {
+    createGridMesh,
+    createMesh,
+    createTorusMesh,
+    createWaveMesh,
+    type MeshData,
+} from "./shapes/mesh";
 
 interface Geometry<Def extends { name: string }, Built extends object> {
     registry: Resource<PhysicsAssets<Def>>;
@@ -123,6 +129,18 @@ function buildMesh(world: World, def: PhysicsMesh): MeshData {
             a.cellWidth,
             a.materialCount,
             a.identifyEdges,
+            world,
+        );
+    }
+    if ("wave" in def) {
+        const a = def.wave;
+        return createWaveMesh(
+            a.xCount,
+            a.zCount,
+            a.cellWidth,
+            a.amplitude,
+            a.rowFrequency,
+            a.columnFrequency,
             world,
         );
     }

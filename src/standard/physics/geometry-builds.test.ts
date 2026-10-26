@@ -30,7 +30,7 @@ import { physicsState } from "./runtime";
 import { createHull } from "./shapes/build-hull";
 import { type CompoundData, type CompoundDef, createCompound } from "./shapes/compound";
 import { createHeightField } from "./shapes/heightfield";
-import { createGridMesh, createMesh, createTorusMesh } from "./shapes/mesh";
+import { createGridMesh, createMesh, createTorusMesh, createWaveMesh } from "./shapes/mesh";
 import { getShapeGeometryReference } from "./shapes/shape";
 import { worldCounters } from "./world/world";
 
@@ -313,7 +313,7 @@ for (const invalidation of ["remove", "clear"] as const)
         });
     });
 
-test("generated grid and torus definitions build Box3D meshes and recover their handles", async () => {
+test("generated grid, wave and torus definitions build Box3D meshes and recover their handles", async () => {
     await withPhysics((world) => {
         const meshes = world.resource(PhysicsMeshes);
         const grid = meshes.add({
@@ -324,12 +324,26 @@ test("generated grid and torus definitions build Box3D meshes and recover their 
             name: "torus",
             torus: { radialResolution: 16, tubularResolution: 16, radius: 3.75, thickness: 1 },
         });
+        const wave = meshes.add({
+            name: "wave",
+            wave: {
+                xCount: 8,
+                zCount: 10,
+                cellWidth: 0.5,
+                amplitude: 0.4,
+                rowFrequency: 0.05,
+                columnFrequency: 0.1,
+            },
+        });
+        const expectedWave = createWaveMesh(8, 10, 0.5, 0.4, 0.05, 0.1, world);
         const expectedGrid = createGridMesh(8, 8, 1.875, 1, true, world);
         const expectedTorus = createTorusMesh(16, 16, 3.75, 1, world);
         expect(meshBuild(world, grid)).toEqual(expectedGrid);
         expect(meshBuild(world, torus)).toEqual(expectedTorus);
+        expect(meshBuild(world, wave)).toEqual(expectedWave);
         const snapshot = world.snapshot();
         world.restore(snapshot);
+        expect(meshBuild(world, wave)).toEqual(expectedWave);
         expect(meshBuild(world, grid)).toEqual(expectedGrid);
         expect(meshBuild(world, torus)).toEqual(expectedTorus);
     });
