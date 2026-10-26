@@ -2,7 +2,8 @@ import { sphere } from "../../core/mesh";
 import { Hulls, type Shape, ShapeKind } from "../../core/physics";
 import type { ComponentRecord, World } from "../../engine";
 import type { Vec3 } from "./common/records";
-import { buildPlacedHull, meshBuild } from "./geometry-builds";
+import { buildPlacedHull, heightFieldBuild, meshBuild } from "./geometry-builds";
+import { getHeightFieldTriangle, HEIGHT_FIELD_HOLE } from "./shapes/heightfield";
 
 type Point = [number, number, number];
 
@@ -85,7 +86,8 @@ function placedHull(world: World, shape: Parameters<typeof shapeMesh>[1]) {
  * for hulls and meshes, plus hullPosition/hullRotation for hulls (identity when omitted),
  * and the centers and radius for spheres and capsules; the body's
  * Transform is not baked. Requires an initialized StandardPhysicsPlugin for geometry builds.
- * Throws for missing geometry, or an unsupported compound or height field.
+ * Height fields use their definition scale (Shape.scale does not apply), decoded after
+ * quantization, and omit holes. Throws for missing geometry or an unsupported compound.
  * This is an authoring-time conversion, not a live binding to subsequent Shape edits.
  */
 export function shapeMesh(
@@ -142,6 +144,14 @@ export function shapeMesh(
             } while (edge !== face.edge);
             for (let i = 1; i + 1 < points.length; i++)
                 triangle(points[0]!, points[i]!, points[i + 1]!);
+        }
+    } else if (kind === ShapeKind.HeightField) {
+        const field = heightFieldBuild(world, geometry);
+        if (!field) throw new Error(`shapeMesh: missing height field ${geometry}`);
+        for (let i = 0; i < field.flags.length; i++) {
+            if (field.materialIndices[i >> 1] === HEIGHT_FIELD_HOLE) continue;
+            const t = getHeightFieldTriangle(field, i);
+            triangle(...t.vertices);
         }
     } else if (kind === ShapeKind.Mesh) {
         const mesh = meshBuild(world, geometry);

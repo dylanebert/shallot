@@ -25,6 +25,7 @@ import {
     setTargetTransform,
 } from "@dylanebert/shallot/standard/physics";
 import { human } from "./human";
+import { QuerySamplePlugin, queryScenes } from "./queries";
 import { benchmarkSensor, SensorSamplePlugin } from "./sensor";
 import { fallingTrees, TreeSamplePlugin, treeControls } from "./trees";
 
@@ -380,7 +381,7 @@ function rain(world: World): number[] {
 }
 export const BenchmarkSamplePlugin: Plugin = {
     name: "BenchmarkSample",
-    dependencies: [StandardPhysicsPlugin, TreeSamplePlugin, SensorSamplePlugin],
+    dependencies: [StandardPhysicsPlugin, TreeSamplePlugin, SensorSamplePlugin, QuerySamplePlugin],
     systems: [SpawnBenchmark, BeforeBenchmark, AfterDestruction],
     recovery: recoverResource(BenchmarkSample),
 };
@@ -608,6 +609,7 @@ function chains(world: World): number[] {
     return bodies;
 }
 export const benchmarkScenes = {
+    ...queryScenes,
     benchmarkSensor: {
         construct: benchmarkSensor,
         gridExtent: 130,

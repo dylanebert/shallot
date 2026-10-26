@@ -4,6 +4,8 @@ import { capture } from "./capture";
 
 test.use(pipelineWarnings);
 for (const name of [
+    "Height Field",
+    "Hull",
     "Large Pyramid",
     "Wide Pyramid",
     "Many Pyramids",
@@ -38,6 +40,14 @@ for (const name of [
         await expect(picker).toBeEnabled();
         // Advance the camera transition without running an unbounded presentation loop.
         await frames.run(name === "Sensor" ? 40 : 4);
+        if (name === "Height Field") {
+            await expect(page.locator(".input-help")).toContainText("count = 14278");
+            await page.getByLabel("Radius", { exact: true }).fill("0");
+            await frames.run(2);
+            await capture(page, "height-field-rays", frames);
+        }
+        if (name === "Hull")
+            await expect(page.locator(".input-help")).toContainText("trials = 2000");
         if (name === "Sensor") {
             await expect(page.locator(".input-help")).toContainText("max begin touch events =");
         }

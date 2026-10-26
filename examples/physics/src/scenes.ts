@@ -31,6 +31,8 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
     {
         name: "Benchmark",
         scenes: [
+            { id: "heightField", name: "Height Field" },
+            { id: "hull", name: "Hull" },
             { id: "largePyramid", name: "Large Pyramid" },
             { id: "widePyramid", name: "Wide Pyramid" },
             { id: "manyPyramids", name: "Many Pyramids" },

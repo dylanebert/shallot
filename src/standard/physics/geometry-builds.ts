@@ -27,7 +27,7 @@ import {
     makeTransformedBoxHull,
 } from "./shapes/build-hull";
 import { type CompoundData, createCompound, MAX_COMPOUND_MESH_MATERIALS } from "./shapes/compound";
-import { createHeightField, type HeightFieldData } from "./shapes/heightfield";
+import { createHeightField, createWave, type HeightFieldData } from "./shapes/heightfield";
 import type { HullData } from "./shapes/hull";
 import {
     createGridMesh,
@@ -210,6 +210,18 @@ export function meshBuild(world: World, id: number): MeshData | undefined {
 }
 
 function buildHeightField(world: World, def: HeightField, sx = 1, sy = 1, sz = 1): HeightFieldData {
+    if ("wave" in def) {
+        const a = def.wave;
+        return createWave(
+            a.rowCount,
+            a.columnCount,
+            { x: a.scale[0] * sx, y: a.scale[1] * sy, z: a.scale[2] * sz },
+            a.rowFrequency,
+            a.columnFrequency,
+            a.makeHoles,
+            world,
+        );
+    }
     const { heights, materialIndices, scale, countX, countZ } = def;
     const label = `physics: height field "${def.name}"`;
     if (!Number.isInteger(countX) || !Number.isInteger(countZ) || countX < 2 || countZ < 2)

@@ -4,14 +4,17 @@
     import { onMount } from "svelte";
     import { BenchmarkSample } from "./benchmarks";
     import { SensorSample } from "./sensor";
+    import { QuerySample } from "./queries";
     import { formatValue } from "./control-format";
     import { categories, controlValues, scenes, enabledControls, type Scene } from "./scenes";
     let { world, scene, select, change }: { world: World; scene: Scene; select: (scene: Scene) => void; change: (name: string, value: number, values: Record<string, number>) => void } = $props();
     let timings = $state({ spawn: 0, destroy: 0 });
     let counts = $state({ begin: 0, end: 0 });
+    let queryLines = $state<string[]>([]);
     onMount(() => {
-        if (scene !== "destruction" && scene !== "benchmarkSensor") return;
+        if (scene !== "destruction" && scene !== "benchmarkSensor" && scene !== "heightField" && scene !== "hull") return;
         const timer = setInterval(() => {
+            queryLines = world.resource(QuerySample).lines;
             const sample = world.resource(BenchmarkSample);
             timings = { spawn: sample.spawnMilliseconds, destroy: sample.destroyMilliseconds };
             const sensor = world.resource(SensorSample);
@@ -57,6 +60,7 @@
 </section>
 {#if scene === "destruction"}<div class="ec input-help">spawn = {timings.spawn.toFixed(2)} ms<br />destroy = {timings.destroy.toFixed(2)} ms</div>{/if}
 {#if scene === "benchmarkSensor"}<div class="ec input-help">max begin touch events = {counts.begin}<br />max end touch events = {counts.end}</div>{/if}
+{#if scene === "heightField" || scene === "hull"}<div class="ec input-help">{#each queryLines as line}<div>{line}</div>{/each}</div>{/if}
 {#if scene === "contact"}<span class="ec input-help">WASD to roll</span>{/if}
 {#if scenes[scene].controls}
     {#snippet fields(parent?: string)}

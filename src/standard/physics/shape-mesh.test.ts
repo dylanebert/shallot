@@ -1,7 +1,9 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { Hulls, PhysicsMeshes, ShapeKind } from "../../core/physics";
+import { HeightFields, Hulls, PhysicsMeshes, ShapeKind } from "../../core/physics";
 import { World } from "../../engine";
+import { heightFieldBuild } from "./geometry-builds";
 import { StandardPhysicsPlugin, shapeEdges, shapeMesh } from "./index";
+import { getHeightFieldTriangle, HEIGHT_FIELD_HOLE } from "./shapes/heightfield";
 
 type Point = [number, number, number];
 type Geometry = ReturnType<typeof shapeMesh>;
@@ -322,6 +324,95 @@ test("clockwise reflected strided mesh preserves the independently expected -Z n
         area: 3,
     });
     expect(mesh.indices.length).toBe(3);
+});
+
+test("height fields draw decoded surface vertices, omit holes and keep collision bounds", () => {
+    for (const makeHoles of [false, true]) {
+        const geometry = world.resource(HeightFields).add({
+            name: "Wave",
+            wave: {
+                rowCount: 50,
+                columnCount: 50,
+                scale: [2, 3, 4],
+                rowFrequency: 0.02,
+                columnFrequency: 0.04,
+                makeHoles,
+            },
+        });
+        const field = heightFieldBuild(world, geometry)!;
+        const drawn = shapeMesh(
+            world,
+            definition({ kind: ShapeKind.HeightField, geometry, scale: [7, 8, 9] }),
+        );
+        const expected = new Set<string>();
+        let triangles = 0;
+        for (let i = 0; i < field.flags.length; i++) {
+            if (field.materialIndices[i >> 1] === HEIGHT_FIELD_HOLE) continue;
+            triangles++;
+            for (const p of getHeightFieldTriangle(field, i).vertices)
+                expected.add([p.x, p.y, p.z].map(Math.fround).join(","));
+        }
+        expect(drawn.indices.length).toBe(3 * triangles);
+        const lower = [Infinity, Infinity, Infinity],
+            upper = [-Infinity, -Infinity, -Infinity];
+        for (let i = 0; i < drawn.vertices.length; i += 8) {
+            const p = Array.from(drawn.vertices.subarray(i, i + 3));
+            expect(expected.has(p.join(","))).toBe(true);
+            for (let axis = 0; axis < 3; axis++) {
+                lower[axis] = Math.min(lower[axis]!, p[axis]!);
+                upper[axis] = Math.max(upper[axis]!, p[axis]!);
+            }
+        }
+        for (const [i, axis] of ["x", "y", "z"].entries()) {
+            const tolerance = axis === "y" ? field.heightScale * field.scale.y : 0;
+            expect(
+                Math.abs(lower[i]! - field.aabb.lowerBound[axis as "x" | "y" | "z"]),
+            ).toBeLessThanOrEqual(tolerance);
+            expect(
+                Math.abs(upper[i]! - field.aabb.upperBound[axis as "x" | "y" | "z"]),
+            ).toBeLessThanOrEqual(tolerance);
+        }
+    }
+});
+
+test("the collision-surface assertion rejects raw heights and stretching to the input bounds", () => {
+    const heights = new Float32Array([
+        0.123, 0.456, 0.789, -0.321, 0.654, -0.987, 0.234, -0.567, 0.891,
+    ]);
+    const geometry = world.resource(HeightFields).add({
+        name: "Quantized",
+        heights,
+        countX: 3,
+        countZ: 3,
+        scale: [1, 2, 1],
+        globalMinimumHeight: -256,
+        globalMaximumHeight: 256,
+    });
+    const field = heightFieldBuild(world, geometry)!;
+    const drawn = shapeMesh(world, definition({ kind: ShapeKind.HeightField, geometry }));
+    const surface = new Set<string>();
+    for (let i = 0; i < field.flags.length; i++)
+        for (const p of getHeightFieldTriangle(field, i).vertices)
+            surface.add([p.x, p.y, p.z].map(Math.fround).join(","));
+    const onSurface = (vertices: Float32Array) => {
+        for (let i = 0; i < vertices.length; i += 8)
+            if (!surface.has(Array.from(vertices.subarray(i, i + 3)).join(","))) return false;
+        return true;
+    };
+    expect(onSurface(drawn.vertices)).toBe(true);
+    const raw = drawn.vertices.slice();
+    for (let i = 0; i < raw.length; i += 8) raw[i + 1] = 2 * heights[raw[i + 2]! * 3 + raw[i]!]!;
+    expect(onSurface(raw)).toBe(false);
+    const stretched = drawn.vertices.slice();
+    const ys = Array.from(drawn.vertices).filter((_, i) => i % 8 === 1);
+    const min = Math.min(...ys),
+        max = Math.max(...ys);
+    for (let i = 1; i < stretched.length; i += 8)
+        stretched[i] =
+            field.aabb.lowerBound.y +
+            ((stretched[i]! - min) / (max - min)) *
+                (field.aabb.upperBound.y - field.aabb.lowerBound.y);
+    expect(onSurface(stretched)).toBe(false);
 });
 
 test("unsupported kinds and stale geometry are refused without creating an entity", () => {

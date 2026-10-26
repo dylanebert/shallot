@@ -12,7 +12,22 @@ import { PhysicsAssets } from "./assets";
  * finite. Body-scale changes recreate the shape at the next fixed sync. Replace a height field
  * by adding a new definition and assigning its handle, never by mutation.
  */
-export interface HeightField {
+export type HeightField =
+    | {
+          name: string;
+          /** Box3D's b3CreateWave; scale is meters per grid/height unit and frequencies are radians. */
+          wave: {
+              rowCount: number;
+              columnCount: number;
+              scale: [number, number, number];
+              rowFrequency: number;
+              columnFrequency: number;
+              makeHoles: boolean;
+          };
+      }
+    | HeightFieldGrid;
+
+export interface HeightFieldGrid {
     name: string;
     /** Height of each grid point before `scale`, row by row: point (x, z) is `heights[z * countX + x]`. */
     heights: Float32Array;

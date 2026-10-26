@@ -53,7 +53,7 @@ test("fallingTrees grid-size sequence equals every recorded native step", async 
     console.log(`fallingTrees controls: ${(performance.now() - start).toFixed(0)} ms; ${gold.length} recorded steps; 1 solver thread`);
 });
 
-for (const scene of Object.keys(benchmarkScenes) as (keyof typeof benchmarkScenes)[]) {
+for (const scene of (Object.keys(benchmarkScenes) as (keyof typeof benchmarkScenes)[]).filter(scene => scene !== "heightField" && scene !== "hull")) {
     test(`${scene} equals every recorded native step and rejects a ${scene === "benchmarkSensor" ? "velocity" : "density"} change`, async () => {
         const text = await Bun.file(new URL(`../../examples/physics/tests/${scene}.gold.txt`, import.meta.url)).text();
         const gold = sampleGold(text);

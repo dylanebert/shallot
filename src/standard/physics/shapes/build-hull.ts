@@ -32,7 +32,11 @@ function result(k: Kernel, operation: number, count = 0, budget = 0): HullData |
     return drawHull(views.view, ptr);
 }
 
-/** Clones a hull's topology and rebuilds its planes and bulk properties after scale, then placement. */
+/**
+ * Independent hull data in meters, scaling before placement; reflections reverse winding.
+ * Rebuilds planes and bulk properties. Returns null for a degenerate result. Requires an
+ * initialized StandardPhysicsPlugin; pass its World to select that world's kernel.
+ */
 export function cloneAndTransformHull(
     hull: HullData,
     transform: Transform,
@@ -57,7 +61,11 @@ export function cloneAndTransformHull(
     return result(k, 8, image.length);
 }
 
-/** Builds a hull using Box3D's [4, 128] vertex budget; degenerate or oversized hulls return null. */
+/**
+ * Independent hull data from points in meters using Box3D's [4, 128] vertex budget;
+ * degenerate or oversized hulls return null. Requires an initialized StandardPhysicsPlugin;
+ * pass its World to select that world's kernel. Input points are not retained.
+ */
 export function createHull(points: Vec3[], maxVertexCount: number, world?: World): HullData | null {
     const [k, input] = prepare(world, points.length);
     for (let i = 0; i < points.length; ++i) {

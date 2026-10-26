@@ -57,7 +57,9 @@ export {
     setTransform,
 } from "./runtime";
 export { shapeEdges, shapeMesh } from "./shape-mesh";
+export { cloneAndTransformHull, createHull } from "./shapes/build-hull";
 export type { Capsule } from "./shapes/geometry";
+export type { HullData } from "./shapes/hull";
 export type { StepProfile } from "./world/profile";
 export {
     PhysicsWorldDefinition,

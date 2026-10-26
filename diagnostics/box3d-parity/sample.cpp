@@ -44,6 +44,45 @@ void DrawPoint( b3Pos, float, int ) {}
 void DrawLine( b3Pos, b3Pos, int ) {}
 void DrawWireSphere( b3WorldTransform, const b3Sphere*, int, int ) {}
 void DrawString3D( b3Pos, int, const char*, ... ) {}
+int MakeColorAlpha( int color, float ) { return color; }
+constexpr int TRANSPARENT_SHADOW_NONE = 0;
+void DrawSphereEx( b3WorldTransform, float, int, float, float, int ) {}
+void DrawHull( b3WorldTransform, const b3HullData*, int ) {}
+bool recordQueriesAndBuilds = false;
+void PrintFloat( float value ) { unsigned bits; memcpy( &bits, &value, 4 ); printf( " %08x", bits ); }
+void PrintCast( const b3RayResult& r ) {
+    printf( "cast %d", r.hit );
+    for ( float v : { float(r.point.x), float(r.point.y), float(r.point.z), r.normal.x, r.normal.y, r.normal.z, r.fraction } ) PrintFloat( v );
+    printf( "\n" );
+}
+b3RayResult RecordedRay( b3WorldId world, b3Pos origin, b3Vec3 translation, b3QueryFilter filter ) {
+    b3RayResult r = b3World_CastRayClosest( world, origin, translation, filter );
+    if ( recordQueriesAndBuilds ) PrintCast( r );
+    return r;
+}
+void RecordedShapeCast( b3WorldId world, b3Pos origin, const b3ShapeProxy* proxy, b3Vec3 translation, b3QueryFilter filter, b3CastResultFcn* callback, void* context ) {
+    struct Context { b3CastResultFcn* callback; void* user; b3RayResult result; } c = { callback, context, {} };
+    b3World_CastShape( world, origin, proxy, translation, filter,
+        []( b3ShapeId id, b3Pos point, b3Vec3 normal, float fraction, uint64_t material, int triangle, int child, void* ptr ) {
+            Context* c = (Context*)ptr;
+            c->result.point = point; c->result.normal = normal; c->result.fraction = fraction; c->result.hit = true;
+            return c->callback( id, point, normal, fraction, material, triangle, child, c->user );
+        }, &c );
+    if ( recordQueriesAndBuilds ) PrintCast( c.result );
+}
+void PrintHull( const b3HullData* hull ) {
+    if ( !recordQueriesAndBuilds ) return;
+    printf( "hull" ); PrintFloat( hull->surfaceArea );
+    const b3Vec3* points = (const b3Vec3*)((const char*)hull + hull->pointOffset);
+    for ( int i = 0; i < hull->vertexCount; ++i ) { PrintFloat( points[i].x ); PrintFloat( points[i].y ); PrintFloat( points[i].z ); }
+    printf( "\n" );
+}
+b3HullData* RecordedHull( const b3Vec3* points, int count, int maxCount ) {
+    b3HullData* hull = b3CreateHull( points, count, maxCount ); PrintHull( hull ); return hull;
+}
+b3HullData* RecordedClone( const b3HullData* hull, b3Transform transform, b3Vec3 scale ) {
+    b3HullData* result = b3CloneAndTransformHull( hull, transform, scale ); PrintHull( result ); return result;
+}
 namespace ImGui
 {
 void PushItemWidth( float ) {}
@@ -139,9 +178,11 @@ public:
 		b3World_EnableContinuous( m_worldId, m_context->enableContinuous );
 		b3World_Step( m_worldId, 1.0f / m_context->hertz, m_context->subStepCount );
 		m_stepHash = b3HashWorldState( b3GetWorldFromId( m_worldId ) );
-		printf( "%016llx", (unsigned long long)m_stepHash );
-		if ( recordEvents ) PrintEvents( m_worldId );
-		printf( "\n" );
+        if ( !recordQueriesAndBuilds ) {
+		    printf( "%016llx", (unsigned long long)m_stepHash );
+		    if ( recordEvents ) PrintEvents( m_worldId );
+		    printf( "\n" );
+        }
 		++m_stepCount;
 	}
 	bool m_stepWhilePaused = true;
@@ -160,6 +201,10 @@ public:
 #define sinf(value) static_cast<float>(std::sin(static_cast<double>(value)))
 #define cosf(value) static_cast<float>(std::cos(static_cast<double>(value)))
 
+#define b3World_CastRayClosest RecordedRay
+#define b3World_CastShape RecordedShapeCast
+#define b3CreateHull RecordedHull
+#define b3CloneAndTransformHull RecordedClone
 // SAMPLE_SOURCES
 
 int main( int argc, char** argv )
@@ -171,6 +216,7 @@ int main( int argc, char** argv )
 	}
 	recordEvents = !strcmp( argv[1], "benchmarkSensor" ) || !strcmp( argv[1], "joint" ) || !strcmp( argv[1], "sensor" ) || !strcmp( argv[1], "contact" ) || !strcmp( argv[1], "hit" ) || !strcmp( argv[1], "motor" );
 	b3SetLogFcn( []( const char* message ) { fprintf( stderr, "%s\n", message ); } );
+    recordQueriesAndBuilds = !strcmp( argv[1], "heightField" ) || !strcmp( argv[1], "hull" );
 	SampleContext context;
 	struct Entry { const char* name; Sample* (*create)(SampleContext*); };
 	const Entry entries[] = {
@@ -187,6 +233,8 @@ int main( int argc, char** argv )
         { "benchmarkSensor", BenchmarkSensor::Create },
 		{ "explosion", BenchmarkExplosion::Create },
 		{ "destruction", BenchmarkDestruction::Create },
+        { "heightField", BenchmarkHeightField::Create },
+        { "hull", BenchmarkHull::Create },
 		{ "box_stack", BoxStack::Create }, { "bridge", Bridge::Create },
 		{ "revolute", RevoluteJoint::Create }, { "prismatic", PrismaticJoint::Create },
 		{ "wheel", WheelJoint::Create }, { "filter", FilterJoint::Create }, { "parallel", ParallelJoint::Create },
@@ -227,6 +275,7 @@ int main( int argc, char** argv )
 		currentStep = i;
 		sample->DrawControls();
 		sample->Step();
+        if ( recordQueriesAndBuilds ) sample->Render();
 	}
 	delete sample;
 }

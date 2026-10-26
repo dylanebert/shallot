@@ -26,6 +26,7 @@ import {
     Gizmo,
     GizmoAsset,
     internText,
+    LinesPlugin,
     Orbit,
     registerGizmo,
     Text,
@@ -35,6 +36,7 @@ import { defaultDebugDraw, drawPhysics } from "@dylanebert/shallot/standard/phys
 import { EventSample } from "./events";
 import { Grab } from "./grab";
 import { scenePresentation, shapeMaterial, shapePresentation } from "./presentation";
+import { castHeightField } from "./queries";
 import { type Scene, scenes } from "./scenes";
 
 const HIT_SEGMENT = { width: 2, depthBias: -1 };
@@ -65,6 +67,18 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         systems.push(system);
         world.addSystem(system);
     }
+    if (scene === "heightField")
+        addSystem({
+            name: "height-field-casts",
+            group: "draw",
+            before: LinesPlugin.systems,
+            update(world) {
+                castHeightField(world);
+                drawLine(world, [0, 0, 0], [0.4, 0, 0], 0xff0000);
+                drawLine(world, [0, 0, 0], [0, 0.4, 0], 0x00ff00);
+                drawLine(world, [0, 0, 0], [0, 0, 0.4], 0x0000ff);
+            },
+        });
     const view = scenes[scene].camera;
     const orbit = world.storage(Orbit);
     orbit.yaw.set(camera, (view.yaw * Math.PI) / 180);

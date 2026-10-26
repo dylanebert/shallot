@@ -85,7 +85,8 @@ const quad = (name: string, size = 1): TriangleMesh => ({
     indices: new Uint32Array([0, 2, 1, 0, 3, 2]),
 });
 
-const field = (name: string, size = 1): HeightField => ({
+type GridField = Extract<HeightField, { heights: Float32Array }>;
+const field = (name: string, size = 1): GridField => ({
     name,
     heights: new Float32Array([0, 0.25, 0.5, 1]),
     scale: [size, 1, 1],
@@ -481,11 +482,11 @@ test("a PhysicsMesh Box3D cannot build leaves its Shape unattached with a warnin
 test("each HeightField field reaches Box3D's height-field build", async () => {
     await withPhysics((world) => {
         const fields = world.resource(HeightFields);
-        const built = (def: Omit<HeightField, "name">) =>
+        const built = (def: Omit<GridField, "name">) =>
             heightFieldBuild(world, fields.add({ name: JSON.stringify(def), ...def }))!;
         // Four points along x by three along z, so swapping the counts reorders the grid.
         const heights = new Float32Array([0, 0.5, 0.2, 0.8, 0.7, 1, 0.3, 0.6, 0.1, 0.4, 0.9, 0.35]);
-        const base: Omit<HeightField, "name"> = {
+        const base: Omit<GridField, "name"> = {
             heights,
             scale: [1, 2, 3],
             countX: 4,
@@ -540,7 +541,7 @@ test("a HeightField Box3D cannot build leaves its Shape unattached with a warnin
         globalMinimumHeight: 0,
         globalMaximumHeight: 1,
     };
-    const cases: [Omit<HeightField, "name">, RegExp][] = [
+    const cases: [Omit<GridField, "name">, RegExp][] = [
         [
             { ...square, heights: new Float32Array(2), countX: 1 },
             /is 1 by 2 points, not integers of at least 2/,
