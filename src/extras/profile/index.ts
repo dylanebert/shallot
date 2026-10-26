@@ -411,6 +411,7 @@ interface OverlayData {
 }
 
 interface Overlay {
+    bounds(): DOMRectReadOnly;
     update(store: DiagnosticsStore): void;
     destroy(): void;
 }
@@ -804,6 +805,7 @@ function createOverlay(): Overlay {
                 startupFrozen = true;
             }
         },
+        bounds: () => root.getBoundingClientRect(),
         destroy() {
             parent.remove(); // removes the sandboxed host (root lives inside it)
         },
@@ -886,6 +888,27 @@ const profileUi = {
         visible: false,
     }),
 };
+
+/** Measure the current profiler layout in viewport CSS pixels without changing visibility.
+ * Returns undefined without a document. Closed overlays are measured synchronously and removed
+ * before painting; an open overlay retains its expanded sections.
+ */
+export function profilerBounds(world: World): DOMRectReadOnly | undefined {
+    if (typeof document === "undefined") return undefined;
+    const ui = world.resource(profileUi);
+    const parent = document.querySelector("canvas")?.parentElement ?? document.body;
+    const position = parent.style.position;
+    const overlay = ui.overlay ?? createOverlay();
+    try {
+        overlay.update(world.resource(DiagnosticsStore));
+        return overlay.bounds();
+    } finally {
+        if (!ui.overlay) {
+            overlay.destroy();
+            parent.style.position = position;
+        }
+    }
+}
 
 /**
  * show or hide the profiler overlay — the same HUD F3 toggles, driven from code. Off by default; call

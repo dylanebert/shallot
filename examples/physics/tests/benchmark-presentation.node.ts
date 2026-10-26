@@ -8,12 +8,12 @@ import {
     StandardPhysicsPlugin,
     type World,
 } from "@dylanebert/shallot";
-import { DiagnosticsOverlayPlugin, showProfiler } from "@dylanebert/shallot/extras";
+import { DiagnosticsOverlayPlugin, profilerBounds, showProfiler } from "@dylanebert/shallot/extras";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { BenchmarkSamplePlugin } from "../src/benchmarks";
 import { EventSamplePlugin } from "../src/events";
 import { shapePresentation } from "../src/presentation";
-import { sceneSwitcher } from "../src/sample";
+import { profilerFits, sceneSwitcher } from "../src/sample";
 import { categories, createScene } from "../src/scenes";
 
 setDefaultTimeout(TIMEOUT.node);
@@ -61,9 +61,31 @@ test("Benchmark entry shows the profiler, F3 overrides it, and leaving restores 
     const app = await createApp({ defaults: false, plugins });
     try {
         DiagnosticsOverlayPlugin.initialize!(app.world);
-        const select = sceneSwitcher(app.world);
+        expect(profilerBounds(app.world)).toBeUndefined();
+        let fits = true;
+        const select = sceneSwitcher(app.world, undefined, () =>
+            profilerFits({ left: 0, top: 0, right: 100, bottom: 100 }, [
+                { left: 10, top: 10, right: 10, bottom: 10 },
+                fits
+                    ? { left: 100, top: 0, right: 200, bottom: 100 }
+                    : { left: 50, top: 50, right: 150, bottom: 150 },
+            ]),
+        );
         for (const visible of [false, true]) {
+            fits = false;
             showProfiler(app.world, visible);
+            select("hull");
+            expect(showProfiler(app.world, visible)).toBe(visible);
+            select("boxStack");
+            expect(showProfiler(app.world, visible)).toBe(visible);
+            fits = true;
+            showProfiler(app.world, visible);
+            select("hull");
+            expect(showProfiler(app.world)).toBe(true);
+            fits = false;
+            select.reconcileProfiler();
+            expect(showProfiler(app.world, visible)).toBe(visible);
+            fits = true;
             select("hull");
             expect(showProfiler(app.world)).toBe(true);
             const key = new Event("keydown", { cancelable: true });
@@ -71,7 +93,14 @@ test("Benchmark entry shows the profiler, F3 overrides it, and leaving restores 
             window.dispatchEvent(key);
             expect(key.defaultPrevented).toBe(true);
             expect(showProfiler(app.world, false)).toBe(false);
+            window.dispatchEvent(key);
+            fits = false;
+            select.reconcileProfiler();
+            expect(showProfiler(app.world, false)).toBe(true);
             select("heightField");
+            expect(showProfiler(app.world, visible)).toBe(visible);
+            fits = true;
+            select("hull");
             expect(showProfiler(app.world, false)).toBe(true);
             select("boxStack");
             expect(showProfiler(app.world, false)).toBe(visible);

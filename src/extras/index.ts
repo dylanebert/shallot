@@ -40,6 +40,7 @@ export {
 export {
     DiagnosticsOverlayPlugin,
     ProfilePlugin,
+    profilerBounds,
     showProfiler,
 } from "./profile";
 export {

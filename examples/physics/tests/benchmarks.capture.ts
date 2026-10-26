@@ -59,6 +59,7 @@ for (const name of [
             }
             await page.setViewportSize({ width: 390, height: 844 });
             await frames.run(2);
+            await expect(page.locator("[data-shallot-profile]")).toHaveCount(0);
             const panel = page.getByRole("radiogroup", { name: "Grid size", exact: true });
             const bounds = await panel.boundingBox();
             expect(bounds).not.toBeNull();
