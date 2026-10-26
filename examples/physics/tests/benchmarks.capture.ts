@@ -11,6 +11,7 @@ for (const name of [
     "Joint Grid",
     "Rain",
     "Junkyard",
+    "Washer",
 ]) {
     test(`${name} look review`, async ({ page }) => {
         const errors: string[] = [];

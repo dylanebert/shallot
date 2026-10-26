@@ -82,6 +82,7 @@ for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "f
 }
 
 const benchmarkMutations: Record<string, [string, string]> = {
+    washer: ["float motorSpeed = 25.0f;", "float motorSpeed = 26.0f;"],
     junkyard: ["g_junkyardData.radius = 35.0f;", "g_junkyardData.radius = 36.0f;"],
     rain: ["position.y = 20.0f;", "position.y = 21.0f;"],
     largePyramid: ["int baseCount = BENCHMARK_DEBUG ? 20 : 100;", "int baseCount = BENCHMARK_DEBUG ? 20 : 99;"],

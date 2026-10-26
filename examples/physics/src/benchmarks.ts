@@ -14,6 +14,7 @@ import {
 import {
     computeCosSin,
     PhysicsWorldDefinition,
+    rotationFromAxisAngle,
     StandardPhysicsPlugin,
     StepPhysicsSystem,
     SyncPhysicsConstraintsSystem,
@@ -307,7 +308,67 @@ function junkyard(world: World): number[] {
     bodies.push(pusher);
     return bodies;
 }
+function washer(world: World): number[] {
+    world.resource(PhysicsWorldDefinition).contactRecycleDistance = f(0.05);
+    ground(world, 60);
+    const drum = world.create();
+    world.add(drum, Transform, { translation: [0, 21, 0] });
+    world.add(drum, Body, {
+        type: BodyType.Kinematic,
+        angularVelocity: [0, 0, f(f(f(Math.PI) / 180) * 25)],
+        linearVelocity: [0.001, -0.002, 0],
+    });
+    const angle = f(f(Math.PI) / 18);
+    const q = rotationFromAxisAngle(world, { x: 0, y: 0, z: 1 }, angle);
+    const qo = rotationFromAxisAngle(world, { x: 0, y: 0, z: 1 }, f(f(0.1) * angle));
+    function rotate(v: [number, number], z: number, w: number, inverse = false): [number, number] {
+        const tx = f(-f(z * v[1])),
+            ty = f(z * v[0]);
+        const ux = inverse ? f(tx - f(w * v[0])) : f(tx + f(w * v[0]));
+        const uy = inverse ? f(ty - f(w * v[1])) : f(ty + f(w * v[1]));
+        return [f(v[0] + f(2 * f(-f(z * uy)))), f(v[1] + f(2 * f(z * ux)))];
+    }
+    function segment(a: [number, number], b: [number, number], r1: number, r2: number): void {
+        const points: number[] = [];
+        for (const z of [-10, 10])
+            for (const v of [a, b])
+                for (const r of [r1, r2]) points.push(f(r * v[0]), f(r * v[1]), z);
+        shape(
+            world,
+            drum,
+            world
+                .resource(Hulls)
+                .add({ name: "drum", points: new Float32Array(points), maxVertexCount: 8 }),
+        );
+    }
+    let u1: [number, number] = [1, 0];
+    for (let i = 0; i < 36; i++) {
+        const u2: [number, number] = i === 35 ? [1, 0] : rotate(u1, q[2], q[3]);
+        segment(rotate(u1, qo[2], qo[3], true), rotate(u2, qo[2], qo[3]), 16, 18);
+        if (i % 9 === 0) segment(u1, u2, 14, 16);
+        u1 = u2;
+    }
+    const geometry = box(world, [f(0.2), f(0.2), f(0.2)]);
+    const bodies = [drum];
+    let x = f(-f(f(2 * f(0.2)) * 20));
+    for (let i = 0; i < 20; i++, x = f(x + f(4 * f(0.2)))) {
+        let y = f(f(-f(f(2 * f(0.2)) * 20)) + 21);
+        for (let j = 0; j < 20; j++, y = f(y + f(4 * f(0.2)))) {
+            let z = f(-f(f(2 * f(0.2)) * 20));
+            for (let k = 0; k < 20; k++, z = f(z + f(4 * f(0.2))))
+                bodies.push(body(world, geometry, [x, y, z]));
+        }
+    }
+    return bodies;
+}
 export const benchmarkScenes = {
+    washer: {
+        construct: washer,
+        gridExtent: 60,
+        gridSpacing: 5,
+        camera: { yaw: 15, pitch: 20, distance: 60, target: [0, 15, 0] },
+        controls: undefined,
+    },
     junkyard: {
         construct: junkyard,
         gridExtent: 120,
