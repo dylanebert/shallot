@@ -117,9 +117,7 @@ export const surfaceOcclusion = tgpu.fn(
     SurfaceOcclusion,
 )((baseColor, material, ndotv, perceptualRoughness) => {
     "use gpu";
-    let visibility = d.f32(1);
-    if (pointScale.$ !== 0 && ssaoEnabled())
-        visibility = std.textureLoad(engineLayout.$.ambientOcclusion, d.vec2i(fragCoord.$.xy), 0).x;
+    const visibility = ambientVisibility();
     const a = std.sub(std.mul(2.0404, baseColor), 0.3324);
     const b = std.add(std.mul(-4.7951, baseColor), 0.6417);
     const c = std.add(std.mul(2.7552, baseColor), 0.6903);
@@ -137,12 +135,21 @@ export const surfaceOcclusion = tgpu.fn(
         ),
     });
 });
-const ssaoEnabled = tgpu.fn(
+/** this colour fragment's SSAO visibility, 1 elsewhere. Bevy specializes its view layout on SSAO
+ *  (`MeshPipelineViewLayoutKey::SCREEN_SPACE_AMBIENT_OCCLUSION`); standard pipelines serve every
+ *  view, so a view without SSAO binds a 1x1 stub holding 1, read at the clamped coordinate. */
+const ambientVisibility = tgpu.fn(
     [],
-    d.bool,
+    d.f32,
 )(() => {
     "use gpu";
-    return std.textureDimensions(engineLayout.$.ambientOcclusion).x > 1;
+    if (pointScale.$ === 0) return 1;
+    const last = std.sub(d.vec2i(std.textureDimensions(engineLayout.$.ambientOcclusion)), 1);
+    return std.textureLoad(
+        engineLayout.$.ambientOcclusion,
+        std.min(d.vec2i(fragCoord.$.xy), last),
+        0,
+    ).x;
 });
 
 /** the fragment's slot-major cluster index ({@link clusterCell}). ViewUniforms depth recovers from the position
@@ -190,7 +197,8 @@ const litPbrRadiance = tgpu.fn(
             ambientRadiance: engineLayout.$.view.ambientColor.rgb,
         }),
     );
-    if (pointScale.$ !== 0 && ssaoEnabled()) {
+    // At visibility 1, as on the stub, material occlusion stands: WGSL division may round m / m off 1.
+    if (ambientVisibility() < 1) {
         const occlusion = surfaceOcclusion(
             s.albedo,
             s.occlusion,
