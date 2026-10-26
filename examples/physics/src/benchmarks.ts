@@ -390,7 +390,34 @@ function convexPile(world: World): number[] {
                 bodies.push(body(world, geometry, [(x - 4) * 4, 2 + 4 * layer, (z - 4) * 4]));
     return bodies;
 }
+function candyCups(world: World): number[] {
+    ground(world, 60);
+    const points: number[] = [];
+    const delta = f(f(2 * f(Math.PI)) / 8);
+    let alpha = 0;
+    for (let i = 0; i < 8; i++) {
+        const [c, s] = computeCosSin(world, alpha);
+        points.push(f(f(0.6) * c), 0, f(f(0.6) * s), f(f(0.95) * c), 1, f(f(0.95) * s));
+        alpha = f(alpha + delta);
+    }
+    const geometry = world
+        .resource(Hulls)
+        .add({ name: "cup", points: new Float32Array(points), maxVertexCount: 16 });
+    const bodies: number[] = [];
+    for (let i = 0; i < 16; i++)
+        for (let j = 0; j < 16; j++)
+            for (let k = 0; k < 16; k++)
+                bodies.push(body(world, geometry, [-10 + 2.5 * j, i, -10 + 2.5 * k]));
+    return bodies;
+}
 export const benchmarkScenes = {
+    candyCups: {
+        construct: candyCups,
+        gridExtent: 60,
+        gridSpacing: 5,
+        camera: { yaw: 45, pitch: 20, distance: 70, target: [0, 0, 0] },
+        controls: undefined,
+    },
     convexPile: {
         construct: convexPile,
         gridExtent: 250,

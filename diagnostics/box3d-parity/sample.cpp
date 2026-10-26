@@ -171,6 +171,7 @@ int main( int argc, char** argv )
 		{ "junkyard", BenchmarkJunkyard::Create },
 		{ "washer", BenchmarkWasher::Create },
 		{ "convexPile", BenchmarkConvexPile::Create },
+		{ "candyCups", CandyCups::Create },
 		{ "box_stack", BoxStack::Create }, { "bridge", Bridge::Create },
 		{ "revolute", RevoluteJoint::Create }, { "prismatic", PrismaticJoint::Create },
 		{ "wheel", WheelJoint::Create }, { "filter", FilterJoint::Create }, { "parallel", ParallelJoint::Create },

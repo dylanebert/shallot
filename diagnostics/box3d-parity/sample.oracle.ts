@@ -82,6 +82,7 @@ for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "f
 }
 
 const benchmarkMutations: Record<string, [string, string]> = {
+    candyCups: ["constexpr int n = m_isDebug ? 4 : 16;", "constexpr int n = m_isDebug ? 4 : 15;"],
     convexPile: ["float amplitude = 2.0f;", "float amplitude = 2.1f;"],
     washer: ["float motorSpeed = 25.0f;", "float motorSpeed = 26.0f;"],
     junkyard: ["g_junkyardData.radius = 35.0f;", "g_junkyardData.radius = 36.0f;"],
@@ -104,9 +105,9 @@ for (const [scene, [before, after]] of Object.entries(benchmarkMutations)) {
             for (const name of ["sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp"])
                 copyFileSync(join(process.env.BOX3D!, "samples", name), join(copy, "samples", name));
             copyFileSync(join(process.env.BOX3D!, "shared/benchmarks.c"), join(copy, "shared/benchmarks.c"));
-            const path = join(copy, scene === "fallingBoxes" ? "samples/sample_benchmark.cpp" : "shared/benchmarks.c");
+            const path = join(copy, ["fallingBoxes", "candyCups"].includes(scene) ? "samples/sample_benchmark.cpp" : "shared/benchmarks.c");
             const source = readFileSync(path, "utf8");
-            const start = scene === "fallingBoxes" ? source.indexOf("class FallingBoxes :") : 0;
+            const start = scene === "fallingBoxes" ? source.indexOf("class FallingBoxes :") : scene === "candyCups" ? source.indexOf("class CandyCups :") : 0;
             expect(source.slice(start).includes(before)).toBe(true);
             writeFileSync(path, source.slice(0, start) + source.slice(start).replace(before, after));
             const mutated = run([sampleBinary(join(copy, "samples")), scene, String(steps)]);
