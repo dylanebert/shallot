@@ -1,6 +1,7 @@
 import type { Plugin, System, World } from "../../engine";
-import { Diagnostic, DiagnosticsStore, mountOverlay, sampleDiagnosticTime } from "../../engine";
+import { Diagnostic, DiagnosticsStore, mountOverlay } from "../../engine";
 import { cpuTotal } from "./cpu";
+import { FrameTimings } from "./frames";
 import { reorderRows } from "./reorder";
 
 const INDIRECT_FLOOR_US = 1;
@@ -33,6 +34,8 @@ interface ReadSlot {
     bytes: ArrayBuffer;
     passes: string[];
     count: number;
+    time: number;
+    ready: boolean;
 }
 
 // Bound the number of timestamp requests in flight. Metadata returns after the result is drained;
@@ -47,6 +50,9 @@ const recorder = {
 
 class DiagnosticsRecorder {
     store!: DiagnosticsStore;
+    private _cpu!: FrameTimings;
+    private _gpu!: FrameTimings;
+    private readonly _gpuClock = new Float64Array(1);
     gpuTiming: "available" | "requires timestamp-query" = "requires timestamp-query";
     // Per-frame CPU-counted indirect draws for the overlay's validation-floor estimate.
     readonly indirect = new Map<string, number>();
@@ -66,12 +72,13 @@ class DiagnosticsRecorder {
     private readonly _slotCache: GPUComputePassTimestampWrites[] = [];
     private _readbackError: unknown;
     private _readbackFailed = false;
-    // reused scratch: one drained frame's per-pass summed time (cleared per slot, no per-frame alloc)
-    private readonly _fired = new Map<string, number>();
-    // Bounded timestamp metadata: `_free` can accept a request; `_mapped` holds owned result bytes
-    // waiting for drain. Neither list owns staging buffers.
+    // Bounded timestamp metadata: `_free` can accept a request; `_reads` preserves request order,
+    // including empty frames. Ready results cannot overtake pending ones. Neither owns staging.
     private readonly _free: ReadSlot[] = [];
-    private readonly _mapped: ReadSlot[] = [];
+    private readonly _reads: (ReadSlot | undefined)[] = new Array(READ_RING);
+    private _head = 0;
+    private _tail = 0;
+    private _pending = 0;
     private readonly _restorePatches: (() => void)[] = [];
     private _disposed = false;
 
@@ -93,6 +100,8 @@ class DiagnosticsRecorder {
 
     attach(device: GPUDevice, capacity = 2048): void {
         if (this._querySet) return;
+        this._cpu = new FrameTimings(this.store);
+        this._gpu = new FrameTimings(this.store);
         this.gpuTiming = device.features.has("timestamp-query")
             ? "available"
             : "requires timestamp-query";
@@ -174,7 +183,13 @@ class DiagnosticsRecorder {
                 usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
             });
             for (let i = 0; i < READ_RING; i++) {
-                this._free.push({ bytes: new ArrayBuffer(0), passes: [], count: 0 });
+                this._free.push({
+                    bytes: new ArrayBuffer(0),
+                    passes: [],
+                    count: 0,
+                    time: 0,
+                    ready: false,
+                });
             }
         }
     }
@@ -224,7 +239,8 @@ class DiagnosticsRecorder {
         this._resolveBuffer?.destroy();
         this._resolveBuffer = null;
         this._free.length = 0;
-        this._mapped.length = 0;
+        this._reads.fill(undefined);
+        this._head = this._tail = this._pending = 0;
         for (const [resource, allocation] of this.sizes) {
             (resource as { destroy: () => void }).destroy = allocation.destroy;
         }
@@ -243,15 +259,7 @@ class DiagnosticsRecorder {
     }
 
     record(name: string, measurement: Readonly<Float64Array>): void {
-        const path = this.paths(name).cpu;
-        const diagnostic = this.store.get(path) ?? this.registerCpu(path);
-        diagnostic.addMeasurementBuffer(measurement);
-    }
-
-    private registerCpu(path: string): Diagnostic {
-        const diagnostic = new Diagnostic(path, { suffix: "ms" });
-        this.store.add(diagnostic);
-        return diagnostic;
+        this._cpu.add(this.paths(name).cpu, measurement[1]);
     }
 
     recordIndirect(name: string, count: number): void {
@@ -259,7 +267,9 @@ class DiagnosticsRecorder {
         this.store.record(this.paths(name).indirect, this.indirect.get(name)!);
     }
 
-    reset(): void {
+    reset(world: World): void {
+        this._cpu.finish(this.measurement);
+        this.measurement[0] += world.time.rawDeltaTime;
         if (this.indirect.size) this.indirect.clear();
         this._nextSlot = 0;
     }
@@ -291,10 +301,15 @@ class DiagnosticsRecorder {
         const resolveBuffer = this._resolveBuffer;
         if (!querySet || !resolveBuffer) return;
         const queryCount = this._nextSlot * 2;
-        if (queryCount === 0) return;
         const slot = this._free.pop();
         if (!slot) return;
         slot.count = this._nextSlot;
+        slot.time = this.measurement[0];
+        slot.ready = queryCount === 0;
+        this._reads[this._tail] = slot;
+        this._tail = (this._tail + 1) % READ_RING;
+        this._pending++;
+        if (queryCount === 0) return;
         for (let i = 0; i < this._nextSlot; i++) slot.passes[i] = this._passes[i];
         world.readback
             .request(queryCount * 8, "profile-timestamps", (encoder, staging) => {
@@ -305,7 +320,7 @@ class DiagnosticsRecorder {
                 (result) => {
                     if (this._disposed) return;
                     slot.bytes = result.bytes;
-                    this._mapped.push(slot);
+                    slot.ready = true;
                 },
                 (error: unknown) => {
                     if (this._disposed) return;
@@ -319,23 +334,24 @@ class DiagnosticsRecorder {
     drain(): void {
         if (this._readbackFailed)
             throw new Error("profile timestamp readback failed", { cause: this._readbackError });
-        while (this._mapped.length > 0) {
-            const slot = this._mapped.shift()!;
-            const data = new BigUint64Array(slot.bytes);
-            const fired = this._fired;
-            fired.clear();
-            for (let i = 0; i < slot.count; i++) {
-                const name = slot.passes[i];
-                fired.set(
-                    name,
-                    (fired.get(name) ?? 0) + Number(data[i * 2 + 1] - data[i * 2]) / 1e6,
-                );
+        while (this._pending > 0 && this._reads[this._head]!.ready) {
+            const slot = this._reads[this._head]!;
+            this._reads[this._head] = undefined;
+            this._head = (this._head + 1) % READ_RING;
+            this._pending--;
+            if (slot.count > 0) {
+                const data = new BigUint64Array(slot.bytes);
+                for (let i = 0; i < slot.count; i++) {
+                    const name = slot.passes[i];
+                    this._gpu.add(
+                        this.paths(name).gpu,
+                        Number(data[i * 2 + 1] - data[i * 2]) / 1e6,
+                    );
+                }
             }
             this._free.push(slot);
-            const time = performance.now() / 1000;
-            for (const [name, ms] of fired) {
-                this.store.record(this.paths(name).gpu, ms, time, "ms");
-            }
+            this._gpuClock[0] = slot.time;
+            this._gpu.finish(this._gpuClock);
         }
     }
 
@@ -836,7 +852,7 @@ function* diagnosticEntries(
         const path = diagnostic.path.path;
         if (path.startsWith(prefix) && path.endsWith(field)) {
             const value = diagnostic.smoothed();
-            if (value !== undefined)
+            if (value !== undefined && (!field.startsWith("/elapsed_") || value >= 0.005))
                 yield [decodeLabel(path.slice(prefix.length, -field.length)), value];
         }
     }
@@ -935,7 +951,7 @@ const ProfileFrameBeginSystem: System = {
         const profiler = world.resource(recorder);
         profiler.drain();
         profiler.resolve(world);
-        profiler.reset();
+        profiler.reset(world);
     },
 };
 
@@ -946,7 +962,6 @@ const ProfileFrameStatsSystem: System = {
         const t = world.time;
         const store = world.resource(DiagnosticsStore);
         const measurement = world.resource(recorder).measurement;
-        sampleDiagnosticTime(measurement);
         if (t.rawDeltaTime > 0) {
             measurement[1] = 1 / t.rawDeltaTime;
             store.get("fps")!.addMeasurementBuffer(measurement);
@@ -981,6 +996,8 @@ const ProfileRenderSystem: System = {
  * Add DiagnosticsOverlayPlugin separately for the F3 HUD.
  * Tracking starts at device acquisition, independent of plugin order. Composed systems
  * may record phase timings through the world's record sink; this plugin adds no simulation.
+ * Repeated spans sum per presented frame; missing spans sample zero. CPU publishes at the next
+ * frame begin, GPU after readback in sampled-frame order. Smoothing uses unscaled frame time.
  */
 export const ProfilePlugin: Plugin = {
     name: "Profile",

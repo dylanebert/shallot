@@ -61,6 +61,17 @@ const apps = gpuApps(import.meta.path, [
     },
 ]);
 
+test("a CPU label absent from a presented frame contributes zero instead of its last run", () => {
+    const world = apps()[0].world;
+    world.step(1 / 120);
+    world.recordSink!("once", new Float64Array([0, 6]));
+    world.step(1 / 120);
+    const diagnostic = world.resource(DiagnosticsStore).get("render/once/elapsed_cpu")!;
+    expect(diagnostic.value()).toBe(6);
+    world.step(1 / 120);
+    expect(diagnostic.value()).toBe(0);
+});
+
 test("three frames record the same named CPU diagnostic with and without the optional HUD", () => {
     const worlds = [apps()[0].world, apps()[3].world];
     for (const world of worlds) {
@@ -75,8 +86,8 @@ test("three frames record the same named CPU diagnostic with and without the opt
             [50, 6],
             [100, 8],
         ]) {
-            world.step(0);
             world.recordSink!("test-span", new Float64Array([time / 1000, ms]));
+            world.step(0.05);
         }
     }
     const stores = worlds.map((world) => world.resource(DiagnosticsStore));
@@ -92,12 +103,8 @@ test("three frames record the same named CPU diagnostic with and without the opt
         (world) => world.resource(DiagnosticsStore).get("render/test-span/elapsed_cpu")!,
     );
     for (const diagnostic of diagnostics) {
-        expect([...diagnostic.measurements()]).toEqual([
-            { time: 0, value: 2 },
-            { time: 0.05, value: 6 },
-            { time: 0.1, value: 8 },
-        ]);
-        expect(diagnostic.smoothed()).toBe(6);
+        expect([...diagnostic.measurements()].map((sample) => sample.value)).toEqual([2, 6, 8]);
+        expect(diagnostic.smoothed()).toBeCloseTo(6);
     }
 });
 
@@ -114,6 +121,7 @@ test("arbitrary WebGPU labels and empty labels remain valid diagnostic component
         });
         buffer.destroy();
     }
+    world.step(1 / 120);
     expect(store.get("compile/example%2F%2Fcompute/elapsed")).toBeDefined();
     expect(store.get("compile/%/elapsed")).toBeDefined();
     expect(store.get("render/example%2F%2Fcompute/elapsed_cpu")?.value()).toBe(2);
