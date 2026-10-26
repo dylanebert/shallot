@@ -13,6 +13,8 @@ for (const name of [
     test(`${name} look review`, async ({ page }) => {
         const errors: string[] = [];
         page.on("pageerror", (error) => errors.push(error.message));
+        const session = await page.context().newCDPSession(page);
+        await session.send("Emulation.setHardwareConcurrencyOverride", { hardwareConcurrency: 1 });
         const frames = await holdFrames(page, "[aria-label='Scene navigation']");
         await page.goto("/");
         const picker = page.getByRole("button", { name: "Scene", exact: true });
