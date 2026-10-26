@@ -39,13 +39,11 @@ export class FrameTimings {
                 });
             if (!diagnostic.historyLength && this._count > 0) {
                 // No tombstones: every new label inherits the same recent absent-frame history.
-                // Padding early history with zeros keeps the average's per-frame denominator.
                 const sample = this._measurement;
                 sample[1] = 0;
                 const oldest = (this._cursor + TIMING_HISTORY - this._count) % TIMING_HISTORY;
-                for (let i = 0; i < TIMING_HISTORY; i++) {
-                    const index = Math.max(0, i - (TIMING_HISTORY - this._count));
-                    sample[0] = this._times[(oldest + index) % TIMING_HISTORY];
+                for (let i = 0; i < this._count; i++) {
+                    sample[0] = this._times[(oldest + i) % TIMING_HISTORY];
                     diagnostic.addMeasurementBuffer(sample);
                 }
             }

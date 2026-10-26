@@ -4,6 +4,23 @@ import { cpuTotal } from "./cpu";
 import { EmptyFrames } from "./empty";
 import { FrameTimings } from "./frames";
 
+test("a new label seeds only presented frames, not a padded history window", () => {
+    const store = new DiagnosticsStore();
+    const frames = new FrameTimings(store);
+    const clock = new Float64Array(1);
+    frames.finish(clock);
+    frames.add("render/new/elapsed_cpu", 6);
+    clock[0] = 1 / 120;
+    frames.finish(clock);
+    const diagnostic = store.get("render/new/elapsed_cpu")!;
+    expect([...diagnostic.measurements()]).toEqual([
+        { time: 0, value: 0 },
+        { time: 1 / 120, value: 6 },
+    ]);
+    expect(diagnostic.historyLength).toBe(2);
+    expect(diagnostic.average()).toBe(3);
+});
+
 test.each([120, 121, 240])(
     "work every %i frames returns with zero-filled smoothing and history",
     (period) => {
