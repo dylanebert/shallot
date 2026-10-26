@@ -9,6 +9,7 @@ import {
     Outline,
     OutlinePlugin,
     type Plugin,
+    qRotate,
     recoverResource,
     type System,
     Transform,
@@ -123,9 +124,7 @@ const SampleGrab: System = {
                 y = q.y.get(camera),
                 z = q.z.get(camera),
                 w = q.w.get(camera);
-            const forwardX = -2 * (x * z + w * y);
-            const forwardY = -2 * (y * z - w * x);
-            const forwardZ = -(1 - 2 * (x * x + y * y));
+            const [forwardX, forwardY, forwardZ] = qRotate(x, y, z, w, 0, 0, -1);
             const cameraStorage = world.storage(Camera);
             // Keep the fraction between the near and far planes, as Camera::BuildPickRay does.
             const reach =

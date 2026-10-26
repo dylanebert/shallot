@@ -10,6 +10,7 @@ import {
     MeshMaterial,
     MeshPlugin,
     type Plugin,
+    qRotate,
     type Resource,
     StandardMaterial,
     StandardRenderer,
@@ -47,11 +48,12 @@ export const ScenePlugin: Plugin = {
                 const w = t.rotation.w.get(camera);
                 t.rotation.set(pattern, x, y, z, w);
                 // Keep the sweep one unit in front of the orbiting camera.
+                const [fx, fy, fz] = qRotate(x, y, z, w, 0, 0, -1);
                 t.translation.set(
                     pattern,
-                    t.translation.x.get(camera) - 2 * (x * z + w * y),
-                    t.translation.y.get(camera) - 2 * (y * z - w * x),
-                    t.translation.z.get(camera) - (1 - 2 * (x * x + y * y)),
+                    t.translation.x.get(camera) + fx,
+                    t.translation.y.get(camera) + fy,
+                    t.translation.z.get(camera) + fz,
                 );
             },
         },

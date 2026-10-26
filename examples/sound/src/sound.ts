@@ -7,6 +7,7 @@ import {
     InputPlugin,
     type Plugin,
     play,
+    qRotate,
     Sound,
     Time,
     Transform,
@@ -48,9 +49,10 @@ export function focus(world: World, camera: number, yaw?: number, pitch = 0): nu
         y = q.y.get(camera),
         z = q.z.get(camera),
         w = q.w.get(camera);
-    ray.x = -2 * (x * z + w * y) * REACH;
-    ray.y = -2 * (y * z - w * x) * REACH;
-    ray.z = -(1 - 2 * (x * x + y * y)) * REACH;
+    const [dx, dy, dz] = qRotate(x, y, z, w, 0, 0, -1);
+    ray.x = dx * REACH;
+    ray.y = dy * REACH;
+    ray.z = dz * REACH;
     if (yaw !== undefined) {
         ray.x = -Math.cos(pitch) * Math.sin(yaw) * REACH;
         ray.y = Math.sin(pitch) * REACH;

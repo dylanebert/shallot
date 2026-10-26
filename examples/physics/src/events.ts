@@ -12,6 +12,7 @@ import {
     PhysicsMeshes,
     type Plugin,
     PrismaticJoint,
+    qRotate,
     RevoluteJoint,
     recoverResource,
     Shape,
@@ -177,10 +178,8 @@ const SampleInputSystem: System = {
             y = q.y.get(camera),
             z = q.z.get(camera),
             w = q.w.get(camera);
-        const fx = -2 * (x * z + w * y),
-            fz = -(1 - 2 * (x * x + y * y));
-        const rx = 1 - 2 * (y * y + z * z),
-            rz = 2 * (x * z - w * y);
+        const [fx, , fz] = qRotate(x, y, z, w, 0, 0, -1);
+        const [rx, , rz] = qRotate(x, y, z, w, 1, 0, 0);
         const forwardLength = Math.hypot(fx, fz),
             rightLength = Math.hypot(rx, rz);
         if (forwardLength) sample.forward = [fx / forwardLength, 0, fz / forwardLength];
