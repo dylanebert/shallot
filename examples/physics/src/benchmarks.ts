@@ -2,13 +2,21 @@ import {
     Body,
     BodyType,
     Hulls,
+    PhysicsMeshes,
+    type Plugin,
     Shape,
     ShapeKind,
     SphericalJoint,
+    type System,
     Transform,
     type World,
 } from "@dylanebert/shallot";
-import { PhysicsWorldDefinition } from "@dylanebert/shallot/standard/physics";
+import {
+    PhysicsWorldDefinition,
+    StandardPhysicsPlugin,
+    SyncPhysicsConstraintsSystem,
+} from "@dylanebert/shallot/standard/physics";
+import { human } from "./human";
 
 const f = Math.fround;
 function box(world: World, halfExtents: [number, number, number]): number {
@@ -137,7 +145,86 @@ function jointGrid(world: World): number[] {
     }
     return bodies;
 }
+export const BenchmarkSample = {
+    create: () => ({
+        scene: "",
+        step: 0,
+        columnCount: 0,
+        columnIndex: 0,
+        groups: Array.from({ length: 100 }, () => [] as ReturnType<typeof human>[]),
+    }),
+};
+const SpawnBenchmark: System = {
+    name: "benchmark-spawn",
+    group: "fixed",
+    before: [SyncPhysicsConstraintsSystem],
+    update(world) {
+        const sample = world.resource(BenchmarkSample);
+        if (sample.scene !== "rain") return;
+        if ((sample.step++ & 0x2f) !== 0) return;
+        const filling = sample.columnCount < 10;
+        const column = filling ? sample.columnCount++ : sample.columnIndex;
+        for (let row = 0; row < 10; row++) {
+            const index = row * 10 + column;
+            for (const group of sample.groups[index]!) {
+                world.destroy(group.joints.at(-1)!);
+                for (const joint of group.joints.slice(0, -1)) world.destroy(joint);
+                for (const body of group.bodies) world.destroy(body);
+            }
+            const groups: ReturnType<typeof human>[] = [];
+            let x = -75 + 15 * (column + 0.5);
+            for (let i = 0; i < 3; i++, x = f(x + 0.75))
+                groups.push(human(world, [x, 20, -75 + 15 * (row + 0.5)], index));
+            sample.groups[index] = groups;
+        }
+        if (!filling) sample.columnIndex = (sample.columnIndex + 1) % 10;
+    },
+};
+function rain(world: World): number[] {
+    const meshes = world.resource(PhysicsMeshes);
+    const grid = meshes.add({
+        name: "grid",
+        grid: { xCount: 8, zCount: 8, cellWidth: f(15 / 8), materialCount: 1, identifyEdges: true },
+    });
+    const torus = meshes.add({
+        name: "torus",
+        torus: { radialResolution: 16, tubularResolution: 16, radius: 3.75, thickness: 1 },
+    });
+    for (let i = 0; i < 10; i++)
+        for (let j = 0; j < 10; j++) {
+            const eid = world.create();
+            world.add(eid, Transform, { translation: [-67.5 + 15 * i, 0, -67.5 + 15 * j] });
+            world.add(eid, Body);
+            world.add(eid, Shape, { kind: ShapeKind.Mesh, geometry: grid });
+            const other = world.create();
+            world.add(other, Shape, { body: eid, kind: ShapeKind.Mesh, geometry: torus });
+        }
+    Object.assign(world.resource(BenchmarkSample), {
+        scene: "rain",
+        step: 0,
+        columnCount: 0,
+        columnIndex: 0,
+    });
+    return [];
+}
+export const BenchmarkSamplePlugin: Plugin = {
+    name: "BenchmarkSample",
+    dependencies: [StandardPhysicsPlugin],
+    systems: [SpawnBenchmark],
+    recovery: (world) => ({
+        snapshot: () => structuredClone(world.resource(BenchmarkSample)),
+        restore: (state: ReturnType<typeof BenchmarkSample.create>) =>
+            Object.assign(world.resource(BenchmarkSample), structuredClone(state)),
+    }),
+};
 export const benchmarkScenes = {
+    rain: {
+        construct: rain,
+        gridExtent: 75,
+        gridSpacing: 15,
+        camera: { yaw: 25, pitch: 10, distance: 70, target: [0, 0, 0] },
+        controls: undefined,
+    },
     largePyramid: {
         construct: largePyramid,
         gridExtent: 400,

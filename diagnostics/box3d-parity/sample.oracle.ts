@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 import { run } from "./native";
 import { sampleBinary } from "./sample";
 import { sampleGold } from "../../examples/physics/tests/gold";
+
+setDefaultTimeout(0);
 
 function equalSampleSteps(actual: string, expected: string, label: string): void {
     const a = sampleGold(actual), b = sampleGold(expected);
@@ -80,6 +82,7 @@ for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "f
 }
 
 const benchmarkMutations: Record<string, [string, string]> = {
+    rain: ["position.y = 20.0f;", "position.y = 21.0f;"],
     largePyramid: ["int baseCount = BENCHMARK_DEBUG ? 20 : 100;", "int baseCount = BENCHMARK_DEBUG ? 20 : 99;"],
     widePyramid: ["const float boxSeparation = 0.5f;", "const float boxSeparation = 0.6f;"],
     manyPyramids: ["int baseCount = 10;", "int baseCount = 9;"],

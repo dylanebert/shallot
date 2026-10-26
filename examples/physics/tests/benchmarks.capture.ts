@@ -9,6 +9,7 @@ for (const name of [
     "Many Pyramids",
     "Falling Boxes",
     "Joint Grid",
+    "Rain",
 ]) {
     test(`${name} look review`, async ({ page }) => {
         const errors: string[] = [];

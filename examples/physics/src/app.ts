@@ -5,6 +5,7 @@ import {
     OrbitPlugin,
     TextPlugin,
 } from "@dylanebert/shallot/extras";
+import { BenchmarkSamplePlugin } from "./benchmarks";
 import { EventSamplePlugin, SampleInputPlugin } from "./events";
 import { GrabPlugin } from "./grab";
 import { createViewer } from "./view";
@@ -16,6 +17,7 @@ export const AppPlugin: Plugin = {
     dependencies: [
         StandardPhysicsPlugin,
         EventSamplePlugin,
+        BenchmarkSamplePlugin,
         SampleInputPlugin,
         TextPlugin,
         OrbitPlugin,

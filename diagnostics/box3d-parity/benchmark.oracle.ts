@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { createApp, hashPhysics, Shape, StandardPhysicsPlugin } from "@dylanebert/shallot";
-import { benchmarkScenes } from "../../examples/physics/src/benchmarks";
+import { Body, BodyType, createApp, hashPhysics, Shape, StandardPhysicsPlugin } from "@dylanebert/shallot";
+import { BenchmarkSamplePlugin, benchmarkScenes } from "../../examples/physics/src/benchmarks";
 import { createScene } from "../../examples/physics/src/scenes";
 import { sampleGold } from "../../examples/physics/tests/gold";
 
@@ -15,18 +15,21 @@ for (const scene of Object.keys(benchmarkScenes) as (keyof typeof benchmarkScene
         expect(gold).toHaveLength(600);
         const start = performance.now();
         for (const mutated of [false, true]) {
-            let bodies: number[] = [];
             const app = await createApp({
                 defaults: false,
-                plugins: [StandardPhysicsPlugin],
-                setup(world) { bodies = createScene(world, scene); },
+                plugins: [StandardPhysicsPlugin, BenchmarkSamplePlugin],
+                setup(world) { createScene(world, scene); },
             });
             try {
-                if (mutated) app.world.storage(Shape).density.set(bodies.at(-1)!, 101);
                 let diverged = false;
                 for (const [step, expected] of gold.entries()) {
                     app.world.tick();
                     const hash = hashPhysics(app.world);
+                    if (mutated && step === 0) {
+                        const dynamic = [...app.world.query([Body, Shape])].find(eid => app.world.storage(Body).type.get(eid) === BodyType.Dynamic);
+                        expect(dynamic).toBeDefined();
+                        app.world.storage(Shape).density.set(dynamic!, 101);
+                    }
                     if (!mutated) expect(hash, `step ${step} hash`).toBe(expected.hash);
                     else if (hash !== expected.hash) { diverged = true; break; }
                 }

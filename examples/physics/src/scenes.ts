@@ -36,6 +36,7 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
             { id: "manyPyramids", name: "Many Pyramids" },
             { id: "fallingBoxes", name: "Falling Boxes" },
             { id: "jointGrid", name: "Joint Grid" },
+            { id: "rain", name: "Rain" },
         ],
     },
     {

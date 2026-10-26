@@ -8,7 +8,32 @@ import { PhysicsAssets } from "./assets";
  * `vertices` must fill whole strides or end immediately after the last vertex's xyz.
  * Replace a mesh by adding a new definition and assigning its handle, never by mutation.
  */
-export interface PhysicsMesh {
+export type PhysicsMesh =
+    | MeshDefinition
+    | ({
+          name: string;
+      } /** Box3D's b3CreateGridMesh: a centered XZ grid, with cell width in meters. */ & (
+          | {
+                grid: {
+                    xCount: number;
+                    zCount: number;
+                    cellWidth: number;
+                    materialCount: number;
+                    identifyEdges: boolean;
+                };
+            }
+          /** Box3D's b3CreateTorusMesh: a torus about Z, with radius and thickness in meters. */
+          | {
+                torus: {
+                    radialResolution: number;
+                    tubularResolution: number;
+                    radius: number;
+                    thickness: number;
+                };
+            }
+      ));
+
+interface MeshDefinition {
     name: string;
     /** xyz vertex positions in shape-local meters, before `Shape.scale`; vertex `i` starts at `i * stride`. */
     vertices: Float32Array;

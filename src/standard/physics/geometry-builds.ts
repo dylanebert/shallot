@@ -29,7 +29,7 @@ import {
 import { type CompoundData, createCompound, MAX_COMPOUND_MESH_MATERIALS } from "./shapes/compound";
 import { createHeightField, type HeightFieldData } from "./shapes/heightfield";
 import type { HullData } from "./shapes/hull";
-import { createMesh, type MeshData } from "./shapes/mesh";
+import { createGridMesh, createMesh, createTorusMesh, type MeshData } from "./shapes/mesh";
 
 interface Geometry<Def extends { name: string }, Built extends object> {
     registry: Resource<PhysicsAssets<Def>>;
@@ -115,6 +115,27 @@ function restore<Def extends { name: string }, Built extends object>(
 }
 
 function buildMesh(world: World, def: PhysicsMesh): MeshData {
+    if ("grid" in def) {
+        const a = def.grid;
+        return createGridMesh(
+            a.xCount,
+            a.zCount,
+            a.cellWidth,
+            a.materialCount,
+            a.identifyEdges,
+            world,
+        );
+    }
+    if ("torus" in def) {
+        const a = def.torus;
+        return createTorusMesh(
+            a.radialResolution,
+            a.tubularResolution,
+            a.radius,
+            a.thickness,
+            world,
+        );
+    }
     const stride = def.stride || 3;
     const { vertices, indices, materialIndices } = def;
     const label = `physics: mesh "${def.name}"`;

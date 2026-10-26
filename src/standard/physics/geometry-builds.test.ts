@@ -30,7 +30,7 @@ import { physicsState } from "./runtime";
 import { createHull } from "./shapes/build-hull";
 import { type CompoundData, type CompoundDef, createCompound } from "./shapes/compound";
 import { createHeightField } from "./shapes/heightfield";
-import { createMesh } from "./shapes/mesh";
+import { createGridMesh, createMesh, createTorusMesh } from "./shapes/mesh";
 import { getShapeGeometryReference } from "./shapes/shape";
 import { worldCounters } from "./world/world";
 
@@ -78,7 +78,8 @@ function geometryReferences(world: World): number[] {
     return Array.from({ length: count }, (_, i) => getShapeGeometryReference(physics, i));
 }
 
-const quad = (name: string, size = 1): PhysicsMesh => ({
+type TriangleMesh = Extract<PhysicsMesh, { vertices: Float32Array }>;
+const quad = (name: string, size = 1): TriangleMesh => ({
     name,
     vertices: new Float32Array([0, 0, 0, size, 0, 0, size, 0, size, 0, 0, size]),
     indices: new Uint32Array([0, 2, 1, 0, 3, 2]),
@@ -312,6 +313,28 @@ for (const invalidation of ["remove", "clear"] as const)
         });
     });
 
+test("generated grid and torus definitions build Box3D meshes and recover their handles", async () => {
+    await withPhysics((world) => {
+        const meshes = world.resource(PhysicsMeshes);
+        const grid = meshes.add({
+            name: "grid",
+            grid: { xCount: 8, zCount: 8, cellWidth: 1.875, materialCount: 1, identifyEdges: true },
+        });
+        const torus = meshes.add({
+            name: "torus",
+            torus: { radialResolution: 16, tubularResolution: 16, radius: 3.75, thickness: 1 },
+        });
+        const expectedGrid = createGridMesh(8, 8, 1.875, 1, true, world);
+        const expectedTorus = createTorusMesh(16, 16, 3.75, 1, world);
+        expect(meshBuild(world, grid)).toEqual(expectedGrid);
+        expect(meshBuild(world, torus)).toEqual(expectedTorus);
+        const snapshot = world.snapshot();
+        world.restore(snapshot);
+        expect(meshBuild(world, grid)).toEqual(expectedGrid);
+        expect(meshBuild(world, torus)).toEqual(expectedTorus);
+    });
+});
+
 test("each PhysicsMesh build option reaches Box3D's mesh build", async () => {
     await withPhysics((world) => {
         const { vertices, indices } = grid(4);
@@ -321,7 +344,7 @@ test("each PhysicsMesh build option reaches Box3D's mesh build", async () => {
             z: vertices[3 * i + 2],
         }));
         const meshes = world.resource(PhysicsMeshes);
-        const built = (def: Omit<PhysicsMesh, "name">) =>
+        const built = (def: Omit<TriangleMesh, "name">) =>
             meshBuild(world, meshes.add({ name: JSON.stringify(def), ...def }))!;
         const plain = built({ vertices, indices });
         expect(plain).toEqual(createMesh({ vertices: points, indices })!);
@@ -339,7 +362,7 @@ test("each PhysicsMesh build option reaches Box3D's mesh build", async () => {
         const weldedIndices = indices.slice();
         weldedIndices[0] = points.length;
         const materialIndices = Uint8Array.from({ length: indices.length / 3 }, (_, i) => i % 3);
-        const options: [string, Omit<PhysicsMesh, "name">, Parameters<typeof createMesh>[0]][] = [
+        const options: [string, Omit<TriangleMesh, "name">, Parameters<typeof createMesh>[0]][] = [
             [
                 "clockwiseWinding",
                 { vertices, indices: reversed, clockwiseWinding: true },
@@ -389,7 +412,7 @@ test("each PhysicsMesh build option reaches Box3D's mesh build", async () => {
 
 test("a PhysicsMesh Box3D cannot build leaves its Shape unattached with a warning naming it", async () => {
     const triangle = new Float32Array([0, 0, 0, 1, 0, 0, 0, 0, 1]);
-    const cases: [Omit<PhysicsMesh, "name">, RegExp][] = [
+    const cases: [Omit<TriangleMesh, "name">, RegExp][] = [
         [
             { vertices: triangle, indices: new Uint32Array([0, 2, 1, 0]) },
             /has 4 indices, not a multiple of 3/,
