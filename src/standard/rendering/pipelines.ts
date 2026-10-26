@@ -34,6 +34,9 @@ import {
     engineLayout,
     fragCoord,
     fragWorld,
+    lightingSlot,
+    litNormal,
+    litRecorded,
     pointScale,
     pointShadowSlot,
     pointShadowStub,
@@ -41,6 +44,7 @@ import {
     prepassDepthSlot,
     prepassNormalRead,
     prepassNormalSlot,
+    recordLitNormal,
     sunVisibility,
 } from "./engine";
 import { foggedColor, fogSlot, fogSource, unfoggedColor } from "./fog";
@@ -773,7 +777,20 @@ function prepassVs(surface: AnyMaterialType) {
         .$name(`${surface.name}PrepassVs`);
 }
 
-function clipFs(surface: AnyMaterialType, normals = false) {
+// The normal the fragment's last lit or applyPbrLighting call received, else its interpolated normal.
+const prepassNormalColor = tgpu.fn(
+    [d.vec3f],
+    d.vec4f,
+)((worldNormal) => {
+    "use gpu";
+    let normal = std.normalize(worldNormal);
+    if (litRecorded.$) normal = d.vec3f(litNormal.$);
+    return d.vec4f(std.add(std.mul(normal, 0.5), d.vec3f(0.5)), 1);
+});
+
+/** The material fragment in a depth pass: `clip` discards below the cutoff, `normals` writes
+ * {@link prepassNormalColor}. */
+function clipFs(surface: AnyMaterialType, normals = false, clip = true) {
     const needUv = !!surface.fragmentInputs?.uv;
     const needLocalPos = !!surface.fragmentInputs?.localPos;
     const fragment = materialFragmentFunction(surface);
@@ -808,14 +825,8 @@ function clipFs(surface: AnyMaterialType, normals = false) {
             });
             const color = fragment(ctx);
             const cutoff = fin.alphaCutoff;
-            if (color.a < cutoff) std.discard();
-            if (normals)
-                return {
-                    color: d.vec4f(
-                        std.add(std.mul(std.normalize(fin.worldNormal), 0.5), d.vec3f(0.5)),
-                        1,
-                    ),
-                } as never;
+            if (clip && color.a < cutoff) std.discard();
+            if (normals) return { color: prepassNormalColor(fin.worldNormal) } as never;
         })
         .$name(`${surface.name}ClipFs`);
 }
@@ -859,7 +870,7 @@ function clipVaryingCopier(surface: AnyMaterialType) {
     return { varyingSchema, copier };
 }
 
-function varyingClipFs(surface: AnyMaterialType, normals = false) {
+function varyingClipFs(surface: AnyMaterialType, normals = false, clip = true) {
     const needUv = !!surface.fragmentInputs?.uv;
     const needLocalPos = !!surface.fragmentInputs?.localPos;
     const { varyingSchema, copier } = clipVaryingCopier(surface);
@@ -894,14 +905,8 @@ function varyingClipFs(surface: AnyMaterialType, normals = false) {
                 input.v0,
             );
             const cutoff = input.alphaCutoff;
-            if (color.a < cutoff) std.discard();
-            if (normals)
-                return {
-                    color: d.vec4f(
-                        std.add(std.mul(std.normalize(input.worldNormal), 0.5), d.vec3f(0.5)),
-                        1,
-                    ),
-                } as never;
+            if (clip && color.a < cutoff) std.discard();
+            if (normals) return { color: prepassNormalColor(input.worldNormal) } as never;
         })
         .$name(`${surface.name}ClipFs`);
 }
@@ -1505,7 +1510,9 @@ const normalOnlyFs = tgpu
     })
     .$name("prepassNormalFs");
 
-/** Opaque uses the compact depth stream unless normals or a vertex function need the main stream; clipped inputs retain material alpha. */
+/** Opaque uses the compact depth stream unless normals or a vertex function need the main stream; clipped inputs retain material alpha.
+ * Normals run the material fragment under {@link recordLitNormal}; a material with two or more
+ * varyings writes its interpolated normal, since the varying copier carries one. */
 function compilePrepass(
     world: World,
     surface: AnyMaterialType,
@@ -1525,9 +1532,11 @@ function compilePrepass(
         depthWriteEnabled: true,
         depthCompare: "greater",
     };
-    const root = materialRoot(world, surface).with(pointShadowSlot, pointShadowStub);
+    const depthRoot = materialRoot(world, surface).with(pointShadowSlot, pointShadowStub);
+    const root = normals ? depthRoot.with(lightingSlot, recordLitNormal) : depthRoot;
     const clip = alphaPipelineKey !== AlphaPipelineKey.Opaque;
-    const varying = !!surface.varyings && Object.keys(surface.varyings).length > 0;
+    const varyingCount = Object.keys(surface.varyings ?? {}).length;
+    const varying = varyingCount > 0;
     const depthOnly = root
         .createRenderPipeline({
             // Depth alone reads no varyings, so a vertex function's opaque depth takes the main
@@ -1543,7 +1552,11 @@ function compilePrepass(
             fragment: clip
                 ? ((varying ? varyingClipFs(surface, normals) : clipFs(surface, normals)) as never)
                 : normals
-                  ? (normalOnlyFs as never)
+                  ? varyingCount > 1
+                      ? (normalOnlyFs as never)
+                      : ((varying
+                            ? varyingClipFs(surface, true, false)
+                            : clipFs(surface, true, false)) as never)
                   : depthOnlyFs,
             targets: (normals ? { color: { format: NORMAL_FORMAT } } : undefined) as never,
             primitive,

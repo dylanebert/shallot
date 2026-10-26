@@ -112,7 +112,8 @@ export const pbrInputFromStandardMaterial = tgpu.fn(
 });
 
 /** Return camera-exposed linear lit colour, including emissive, before fog and presentation.
- * Unlit input returns baseColor unchanged. Alpha is preserved. */
+ * Unlit input returns baseColor unchanged. Alpha is preserved. In the normal prepass, lit input
+ * records worldNormal as the fragment's prepass normal and its radiance is zero; see `lit`. */
 export const applyPbrLighting = tgpu.fn(
     [PbrInput],
     d.vec4f,

@@ -193,7 +193,7 @@ export const clusterOf = tgpu.fn(
  *  {@link fragWorld} are fs-scaffold privates, so a vs-side call gets neither point lights nor sun
  *  shadows. At metallic 0 / dielectric 0 specular vanishes and the response is Lambert at any roughness.
  */
-export const litPbr = tgpu.fn(
+const litPbrRadiance = tgpu.fn(
     [Pbr, d.vec3f, d.vec3f, d.vec3f],
     d.vec3f,
 )((s, normal, world, V) => {
@@ -270,10 +270,45 @@ export const litPbr = tgpu.fn(
     return radiance;
 });
 
+/** the normal the fragment last lit with, valid when {@link litRecorded} is set; written only under
+ *  {@link recordLitNormal}. */
+export const litNormal = tgpu.privateVar(d.vec3f, d.vec3f(0));
+export const litRecorded = tgpu.privateVar(d.bool, false);
+
+/** the normal prepass's lighting: records the normal lighting received and returns zero radiance. */
+export const recordLitNormal = tgpu
+    .fn(
+        [Pbr, d.vec3f, d.vec3f, d.vec3f],
+        d.vec3f,
+    )((_s, normal, _world, _V) => {
+        "use gpu";
+        litNormal.$ = d.vec3f(normal);
+        litRecorded.$ = true;
+        return d.vec3f(0);
+    })
+    .$name("recordLitNormal");
+
+/** the lighting seam {@link litPbr} calls through: real shading by default; the normal prepass binds
+ *  {@link recordLitNormal} (`root.with(lightingSlot, recordLitNormal)`). */
+export const lightingSlot = tgpu.slot(litPbrRadiance).$name("lightingSlot");
+
+/** {@link litPbrRadiance} through {@link lightingSlot}; `lit` and `applyPbrLighting` shade here. */
+export const litPbr = tgpu.fn(
+    [Pbr, d.vec3f, d.vec3f, d.vec3f],
+    d.vec3f,
+)((s, normal, world, V) => {
+    "use gpu";
+    return lightingSlot.$(s, normal, world, V);
+});
+
 /** Camera-exposed linear colour of a diffuse surface under ambient, sun and clustered point/spot lights,
  *  before fog: StandardMaterial's response at metallic 0, which has no specular. Use it in a custom
  *  material's fragment to light its own base colour; for metallic, roughness, occlusion or emissive,
- *  use `applyPbrLighting` over `pbrInputFromMaterial`. `normal` is world-space and unit length. */
+ *  use `applyPbrLighting` over `pbrInputFromMaterial`. `normal` is world-space and unit length.
+ *  The normal prepass writes the normal of the fragment's last `lit` or `applyPbrLighting` call, or the
+ *  interpolated normal without one or for a material with two or more varyings. There `lit` returns
+ *  zero, and `applyPbrLighting` emissive alone, so a cutoff on alpha derived from lit colour sees that
+ *  value. */
 export const lit = tgpu.fn(
     [d.vec3f, d.vec3f],
     d.vec3f,
