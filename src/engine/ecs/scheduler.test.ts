@@ -164,7 +164,7 @@ for (const indirect of [false, true]) {
 }
 
 for (const phase of ["setup", "update"] as const) {
-    test(`a system removed by a throwing ${phase} is not paused when added again`, () => {
+    test(`a system removed by a throwing ${phase} reports the error without pausing on re-add`, () => {
         const world = new World();
         world.logAndPauseSystemErrors();
         const errors = spyOn(console, "error").mockImplementation(() => {});
@@ -177,6 +177,7 @@ for (const phase of ["setup", "update"] as const) {
             throw new Error("removed");
         };
         const removed: System = {
+            name: "removed-then-thrown",
             setup() {
                 log.push("setup");
                 if (phase === "setup") removeAndThrow();
@@ -186,12 +187,18 @@ for (const phase of ["setup", "update"] as const) {
                 if (phase === "update") removeAndThrow();
             },
         };
-        world.addSystem(removed);
+        world.addSystem(removed, "Game");
         try {
             world.step();
+            expect(errors).toHaveBeenCalledTimes(1);
+            expect(errors.mock.calls[0]?.[0]).toBe(
+                'System "Game/removed-then-thrown" threw after it was removed:',
+            );
+            expect(errors.mock.calls[0]?.[1]).toEqual(new Error("removed"));
             world.addSystem(removed);
             world.step();
             world.step();
+            expect(errors).toHaveBeenCalledTimes(1);
             expect(log).toEqual(
                 phase === "setup"
                     ? ["setup", "setup", "update", "update"]

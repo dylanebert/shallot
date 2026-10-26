@@ -246,24 +246,26 @@ export class Scheduler {
             // A system removed by an earlier one in this pass stays out until it is added again.
             if (!this._systems.has(system) || this._errored.has(system)) continue;
             const previous = this.currentSystem;
+            const name = this._names.get(system) ?? system.name ?? "?";
             this.currentSystem = this._names.get(system);
             try {
                 if (this._initialized.has(system)) this.update(world, system, record);
                 else this.runFirst(world, system, record);
             } catch (e) {
                 if (!this.logAndPauseErrors) {
-                    const name = this._names.get(system) ?? system.name ?? "?";
                     throw new Error(
                         `System "${name}" threw: ${e instanceof Error ? e.message : String(e)}`,
                         { cause: e },
                     );
                 }
-                // A running host keeps its frame loop. The failed system stays paused until it is removed and
-                // added again, which reruns its setup.
-                if (!this._systems.has(system)) continue;
-                this._errored.add(system);
+                // A running host keeps its frame loop. A failed system still registered stays paused until
+                // it is removed and added again, which reruns its setup.
+                const registered = this._systems.has(system);
+                if (registered) this._errored.add(system);
                 console.error(
-                    `System "${this._names.get(system) ?? system.name ?? "?"}" threw and is paused until its next reload:`,
+                    registered
+                        ? `System "${name}" threw and is paused until its next reload:`
+                        : `System "${name}" threw after it was removed:`,
                     e,
                 );
             } finally {
