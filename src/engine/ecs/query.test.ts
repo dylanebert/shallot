@@ -127,3 +127,27 @@ test("borrowed query iterators and results are reused after completion or early 
     expect(query[Symbol.iterator]()).toBe(iterator);
     iterator.return!();
 });
+
+test("a query no iteration visits stays within twice its live members, compacting once per doubling", () => {
+    const world = new World();
+    const C = component("query-unvisited-churn", {});
+    const query = world.query([C]);
+    const order = (query as unknown as { _order: { dense: number[] } })._order.dense;
+    const eids = Array.from({ length: 1000 }, () => world.create());
+    const cycles = 100;
+    let peak = 0;
+    const sort = spyOn(Array.prototype, "sort");
+    try {
+        for (let cycle = 0; cycle < cycles; cycle++) {
+            for (const eid of eids) world.add(eid, C);
+            peak = Math.max(peak, order.length);
+            for (const eid of eids) world.remove(eid, C);
+        }
+        for (const eid of eids) world.add(eid, C);
+        expect(sort.mock.calls.length).toBeLessThanOrEqual(cycles + 1);
+    } finally {
+        sort.mockRestore();
+    }
+    expect(Math.max(peak, order.length)).toBeLessThanOrEqual(2 * eids.length + 1);
+    expect([...query]).toEqual(eids);
+});

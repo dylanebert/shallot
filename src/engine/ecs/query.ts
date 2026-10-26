@@ -123,6 +123,7 @@ export class RegisteredQuery implements Iterable<number> {
     private readonly _order: QueryOrder = { dense: [], active: 0 };
     private _sparse: number[] = [];
     private _dirty = false;
+    private _tombstones = 0;
     // dense[0, _sorted) stays ascending apart from tombstones, so a rebuild sorts only later appends.
     private _sorted = 0;
     private readonly _tail: number[] = [];
@@ -167,6 +168,9 @@ export class RegisteredQuery implements Iterable<number> {
         this._sparse[eid] = dense.length;
         dense.push(eid);
         this._dirty = true;
+        // A query no iteration visits would otherwise keep every tombstone; each compaction is charged to the tombstones it clears.
+        if (this._tombstones > dense.length - this._tombstones && this._order.active === 0)
+            this.rebuild();
     }
 
     remove(eid: Entity): void {
@@ -175,6 +179,7 @@ export class RegisteredQuery implements Iterable<number> {
         // A tombstone skips an unvisited member without moving another member into its position.
         this._order.dense[idx] = 0;
         this._sparse[eid] = -1;
+        this._tombstones++;
         this._dirty = true;
     }
 
@@ -183,6 +188,7 @@ export class RegisteredQuery implements Iterable<number> {
         this._order.dense.length = 0;
         this._sparse.length = 0;
         this._sorted = 0;
+        this._tombstones = 0;
         for (const eid of members) this.add(eid);
         this._dirty = true;
     }
@@ -232,6 +238,7 @@ export class RegisteredQuery implements Iterable<number> {
             sparse[eid] = write;
         }
         this._sorted = dense.length;
+        this._tombstones = 0;
         this._dirty = false;
     }
 }
