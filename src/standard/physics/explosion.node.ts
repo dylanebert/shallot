@@ -25,6 +25,33 @@ test("explosion defaults are independent Box3D definitions", () => {
     expect(defaultExplosionDef().position.x).toBe(0);
 });
 
+test("explode rejects invalid scalars before entering the kernel and leaves the world usable", async () => {
+    const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
+    try {
+        for (const field of ["radius", "falloff", "impulsePerArea"] as const) {
+            for (const value of [NaN, Infinity, -Infinity, 1e100]) {
+                expect(() =>
+                    explode(app.world, { ...defaultExplosionDef(), [field]: value }),
+                ).toThrow(RangeError);
+            }
+        }
+        for (const field of ["radius", "falloff"] as const)
+            expect(() => explode(app.world, { ...defaultExplosionDef(), [field]: -1 })).toThrow(
+                RangeError,
+            );
+        for (const axis of ["x", "y", "z"] as const)
+            for (const value of [NaN, Infinity, -Infinity, 1e100]) {
+                const def = defaultExplosionDef();
+                def.position[axis] = value;
+                expect(() => explode(app.world, def)).toThrow(RangeError);
+            }
+        explode(app.world, { ...defaultExplosionDef(), impulsePerArea: -1 });
+        app.world.tick();
+    } finally {
+        app.dispose();
+    }
+});
+
 test("explode acts immediately on bound shapes and not bodies awaiting their first sync", async () => {
     const app = await createApp({
         defaults: false,

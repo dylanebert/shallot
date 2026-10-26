@@ -1008,12 +1008,17 @@ export function applyTorque(world: World, eid: number, torque: Vec3, wake = true
     bodyApplyTorque(state, body.index1 - 1, stateVector, wake);
 }
 
-/** Geometry-weighted radial impulse; distances and position are in meters. Negative impulsePerArea implodes. */
+/** Geometry-weighted radial impulse for dynamic spheres, capsules and hulls. Distances and position are in meters. */
 export interface ExplosionDef {
+    /** Filters shapes by their category bits. */
     maskBits: bigint;
+    /** World-space center; coordinates must be finite in single precision. */
     position: Pos;
+    /** Full-strength radius; must be finite in single precision and nonnegative. */
     radius: number;
+    /** Distance beyond radius over which impulse falls to zero; must be finite in single precision and nonnegative. */
     falloff: number;
+    /** Impulse per unit projected area; must be finite in single precision. Negative values implode. */
     impulsePerArea: number;
 }
 
@@ -1027,9 +1032,23 @@ export function defaultExplosionDef(): ExplosionDef {
     };
 }
 
-/** Applies an immediate radial impulse to bound dynamic shapes, waking affected bodies.
- * Bodies added since the last fixed sync are not considered. Shape.explosionScale weights each shape's projected area. */
+/** Applies an immediate radial impulse to dynamic spheres, capsules and hulls, waking affected bodies.
+ * Bodies added since the last fixed sync are not considered. Shape.explosionScale weights each shape's projected area.
+ * Throws RangeError if position, radius, falloff or impulsePerArea is not finite in single precision,
+ * or if radius or falloff is negative. */
 export function explode(world: World, def: ExplosionDef): void {
+    if (!Number.isFinite(f32(def.radius)) || def.radius < 0)
+        throw new RangeError("physics: explosion radius must be finite and nonnegative");
+    if (!Number.isFinite(f32(def.falloff)) || def.falloff < 0)
+        throw new RangeError("physics: explosion falloff must be finite and nonnegative");
+    if (
+        !Number.isFinite(f32(def.position.x)) ||
+        !Number.isFinite(f32(def.position.y)) ||
+        !Number.isFinite(f32(def.position.z))
+    )
+        throw new RangeError("physics: explosion position must be finite");
+    if (!Number.isFinite(f32(def.impulsePerArea)))
+        throw new RangeError("physics: explosion impulsePerArea must be finite");
     const state = runtimeFor(world).physicsWorld;
     if (!state) return;
     kernel(state.ecsState).worldExplode(
