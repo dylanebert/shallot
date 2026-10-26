@@ -285,3 +285,7 @@ test.each(["render", "profile"])("steady %s allocates no JavaScript heap beyond 
 test("steady background allocates no JavaScript heap beyond source-checked GPU and fence wrappers", () =>
     steadyAllocation("background"),
 );
+
+test("steady ambient occlusion allocates no JavaScript heap beyond source-checked GPU and fence wrappers", () =>
+    steadyAllocation("ssao"),
+);

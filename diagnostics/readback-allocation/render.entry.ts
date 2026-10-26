@@ -3,7 +3,7 @@ import * as d from "typegpu/data";
 import { Meshes, createApp, Camera, StandardRenderer, Transform, AmbientLight, PointLight, MeshInstance, DirectionalLight, SpotLight, type World } from "../../src/index";
 import { LinesPlugin, drawLine, drawArrow, drawWireBox, GizmoAsset, Gizmo, registerGizmo } from "../../src/extras/lines";
 import { ProfilePlugin } from "../../src/extras/profile";
-import { BackgroundContext, backgroundLayout, CameraBackground, registerProducerTable, Materials, StandardMaterial, registerBackground } from "../../src/standard/rendering";
+import { BackgroundContext, backgroundLayout, CameraBackground, registerProducerTable, Materials, ScreenSpaceAmbientOcclusion, ScreenSpaceAmbientOcclusionPlugin, StandardMaterial, registerBackground } from "../../src/standard/rendering";
 import { RenderContext } from "../../src/core/rendering";
 import { attachCanvas } from "../../src/core/rendering/view";
 import { CanvasContext } from "../../src/engine/app/canvas.fixture";
@@ -54,6 +54,8 @@ export default async function create(input = "", device?: GPUDevice) {
     world.add(camera, Transform); world.add(camera, Camera); world.add(camera, StandardRenderer);
     world.storage(Transform).translation.set(camera, 0, 0, 5);
     attachCanvas(world, camera, canvas);
+    // Ambient occlusion adds the depth and normal prepass and its compute chain each frame.
+    if (input === "ssao") world.add(camera, ScreenSpaceAmbientOcclusion);
     if (input === "background") {
         // A backdrop with a bound uniform takes forward's background path every frame, as the sky does.
         const color = d.struct({ value: d.vec3f });
@@ -121,7 +123,7 @@ export default async function create(input = "", device?: GPUDevice) {
     return { context, compose };
     };
     let scene!: ReturnType<typeof initialize>;
-    const app = await createApp({ plugins: [LinesPlugin, {
+    const app = await createApp({ plugins: [LinesPlugin, ...(input === "ssao" ? [ScreenSpaceAmbientOcclusionPlugin] : []), {
         name: "AllocationScene", dependencies: [LinesPlugin],
         initialize(world) { scene = initialize(world); },
     }], device });
