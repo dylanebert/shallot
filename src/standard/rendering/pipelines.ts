@@ -37,6 +37,10 @@ import {
     pointScale,
     pointShadowSlot,
     pointShadowStub,
+    prepassDepthRead,
+    prepassDepthSlot,
+    prepassNormalRead,
+    prepassNormalSlot,
     sunVisibility,
 } from "./engine";
 import { foggedColor, fogSlot, fogSource, unfoggedColor } from "./fog";
@@ -52,6 +56,7 @@ import {
     MeshVertexInput as MaterialVertexInput,
     materialSource,
 } from "./material-type";
+import { prepassTextures } from "./prepass-textures";
 import type { Draw } from "./registry";
 import { sampleSunShadow } from "./shade";
 import { ssaoTexture } from "./ssao";
@@ -278,12 +283,15 @@ export function engineCache(world: World, quant: GPUBuffer): Map<number, GPUBind
  * {@link engineCache}. */
 const engineCacheLights = new WeakMap<Map<number, GPUBindGroup>, GPUBuffer>();
 const engineCacheOcclusion = new WeakMap<GPUBindGroup, GPUTextureView>();
+const engineCacheDepth = new WeakMap<GPUBindGroup, GPUTextureView>();
+const engineCacheNormal = new WeakMap<GPUBindGroup, GPUTextureView>();
 
 export function engineGroup(
     world: World,
     cache: Map<number, GPUBindGroup>,
     slot: number,
     quant: GPUBuffer,
+    depthPass = false,
 ): GPUBindGroup {
     const _lightCull = world.resource(LightCull);
     const pointLights = _lightCull.lights;
@@ -294,8 +302,18 @@ export function engineGroup(
     }
 
     const occlusion = ssaoTexture(world, slot);
-    const cached = cache.get(slot);
-    if (cached && engineCacheOcclusion.get(cached) === occlusion) return cached;
+    const textures = world.resource(prepassTextures);
+    const depth = (!depthPass && textures.depth[slot]) || textures.stubDepth!;
+    const normal = (!depthPass && textures.normal[slot]) || textures.stubNormal!;
+    const key = depthPass ? -slot - 1 : slot;
+    const cached = cache.get(key);
+    if (
+        cached &&
+        engineCacheOcclusion.get(cached) === occlusion &&
+        engineCacheDepth.get(cached) === depth &&
+        engineCacheNormal.get(cached) === normal
+    )
+        return cached;
     const group = world.gpu.root.unwrap(
         world.gpu.root.createBindGroup(engineLayout, {
             frame: world.resource(Frame).buffer!,
@@ -304,10 +322,14 @@ export function engineGroup(
             pointLights,
             meshQuant: quant,
             ambientOcclusion: occlusion,
+            prepassDepth: depth,
+            prepassNormal: normal,
         }),
     );
     engineCacheOcclusion.set(group, occlusion);
-    cache.set(slot, group);
+    engineCacheDepth.set(group, depth);
+    engineCacheNormal.set(group, normal);
+    cache.set(key, group);
     return group;
 }
 
@@ -1263,6 +1285,33 @@ function varyingFs(
         .$name(name);
 }
 
+function materialRoot(world: World, surface: AnyMaterialType) {
+    let root = world.gpu.root.with(indirectLightSlot, indirectLightSources(world));
+    if (surface.readsPrepass?.depth) root = root.with(prepassDepthSlot, prepassDepthRead);
+    if (surface.readsPrepass?.normal) root = root.with(prepassNormalSlot, prepassNormalRead);
+    return root;
+}
+function resolveMaterialPipeline<T extends TgpuRenderPipeline<any>>(
+    surface: AnyMaterialType,
+    pipeline: T,
+): T {
+    try {
+        tgpu.resolve([pipeline]);
+    } catch (error) {
+        const message = String(error);
+        for (const read of ["Depth", "Normal"]) {
+            if (message.includes(`Missing value for 'slot:prepass${read}'`)) {
+                throw new Error(
+                    `Material type "${surface.name}" requires readsPrepass.${read.toLowerCase()} for prepass${read}`,
+                    { cause: error },
+                );
+            }
+        }
+        throw error;
+    }
+    return pipeline;
+}
+
 /**
  * Compile a `MaterialType`'s opaque color pipeline or its alpha-blended transparent pipeline. Cached
  * by name and exact type/layout identity, so replacing a registry entry after warm cannot inherit the
@@ -1322,7 +1371,7 @@ export function compileMaterial<
         depthWriteEnabled: !transparent,
         depthCompare: transparent ? "greater-equal" : "greater",
     };
-    let root = world.gpu.root.with(indirectLightSlot, indirectLightSources(world));
+    let root = materialRoot(world, surface);
     const fog = fogSource(world);
     if (fogged && fog) root = root.with(fogSlot, fog.source);
     const pipeline = root
@@ -1338,6 +1387,7 @@ export function compileMaterial<
             },
         })
         .$name(`standard-${name}`);
+    resolveMaterialPipeline(surface, pipeline);
     const compiled: CompiledMaterial = {
         owner: surface as AnyMaterialType,
         layout: surface.layout as MaterialLayout<Record<string, MaterialBinding>, AnyWgslStruct>,
@@ -1391,7 +1441,7 @@ export function ensureSingle(world: World, t: CompiledMaterial): void {
               : alphaPipelineKey === AlphaPipelineKey.Multiply
                 ? MULTIPLY_BLEND
                 : undefined;
-    let root = world.gpu.root.with(indirectLightSlot, indirectLightSources(world));
+    let root = materialRoot(world, t.owner);
     const fog = fogSource(world);
     if (transparent && fog) root = root.with(fogSlot, fog.source);
     const pipeline = root
@@ -1408,6 +1458,7 @@ export function ensureSingle(world: World, t: CompiledMaterial): void {
             multisample: { count: 1 },
         })
         .$name(`standard-${name}-1x`);
+    resolveMaterialPipeline(t.owner, pipeline);
     t.single = { color: transparent ? null : pipeline, transparent: transparent ? pipeline : null };
     if (t.prepass) t.prepassSingle = compilePrepass(world, t.owner, alphaPipelineKey, 1);
 }
@@ -1425,8 +1476,7 @@ export function ensureStacked(world: World, t: CompiledMaterial): TgpuRenderPipe
     const fragment = (
         hasVaryings ? varyingFs(surface, false, false, true) : colorFs(surface, false, false, true)
     ) as ReturnType<typeof colorFs>;
-    t.stacked = world.gpu.root
-        .with(indirectLightSlot, indirectLightSources(world))
+    t.stacked = materialRoot(world, surface)
         .createRenderPipeline({
             vertex,
             fragment,
@@ -1440,7 +1490,7 @@ export function ensureStacked(world: World, t: CompiledMaterial): TgpuRenderPipe
             multisample: { count: SAMPLE_COUNT },
         })
         .$name(`standard-${name}-stacked`);
-    return t.stacked;
+    return resolveMaterialPipeline(surface, t.stacked);
 }
 
 // Every pipeline recorded into a render bundle has a fragment stage: WebKit rejects a vertex-only pipeline
@@ -1484,9 +1534,7 @@ function compilePrepass(
         depthWriteEnabled: true,
         depthCompare: "greater",
     };
-    const root = world.gpu.root
-        .with(pointShadowSlot, pointShadowStub)
-        .with(indirectLightSlot, indirectLightSources(world));
+    const root = materialRoot(world, surface).with(pointShadowSlot, pointShadowStub);
     const clip = alphaPipelineKey !== AlphaPipelineKey.Opaque;
     const varying = !!surface.varyings && Object.keys(surface.varyings).length > 0;
     const depthOnly = root
@@ -1512,7 +1560,7 @@ function compilePrepass(
             multisample: { count: sampleCount },
         })
         .$name(`standard-prepass-${surface.name}-${alphaPipelineKey}-${sampleCount}x`);
-    return depthOnly;
+    return surface.readsPrepass ? resolveMaterialPipeline(surface, depthOnly) : depthOnly;
 }
 
 // Tile bounds arrive in pixels with atlas scaling already applied by the VS, so one seam-discard
@@ -2060,9 +2108,7 @@ function compileShadow(
         depthCompare: "greater",
     };
     // A real receiver would sample the atlas this pipeline is writing.
-    const root = world.gpu.root
-        .with(pointShadowSlot, pointShadowStub)
-        .with(indirectLightSlot, indirectLightSources(world));
+    const root = materialRoot(world, surface).with(pointShadowSlot, pointShadowStub);
     const clip = alphaPipelineKey !== AlphaPipelineKey.Opaque;
     const varying = !!surface.varyings && Object.keys(surface.varyings).length > 0;
     const point = root
@@ -2099,6 +2145,10 @@ function compileShadow(
             multisample: { count: 1 },
         })
         .$name(`standard-cascade-${surface.name}-${alphaPipelineKey}`);
+    if (surface.readsPrepass) {
+        resolveMaterialPipeline(surface, point);
+        resolveMaterialPipeline(surface, cascade);
+    }
     return { point, cascade };
 }
 
@@ -2281,6 +2331,7 @@ export async function preparePipelines(
         const view = world.resource(Views).get(eid);
         if (
             world.has(eid, NormalPrepass) ||
+            world.resource(MaterialTypes).types.some((type) => type?.readsPrepass?.normal) ||
             normalRequests.some((request) => request(world, eid, view))
         ) {
             normalSamples.add(world.storage(Camera).antialias.get(eid) === 0 ? 1 : SAMPLE_COUNT);

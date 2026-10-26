@@ -32,6 +32,16 @@ export const engineLayout = tgpu
             access: "readonly",
             visibility: ["vertex", "fragment"],
         },
+        prepassDepth: {
+            texture: d.texture2d(),
+            sampleType: "unfilterable-float",
+            visibility: ["fragment"],
+        },
+        prepassNormal: {
+            texture: d.texture2d(),
+            sampleType: "unfilterable-float",
+            visibility: ["fragment"],
+        },
         ambientOcclusion: {
             texture: d.texture2d(),
             sampleType: "unfilterable-float",
@@ -39,6 +49,50 @@ export const engineLayout = tgpu
         },
     })
     .$idx(0);
+
+export const prepassDepthRead = tgpu.fn(
+    [d.vec4f],
+    d.f32,
+)((coord) => {
+    "use gpu";
+    return std.textureLoad(engineLayout.$.prepassDepth, d.vec2i(coord.xy), 0).x;
+});
+export const prepassNormalRead = tgpu.fn(
+    [d.vec4f],
+    d.vec3f,
+)((coord) => {
+    "use gpu";
+    if (std.textureDimensions(engineLayout.$.prepassNormal).x === 1) return d.vec3f(0);
+    return std.normalize(
+        std.sub(
+            std.mul(std.textureLoad(engineLayout.$.prepassNormal, d.vec2i(coord.xy), 0).xyz, 2),
+            1,
+        ),
+    );
+});
+export const prepassDepthSlot = tgpu.slot<typeof prepassDepthRead>().$name("prepassDepth");
+export const prepassNormalSlot = tgpu.slot<typeof prepassNormalRead>().$name("prepassNormal");
+
+/** This view's prepass device depth this frame, in reverse-Z (0 is far).
+ * Calling without readsPrepass.depth is refused. Cameras without a prepass this frame and
+ * depth passes read 0; 4x antialiasing reads sample 0. */
+export const prepassDepth = tgpu.fn(
+    [d.vec4f],
+    d.f32,
+)((coord) => {
+    "use gpu";
+    return prepassDepthSlot.$(coord);
+});
+/** This view's prepass world-space unit normal this frame.
+ * Calling without readsPrepass.normal is refused. Cameras without a prepass this frame and
+ * depth passes read vec3f(0); 4x antialiasing reads sample 0. */
+export const prepassNormal = tgpu.fn(
+    [d.vec4f],
+    d.vec3f,
+)((coord) => {
+    "use gpu";
+    return prepassNormalSlot.$(coord);
+});
 
 /** the sun-shadow seam: the sun's visibility at this fragment (1.0 = unshadowed), multiplied into the
  *  sun term only. Filled by a real-reference color-pass caller via `sampleSunShadow`; the default

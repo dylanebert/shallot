@@ -12,7 +12,14 @@ export {
 export { Clusters, clusterCell, LightClusters, LightCull } from "./cluster";
 export type { Background, BackgroundHandle } from "./contract";
 export { BackgroundContext, Backgrounds, backgroundLayout, registerBackground } from "./contract";
-export { engineLayout, lit, SurfaceOcclusion, surfaceOcclusion } from "./engine";
+export {
+    engineLayout,
+    lit,
+    prepassDepth,
+    prepassNormal,
+    SurfaceOcclusion,
+    surfaceOcclusion,
+} from "./engine";
 export type { FogSource } from "./fog";
 export { FogInput, registerFogSource } from "./fog";
 export {

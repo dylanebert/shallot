@@ -18,14 +18,14 @@ const pipelineCounts: Record<string, number> = {
     "Physics profiling": 0,
     Orbit: 0,
     profiling: 0,
-    "default plugins": 24, // Unlit became a StandardMaterial branch; it no longer compiles its own
+    "default plugins": 25, // Unlit became a StandardMaterial branch; it no longer compiles its own
     // color, prepass, point-shadow or cascade-shadow pipeline.
-    "producer table": 27,
-    ScreenSpaceAmbientOcclusion: 29, // two prepass copies, mip reduction, visibility bitmask AO and denoise
-    Fog: 33, // single-sample and multisampled column depth, grid lighting and application; filter and integration
-    Outline: 29, // three mask variants, jump flood and composite
-    EffectStack: 25,
-    Sprite: 29,
+    "producer table": 28,
+    ScreenSpaceAmbientOcclusion: 30, // two prepass copies, mip reduction, visibility bitmask AO and denoise
+    Fog: 34, // single-sample and multisampled column depth, grid lighting and application; filter and integration
+    Outline: 30, // three mask variants, jump flood and composite
+    EffectStack: 26,
+    Sprite: 30,
 };
 
 for (const subject of compileSubjects) {
@@ -48,7 +48,7 @@ for (const antialias of [0, 1]) {
             (label) => labels.push(label),
             true,
         );
-        expect(result.pipelines).toBe(antialias ? 31 : 35);
+        expect(result.pipelines).toBe(antialias ? 32 : 36);
         expect(result.latePipelines).toBe(0);
         expect(
             labels.filter(

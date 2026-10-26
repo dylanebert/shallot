@@ -19,10 +19,12 @@ import {
     CULL_FRUSTUM,
     CULL_VOLUME_FLOATS,
     DEPTH_FORMAT,
+    DepthPrepassRequests,
     globalTransformTable,
     initialStackedViews,
     MainPassSystem,
     NORMAL_FORMAT,
+    NormalPrepassRequests,
     PrepassSystem,
     RenderContext,
     RenderPhases,
@@ -106,6 +108,12 @@ import {
     resetPipelineCaches,
     setGroup,
 } from "./pipelines";
+import {
+    disposePrepassTextures,
+    prepassTextures,
+    ResolvePrepassTexturesSystem,
+    warmPrepassTextures,
+} from "./prepass-textures";
 import { MeshDrawBuffers, MeshPreprocessSystem, meshInstanceTable } from "./preprocess";
 import { producerCapacity } from "./producer-pack";
 import { producerTables } from "./producer-table";
@@ -653,7 +661,7 @@ function renderPrepass(
             const step = bundleDraw(_standardRendererState.prepassProgram, draws);
             step.pipeline = boundPipeline(r.g, pipe, group, !view.normal, r.index) as never;
             step.layout0 = engineLayout;
-            step.group0 = engineGroup(world, r.g.engineCache, view.slot, r.g.quant);
+            step.group0 = engineGroup(world, r.g.engineCache, view.slot, r.g.quant, true);
             step.layout1 = shadowLayout;
             step.group1 = shadow;
             step.layout2 = null;
@@ -1209,6 +1217,7 @@ function drawTransparent(
 // the StandardRenderer camera query terms, and the point caster frames `ShadowCameraSystem` ranks into (a capacity
 // `updatePointShadows` grows and rewrites in place)
 const STANDARD_RENDERER_CAMERAS = [Camera, StandardRenderer];
+const PREPASS_READERS = [MeshInstance, MeshMaterial, GlobalTransform];
 
 // Reset owned resources before compilation so layouts and buffers belong to this warm.
 async function prepareStandardRenderer(
@@ -1355,10 +1364,42 @@ export const StandardRenderingPlugin: Plugin = {
         ResolveDrawsSystem,
         ShadowCameraSystem,
         ShadowMapSystem,
+        ResolvePrepassTexturesSystem,
     ],
     dependencies: [CorePipelinePlugin, MeshPlugin],
 
     initialize(world) {
+        const requests = (world: World, eid: number, read: "depth" | "normal") => {
+            if (!world.has(eid, StandardRenderer)) return false;
+            const types = world.resource(MaterialTypes).types;
+            let declared = false;
+            for (let i = 0; i < types.length; i++)
+                if (types[i]?.readsPrepass?.[read]) {
+                    declared = true;
+                    break;
+                }
+            if (!declared) return false;
+            const materials = world.storage(MeshMaterial);
+            const layers = renderLayers(world, eid);
+            for (const mesh of world.query(PREPASS_READERS)) {
+                if (
+                    (renderLayers(world, mesh) & layers) !== 0 &&
+                    types[materials.type.get(mesh)]?.readsPrepass?.[read]
+                )
+                    return true;
+            }
+            // GPU-only producer counts are not observed by the CPU; their declared pairs request the lane.
+            if (layers & 1)
+                for (const entry of world.resource(producerTables).tables) {
+                    for (const material of entry.materials)
+                        if (types[material.type]?.readsPrepass?.[read]) return true;
+                }
+            return false;
+        };
+        world.resource(DepthPrepassRequests).push((world, eid) => requests(world, eid, "depth"));
+        world.resource(NormalPrepassRequests).push((world, eid) => requests(world, eid, "normal"));
+        world.resource(prepassTextures).requested = (world, eid) =>
+            requests(world, eid, "depth") || requests(world, eid, "normal");
         world.resource(RenderPhases).push({
             prepass(world, eid, view, pass) {
                 if (!world.has(eid, StandardRenderer)) return;
@@ -1411,6 +1452,7 @@ export const StandardRenderingPlugin: Plugin = {
         sealIndirectLightSources(world);
         sealFogSource(world);
         if (!world.gpu.device) return;
+        warmPrepassTextures(world);
         warmClusters(world);
         await withPipelineOwner(world.gpu.device, "StandardRendering", () => warmLightCull(world));
         await withPipelineOwner(world.gpu.device, "StandardRendering", () =>
@@ -1419,6 +1461,7 @@ export const StandardRenderingPlugin: Plugin = {
     },
 
     dispose(world) {
+        disposePrepassTextures(world);
         destroyPointShadows(world);
         destroyCascades(world);
         disposeStandardRenderer(world);

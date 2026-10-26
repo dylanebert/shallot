@@ -174,6 +174,15 @@ export function materialLayout<B extends Record<string, MaterialBinding>, P exte
             );
         }
     }
+    // Group 0 contributes AO and two prepass textures; group 1 contributes two shadow atlases.
+    const textures = Object.values(bindings).filter((binding) =>
+        binding.type.startsWith("texture-"),
+    ).length;
+    if (textures + 5 > 16) {
+        throw new Error(
+            `material layout uses ${textures + 5} fragment sampled textures; WebGPU's limit is 16`,
+        );
+    }
     const builtins = {
         eids: bindingEntry({ type: "storage", element: d.vec4u }),
         globalTransforms: bindingEntry({ type: "storage", element: Xform }),
@@ -406,6 +415,12 @@ export interface MaterialType<
     /** Live resources owned by this material type; called at draw to observe replacements.
      * Mesh attributes and mesh.bindings take precedence. Built-ins resolve from their engine owners. */
     readonly bindings?: (world: World) => Record<string, import("./pipelines").BindResource>;
+    /** Request this view's prepass this frame while this type has draws.
+     * depth reads reverse-Z device depth; normal reads a world-space unit normal.
+     * Undeclared prepassDepth/prepassNormal calls are refused during pipeline preparation.
+     * A camera without the prepass this frame and depth passes read 0 / vec3f(0).
+     * At 4x antialiasing both reads use sample 0. */
+    readonly readsPrepass?: { depth?: true; normal?: true };
     readonly fragmentInputs?: { uv?: true; localPos?: true };
     readonly varyings?: V;
     readonly vertex?: MaterialVertexFn<P, V>;
