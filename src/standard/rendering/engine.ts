@@ -306,7 +306,7 @@ export const litPbr = tgpu.fn(
  *  material's fragment to light its own base colour; for metallic, roughness, occlusion or emissive,
  *  use `applyPbrLighting` over `pbrInputFromMaterial`. `normal` is world-space and unit length.
  *  The normal prepass writes the normal of the fragment's last `lit` or `applyPbrLighting` call, or the
- *  interpolated normal without one or for a material with two or more varyings. There `lit` returns
+ *  interpolated normal without one. There `lit` returns
  *  zero, and `applyPbrLighting` emissive alone, so a cutoff on alpha derived from lit colour sees that
  *  value. */
 export const lit = tgpu.fn(

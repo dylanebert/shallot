@@ -381,12 +381,6 @@ const producerRow = tgpu.fn(
 // Reserve locations after the fixed fragment fields to prevent custom varying collisions.
 const VARYING_BASE = 8;
 
-// Eight fixed locations, uv + localPos and four custom varyings use 14 of WebGPU's default
-// 16 inter-stage variables. The vs side is N-general (the
-// copier templates over `Object.keys`), so this bound is the fragment entry's — its transpiled body must
-// statically name `input.v0`…`input.v3`, one arm per count (`varyingFs`)
-const MAX_VARYINGS = 4;
-
 function fragmentInterstage(surface: AnyMaterialType): Record<string, AnyWgslData> {
     return {
         ...(surface.fragmentInputs?.uv ? { uv: d.vec2f } : {}),
@@ -831,49 +825,18 @@ function clipFs(surface: AnyMaterialType, normals = false, clip = true) {
         .$name(`${surface.name}ClipFs`);
 }
 
-/** Build the locked one-varying cutoff copier: the fragment entry exposes a fixed `v0` slot while this
- * raw helper reconstructs the author's exact FsCtx positionally. The schema comes from the authored fs
- * shell, never a freshly minted lookalike. */
-function clipVaryingCopier(surface: AnyMaterialType) {
-    const varyings = surface.varyings ?? {};
-    const keys = Object.keys(varyings);
-    if (keys.length !== 1) {
-        throw new Error(
-            `standard: surface "${surface.name}" declares ${keys.length} varyings — the clip copier carries exactly one custom varying`,
-        );
-    }
-    const varyingSchema = varyings[keys[0]];
-    const varyingType = (varyingSchema as unknown as { type: string }).type;
-    const fsFn = materialFragmentFunction(surface);
-    const CtxSchema = (fsFn as unknown as { shell: { argTypes: [unknown] } }).shell.argTypes[0];
-    const copier = tgpu
-        .fn(
-            [
-                d.vec4f,
-                d.vec3f,
-                d.u32,
-                d.u32,
-                d.vec3f,
-                d.vec2f,
-                d.vec3f,
-                d.vec4f,
-                d.u32,
-                varyingSchema,
-            ],
-            d.vec4f,
-        )(/* wgsl */ `(pos: vec4f, worldNormalIn: vec3f, eid: u32, row: u32, world: vec3f, uv: vec2f, localPos: vec3f, color: vec4f, material: u32, v0: ${varyingType}) -> vec4f {
-    let ctx = Ctx(eid, row, world, normalize(worldNormalIn), uv, localPos, color, material, 0u, 0.5f, pos, v0);
-    return fs(ctx);
-}`)
-        .$uses({ Ctx: CtxSchema, fs: fsFn })
-        .$name(`${surface.name}ClipFsCopier`);
-    return { varyingSchema, copier };
-}
-
 function varyingClipFs(surface: AnyMaterialType, normals = false, clip = true) {
     const needUv = !!surface.fragmentInputs?.uv;
     const needLocalPos = !!surface.fragmentInputs?.localPos;
-    const { varyingSchema, copier } = clipVaryingCopier(surface);
+    const varyings = surface.varyings ?? {};
+    const keys = Object.keys(varyings);
+    const schemas = keys.map((key) => varyings[key]);
+    const slots = keys.map((_, i) => `v${i}`);
+    const located = Object.fromEntries(
+        slots.map((slot, i) => [slot, d.location(VARYING_BASE + i, schemas[i])]),
+    );
+    const fragment = materialFragmentFunction(surface);
+    const Ctx = (fragment as any).shell.argTypes[0];
     const entryIn = {
         pos: d.builtin.position,
         worldNormal: d.vec3f,
@@ -884,26 +847,30 @@ function varyingClipFs(surface: AnyMaterialType, normals = false, clip = true) {
         material: d.interpolate("flat", d.u32),
         alphaCutoff: d.interpolate("flat", d.f32),
         ...fragmentInterstage(surface),
-        v0: d.location(VARYING_BASE, varyingSchema as d.Vec3f),
+        ...located,
     };
     return tgpu
         .fragmentFn({
-            in: entryIn as unknown as typeof entryIn & { v0: d.Vec3f },
+            in: entryIn,
             out: normals ? colorOutput : d.Void,
         })((input) => {
             "use gpu";
-            const color = copier(
-                input.pos,
-                input.worldNormal,
-                input.eid,
-                input.row,
-                input.world,
-                needUv ? (input as any).uv : d.vec2f(0),
-                needLocalPos ? (input as any).localPos : d.vec3f(0),
-                input.color,
-                input.material,
-                input.v0,
-            );
+            const ctx = Ctx();
+            ctx.eid = input.eid;
+            ctx.row = input.row;
+            ctx.world = d.vec3f(input.world);
+            ctx.worldNormal = std.normalize(input.worldNormal);
+            ctx.uv = needUv ? d.vec2f((input as any).uv) : d.vec2f(0);
+            ctx.localPos = needLocalPos ? d.vec3f((input as any).localPos) : d.vec3f(0);
+            ctx.color = d.vec4f(input.color);
+            ctx.material = input.material;
+            ctx.alphaMode = d.u32(0);
+            ctx.alphaCutoff = input.alphaCutoff;
+            ctx.fragCoord = d.vec4f(input.pos);
+            for (const i of tgpu.unroll(std.range(keys.length))) {
+                (ctx as any)[keys[i]] = (schemas[i] as any)((input as any)[slots[i]]);
+            }
+            const color = fragment(ctx);
             const cutoff = input.alphaCutoff;
             if (clip && color.a < cutoff) std.discard();
             if (normals) return { color: prepassNormalColor(input.worldNormal) } as never;
@@ -1045,7 +1012,7 @@ ${assigns}
 
 // Shadow receivers read free WGSL names that TypeGPU's call graph cannot discover.
 // Callers add this zero-valued result to their output so the transpiler cannot prune the binding
-// touches as dead code. Sharing the function keeps the four varyingFs arities in agreement.
+// touches as dead code.
 const shadowForce = tgpu
     .fn(
         [],
@@ -1073,12 +1040,6 @@ const shadowForce = tgpu
     })
     .$name("shadowForce");
 
-// TGSL cannot pass its entry-input router by value or read dynamically named input fields.
-// Each arity names v0..v3 statically and passes values in declaration order to a positional
-// WGSL context constructor, which puts them in the author's actual varying fields.
-// The 1..MAX_VARYINGS arms bound the static entry; the copier signature and vertex side already
-// accept arbitrary counts.
-// Reuse fsFn.shell.argTypes[0]: WGSL struct arguments are not typed purely structurally.
 function varyingFs(
     surface: AnyMaterialType,
     alphaToCoverageFallback = false,
@@ -1089,35 +1050,15 @@ function varyingFs(
     const fogColor = fogged ? foggedColor : unfoggedColor;
     const varyings = surface.varyings ?? {};
     const varyingKeys = Object.keys(varyings);
-    if (varyingKeys.length < 1 || varyingKeys.length > MAX_VARYINGS) {
-        throw new Error(
-            `standard: surface "${surface.name}" declares ${varyingKeys.length} varyings — the fs entry carries 1 to ${MAX_VARYINGS} (gpu.md rule 9's custom interpolator budget)`,
-        );
-    }
     const schemas = varyingKeys.map((k) => varyings[k]);
-    const params = schemas
-        .map((s, i) => `v${i}: ${(s as unknown as { type: string }).type}`)
-        .join(", ");
     const fsFn = materialFragmentFunction(surface);
     const needUv = !!surface.fragmentInputs?.uv;
     const needLocalPos = !!surface.fragmentInputs?.localPos;
-    const CtxSchema = (fsFn as unknown as { shell: { argTypes: [unknown] } }).shell.argTypes[0];
-    const copier = tgpu
-        .fn(
-            [d.vec4f, d.vec3f, d.u32, d.vec3f, d.vec2f, d.vec3f, d.vec4f, d.u32, ...schemas, d.u32],
-            d.vec4f,
-        )(/* wgsl */ `(pos: vec4f, worldNormalIn: vec3f, eid: u32, world: vec3f, uv: vec2f, localPos: vec3f, color: vec4f, material: u32, ${params}, row: u32) -> vec4f {
-    let worldNormal = normalize(worldNormalIn);
-    let ctx = Ctx(eid, row, world, worldNormal, uv, localPos, color, material, 0u, 0.5f, pos, ${schemas.map((_, i) => `v${i}`).join(", ")});
-    return fs(ctx);
-}`)
-        .$uses({ Ctx: CtxSchema, fs: fsFn })
-        .$name(`${surface.name}FsCopier`);
-
-    // The runtime schema is concrete, but its widened type cannot satisfy fragmentFn's input constraint.
-    // Locations pair fixed FS names with author-named VS fields. No flat interpolation is inserted,
-    // so integer varyings are unsupported and fail at resolve or device compilation.
-    const slot = (i: number) => d.location(VARYING_BASE + i, schemas[i] as d.Vec3f);
+    const Ctx = (fsFn as any).shell.argTypes[0];
+    const slots = varyingKeys.map((_, i) => `v${i}`);
+    const located = Object.fromEntries(
+        slots.map((slot, i) => [slot, d.location(VARYING_BASE + i, schemas[i])]),
+    );
     const base = {
         pos: d.builtin.position,
         worldNormal: d.vec3f,
@@ -1131,148 +1072,27 @@ function varyingFs(
         ...fragmentInterstage(surface),
     };
     const name = `${surface.name}${alphaToCoverageFallback ? "Single" : ""}Fs`;
-    if (varyingKeys.length === 1) {
-        const entryIn = { ...base, v0: slot(0) } as unknown as typeof base & { v0: d.Vec3f };
-        return tgpu
-            .fragmentFn({ in: entryIn, out })((input) => {
-                "use gpu";
-                const col = copier(
-                    input.pos,
-                    input.worldNormal,
-                    input.eid,
-                    input.world,
-                    needUv ? (input as any).uv : d.vec2f(0),
-                    needLocalPos ? (input as any).localPos : d.vec3f(0),
-                    input.color,
-                    input.material,
-                    input.v0,
-                    input.row,
-                );
-                const shaded = fogColor(
-                    d.vec4f(std.add(col, d.vec4f(shadowForce()))),
-                    input.world,
-                    input.alphaMode,
-                );
-                const output = alphaColorOutput(
-                    shaded,
-                    input.alphaMode,
-                    input.alphaCutoff,
-                    alphaToCoverageFallback ? 0xffffffff : 0,
-                );
-                if (coverage)
-                    return { color: d.vec4f(output.xyz, 1), mask: coverageMask(output.w) } as never;
-                return { color: output };
-            })
-            .$name(name);
-    }
-    if (varyingKeys.length === 2) {
-        const entryIn = { ...base, v0: slot(0), v1: slot(1) } as unknown as typeof base & {
-            v0: d.Vec3f;
-            v1: d.Vec3f;
-        };
-        return tgpu
-            .fragmentFn({ in: entryIn, out })((input) => {
-                "use gpu";
-                const col = copier(
-                    input.pos,
-                    input.worldNormal,
-                    input.eid,
-                    input.world,
-                    needUv ? (input as any).uv : d.vec2f(0),
-                    needLocalPos ? (input as any).localPos : d.vec3f(0),
-                    input.color,
-                    input.material,
-                    input.v0,
-                    input.v1,
-                    input.row,
-                );
-                const shaded = fogColor(
-                    d.vec4f(std.add(col, d.vec4f(shadowForce()))),
-                    input.world,
-                    input.alphaMode,
-                );
-                const output = alphaColorOutput(
-                    shaded,
-                    input.alphaMode,
-                    input.alphaCutoff,
-                    alphaToCoverageFallback ? 0xffffffff : 0,
-                );
-                if (coverage)
-                    return { color: d.vec4f(output.xyz, 1), mask: coverageMask(output.w) } as never;
-                return { color: output };
-            })
-            .$name(name);
-    }
-    if (varyingKeys.length === 3) {
-        const entryIn = {
-            ...base,
-            v0: slot(0),
-            v1: slot(1),
-            v2: slot(2),
-        } as unknown as typeof base & {
-            v0: d.Vec3f;
-            v1: d.Vec3f;
-            v2: d.Vec3f;
-        };
-        return tgpu
-            .fragmentFn({ in: entryIn, out })((input) => {
-                "use gpu";
-                const col = copier(
-                    input.pos,
-                    input.worldNormal,
-                    input.eid,
-                    input.world,
-                    needUv ? (input as any).uv : d.vec2f(0),
-                    needLocalPos ? (input as any).localPos : d.vec3f(0),
-                    input.color,
-                    input.material,
-                    input.v0,
-                    input.v1,
-                    input.v2,
-                    input.row,
-                );
-                const shaded = fogColor(
-                    d.vec4f(std.add(col, d.vec4f(shadowForce()))),
-                    input.world,
-                    input.alphaMode,
-                );
-                const output = alphaColorOutput(
-                    shaded,
-                    input.alphaMode,
-                    input.alphaCutoff,
-                    alphaToCoverageFallback ? 0xffffffff : 0,
-                );
-                if (coverage)
-                    return { color: d.vec4f(output.xyz, 1), mask: coverageMask(output.w) } as never;
-                return { color: output };
-            })
-            .$name(name);
-    }
-    const entryIn = {
-        ...base,
-        v0: slot(0),
-        v1: slot(1),
-        v2: slot(2),
-        v3: slot(3),
-    } as unknown as typeof base & { v0: d.Vec3f; v1: d.Vec3f; v2: d.Vec3f; v3: d.Vec3f };
+    const entryIn = { ...base, ...located };
     return tgpu
         .fragmentFn({ in: entryIn, out })((input) => {
             "use gpu";
-            const col = copier(
-                input.pos,
-                input.worldNormal,
-                input.eid,
-                input.world,
-                needUv ? (input as any).uv : d.vec2f(0),
-                needLocalPos ? (input as any).localPos : d.vec3f(0),
-                input.color,
-                input.material,
-                input.v0,
-                input.v1,
-                input.v2,
-                input.v3,
-                input.row,
-            );
+            const worldNormal = std.normalize(input.worldNormal);
+            const ctx = Ctx();
+            ctx.eid = input.eid;
+            ctx.row = input.row;
+            ctx.world = d.vec3f(input.world);
+            ctx.worldNormal = d.vec3f(worldNormal);
+            ctx.uv = needUv ? d.vec2f((input as any).uv) : d.vec2f(0);
+            ctx.localPos = needLocalPos ? d.vec3f((input as any).localPos) : d.vec3f(0);
+            ctx.color = d.vec4f(input.color);
+            ctx.material = input.material;
+            ctx.alphaMode = alphaToCoverageFallback ? AlphaModeCode.Opaque : input.alphaMode;
+            ctx.alphaCutoff = input.alphaCutoff;
+            ctx.fragCoord = d.vec4f(input.pos);
+            for (const i of tgpu.unroll(std.range(varyingKeys.length))) {
+                (ctx as any)[varyingKeys[i]] = (schemas[i] as any)((input as any)[slots[i]]);
+            }
+            const col = fsFn(ctx);
             const shaded = fogColor(
                 d.vec4f(std.add(col, d.vec4f(shadowForce()))),
                 input.world,
@@ -1325,6 +1145,22 @@ export function compileMaterial<
     capacity: number,
     alphaPipelineKey: number,
 ): CompiledMaterial {
+    const varyingCount = Object.keys(surface.varyings ?? {}).length;
+    const uv = !!surface.fragmentInputs?.uv;
+    const localPos = !!surface.fragmentInputs?.localPos;
+    const interstageCount = VARYING_BASE + Number(uv) + Number(localPos) + varyingCount;
+    const limit = world.gpu.device.limits.maxInterStageShaderVariables;
+    if (interstageCount > limit) {
+        const fields = [
+            "8 engine",
+            ...(uv ? ["uv"] : []),
+            ...(localPos ? ["localPos"] : []),
+            `${varyingCount} varyings`,
+        ];
+        throw new Error(
+            `standard: material "${surface.name}" uses ${interstageCount} inter-stage variables (${fields.join(", ")}); device.limits.maxInterStageShaderVariables is ${limit}`,
+        );
+    }
     const _render = world.resource(RenderContext);
     const cacheKey = `${surface.name}:${alphaPipelineKey}`;
     const cached = pipelineState(world).compiledMaterials.get(cacheKey);
@@ -1498,21 +1334,8 @@ const depthOnlyFs = tgpu
     })
     .$name("prepassDepthOnlyFs");
 
-const normalOnlyFs = tgpu
-    .fragmentFn({ in: { worldNormal: d.vec3f }, out: colorOutput })((input) => {
-        "use gpu";
-        return {
-            color: d.vec4f(
-                std.add(std.mul(std.normalize(input.worldNormal), 0.5), d.vec3f(0.5)),
-                1,
-            ),
-        };
-    })
-    .$name("prepassNormalFs");
-
 /** Opaque uses the compact depth stream unless normals or a vertex function need the main stream; clipped inputs retain material alpha.
- * Normals run the material fragment under {@link recordLitNormal}; a material with two or more
- * varyings writes its interpolated normal, since the varying copier carries one. */
+ * Normals run the material fragment under {@link recordLitNormal}. */
 function compilePrepass(
     world: World,
     surface: AnyMaterialType,
@@ -1535,8 +1358,7 @@ function compilePrepass(
     const depthRoot = materialRoot(world, surface).with(pointShadowSlot, pointShadowStub);
     const root = normals ? depthRoot.with(lightingSlot, recordLitNormal) : depthRoot;
     const clip = alphaPipelineKey !== AlphaPipelineKey.Opaque;
-    const varyingCount = Object.keys(surface.varyings ?? {}).length;
-    const varying = varyingCount > 0;
+    const varying = Object.keys(surface.varyings ?? {}).length > 0;
     const depthOnly = root
         .createRenderPipeline({
             // Depth alone reads no varyings, so a vertex function's opaque depth takes the main
@@ -1552,11 +1374,9 @@ function compilePrepass(
             fragment: clip
                 ? ((varying ? varyingClipFs(surface, normals) : clipFs(surface, normals)) as never)
                 : normals
-                  ? varyingCount > 1
-                      ? (normalOnlyFs as never)
-                      : ((varying
-                            ? varyingClipFs(surface, true, false)
-                            : clipFs(surface, true, false)) as never)
+                  ? ((varying
+                        ? varyingClipFs(surface, true, false)
+                        : clipFs(surface, true, false)) as never)
                   : depthOnlyFs,
             targets: (normals ? { color: { format: NORMAL_FORMAT } } : undefined) as never,
             primitive,
@@ -1838,9 +1658,7 @@ function clipShadowVs(
         .$name(name);
 }
 
-/** The atlas-projecting half of the locked one-varying clip mechanism. The raw entry copies each
- * authored field by name into its own output struct; the fragment receives it as fixed `v0` at the
- * same explicit location. */
+/** Projects authored vertex outputs into the shadow atlas at explicit varying locations. */
 function varyingShadowVs(
     surface: AnyMaterialType,
     shadowGroup: TgpuBindGroupLayout<any>,
@@ -1849,9 +1667,9 @@ function varyingShadowVs(
 ) {
     const varyings = surface.varyings ?? {};
     const keys = Object.keys(varyings);
-    if (keys.length !== 1 || !surface.vertex) {
+    if (!surface.vertex) {
         throw new Error(
-            `standard: surface "${surface.name}" needs at most one authored varying for its clip shadow copier`,
+            `standard: surface "${surface.name}" declares varyings with no vertex function`,
         );
     }
     const hasVs = !!surface.vertex;
@@ -1993,7 +1811,15 @@ ${outputAssignments}
 }
 
 function varyingShadowFs(surface: AnyMaterialType) {
-    const { varyingSchema, copier } = clipVaryingCopier(surface);
+    const varyings = surface.varyings ?? {};
+    const keys = Object.keys(varyings);
+    const schemas = keys.map((key) => varyings[key]);
+    const slots = keys.map((_, i) => `v${i}`);
+    const located = Object.fromEntries(
+        slots.map((slot, i) => [slot, d.location(VARYING_BASE + i, schemas[i])]),
+    );
+    const fragment = materialFragmentFunction(surface);
+    const Ctx = (fragment as any).shell.argTypes[0];
     const needUv = !!surface.fragmentInputs?.uv;
     const needLocalPos = !!surface.fragmentInputs?.localPos;
     const entryIn = {
@@ -2007,11 +1833,11 @@ function varyingShadowFs(surface: AnyMaterialType) {
         material: d.interpolate("flat", d.u32),
         alphaCutoff: d.interpolate("flat", d.f32),
         ...fragmentInterstage(surface),
-        v0: d.location(VARYING_BASE, varyingSchema as d.Vec3f),
+        ...located,
     };
     return tgpu
         .fragmentFn({
-            in: entryIn as unknown as typeof entryIn & { v0: d.Vec3f },
+            in: entryIn,
             out: d.Void,
         })((input) => {
             "use gpu";
@@ -2021,18 +1847,22 @@ function varyingShadowFs(surface: AnyMaterialType) {
             if (p.x < mn.x || p.x >= mn.x + sz || p.y < mn.y || p.y >= mn.y + sz) {
                 std.discard();
             }
-            const color = copier(
-                input.pos,
-                input.worldNormal,
-                input.eid,
-                input.row,
-                input.world,
-                needUv ? (input as any).uv : d.vec2f(0),
-                needLocalPos ? (input as any).localPos : d.vec3f(0),
-                input.color,
-                input.material,
-                input.v0,
-            );
+            const ctx = Ctx();
+            ctx.eid = input.eid;
+            ctx.row = input.row;
+            ctx.world = d.vec3f(input.world);
+            ctx.worldNormal = std.normalize(input.worldNormal);
+            ctx.uv = needUv ? d.vec2f((input as any).uv) : d.vec2f(0);
+            ctx.localPos = needLocalPos ? d.vec3f((input as any).localPos) : d.vec3f(0);
+            ctx.color = d.vec4f(input.color);
+            ctx.material = input.material;
+            ctx.alphaMode = d.u32(0);
+            ctx.alphaCutoff = input.alphaCutoff;
+            ctx.fragCoord = d.vec4f(input.pos);
+            for (const i of tgpu.unroll(std.range(keys.length))) {
+                (ctx as any)[keys[i]] = (schemas[i] as any)((input as any)[slots[i]]);
+            }
+            const color = fragment(ctx);
             const cutoff = input.alphaCutoff;
             if (color.a < cutoff) std.discard();
         })

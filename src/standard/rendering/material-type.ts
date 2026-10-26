@@ -436,6 +436,9 @@ export interface MaterialType<
      * At 4x antialiasing both reads use sample 0. */
     readonly readsPrepass?: { depth?: true; normal?: true };
     readonly fragmentInputs?: { uv?: true; localPos?: true };
+    /** Each varying takes one inter-stage variable after eight engine variables and uv/localPos
+     * when declared. Pipelines exceeding the device's maxInterStageShaderVariables are refused
+     * when prepared. */
     readonly varyings?: V;
     readonly vertex?: MaterialVertexFn<P, V>;
     readonly fragment: MaterialFragmentFn<P, V>;
