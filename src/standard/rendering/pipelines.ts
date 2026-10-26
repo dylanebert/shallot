@@ -38,8 +38,6 @@ import {
     litNormal,
     litRecorded,
     pointScale,
-    pointShadowSlot,
-    pointShadowStub,
     prepassDepthRead,
     prepassDepthSlot,
     prepassNormalRead,
@@ -1335,7 +1333,7 @@ const depthOnlyFs = tgpu
     .$name("prepassDepthOnlyFs");
 
 /** Opaque uses the compact depth stream unless normals or a vertex function need the main stream; clipped inputs retain material alpha.
- * Normals run the material fragment under {@link recordLitNormal}. */
+ * Every depth pipeline shades under {@link recordLitNormal}; normals write the normal it records. */
 function compilePrepass(
     world: World,
     surface: AnyMaterialType,
@@ -1355,8 +1353,7 @@ function compilePrepass(
         depthWriteEnabled: true,
         depthCompare: "greater",
     };
-    const depthRoot = materialRoot(world, surface).with(pointShadowSlot, pointShadowStub);
-    const root = normals ? depthRoot.with(lightingSlot, recordLitNormal) : depthRoot;
+    const root = materialRoot(world, surface).with(lightingSlot, recordLitNormal);
     const clip = alphaPipelineKey !== AlphaPipelineKey.Opaque;
     const varying = Object.keys(surface.varyings ?? {}).length > 0;
     const depthOnly = root
@@ -1941,8 +1938,7 @@ function compileShadow(
         depthWriteEnabled: true,
         depthCompare: "greater",
     };
-    // A real receiver would sample the atlas this pipeline is writing.
-    const root = materialRoot(world, surface).with(pointShadowSlot, pointShadowStub);
+    const root = materialRoot(world, surface).with(lightingSlot, recordLitNormal);
     const clip = alphaPipelineKey !== AlphaPipelineKey.Opaque;
     const varying = !!surface.varyings && Object.keys(surface.varyings).length > 0;
     const point = root

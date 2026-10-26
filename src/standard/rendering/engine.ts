@@ -145,24 +145,6 @@ const ssaoEnabled = tgpu.fn(
     return std.textureDimensions(engineLayout.$.ambientOcclusion).x > 1;
 });
 
-// Vertex shading statically reaches the point receiver even when pointScale is zero.
-// Depth pipelines need a fully-lit stub to avoid binding or sampling the atlas they write.
-// Keep the real receiver's pointShadowOf name and signature so the emitted call site is unchanged.
-export const pointShadowStub = tgpu
-    .fn(
-        [PointLightGpu, d.vec3f, d.vec3f, d.u32],
-        d.f32,
-    )((_light, _normal, _fragWorld, _method) => {
-        "use gpu";
-        return 1;
-    })
-    .$name("pointShadowOf");
-
-/** the receiver seam the scaffold calls through: defaults to the real {@link pointShadowRef}, which
- *  color pipelines sample; a depth pipeline binds {@link pointShadowStub} instead
- *  (`root.with(pointShadowSlot, pointShadowStub)`). */
-export const pointShadowSlot = tgpu.slot(pointShadowOf).$name("pointShadowSlot");
-
 /** the fragment's slot-major cluster index ({@link clusterCell}). ViewUniforms depth recovers from the position
  *  builtin: perspective clip.w is the view depth (`fragCoord.w = 1/clip.w`); orthographic depth is
  *  linear in `fragCoord.z`.
@@ -249,7 +231,7 @@ const litPbrRadiance = tgpu.fn(
             const f =
                 distanceAttenuation(distSq, light.posRange.w, radiusSq) *
                 spotFactor(light, L) *
-                pointShadowSlot.$(
+                pointShadowOf(
                     light,
                     normal,
                     fragWorld.$,
@@ -275,7 +257,8 @@ const litPbrRadiance = tgpu.fn(
 export const litNormal = tgpu.privateVar(d.vec3f, d.vec3f(0));
 export const litRecorded = tgpu.privateVar(d.bool, false);
 
-/** the normal prepass's lighting: records the normal lighting received and returns zero radiance. */
+/** every depth pass's lighting: records the normal lighting received, which the normal prepass
+ *  writes, and returns zero radiance, so no depth pipeline samples the shadow atlases it writes. */
 export const recordLitNormal = tgpu
     .fn(
         [Pbr, d.vec3f, d.vec3f, d.vec3f],
@@ -288,7 +271,7 @@ export const recordLitNormal = tgpu
     })
     .$name("recordLitNormal");
 
-/** the lighting seam {@link litPbr} calls through: real shading by default; the normal prepass binds
+/** the lighting seam {@link litPbr} calls through: real shading by default; depth pipelines bind
  *  {@link recordLitNormal} (`root.with(lightingSlot, recordLitNormal)`). */
 export const lightingSlot = tgpu.slot(litPbrRadiance).$name("lightingSlot");
 
@@ -305,10 +288,10 @@ export const litPbr = tgpu.fn(
  *  before fog: StandardMaterial's response at metallic 0, which has no specular. Use it in a custom
  *  material's fragment to light its own base colour; for metallic, roughness, occlusion or emissive,
  *  use `applyPbrLighting` over `pbrInputFromMaterial`. `normal` is world-space and unit length.
- *  The normal prepass writes the normal of the fragment's last `lit` or `applyPbrLighting` call, or the
- *  interpolated normal without one. There `lit` returns
- *  zero, and `applyPbrLighting` emissive alone, so a cutoff on alpha derived from lit colour sees that
- *  value. */
+ *  In every depth pass (the depth and normal prepasses and the shadow atlases) `lit` returns zero, and
+ *  `applyPbrLighting` emissive alone, so a cutoff on alpha derived from lit colour sees that value
+ *  there. The normal prepass writes the normal of the fragment's last `lit` or `applyPbrLighting`
+ *  call, or the interpolated normal without one. */
 export const lit = tgpu.fn(
     [d.vec3f, d.vec3f],
     d.vec3f,
