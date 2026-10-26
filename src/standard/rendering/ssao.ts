@@ -21,6 +21,13 @@ import {
     type World,
 } from "../../engine";
 import {
+    beginComputePass,
+    dispatchWorkgroups2,
+    endComputePass,
+    setComputeBindGroup,
+    setComputePipeline,
+} from "../../engine/runtime";
+import {
     aoKernel,
     aoLayout,
     copyKernel,
@@ -99,6 +106,14 @@ export const ssaoState = {
         mip: null as TgpuComputePipeline | null,
         ao: null as TgpuComputePipeline | null,
         denoise: null as TgpuComputePipeline | null,
+        passes: {
+            preprocess: { label: "standard:ssao-preprocess" } as GPUComputePassDescriptor,
+            mips: [1, 2, 3, 4].map(
+                (mip) => ({ label: `standard:ssao-mip${mip}` }) as GPUComputePassDescriptor,
+            ),
+            evaluate: { label: "standard:ssao-evaluate" } as GPUComputePassDescriptor,
+            denoise: { label: "standard:ssao-denoise" } as GPUComputePassDescriptor,
+        },
     }),
 };
 export function ssaoTexture(world: World, slot: number): GPUTextureView {
@@ -216,19 +231,18 @@ function allocate(world: World, view: View, multisampled: boolean): CameraAo {
 }
 function dispatch(
     world: World,
-    label: string,
+    descriptor: GPUComputePassDescriptor,
     pipeline: TgpuComputePipeline,
     group: GPUBindGroup,
     width: number,
     height: number,
 ) {
-    const pass = world
-        .frameEncoder()!
-        .beginComputePass({ label, timestampWrites: world.gpu.span?.(label) });
-    pass.setPipeline(world.gpu.root.unwrap(pipeline));
-    pass.setBindGroup(0, group);
-    pass.dispatchWorkgroups(Math.ceil(width / 8), Math.ceil(height / 8));
-    pass.end();
+    descriptor.timestampWrites = world.gpu.span?.(descriptor.label!);
+    const pass = beginComputePass(world.frameEncoder()!, descriptor);
+    setComputePipeline(pass, world.gpu.root.unwrap(pipeline));
+    setComputeBindGroup(pass, 0, group);
+    dispatchWorkgroups2(pass, Math.ceil(width / 8), Math.ceil(height / 8));
+    endComputePass(pass);
 }
 const SsaoSystem: System = {
     name: "ScreenSpaceAmbientOcclusion",
@@ -239,14 +253,16 @@ const SsaoSystem: System = {
         const state = world.resource(ssaoState);
         const views = world.resource(Views);
         state.slots.fill(null);
-        for (const [eid, camera] of state.cameras) {
+        for (const eid of state.cameras.keys()) {
+            const camera = state.cameras.get(eid)!;
             const view = views.get(eid);
             if (!world.has(eid, ScreenSpaceAmbientOcclusion) || !view?.framebuffer) {
                 retire(world, camera);
                 state.cameras.delete(eid);
             }
         }
-        for (const [eid, view] of views) {
+        for (const eid of views.keys()) {
+            const view = views.get(eid)!;
             if (
                 !view.framebuffer ||
                 !view.depth ||
@@ -290,13 +306,17 @@ const SsaoSystem: System = {
             camera.staging[17] = thickness;
             const staging = world.resource(RenderContext).viewStaging;
             const at = view.slot * 64;
-            camera.staging[18] = Math.hypot(staging[at], staging[at + 4], staging[at + 8]);
+            const x = staging[at]!;
+            const y = staging[at + 4]!;
+            const z = staging[at + 8]!;
+            // Math.hypot allocates per call in optimized code; squares of f32 entries are exact in f64.
+            camera.staging[18] = Math.sqrt(x * x + y * y + z * z);
             camera.words[19] = slices;
             camera.words[20] = samples;
             world.gpu.device.queue.writeBuffer(camera.settings, 0, camera.staging);
             dispatch(
                 world,
-                "standard:ssao-preprocess",
+                state.passes.preprocess,
                 msaa ? state.copyMsaa! : state.copy!,
                 camera.copy,
                 view.width,
@@ -305,23 +325,16 @@ const SsaoSystem: System = {
             for (let mip = 0; mip < camera.mips.length; mip++)
                 dispatch(
                     world,
-                    `standard:ssao-mip${mip + 1}`,
+                    state.passes.mips[mip]!,
                     state.mip!,
                     camera.mips[mip]!,
                     Math.max(1, view.width >> (mip + 1)),
                     Math.max(1, view.height >> (mip + 1)),
                 );
+            dispatch(world, state.passes.evaluate, state.ao!, camera.ao, view.width, view.height);
             dispatch(
                 world,
-                "standard:ssao-evaluate",
-                state.ao!,
-                camera.ao,
-                view.width,
-                view.height,
-            );
-            dispatch(
-                world,
-                "standard:ssao-denoise",
+                state.passes.denoise,
                 state.denoise!,
                 camera.denoise,
                 view.width,

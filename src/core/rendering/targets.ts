@@ -33,6 +33,12 @@ interface Target {
     h: number;
     sampleCount: number;
 }
+/** Stored depth with the camera's prepass descriptor, built once per depth texture. */
+interface DepthTarget extends Target {
+    pass: GPURenderPassDescriptor;
+    colorAttachments: GPURenderPassColorAttachment[];
+    normalAttachment: ColorAttachment;
+}
 interface ColorTargets {
     color: GPUTexture | null;
     colorView: GPUTextureView | null;
@@ -76,7 +82,7 @@ function createTargets() {
         depthStencilAttachment: colorDepth,
     };
     return {
-        depth: new Map<number, Target>(),
+        depth: new Map<number, DepthTarget>(),
         normal: new Map<number, Target>(),
         colorTargets: new Map<number, ColorTargets>(),
         clearValue,
@@ -126,12 +132,12 @@ export function disposeViewTargets(world: World): void {
 }
 
 /** Stored depth matches the main pass's sample count; recreated on resize or AA toggle. */
-function depthView(world: World, eid: number, w: number, h: number): GPUTextureView {
+function depthTarget(world: World, eid: number, w: number, h: number): DepthTarget {
     const state = world.resource(viewTargetsKey);
     const sampleCount = world.storage(Camera).antialias.get(eid) !== 0 ? SAMPLE_COUNT : 1;
     const cached = state.depth.get(eid);
     if (cached && cached.w === w && cached.h === h && cached.sampleCount === sampleCount)
-        return cached.view;
+        return cached;
     cached?.texture.destroy();
     const texture = world.gpu.device.createTexture({
         label: `standard-depth-${eid}`,
@@ -141,8 +147,33 @@ function depthView(world: World, eid: number, w: number, h: number): GPUTextureV
         usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
     });
     const view = texture.createView();
-    state.depth.set(eid, { texture, view, w, h, sampleCount });
-    return view;
+    const colorAttachments: GPURenderPassColorAttachment[] = [];
+    const target: DepthTarget = {
+        texture,
+        view,
+        w,
+        h,
+        sampleCount,
+        pass: {
+            label: `standard-prepass/${eid}`,
+            colorAttachments,
+            depthStencilAttachment: {
+                view,
+                depthLoadOp: "clear",
+                depthStoreOp: "store",
+                depthClearValue: 0,
+            },
+        },
+        colorAttachments,
+        normalAttachment: {
+            view: null!,
+            loadOp: "clear",
+            storeOp: "store",
+            clearValue: { r: 0, g: 0, b: 0, a: 0 },
+        },
+    };
+    state.depth.set(eid, target);
+    return target;
 }
 
 export function releaseNormalTarget(world: World, eid: number): void {
@@ -152,18 +183,19 @@ export function releaseNormalTarget(world: World, eid: number): void {
     targets.delete(eid);
 }
 
-/** Prepass attachments publish the requested outputs; the caller opens and records the pass. */
+/** Borrow the camera's prepass descriptor until its next call; its attachments publish the requested
+ * outputs, and the caller opens and records the pass. */
 export function prepassDescriptor(
     world: World,
     eid: number,
     view: View,
     normals = false,
 ): GPURenderPassDescriptor {
-    const depth = depthView(world, eid, view.width, view.height);
-    view.depth = depth;
+    const depth = depthTarget(world, eid, view.width, view.height);
+    view.depth = depth.view;
     const state = world.resource(viewTargetsKey);
     let normal = state.normal.get(eid);
-    const sampleCount = state.depth.get(eid)!.sampleCount;
+    const sampleCount = depth.sampleCount;
     if (
         normal &&
         (!normals ||
@@ -196,19 +228,12 @@ export function prepassDescriptor(
         state.normal.set(eid, normal);
     }
     view.normal = normal?.view ?? null;
-    return {
-        label: `standard-prepass/${eid}`,
-        timestampWrites: world.gpu.span?.("standard:prepass"),
-        colorAttachments: normal
-            ? [{ view: normal.view, loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 0] }]
-            : [],
-        depthStencilAttachment: {
-            view: depth,
-            depthLoadOp: "clear",
-            depthStoreOp: "store",
-            depthClearValue: 0,
-        },
-    };
+    if (normal) {
+        depth.normalAttachment.view = normal.view;
+        depth.colorAttachments[0] = depth.normalAttachment;
+    } else depth.colorAttachments.length = 0;
+    depth.pass.timestampWrites = world.gpu.span?.("standard:prepass");
+    return depth.pass;
 }
 
 /** Main-pass MSAA color and depth, recreated on resize or AA toggle. */
