@@ -1,4 +1,4 @@
-import { pipelineWarnings } from "@dylanebert/shallot/testing";
+import { holdFrames, pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, test } from "playwright/test";
 import { capture } from "./capture";
 
@@ -13,6 +13,7 @@ for (const name of [
     test(`${name} look review`, async ({ page }) => {
         const errors: string[] = [];
         page.on("pageerror", (error) => errors.push(error.message));
+        const frames = await holdFrames(page, "[aria-label='Scene navigation']");
         await page.goto("/");
         const picker = page.getByRole("button", { name: "Scene", exact: true });
         await expect(picker).toBeEnabled();
@@ -23,7 +24,7 @@ for (const name of [
             .click();
         await expect(picker).toHaveText(name);
         await expect(picker).toBeEnabled();
-        await capture(page, name.replaceAll(" ", "-").toLowerCase());
+        await capture(page, name.replaceAll(" ", "-").toLowerCase(), frames);
         expect(errors).toEqual([]);
     });
 }
