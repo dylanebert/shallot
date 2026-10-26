@@ -19,7 +19,7 @@ export type {
     PhysicsSensorEvent,
 } from "./events";
 export { PhysicsEvents } from "./events";
-export { rotationFromAxisAngle } from "./rotation";
+export { computeCosSin, rotationFromAxisAngle } from "./rotation";
 export {
     applyAngularImpulse,
     applyForce,

@@ -19,6 +19,7 @@ import {
 } from "@dylanebert/shallot/physics";
 import {
     computeBodyAABB,
+    computeCosSin,
     rotationFromAxisAngle,
     StandardPhysicsPlugin,
     StepPhysicsSystem,
@@ -645,6 +646,19 @@ test("hull placement recreates only on a different value and recovers pending wr
         world.storage(Shape).hullRotation.set(eid, ...q);
         world.tick();
         expect(shapeIsValid(stateFor(world), placed)).toBe(false);
+    });
+});
+
+test("computeCosSin returns caller-owned Box3D float results", async () => {
+    await withPhysics((world) => {
+        const k = kernel(world);
+        for (const angle of [-100, -Math.PI, -0.1, 0, 0.1, Math.PI, 100]) {
+            const expected = Array.from(new Float32Array(k.memory.buffer, k.mathCosSin(angle), 2));
+            const actual = computeCosSin(world, angle);
+            expect([...actual]).toEqual(expected);
+            computeCosSin(world, angle + 1);
+            expect([...actual]).toEqual(expected);
+        }
     });
 });
 

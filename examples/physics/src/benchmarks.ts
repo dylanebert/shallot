@@ -12,9 +12,12 @@ import {
     type World,
 } from "@dylanebert/shallot";
 import {
+    computeCosSin,
     PhysicsWorldDefinition,
     StandardPhysicsPlugin,
+    StepPhysicsSystem,
     SyncPhysicsConstraintsSystem,
+    setTargetTransform,
 } from "@dylanebert/shallot/standard/physics";
 import { human } from "./human";
 
@@ -147,12 +150,35 @@ function jointGrid(world: World): number[] {
 }
 export const BenchmarkSample = {
     create: () => ({
+        degrees: 0,
+        pusher: 0,
         scene: "",
         step: 0,
         columnCount: 0,
         columnIndex: 0,
         groups: Array.from({ length: 100 }, () => [] as ReturnType<typeof human>[]),
     }),
+};
+const BeforeBenchmark: System = {
+    name: "benchmark-before-step",
+    group: "fixed",
+    after: [SyncPhysicsConstraintsSystem],
+    before: [StepPhysicsSystem],
+    update(world) {
+        const sample = world.resource(BenchmarkSample);
+        if (sample.scene !== "junkyard") return;
+        const dt = f(1 / 60);
+        sample.degrees = f(sample.degrees + f(-6 * dt));
+        const [c, s] = computeCosSin(world, f(f(sample.degrees * f(Math.PI)) / 180));
+        setTargetTransform(
+            world,
+            sample.pusher,
+            [f(35 * c), 0, f(35 * s)],
+            [0, 0, 0, 1],
+            dt,
+            false,
+        );
+    },
 };
 const SpawnBenchmark: System = {
     name: "benchmark-spawn",
@@ -210,14 +236,85 @@ function rain(world: World): number[] {
 export const BenchmarkSamplePlugin: Plugin = {
     name: "BenchmarkSample",
     dependencies: [StandardPhysicsPlugin],
-    systems: [SpawnBenchmark],
+    systems: [SpawnBenchmark, BeforeBenchmark],
     recovery: (world) => ({
         snapshot: () => structuredClone(world.resource(BenchmarkSample)),
         restore: (state: ReturnType<typeof BenchmarkSample.create>) =>
             Object.assign(world.resource(BenchmarkSample), structuredClone(state)),
     }),
 };
+function shape(world: World, parent: number, geometry: number): void {
+    const eid = world.create();
+    world.add(eid, Shape, { body: parent, geometry });
+}
+function junkyard(world: World): number[] {
+    const base = body(world, box(world, [120, 1, 120]), [0, -1, 0], false);
+    for (const [halfExtents, position] of [
+        [
+            [1, 8, 50],
+            [-50, 8, 0],
+        ],
+        [
+            [1, 8, 50],
+            [50, 8, 0],
+        ],
+        [
+            [50, 8, 1],
+            [0, 8, -50],
+        ],
+        [
+            [50, 8, 1],
+            [0, 8, 50],
+        ],
+    ] as const) {
+        shape(
+            world,
+            base,
+            world.resource(Hulls).add({
+                name: "wall",
+                halfExtents,
+                transform: { position, rotation: [0, 0, 0, 1] },
+            }),
+        );
+    }
+    const phi = f(f(1 + f(Math.sqrt(5))) / 2);
+    const [dc, ds] = computeCosSin(world, f(f(2 * f(Math.PI)) / phi));
+    let c = 1,
+        s = 0;
+    const points: number[] = [];
+    for (let i = 0; i < 10; i++) {
+        const z = f(1 - f((2 * i + 1) / 10));
+        const r = f(Math.sqrt(f(1 - f(z * z))));
+        points.push(f(f(1.5 * r) * c), f(f(1.5 * r) * s), f(1.5 * z));
+        const previous = c;
+        c = f(f(dc * c) - f(ds * s));
+        s = f(f(ds * previous) + f(dc * s));
+    }
+    const rock = world
+        .resource(Hulls)
+        .add({ name: "rock", points: new Float32Array(points), maxVertexCount: 10 });
+    const bodies: number[] = [];
+    for (let y = 0; y < 24; y++)
+        for (let x = 0; x <= 20; x++)
+            for (let z = 0; z <= 20; z++)
+                bodies.push(body(world, rock, [-40 + 4 * x, 4 * y + 25, -40 + 4 * z]));
+    const cylinder = world
+        .resource(Hulls)
+        .add({ name: "pusher", cylinder: { height: 24, radius: 4, yOffset: 0, sides: 16 } });
+    const pusher = body(world, cylinder, [35, 0, 0]);
+    world.storage(Body).type.set(pusher, BodyType.Kinematic);
+    Object.assign(world.resource(BenchmarkSample), { scene: "junkyard", degrees: 0, pusher });
+    bodies.push(pusher);
+    return bodies;
+}
 export const benchmarkScenes = {
+    junkyard: {
+        construct: junkyard,
+        gridExtent: 120,
+        gridSpacing: 10,
+        camera: { yaw: 45, pitch: 20, distance: 140, target: [0, 20, 0] },
+        controls: undefined,
+    },
     rain: {
         construct: rain,
         gridExtent: 75,

@@ -168,6 +168,7 @@ int main( int argc, char** argv )
 		{ "manyPyramids", BenchmarkManyPyramids::Create }, { "jointGrid", BenchmarkJointGrid::Create },
 		{ "fallingBoxes", FallingBoxes::Create },
 		{ "rain", BenchmarkRain::Create },
+		{ "junkyard", BenchmarkJunkyard::Create },
 		{ "box_stack", BoxStack::Create }, { "bridge", Bridge::Create },
 		{ "revolute", RevoluteJoint::Create }, { "prismatic", PrismaticJoint::Create },
 		{ "wheel", WheelJoint::Create }, { "filter", FilterJoint::Create }, { "parallel", ParallelJoint::Create },
