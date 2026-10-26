@@ -9,6 +9,7 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
     const joints = readFileSync(join(samples, "sample_joint.cpp"), "utf8");
     const sample = readFileSync(join(samples, "sample.cpp"), "utf8");
     const events = readFileSync(join(samples, "sample_events.cpp"), "utf8");
+    const benchmark = readFileSync(join(samples, "sample_benchmark.cpp"), "utf8");
     function section(source: string, start: string, end: string): string {
         const first = source.indexOf(start);
         const last = source.indexOf(end, first);
@@ -17,6 +18,8 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
     }
     const sources = [
         section(sample, "b3BodyId Sample::AddGroundBox(", "struct RowDef"),
+        ...["BenchmarkLargePyramid", "BenchmarkWidePyramid", "BenchmarkManyPyramids", "BenchmarkJointGrid", "FallingBoxes"].map(name =>
+            section(benchmark, `class ${name} :`, `static int sample${name.replace("Benchmark", "")}`)),
         section(stacking, "class BoxStack :", "static int sampleBoxStack"),
         section(joints, "class Bridge :", "static int sampleBridgeIndex"),
         ...["Filter", "Prismatic", "Parallel", "Revolute", "Wheel", "Motor"].map((name) =>
@@ -37,5 +40,5 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         .replace("// SAMPLE_SOURCES", sources);
     const path = join(tmpdir(), `box3d-sample-${Bun.hash(source).toString(16)}.cpp`);
     writeFileSync(path, source);
-    return nativeBinary(path);
+    return nativeBinary(path, undefined, join(samples, "../shared/benchmarks.c"));
 }

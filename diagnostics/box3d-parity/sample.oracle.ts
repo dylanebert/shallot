@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,10 +44,13 @@ for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "f
         }
         const copy = mkdtempSync(join(tmpdir(), "box3d-sample-mutation-"));
         try {
-            for (const name of ["sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp"]) {
-                copyFileSync(join(process.env.BOX3D!, "samples", name), join(copy, name));
+            mkdirSync(join(copy, "samples"));
+            mkdirSync(join(copy, "shared"));
+            copyFileSync(join(process.env.BOX3D!, "shared/benchmarks.c"), join(copy, "shared/benchmarks.c"));
+            for (const name of ["sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp"]) {
+                copyFileSync(join(process.env.BOX3D!, "samples", name), join(copy, "samples", name));
             }
-            const path = join(copy, scene === "box_stack" ? "sample_stacking.cpp" : ["joint", "sensor", "contact", "hit"].includes(scene) ? "sample_events.cpp" : "sample_joint.cpp");
+            const path = join(copy, "samples", scene === "box_stack" ? "sample_stacking.cpp" : ["joint", "sensor", "contact", "hit"].includes(scene) ? "sample_events.cpp" : "sample_joint.cpp");
             const source = readFileSync(path, "utf8");
             const classes: Record<string, string> = { box_stack: "BoxStack", bridge: "Bridge", revolute: "RevoluteJoint", prismatic: "PrismaticJoint", wheel: "WheelJoint", filter: "FilterJoint", parallel: "ParallelJoint", motor: "MotorJoint", joint: "JointEvent", sensor: "SensorVisit", contact: "ContactEvent", hit: "HitEvent" };
             const start = source.indexOf(`class ${classes[scene]} :`);
@@ -65,7 +68,7 @@ for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "f
             const after = eventConstants[scene]?.[1] ?? (scene === "wheel" ? "bodyDef.position = { 0.0f, 2.1f, 0.0f };" : scene === "filter" ? "bodyDef.position = { 2.1f, 4.0f, 0.0f };" : replacement!);
             expect(selected.includes(before)).toBe(true);
             writeFileSync(path, prefix + selected.replace(before, after));
-            const mutated = run([sampleBinary(copy), scene, String(steps)]);
+            const mutated = run([sampleBinary(join(copy, "samples")), scene, String(steps)]);
             expect(sampleGold(mutated).map(step => step.hash)).not.toEqual(sampleGold(hashes).map(step => step.hash));
             expect(hashes.trim().split("\n")).toHaveLength(steps);
             console.log(`${scene}: ${hashes.split("\n")[0]} … ${hashes.trim().split("\n").at(-1)}`);
@@ -73,5 +76,35 @@ for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "f
         } finally {
             rmSync(copy, { recursive: true, force: true });
         }
+    });
+}
+
+const benchmarkMutations: Record<string, [string, string]> = {
+    largePyramid: ["int baseCount = BENCHMARK_DEBUG ? 20 : 100;", "int baseCount = BENCHMARK_DEBUG ? 20 : 99;"],
+    widePyramid: ["const float boxSeparation = 0.5f;", "const float boxSeparation = 0.6f;"],
+    manyPyramids: ["int baseCount = 10;", "int baseCount = 9;"],
+    jointGrid: ["0.0f, 0.0f, 0.0f }, 0.4f", "0.0f, 0.0f, 0.0f }, 0.5f"],
+    fallingBoxes: ["float a = 0.5f;", "float a = 0.6f;"],
+};
+for (const [scene, [before, after]] of Object.entries(benchmarkMutations)) {
+    test(`${scene}: release sample repeats its gold and rejects a source mutation`, () => {
+        const hashes = run([sampleBinary(), scene, String(steps)]);
+        equalSampleSteps(run([sampleBinary(), scene, String(steps)]), hashes, `${scene} repeat`);
+        equalSampleSteps(hashes, readFileSync(new URL(`../../examples/physics/tests/${scene}.gold.txt`, import.meta.url), "utf8"), scene);
+        const copy = mkdtempSync(join(tmpdir(), "box3d-benchmark-mutation-"));
+        try {
+            mkdirSync(join(copy, "samples"));
+            mkdirSync(join(copy, "shared"));
+            for (const name of ["sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp"])
+                copyFileSync(join(process.env.BOX3D!, "samples", name), join(copy, "samples", name));
+            copyFileSync(join(process.env.BOX3D!, "shared/benchmarks.c"), join(copy, "shared/benchmarks.c"));
+            const path = join(copy, scene === "fallingBoxes" ? "samples/sample_benchmark.cpp" : "shared/benchmarks.c");
+            const source = readFileSync(path, "utf8");
+            const start = scene === "fallingBoxes" ? source.indexOf("class FallingBoxes :") : 0;
+            expect(source.slice(start).includes(before)).toBe(true);
+            writeFileSync(path, source.slice(0, start) + source.slice(start).replace(before, after));
+            const mutated = run([sampleBinary(join(copy, "samples")), scene, String(steps)]);
+            expect(sampleGold(mutated).map(step => step.hash)).not.toEqual(sampleGold(hashes).map(step => step.hash));
+        } finally { rmSync(copy, { recursive: true, force: true }); }
     });
 }

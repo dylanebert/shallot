@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include "box3d/box3d.h"
 #include "utils.h"
+#include "benchmarks.h"
 #include <cassert>
 #include <cmath>
 #include <cstdio>
@@ -123,6 +124,8 @@ public:
 		if ( recordEvents ) PrintEvents( m_worldId );
 		printf( "\n" );
 	}
+	static constexpr bool m_isDebug = false;
+	float m_shadowSplitFar = 0;
 	uint64_t m_stepHash = 0;
 	b3BodyId AddGroundBox( float extent );
 	SampleContext* m_context;
@@ -148,6 +151,9 @@ int main( int argc, char** argv )
 	SampleContext context;
 	struct Entry { const char* name; Sample* (*create)(SampleContext*); };
 	const Entry entries[] = {
+		{ "largePyramid", BenchmarkLargePyramid::Create }, { "widePyramid", BenchmarkWidePyramid::Create },
+		{ "manyPyramids", BenchmarkManyPyramids::Create }, { "jointGrid", BenchmarkJointGrid::Create },
+		{ "fallingBoxes", FallingBoxes::Create },
 		{ "box_stack", BoxStack::Create }, { "bridge", Bridge::Create },
 		{ "revolute", RevoluteJoint::Create }, { "prismatic", PrismaticJoint::Create },
 		{ "wheel", WheelJoint::Create }, { "filter", FilterJoint::Create }, { "parallel", ParallelJoint::Create },

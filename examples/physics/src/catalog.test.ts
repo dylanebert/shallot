@@ -4,6 +4,16 @@ import { categories, scenes } from "./scenes";
 test("each picker label selects its scene in its category, exactly once", () => {
     expect(categories).toEqual([
         {
+            name: "Benchmark",
+            scenes: [
+                { id: "largePyramid", name: "Large Pyramid" },
+                { id: "widePyramid", name: "Wide Pyramid" },
+                { id: "manyPyramids", name: "Many Pyramids" },
+                { id: "fallingBoxes", name: "Falling Boxes" },
+                { id: "jointGrid", name: "Joint Grid" },
+            ],
+        },
+        {
             name: "Events",
             scenes: [
                 { id: "contact", name: "Contact" },

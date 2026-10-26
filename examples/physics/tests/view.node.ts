@@ -139,10 +139,15 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 wheel: 10,
                 filter: 10,
                 parallel: 20,
+                largePyramid: 400,
+                widePyramid: 100,
+                manyPyramids: 77,
+                fallingBoxes: 100,
+                jointGrid: 100,
             }[id];
             const grid = presentation.grid;
             const spacing = grid.lines[2]!.a[2] - grid.lines[0]!.a[2];
-            expect(spacing).toBe(id === "hit" ? 5 : 1);
+            expect(spacing).toBe(scenes[id].gridSpacing);
             // At the 720 CSS-pixel review camera, adjacent cells at the ground focus
             // reserve at least 4 pixels in both screen directions (at most 1 line / 4 px).
             const camera = scenes[id].camera;

@@ -18,7 +18,7 @@ export function run(cmd: string[], env: Record<string, string> = {}): string {
 }
 
 /** The path of the native binary, built on first use. */
-export function nativeBinary(sourceName = "native.c", architecture?: "x86_64" | "arm64"): string {
+export function nativeBinary(sourceName = "native.c", architecture?: "x86_64" | "arm64", benchmarks?: string): string {
     const box3d = process.env.BOX3D;
     if (!box3d) throw new Error("set BOX3D to a Box3D checkout at 47d7f7cc");
     const head = Bun.spawnSync(["git", "-C", box3d, "rev-parse", "HEAD"]).stdout.toString().trim();
@@ -31,7 +31,7 @@ export function nativeBinary(sourceName = "native.c", architecture?: "x86_64" | 
     const source = resolve(here, sourceName);
     const native = join(
         build,
-        `native-${Bun.hash(readFileSync(source)).toString(16).padStart(16, "0")}`,
+        `native-${Bun.hash(Buffer.concat([readFileSync(source), benchmarks ? readFileSync(benchmarks) : Buffer.alloc(0)])).toString(16).padStart(16, "0")}`,
     );
     if (existsSync(native)) return native;
     if (!existsSync(join(cmake, "src/libbox3d.a"))) {
@@ -50,6 +50,8 @@ export function nativeBinary(sourceName = "native.c", architecture?: "x86_64" | 
         run(["cmake", "--build", cmake, "-j", "8", "--target", "box3d", "shared"]);
     }
     const inc = ["include", "src", "shared"].map((d) => `-I${join(box3d, d)}`);
+    const object = `${native}-benchmarks.o`;
+    if (benchmarks) run(["cc", "-O2", "-DNDEBUG", "-std=c17", "-ffp-contract=off", ...inc, "-c", benchmarks, "-o", object]);
     run([
         source.endsWith(".cpp") ? "c++" : "cc",
         ...(architecture ? ["-arch", architecture] : []),
@@ -58,6 +60,7 @@ export function nativeBinary(sourceName = "native.c", architecture?: "x86_64" | 
         "-ffp-contract=off",
         ...inc,
         source,
+        ...(benchmarks ? [object] : []),
         join(cmake, "shared/libshared.a"),
         join(cmake, "src/libbox3d.a"),
         "-lm",

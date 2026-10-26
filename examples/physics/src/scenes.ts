@@ -14,7 +14,7 @@ import {
 } from "@dylanebert/shallot";
 
 import { PhysicsWorldDefinition, setAwake } from "@dylanebert/shallot/standard/physics";
-
+import { benchmarkScenes } from "./benchmarks";
 import { eventScenes } from "./events";
 
 export type Scene =
@@ -25,8 +25,19 @@ export type Scene =
     | "wheel"
     | "filter"
     | "parallel"
-    | keyof typeof eventScenes;
+    | keyof typeof eventScenes
+    | keyof typeof benchmarkScenes;
 export const categories: { name: string; scenes: { id: Scene; name: string }[] }[] = [
+    {
+        name: "Benchmark",
+        scenes: [
+            { id: "largePyramid", name: "Large Pyramid" },
+            { id: "widePyramid", name: "Wide Pyramid" },
+            { id: "manyPyramids", name: "Many Pyramids" },
+            { id: "fallingBoxes", name: "Falling Boxes" },
+            { id: "jointGrid", name: "Joint Grid" },
+        ],
+    },
     {
         name: "Events",
         scenes: [
@@ -109,6 +120,7 @@ export function changeControl(
 }
 export const scenes = {
     ...eventScenes,
+    ...benchmarkScenes,
     boxStack: {
         construct: boxStack,
         gridExtent: 40,
