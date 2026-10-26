@@ -1,7 +1,6 @@
 /// <reference types="@webgpu/types" />
 
 import { Body, BodyType, PhysicsPlugin, Shape as ShapeComponent } from "../../core/physics";
-import { PhysicsCreationOrder } from "../../core/physics/creation-order";
 import {
     claimTransformPose,
     GlobalTransform,
@@ -32,6 +31,7 @@ import { syncBodyFields } from "./body-sync";
 import type { ShapeProxy } from "./collision/distance";
 import { DEFAULT_MASK_BITS, SetType } from "./common/constants";
 import type { EntityId } from "./common/ids";
+import { PhysicsCreationOrder, recordPhysicsMembership } from "./creation-order";
 
 const f32 = Math.fround;
 
@@ -1137,6 +1137,7 @@ export function physicsCounters(world: World): PhysicsCounters {
 // The runtime's maps from entities to solver handles, as plain ids, so a restore rebinds them for its
 // target World and the sync systems reconcile them against the live ECS on the next tick.
 interface Bindings {
+    creationOrder: number[];
     /** The authoring configuration paired with the captured solver settings. */
     worldDefinition: PhysicsWorldDefinitionConfig;
     /** eid, solver body index1, solver generation, EntityRef */
@@ -1188,7 +1189,9 @@ function captureBindings(world: World, runtime: PhysicsRuntime): Bindings {
             runtime.shapeBodies.get(eid)!,
             runtime.shapeStamps.get(eid)!,
         );
+    const order = world.resource(PhysicsCreationOrder);
     return {
+        creationOrder: order.entries.slice(0, order.count),
         worldDefinition: copyPhysicsWorldDefinition(world.resource(PhysicsWorldDefinition)),
         bodies,
         shapes,
@@ -1218,6 +1221,9 @@ function restoreBindings(
         world.resource(PhysicsWorldDefinition),
         copyPhysicsWorldDefinition(b.worldDefinition),
     );
+    const order = world.resource(PhysicsCreationOrder);
+    order.entries = b.creationOrder.slice();
+    order.count = order.entries.length;
     const state = physicsWorld;
     for (const eid of runtime.bodies.keys()) releaseTransformPose(world, eid);
     runtime.bodies.clear();
@@ -2100,7 +2106,15 @@ export const SyncPhysicsWorldDefinitionSystem: System = {
 export const StandardPhysicsPlugin: Plugin = {
     name: "StandardPhysics",
     recovery(world) {
-        world.resource(PhysicsCreationOrder).recording = true;
+        const order = world.resource(PhysicsCreationOrder);
+        order.components = [...PhysicsPlugin.components!];
+        for (let kind = 0; kind < order.components.length; kind++) {
+            world.onDispose(
+                world.observeMembership(order.components[kind], (eid, present) =>
+                    recordPhysicsMembership(world, kind, eid, present),
+                ),
+            );
+        }
         return {
             snapshot: () => capturePhysics(world),
             restore: (image: PhysicsSnapshot) => recoverPhysics(world, image),

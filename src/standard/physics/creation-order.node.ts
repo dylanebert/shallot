@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { Body, BodyType, RevoluteJoint, Shape, SphericalJoint } from "../../core/physics";
 import { createApp, type World } from "../../engine";
-import { TIMEOUT } from "../../project/testing";
 import * as marshal from "./marshal";
 import * as shapes from "./marshal-shape";
 import { StandardPhysicsPlugin } from "./runtime";

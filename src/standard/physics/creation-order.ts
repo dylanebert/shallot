@@ -6,7 +6,6 @@ export const PhysicsCreationOrder = {
         components: [] as Component[],
         entries: [] as number[],
         count: 0,
-        recording: false,
     }),
 };
 
@@ -17,7 +16,6 @@ export function recordPhysicsMembership(
     present: boolean,
 ): void {
     const journal = world.resource(PhysicsCreationOrder);
-    if (!journal.recording) return;
     let at = journal.count;
     journal.entries[at++] = kind;
     journal.entries[at++] = eid;

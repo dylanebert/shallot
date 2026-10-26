@@ -1,8 +1,8 @@
 import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { expectWarning } from "../../../scripts/test-console";
 import { Body, RevoluteJoint, Shape, SphericalJoint } from "../../core/physics";
 import { createApp } from "../../engine";
-import { TIMEOUT } from "../../project/testing";
 import * as authoring from "./authoring";
 import * as records from "./kernel/jointrecords";
 import * as marshal from "./marshal-shape";

@@ -2,7 +2,6 @@ import { component, f32, type Plugin, type Resource, u32, vec3 } from "../../eng
 import { Transform, TransformPlugin } from "../transform";
 import { PhysicsAssets } from "./assets";
 import { Compounds } from "./compound";
-import { PhysicsCreationOrder, recordPhysicsMembership } from "./creation-order";
 import { HeightFields } from "./height-field";
 import { Hulls } from "./hull";
 import {
@@ -141,17 +140,7 @@ export const PhysicsPlugin: Plugin = {
     name: "Physics",
     dependencies: [TransformPlugin],
     recovery(world) {
-        for (let kind = 0; kind < components.length; kind++) {
-            world.onDispose(
-                world.observeMembership(components[kind], (eid, present) =>
-                    recordPhysicsMembership(world, kind, eid, present),
-                ),
-            );
-        }
-        const order = world.resource(PhysicsCreationOrder);
-        order.components = components;
         const snapshot = () => ({
-            creationOrder: order.entries.slice(0, order.count),
             hulls: structuredClone(world.resource(Hulls).snapshot()),
             meshes: structuredClone(world.resource(PhysicsMeshes).snapshot()),
             heightFields: structuredClone(world.resource(HeightFields).snapshot()),
@@ -161,8 +150,6 @@ export const PhysicsPlugin: Plugin = {
         return {
             snapshot,
             restore: (state: ReturnType<typeof snapshot>) => {
-                order.entries = state.creationOrder.slice();
-                order.count = order.entries.length;
                 world.resource(Hulls).restore(structuredClone(state.hulls));
                 world.resource(PhysicsMeshes).restore(structuredClone(state.meshes));
                 world.resource(HeightFields).restore(structuredClone(state.heightFields));
