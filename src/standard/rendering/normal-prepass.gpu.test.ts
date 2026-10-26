@@ -122,3 +122,38 @@ test("a depth-only camera allocates no normal target", () => {
     expect(world.resource(viewTargetsKey).normal.has(absent)).toBe(false);
     expect(world.resource(Views).get(absent)!.normal).toBeNull();
 });
+test("a camera keeping its depth prepass drops and regains its normal attachment as NormalPrepass toggles", async () => {
+    const { world } = subjects()[0];
+    const device = world.gpu.device;
+    const view = world.resource(Views).get(absent)!;
+    const prepass = () => world.resource(viewTargetsKey).depth.get(absent)!.pass;
+    const frame = async () => {
+        device.pushErrorScope("validation");
+        world.step(1 / 60);
+        world.step(1 / 60);
+        return (await device.popErrorScope())?.message;
+    };
+    world.add(absent, NormalPrepass);
+    expect(await frame()).toBeUndefined();
+    const first = view.normal;
+    expect(first).not.toBeNull();
+    expect(Array.from(prepass().colorAttachments, (a) => a?.view as GPUTextureView | null)).toEqual(
+        [first],
+    );
+
+    world.remove(absent, NormalPrepass);
+    expect(await frame()).toBeUndefined();
+    expect(view.normal).toBeNull();
+    expect(view.depth).not.toBeNull();
+    expect(Array.from(prepass().colorAttachments)).toEqual([]);
+
+    world.add(absent, NormalPrepass);
+    expect(await frame()).toBeUndefined();
+    expect(view.normal).not.toBeNull();
+    expect(view.normal).not.toBe(first);
+    expect(Array.from(prepass().colorAttachments, (a) => a?.view as GPUTextureView | null)).toEqual(
+        [view.normal],
+    );
+    world.remove(absent, NormalPrepass);
+    world.step(1 / 60);
+});
