@@ -260,6 +260,7 @@ export class Scheduler {
                 }
                 // A running host keeps its frame loop. The failed system stays paused until it is removed and
                 // added again, which reruns its setup.
+                if (!this._systems.has(system)) continue;
                 this._errored.add(system);
                 console.error(
                     `System "${this._names.get(system) ?? system.name ?? "?"}" threw and is paused until its next reload:`,
@@ -280,6 +281,7 @@ export class Scheduler {
         sampleDiagnosticTime(this._measurement);
         const t0 = this._measurement[0];
         system.update(world);
+        if (!this._systems.has(system)) return;
         sampleDiagnosticTime(this._measurement);
         this._measurement[1] = (this._measurement[0] - t0) * 1000;
         record(this._names.get(system) ?? "?", this._measurement);
@@ -289,7 +291,8 @@ export class Scheduler {
     private runFirst(world: World, system: System, record: Scheduler["record"]): void {
         const name = `${SYSTEM_MEASURE_PREFIX}${this._names.get(system) ?? system.name ?? "?"}`;
         if (system.setup) userTimingSpan(`${name}:setup`, () => system.setup!(world));
-        if (this._systems.has(system)) this._initialized.add(system);
+        if (!this._systems.has(system)) return;
+        this._initialized.add(system);
         if (system.update)
             userTimingSpan(`${name}:first-update`, () => this.update(world, system, record));
     }

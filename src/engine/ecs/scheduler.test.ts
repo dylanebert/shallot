@@ -140,6 +140,84 @@ test("a system removed during its setup reruns setup when added again", () => {
     }
 });
 
+for (const indirect of [false, true]) {
+    test(`a system removed ${indirect ? "by a setup callee" : "during setup"} skips its first update`, () => {
+        const world = new World();
+        const log: string[] = [];
+        const remove = () => world.removeSystem(removed);
+        const removed: System = {
+            setup(world) {
+                log.push("setup");
+                if (indirect) remove();
+                else world.removeSystem(removed);
+            },
+            update: () => log.push("update"),
+        };
+        world.addSystem(removed);
+        try {
+            world.step();
+            expect(log).toEqual(["setup"]);
+        } finally {
+            world.dispose();
+        }
+    });
+}
+
+for (const phase of ["setup", "update"] as const) {
+    test(`a system removed by a throwing ${phase} is not paused when added again`, () => {
+        const world = new World();
+        world.logAndPauseSystemErrors();
+        const errors = spyOn(console, "error").mockImplementation(() => {});
+        const log: string[] = [];
+        let fail = true;
+        const removeAndThrow = () => {
+            if (!fail) return;
+            fail = false;
+            world.removeSystem(removed);
+            throw new Error("removed");
+        };
+        const removed: System = {
+            setup() {
+                log.push("setup");
+                if (phase === "setup") removeAndThrow();
+            },
+            update() {
+                log.push("update");
+                if (phase === "update") removeAndThrow();
+            },
+        };
+        world.addSystem(removed);
+        try {
+            world.step();
+            world.addSystem(removed);
+            world.step();
+            world.step();
+            expect(log).toEqual(
+                phase === "setup"
+                    ? ["setup", "setup", "update", "update"]
+                    : ["setup", "update", "setup", "update", "update"],
+            );
+        } finally {
+            errors.mockRestore();
+            world.dispose();
+        }
+    });
+}
+
+test("a system removed during update records no timing sample", () => {
+    const scheduler = new Scheduler();
+    const samples: string[] = [];
+    const removed: System = {
+        update() {
+            scheduler.unregister(removed);
+        },
+    };
+    scheduler.register(removed, "removed");
+    scheduler.record = (name) => samples.push(name);
+    scheduler.step({} as World, { deltaTime: 0 });
+    expect(samples).toEqual([]);
+});
+
 test("a paused system removed by an earlier system in its group resumes when added again", () => {
     const world = new World();
     world.logAndPauseSystemErrors();
