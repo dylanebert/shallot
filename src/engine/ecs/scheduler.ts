@@ -137,6 +137,11 @@ export class Scheduler {
                 );
             }
         }
+        // A disposed world runs no system, including the rest of the pass that disposed it.
+        this._systems.clear();
+        this._errored.clear();
+        this._boundaries.clear();
+        this._systemsVersion++;
     }
 
     /** @internal Module-owned slots bracket every ordinary system, including terminal systems. */
