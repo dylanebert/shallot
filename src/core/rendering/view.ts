@@ -19,6 +19,7 @@ export const ViewUniforms = d
         resolution: d.vec2f,
         right: d.vec4f,
         up: d.vec4f,
+        /** `x` near and `y` far plane distance, `z` 1 for perspective and 0 for orthographic, `w` the cull slot; `xyz` are 0 for views that do not shade. */
         projection: d.vec4f,
         eye: d.vec4f,
         invViewProj: d.mat4x4f,
