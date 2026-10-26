@@ -117,6 +117,29 @@ test("a system removed by an earlier system in its group skips that pass and rer
     }
 });
 
+test("a system removed during its setup reruns setup when added again", () => {
+    const world = new World();
+    let setups = 0;
+    const removed: System = {
+        setup(world) {
+            setups++;
+            world.removeSystem(removed);
+        },
+    };
+    world.addSystem(removed);
+    try {
+        world.step();
+        expect(setups).toBe(1);
+        world.step();
+        expect(setups).toBe(1);
+        world.addSystem(removed);
+        world.step();
+        expect(setups).toBe(2);
+    } finally {
+        world.dispose();
+    }
+});
+
 test("a paused system removed by an earlier system in its group resumes when added again", () => {
     const world = new World();
     world.logAndPauseSystemErrors();

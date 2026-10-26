@@ -289,7 +289,7 @@ export class Scheduler {
     private runFirst(world: World, system: System, record: Scheduler["record"]): void {
         const name = `${SYSTEM_MEASURE_PREFIX}${this._names.get(system) ?? system.name ?? "?"}`;
         if (system.setup) userTimingSpan(`${name}:setup`, () => system.setup!(world));
-        this._initialized.add(system);
+        if (this._systems.has(system)) this._initialized.add(system);
         if (system.update)
             userTimingSpan(`${name}:first-update`, () => this.update(world, system, record));
     }
