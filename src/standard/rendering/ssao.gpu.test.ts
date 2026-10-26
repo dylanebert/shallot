@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
-import { MeshInstance } from "../../core/mesh";
+import { Meshes, MeshInstance, sphere } from "../../core/mesh";
 import {
     attachTexture,
     Camera,
@@ -23,7 +23,44 @@ setDefaultTimeout(TIMEOUT.gpu);
 const cameras: number[] = [];
 /** [1-wide, 2-wide] cameras with SSAO, then the same pair without it. */
 const narrow: number[] = [];
+/** [with SSAO, without] over the ambient-occlusion example's cubes, at material occlusion 1, and
+ * sphere, at 1.5: re-occluding with min(m, multibounce(1)) / m would light both alike. */
+const exact: number[] = [];
 let sun = 0;
+function exactScene(world: World) {
+    world.resource(GlobalAmbientLight).brightness = 80;
+    const materials = world.resource(Materials);
+    const cubes = materials.add(StandardMaterial({ baseColor: [0.1, 0.1, 0.1, 1] }));
+    const ball = materials.add(StandardMaterial({ baseColor: [0.1, 0.1, 0.1, 1], occlusion: 1.5 }));
+    for (const translation of [
+        [0, 0, 1],
+        [0, -1, 0],
+        [1, 0, 0],
+    ] as const) {
+        const eid = world.create();
+        world.add(eid, Transform, { translation: [...translation, 0] });
+        world.add(eid, MeshInstance);
+        world.add(eid, MeshMaterial, cubes);
+    }
+    const eid = world.create();
+    world.add(eid, Transform);
+    world.add(eid, MeshInstance, {
+        mesh: world.resource(Meshes).add({ name: "Sphere", ...sphere(0.4, 72, 36) }),
+    });
+    world.add(eid, MeshMaterial, ball);
+    for (const ssao of [true, false]) {
+        const camera = world.create();
+        world.add(camera, Transform, {
+            translation: [2, 2, 2, 0],
+            rotation: lookAtRotation(2, 2, 2, 0, 0, 0),
+        });
+        world.add(camera, Camera, { antialias: 0 });
+        world.add(camera, StandardRenderer);
+        if (ssao) world.add(camera, ScreenSpaceAmbientOcclusion);
+        attachTexture(world, camera, { width: 256, height: 192 });
+        exact.push(camera);
+    }
+}
 function scene(world: World) {
     const material = world
         .resource(Materials)
@@ -85,6 +122,23 @@ const subjects = gpuApps(import.meta.path, [
                     ScreenSpaceAmbientOcclusionPlugin,
                 ],
                 initialize: scene,
+            },
+        ],
+    },
+    {
+        defaults: false,
+        plugins: [
+            StandardRenderingPlugin,
+            MeshRenderPlugin,
+            ScreenSpaceAmbientOcclusionPlugin,
+            {
+                name: "ExactAoScene",
+                dependencies: [
+                    StandardRenderingPlugin,
+                    MeshRenderPlugin,
+                    ScreenSpaceAmbientOcclusionPlugin,
+                ],
+                initialize: exactScene,
             },
         ],
     },
@@ -213,4 +267,42 @@ test("a 1-wide view occludes as a 2-wide one does, and a view without SSAO is un
     expect(againOne).toEqual(plainOne!);
     world.add(narrow[0]!, ScreenSpaceAmbientOcclusion, { qualityLevel: 1 });
     world.add(narrow[1]!, ScreenSpaceAmbientOcclusion, { qualityLevel: 1 });
+});
+test("SSAO reading exactly 1, like its absence, leaves material occlusion whole, above 1 too", async () => {
+    const { world } = subjects()[1];
+    world.step(1 / 60);
+    const [ssao, plain] = exact as [number, number];
+    const ao = new Float32Array(
+        (await probeTexture(world, world.resource(ssaoState).cameras.get(ssao)!.textures[4]!))
+            .bytes,
+    );
+    const normal = new Uint32Array(
+        (await probeTexture(world, world.resource(viewTargetsKey).normal.get(ssao)!.texture)).bytes,
+    );
+    const [lit, unlit] = await Promise.all(
+        [ssao, plain].map(
+            async (eid) =>
+                new Float16Array((await probeTexture(world, offscreenTexture(world, eid)!)).bytes),
+        ),
+    );
+    let unoccluded = 0;
+    let occluded = 0;
+    const differing: number[] = [];
+    const reds = new Set<number>();
+    for (let pixel = 0; pixel < ao.length; pixel++) {
+        if (normal[pixel] === 0) continue;
+        reds.add(unlit![pixel * 4]!);
+        const same = [0, 1, 2, 3].every((c) => lit![pixel * 4 + c] === unlit![pixel * 4 + c]);
+        if (ao[pixel] === 1) {
+            unoccluded++;
+            if (!same) differing.push(pixel);
+        } else if (!same) occluded++;
+    }
+    // Ambient light alone shades each material flat, in proportion to its occlusion.
+    const [dim, bright] = [...reds].sort((a, b) => a - b) as [number, number];
+    expect(reds.size).toBe(2);
+    expect(bright / dim).toBeCloseTo(1.5, 2);
+    expect(unoccluded).toBeGreaterThan(0);
+    expect(occluded).toBeGreaterThan(0);
+    expect(differing).toEqual([]);
 });
