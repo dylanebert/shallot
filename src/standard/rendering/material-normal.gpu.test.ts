@@ -56,6 +56,29 @@ const BentVarying = materialType({
         return d.vec4f(lit(ctx.tint.xyz, normal), ctx.tint.w);
     },
 });
+const BentTwo = materialType({
+    name: "BentTwo",
+    parameters: BentParameters,
+    defaults: { color: d.vec4f(1) },
+    depthPass: { prepass: true },
+    varyings: { tint: d.vec4f, bend: d.vec3f },
+    vertex: (input) => {
+        "use gpu";
+        return {
+            world: input.world,
+            worldNormal: input.worldNormal,
+            tint: input.parameters.color,
+            bend: d.vec3f(0, 1, 0),
+        };
+    },
+    fragment: (ctx) => {
+        "use gpu";
+        return d.vec4f(
+            lit(ctx.tint.xyz, std.normalize(std.add(ctx.worldNormal, ctx.bend))),
+            ctx.tint.w,
+        );
+    },
+});
 const BentStandard = extendedMaterial(Materials, {
     name: "BentStandard",
     fragment: (ctx) => {
@@ -77,6 +100,7 @@ function scene(world: World) {
                     .add({ color: d.vec4f(1) }, { alphaMode: AlphaMode.Mask(0.5) }),
         ],
         ["one-varying Opaque", () => world.resource(BentVarying).add({ color: d.vec4f(1) })],
+        ["two-varying Opaque", () => world.resource(BentTwo).add({ color: d.vec4f(1) })],
         ["extendedMaterial Opaque", () => world.resource(BentStandard).add(StandardMaterial())],
     ];
     for (let i = 0; i < subjects.length; i++) {
@@ -102,6 +126,7 @@ const subjects = gpuApps(import.meta.path, [
             MeshRenderPlugin,
             MaterialPlugin(BentLit),
             MaterialPlugin(BentVarying),
+            MaterialPlugin(BentTwo),
             MaterialPlugin(BentStandard),
             {
                 name: "BentNormalScene",
@@ -111,7 +136,13 @@ const subjects = gpuApps(import.meta.path, [
         ],
     },
 ]);
-for (const label of ["lit Opaque", "lit Mask", "one-varying Opaque", "extendedMaterial Opaque"])
+for (const label of [
+    "lit Opaque",
+    "lit Mask",
+    "one-varying Opaque",
+    "two-varying Opaque",
+    "extendedMaterial Opaque",
+])
     test(`the ${label} material's prepass normal is the normal its fragment lit with`, async () => {
         const { world } = subjects()[0];
         world.step(1 / 60);
