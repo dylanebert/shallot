@@ -66,6 +66,8 @@ type BoundField = {
     readonly lanes: number;
     readonly sourceLanes: number;
     readonly source: { readonly column: TypedArray; readonly dirty: Uint32Array };
+    /** Later bindings of the same record field, which win where they hold the entity. */
+    shadows: ComponentBinding[];
 };
 type ComponentBinding = {
     readonly component: Component;
@@ -315,7 +317,8 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         this.bindMembership(component);
     }
 
-    /** Bind selected struct fields to component columns without making that component own rows. */
+    /** Bind selected struct fields to component columns without making that component own rows.
+     * A record field bound by several components takes the last-bound one the entity holds. */
     bindFields(component: Component, fields: Record<string, string>): void {
         if (this.gpuOnly)
             throw new Error(`GpuTable "${this.name}" cannot bind CPU component columns`);
@@ -370,9 +373,16 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
                 lanes: layout.lanes,
                 sourceLanes: descriptor.lanes,
                 source: this._world.fieldStorage(component, componentName),
+                shadows: [],
             };
             binding.fields.push(field);
         }
+        const bindings = this._componentBindings;
+        for (let i = 0; i < bindings.length; i++)
+            for (const field of bindings[i].fields)
+                field.shadows = bindings
+                    .slice(i + 1)
+                    .filter((later) => later.fields.some((f) => f.recordName === field.recordName));
         for (let i = 0; i < this._activeCount; i++) this.seed(this._activeRows[i * 2 + 1]);
     }
 
@@ -443,8 +453,13 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     /** Detach one component owner, releasing the row when its last owner leaves. @internal */
     detachComponent(eid: number, _component: Component): void {
         const count = this._membershipCounts[eid] ?? 0;
-        if (count <= 1) this.release(eid);
-        else this._membershipCounts[eid] = count - 1;
+        if (count <= 1) {
+            this.release(eid);
+            return;
+        }
+        this._membershipCounts[eid] = count - 1;
+        // A field the departing owner bound falls back to an earlier owner.
+        this.seed(this._eidToRow[eid] - 1);
     }
 
     private binding(component: Component): ComponentBinding {
@@ -490,12 +505,15 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         this.deactivateRow(row);
     }
 
-    /** Activate an eid row in the compact active list. */
+    /** Activate an eid row in the compact active list, refilling its bound fields. */
     activate(eid: number): void {
         this.requireRowOwner();
         const row = this.rowIndex(eid);
         if (row < 0) throw new Error(`GpuTable "${this.name}": eid ${eid} has no row`);
+        if (this._activeIndex[row] >= 0) return;
         this.activateRow(eid, row);
+        // Changes made while inactive were skipped and their marks cleared.
+        this.seed(row);
     }
 
     /** Remove an eid row from the compact active list. */
@@ -754,6 +772,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
                         const row = encoded - 1;
                         if (activeIndex[row] < 0 || seeded[row] !== 0) continue;
                         if (binding.ownsRows && !this._world.has(eid, binding.component)) continue;
+                        if (field.shadows.length !== 0 && this.shadowed(eid, field)) continue;
                         const sourceBase = eid * field.sourceLanes;
                         const targetBase = row * this.rowBytes + field.offset;
                         let changed = false;
@@ -770,6 +789,12 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
                 }
             }
         }
+    }
+
+    private shadowed(eid: number, field: BoundField): boolean {
+        for (const later of field.shadows)
+            if (!later.ownsRows || this._world.has(eid, later.component)) return true;
+        return false;
     }
 
     private ensureEntityRows(rows: number): void {

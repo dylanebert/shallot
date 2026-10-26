@@ -1024,3 +1024,67 @@ test("row churn without an upload keeps pending seeds within the table's rows", 
     expect(pending(bound)).toBeLessThanOrEqual(bound.capacity);
     for (const subject of [table, gpuOnly, bound]) subject.dispose();
 });
+
+const SharedEarlier = { value: f32 };
+const SharedLater = { value: f32 };
+const sharedField = subject(
+    "SharedFieldTableProbe",
+    [component("SharedEarlier", SharedEarlier), component("SharedLater", SharedLater)],
+    (world) => {
+        const table = world.table("shared-field-table-probe", d.struct({ value: d.f32 }));
+        table.bindComponent(SharedEarlier, { value: "value" });
+        table.bindComponent(SharedLater, { value: "value" });
+        return table;
+    },
+);
+
+test("a field bound by two row owners takes the later one the entity holds", () => {
+    const { world, table } = sharedField();
+    const eid = world.create();
+    const read = () => {
+        world.step(0);
+        return table.view.getFloat32(table.rowIndex(eid) * table.rowBytes, true);
+    };
+    world.add(eid, SharedEarlier, { value: 1 });
+    world.add(eid, SharedLater, { value: 2 });
+    const values = [read()];
+    world.storage(SharedEarlier).value.set(eid, 3);
+    values.push(read());
+    world.storage(SharedLater).value.set(eid, 4);
+    values.push(read());
+    world.remove(eid, SharedLater);
+    values.push(read());
+    expect(values).toEqual([2, 2, 4, 3]);
+});
+
+function readRow(world: World, table: ReturnType<World["table"]>, eid: number): number {
+    world.step(0);
+    return table.view.getFloat32(table.rowIndex(eid) * table.rowBytes, true);
+}
+
+test("a reactivated row takes a field written while it was inactive", () => {
+    const { world, table } = seededInactive();
+    const eid = world.create();
+    world.add(eid, SeedInactive, { value: 1 });
+    const values = [readRow(world, table, eid)];
+    table.deactivate(eid);
+    world.storage(SeedInactive).value.set(eid, 9);
+    readRow(world, table, eid);
+    table.activate(eid);
+    values.push(readRow(world, table, eid));
+    expect(values).toEqual([1, 9]);
+});
+
+test("a reactivated row takes a shared field written while it was inactive", () => {
+    const { world, table } = sharedField();
+    const eid = world.create();
+    world.add(eid, SharedEarlier, { value: 1 });
+    world.add(eid, SharedLater, { value: 2 });
+    const values = [readRow(world, table, eid)];
+    table.deactivate(eid);
+    world.storage(SharedLater).value.set(eid, 9);
+    readRow(world, table, eid);
+    table.activate(eid);
+    values.push(readRow(world, table, eid));
+    expect(values).toEqual([2, 9]);
+});
