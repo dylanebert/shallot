@@ -58,7 +58,15 @@ export class WorldSnapshot {
             participants.some((p, i) => p.owner !== this.#states[i].owner)
         )
             throw new Error("World.restore: snapshot has a different recovery composition");
-        for (const state of this.#states) state.restore();
+        let failure: { error: unknown } | undefined;
+        for (const state of this.#states) {
+            try {
+                state.restore();
+            } catch (error) {
+                failure ??= { error };
+            }
+        }
+        if (failure) throw failure.error;
     }
 }
 

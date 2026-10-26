@@ -449,7 +449,8 @@ export class Components {
         this._queryChanged = queryChanged;
     }
 
-    /** @internal Restore membership, updating queries before observers and tables. */
+    /** @internal Restore membership, updating queries before observers and tables. Every change
+     * is visited before the first error a visit threw propagates. */
     restore(state: ReturnType<Components["snapshot"]>): void {
         const before = this._masks;
         this._masks = before.map((_, gen) => state.masks[gen]?.slice() ?? []);
@@ -462,6 +463,7 @@ export class Components {
         before: number[][],
         visit: (id: number, eid: number, present: boolean) => void,
     ): void {
+        let failure: { error: unknown } | undefined;
         for (let gen = 0; gen < this._masks.length; gen++) {
             const owners = this._owners[gen];
             const old = before[gen];
@@ -471,11 +473,16 @@ export class Components {
                 let changed = (old[eid] ?? 0) ^ current;
                 while (changed) {
                     const bit = changed & -changed;
-                    visit(owners[31 - Math.clz32(bit)], eid, (current & bit) !== 0);
+                    try {
+                        visit(owners[31 - Math.clz32(bit)], eid, (current & bit) !== 0);
+                    } catch (error) {
+                        failure ??= { error };
+                    }
                     changed ^= bit;
                 }
             }
         }
+        if (failure) throw failure.error;
     }
 
     has(eid: Entity, component: any): boolean {

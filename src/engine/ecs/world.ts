@@ -115,7 +115,11 @@ export class World {
         (id, eid) => this._queries.onComponentChanged(id, eid, this._components),
     );
     private _queries = new Queries();
-    private readonly _held: number[] = [];
+    // Per destroy nesting depth, the entity and its held component ids, so a destroy inside an
+    // observer keeps its caller's list and a destroy of an entity already being destroyed is a no-op.
+    private readonly _destroying: number[] = [];
+    private readonly _held: number[][] = [];
+    private _destroyDepth = 0;
     private _storage = new Map<
         number,
         {
@@ -475,7 +479,28 @@ export class World {
         for (const eid of this.query([component])) table.attachComponent(eid, component);
     }
 
-    /** @internal Observe component membership without putting state on the component schema. Observers must not change membership. */
+    /**
+     * Call `observer(eid, present)` each time `eid` gains or loses `component`; the returned function
+     * stops it. When it runs, `has` already reports the new membership.
+     * - Attachment through {@link add} notifies after the component's defaults and values are
+     *   written and its missing required companions are added, each notifying first, so every
+     *   field is readable. An attachment whose defaults, values or companions throw is undone
+     *   without notifying; companions already added stay. Replacing the values of a held
+     *   component does not notify.
+     * - Detachment through {@link remove} or {@link destroy} notifies before the fields clear, so
+     *   they still read the values being removed, and writes to them are lost. Destroy notifies
+     *   once every membership has cleared.
+     * - {@link restore} notifies only the eids whose membership of `component` changed, after the
+     *   restored values are in place.
+     *
+     * An observer may change other entities, and components of `eid` with no change in progress,
+     * immediately. Unsupported, with undefined results: changing `eid`'s membership of a component
+     * whose attachment or detachment on `eid` is in progress, which includes `component` itself
+     * and a component whose required companions are being added; adding to `eid` while it is
+     * being destroyed; and any membership change or {@link restore} inside a restore notification. Destroying `eid` while it is being destroyed does nothing. An error thrown out
+     * of an observer propagates once every observer of the change has run and the change, or the
+     * whole restore, is complete.
+     */
     observeMembership(
         component: Component,
         observer: (eid: number, present: boolean) => void,
@@ -492,7 +517,7 @@ export class World {
 
     private notifyMembership(component: Component, eid: number, present: boolean): void {
         const observers = this._membershipObservers.get(idOf(component));
-        if (observers) for (const observer of observers) observer(eid, present);
+        if (observers) notify(observers, eid, present);
     }
 
     /** @internal Resolve the world-owned column for engine change consumers. */
@@ -664,7 +689,10 @@ export class World {
     /** Restore a local image between ticks. Refuses during step/tick, another world's image or
      * a changed component registry. Retained accessors and references resolve the restored state;
      * columns never shrink, queries and membership consumers reconcile, and fields publish changes.
-     * Participants restore hidden simulation state after ECS and clock recovery; pacing, GPU and host state stay current. */
+     * Participants restore hidden simulation state after ECS and clock recovery; pacing, GPU and host state stay current.
+     * An error thrown by an observer, a participant or a GPU table propagates after the rest of the restore;
+     * a table attachment that threw leaves that membership restored and unannounced, without rows in that table
+     * and the tables bound after it. */
     restore(snapshot: WorldSnapshot): void {
         this._snapshots.restore(snapshot);
     }
@@ -701,37 +729,52 @@ export class World {
         return eid;
     }
 
-    /** Remove every component, notify membership observers, clear its fields, and free the eid; no-op when it is not alive. */
+    /** Remove every component, notify membership observers, clear its fields, and free the eid; no-op when it is not alive or already being destroyed. */
     destroy(eid: number): void {
         if (!this._entities.exists(eid)) return;
-        const held = this._held;
+        const depth = this._destroyDepth;
+        for (let i = 0; i < depth; i++) if (this._destroying[i] === eid) return;
+        this._destroying[depth] = eid;
+        this._destroyDepth = depth + 1;
+        const held = (this._held[depth] ??= []);
         const count = this._components.held(eid, held);
         this._components.clear(eid);
-        if (count !== 0 && this._membershipObservers.size !== 0) {
-            if (count > 1)
-                for (let i = 1; i < count; i++) {
-                    const id = held[i];
-                    let j = i;
-                    while (j > 0 && held[j - 1] > id) {
-                        held[j] = held[j - 1];
-                        j--;
+        try {
+            if (count !== 0 && this._membershipObservers.size !== 0) {
+                if (count > 1)
+                    for (let i = 1; i < count; i++) {
+                        const id = held[i];
+                        let j = i;
+                        while (j > 0 && held[j - 1] > id) {
+                            held[j] = held[j - 1];
+                            j--;
+                        }
+                        held[j] = id;
                     }
-                    held[j] = id;
+                let failure: { error: unknown } | undefined;
+                for (let i = 0; i < count; i++) {
+                    const observers = this._membershipObservers.get(held[i]);
+                    if (!observers) continue;
+                    try {
+                        notify(observers, eid, false);
+                    } catch (error) {
+                        failure ??= { error };
+                    }
                 }
-            for (let i = 0; i < count; i++) {
-                const observers = this._membershipObservers.get(held[i]);
-                if (observers) for (const observer of observers) observer(eid, false);
+                if (failure) throw failure.error;
             }
+        } finally {
+            this._destroyDepth = depth;
+            this._queries.onEntityRemoved(eid);
+            for (const tables of this._tablesByComponent.values()) {
+                for (const table of tables) table.release(eid);
+            }
+            for (let i = 0; i < count; i++) {
+                const entry = this._storage.get(held[i]);
+                if (entry) for (const field of entry.fields.values()) field.clear(eid);
+            }
+            this._entities.remove(eid);
         }
-        this._queries.onEntityRemoved(eid);
-        for (const tables of this._tablesByComponent.values()) {
-            for (const table of tables) table.release(eid);
-        }
-        for (let i = 0; i < count; i++) {
-            const entry = this._storage.get(held[i]);
-            if (entry) for (const field of entry.fields.values()) field.clear(eid);
-        }
-        this._entities.remove(eid);
     }
 
     exists(eid: number): boolean {
@@ -783,56 +826,60 @@ export class World {
     add<T>(eid: number, component: T, values?: ComponentValues<NoInfer<T>>): void {
         const storage = this.storage(component as Component);
         const id = idOf(component as Component);
-        if (this._components.add(eid, component)) {
-            for (const field of this._storage.get(id)!.fields.values()) field.ensure(eid + 1);
-            this.notifyMembership(component as Component, eid, true);
-            const tables = this._tablesByComponent.get(id);
-            let attached = 0;
-            try {
-                if (tables) {
-                    for (const table of tables) {
-                        table.attachComponent(eid, component as Component);
-                        attached++;
-                    }
+        const fields = this._storage.get(id)!.fields;
+        if (!this._components.add(eid, component)) {
+            for (const field of fields.values()) field.clear(eid);
+            this.registry.applyDefaults(this, component as Component, eid, values);
+            if (values) writeValues(storage, eid, values);
+            return;
+        }
+        for (const field of fields.values()) field.ensure(eid + 1);
+        const tables = this._tablesByComponent.get(id);
+        let attached = 0;
+        try {
+            if (tables) {
+                for (const table of tables) {
+                    table.attachComponent(eid, component as Component);
+                    attached++;
                 }
-            } catch (error) {
-                if (tables) {
-                    for (const table of tables) {
-                        if (attached-- === 0) break;
-                        table.detachComponent(eid, component as Component);
-                    }
-                }
-                this._components.remove(eid, component);
-                this.notifyMembership(component as Component, eid, false);
-                throw error;
             }
-            this._queries.onComponentChanged(id, eid, this._components);
+        } catch (error) {
+            if (tables) {
+                for (const table of tables) {
+                    if (attached-- === 0) break;
+                    table.detachComponent(eid, component as Component);
+                }
+            }
+            this._components.remove(eid, component);
+            throw error;
+        }
+        this._queries.onComponentChanged(id, eid, this._components);
+        try {
+            this.registry.applyDefaults(this, component as Component, eid, values);
+            if (values) writeValues(storage, eid, values);
             for (const required of this.registry.getRequirements(component as Component)) {
-                if (!this.has(eid, required)) this.add(eid, required);
+                if (!this._components.has(eid, required)) this.add(eid, required);
             }
-        } else {
-            for (const field of this._storage.get(id)!.fields.values()) field.clear(eid);
+        } catch (error) {
+            // An attachment that did not complete is undone unannounced; companions already added stay.
+            this._components.remove(eid, component);
+            if (tables)
+                for (const table of tables) table.detachComponent(eid, component as Component);
+            this._queries.onComponentChanged(id, eid, this._components);
+            for (const field of fields.values()) field.clear(eid);
+            throw error;
         }
-        this.registry.applyDefaults(this, component as Component, eid, values);
-        if (values) {
-            for (const name in values) {
-                const value = values[name];
-                if (value === undefined) continue;
-                const field = storage[name] as ScalarField | Vector2Field | Vector4Field;
-                if (typeof value === "number") (field as ScalarField).set(eid, value);
-                else {
-                    const lanes = value as readonly number[];
-                    field.set(eid, lanes[0], lanes[1], lanes[2], lanes[3]);
-                }
-            }
-        }
+        this.notifyMembership(component as Component, eid, true);
     }
 
     /** Remove a component and clear its fields after membership observers, table detachment and query updates. */
     remove(eid: number, component: any): void {
-        if (this._components.remove(eid, component)) {
-            const id = idOf(component as Component);
+        if (!this._components.has(eid, component)) return;
+        const id = idOf(component as Component);
+        this._components.remove(eid, component);
+        try {
             this.notifyMembership(component as Component, eid, false);
+        } finally {
             const tables = this._tablesByComponent.get(id);
             if (tables)
                 for (const table of tables) table.detachComponent(eid, component as Component);
@@ -1017,4 +1064,38 @@ export class World {
         }
         this._gpuResources.clear();
     }
+}
+
+function writeValues(
+    storage: Record<string, unknown>,
+    eid: number,
+    values: Record<string, unknown>,
+): void {
+    for (const name in values) {
+        const value = values[name];
+        if (value === undefined) continue;
+        const field = storage[name] as ScalarField | Vector2Field | Vector4Field;
+        if (typeof value === "number") (field as ScalarField).set(eid, value);
+        else {
+            const lanes = value as readonly number[];
+            field.set(eid, lanes[0], lanes[1], lanes[2], lanes[3]);
+        }
+    }
+}
+
+/** Run every observer, then rethrow the first error one threw. */
+function notify(
+    observers: Set<(eid: number, present: boolean) => void>,
+    eid: number,
+    present: boolean,
+): void {
+    let failure: { error: unknown } | undefined;
+    for (const observer of observers) {
+        try {
+            observer(eid, present);
+        } catch (error) {
+            failure ??= { error };
+        }
+    }
+    if (failure) throw failure.error;
 }
