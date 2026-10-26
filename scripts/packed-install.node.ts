@@ -177,6 +177,18 @@ for (const name of examples) {
 
         test(`${name} creates and installs from the packed CLI`, () => {
             assertCreatedExample(name);
+            if (name === "physics") {
+                expect(
+                    projectFiles(example(name).project).filter((path) =>
+                        path.endsWith(".gold.txt"),
+                    ),
+                ).toEqual([]);
+                expect(
+                    projectFiles(example(name).project).filter((path) =>
+                        path.endsWith(".parity.node.ts"),
+                    ),
+                ).toEqual([]);
+            }
         });
 
         test(`${name} type-checks in its copy`, () => {
@@ -198,10 +210,11 @@ for (const name of examples) {
 
         const nodeSubjects = projectFiles(join(ROOT, "examples", name))
             .filter((path) => path.endsWith(".node.ts"))
+            .filter((path) => name !== "physics" || !path.endsWith(".parity.node.ts"))
             .map((path) => `./${normalizePath(relative(join(ROOT, "examples", name), path))}`)
             .sort();
         if (nodeSubjects.length)
-            test(`${name} copies every Node file`, () => {
+            test(`${name} copies every shipped Node file`, () => {
                 const { project } = example(name);
                 expect(
                     projectFiles(project)

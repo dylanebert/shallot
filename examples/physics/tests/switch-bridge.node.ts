@@ -4,5 +4,5 @@ import { expectSwitchesEqualFresh } from "./switch";
 
 setDefaultTimeout(TIMEOUT.node);
 
-test("a reselected Bridge equals a fresh Bridge through its recorded run after it was changed and grabbed", () =>
+test("a reselected Bridge equals a fresh Bridge through 600 steps after it was changed and grabbed", () =>
     expectSwitchesEqualFresh(["bridge"]));

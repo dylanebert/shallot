@@ -111,6 +111,8 @@
         "!src/**/*.probes.ts",
         "!**/*.fixture.ts",
         "!**/*.gold.json",
+        "!examples/physics/tests/*.gold.txt",
+        "!examples/physics/tests/*.parity.node.ts",
         "!**/fixtures",
         "!**/target/**"
     ],

@@ -6,7 +6,7 @@ import { expectSwitchesEqualFresh } from "./switch";
 setDefaultTimeout(TIMEOUT.node);
 
 // Bridge, the costliest destination, is held by switch-bridge.node.ts so each file fits its budget.
-test("every other switched scene equals a fresh scene through its recorded run after a changed, grabbed Bridge", () =>
+test("every other switched scene equals a fresh scene through 600 steps after a changed, grabbed Bridge", () =>
     expectSwitchesEqualFresh(
         (Object.keys(scenes) as Scene[]).filter((scene) => scene !== "bridge"),
     ));

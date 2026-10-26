@@ -46,6 +46,8 @@ test("the npm package contains only declared files and required consumers", asyn
         .map((entry) => new Glob(entry.slice(1)));
     const requiredNegations = [
         "!src/standard/physics/oracle/**",
+        "!examples/physics/tests/*.gold.txt",
+        "!examples/physics/tests/*.parity.node.ts",
         "!**/fixtures",
         "!src/**/*.test.ts",
         "!**/*.oracle.ts",
@@ -208,6 +210,7 @@ test("the npm package contains only declared files and required consumers", asyn
     const missing = required.filter((f) => !files.includes(f));
     const exampleChecks = ["examples/**/*.test.ts", "examples/**/*.node.ts", "examples/**/*.e2e.ts"]
         .flatMap((pattern) => Array.from(new Glob(pattern).scanSync(pkgDir), normalizePath))
+        .filter((file) => !isNegated(file))
         .sort();
     for (const check of exampleChecks)
         if (!files.includes(check)) missing.push(`${check} (example check not shipped)`);
