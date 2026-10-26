@@ -1,3 +1,3 @@
 import { benchmarkParity } from "./benchmark-parity";
 
-benchmarkParity("widePyramid");
+for (const threads of [2, 4]) benchmarkParity("widePyramid", threads);

@@ -1,11 +1,12 @@
 import { expect, test } from "bun:test";
 import { createApp, hashPhysics, Shape, StandardPhysicsPlugin } from "@dylanebert/shallot";
+import { PhysicsWorldDefinition } from "@dylanebert/shallot/standard/physics";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import type { benchmarkScenes } from "../src/benchmarks";
 import { createScene } from "../src/scenes";
 import { sampleGold } from "./gold";
 
-export function benchmarkParity(scene: keyof typeof benchmarkScenes): void {
+export function benchmarkParity(scene: keyof typeof benchmarkScenes, threads = 1): void {
     test(
         `${scene} equals every recorded native step and rejects a density change`,
         async () => {
@@ -19,6 +20,7 @@ export function benchmarkParity(scene: keyof typeof benchmarkScenes): void {
                     plugins: [StandardPhysicsPlugin],
                     setup(world) {
                         bodies = createScene(world, scene);
+                        world.resource(PhysicsWorldDefinition).workerCount = threads;
                     },
                 });
                 try {
@@ -39,7 +41,7 @@ export function benchmarkParity(scene: keyof typeof benchmarkScenes): void {
                 }
             }
             console.log(
-                `${scene}: ${(performance.now() - start).toFixed(0)} ms; ${gold.length} recorded steps; ${text.length} gold bytes; 1 solver thread`,
+                `${scene}: ${(performance.now() - start).toFixed(0)} ms; ${gold.length} recorded steps; ${text.length} gold bytes; ${threads} solver threads`,
             );
         },
         TIMEOUT.node,
