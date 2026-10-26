@@ -69,10 +69,11 @@ try {
                 const warmUntil = performance.now() + 10_000;
                 const measureUntil = warmUntil + 20_000;
                 let frame = 0;
-                let sampleAfter = warmUntil / 1000;
+                let sampleAfter = Infinity;
                 while (qualification ? performance.now() < measureUntil : frame < 150) {
                     const measured = qualification ? performance.now() >= warmUntil : frame >= 30;
-                    if (!qualification && frame === 30) sampleAfter = performance.now() / 1000;
+                    if (measured && sampleAfter === Infinity)
+                        sampleAfter = store.get("frame_time")?.measurement()?.time ?? 0;
                     frame++;
                     const start = performance.now();
                     world.step(1 / 60);

@@ -63,6 +63,17 @@ export class Diagnostic {
         this._sample[1] = value;
         this.addMeasurementBuffer(this._sample);
     }
+    /** @internal Fold zeros older than the retained history using [last time, EMA decay product].
+     * Must be followed by a full history window of individual samples before observation.
+     */
+    foldZeroMeasurements(sample: Readonly<Float64Array>): void {
+        const ema = this._ema;
+        this._sample[0] = sample[0];
+        this._sample[1] = 0;
+        this.addMeasurementBuffer(this._sample);
+        this._ema = ema * sample[1];
+    }
+
     /** @internal Copies [monotonic seconds, value]; input may be reused after return. */
     addMeasurementBuffer(sample: Readonly<Float64Array>): void {
         if (!this.isEnabled) return;

@@ -1,7 +1,8 @@
 import type { Plugin, System, World } from "../../engine";
 import { Diagnostic, DiagnosticsStore, mountOverlay } from "../../engine";
 import { cpuTotal } from "./cpu";
-import { FrameTimings } from "./frames";
+import { EmptyFrames } from "./empty";
+import { FrameTimings, TIMING_FLOOR_MS } from "./frames";
 import { reorderRows } from "./reorder";
 
 const INDIRECT_FLOOR_US = 1;
@@ -36,6 +37,7 @@ interface ReadSlot {
     count: number;
     time: number;
     ready: boolean;
+    empty: EmptyFrames;
 }
 
 // Bound the number of timestamp requests in flight. Metadata returns after the result is drained;
@@ -100,8 +102,12 @@ class DiagnosticsRecorder {
 
     attach(device: GPUDevice, capacity = 2048): void {
         if (this._querySet) return;
-        this._cpu = new FrameTimings(this.store);
-        this._gpu = new FrameTimings(this.store);
+        const retire = (path: string) => {
+            const label = path.slice(7, path.lastIndexOf("/"));
+            this._paths.delete(label === "%" ? "" : decodeLabel(label));
+        };
+        this._cpu = new FrameTimings(this.store, retire);
+        this._gpu = new FrameTimings(this.store, retire);
         this.gpuTiming = device.features.has("timestamp-query")
             ? "available"
             : "requires timestamp-query";
@@ -189,6 +195,7 @@ class DiagnosticsRecorder {
                     count: 0,
                     time: 0,
                     ready: false,
+                    empty: new EmptyFrames(),
                 });
             }
         }
@@ -301,15 +308,24 @@ class DiagnosticsRecorder {
         const resolveBuffer = this._resolveBuffer;
         if (!querySet || !resolveBuffer) return;
         const queryCount = this._nextSlot * 2;
+        if (queryCount === 0) {
+            if (this._pending > 0) {
+                const last = (this._tail + READ_RING - 1) % READ_RING;
+                this._reads[last]!.empty.push(this.measurement);
+            } else {
+                this._gpu.finish(this.measurement);
+            }
+            return;
+        }
         const slot = this._free.pop();
         if (!slot) return;
         slot.count = this._nextSlot;
         slot.time = this.measurement[0];
-        slot.ready = queryCount === 0;
+        slot.ready = false;
+        slot.empty.reset(slot.time);
         this._reads[this._tail] = slot;
         this._tail = (this._tail + 1) % READ_RING;
         this._pending++;
-        if (queryCount === 0) return;
         for (let i = 0; i < this._nextSlot; i++) slot.passes[i] = this._passes[i];
         world.readback
             .request(queryCount * 8, "profile-timestamps", (encoder, staging) => {
@@ -352,6 +368,7 @@ class DiagnosticsRecorder {
             this._free.push(slot);
             this._gpuClock[0] = slot.time;
             this._gpu.finish(this._gpuClock);
+            slot.empty.drain(this._gpu);
         }
     }
 
@@ -852,7 +869,7 @@ function* diagnosticEntries(
         const path = diagnostic.path.path;
         if (path.startsWith(prefix) && path.endsWith(field)) {
             const value = diagnostic.smoothed();
-            if (value !== undefined && (!field.startsWith("/elapsed_") || value >= 0.005))
+            if (value !== undefined && (!field.startsWith("/elapsed_") || value >= TIMING_FLOOR_MS))
                 yield [decodeLabel(path.slice(prefix.length, -field.length)), value];
         }
     }

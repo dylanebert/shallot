@@ -24,8 +24,7 @@ test("GPU frames sum repeated passes and idle frames cannot overtake a delayed t
         expect(world.gpu.span!("retired")).toBeDefined();
         world.step(1 / 120);
         // Empty frames queue behind the unresolved frame, not ahead of it.
-        world.step(1 / 120);
-        world.step(1 / 120);
+        for (let i = 0; i < 10; i++) world.step(1 / 120);
         const store = world.resource(DiagnosticsStore);
         expect(store.get("render/retired/elapsed_gpu")).toBeUndefined();
         complete({
@@ -36,7 +35,10 @@ test("GPU frames sum repeated passes and idle frames cannot overtake a delayed t
         await Promise.resolve();
         world.step(1 / 120);
         const diagnostic = store.get("render/retired/elapsed_gpu")!;
-        expect([...diagnostic.measurements()].map((sample) => sample.value)).toEqual([5, 0, 0]);
+        expect([...diagnostic.measurements()].map((sample) => sample.value)).toEqual([
+            5,
+            ...new Array(11).fill(0),
+        ]);
         const times = [...diagnostic.measurements()].map((sample) => sample.time);
         expect(times[1] - times[0]).toBeCloseTo(1 / 120);
         expect(times[2] - times[1]).toBeCloseTo(1 / 120);
