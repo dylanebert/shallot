@@ -3,41 +3,21 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createApp, StandardPhysicsPlugin } from "@dylanebert/shallot";
-import { type HullData } from "@dylanebert/shallot/standard/physics";
-import { buildHulls, castHeightField, heightField, hull, QuerySample, QuerySamplePlugin } from "../../examples/physics/src/queries";
+import { digestMismatch, querySteps, recordDigest } from "../../examples/physics/tests/digest";
+import { queryRecords } from "./records";
 import { run } from "./native";
 import { sampleBinary } from "./sample";
 setDefaultTimeout(0);
-const bits = new DataView(new ArrayBuffer(4));
-function hex(value: number): string { bits.setFloat32(0, value, true); return bits.getUint32(0, true).toString(16).padStart(8, "0"); }
-function hullLine(h: HullData): string { return `hull ${[h.surfaceArea, ...h.points.flatMap(p => [p.x, p.y, p.z])].map(hex).join(" ")}`; }
 for (const scene of ["heightField", "hull"] as const) {
-    test(`${scene}: public release queries and builds equal every native bit`, async () => {
+    test(`${scene}: public release query and build digests equal every native step`, async () => {
         const start = performance.now();
         const expected = (await Bun.file(new URL(`../../examples/physics/tests/${scene}.queries.gold.txt`, import.meta.url)).text()).trim().split("\n");
-        const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin, QuerySamplePlugin] });
-        try {
-            const world = app.world;
-            const actual: string[] = [];
-            if (scene === "hull") {
-                hull(world);
-                const sample = world.resource(QuerySample);
-                actual.push(hullLine(sample.hull!), hullLine(sample.clone!));
-                buildHulls(world, h => actual.push(hullLine(h)));
-                expect(actual).toHaveLength(4002);
-            } else {
-                heightField(world); world.tick();
-                for (const radius of [Math.fround(0.1), 0]) {
-                    world.resource(QuerySample).radius = radius;
-                    castHeightField(world, (h, hit) => actual.push(`cast ${Number(hit)} ${[h.point.x, h.point.y, h.point.z, h.normal.x, h.normal.y, h.normal.z, h.fraction].map(hex).join(" ")}`));
-                }
-                expect(actual).toHaveLength(28556);
-            }
-            expect(actual.length).toBe(expected.length);
-            for (let i = 0; i < expected.length; i++) expect(actual[i], `${scene} record ${i}`).toBe(expected[i]);
-            console.log(`${scene}: ${actual.length} bit-exact records, ${(performance.now() - start).toFixed(0)} ms`);
-        } finally { app.dispose(); }
+        const records = await queryRecords(scene);
+        expect(records.trimEnd().split("\n")).toHaveLength(scene === "hull" ? 4002 : 28556);
+        const actual = querySteps(scene, records).map(recordDigest);
+        expect(actual.length).toBe(expected.length);
+        for (let step = 0; step < expected.length; step++) expect(actual[step], digestMismatch(scene, step)).toBe(expected[step]);
+        console.log(`${scene}: ${actual.length} step digests, ${(performance.now() - start).toFixed(0)} ms`);
     });
     test(`${scene}: native recording repeats and a sample source mutation changes it`, () => {
         const start = performance.now();
@@ -45,7 +25,8 @@ for (const scene of ["heightField", "hull"] as const) {
         const args = [scene, scene === "hull" ? "1" : "2", ...(scene === "hull" ? [] : [sequence])];
         const native = run([sampleBinary(), ...args]);
         expect(run([sampleBinary(), ...args])).toBe(native);
-        expect(native).toBe(readFileSync(new URL(`../../examples/physics/tests/${scene}.queries.gold.txt`, import.meta.url), "utf8"));
+        const gold = readFileSync(new URL(`../../examples/physics/tests/${scene}.queries.gold.txt`, import.meta.url), "utf8").trimEnd().split("\n");
+        for (const [step, records] of querySteps(scene, native).entries()) expect(recordDigest(records), digestMismatch(scene, step)).toBe(gold[step]);
         const copy = mkdtempSync(join(tmpdir(), "box3d-query-mutation-"));
         try {
             mkdirSync(join(copy, "samples")); mkdirSync(join(copy, "shared"));

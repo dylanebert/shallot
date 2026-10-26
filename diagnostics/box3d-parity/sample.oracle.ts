@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { run } from "./native";
 import { sampleBinary } from "./sample";
 import { sampleGold } from "../../examples/physics/tests/gold";
+import { digestMismatch, eventDigests } from "../../examples/physics/tests/digest";
 
 setDefaultTimeout(0);
 
@@ -103,7 +104,13 @@ for (const [scene, [before, after]] of Object.entries(benchmarkMutations)) {
         const steps = scene === "benchmarkSensor" ? 3000 : 600;
         const hashes = run([sampleBinary(), scene, String(steps)]);
         equalSampleSteps(run([sampleBinary(), scene, String(steps)]), hashes, `${scene} repeat`);
-        equalSampleSteps(hashes, readFileSync(new URL(`../../examples/physics/tests/${scene}.gold.txt`, import.meta.url), "utf8"), scene);
+        const goldText = readFileSync(new URL(`../../examples/physics/tests/${scene}.gold.txt`, import.meta.url), "utf8");
+        if (scene === "benchmarkSensor") {
+            const expected = goldText.trimEnd().split("\n");
+            const actual = eventDigests(hashes);
+            expect(actual.length).toBe(expected.length);
+            for (let step = 0; step < expected.length; step++) expect(actual[step], digestMismatch(scene, step)).toBe(expected[step]);
+        } else equalSampleSteps(hashes, goldText, scene);
         if (scene === "fallingTrees" || scene === "explosion") {
             const sequence = fileURLToPath(new URL(`../../examples/physics/tests/${scene}.controls.txt`, import.meta.url));
             const controlled = run([sampleBinary(), scene, String(steps), sequence]);

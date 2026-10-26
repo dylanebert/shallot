@@ -4,8 +4,9 @@ import { BenchmarkSamplePlugin, benchmarkScenes } from "../../examples/physics/s
 import { sceneSwitcher } from "../../examples/physics/src/sample";
 import { changeControl, controlValues, createScene } from "../../examples/physics/src/scenes";
 import { sampleGold } from "../../examples/physics/tests/gold";
-import { SensorSample } from "../../examples/physics/src/sensor";
-import { PhysicsEvents, setLinearVelocity } from "@dylanebert/shallot/standard/physics";
+import { setLinearVelocity } from "@dylanebert/shallot/standard/physics";
+import { digestMismatch, eventRecord, recordDigest } from "../../examples/physics/tests/digest";
+import { sensorEvents } from "./records";
 
 // Run by path with sample.oracle.ts. Scene parity needs one solver thread; the engine's
 // small determinism scenes hold scheduling and cross-host equality.
@@ -56,7 +57,7 @@ test("fallingTrees grid-size sequence equals every recorded native step", async 
 for (const scene of (Object.keys(benchmarkScenes) as (keyof typeof benchmarkScenes)[]).filter(scene => scene !== "heightField" && scene !== "hull")) {
     test(`${scene} equals every recorded native step and rejects a ${scene === "benchmarkSensor" ? "velocity" : "density"} change`, async () => {
         const text = await Bun.file(new URL(`../../examples/physics/tests/${scene}.gold.txt`, import.meta.url)).text();
-        const gold = sampleGold(text);
+        const gold = scene === "benchmarkSensor" ? text.trimEnd().split("\n").map(digest => ({ hash: BigInt(`0x${digest}`), events: [] })) : sampleGold(text);
         expect(gold).toHaveLength(scene === "benchmarkSensor" ? 3000 : 600);
         const start = performance.now();
         for (const mutated of [false, true]) {
@@ -80,20 +81,11 @@ for (const scene of (Object.keys(benchmarkScenes) as (keyof typeof benchmarkScen
                         }
                     }
                     if (!mutated) {
-                        expect(hash, `step ${step} hash`).toBe(expected.hash);
                         if (scene === "benchmarkSensor") {
-                            const sample = app.world.resource(SensorSample);
-                            const events = app.world.resource(PhysicsEvents);
-                            const sensors = (channel: typeof events.sensorBegin) => channel.records.slice(0, channel.count).map(e => [
-                                sample.shapeRefs.indexOf(e.sensorShape) + 1, sample.bodyRefs.indexOf(e.sensorBody) + 1,
-                                sample.shapeRefs.indexOf(e.visitorShape) + 1, sample.bodyRefs.indexOf(e.visitorBody) + 1,
-                            ]);
-                            const actual: (number | string)[][][] = [sensors(events.sensorBegin), sensors(events.sensorEnd), [], [], [], []];
-                            expect(actual, `step ${step} events`).toEqual(expected.events);
-                            expect(events.contactBegin.count + events.contactEnd.count + events.contactHit.count + events.joints.count).toBe(0);
-                        }
+                            expect(recordDigest(eventRecord(hash, sensorEvents(app.world))), digestMismatch(scene, step)).toBe(expected.hash.toString(16).padStart(16, "0"));
+                        } else expect(hash, `step ${step} hash`).toBe(expected.hash);
                     }
-                    else if (hash !== expected.hash) { diverged = true; break; }
+                    else if ((scene === "benchmarkSensor" ? BigInt(`0x${recordDigest(eventRecord(hash, sensorEvents(app.world)))}`) : hash) !== expected.hash) { diverged = true; break; }
                 }
                 if (mutated) expect(diverged).toBe(true);
             } finally { app.dispose(); }
