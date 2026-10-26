@@ -287,6 +287,41 @@ const reassignment = gpuScene(import.meta.path, alphaWorld, (world) => {
     });
     return { world, camera, materials, opaque, glass };
 });
+test("a mesh whose MeshMaterial is removed draws the default material, and a re-added material draws again", async () => {
+    const {
+        scene: { world, camera, glass },
+    } = reassignment();
+    const center = async () => {
+        const rgba = (await captureTexture(world, camera)).rgba;
+        return Array.from(rgba.subarray((16 * 32 + 16) * 4, (16 * 32 + 16) * 4 + 4));
+    };
+    const eid = world.create();
+    world.add(eid, Transform, { scale: [2, 2, 2, 0] });
+    world.add(eid, MeshInstance);
+    world.step(0);
+    world.step(0);
+    const standard = await center();
+    expect(standard).not.toEqual([0x2e, 0x2b, 0x28, 255]);
+
+    world.add(eid, MeshMaterial, glass);
+    world.step(0);
+    expect(world.resource(TransparentPhases).get(camera)!.length).toBe(1);
+    const drawnGlass = await center();
+    expect(drawnGlass).not.toEqual(standard);
+
+    world.remove(eid, MeshMaterial);
+    world.step(0);
+    expect(world.resource(TransparentPhases).get(camera)!.length).toBe(0);
+    expect(await center()).toEqual(standard);
+
+    world.add(eid, MeshMaterial, glass);
+    world.step(0);
+    expect(world.resource(TransparentPhases).get(camera)!.length).toBe(1);
+    expect(await center()).toEqual(drawnGlass);
+    world.destroy(eid);
+    world.step(0);
+});
+
 test("a reassigned material row's alpha mode selects the entity's draw on the next step", async () => {
     const {
         scene: { world, camera, materials, opaque, glass },
