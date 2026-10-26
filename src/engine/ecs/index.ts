@@ -31,7 +31,7 @@ export {
 export type { EntityRef } from "./entity";
 export { and, not, or } from "./query";
 export { type System, Time } from "./scheduler";
-export type { Recovery, WorldSnapshot } from "./snapshot";
+export { type Recovery, recoverResource, type WorldSnapshot } from "./snapshot";
 export type { ComponentStorage } from "./storage";
 export {
     GpuTable,

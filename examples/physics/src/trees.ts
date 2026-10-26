@@ -4,6 +4,7 @@ import {
     Hulls,
     PhysicsMeshes,
     type Plugin,
+    recoverResource,
     Shape,
     ShapeKind,
     Transform,
@@ -47,11 +48,7 @@ export const TreeSamplePlugin: Plugin = {
             },
         },
     ],
-    recovery: (world) => ({
-        snapshot: () => structuredClone(world.resource(TreeSample)),
-        restore: (state: ReturnType<typeof TreeSample.create>) =>
-            Object.assign(world.resource(TreeSample), structuredClone(state)),
-    }),
+    recovery: recoverResource(TreeSample),
 };
 
 export function fallingTrees(world: World, gridSize = 100): number[] {

@@ -13,6 +13,7 @@ import {
     type Plugin,
     PrismaticJoint,
     RevoluteJoint,
+    recoverResource,
     Shape,
     ShapeKind,
     ShapeMaterials,
@@ -157,11 +158,7 @@ export const EventSamplePlugin: Plugin = {
     name: "EventSample",
     dependencies: [StandardPhysicsPlugin],
     systems: [BeforeSample, AfterSample],
-    recovery: (world) => ({
-        snapshot: () => structuredClone(world.resource(EventSample)),
-        restore: (state: ReturnType<typeof EventSample.create>) =>
-            Object.assign(world.resource(EventSample), structuredClone(state)),
-    }),
+    recovery: recoverResource(EventSample),
 };
 
 const SampleInputSystem: System = {

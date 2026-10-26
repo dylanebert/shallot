@@ -4,6 +4,7 @@ import {
     Hulls,
     PhysicsMeshes,
     type Plugin,
+    recoverResource,
     Shape,
     ShapeKind,
     SphericalJoint,
@@ -381,11 +382,7 @@ export const BenchmarkSamplePlugin: Plugin = {
     name: "BenchmarkSample",
     dependencies: [StandardPhysicsPlugin, TreeSamplePlugin, SensorSamplePlugin],
     systems: [SpawnBenchmark, BeforeBenchmark, AfterDestruction],
-    recovery: (world) => ({
-        snapshot: () => structuredClone(world.resource(BenchmarkSample)),
-        restore: (state: ReturnType<typeof BenchmarkSample.create>) =>
-            Object.assign(world.resource(BenchmarkSample), structuredClone(state)),
-    }),
+    recovery: recoverResource(BenchmarkSample),
 };
 function shape(world: World, parent: number, geometry: number): void {
     const eid = world.create();

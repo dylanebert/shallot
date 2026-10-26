@@ -4,6 +4,7 @@ import {
     type EntityRef,
     Hulls,
     type Plugin,
+    recoverResource,
     Shape,
     ShapeKind,
     type System,
@@ -137,9 +138,5 @@ export const SensorSamplePlugin: Plugin = {
     name: "SensorSample",
     dependencies: [StandardPhysicsPlugin],
     systems: [AfterSensor],
-    recovery: (world) => ({
-        snapshot: () => structuredClone(world.resource(SensorSample)),
-        restore: (state: ReturnType<typeof SensorSample.create>) =>
-            Object.assign(world.resource(SensorSample), structuredClone(state)),
-    }),
+    recovery: recoverResource(SensorSample),
 };

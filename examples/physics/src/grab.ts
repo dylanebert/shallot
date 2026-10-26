@@ -9,6 +9,7 @@ import {
     Outline,
     OutlinePlugin,
     type Plugin,
+    recoverResource,
     type System,
     Transform,
     type World,
@@ -189,9 +190,5 @@ export const GrabPlugin: Plugin = {
     name: "Grab",
     dependencies: [InputPlugin, OutlinePlugin],
     systems: [SampleGrab, UpdateGrab],
-    recovery: (world) => ({
-        snapshot: () => structuredClone(world.resource(Grab)),
-        restore: (saved: ReturnType<typeof Grab.create>) =>
-            Object.assign(world.resource(Grab), structuredClone(saved)),
-    }),
+    recovery: recoverResource(Grab),
 };

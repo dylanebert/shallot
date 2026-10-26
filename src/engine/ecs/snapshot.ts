@@ -1,7 +1,26 @@
+import type { Resource, World } from "./world";
+
 /** Paired simulation ownership. Images are local, reusable and independent of subsequent writes. */
 export interface Recovery<S = unknown> {
     snapshot(): S;
     restore(state: S): void;
+}
+
+/** Recovery for a plain-data resource: snapshot and restore copy it with structuredClone and keep
+ * its identity, removing keys the image lacks. Functions and host objects throw at the first
+ * snapshot; class instances restore without their prototype. Write a Recovery for those, for
+ * partial state or for restore-time work. */
+export function recoverResource<T extends object>(
+    resource: Resource<T>,
+): (world: World) => Recovery<T> {
+    return (world) => ({
+        snapshot: () => structuredClone(world.resource(resource)),
+        restore(state) {
+            const live = world.resource(resource) as Record<string, unknown>;
+            for (const key of Object.keys(live)) if (!(key in state)) delete live[key];
+            Object.assign(live, structuredClone(state));
+        },
+    });
 }
 
 type Participant = { owner: object; snapshot?: () => () => void; refusal?: string };
