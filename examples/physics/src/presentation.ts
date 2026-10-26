@@ -2,10 +2,14 @@ import {
     Body,
     BodyType,
     cube,
+    DistanceJoint,
+    PrismaticJoint,
+    RevoluteJoint,
     Shape,
     StandardMaterial,
     shapeEdges,
     shapeMesh,
+    WheelJoint,
     type World,
 } from "@dylanebert/shallot";
 import { isAwake } from "@dylanebert/shallot/standard/physics";
@@ -46,30 +50,80 @@ export function shapeMaterial(world: World, role: keyof typeof materials, eid: n
     return asleep ? sleeping[role] : materials[role];
 }
 
-export function shapePresentation(world: World, scene: Scene, eid: number) {
+export function drivenBodies(world: World, bodies = new Set<number>()): Set<number> {
+    bodies.clear();
+    for (const joint of [DistanceJoint, PrismaticJoint, RevoluteJoint]) {
+        const storage = world.storage(joint);
+        for (const eid of world.query([joint]))
+            if (storage.enableMotor.get(eid)) {
+                bodies.add(storage.a.get(eid));
+                bodies.add(storage.b.get(eid));
+            }
+    }
+    const wheels = world.storage(WheelJoint);
+    for (const eid of world.query([WheelJoint]))
+        if (wheels.enableSpinMotor.get(eid) || wheels.enableSteering.get(eid)) {
+            bodies.add(wheels.a.get(eid));
+            bodies.add(wheels.b.get(eid));
+        }
+    return bodies;
+}
+
+export function shapeRole(
+    world: World,
+    eid: number,
+    driven: ReadonlySet<number>,
+): keyof typeof materials {
+    const shape = world.storage(Shape);
+    const body = shape.body.get(eid) || eid;
+    const type = world.storage(Body).type.get(body);
+    if (world.resource(SensorSample).sensors.get(world.ref(eid))?.active) return "ground";
+    if (shape.isSensor.get(eid)) return "sensor";
+    if (type === BodyType.Static) return "ground";
+    if (
+        type === BodyType.Kinematic ||
+        body === world.resource(EventSample).player ||
+        driven.has(body)
+    )
+        return "motorized";
+    return "subject";
+}
+
+type Geometry = {
+    mesh: ReturnType<typeof shapeMesh> & { name: string };
+    edges: ReturnType<typeof shapeEdges>;
+};
+export type ShapeGeometryCache = Map<string, Geometry>;
+
+export function shapePresentation(
+    world: World,
+    eid: number,
+    cache?: ShapeGeometryCache,
+    driven: ReadonlySet<number> = drivenBodies(world),
+) {
     const shape = world.get(eid, Shape)!;
     const body = shape.body || eid;
-    // Carbon is static, amber grabbable; cyan marks sensors, the player and motorized bodies.
-    const role: keyof typeof materials = world.resource(SensorSample).sensors.get(world.ref(eid))
-        ?.active
-        ? "ground"
-        : shape.isSensor
-          ? "sensor"
-          : world.storage(Body).type.get(body) === BodyType.Static
-            ? "ground"
-            : scene === "revolute" ||
-                scene === "prismatic" ||
-                scene === "wheel" ||
-                body === world.resource(EventSample).player
-              ? "motorized"
-              : "subject";
-    return {
-        eid,
-        body,
-        role,
-        mesh: { name: `Shape ${eid}`, ...shapeMesh(world, shape) },
-        edges: shapeEdges(world, shape),
-    };
+    const role = shapeRole(world, eid, driven);
+    const key = JSON.stringify([
+        shape.kind,
+        shape.geometry,
+        shape.scale,
+        shape.radius,
+        shape.sphereCenter,
+        shape.capsuleCenter1,
+        shape.capsuleCenter2,
+        shape.hullPosition,
+        shape.hullRotation,
+    ]);
+    let geometry = cache?.get(key);
+    if (!geometry) {
+        geometry = {
+            mesh: { name: `Shape ${eid}`, ...shapeMesh(world, shape) },
+            edges: shapeEdges(world, shape),
+        };
+        cache?.set(key, geometry);
+    }
+    return { eid, body, role, ...geometry };
 }
 
 function destructionRings() {
@@ -92,8 +146,15 @@ function destructionRings() {
     return lines;
 }
 
-export function scenePresentation(world: World, scene: Scene) {
-    const shapes = Array.from(world.query([Shape]), (eid) => shapePresentation(world, scene, eid));
+export function scenePresentation(
+    world: World,
+    scene: Scene,
+    cache: ShapeGeometryCache = new Map(),
+) {
+    const driven = drivenBodies(world);
+    const shapes = Array.from(world.query([Shape]), (eid) =>
+        shapePresentation(world, eid, cache, driven),
+    );
     const { gridExtent: extent, gridSpacing: spacing } = scenes[scene];
     const lines: { a: [number, number, number]; b: [number, number, number]; color: number }[] = [];
     for (let offset = -extent; offset <= extent; offset += spacing) {

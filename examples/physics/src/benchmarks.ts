@@ -163,8 +163,7 @@ export const BenchmarkSample = {
         explosionPending: false,
         destructionBodies: [] as number[],
         randomSeed: 12345,
-        spawnMilliseconds: 0,
-        destroyMilliseconds: 0,
+
         degrees: 0,
         pusher: 0,
         scene: "",
@@ -303,7 +302,6 @@ function explosion(world: World): number[] {
 }
 function spawnDestruction(world: World): number[] {
     const sample = world.resource(BenchmarkSample);
-    const start = performance.now();
     const a = f(2.5 / 20);
     const geometry = box(world, [f(f(0.8) * a), f(f(0.8) * a), f(f(0.8) * a)]);
     const bodies: number[] = [];
@@ -326,7 +324,6 @@ function spawnDestruction(world: World): number[] {
             }
     sample.destructionBodies = bodies;
     sample.explosionPending = true;
-    sample.spawnMilliseconds = performance.now() - start;
     return bodies;
 }
 function destruction(world: World): number[] {
@@ -335,21 +332,26 @@ function destruction(world: World): number[] {
         scene: "destruction",
         step: 0,
         randomSeed: 12345,
-        destroyMilliseconds: 0,
     });
     return spawnDestruction(world);
 }
 const AfterDestruction: System = {
-    name: "destruction-after-step",
+    name: "destruction-destroy",
     group: "fixed",
     after: [StepPhysicsSystem],
     update(world) {
         const sample = world.resource(BenchmarkSample);
         if (sample.scene !== "destruction" || ++sample.step % 140 !== 0) return;
-        const start = performance.now();
         for (const eid of sample.destructionBodies) world.destroy(eid);
-        sample.destroyMilliseconds = performance.now() - start;
-        spawnDestruction(world);
+    },
+};
+const SpawnDestruction: System = {
+    name: "destruction-spawn",
+    group: "fixed",
+    after: [AfterDestruction],
+    update(world) {
+        const sample = world.resource(BenchmarkSample);
+        if (sample.scene === "destruction" && sample.step % 140 === 0) spawnDestruction(world);
     },
 };
 function rain(world: World): number[] {
@@ -382,7 +384,7 @@ function rain(world: World): number[] {
 export const BenchmarkSamplePlugin: Plugin = {
     name: "BenchmarkSample",
     dependencies: [StandardPhysicsPlugin, TreeSamplePlugin, SensorSamplePlugin, QuerySamplePlugin],
-    systems: [SpawnBenchmark, BeforeBenchmark, AfterDestruction],
+    systems: [SpawnBenchmark, BeforeBenchmark, AfterDestruction, SpawnDestruction],
     recovery: recoverResource(BenchmarkSample),
 };
 function shape(world: World, parent: number, geometry: number): void {

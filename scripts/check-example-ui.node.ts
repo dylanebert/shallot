@@ -716,7 +716,8 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
             const disabled = /:disabled|aria-disabled/.test(s) && !/:not\(:disabled\)/.test(s);
             const hover = /:hover/.test(s);
             const pressed = /:active/.test(s);
-            const selected = /aria-(?:pressed|current|selected)=['"]?true|\.selected\b/.test(s);
+            const selected =
+                /aria-(?:pressed|current|selected|checked)=['"]?true|\.selected\b/.test(s);
             const check = /checkbox/.test(s);
             const thumb = /slider-thumb|range-thumb/.test(s);
             const track = /slider-runnable-track|range-track/.test(s);

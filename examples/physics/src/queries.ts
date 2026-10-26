@@ -29,7 +29,6 @@ export const QuerySample = {
         points: [] as { x: number; y: number; z: number }[],
         hull: null as HullData | null,
         clone: null as HullData | null,
-        lines: [] as string[],
     }),
 };
 export function heightField(world: World): number[] {
@@ -86,68 +85,63 @@ export function castHeightField(
     observe?: (hit: PhysicsQueryHit, found: boolean) => void,
 ): void {
     const sample = world.resource(QuerySample);
-    const start = performance.now();
     const translation = { x: 80000, y: -80000, z: 8 };
     const proxy = { points: [{ x: 0, y: 0, z: 0 }], count: 1, radius: sample.radius };
     const result = emptyQueryHit();
-    let count = 0,
-        hits = 0;
+    const empty = emptyQueryHit();
+    const origin = { x: 0, y: 2, z: 0 };
+    let hit = false;
+    const closest = (value: PhysicsQueryHit) => {
+        hit = true;
+        Object.assign(result, value);
+        return value.fraction;
+    };
     for (let x = -f(f(0.94) * 25); x <= f(f(0.94) * 25); x = f(x + f(0.4)))
         for (let z = -f(f(0.96) * 25); z <= f(f(0.96) * 25); z = f(z + f(0.4))) {
-            Object.assign(result, emptyQueryHit());
-            let hit = false;
-            if (sample.radius === 0)
-                hit = castRayClosest(world, { x, y: 2, z }, translation, result);
-            else
-                castShape(world, { x, y: 2, z }, proxy, translation, (value) => {
-                    hit = true;
-                    Object.assign(result, value);
-                    return value.fraction;
-                });
-            count++;
-            if (hit) hits++;
+            Object.assign(result, empty);
+            origin.x = x;
+            origin.z = z;
+            hit = false;
+            if (sample.radius === 0) hit = castRayClosest(world, origin, translation, result);
+            else castShape(world, origin, proxy, translation, closest);
             observe?.(result, hit);
         }
-    const milliseconds = performance.now() - start;
-    sample.lines = [
-        `count = ${count}, hit count = ${hits}, iterations = 0, inner = 0, ticks = ${(milliseconds * 1e6).toFixed(0)}`,
-        `ave iterations = 0.0, ave inner = 0.0, ave cast us ${((1000 * milliseconds) / count).toFixed(3)}`,
-    ];
 }
 export function buildHulls(world: World, observe?: (hull: HullData) => void): void {
+    createHulls(world, observe);
+    cloneHulls(world, observe);
+}
+function createHulls(world: World, observe?: (hull: HullData) => void): void {
     const sample = world.resource(QuerySample);
-    const start = performance.now();
-    let area = 0,
-        scaledArea = 0;
     for (let i = 0; i < 2000; i++) {
         const built = createHull(sample.points, 16, world)!;
-        area = f(area + built.surfaceArea);
         observe?.(built);
     }
-    const createTime = performance.now() - start;
-    const cloneStart = performance.now();
+}
+function cloneHulls(world: World, observe?: (hull: HullData) => void): void {
+    const sample = world.resource(QuerySample);
     for (let i = 0; i < 2000; i++) {
         const built = cloneAndTransformHull(sample.hull!, identity, scale, world)!;
-        scaledArea = f(scaledArea + built.surfaceArea);
         observe?.(built);
     }
-    const cloneTime = performance.now() - cloneStart;
-    sample.lines = [
-        "trials = 2000",
-        `createTime (us) = ${((1000 * createTime) / 2000).toFixed(2)}, area = ${f(area / 2000).toFixed(2)}`,
-        `cloneTime (us) = ${((1000 * cloneTime) / 2000).toFixed(2)}, area = ${f(scaledArea / 2000).toFixed(2)}`,
-        `createTime / cloneTime = ${(createTime / cloneTime).toFixed(2)}`,
-    ];
 }
+
 export const QuerySamplePlugin: Plugin = {
     name: "QuerySample",
     dependencies: [StandardPhysicsPlugin],
     systems: [
         {
-            name: "hull-trials",
+            name: "hull-create-trials",
             group: "fixed",
             update(world) {
-                if (world.resource(QuerySample).scene === "hull") buildHulls(world);
+                if (world.resource(QuerySample).scene === "hull") createHulls(world);
+            },
+        },
+        {
+            name: "hull-clone-trials",
+            group: "fixed",
+            update(world) {
+                if (world.resource(QuerySample).scene === "hull") cloneHulls(world);
             },
         },
     ],
@@ -168,18 +162,7 @@ export const queryScenes = {
             distance: Math.hypot(20, 50),
             target: [0, 0, 0],
         },
-        controls: {
-            Radius: {
-                label: "Radius",
-                value: 0.1,
-                min: 0,
-                max: 1,
-                step: 0.1,
-                set(world: World, _bodies: readonly number[], value: number) {
-                    world.resource(QuerySample).radius = f(value);
-                },
-            },
-        },
+        controls: undefined,
     },
     hull: {
         construct: hull,

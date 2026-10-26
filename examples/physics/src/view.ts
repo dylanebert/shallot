@@ -35,7 +35,14 @@ import { Anchor, Billboard, worldToViewport } from "@dylanebert/shallot/renderin
 import { defaultDebugDraw, drawPhysics } from "@dylanebert/shallot/standard/physics";
 import { EventSample } from "./events";
 import { Grab } from "./grab";
-import { scenePresentation, shapeMaterial, shapePresentation } from "./presentation";
+import {
+    drivenBodies,
+    type ShapeGeometryCache,
+    scenePresentation,
+    shapeMaterial,
+    shapePresentation,
+    shapeRole,
+} from "./presentation";
 import { castHeightField } from "./queries";
 import { type Scene, scenes } from "./scenes";
 
@@ -86,7 +93,8 @@ function createView(world: World, scene: Scene, camera: number): () => void {
     orbit.distance.set(camera, view.distance);
     orbit.pan.set(camera, view.target[0]!, view.target[1]!, view.target[2]!);
     const materials = world.resource(Materials);
-    const presentation = scenePresentation(world, scene);
+    const geometry: ShapeGeometryCache = new Map();
+    const presentation = scenePresentation(world, scene, geometry);
     const initial = new Map(presentation.shapes.map((shape) => [world.ref(shape.eid), shape]));
     const roles = {
         ground: materials.add(presentation.materials.ground),
@@ -109,7 +117,6 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         }
         return handle;
     }
-    const shapeRoles = new Map<EntityRef, keyof typeof roles>();
     const markerMesh = world.resource(Meshes).add({ name: "Grab point", ...sphere(0.5, 16, 12) });
     const markerMaterial = materials.add(
         StandardMaterial({ baseColor: [0.855, 0.815, 0.738, 1], unlit: true }),
@@ -202,17 +209,31 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         world.add(rings, Gizmo, { handle: registerGizmo(world, asset), width: 2 });
     }
     const views = new Map<EntityRef, MeshHandle>();
+    const shared = new Map<
+        object,
+        { mesh: MeshHandle; edges: ReturnType<typeof registerGizmo>; users: number }
+    >();
+    const meshKeys = new Map<MeshHandle, object>();
     const labels: number[] = [];
+    const drivenSet = new Set<number>();
     function updateShapes(world: World): void {
         for (const [ref, mesh] of views) {
             const eid = world.resolve(ref);
             if (!eid || !world.has(eid, Shape)) {
-                meshes.remove(mesh);
+                const key = meshKeys.get(mesh)!;
+                const asset = shared.get(key)!;
+                if (--asset.users === 0) {
+                    meshes.remove(mesh);
+                    meshKeys.delete(mesh);
+                    shared.delete(key);
+                    for (const [geometryKey, entry] of geometry)
+                        if (entry.mesh === key) geometry.delete(geometryKey);
+                }
                 views.delete(ref);
-                shapeRoles.delete(ref);
             }
         }
         const sample = world.resource(EventSample);
+        const driven = drivenBodies(world, drivenSet);
         for (const eid of world.query([Shape])) {
             const body = world.storage(Shape).body.get(eid) || eid;
             if (body !== eid) {
@@ -228,8 +249,8 @@ function createView(world: World, scene: Scene, camera: number): () => void {
                 }
             }
             const ref = world.ref(eid);
-            const role = shapeRoles.get(ref);
-            if (role) {
+            const role = shapeRole(world, eid, driven);
+            if (views.has(ref)) {
                 const handle = materialFor(role, eid);
                 const storage = world.storage(MeshMaterial);
                 if (
@@ -241,15 +262,25 @@ function createView(world: World, scene: Scene, camera: number): () => void {
                 }
             }
             if (views.has(ref) && meshes.has(views.get(ref)!)) continue;
-            const shape = initial.get(ref) ?? shapePresentation(world, scene, eid);
+            const shape = initial.get(ref) ?? shapePresentation(world, eid, geometry, driven);
             initial.delete(ref);
-            shapeRoles.set(ref, shape.role);
-            const mesh = meshes.add(shape.mesh);
+            let asset = shared.get(shape.mesh);
+            if (!asset) {
+                const edges = new GizmoAsset();
+                for (const [a, b] of shape.edges) drawLine(edges, a, b, 0x000000);
+                asset = {
+                    mesh: meshes.add(shape.mesh),
+                    edges: registerGizmo(world, edges),
+                    users: 0,
+                };
+                meshKeys.set(asset.mesh, shape.mesh);
+                shared.set(shape.mesh, asset);
+            }
+            const mesh = asset.mesh;
+            asset.users++;
             views.set(ref, mesh);
-            const edges = new GizmoAsset();
-            for (const [a, b] of shape.edges) drawLine(edges, a, b, 0x000000);
             world.add(eid, Gizmo, {
-                handle: registerGizmo(world, edges),
+                handle: asset.edges,
                 width: 1,
                 opacity: 0.45,
                 depthBias: -0.0001,
@@ -314,7 +345,7 @@ function createView(world: World, scene: Scene, camera: number): () => void {
     }
     return () => {
         for (const system of systems) world.removeSystem(system);
-        for (const mesh of views.values()) meshes.remove(mesh);
+        for (const asset of shared.values()) meshes.remove(asset.mesh);
         meshes.remove(markerMesh);
         if (groundMesh !== undefined) meshes.remove(groundMesh);
         for (const material of stateMaterials.values()) materials.remove(material);

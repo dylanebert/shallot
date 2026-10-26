@@ -1,5 +1,15 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { Body, BodyType, createApp, Shape, StandardPhysicsPlugin } from "@dylanebert/shallot";
+import {
+    Body,
+    BodyType,
+    createApp,
+    DistanceJoint,
+    PrismaticJoint,
+    RevoluteJoint,
+    Shape,
+    StandardPhysicsPlugin,
+    WheelJoint,
+} from "@dylanebert/shallot";
 import {
     applyLinearImpulseToCenter,
     isAwake,
@@ -94,6 +104,21 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 [...world.query([Shape])].sort(),
             );
             expect(presentation.shapes.length).toBeGreaterThan(0);
+            const driven = new Set<number>();
+            for (const joint of [DistanceJoint, PrismaticJoint, RevoluteJoint]) {
+                const storage = world.storage(joint);
+                for (const eid of world.query([joint]))
+                    if (storage.enableMotor.get(eid)) {
+                        driven.add(storage.a.get(eid));
+                        driven.add(storage.b.get(eid));
+                    }
+            }
+            const wheels = world.storage(WheelJoint);
+            for (const eid of world.query([WheelJoint]))
+                if (wheels.enableSpinMotor.get(eid) || wheels.enableSteering.get(eid)) {
+                    driven.add(wheels.a.get(eid));
+                    driven.add(wheels.b.get(eid));
+                }
             for (const { eid, body, role, mesh } of presentation.shapes) {
                 expect(mesh.vertices.length).toBeGreaterThan(0);
                 const expected = world.resource(SensorSample).sensors.get(world.ref(eid))?.active
@@ -102,7 +127,8 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                       ? "sensor"
                       : world.get(body, Body)!.type === BodyType.Static
                         ? "ground"
-                        : ["revolute", "prismatic", "wheel"].includes(id) ||
+                        : world.get(body, Body)!.type === BodyType.Kinematic ||
+                            driven.has(body) ||
                             body === world.resource(EventSample).player
                           ? "motorized"
                           : "subject";

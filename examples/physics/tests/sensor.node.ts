@@ -28,9 +28,7 @@ test("Sensor draws its roles and reacts on overlap, with recoverable spawn and e
         ).toHaveLength(40);
         for (const [ref, sensor] of sample.sensors) {
             const eid = world.resolve(ref);
-            expect(shapePresentation(world, "benchmarkSensor", eid).role).toBe(
-                sensor.active ? "ground" : "sensor",
-            );
+            expect(shapePresentation(world, eid).role).toBe(sensor.active ? "ground" : "sensor");
             if (sensor.row === 20)
                 expect(Array.from(shapeMaterial(world, "sensor", eid).baseColor)).toEqual(
                     [1, 0.22, 0.035, 1].map(Math.fround),

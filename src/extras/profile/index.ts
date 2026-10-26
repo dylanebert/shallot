@@ -890,16 +890,17 @@ const profileUi = {
 /**
  * show or hide the profiler overlay — the same HUD F3 toggles, driven from code. Off by default; call
  * `showProfiler(world)` in a plugin `warm` to surface the numbers on open without a keypress. F3 still toggles
- * it alongside. Requires {@link DiagnosticsOverlayPlugin}.
+ * it alongside. Returns the previous visibility. Requires {@link DiagnosticsOverlayPlugin}.
  */
-export function showProfiler(world: World, show = true): void {
+export function showProfiler(world: World, show = true): boolean {
     const _profileUi = world.resource(profileUi);
-
+    const previous = _profileUi.visible;
     _profileUi.visible = show;
     if (!_profileUi.visible && _profileUi.overlay) {
         _profileUi.overlay.destroy();
         _profileUi.overlay = null;
     }
+    return previous;
 }
 
 // Resolve prior-frame queries before reset clears their count, and before new GPU work overwrites them.

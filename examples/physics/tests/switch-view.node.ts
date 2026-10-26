@@ -1,5 +1,14 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { Body, Meshes, MeshInstance, Shape, StandardPhysicsPlugin } from "@dylanebert/shallot";
+import {
+    Body,
+    BodyType,
+    Meshes,
+    MeshInstance,
+    MeshMaterial,
+    RevoluteJoint,
+    Shape,
+    StandardPhysicsPlugin,
+} from "@dylanebert/shallot";
 import { LinesPlugin, OrbitPlugin, TextPlugin } from "@dylanebert/shallot/extras";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { openGpuApp } from "@dylanebert/shallot/testing/gpu";
@@ -51,6 +60,26 @@ test("scene presentation releases old meshes, systems and grab feedback in the r
             }
             const freshCount = meshes.size;
             const freshEntities = [...world.query([MeshInstance])].length;
+            if (scene === "boxStack") {
+                const handles = [...world.query([Body, MeshInstance])]
+                    .filter((eid) => world.storage(Body).type.get(eid) === BodyType.Dynamic)
+                    .map((eid) => world.storage(MeshInstance).mesh.get(eid));
+                expect(handles.length).toBeGreaterThan(1);
+                expect(new Set(handles).size).toBe(1);
+            }
+            if (scene === "revolute") {
+                const body = [...world.query([Body, Shape])].find(
+                    (eid) => world.storage(Body).type.get(eid) === BodyType.Dynamic,
+                )!;
+                const joint = [...world.query([RevoluteJoint])][0]!;
+                const before = world.get(body, MeshMaterial);
+                world.storage(RevoluteJoint).enableMotor.set(joint, 1);
+                world.step(0);
+                expect(world.get(body, MeshMaterial)).not.toEqual(before);
+                world.storage(RevoluteJoint).enableMotor.set(joint, 0);
+                world.step(0);
+                expect(world.get(body, MeshMaterial)).toEqual(before);
+            }
             select("contact");
             for (let i = 0; i < 60; i++) world.tick();
             world.step(0);
