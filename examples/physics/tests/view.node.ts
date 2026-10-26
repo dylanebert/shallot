@@ -18,10 +18,111 @@ import {
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { EventSample, EventSamplePlugin } from "../src/events";
 import { scenePresentation, shapeMaterial } from "../src/presentation";
-import { categories, controlValues, createScene, enabledControls, scenes } from "../src/scenes";
+import { MotorizedJoint } from "../src/roles";
+import {
+    categories,
+    controlValues,
+    createScene,
+    enabledControls,
+    type Scene,
+    scenes,
+} from "../src/scenes";
 import { SensorSample } from "../src/sensor";
 
 setDefaultTimeout(TIMEOUT.node);
+
+// The accepted critical-set baseline, in eid order; counts compress adjacent equal roles.
+const acceptedRoles = {
+    contact: [
+        ["ground", 5],
+        ["motorized", 1],
+    ],
+    hit: [
+        ["ground", 1],
+        ["subject", 22],
+    ],
+    joint: [
+        ["ground", 1],
+        ["subject", 4],
+    ],
+    sensor: [
+        ["subject", 1],
+        ["sensor", 1],
+    ],
+    bridge: [
+        ["ground", 1],
+        ["subject", 150],
+    ],
+    filter: [
+        ["ground", 1],
+        ["subject", 2],
+    ],
+    motor: [
+        ["ground", 1],
+        ["motorized", 1],
+        ["subject", 1],
+    ],
+    parallel: [
+        ["ground", 5],
+        ["subject", 1],
+    ],
+    prismatic: [
+        ["ground", 1],
+        ["motorized", 1],
+    ],
+    revolute: [
+        ["ground", 1],
+        ["motorized", 1],
+    ],
+    wheel: [
+        ["ground", 1],
+        ["motorized", 1],
+    ],
+    boxStack: [
+        ["ground", 1],
+        ["subject", 40],
+    ],
+} as const;
+const acceptedColors = {
+    ground: [0.085, 0.08, 0.072, 1],
+    subject: [0.72, 0.4, 0.05, 1],
+    motorized: [0.04, 0.43, 0.53, 1],
+    sensor: [0.04, 0.43, 0.53, 1],
+};
+
+test("the accepted role baseline covers every critical-set scene", () => {
+    expect(Object.keys(acceptedRoles).sort()).toEqual(
+        categories
+            .filter((category) => category.name !== "Benchmark")
+            .flatMap((category) => category.scenes.map((scene) => scene.id))
+            .sort(),
+    );
+});
+for (const [id, runs] of Object.entries(acceptedRoles)) {
+    test(`${id}: default roles and colours retain the accepted critical-set baseline`, async () => {
+        const app = await createApp({
+            defaults: false,
+            plugins: [StandardPhysicsPlugin, EventSamplePlugin],
+            setup(world) {
+                createScene(world, id as Scene);
+            },
+        });
+        try {
+            const presentation = scenePresentation(app.world, id as Scene);
+            const shapes = presentation.shapes.sort((a, b) => a.eid - b.eid);
+            const expected = runs.flatMap(([role, count]) =>
+                Array.from({ length: count }, () => role),
+            );
+            expect(shapes.map((shape) => shape.role)).toEqual(expected);
+            for (const role of expected)
+                expect(Array.from(presentation.materials[role].baseColor)).toEqual(
+                    acceptedColors[role].map(Math.fround),
+                );
+        } finally {
+            app.dispose();
+        }
+    });
+}
 
 test("sleep changes a body's colour without changing its role", async () => {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
@@ -105,20 +206,13 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
             );
             expect(presentation.shapes.length).toBeGreaterThan(0);
             const driven = new Set<number>();
-            for (const joint of [DistanceJoint, PrismaticJoint, RevoluteJoint]) {
+            for (const joint of [DistanceJoint, PrismaticJoint, RevoluteJoint, WheelJoint]) {
                 const storage = world.storage(joint);
-                for (const eid of world.query([joint]))
-                    if (storage.enableMotor.get(eid)) {
-                        driven.add(storage.a.get(eid));
-                        driven.add(storage.b.get(eid));
-                    }
-            }
-            const wheels = world.storage(WheelJoint);
-            for (const eid of world.query([WheelJoint]))
-                if (wheels.enableSpinMotor.get(eid) || wheels.enableSteering.get(eid)) {
-                    driven.add(wheels.a.get(eid));
-                    driven.add(wheels.b.get(eid));
+                for (const eid of world.query([joint, MotorizedJoint])) {
+                    driven.add(storage.a.get(eid));
+                    driven.add(storage.b.get(eid));
                 }
+            }
             for (const { eid, body, role, mesh } of presentation.shapes) {
                 expect(mesh.vertices.length).toBeGreaterThan(0);
                 const expected = world.resource(SensorSample).sensors.get(world.ref(eid))?.active

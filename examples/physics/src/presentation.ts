@@ -14,6 +14,7 @@ import {
 } from "@dylanebert/shallot";
 import { isAwake } from "@dylanebert/shallot/standard/physics";
 import { EventSample } from "./events";
+import { MotorizedJoint } from "./roles";
 import { controlValues, enabledControls, type Scene, scenes } from "./scenes";
 import { SensorSample } from "./sensor";
 
@@ -52,20 +53,13 @@ export function shapeMaterial(world: World, role: keyof typeof materials, eid: n
 
 export function drivenBodies(world: World, bodies = new Set<number>()): Set<number> {
     bodies.clear();
-    for (const joint of [DistanceJoint, PrismaticJoint, RevoluteJoint]) {
+    for (const joint of [DistanceJoint, PrismaticJoint, RevoluteJoint, WheelJoint]) {
         const storage = world.storage(joint);
-        for (const eid of world.query([joint]))
-            if (storage.enableMotor.get(eid)) {
-                bodies.add(storage.a.get(eid));
-                bodies.add(storage.b.get(eid));
-            }
-    }
-    const wheels = world.storage(WheelJoint);
-    for (const eid of world.query([WheelJoint]))
-        if (wheels.enableSpinMotor.get(eid) || wheels.enableSteering.get(eid)) {
-            bodies.add(wheels.a.get(eid));
-            bodies.add(wheels.b.get(eid));
+        for (const eid of world.query([joint, MotorizedJoint])) {
+            bodies.add(storage.a.get(eid));
+            bodies.add(storage.b.get(eid));
         }
+    }
     return bodies;
 }
 

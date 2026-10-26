@@ -1,5 +1,6 @@
 import type { World } from "@dylanebert/shallot";
 import { showProfiler } from "@dylanebert/shallot/extras";
+import { MotorizedJoint } from "./roles";
 import { SceneRestart } from "./scene-restart";
 import { categories, createScene, type Scene } from "./scenes";
 
@@ -22,6 +23,7 @@ export function sceneSwitcher(
     view?: (world: World, scene: Scene) => () => void,
     profilerFits = () => true,
 ) {
+    world.storage(MotorizedJoint);
     world.step(0);
     const empty = world.snapshot();
     let disposeView: (() => void) | undefined;

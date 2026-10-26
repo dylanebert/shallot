@@ -16,6 +16,7 @@ import {
 import { PhysicsWorldDefinition, setAwake } from "@dylanebert/shallot/standard/physics";
 import { benchmarkScenes } from "./benchmarks";
 import { eventScenes } from "./events";
+import { MotorizedJoint } from "./roles";
 
 export type Scene =
     | "boxStack"
@@ -811,7 +812,9 @@ function revolute(world: World): number[] {
     const a = anchor(world);
     const geometry = world.resource(Hulls).add({ name: "pendulum", halfExtents: [0.5, 1.5, 0.25] });
     const b = hangingBody(world, 4, geometry);
-    world.add(world.create(), RevoluteJoint, {
+    const joint = world.create();
+    world.add(joint, MotorizedJoint);
+    world.add(joint, RevoluteJoint, {
         a,
         b,
         localAnchorA: [0, 6.5, 0],
@@ -832,7 +835,9 @@ function prismatic(world: World): number[] {
     const geometry = world.resource(Hulls).add({ name: "slider", halfExtents: [0.5, 1.5, 0.25] });
     const b = hangingBody(world, 4, geometry);
     world.storage(Body).gravityScale.set(b, 0);
-    world.add(world.create(), PrismaticJoint, {
+    const joint = world.create();
+    world.add(joint, MotorizedJoint);
+    world.add(joint, PrismaticJoint, {
         a,
         b,
         localAnchorA: [0, 6.5, 0],
@@ -857,7 +862,9 @@ function wheel(world: World): number[] {
         .add({ name: "wheel", cylinder: { height: 0.25, radius: 0.4, yOffset: 0, sides: 12 } });
     const b = hangingBody(world, 2, geometry);
     world.storage(Transform).rotation.set(b, diagonal, 0, 0, diagonal);
-    world.add(world.create(), WheelJoint, {
+    const joint = world.create();
+    world.add(joint, MotorizedJoint);
+    world.add(joint, WheelJoint, {
         a,
         b,
         localAnchorA: [0, 3, 0],

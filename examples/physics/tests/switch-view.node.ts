@@ -5,9 +5,11 @@ import {
     Meshes,
     MeshInstance,
     MeshMaterial,
+    PrismaticJoint,
     RevoluteJoint,
     Shape,
     StandardPhysicsPlugin,
+    WheelJoint,
 } from "@dylanebert/shallot";
 import { LinesPlugin, OrbitPlugin, TextPlugin } from "@dylanebert/shallot/extras";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
@@ -67,16 +69,36 @@ test("scene presentation releases old meshes, systems and grab feedback in the r
                 expect(handles.length).toBeGreaterThan(1);
                 expect(new Set(handles).size).toBe(1);
             }
-            if (scene === "revolute") {
+            if (scene === "revolute" || scene === "prismatic" || scene === "wheel") {
                 const body = [...world.query([Body, Shape])].find(
                     (eid) => world.storage(Body).type.get(eid) === BodyType.Dynamic,
                 )!;
-                const joint = [...world.query([RevoluteJoint])][0]!;
+                const component =
+                    scene === "revolute"
+                        ? RevoluteJoint
+                        : scene === "prismatic"
+                          ? PrismaticJoint
+                          : WheelJoint;
+                const joint = [...world.query([component])][0]!;
+                const motor =
+                    scene === "revolute"
+                        ? world.storage(RevoluteJoint).enableMotor
+                        : scene === "prismatic"
+                          ? world.storage(PrismaticJoint).enableMotor
+                          : world.storage(WheelJoint).enableSpinMotor;
+                const limit =
+                    scene === "revolute"
+                        ? world.storage(RevoluteJoint).maxMotorTorque
+                        : scene === "prismatic"
+                          ? world.storage(PrismaticJoint).maxMotorForce
+                          : world.storage(WheelJoint).maxSpinTorque;
                 const before = world.get(body, MeshMaterial);
-                world.storage(RevoluteJoint).enableMotor.set(joint, 1);
-                world.step(0);
-                expect(world.get(body, MeshMaterial)).not.toEqual(before);
-                world.storage(RevoluteJoint).enableMotor.set(joint, 0);
+                for (const enabled of [1, 0]) {
+                    motor.set(joint, enabled);
+                    world.step(0);
+                    expect(world.get(body, MeshMaterial)).toEqual(before);
+                }
+                limit.set(joint, 0);
                 world.step(0);
                 expect(world.get(body, MeshMaterial)).toEqual(before);
             }
