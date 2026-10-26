@@ -1,8 +1,35 @@
 import { expect, test } from "bun:test";
-import { DiagnosticsStore } from "../../engine";
+import { Diagnostic, DiagnosticsStore } from "../../engine";
 import { cpuTotal } from "./cpu";
 import { EmptyFrames } from "./empty";
 import { FrameTimings } from "./frames";
+
+test.each([120, 121, 240])(
+    "work every %i frames returns with zero-filled smoothing and history",
+    (period) => {
+        const store = new DiagnosticsStore();
+        const frames = new FrameTimings(store);
+        const reference = new Diagnostic("reference");
+        const clock = new Float64Array(2);
+        const path = "render/periodic/elapsed_cpu";
+        for (let frame = 0; frame < 240 + period * 4; frame++) {
+            clock[0] = frame / 120;
+            clock[1] = frame >= 240 && (frame - 240) % period === 0 ? 6 : 0;
+            if (clock[1]) frames.add(path, clock[1]);
+            frames.finish(clock);
+            reference.addMeasurementBuffer(clock);
+            if (clock[1]) {
+                const diagnostic = store.get(path)!;
+                expect(diagnostic.smoothed()!).toBeGreaterThan(0.52);
+                expect(diagnostic.smoothed()!).toBeLessThan(0.53);
+                expect(Math.abs(diagnostic.smoothed()! - reference.smoothed()!)).toBeLessThan(
+                    0.005,
+                );
+                expect(diagnostic.average()).toBeCloseTo(reference.average()!, 10);
+            }
+        }
+    },
+);
 
 test("60 Hz spans on a 120 Hz display include absent frames and repeated runs sum once", () => {
     const store = new DiagnosticsStore();
@@ -37,7 +64,8 @@ test("one thousand one-shot labels retire after their history and decay, and can
     expect([...store.iter()]).toHaveLength(0);
     frames.add("render/once-0/elapsed_cpu", 2);
     frames.finish(clock);
-    expect(store.get("render/once-0/elapsed_cpu")!.historyLength).toBe(1);
+    expect(store.get("render/once-0/elapsed_cpu")!.historyLength).toBe(120);
+    expect(store.get("render/once-0/elapsed_cpu")!.average()).toBeCloseTo(2 / 120);
     expect(store.get("render/once-0/elapsed_cpu")!.value()).toBe(2);
 });
 

@@ -81,6 +81,7 @@ class DiagnosticsRecorder {
     private _head = 0;
     private _tail = 0;
     private _pending = 0;
+    private _unsampled = 0;
     private readonly _restorePatches: (() => void)[] = [];
     private _disposed = false;
 
@@ -112,6 +113,7 @@ class DiagnosticsRecorder {
             ? "available"
             : "requires timestamp-query";
         this.store.record("render/timestamp_query", this.gpuTiming === "available" ? 1 : 0);
+        this.store.record("render/gpu_unsampled_frames", 0, 0);
         for (const path of ["fps", "frame_time", "fixed_steps", "pending", "throttled"]) {
             if (!this.store.get(path))
                 this.store.add(new Diagnostic(path, { suffix: path === "frame_time" ? "ms" : "" }));
@@ -318,7 +320,16 @@ class DiagnosticsRecorder {
             return;
         }
         const slot = this._free.pop();
-        if (!slot) return;
+        if (!slot) {
+            // Bevy's diagnostic recorder finish_frame allocates a new FrameData when none has
+            // finished mapping. This bounded ring instead leaves an explicit gap, never a zero.
+            this.store.record(
+                "render/gpu_unsampled_frames",
+                ++this._unsampled,
+                this.measurement[0],
+            );
+            return;
+        }
         slot.count = this._nextSlot;
         slot.time = this.measurement[0];
         slot.ready = false;
@@ -718,6 +729,9 @@ function createOverlay(): Overlay {
 
     const gpu = section(root, "gpu");
     const gpuPool = createRowPool(gpu.body, 16);
+    const unsampledRow = makeRow(gpu.body);
+    unsampledRow.label.textContent = "unsampled frames";
+    unsampledRow.row.style.display = "none";
     // Dawn's indirect-draw validation estimate is GPU work, not additive to the pipelined fence wait.
     const indirectCaption = el("div", {
         display: "flex",
@@ -797,6 +811,9 @@ function createOverlay(): Overlay {
 
             const gpuFlush = flushPool(gpuPool, msFmt);
             root.dataset.gpuTiming = gpuTiming;
+            const unsampled = store.get("render/gpu_unsampled_frames")?.value() ?? 0;
+            unsampledRow.value.textContent = String(unsampled);
+            unsampledRow.row.style.display = unsampled > 0 ? "flex" : "none";
             gpu.totalEl.textContent =
                 gpuTiming === "available" ? gpuFlush.total.toFixed(2) + " ms" : gpuTiming;
             renderPool(gpuPool, gpuFlush.rows);
@@ -1015,6 +1032,7 @@ const ProfileRenderSystem: System = {
  * may record phase timings through the world's record sink; this plugin adds no simulation.
  * Repeated spans sum per presented frame; missing spans sample zero. CPU publishes at the next
  * frame begin, GPU after readback in sampled-frame order. Smoothing uses unscaled frame time.
+ * Saturated GPU readbacks leave unsampled gaps, counted cumulatively in render/gpu_unsampled_frames.
  */
 export const ProfilePlugin: Plugin = {
     name: "Profile",

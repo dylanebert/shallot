@@ -75,6 +75,7 @@ test("a CPU label absent from a presented frame contributes zero instead of its 
 test("three frames record the same named CPU diagnostic with and without the optional HUD", () => {
     const worlds = [apps()[0].world, apps()[3].world];
     for (const world of worlds) {
+        world.step(0.05);
         world.resource(DiagnosticsStore).add(
             new Diagnostic("render/test-span/elapsed_cpu", {
                 smoothingFactor: 0.1,
@@ -103,8 +104,10 @@ test("three frames record the same named CPU diagnostic with and without the opt
         (world) => world.resource(DiagnosticsStore).get("render/test-span/elapsed_cpu")!,
     );
     for (const diagnostic of diagnostics) {
-        expect([...diagnostic.measurements()].map((sample) => sample.value)).toEqual([2, 6, 8]);
-        expect(diagnostic.smoothed()).toBeCloseTo(6);
+        expect([...diagnostic.measurements()].slice(-3).map((sample) => sample.value)).toEqual([
+            2, 6, 8,
+        ]);
+        expect(diagnostic.smoothed()).toBeCloseTo(5.75);
     }
 });
 

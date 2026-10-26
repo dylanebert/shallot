@@ -15,6 +15,9 @@ export class FrameTimings {
         { diagnostic: Diagnostic; ms: number; idle: number }
     >();
     private readonly _measurement = new Float64Array(2);
+    private readonly _times = new Float64Array(TIMING_HISTORY);
+    private _cursor = 0;
+    private _count = 0;
 
     private readonly _store: DiagnosticsStore;
     private readonly _retire?: (path: string) => void;
@@ -34,6 +37,18 @@ export class FrameTimings {
                     maxHistoryLength: TIMING_HISTORY,
                     smoothingFactor: TIMING_SMOOTHING,
                 });
+            if (!diagnostic.historyLength && this._count > 0) {
+                // No tombstones: every new label inherits the same recent absent-frame history.
+                // Padding early history with zeros keeps the average's per-frame denominator.
+                const sample = this._measurement;
+                sample[1] = 0;
+                const oldest = (this._cursor + TIMING_HISTORY - this._count) % TIMING_HISTORY;
+                for (let i = 0; i < TIMING_HISTORY; i++) {
+                    const index = Math.max(0, i - (TIMING_HISTORY - this._count));
+                    sample[0] = this._times[(oldest + index) % TIMING_HISTORY];
+                    diagnostic.addMeasurementBuffer(sample);
+                }
+            }
             this._store.add(diagnostic);
             row = { diagnostic, ms: 0, idle: 0 };
             this._rows.set(path, row);
@@ -52,6 +67,9 @@ export class FrameTimings {
     finish(clock: Readonly<Float64Array>): void {
         const measurement = this._measurement;
         measurement[0] = clock[0];
+        this._times[this._cursor] = clock[0];
+        this._cursor = (this._cursor + 1) % TIMING_HISTORY;
+        this._count = Math.min(TIMING_HISTORY, this._count + 1);
         for (const row of this._rows.values()) {
             measurement[1] = row.ms;
             row.diagnostic.addMeasurementBuffer(measurement);
