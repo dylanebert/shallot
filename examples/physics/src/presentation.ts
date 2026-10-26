@@ -11,6 +11,7 @@ import {
 import { isAwake } from "@dylanebert/shallot/standard/physics";
 import { EventSample } from "./events";
 import { controlValues, enabledControls, type Scene, scenes } from "./scenes";
+import { SensorSample } from "./sensor";
 
 const materials = {
     ground: StandardMaterial({ baseColor: [0.085, 0.08, 0.072, 1], perceptualRoughness: 0.82 }),
@@ -36,7 +37,11 @@ export function shapeMaterial(world: World, role: keyof typeof materials, eid: n
     const body = world.storage(Shape).body.get(eid) || eid;
     // Hue marks a reaction; resting bodies keep their role's tint but lose saturation and gloss.
     const asleep = isAwake(world, body) === false;
-    if (world.resource(EventSample).reactions.has(world.ref(body)))
+    if (world.resource(SensorSample).sensors.get(world.ref(eid))?.row === 20) return reaction;
+    if (
+        world.resource(EventSample).reactions.has(world.ref(body)) ||
+        world.resource(SensorSample).reactions.has(world.ref(body))
+    )
         return asleep ? restingReaction : reaction;
     return asleep ? sleeping[role] : materials[role];
 }
@@ -45,16 +50,19 @@ export function shapePresentation(world: World, scene: Scene, eid: number) {
     const shape = world.get(eid, Shape)!;
     const body = shape.body || eid;
     // Carbon is static, amber grabbable; cyan marks sensors, the player and motorized bodies.
-    const role: keyof typeof materials = shape.isSensor
-        ? "sensor"
-        : world.storage(Body).type.get(body) === BodyType.Static
-          ? "ground"
-          : scene === "revolute" ||
-              scene === "prismatic" ||
-              scene === "wheel" ||
-              body === world.resource(EventSample).player
-            ? "motorized"
-            : "subject";
+    const role: keyof typeof materials = world.resource(SensorSample).sensors.get(world.ref(eid))
+        ?.active
+        ? "ground"
+        : shape.isSensor
+          ? "sensor"
+          : world.storage(Body).type.get(body) === BodyType.Static
+            ? "ground"
+            : scene === "revolute" ||
+                scene === "prismatic" ||
+                scene === "wheel" ||
+                body === world.resource(EventSample).player
+              ? "motorized"
+              : "subject";
     return {
         eid,
         body,

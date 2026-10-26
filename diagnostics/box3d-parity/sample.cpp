@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <vector>
+#include <set>
 #include <string>
 
 struct Change { int step; std::string name; float value; };
@@ -168,7 +169,7 @@ int main( int argc, char** argv )
 		fprintf( stderr, "usage: sample <scene> <steps> [grab|control-sequence-file]\n" );
 		return 2;
 	}
-	recordEvents = !strcmp( argv[1], "joint" ) || !strcmp( argv[1], "sensor" ) || !strcmp( argv[1], "contact" ) || !strcmp( argv[1], "hit" ) || !strcmp( argv[1], "motor" );
+	recordEvents = !strcmp( argv[1], "benchmarkSensor" ) || !strcmp( argv[1], "joint" ) || !strcmp( argv[1], "sensor" ) || !strcmp( argv[1], "contact" ) || !strcmp( argv[1], "hit" ) || !strcmp( argv[1], "motor" );
 	b3SetLogFcn( []( const char* message ) { fprintf( stderr, "%s\n", message ); } );
 	SampleContext context;
 	struct Entry { const char* name; Sample* (*create)(SampleContext*); };
@@ -183,6 +184,7 @@ int main( int argc, char** argv )
 		{ "candyCups", CandyCups::Create },
 		{ "fallingTrees", BenchmarkFallingTrees::Create },
 		{ "chains", BenchmarkChains::Create },
+        { "benchmarkSensor", BenchmarkSensor::Create },
 		{ "explosion", BenchmarkExplosion::Create },
 		{ "destruction", BenchmarkDestruction::Create },
 		{ "box_stack", BoxStack::Create }, { "bridge", Bridge::Create },

@@ -24,6 +24,7 @@ import {
     setTargetTransform,
 } from "@dylanebert/shallot/standard/physics";
 import { human } from "./human";
+import { benchmarkSensor, SensorSamplePlugin } from "./sensor";
 import { fallingTrees, TreeSamplePlugin, treeControls } from "./trees";
 
 const f = Math.fround;
@@ -378,7 +379,7 @@ function rain(world: World): number[] {
 }
 export const BenchmarkSamplePlugin: Plugin = {
     name: "BenchmarkSample",
-    dependencies: [StandardPhysicsPlugin, TreeSamplePlugin],
+    dependencies: [StandardPhysicsPlugin, TreeSamplePlugin, SensorSamplePlugin],
     systems: [SpawnBenchmark, BeforeBenchmark, AfterDestruction],
     recovery: (world) => ({
         snapshot: () => structuredClone(world.resource(BenchmarkSample)),
@@ -610,6 +611,13 @@ function chains(world: World): number[] {
     return bodies;
 }
 export const benchmarkScenes = {
+    benchmarkSensor: {
+        construct: benchmarkSensor,
+        gridExtent: 130,
+        gridSpacing: 10,
+        camera: { yaw: 0, pitch: 0, distance: 250, target: [0, 110, 0] },
+        controls: undefined,
+    },
     chains: {
         construct: chains,
         gridExtent: 40,

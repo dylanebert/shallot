@@ -18,6 +18,7 @@ test("each picker label selects its scene in its category, exactly once", () => 
                 { id: "candyCups", name: "Candy Cups" },
                 { id: "fallingTrees", name: "Falling Trees" },
                 { id: "chains", name: "Chains" },
+                { id: "benchmarkSensor", name: "Sensor" },
                 { id: "explosion", name: "Explosion" },
                 { id: "destruction", name: "Destruction" },
             ],

@@ -82,6 +82,7 @@ for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "f
 }
 
 const benchmarkMutations: Record<string, [string, string]> = {
+    benchmarkSensor: ["float gridSize = 3.0f;", "float gridSize = 3.1f;"],
     chains: ["float linkRadius = 0.125f;", "float linkRadius = 0.126f;"],
     explosion: ["constexpr int n = m_isDebug ? 3 : 16;", "constexpr int n = m_isDebug ? 3 : 15;"],
     destruction: ["m_explosionDef.impulsePerArea = m_small ? 200.0f : 1000.0f;", "m_explosionDef.impulsePerArea = m_small ? 200.0f : 1001.0f;"],
@@ -99,6 +100,7 @@ const benchmarkMutations: Record<string, [string, string]> = {
 };
 for (const [scene, [before, after]] of Object.entries(benchmarkMutations)) {
     test(`${scene}: release sample repeats its gold and rejects a source mutation`, () => {
+        const steps = scene === "benchmarkSensor" ? 3000 : 600;
         const hashes = run([sampleBinary(), scene, String(steps)]);
         equalSampleSteps(run([sampleBinary(), scene, String(steps)]), hashes, `${scene} repeat`);
         equalSampleSteps(hashes, readFileSync(new URL(`../../examples/physics/tests/${scene}.gold.txt`, import.meta.url), "utf8"), scene);
@@ -116,7 +118,7 @@ for (const [scene, [before, after]] of Object.entries(benchmarkMutations)) {
             for (const name of ["sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp"])
                 copyFileSync(join(process.env.BOX3D!, "samples", name), join(copy, "samples", name));
             copyFileSync(join(process.env.BOX3D!, "shared/benchmarks.c"), join(copy, "shared/benchmarks.c"));
-            const path = join(copy, ["chains", "fallingBoxes", "candyCups", "explosion", "destruction"].includes(scene) ? "samples/sample_benchmark.cpp" : "shared/benchmarks.c");
+            const path = join(copy, ["benchmarkSensor", "chains", "fallingBoxes", "candyCups", "explosion", "destruction"].includes(scene) ? "samples/sample_benchmark.cpp" : "shared/benchmarks.c");
             const source = readFileSync(path, "utf8");
             const start = scene === "fallingBoxes" ? source.indexOf("class FallingBoxes :") : scene === "candyCups" ? source.indexOf("class CandyCups :") : 0;
             expect(source.slice(start).includes(before)).toBe(true);

@@ -16,6 +16,7 @@ for (const name of [
     "Candy Cups",
     "Falling Trees",
     "Chains",
+    "Sensor",
     "Explosion",
     "Destruction",
 ]) {
@@ -36,7 +37,10 @@ for (const name of [
         await expect(picker).toHaveText(name);
         await expect(picker).toBeEnabled();
         // Advance the camera transition without running an unbounded presentation loop.
-        await frames.run(4);
+        await frames.run(name === "Sensor" ? 40 : 4);
+        if (name === "Sensor") {
+            await expect(page.locator(".input-help")).toContainText("max begin touch events =");
+        }
         await capture(page, name.replaceAll(" ", "-").toLowerCase(), frames);
         if (name === "Explosion") {
             await page.getByLabel("Magnitude", { exact: true }).fill("1500");

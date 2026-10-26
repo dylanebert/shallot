@@ -4,6 +4,8 @@ import { BenchmarkSamplePlugin, benchmarkScenes } from "../../examples/physics/s
 import { sceneSwitcher } from "../../examples/physics/src/sample";
 import { changeControl, controlValues, createScene } from "../../examples/physics/src/scenes";
 import { sampleGold } from "../../examples/physics/tests/gold";
+import { SensorSample } from "../../examples/physics/src/sensor";
+import { PhysicsEvents, setLinearVelocity } from "@dylanebert/shallot/standard/physics";
 
 // Run by path with sample.oracle.ts. Scene parity needs one solver thread; the engine's
 // small determinism scenes hold scheduling and cross-host equality.
@@ -52,10 +54,10 @@ test("fallingTrees grid-size sequence equals every recorded native step", async 
 });
 
 for (const scene of Object.keys(benchmarkScenes) as (keyof typeof benchmarkScenes)[]) {
-    test(`${scene} equals every recorded native step and rejects a density change`, async () => {
+    test(`${scene} equals every recorded native step and rejects a ${scene === "benchmarkSensor" ? "velocity" : "density"} change`, async () => {
         const text = await Bun.file(new URL(`../../examples/physics/tests/${scene}.gold.txt`, import.meta.url)).text();
         const gold = sampleGold(text);
-        expect(gold).toHaveLength(600);
+        expect(gold).toHaveLength(scene === "benchmarkSensor" ? 3000 : 600);
         const start = performance.now();
         for (const mutated of [false, true]) {
             const app = await createApp({
@@ -65,15 +67,32 @@ for (const scene of Object.keys(benchmarkScenes) as (keyof typeof benchmarkScene
             });
             try {
                 let diverged = false;
+                let changed = false;
                 for (const [step, expected] of gold.entries()) {
                     app.world.tick();
                     const hash = hashPhysics(app.world);
-                    if (mutated && step === 0) {
+                    if (mutated && !changed && (scene !== "benchmarkSensor" || step >= 32)) {
                         const dynamic = [...app.world.query([Shape])].find(eid => app.world.storage(Body).type.get(app.world.storage(Shape).body.get(eid) || eid) === BodyType.Dynamic);
-                        expect(dynamic).toBeDefined();
-                        app.world.storage(Shape).density.set(dynamic!, 101);
+                        if (dynamic) {
+                            if (scene === "benchmarkSensor") setLinearVelocity(app.world, dynamic, { x: 1, y: -5, z: 0 });
+                            else app.world.storage(Shape).density.set(dynamic, 101);
+                            changed = true;
+                        }
                     }
-                    if (!mutated) expect(hash, `step ${step} hash`).toBe(expected.hash);
+                    if (!mutated) {
+                        expect(hash, `step ${step} hash`).toBe(expected.hash);
+                        if (scene === "benchmarkSensor") {
+                            const sample = app.world.resource(SensorSample);
+                            const events = app.world.resource(PhysicsEvents);
+                            const sensors = (channel: typeof events.sensorBegin) => channel.records.slice(0, channel.count).map(e => [
+                                sample.shapeRefs.indexOf(e.sensorShape) + 1, sample.bodyRefs.indexOf(e.sensorBody) + 1,
+                                sample.shapeRefs.indexOf(e.visitorShape) + 1, sample.bodyRefs.indexOf(e.visitorBody) + 1,
+                            ]);
+                            const actual: (number | string)[][][] = [sensors(events.sensorBegin), sensors(events.sensorEnd), [], [], [], []];
+                            expect(actual, `step ${step} events`).toEqual(expected.events);
+                            expect(events.contactBegin.count + events.contactEnd.count + events.contactHit.count + events.joints.count).toBe(0);
+                        }
+                    }
                     else if (hash !== expected.hash) { diverged = true; break; }
                 }
                 if (mutated) expect(diverged).toBe(true);

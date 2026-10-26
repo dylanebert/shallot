@@ -9,6 +9,7 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { EventSample, EventSamplePlugin } from "../src/events";
 import { scenePresentation, shapeMaterial } from "../src/presentation";
 import { categories, controlValues, createScene, enabledControls, scenes } from "../src/scenes";
+import { SensorSample } from "../src/sensor";
 
 setDefaultTimeout(TIMEOUT.node);
 
@@ -95,14 +96,16 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
             expect(presentation.shapes.length).toBeGreaterThan(0);
             for (const { eid, body, role, mesh } of presentation.shapes) {
                 expect(mesh.vertices.length).toBeGreaterThan(0);
-                const expected = world.get(eid, Shape)!.isSensor
-                    ? "sensor"
-                    : world.get(body, Body)!.type === BodyType.Static
-                      ? "ground"
-                      : ["revolute", "prismatic", "wheel"].includes(id) ||
-                          body === world.resource(EventSample).player
-                        ? "motorized"
-                        : "subject";
+                const expected = world.resource(SensorSample).sensors.get(world.ref(eid))?.active
+                    ? "ground"
+                    : world.get(eid, Shape)!.isSensor
+                      ? "sensor"
+                      : world.get(body, Body)!.type === BodyType.Static
+                        ? "ground"
+                        : ["revolute", "prismatic", "wheel"].includes(id) ||
+                            body === world.resource(EventSample).player
+                          ? "motorized"
+                          : "subject";
                 expect(role).toBe(expected);
                 expect(presentation.materials[role]).toBeDefined();
             }
@@ -153,6 +156,7 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 chains: 40,
                 explosion: 20,
                 destruction: 20,
+                benchmarkSensor: 130,
             }[id];
             const grid = presentation.grid;
             const spacing = grid.lines[2]!.a[2] - grid.lines[0]!.a[2];
