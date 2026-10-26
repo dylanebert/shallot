@@ -18,8 +18,8 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
     }
     const sources = [
         section(sample, "b3BodyId Sample::AddGroundBox(", "struct RowDef"),
-        ...["BenchmarkLargePyramid", "BenchmarkWidePyramid", "BenchmarkManyPyramids", "BenchmarkJointGrid", "FallingBoxes", "BenchmarkRain", "BenchmarkJunkyard", "BenchmarkWasher", "BenchmarkConvexPile", "BenchmarkFallingTrees", "BenchmarkExplosion", "BenchmarkDestruction"].map(name =>
-            section(benchmark, `class ${name} :`, name === "BenchmarkWasher" ? "static int benchmarkWasher" : `static int sample${name.replace("Benchmark", "")}`)),
+        ...["BenchmarkLargePyramid", "BenchmarkWidePyramid", "BenchmarkManyPyramids", "BenchmarkJointGrid", "FallingBoxes", "BenchmarkRain", "BenchmarkJunkyard", "BenchmarkWasher", "BenchmarkConvexPile", "BenchmarkFallingTrees", "BenchmarkExplosion", "BenchmarkDestruction", "BenchmarkChains"].map(name =>
+            section(benchmark, `class ${name} :`, name === "BenchmarkChains" ? "static int sampleBenchmarkChains" : name === "BenchmarkWasher" ? "static int benchmarkWasher" : `static int sample${name.replace("Benchmark", "")}`)),
         section(benchmark, "class CandyCups :", "static int sampleSmallConvexes"),
         section(stacking, "class BoxStack :", "static int sampleBoxStack"),
         section(joints, "class Bridge :", "static int sampleBridgeIndex"),

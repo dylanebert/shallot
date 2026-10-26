@@ -182,6 +182,7 @@ int main( int argc, char** argv )
 		{ "convexPile", BenchmarkConvexPile::Create },
 		{ "candyCups", CandyCups::Create },
 		{ "fallingTrees", BenchmarkFallingTrees::Create },
+		{ "chains", BenchmarkChains::Create },
 		{ "explosion", BenchmarkExplosion::Create },
 		{ "destruction", BenchmarkDestruction::Create },
 		{ "box_stack", BoxStack::Create }, { "bridge", Bridge::Create },

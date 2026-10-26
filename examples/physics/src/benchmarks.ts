@@ -12,6 +12,7 @@ import {
     type World,
 } from "@dylanebert/shallot";
 import {
+    applyWind,
     computeCosSin,
     defaultExplosionDef,
     explode,
@@ -154,6 +155,8 @@ function jointGrid(world: World): number[] {
 }
 export const BenchmarkSample = {
     create: () => ({
+        windShapes: [] as number[],
+        noise: [0, 0, 0],
         explosionPending: false,
         destructionBodies: [] as number[],
         randomSeed: 12345,
@@ -184,6 +187,25 @@ const BeforeBenchmark: System = {
                 position: { x: 0, y: 5, z: 0 },
                 impulsePerArea: 1000,
             });
+        }
+        if (sample.scene === "chains") {
+            const wind = {
+                x: f(20 * f(1 + sample.noise[0]!)),
+                y: f(20 * sample.noise[1]!),
+                z: f(20 * sample.noise[2]!),
+            };
+            for (const eid of sample.windShapes) applyWind(world, eid, wind, 1, 1, 20, false);
+            for (let i = 0; i < 3; i++) {
+                let x = sample.randomSeed;
+                x ^= x << 13;
+                x ^= x >>> 17;
+                x ^= x << 5;
+                sample.randomSeed = x >>> 0;
+                const rand = f(
+                    f(f(f(0.3) - f(-0.3)) * f((sample.randomSeed % 32768) / 32767)) + f(-0.3),
+                );
+                sample.noise[i] = f(f(f(1 - f(0.05)) * sample.noise[i]!) + f(f(0.05) * rand));
+            }
         }
         if (sample.scene !== "junkyard") return;
         const dt = f(1 / 60);
@@ -530,7 +552,71 @@ function candyCups(world: World): number[] {
                 bodies.push(body(world, geometry, [-10 + 2.5 * j, i, -10 + 2.5 * k]));
     return bodies;
 }
+function chains(world: World): number[] {
+    const geometry = world.resource(PhysicsMeshes).add({
+        name: "wave",
+        wave: {
+            xCount: 80,
+            zCount: 80,
+            cellWidth: 1,
+            amplitude: 0.5,
+            rowFrequency: 0.05,
+            columnFrequency: 0.01,
+        },
+    });
+    const ground = world.create();
+    world.add(ground, Body);
+    world.add(ground, Shape, { kind: ShapeKind.Mesh, geometry });
+    const sample = world.resource(BenchmarkSample);
+    Object.assign(sample, { scene: "chains", randomSeed: 12345, noise: [0, 0, 0], windShapes: [] });
+    const bodies: number[] = [];
+    for (let row = 0; row < 25; row++)
+        for (let column = 0; column < 25; column++) {
+            let previous = 0;
+            for (let i = 0; i < 4; i++) {
+                const eid = world.create();
+                world.add(eid, Transform, {
+                    translation: [-25 + 2 * row, (1 - 2 * i) * 0.25 + 3, -25 + 2 * column],
+                });
+                world.add(eid, Body, {
+                    type: i === 0 ? BodyType.Static : BodyType.Dynamic,
+                    enableSleep: 0,
+                });
+                world.add(eid, Shape, {
+                    kind: ShapeKind.Capsule,
+                    capsuleCenter1: [0, -0.25, 0],
+                    capsuleCenter2: [0, 0.25, 0],
+                    radius: 0.125,
+                });
+                if (i === 3) sample.windShapes.push(eid);
+                if (i > 0) {
+                    const joint = world.create();
+                    world.add(joint, SphericalJoint, {
+                        a: previous,
+                        b: eid,
+                        localAnchorA: [0, -0.25, 0],
+                        localAnchorB: [0, 0.25, 0],
+                        enableSpring: 1,
+                        hertz: 1,
+                        dampingRatio: 0.7,
+                        enableMotor: 1,
+                        maxMotorTorque: 1,
+                    });
+                }
+                previous = eid;
+                bodies.push(eid);
+            }
+        }
+    return bodies;
+}
 export const benchmarkScenes = {
+    chains: {
+        construct: chains,
+        gridExtent: 40,
+        gridSpacing: 5,
+        camera: { yaw: 0, pitch: 15, distance: 50, target: [0, 5, 0] },
+        controls: undefined,
+    },
     explosion: {
         construct: explosion,
         gridExtent: 20,

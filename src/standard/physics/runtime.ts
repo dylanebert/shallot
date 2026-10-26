@@ -969,6 +969,44 @@ export function setAngularVelocity(world: World, eid: number, velocity: Vec3): v
     bodySetAngularVelocity(state, body.index1 - 1, stateVector);
 }
 
+/** Accumulates wind force and torque for the shape's body for the next step, using its projected area,
+ * relative shape velocity and air density of 1.225 kg/m³. Wind is world-space velocity in meters per second; drag opposes relative velocity and lift acts perpendicular to it.
+ * maxSpeed caps relative speed for stability (typically 10 m/s or less).
+ * Only spheres, capsules and hulls on enabled dynamic bodies respond. Sleeping bodies respond only when wake is true.
+ * Shapes added since the last fixed sync ignore it. */
+export function applyWind(
+    world: World,
+    eid: number,
+    wind: Vec3,
+    drag: number,
+    lift: number,
+    maxSpeed: number,
+    wake: boolean,
+): void {
+    const runtime = runtimeFor(world);
+    const state = runtime.physicsWorld;
+    const shape = runtime.shapes.get(eid);
+    if (!state || !shape || !world.has(eid, ShapeComponent)) return;
+    const binding = state.shapeEntityRefs[shape.index1 - 1];
+    if (
+        !binding ||
+        binding.generation !== shape.generation ||
+        world.resolve(binding.reference) !== eid
+    )
+        return;
+    kernel(state.ecsState).shapeApplyWind(
+        state.worldId,
+        shape.index1 - 1,
+        wind.x,
+        wind.y,
+        wind.z,
+        drag,
+        lift,
+        maxSpeed,
+        wake ? 1 : 0,
+    );
+}
+
 /** Accumulates world force in newtons at a world point for the next step; an off-center point adds torque. `wake` defaults true. Box3D ignores static and kinematic bodies; a body added since the last fixed sync ignores it. */
 export function applyForce(world: World, eid: number, force: Vec3, point: Pos, wake = true): void {
     const runtime = runtimeFor(world);

@@ -130,6 +130,17 @@ export type Kernel = {
     bodyDestroyWorld(world: number, id: number): void;
     residentResetWorld(world: number): void;
     worldDestroyKernel(world: number): void;
+    shapeApplyWind(
+        world: number,
+        id: number,
+        x: number,
+        y: number,
+        z: number,
+        drag: number,
+        lift: number,
+        maxSpeed: number,
+        wake: number,
+    ): void;
     worldExplode(
         world: number,
         maskHi: number,

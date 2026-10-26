@@ -27,6 +27,7 @@ export {
     applyLinearImpulse,
     applyLinearImpulseToCenter,
     applyTorque,
+    applyWind,
     castRay,
     castRayClosest,
     castShape,

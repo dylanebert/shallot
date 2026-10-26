@@ -170,4 +170,6 @@ mod solve;
 #[cfg(target_arch = "wasm32")]
 mod treework;
 #[cfg(target_arch = "wasm32")]
+mod wind;
+#[cfg(target_arch = "wasm32")]
 mod world_query;

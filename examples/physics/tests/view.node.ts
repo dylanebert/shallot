@@ -150,6 +150,7 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 convexPile: 250,
                 candyCups: 60,
                 fallingTrees: 100,
+                chains: 40,
                 explosion: 20,
                 destruction: 20,
             }[id];

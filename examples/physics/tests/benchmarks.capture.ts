@@ -15,6 +15,7 @@ for (const name of [
     "Convex Pile",
     "Candy Cups",
     "Falling Trees",
+    "Chains",
     "Explosion",
     "Destruction",
 ]) {
