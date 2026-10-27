@@ -97,3 +97,13 @@ test("a capture after a frame whose draw failed validation rejects instead of re
     // the device's one classified report, raised after its selection window
     await observeDevice(world.gpu.device).error;
 });
+
+test("a capture after the failed device is lost still names the error that stopped it", async () => {
+    // the device the previous test stopped
+    const { world, scene: camera } = subject();
+    world.gpu.device.destroy();
+    await world.gpu.device.lost;
+    await expect(captureTexture(world, camera)).rejects.toThrow(
+        /readback failed: Comparison sampler .* is incompatible with non-comparison sampler binding/,
+    );
+});
