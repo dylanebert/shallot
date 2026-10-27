@@ -396,16 +396,17 @@ export class WorldField<T extends FieldType = FieldType> {
                 type,
                 markChanged: base.markChanged,
                 writeEncoded: base.writeEncoded,
-                set: (eid: number, x: number, y = 0, z = 0, w = 0) => {
+                set: (eid: number, x: number, y: number, z: number, w?: number) => {
                     const o = eid * 4;
                     if (o >= column.array.length) field.ensure(eid + 1);
                     const a = column.array;
                     a[o] = x;
                     a[o + 1] = y;
                     a[o + 2] = z;
-                    a[o + 3] = w;
-                    column.dirty[eid >>> 5] |= 1 << (eid & 31);
-                    column.latest = column.ticks[eid >>> 5] = column.clock.tick;
+                    a[o + 3] = w ?? 0;
+                    const word = eid >>> 5;
+                    column.dirty[word] |= 1 << eid;
+                    column.latest = column.ticks[word] = column.clock.tick;
                 },
                 read: (eid: number, out: Float32Array) => field.read(eid, out),
                 x: lane(0),

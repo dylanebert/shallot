@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { ScalarField, Vector2Field, Vector4Field } from "./component";
 import { component } from "./component";
-import { entity, f16, f32, vec2, vec4, World } from "./index";
+import { entity, f16, f32, vec2, vec3, vec4, World } from "./index";
 import { WorldField } from "./storage";
 
 test("bulk field writes copy typed rows, preserve other rows, publish scalar-equivalent marks and refuse mismatches", () => {
@@ -22,6 +22,31 @@ test("bulk field writes copy typed rows, preserve other rows, publish scalar-equ
         /write.*Float32Array.*Uint32Array/,
     );
     expect(Array.from(column.dirty)).toEqual([(1 << 2) | (1 << 7)]);
+});
+
+test("bound four-lane writes grow, mark the correct word and preserve optional padding and numeric lanes", () => {
+    const world = new World();
+    const column = new WorldField(vec3, 1, world);
+    const storage = column.bind();
+    for (const eid of [31, 32, 63, 64]) {
+        column.dirty.fill(0);
+        const tick = world.changeClock.tick;
+        storage.set(eid, -0, Number.NaN, 3);
+        expect(Array.from(storage.column.slice(eid * 4, eid * 4 + 4))).toEqual([-0, Number.NaN, 3, 0]);
+        expect(Array.from(column.dirty)).toEqual(
+            Array.from(column.dirty, (_, word) =>
+                word === (eid >>> 5) ? (1 << (eid & 31)) >>> 0 : 0,
+            ),
+        );
+        expect(column.changeTicks[eid >>> 5]).toBe(tick);
+        expect(column.changeTick).toBe(tick);
+        world.incrementChangeTick();
+        storage.set(eid, 1, 2, 3, 4);
+        expect(storage.column[eid * 4 + 3]).toBe(4);
+        expect(column.changeTicks[eid >>> 5]).toBe(world.changeClock.tick);
+        expect(column.changeTick).toBe(world.changeClock.tick);
+    }
+    world.dispose();
 });
 
 test("binding a component freezes its schema against later mutation", () => {
