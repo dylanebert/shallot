@@ -268,6 +268,12 @@ interface OutlineGpuState {
     capacity: number;
 }
 
+interface MeshBin {
+    meshId: number;
+    eids: number[];
+    count: number;
+}
+
 interface Group {
     mesh: Mesh;
     meshId: number;
@@ -282,9 +288,9 @@ interface OutlineState {
     targets: Map<number, Targets>;
     composites: Map<number, CompositeEntry>;
     masks: Map<number, Map<number, MaskEntry>>;
-    // persistent per-frame scratch: the highlighted eids, their meshes, and the mesh groups
-    eids: number[];
-    meshes: number[];
+    binsByMesh: Map<number, MeshBin>;
+    bins: MeshBin[];
+    binCount: number;
     groups: Group[];
 }
 
@@ -310,8 +316,9 @@ const createOutlineState = (): OutlineState => ({
     targets: new Map(),
     composites: new Map(),
     masks: new Map(),
-    eids: [],
-    meshes: [],
+    binsByMesh: new Map(),
+    bins: [],
+    binCount: 0,
     groups: [],
 });
 const outlineState = (world: World) => world.resource(outlineStateKey);
@@ -548,14 +555,24 @@ const OutlineSystem: System = {
         if (!_outlineState.gpu.maskPlain) return;
         _outlineState.targets.forEach(releaseStaleTargets, world);
         const instances = world.storage(MeshInstance);
-        const eids = _outlineState.eids;
-        const meshes = _outlineState.meshes;
+        const bins = _outlineState.bins;
+        for (let i = 0; i < _outlineState.binCount; i++) bins[i]!.count = 0;
+        let binCount = 0;
         let n = 0;
+        // Like Bevy's keyed IndexMap bins, active bins follow first-seen mesh order.
+        // Keep their storage across frames so stable outlines do not allocate.
         for (const eid of world.query(OUTLINE_MESH_QUERY)) {
-            eids[n] = eid;
-            meshes[n] = instances.mesh.get(eid);
+            const meshId = instances.mesh.get(eid);
+            let bin = _outlineState.binsByMesh.get(meshId);
+            if (!bin) {
+                bin = { meshId, eids: [], count: 0 };
+                _outlineState.binsByMesh.set(meshId, bin);
+            }
+            if (bin.count === 0) bins[binCount++] = bin;
+            bin.eids[bin.count++] = eid;
             n++;
         }
+        _outlineState.binCount = binCount;
         if (n === 0) return; // bare path — no passes
         const globalTransforms = globalTransformTable(world).buffer;
 
@@ -580,23 +597,15 @@ const OutlineSystem: System = {
             let minWidth = Infinity;
             let occlude = false;
             // group by mesh in first-seen order: each group's eids become a contiguous instance slice
-            for (let i = 0; i < n; i++) {
-                const meshId = meshes[i]!;
-                let seen = false;
-                for (let j = 0; j < i; j++) {
-                    if (meshes[j] === meshId) {
-                        seen = true;
-                        break;
-                    }
-                }
-                if (seen) continue;
+            for (let i = 0; i < binCount; i++) {
+                const bin = bins[i]!;
+                const meshId = bin.meshId;
                 const mesh = _meshes.get(meshId as MeshHandle);
                 // mesh deleted / unregistered, or an un-quantized producer — nothing to outline
                 if (!mesh?.position || !mesh.quant) continue;
                 const first = cursor;
-                for (let j = i; j < n; j++) {
-                    if (meshes[j] !== meshId) continue;
-                    const eid = eids[j]!;
+                for (let j = 0; j < bin.count; j++) {
+                    const eid = bin.eids[j]!;
                     const meshMask = renderLayers(world, eid);
                     if ((meshMask & cameraMask) === 0) continue;
                     eidsStaging[cursor] = eid;
