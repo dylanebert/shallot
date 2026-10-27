@@ -731,6 +731,7 @@ function colorFs(
                 alphaCutoff: input.alphaCutoff,
                 frontFacing: readsFacing ? input.frontFacing : facing,
                 fragCoord: input.pos,
+                prepass: false,
             } as any);
             const col = d.vec4f(std.add(fragment(ctx), d.vec4f(forcedZero)));
             const output = alphaColorOutput(
@@ -831,6 +832,7 @@ function clipFs(
                 alphaCutoff: fin.alphaCutoff,
                 frontFacing: readsFacing ? fin.frontFacing : facing,
                 fragCoord: fin.pos,
+                prepass: true,
             });
             const color = fragment(ctx);
             const cutoff = fin.alphaCutoff;
@@ -889,6 +891,7 @@ function varyingClipFs(
             ctx.alphaCutoff = input.alphaCutoff;
             ctx.frontFacing = readsFacing ? input.frontFacing : facing;
             ctx.fragCoord = d.vec4f(input.pos);
+            ctx.prepass = true;
             for (const i of tgpu.unroll(std.range(keys.length))) {
                 (ctx as any)[keys[i]] = (schemas[i] as any)((input as any)[slots[i]]);
             }
@@ -1111,6 +1114,7 @@ function varyingFs(
             ctx.alphaCutoff = input.alphaCutoff;
             ctx.frontFacing = readsFacing ? input.frontFacing : facing;
             ctx.fragCoord = d.vec4f(input.pos);
+            ctx.prepass = false;
             for (const i of tgpu.unroll(std.range(varyingKeys.length))) {
                 (ctx as any)[varyingKeys[i]] = (schemas[i] as any)((input as any)[slots[i]]);
             }
@@ -1891,6 +1895,7 @@ function varyingShadowFs(surface: AnyMaterialType, cullMode: number) {
             ctx.alphaCutoff = input.alphaCutoff;
             ctx.frontFacing = readsFacing ? input.frontFacing : facing;
             ctx.fragCoord = d.vec4f(input.pos);
+            ctx.prepass = true;
             for (const i of tgpu.unroll(std.range(keys.length))) {
                 (ctx as any)[keys[i]] = (schemas[i] as any)((input as any)[slots[i]]);
             }
@@ -1945,6 +1950,7 @@ function clipShadowFs(surface: AnyMaterialType, cullMode: number) {
                 alphaCutoff: input.alphaCutoff,
                 frontFacing: readsFacing ? input.frontFacing : facing,
                 fragCoord: input.pos,
+                prepass: true,
             });
             const color = fragment(ctx);
             const cutoff = input.alphaCutoff;

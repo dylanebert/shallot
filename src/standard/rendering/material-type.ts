@@ -492,6 +492,10 @@ function materialFragmentContext<
          * z and w retain WGSL @builtin(position) semantics: depth and interpolated reciprocal clip w.
          * Depth and shadow passes use their own render target's coordinates. */
         fragCoord: d.vec4f,
+        /** True where the fragment runs in a depth prepass, normal prepass or shadow map, which shade
+         * with lighting stubbed and their own fragCoord; false in the colour pass. Side effects such as
+         * storage writes belong under `!ctx.prepass`, as Bevy's `PREPASS_PIPELINE` guards prepass code. */
+        prepass: d.bool,
         ...varyings,
     });
 }
