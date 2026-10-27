@@ -24,7 +24,7 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         section(benchmark, "inline bool operator<", "class BenchmarkLargePyramid"),
         section(benchmark, "struct ShapeUserData", "static int benchmarkSensor"),
         section(benchmark, "class CandyCups :", "static int sampleSmallConvexes"),
-        ...["BoxStack", "CardHouse", "SphereStack", "CapsuleStack", "SingleBox", "Cylinder", "CylinderStack", "Dominoes", "Wedge", "Arch", "DoubleDomino", "Pyramid2D", "EdgeCrossing"].map(name => section(stacking, `class ${name} :`, `static int sample${name}`)),
+        ...["BoxStack", "CardHouse", "SphereStack", "CapsuleStack", "JengaStack", "SingleBox", "Cylinder", "CylinderStack", "Dominoes", "Wedge", "Arch", "DoubleDomino", "Pyramid2D", "EdgeCrossing"].map(name => section(stacking, `class ${name} :`, `static int sample${name}`)),
         section(joints, "class Bridge :", "static int sampleBridgeIndex"),
         ...["Filter", "Prismatic", "Parallel", "Revolute", "Wheel", "Motor"].map((name) =>
             section(joints, `class ${name}Joint :`, `static int sample${name}Joint`)),

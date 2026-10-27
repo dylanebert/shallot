@@ -20,6 +20,9 @@ import {
     SyncPhysicsConstraintsSystem,
 } from "@dylanebert/shallot/standard/physics";
 
+import { SceneRestart } from "./scene-restart";
+import type { Controls } from "./scenes";
+
 const f = Math.fround;
 type V3 = [number, number, number];
 type Q4 = [number, number, number, number];
@@ -70,6 +73,56 @@ function ground(world: World, extent: number): void {
 function rotation(world: World, axis: V3, angle: number): Q4 {
     return rotationFromAxisAngle(world, { x: axis[0], y: axis[1], z: axis[2] }, angle);
 }
+function jengaStack(world: World, capsule = 0): number[] {
+    ground(world, 20);
+    const geometry = box(world, [1, 0.1, 0.1]);
+    const bodies: number[] = [];
+    for (let i = 0; i < 30; i++) {
+        const alpha = i & 1 ? 0 : f(0.5 * pi);
+        const offset = f(1 - f(2 * f(0.1)));
+        const x = i & 1 ? 0 : offset;
+        const z = i & 1 ? offset : 0;
+        const y = f(f(f(f(2.1) * i) + 0.5) * f(0.1));
+        for (const sign of [1, -1]) {
+            const eid = body(
+                world,
+                geometry,
+                [sign * x, y, sign * z],
+                rotation(world, [0, 1, 0], alpha),
+            );
+            world.add(
+                eid,
+                Shape,
+                capsule
+                    ? {
+                          kind: ShapeKind.Capsule,
+                          capsuleCenter1: [-1, 0, 0],
+                          capsuleCenter2: [1, 0, 0],
+                          radius: 0.1,
+                          rollingResistance: 0.1,
+                      }
+                    : { geometry, rollingResistance: 0.05 },
+            );
+            bodies.push(eid);
+        }
+    }
+    return bodies;
+}
+const jengaControls = {
+    Shape: {
+        label: "Shape",
+        value: 0,
+        options: [
+            { label: "Hull", value: 0 },
+            { label: "Capsule", value: 1 },
+        ],
+        set(world, _bodies, value) {
+            if (value !== 0 && value !== 1) throw new Error("Shape must be Hull or Capsule");
+            world.resource(SceneRestart).restart((world) => jengaStack(world, value));
+        },
+    },
+} satisfies Controls;
+
 function cardHouse(world: World): number[] {
     ground(world, 10);
     const geometry = box(world, [0.001, 0.2, 0.1]);
@@ -353,6 +406,13 @@ export const stackingScenes = {
         gridSpacing: 0.5,
         camera: { yaw: 40, pitch: 25, distance: 5, target: [0, 1, 0] },
         controls: undefined,
+    },
+    jenga: {
+        construct: jengaStack,
+        gridExtent: 40,
+        gridSpacing: 1,
+        camera: { yaw: 35, pitch: 15, distance: 12, target: [0, 3, 0] },
+        controls: jengaControls,
     },
     cylinderStack: {
         construct: cylinderStack,

@@ -1,7 +1,14 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { createApp, hashPhysics, Shape } from "@dylanebert/shallot";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { createScene, type Scene } from "../src/scenes";
+import { sceneSwitcher } from "../src/sample";
+import {
+    changeControl,
+    controlValues,
+    createScene,
+    enabledControls,
+    type Scene,
+} from "../src/scenes";
 import { StackingSamplePlugin, stackingScenes } from "../src/stacking";
 import { sampleGold } from "./gold";
 
@@ -27,6 +34,44 @@ test("creation impulses recover before the first solve and apply only once", asy
                 expect(hashPhysics(app.world)).toBe(expected.hash);
             }
         }
+    } finally {
+        app.dispose();
+    }
+});
+
+test("jenga Shape controls rebuild through Capsule and back to Hull with native parity", async () => {
+    const gold = sampleGold(
+        await Bun.file(new URL("./jenga.controls.gold.txt", import.meta.url)).text(),
+    );
+    const sequence = (await Bun.file(new URL("./jenga.controls.txt", import.meta.url)).text())
+        .trim()
+        .split("\n")
+        .map((line) => {
+            const [step, shape] = line.split("\t");
+            return { step: Number(step), value: shape === "Capsule" ? 1 : 0 };
+        });
+    const app = await createApp({ defaults: false, plugins: [StackingSamplePlugin] });
+    try {
+        const bodies = sceneSwitcher(app.world)("jenga");
+        const values = controlValues("jenga");
+        expect(values.Shape).toBe(0);
+        expect(enabledControls("jenga", values).Shape!.options).toEqual([
+            { label: "Hull", value: 0 },
+            { label: "Capsule", value: 1 },
+        ]);
+        for (const [step, expected] of gold.entries()) {
+            for (const change of sequence)
+                if (change.step === step) {
+                    changeControl(app.world, "jenga", bodies, values, "Shape", change.value);
+                    expect(bodies).toHaveLength(60);
+                    expect(values.Shape).toBe(change.value);
+                }
+            app.world.tick();
+            expect(hashPhysics(app.world), `step ${step} hash`).toBe(expected.hash);
+        }
+        expect(() => changeControl(app.world, "jenga", bodies, values, "Shape", 2)).toThrow(
+            "Shape must be Hull or Capsule",
+        );
     } finally {
         app.dispose();
     }

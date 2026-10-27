@@ -97,6 +97,10 @@ bool RadioButton( const char* name, int* value, int selected ) {
     if ( SliderFloat( name, &pressed, 0, 1, "" ) && pressed != 0 ) { *value = selected; return true; }
     return false;
 }
+bool RadioButton( const char* name, bool ) {
+    float pressed = 0;
+    return SliderFloat( name, &pressed, 0, 1, "" ) && pressed != 0;
+}
 bool Checkbox( const char* name, bool* value ) {
     float result = *value ? 1.0f : 0.0f;
     bool changed = SliderFloat( name, &result, 0, 1, "" );
@@ -236,6 +240,7 @@ int main( int argc, char** argv )
         { "heightField", BenchmarkHeightField::Create },
         { "hull", BenchmarkHull::Create },
 		{ "cardHouse", CardHouse::Create }, { "sphereStack", SphereStack::Create },
+		{ "jenga", JengaStack::Create },
 		{ "capsuleStack", CapsuleStack::Create }, { "singleBox", SingleBox::Create },
 		{ "cylinder", Cylinder::Create }, { "cylinderStack", CylinderStack::Create },
 		{ "dominoes", Dominoes::Create }, { "wedge", Wedge::Create },

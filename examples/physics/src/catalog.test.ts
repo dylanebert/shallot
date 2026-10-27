@@ -59,6 +59,7 @@ test("each picker label selects its scene in its category, exactly once", () => 
                 { id: "dominoes", name: "Dominoes" },
                 { id: "doubleDomino", name: "Double Domino" },
                 { id: "edgeCrossing", name: "Edge Crossing" },
+                { id: "jenga", name: "Jenga Stack" },
                 { id: "pyramid2D", name: "Pyramid2D" },
                 { id: "singleBox", name: "Single Box" },
                 { id: "sphereStack", name: "Sphere Stack" },

@@ -31,6 +31,7 @@ test("grab sequence reproduces the example's native gold", () => {
 });
 
 const stackingMutations: Record<string, [string, string, string]> = {
+    jenga: ["JengaStack", "float r = 0.1f;", "float r = 0.11f;"],
     cardHouse: ["CardHouse", "float cardHeight = 0.2f;", "float cardHeight = 0.21f;"],
     sphereStack: ["SphereStack", "float r = 0.5f;", "float r = 0.51f;"],
     capsuleStack: ["CapsuleStack", "float r = 0.5f;", "float r = 0.51f;"],
@@ -51,7 +52,7 @@ for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "f
         const hashes = run([binary, scene, String(steps)]);
         equalSampleSteps(run([binary, scene, String(steps)]), hashes, `${scene} repeat`);
         equalSampleSteps(hashes, readFileSync(new URL(`../../examples/physics/tests/${scene === "box_stack" ? "boxStack" : scene}.gold.txt`, import.meta.url), "utf8"), scene);
-        if (["revolute", "prismatic", "wheel", "parallel", "motor", "joint", "contact"].includes(scene)) {
+        if (["revolute", "prismatic", "wheel", "parallel", "motor", "joint", "contact", "jenga"].includes(scene)) {
             const sequence = fileURLToPath(new URL(`../../examples/physics/tests/${scene}.controls.txt`, import.meta.url));
             const controlledSteps = scene === "contact" ? 1204 : steps;
             const controlled = run([binary, scene, String(controlledSteps), sequence]);

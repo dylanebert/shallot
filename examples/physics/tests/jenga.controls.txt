@@ -1,0 +1,2 @@
+120	Capsule	1
+360	Hull	1
