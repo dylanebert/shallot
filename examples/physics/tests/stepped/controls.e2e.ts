@@ -1,6 +1,10 @@
 import { pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, test } from "playwright/test";
+import { categories } from "../../src/scenes";
 import { dragRange, gameKeyMovesCamera, pointerControl, tabSkipsChrome } from "../pointer";
+
+const samples = categories.flatMap((category) => category.scenes);
+const beforeWheel = samples[samples.findIndex((sample) => sample.id === "wheel") - 1]!.name;
 
 test.use(pipelineWarnings);
 
@@ -16,7 +20,7 @@ test("pointer controls retain disabled nested settings and disclose the root wit
     await gameKeyMovesCamera(page);
     await expect(picker).toHaveText("Wheel");
     await pointerControl(page, page.getByRole("button", { name: "Previous scene", exact: true }));
-    await expect(picker).toHaveText("Revolute");
+    await expect(picker).toHaveText(beforeWheel);
     await gameKeyMovesCamera(page);
     await pointerControl(page, page.getByRole("button", { name: "Next scene", exact: true }));
     await expect(picker).toHaveText("Wheel");
