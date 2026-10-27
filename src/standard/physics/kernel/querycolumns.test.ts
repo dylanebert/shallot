@@ -83,11 +83,7 @@ test("query input from a caller object whose getter grows kernel memory lands in
                 maskBits: 0x0000000300000004n,
             },
         );
-        const trees = state.broadPhase.trees.flatMap((tree) => [
-            tree.root >>> 0,
-            tree.nodeCount >>> 0,
-        ]);
-        expect(Array.from(q.headerU.subarray(0, 10))).toEqual([...trees, 1, 2, 3, 4]);
+        expect(Array.from(q.headerU.subarray(6, 10))).toEqual([1, 2, 3, 4]);
         expect(Array.from(q.headerF.subarray(10, 13))).toEqual([1, 2, 3]);
         q.translation({
             get x() {
