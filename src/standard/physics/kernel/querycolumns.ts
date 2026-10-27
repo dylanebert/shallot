@@ -93,6 +93,11 @@ export class QueryColumns extends KernelViews {
     proxy(proxy: ShapeProxy): void {
         const count = Math.min(proxy.count, 128);
         const radius = proxy.radius;
+        if (count === 0) {
+            const input = this.input;
+            input[7] = count;
+            input[8] = radius;
+        }
         for (let i = 0; i < count; ++i) {
             const p = proxy.points[i];
             const x = p.x;
@@ -103,10 +108,9 @@ export class QueryColumns extends KernelViews {
             input[n] = x;
             input[n + 1] = y;
             input[n + 2] = z;
+            input[7] = count;
+            input[8] = radius;
         }
-        const input = this.input;
-        input[7] = count;
-        input[8] = radius;
     }
     mover(center1: Vec3, center2: Vec3, radius: number): void {
         const ax = center1.x;

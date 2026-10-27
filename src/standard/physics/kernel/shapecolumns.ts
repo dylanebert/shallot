@@ -187,7 +187,6 @@ export class ShapeStore extends KernelViews {
 
     /** Read a material's user id without constructing a TypeScript material copy. */
     userMaterialIdAt(shape: Shape, index: number): bigint {
-        this.ensureViews();
         const k = kernel(this.ecsState);
         if (k.shapeMaterialCount(this._worldId, shape) >>> 0 === 0) return 0n;
         const o = k.shapeMaterialPtr(this._worldId, shape) / 4 + index * MATERIAL_STRIDE;
