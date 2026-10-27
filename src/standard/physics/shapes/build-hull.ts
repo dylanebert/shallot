@@ -1,6 +1,6 @@
 import type { World } from "../../../engine";
 import type { Transform, Vec3 } from "../common/records";
-import { type Kernel, kernel } from "../kernel/kernel";
+import { type Kernel, kernel, kernelState } from "../kernel/kernel";
 import type { HullData } from "./hull";
 import { hullImage } from "./hullbytes";
 import { drawHull } from "./readgeometry";
@@ -9,6 +9,7 @@ type Scratch = { input: Float32Array; view: DataView };
 const scratch = new WeakMap<Kernel, Scratch>();
 function prepare(world: World | undefined, count = 0): [Kernel, Float32Array] {
     const k = kernel(world);
+    kernelState(world).hullBuilds++;
     const ptr = k.hullBuildInputPtr(count);
     let views = scratch.get(k);
     if (!views) {

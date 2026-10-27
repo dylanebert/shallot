@@ -827,6 +827,8 @@ export interface KernelState {
     viewEpoch: Uint32Array | null;
     viewValue: number;
     viewRevision: number;
+    /** Hull builds through shapes/build-hull since this state was created. */
+    hullBuilds: number;
 }
 
 function createKernelState(): KernelState {
@@ -850,6 +852,7 @@ function createKernelState(): KernelState {
         viewEpoch: null,
         viewValue: -1,
         viewRevision: 0,
+        hullBuilds: 0,
     };
 }
 

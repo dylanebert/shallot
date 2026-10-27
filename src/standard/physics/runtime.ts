@@ -79,6 +79,7 @@ import { readJointEventUserData } from "./kernel/jointcolumns";
 import {
     artifact,
     kernel,
+    kernelState,
     type QueryCallback,
     rethrowQueryError,
     setQueryCallback,
@@ -149,6 +150,8 @@ const fixedDeltaTime = Time.FIXED_DT;
 
 export interface PhysicsCounters {
     bodiesVisited: number;
+    /** Hull builds since the World was built. */
+    hullsBuilt: number;
     bytesUploaded: number;
 }
 
@@ -175,7 +178,7 @@ interface PhysicsRuntime {
     bodies: Map<number, BoundBodyId>;
     constraints: ConstraintCache;
     stale: StaleScan;
-    counters: PhysicsCounters;
+    counters: Omit<PhysicsCounters, "hullsBuilt">;
     // eids whose Body membership, or a Body's Transform, changed since the last sync, as 32-bit words
     changed: Uint32Array;
     anyChanged: boolean;
@@ -1226,7 +1229,7 @@ export function setAwake(world: World, eid: number, awake: boolean): void {
     if (state && body) bodySetAwake(state, body.index1 - 1, awake);
 }
 export function physicsCounters(world: World): PhysicsCounters {
-    return { ...runtimeFor(world).counters };
+    return { ...runtimeFor(world).counters, hullsBuilt: kernelState(world).hullBuilds };
 }
 
 // The runtime's maps from entities to solver handles, as plain ids, so a restore rebinds them for its

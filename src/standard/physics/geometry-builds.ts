@@ -54,9 +54,18 @@ function lookup<Def extends { name: string }, Built extends object>(
     sy = 1,
     sz = 1,
 ): Built | undefined {
-    const registry = world.resource(geometry.registry);
-    const def = registry.get(id);
-    if (!def) return undefined;
+    const def = world.resource(geometry.registry).get(id);
+    return def && cachedBuild(world, geometry, def, sx, sy, sz);
+}
+
+function cachedBuild<Def extends { name: string }, Built extends object>(
+    world: World,
+    geometry: Geometry<Def, Built>,
+    def: Def,
+    sx = 1,
+    sy = 1,
+    sz = 1,
+): Built {
     if (sx === 1 && sy === 1 && sz === 1) {
         const builds = world.resource(geometry.builds);
         let built = builds.get(def);
@@ -331,15 +340,16 @@ export function buildPlacedHull(
             "physics: hull placement requires a finite position and normalized rotation",
         );
     if (position.every((n) => n === 0) && rotation.every((n, i) => n === (i === 3 ? 1 : 0)))
-        return buildHull(
+        return cachedBuild(
             world,
+            hulls,
             def,
             scale[0] * bodyScale[0],
             scale[1] * bodyScale[1],
             scale[2] * bodyScale[2],
         );
     let hull = cloneAndTransformHull(
-        buildHull(world, def),
+        cachedBuild(world, hulls, def),
         {
             p: { x: position[0], y: position[1], z: position[2] },
             q: { v: { x: rotation[0], y: rotation[1], z: rotation[2] }, s: rotation[3] },
@@ -369,7 +379,7 @@ function scaledHull(world: World, hull: HullData, sx: number, sy: number, sz: nu
     return built;
 }
 
-// Compound children share hull builds at each body scale. A Shape of kind Hull builds its own.
+// Shapes and compound children naming one hull share its build at each scale; a placed Shape clones it.
 const hulls: Geometry<Hull, HullData> = {
     registry: Hulls,
     builds: { create: () => new WeakMap() },
