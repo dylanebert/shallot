@@ -52,6 +52,7 @@ import {
     clearFieldCandidate,
     clearFieldCandidates,
     createFieldCandidates,
+    dropFieldCandidate,
     type FieldCandidates,
     markFieldCandidate,
     requeueFieldCandidate,
@@ -150,6 +151,8 @@ const fixedDeltaTime = Time.FIXED_DT;
 
 export interface PhysicsCounters {
     bodiesVisited: number;
+    /** Shapes the last fixed sync visited, each creation or field reconciliation counting once. */
+    shapesVisited: number;
     /** Hull builds since the World was built. */
     hullsBuilt: number;
     bytesUploaded: number;
@@ -184,6 +187,8 @@ interface PhysicsRuntime {
     anyChanged: boolean;
     // only warm sets this to make the next sync walk every Body
     full: boolean;
+    /** The change tick of the last Transform.scale capture. */
+    scaleRun: number;
     observing: boolean;
     // each hit record's material-id words (A low, A high, B low, B high), so fillHitRecords rebuilds a
     // record's bigint only when its words change
@@ -262,10 +267,11 @@ function newRuntime(): PhysicsRuntime {
         bodies: new Map(),
         constraints: createConstraintCache(),
         stale: { world: null, eids: [], count: 0 },
-        counters: { bodiesVisited: 0, bytesUploaded: 0 },
+        counters: { bodiesVisited: 0, shapesVisited: 0, bytesUploaded: 0 },
         changed: new Uint32Array(64),
         anyChanged: false,
         full: true,
+        scaleRun: 0,
         observing: false,
         hitMaterialWords: new Uint32Array(64),
     };
@@ -621,8 +627,12 @@ function clearBodies(world: World, runtime: PhysicsRuntime): void {
     clearFieldCandidates(runtime.poseCandidates);
     runtime.warnedShapes.clear();
     clearFieldCandidates(runtime.shapeCandidates);
+    // The next captures latch every mark still set, as for a new World.
+    runtime.poseCandidates.lastRun = 0;
+    runtime.shapeCandidates.lastRun = 0;
+    runtime.scaleRun = 0;
     runtime.shapeDependencies.clear();
-    runtime.counters = { bodiesVisited: 0, bytesUploaded: 0 };
+    runtime.counters = { bodiesVisited: 0, shapesVisited: 0, bytesUploaded: 0 };
     runtime.warnedBodyFields.clear();
     runtime.full = true;
     resetConstraints(runtime.constraints);
@@ -1777,16 +1787,25 @@ function applyPose(
 }
 
 function capturePoseCandidates(world: World, runtime: PhysicsRuntime): void {
-    const positions = world.fieldStorage(Transform, "translation").dirty;
-    const rotations = world.fieldStorage(Transform, "rotation").dirty;
+    const translation = world.fieldStorage(Transform, "translation");
+    const rotation = world.fieldStorage(Transform, "rotation");
+    const positions = translation.dirty;
+    const rotations = rotation.dirty;
+    const positionTicks = translation.changeTicks;
+    const rotationTicks = rotation.changeTicks;
+    const candidates = runtime.poseCandidates;
+    const since = candidates.lastRun;
+    candidates.lastRun = world.incrementChangeTick();
     const words = Math.max(positions.length, rotations.length);
     for (let word = 0; word < words; word++) {
-        let bits = positions[word] | rotations[word];
+        let bits =
+            ((positionTicks[word] ?? 0) > since ? positions[word] : 0) |
+            ((rotationTicks[word] ?? 0) > since ? rotations[word] : 0);
         while (bits !== 0) {
             const mask = bits & -bits;
             bits ^= mask;
             const eid = (word << 5) | (31 - Math.clz32(mask));
-            if (runtime.bodies.has(eid)) markFieldCandidate(runtime.poseCandidates, eid, 0);
+            if (runtime.bodies.has(eid)) markFieldCandidate(candidates, eid, 0);
         }
     }
 }
@@ -1987,9 +2006,14 @@ function warnShape(runtime: PhysicsRuntime, eid: number, error: unknown): void {
 /** Queues each attached shape whose body's marked Transform.scale differs from its built scale. */
 function captureScaleCandidates(world: World, runtime: PhysicsRuntime): void {
     const candidates = runtime.shapeCandidates;
-    const scaleDirty = world.fieldStorage(Transform, "scale").dirty;
+    const scale = world.fieldStorage(Transform, "scale");
+    const scaleDirty = scale.dirty;
+    const ticks = scale.changeTicks;
+    const since = runtime.scaleRun;
+    runtime.scaleRun = world.incrementChangeTick();
     const dependencies = runtime.shapeDependencies;
     for (let word = 0; word < scaleDirty.length; word++) {
+        if (ticks[word] <= since) continue;
         let bits = scaleDirty[word];
         while (bits !== 0) {
             const low = bits & -bits;
@@ -2017,6 +2041,7 @@ function syncShapes(world: World, runtime: PhysicsRuntime, checkScale = true): v
     for (let i = 0; i < count; i++) {
         const eid = candidates.eids[i];
         if (eid === 0) continue;
+        runtime.counters.shapesVisited++;
         const mask = candidates.fieldMarks[eid];
         if (!world.has(eid, ShapeComponent)) {
             runtime.shapeDependencies.set(eid, 0);
@@ -2162,8 +2187,11 @@ function realizeMemberships(world: World, runtime: PhysicsRuntime): void {
             runtime.shapeCandidates = scratch;
             markFieldCandidate(scratch, eid);
             syncShapes(world, runtime, false);
+            // A pending shape stays queued to retry; an attached one was created from every current field.
+            const pending = scratch.count !== 0;
             clearFieldCandidates(scratch);
             runtime.shapeCandidates = candidates;
+            if (!pending) dropFieldCandidate(candidates, eid);
         } else {
             const index = jointKind;
             if (!world.has(eid, bindings[index].component)) continue;
@@ -2186,6 +2214,7 @@ const SyncSystem: System = {
         const runtime = runtimeFor(world);
         const physicsWorld = runtime.physicsWorld;
         if (!physicsWorld) return;
+        runtime.counters.shapesVisited = 0;
         captureFieldCandidate(world, runtime.bodyCandidates, bodyBinding(world));
         captureFieldCandidate(world, runtime.shapeCandidates, shapeBinding(world));
         realizeMemberships(world, runtime);

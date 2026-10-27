@@ -178,6 +178,35 @@ for (const type of [f32, vec2, vec4] as const) {
     });
 }
 
+for (const type of [f32, f16, vec2, vec4] as const) {
+    test(`${type.name} marks stamp their word with the change tick, so a consumer sees a rewrite of a set mark after its last tick`, () => {
+        const world = new World();
+        const column = new WorldField(type, 16, world);
+        const handle = column.bind() as ScalarField | Vector2Field | Vector4Field;
+        const lane = "x" in handle ? handle.x : handle;
+        handle.set(3, 1, 1, 1, 1);
+        const lastRun = world.incrementChangeTick();
+        expect(column.changeTicks[0]).toBe(lastRun);
+        // A mark already set before the consumer's tick is invisible in dirty; its word's tick is not.
+        expect(column.dirty[0]).toBe(1 << 3);
+        lane.set(3, 2);
+        expect(column.dirty[0]).toBe(1 << 3);
+        expect(column.changeTicks[0]).toBeGreaterThan(lastRun);
+        const second = world.incrementChangeTick();
+        lane.set(40, 1);
+        handle.writeEncoded(new Uint32Array([70]), new type.ctor(type.lanes));
+        handle.column[100 * type.lanes] = 1;
+        handle.markChanged(100);
+        expect(Array.from(column.changeTicks, (tick) => tick > second)).toEqual([
+            false,
+            true,
+            true,
+            true,
+        ]);
+        world.dispose();
+    });
+}
+
 test("restore marks changes confined to each vector lane and a scalar lane", () => {
     const State = component("RestoreStrideChanges", { vector: vec4, scalar: f32 });
     const world = new World();

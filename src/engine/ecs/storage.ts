@@ -21,7 +21,15 @@ export type FieldStorage<T extends FieldType> = T["lanes"] extends 1
 type Column = {
     array: TypedArray;
     dirty: Uint32Array;
+    /** Each mark word's latest change tick, read from `clock` at each mark. */
+    ticks: Float64Array;
+    clock: ChangeClock;
 };
+
+/** @internal A World's change tick, shared by its field columns. */
+export interface ChangeClock {
+    tick: number;
+}
 
 function bits(array: TypedArray): Uint32Array | Uint16Array | Uint8Array {
     const { buffer, byteOffset, byteLength } = array;
@@ -45,6 +53,8 @@ export class WorldField<T extends FieldType = FieldType> {
         this.#column = {
             array: new schema.ctor(initialCapacity * schema.lanes),
             dirty: new Uint32Array((initialCapacity + 31) >>> 5),
+            ticks: new Float64Array((initialCapacity + 31) >>> 5),
+            clock: world?.changeClock ?? { tick: 1 },
         };
     }
 
@@ -93,6 +103,9 @@ export class WorldField<T extends FieldType = FieldType> {
         }
         live.fill(0, imageLength, end);
         for (let word = 0; word < marks.length; word++) dirty[word] |= marks[word];
+        const { ticks, clock } = this.#column;
+        for (let word = 0; word < dirty.length; word++)
+            if (dirty[word] !== 0) ticks[word] = clock.tick;
     }
 
     ensure(capacity: number): void {
@@ -107,13 +120,18 @@ export class WorldField<T extends FieldType = FieldType> {
         const dirty = new Uint32Array((next + 31) >>> 5);
         dirty.set(column.dirty);
         column.dirty = dirty;
+        const ticks = new Float64Array(dirty.length);
+        ticks.set(column.ticks);
+        column.ticks = ticks;
     }
 
     /** Publish an eid after writing its current raw column; retained arrays do not follow growth. */
     markChanged(eid: number): void {
         // Check capacity here: ensure serves every typed-array kind, so its length load is megamorphic and IC misses allocate.
         if (eid + 1 > this.#column.array.length / this.type.lanes) this.ensure(eid + 1);
-        this.#column.dirty[eid >>> 5] |= 1 << (eid & 31);
+        const column = this.#column;
+        column.dirty[eid >>> 5] |= 1 << (eid & 31);
+        column.ticks[eid >>> 5] = column.clock.tick;
     }
 
     set(eid: number, x: number, y = 0, z = 0, w = 0): void {
@@ -140,6 +158,7 @@ export class WorldField<T extends FieldType = FieldType> {
             }
         }
         column.dirty[eid >>> 5] |= 1 << (eid & 31);
+        column.ticks[eid >>> 5] = column.clock.tick;
     }
 
     /** Copy encoded typed rows and publish the same change marks as scalar setters. */
@@ -173,11 +192,13 @@ export class WorldField<T extends FieldType = FieldType> {
                 rows.push(source.subarray(i * lanes, (i + 1) * lanes) as TypedArray);
             byLanes.set(lanes, rows);
         }
-        const { array, dirty } = this.#column;
+        const { array, dirty, ticks, clock } = this.#column;
+        const tick = clock.tick;
         for (let i = 0; i < eids.length; i++) {
             const eid = eids[i];
             array.set(rows[i], eid * this.type.lanes + Math.max(0, lane));
             dirty[eid >>> 5] |= 1 << (eid & 31);
+            ticks[eid >>> 5] = tick;
         }
     }
 
@@ -194,11 +215,12 @@ export class WorldField<T extends FieldType = FieldType> {
     }
 
     clear(eid: number): void {
-        const { array, dirty } = this.#column;
+        const { array, dirty, ticks, clock } = this.#column;
         const base = eid * this.type.lanes;
         if (base + this.type.lanes > array.length) return;
         for (let lane = 0; lane < this.type.lanes; lane++) array[base + lane] = 0;
         dirty[eid >>> 5] |= 1 << (eid & 31);
+        ticks[eid >>> 5] = clock.tick;
     }
 
     get column(): TypedArray {
@@ -207,6 +229,12 @@ export class WorldField<T extends FieldType = FieldType> {
 
     get dirty(): Uint32Array {
         return this.#column.dirty;
+    }
+
+    /** @internal Each 32-eid word of {@link dirty}'s latest change tick: a word whose tick is newer
+     * than a consumer's last {@link World.incrementChangeTick} holds a mark written since. */
+    get changeTicks(): Float64Array {
+        return this.#column.ticks;
     }
 
     bind(): FieldStorage<T> {
@@ -295,6 +323,7 @@ export class WorldField<T extends FieldType = FieldType> {
                 if (i >= column.array.length) field.ensure(eid + 1);
                 column.array[i] = value;
                 column.dirty[eid >>> 5] |= 1 << (eid & 31);
+                column.ticks[eid >>> 5] = column.clock.tick;
             },
             get(eid) {
                 return column.array[eid * lanes + offset] ?? 0;
@@ -322,6 +351,7 @@ export class WorldField<T extends FieldType = FieldType> {
                         if (eid >= column.array.length) field.ensure(eid + 1);
                         column.array[eid] = value;
                         column.dirty[eid >>> 5] |= 1 << (eid & 31);
+                        column.ticks[eid >>> 5] = column.clock.tick;
                     },
                     get: (eid: number) => column.array[eid] ?? 0,
                 },
@@ -341,6 +371,7 @@ export class WorldField<T extends FieldType = FieldType> {
                         a[o] = x;
                         a[o + 1] = y;
                         column.dirty[eid >>> 5] |= 1 << (eid & 31);
+                        column.ticks[eid >>> 5] = column.clock.tick;
                     },
                     read: (eid: number, out: Float32Array) => field.read(eid, out),
                     x: lane(0),
@@ -363,6 +394,7 @@ export class WorldField<T extends FieldType = FieldType> {
                     a[o + 2] = z;
                     a[o + 3] = w;
                     column.dirty[eid >>> 5] |= 1 << (eid & 31);
+                    column.ticks[eid >>> 5] = column.clock.tick;
                 },
                 read: (eid: number, out: Float32Array) => field.read(eid, out),
                 x: lane(0),
@@ -378,7 +410,9 @@ export class WorldField<T extends FieldType = FieldType> {
         this.ensure(eid + 1);
         const encode = this.type.encode ?? identity;
         this.#column.array[eid * this.type.lanes + lane] = encode(value);
-        this.#column.dirty[eid >>> 5] |= 1 << (eid & 31);
+        const column = this.#column;
+        column.dirty[eid >>> 5] |= 1 << (eid & 31);
+        column.ticks[eid >>> 5] = column.clock.tick;
     }
 }
 

@@ -7,6 +7,8 @@ export interface FieldCandidates {
     fieldMarks: Uint32Array;
     count: number;
     tombstones: number;
+    /** The change tick of this queue's last capture; later captures latch only words marked since. */
+    lastRun: number;
 }
 
 export interface FieldCandidateBinding {
@@ -21,6 +23,7 @@ export function createFieldCandidates(): FieldCandidates {
         fieldMarks: new Uint32Array(16),
         count: 0,
         tombstones: 0,
+        lastRun: 0,
     };
 }
 
@@ -38,6 +41,16 @@ function ensureCandidateCapacity(candidates: FieldCandidates, eid: number): void
 
 export function clearFieldCandidate(candidates: FieldCandidates, eid: number): void {
     candidates.fieldMarks[eid] = 0;
+}
+
+/** Removes a queued candidate and its field marks, leaving a tombstone in its slot. */
+export function dropFieldCandidate(candidates: FieldCandidates, eid: number): void {
+    const position = candidates.positions[eid] ?? 0;
+    if (position === 0) return;
+    candidates.eids[position - 1] = 0;
+    candidates.positions[eid] = 0;
+    candidates.fieldMarks[eid] = 0;
+    candidates.tombstones++;
 }
 
 export function markFieldCandidate(
@@ -85,9 +98,13 @@ export function captureFieldCandidate(
     binding: FieldCandidateBinding,
 ): void {
     const words = (world.entityHighWater + 31) >>> 5;
+    const since = candidates.lastRun;
+    candidates.lastRun = world.incrementChangeTick();
     for (let fieldIndex = 0; fieldIndex < binding.dirty.length; fieldIndex++) {
         const dirty = binding.dirty[fieldIndex].dirty;
+        const ticks = binding.dirty[fieldIndex].changeTicks;
         for (let word = 0; word < Math.min(dirty.length, words); word++) {
+            if (ticks[word] <= since) continue;
             let bits = dirty[word];
             while (bits !== 0) {
                 const low = bits & -bits;

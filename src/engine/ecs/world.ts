@@ -29,7 +29,7 @@ export type { WorldSnapshot } from "./snapshot";
 import { Queries } from "./query";
 import { ComponentRegistry } from "./registry";
 import { Scheduler, type System, Time } from "./scheduler";
-import { type ComponentStorage, WorldField } from "./storage";
+import { type ChangeClock, type ComponentStorage, WorldField } from "./storage";
 import { GpuTable, type GpuTableOptions } from "./table";
 
 const INITIAL_CAPACITY = 16;
@@ -81,6 +81,8 @@ export class World {
     private _frameUploadBytes = 0;
     private _stepping = false;
     private _columns = new FieldColumns();
+    /** @internal The change tick this world's field marks stamp. */
+    readonly changeClock: ChangeClock = { tick: 1 };
     private _snapshots = new SnapshotComposition(
         () => this._stepping,
         () => `${this.registry.revision}/${this._storage.size}`,
@@ -518,6 +520,13 @@ export class World {
     private notifyMembership(component: Component, eid: number, present: boolean): void {
         const observers = this._membershipObservers.get(idOf(component));
         if (observers) notify(observers, eid, present);
+    }
+
+    /** @internal Advance the change tick and return the one marks stamped until now. A consumer that
+     * keeps the last return reads, on its next latch, the mark words whose `changeTicks` are newer,
+     * as a Bevy system compares change ticks with its last run. */
+    incrementChangeTick(): number {
+        return this.changeClock.tick++;
     }
 
     /** @internal Resolve the world-owned column for engine change consumers. */
