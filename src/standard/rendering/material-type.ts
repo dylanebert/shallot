@@ -37,9 +37,15 @@ export type MaterialBinding =
           access?: "read" | "read_write";
           visibility?: readonly ShaderStage[];
       }
-    | { type: "texture"; dimension?: "2d" | "2d-array"; sampleType?: "float" }
+    | {
+          type: "texture";
+          dimension?: "2d" | "2d-array";
+          sampleType?: "float";
+          /** False binds `unfilterable-float`, which formats such as r32float require. */
+          filterable?: boolean;
+      }
     | { type: "texture"; dimension?: "2d"; sampleType: "depth" }
-    | { type: "sampler"; samplerType?: "filtering" | "comparison" };
+    | { type: "sampler"; samplerType?: "filtering" | "non-filtering" | "comparison" };
 
 /** The values a binding's option may take, with undefined where it may be absent. */
 type OptionOf<B, K extends string> = B extends { [P in K]: infer V }
@@ -48,14 +54,18 @@ type OptionOf<B, K extends string> = B extends { [P in K]: infer V }
       ? V | undefined
       : undefined;
 type TextureEntry<T> = { texture: T; visibility: ShaderStage[] };
+type FloatEntry<T> = TextureEntry<T> & { sampleType?: "unfilterable-float" };
 type TextureEntryOf<S, D> = S extends "depth"
     ? TextureEntry<d.WgslTextureDepth2d>
     : D extends "2d-array"
-      ? TextureEntry<d.WgslTexture2dArray<d.F32>>
-      : TextureEntry<d.WgslTexture2d<d.F32>>;
+      ? FloatEntry<d.WgslTexture2dArray<d.F32>>
+      : FloatEntry<d.WgslTexture2d<d.F32>>;
 type SamplerEntryOf<T> = T extends "comparison"
     ? { sampler: "comparison"; visibility: ShaderStage[] }
-    : { sampler: "filtering"; visibility: ShaderStage[] };
+    : {
+          sampler: T extends "non-filtering" ? "non-filtering" : "filtering";
+          visibility: ShaderStage[];
+      };
 
 /** @internal The TypeGPU layout entry a material or background binding declares. */
 export type EntryFor<B extends MaterialBinding> = B extends { type: "uniform" }
@@ -99,6 +109,8 @@ export function bindingEntry<B extends MaterialBinding>(binding: B): EntryFor<B>
                         : binding.dimension === "2d-array"
                           ? d.texture2dArray()
                           : d.texture2d(),
+                ...(binding.sampleType !== "depth" &&
+                    binding.filterable === false && { sampleType: "unfilterable-float" }),
                 visibility: VS_FS,
             } as EntryFor<B>;
         case "sampler":
