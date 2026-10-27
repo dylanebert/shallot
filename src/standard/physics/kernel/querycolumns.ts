@@ -52,15 +52,19 @@ export class QueryColumns extends KernelViews {
         const k = kernel(world.ecsState);
         k.shapeSetActiveWorld(world.worldId);
         world.broadPhase.store.refreshIfStale();
+        const category = filter?.categoryBits ?? DEFAULT_CATEGORY_BITS;
+        const mask = filter?.maskBits ?? DEFAULT_MASK_BITS;
+        const x = origin.x;
+        const y = origin.y;
+        const z = origin.z;
         const h = this.headerU;
         h[19] = 0;
         const trees = world.broadPhase.trees;
         for (let i = 0; i < 3; ++i) {
-            h[2 * i] = trees[i].root;
-            h[2 * i + 1] = trees[i].nodeCount;
+            const tree = trees[i].state;
+            h[2 * i] = tree[0];
+            h[2 * i + 1] = tree[1];
         }
-        const category = filter?.categoryBits ?? DEFAULT_CATEGORY_BITS;
-        const mask = filter?.maskBits ?? DEFAULT_MASK_BITS;
         h[6] =
             category === DEFAULT_CATEGORY_BITS
                 ? 0xffffffff
@@ -68,55 +72,88 @@ export class QueryColumns extends KernelViews {
         h[7] = category === DEFAULT_CATEGORY_BITS ? 0xffffffff : Number(category & 0xffffffffn);
         h[8] = mask === DEFAULT_MASK_BITS ? 0xffffffff : Number((mask >> 32n) & 0xffffffffn);
         h[9] = mask === DEFAULT_MASK_BITS ? 0xffffffff : Number(mask & 0xffffffffn);
-        this.headerF[10] = origin.x;
-        this.headerF[11] = origin.y;
-        this.headerF[12] = origin.z;
+        const f = this.headerF;
+        f[10] = x;
+        f[11] = y;
+        f[12] = z;
         return k;
     }
 
     placement(pose: WorldTransform, origin: Pos): void {
-        this.input[0] = pose.p.x - origin.x;
-        this.input[1] = pose.p.y - origin.y;
-        this.input[2] = pose.p.z - origin.z;
-        this.input[3] = pose.q.v.x;
-        this.input[4] = pose.q.v.y;
-        this.input[5] = pose.q.v.z;
-        this.input[6] = pose.q.s;
+        const px = pose.p.x - origin.x;
+        const py = pose.p.y - origin.y;
+        const pz = pose.p.z - origin.z;
+        const qx = pose.q.v.x;
+        const qy = pose.q.v.y;
+        const qz = pose.q.v.z;
+        const qs = pose.q.s;
+        const input = this.input;
+        input[0] = px;
+        input[1] = py;
+        input[2] = pz;
+        input[3] = qx;
+        input[4] = qy;
+        input[5] = qz;
+        input[6] = qs;
     }
 
     proxy(proxy: ShapeProxy): void {
-        this.input[7] = Math.min(proxy.count, 128);
-        this.input[8] = proxy.radius;
-        for (let i = 0; i < Math.min(proxy.count, 128); ++i) {
+        const count = Math.min(proxy.count, 128);
+        const radius = proxy.radius;
+        for (let i = 0; i < count; ++i) {
             const p = proxy.points[i];
+            const x = p.x;
+            const y = p.y;
+            const z = p.z;
+            const input = this.input;
             const n = 14 + 3 * i;
-            this.input[n] = p.x;
-            this.input[n + 1] = p.y;
-            this.input[n + 2] = p.z;
+            input[n] = x;
+            input[n + 1] = y;
+            input[n + 2] = z;
         }
+        const input = this.input;
+        input[7] = count;
+        input[8] = radius;
     }
     mover(center1: Vec3, center2: Vec3, radius: number): void {
-        this.input[7] = 2;
-        this.input[8] = radius;
-        this.input[14] = center1.x;
-        this.input[15] = center1.y;
-        this.input[16] = center1.z;
-        this.input[17] = center2.x;
-        this.input[18] = center2.y;
-        this.input[19] = center2.z;
+        const ax = center1.x;
+        const ay = center1.y;
+        const az = center1.z;
+        const bx = center2.x;
+        const by = center2.y;
+        const bz = center2.z;
+        const input = this.input;
+        input[7] = 2;
+        input[8] = radius;
+        input[14] = ax;
+        input[15] = ay;
+        input[16] = az;
+        input[17] = bx;
+        input[18] = by;
+        input[19] = bz;
     }
     translation(v: Vec3): void {
-        this.input[9] = v.x;
-        this.input[10] = v.y;
-        this.input[11] = v.z;
+        const x = v.x;
+        const y = v.y;
+        const z = v.z;
+        const input = this.input;
+        input[9] = x;
+        input[10] = y;
+        input[11] = z;
     }
     bounds(box: AABB): void {
+        const lx = box.lowerBound.x;
+        const ly = box.lowerBound.y;
+        const lz = box.lowerBound.z;
+        const ux = box.upperBound.x;
+        const uy = box.upperBound.y;
+        const uz = box.upperBound.z;
         const f = this.headerF;
-        f[13] = box.lowerBound.x;
-        f[14] = box.lowerBound.y;
-        f[15] = box.lowerBound.z;
-        f[16] = box.upperBound.x;
-        f[17] = box.upperBound.y;
-        f[18] = box.upperBound.z;
+        f[13] = lx;
+        f[14] = ly;
+        f[15] = lz;
+        f[16] = ux;
+        f[17] = uy;
+        f[18] = uz;
     }
 }

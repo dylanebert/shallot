@@ -283,7 +283,6 @@ function fillQueryHit(
     originY: number,
     originZ: number,
 ): void {
-    state.shapeStore.ensureViews();
     hit.shape = shapeEid;
     hit.body = bodyEid;
     hit.point.x = originX + values[offset + 2];

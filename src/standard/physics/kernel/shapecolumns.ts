@@ -151,8 +151,9 @@ export class ShapeStore extends KernelViews {
     /** Material record `id`'s user material id, built once per distinct value of its id words. */
     userMaterialId(id: number): bigint {
         const o = id;
-        const low = this.materialU[o + 6];
-        const high = this.materialU[o + 7];
+        const material = this.materialU;
+        const low = material[o + 6];
+        const high = material[o + 7];
         let cached = this._ids.get(id);
         if (!cached || cached.low !== low || cached.high !== high) {
             cached = { low, high, value: BigInt(low) | (BigInt(high) << 32n) };
