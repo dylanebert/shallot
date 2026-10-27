@@ -17,7 +17,19 @@ static b3JointId create(int kind, b3WorldId w, b3BodyId a, b3BodyId b) {
 }
 static void words(const void* p,int n) {printf("[");for(int i=0;i<n;++i){uint32_t u;memcpy(&u,(const char*)p+4*i,4);printf("%s%u",i?",":"",u);}printf("]");}
 static void number(float x) { uint32_t u;memcpy(&u,&x,4);printf("%u",u); }
-int main(void) {
+int main(int argc, char** argv) {
+ if (argc > 1 && strcmp(argv[1], "public") == 0) {
+  printf("[");
+  for (int kind=0;kind<9;++kind) {
+   b3WorldDef wd=b3DefaultWorldDef();wd.gravity=b3Vec3_zero;b3WorldId w=b3CreateWorld(&wd);
+   b3BodyDef bd=b3DefaultBodyDef();bd.type=b3_dynamicBody;
+   b3BodyId a=b3CreateBody(w,&bd);bd.position=(b3Pos){1,2,3};b3BodyId b=b3CreateBody(w,&bd);
+   b3JointId j=create(kind,w,a,b);
+   b3World_Step(w,1.0f/60.0f,4);
+   if(kind)printf(",");number(b3Joint_GetLinearSeparation(j));b3DestroyWorld(w);
+  }
+  puts("]");return 0;
+ }
  b3WorldDef wd=b3DefaultWorldDef();wd.gravity=b3Vec3_zero;b3WorldId w=b3CreateWorld(&wd);
  b3BodyDef bd=b3DefaultBodyDef();bd.type=b3_dynamicBody;b3BodyId a=b3CreateBody(w,&bd),b=b3CreateBody(w,&bd);
  puts("[");int first=1;

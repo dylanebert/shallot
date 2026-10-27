@@ -37,6 +37,10 @@ const acceptedRoles = {
         ["ground", 1],
         ["subject", 1],
     ],
+    door: [
+        ["ground", 1],
+        ["subject", 1],
+    ],
     spherical: [
         ["ground", 1],
         ["subject", 1],
@@ -282,6 +286,7 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
             } else expect(presentation.ground).toBeUndefined();
             const extent = {
                 distance: 25,
+                door: 20,
                 spherical: 20,
                 motionLocks: 20,
                 heightField: 30,

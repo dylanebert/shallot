@@ -41,6 +41,7 @@ test("each picker label selects its scene in its category, exactly once", () => 
                 { id: "ballAndChain", name: "Ball and Chain" },
                 { id: "bridge", name: "Bridge" },
                 { id: "distance", name: "Distance Joint" },
+                { id: "door", name: "Door" },
                 { id: "filter", name: "Filter" },
                 { id: "foldOut", name: "Fold Out" },
                 { id: "motionLocks", name: "Motion Locks" },

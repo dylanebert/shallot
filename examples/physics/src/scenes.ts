@@ -71,6 +71,7 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
             { id: "ballAndChain", name: "Ball and Chain" },
             { id: "bridge", name: "Bridge" },
             { id: "distance", name: "Distance Joint" },
+            { id: "door", name: "Door" },
             { id: "filter", name: "Filter" },
             { id: "foldOut", name: "Fold Out" },
             { id: "motionLocks", name: "Motion Locks" },
@@ -111,6 +112,7 @@ export interface Control {
     max?: number;
     step?: number;
     button?: boolean;
+    read?: (world: World) => number | null;
     options?: readonly { label: string; value: number }[];
     when?: readonly string[];
     set(
@@ -158,7 +160,7 @@ export function changeControl(
 ): void {
     const controls: Controls | undefined = scenes[scene].controls;
     const selected = controls?.[name];
-    if (!selected) throw new Error(`Unknown ${scene} control: ${name}`);
+    if (!selected || selected.read) throw new Error(`Unknown ${scene} control: ${name}`);
     values[name] = value;
     selected.set(world, bodies, value, values);
 }

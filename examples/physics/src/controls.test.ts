@@ -30,7 +30,10 @@ for (const scene of Object.keys(scenes) as Scene[]) {
             }
         }
         const toggles = Object.keys(controls).filter(
-            (name) => controls[name]!.min === undefined && !controls[name]!.button,
+            (name) =>
+                controls[name]!.min === undefined &&
+                !controls[name]!.button &&
+                !controls[name]!.read,
         );
         for (let mask = 0; mask < 2 ** toggles.length; mask++) {
             toggles.forEach((name, index) => {

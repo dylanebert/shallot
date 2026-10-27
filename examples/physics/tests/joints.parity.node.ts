@@ -8,6 +8,7 @@ import {
     StandardPhysicsPlugin,
 } from "@dylanebert/shallot";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { JointSamplePlugin } from "../src/joints";
 import {
     type Controls,
     changeControl,
@@ -17,13 +18,13 @@ import {
     scenes,
     setGravityScale,
 } from "../src/scenes";
-
 import { sampleGold } from "./gold";
 
 setDefaultTimeout(TIMEOUT.node);
 
 for (const scene of [
     "distance",
+    "door",
     "spherical",
     "motionLocks",
     "revolute",
@@ -57,7 +58,7 @@ for (const scene of [
             let bodies: number[] = [];
             const app = await createApp({
                 defaults: false,
-                plugins: [StandardPhysicsPlugin],
+                plugins: [StandardPhysicsPlugin, JointSamplePlugin],
                 setup(world) {
                     bodies = createScene(world, scene);
                 },
@@ -86,7 +87,10 @@ for (const scene of [
                 }
                 if (controlled)
                     expect([...used].sort()).toEqual(
-                        Object.keys(scenes[scene].controls ?? {}).sort(),
+                        Object.entries(scenes[scene].controls ?? {})
+                            .filter(([, control]) => !control.read)
+                            .map(([name]) => name)
+                            .sort(),
                     );
             } finally {
                 app.dispose();

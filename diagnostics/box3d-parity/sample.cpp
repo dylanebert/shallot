@@ -89,6 +89,10 @@ namespace ImGui
 void PushItemWidth( float ) {}
 float GetFontSize() { return 14.0f; }
 bool SliderFloat( const char* name, float* value, float, float, const char* = "%.3f" ) {
+    std::string label(name);
+    const auto suffix = label.find("##Door");
+    if (suffix != std::string::npos) label.resize(suffix);
+    name = label.c_str();
     for ( const Change& change : changes )
         if ( change.step == currentStep && change.name == name ) { *value = change.value; return true; }
     return false;
@@ -262,7 +266,7 @@ int main( int argc, char** argv )
 		{ "arch", Arch::Create }, { "doubleDomino", DoubleDomino::Create },
 		{ "pyramid2D", Pyramid2D::Create }, { "edgeCrossing", EdgeCrossing::Create },
 		{ "box_stack", BoxStack::Create }, { "bridge", Bridge::Create },
-		{ "distance", DistanceJoint::Create }, { "spherical", SphericalJoint::Create }, { "motionLocks", MotionLocks::Create },
+		{ "door", Door::Create }, { "distance", DistanceJoint::Create }, { "spherical", SphericalJoint::Create }, { "motionLocks", MotionLocks::Create },
         { "ballAndChain", BallAndChain::Create }, { "foldOut", FoldOut::Create }, { "topDownFriction", TopDownFriction::Create }, { "weld", WeldJoint::Create },
 		{ "revolute", RevoluteJoint::Create }, { "prismatic", PrismaticJoint::Create },
 		{ "wheel", WheelJoint::Create }, { "filter", FilterJoint::Create }, { "parallel", ParallelJoint::Create },

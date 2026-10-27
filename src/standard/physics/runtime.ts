@@ -33,6 +33,7 @@ import type { ShapeProxy } from "./collision/distance";
 import { DEFAULT_MASK_BITS, SetType } from "./common/constants";
 import type { EntityId } from "./common/ids";
 import { PhysicsCreationOrder, recordPhysicsMembership } from "./creation-order";
+import { jointIsValid, getJointLinearSeparation as jointLinearSeparation } from "./solver/joint";
 
 const f32 = Math.fround;
 
@@ -1127,6 +1128,21 @@ export function getLocalPoint(world: World, eid: number, point: Pos): Vec3 | nul
     const ptr = k.bodyLocalPoint(state.worldId, body.index1 - 1, point.x, point.y, point.z);
     const p = new Float32Array(k.memory.buffer, ptr, 3);
     return { x: p[0], y: p[1], z: p[2] };
+}
+
+/** Current joint linear constraint error in meters (Box3D's linear separation).
+ * Returns null for a joint added or destroyed since the last fixed sync. */
+export function getJointLinearSeparation(world: World, eid: number): number | null {
+    const runtime = runtimeFor(world);
+    const state = runtime.physicsWorld;
+    if (!state) return null;
+    for (const binding of jointBindings(world)) {
+        if (!world.has(eid, binding.component)) continue;
+        const id = runtime.constraints.liveJoints.get(binding.index)?.get(eid);
+        if (id && jointIsValid(state, id) && state.jointUserData[id.index1 - 1] === world.ref(eid))
+            return jointLinearSeparation(state, id.index1 - 1);
+    }
+    return null;
 }
 
 /** Current solver mass in kg, center in local meters and inertia in kg·m² about that center.

@@ -38,6 +38,7 @@ export {
     type ExplosionDef,
     emptyQueryHit,
     explode,
+    getJointLinearSeparation,
     getLocalPoint,
     getMassData,
     hashPhysics,

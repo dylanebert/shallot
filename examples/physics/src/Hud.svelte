@@ -1,5 +1,18 @@
 <script lang="ts">
     import "./controls.css";
+    import { onMount } from "svelte";
+    let outputs = $state<Record<string, number | null>>({});
+    onMount(() => {
+        const rows = Object.entries(scenes[scene].controls ?? {}).filter(([, control]) => control.read);
+        if (!rows.length) return;
+        let frame: number;
+        function read() {
+            outputs = Object.fromEntries(rows.map(([name, control]) => [name, control.read!(world)]));
+            frame = requestAnimationFrame(read);
+        }
+        read();
+        return () => cancelAnimationFrame(frame);
+    });
     import type { World } from "@dylanebert/shallot";
     import { formatValue } from "./control-format";
     import { categories, controlValues, scenes, enabledControls, type Scene } from "./scenes";
@@ -45,7 +58,11 @@
     {#snippet fields(parent?: string)}
         {#each Object.entries(scenes[scene].controls ?? {}).filter(([, control]) => control.when?.at(-1) === parent) as [name, control]}
                 <fieldset class="section" disabled={!(name in controls)}>
-                    {#if control.button}
+                    {#if control.read}
+                        {#if outputs[name] != null}
+                            <div class="row"><span>{control.label}</span><output aria-label={control.label}>{outputs[name]!.toExponential(3)}</output></div>
+                        {/if}
+                    {:else if control.button}
                         <button tabindex="-1" onfocus={(event) => event.currentTarget.blur()} onclick={() => update(name, 1)}>{control.label}</button>
                     {:else if control.options}
                         <div class="row" role="radiogroup" aria-label={control.label}>

@@ -1,0 +1,13 @@
+0	Impulse	1
+30	Magnitude	75000
+40	Impulse	1
+80	Limit	0
+110	Two joints	0
+150	Hertz	30
+190	Damping	2.5
+230	Impulse	1
+300	Two joints	1
+330	Limit	1
+380	Hertz	180
+420	Damping	0.5
+460	Impulse	1

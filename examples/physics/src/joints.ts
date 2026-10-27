@@ -2,18 +2,31 @@ import {
     Body,
     BodyType,
     DistanceJoint,
+    GlobalTransform,
     Hulls,
     MotorJoint,
+    type Plugin,
     PrismaticJoint,
     RevoluteJoint,
+    recoverResource,
     Shape,
     ShapeKind,
     SphericalJoint,
+    type System,
     Transform,
     WeldJoint,
     type World,
 } from "@dylanebert/shallot";
-import { computeCosSin, explode, setAwake } from "@dylanebert/shallot/standard/physics";
+import {
+    applyLinearImpulse,
+    computeCosSin,
+    explode,
+    getJointLinearSeparation,
+    StandardPhysicsPlugin,
+    StepPhysicsSystem,
+    SyncPhysicsConstraintsSystem,
+    setAwake,
+} from "@dylanebert/shallot/standard/physics";
 import type { Controls } from "./scenes";
 
 type V3 = [number, number, number];
@@ -427,7 +440,183 @@ const motionLockControls: Controls = Object.fromEntries(
     ]),
 );
 
+export const DoorState = {
+    create: () => ({ joints: [] as number[], errors: [0, 0], impulse: 0, door: 0 }),
+};
+const BeforeDoor: System = {
+    name: "door-before-step",
+    group: "fixed",
+    after: [SyncPhysicsConstraintsSystem],
+    before: [StepPhysicsSystem],
+    update(world) {
+        const state = world.resource(DoorState);
+        if (!state.impulse) return;
+        const pose = world.storage(GlobalTransform);
+        const q = pose.rotation,
+            p = pose.translation,
+            eid = state.door;
+        const f = Math.fround;
+        const x = q.x.get(eid),
+            y = q.y.get(eid),
+            z = q.z.get(eid),
+            w = q.w.get(eid);
+        const tx = 0,
+            ty = f(z * 1.5),
+            tz = f(-y * 1.5);
+        const dx = f(0.75 + f(f(y * tz) - f(z * ty)));
+        const dy = f(f(w * ty) + f(f(z * tx) - f(x * tz)));
+        const dz = f(f(w * tz) + f(f(x * ty) - f(y * tx)));
+        applyLinearImpulse(
+            world,
+            eid,
+            { x: 0, y: 0, z: -state.impulse },
+            { x: p.x.get(eid) + dx, y: p.y.get(eid) + dy, z: p.z.get(eid) + dz },
+        );
+        state.impulse = 0;
+    },
+};
+const AfterDoor: System = {
+    name: "door-after-step",
+    group: "fixed",
+    after: [StepPhysicsSystem],
+    update(world) {
+        const state = world.resource(DoorState);
+        state.joints.forEach((eid, i) => {
+            state.errors[i] = Math.max(state.errors[i]!, getJointLinearSeparation(world, eid) ?? 0);
+        });
+    },
+};
+export const JointSamplePlugin: Plugin = {
+    name: "JointSample",
+    dependencies: [StandardPhysicsPlugin],
+    systems: [BeforeDoor, AfterDoor],
+    recovery: recoverResource(DoorState),
+};
+function doorJoints(
+    world: World,
+    anchor: number,
+    eid: number,
+    two: number,
+    hertz: number,
+    damping: number,
+): void {
+    const state = world.resource(DoorState);
+    for (const joint of state.joints) world.destroy(joint);
+    state.joints = [];
+    const q: [number, number, number, number] = [
+        -Math.fround(Math.SQRT1_2),
+        0,
+        0,
+        Math.fround(Math.SQRT1_2),
+    ];
+    for (let i = 0; i < (two ? 2 : 1); i++) {
+        const joint = world.create();
+        world.add(joint, RevoluteJoint, {
+            a: anchor,
+            b: eid,
+            localAnchorA: [-0.75, 1 + 3 * i, 0],
+            localAnchorB: [-0.75, -1.5 + 3 * i, 0],
+            localRotationA: q,
+            localRotationB: q,
+            constraintHertz: hertz,
+            constraintDampingRatio: damping,
+            enableLimit: 1,
+            lowerAngle: radians(-90),
+            upperAngle: radians(90),
+            enableSpring: 1,
+            hertz: 1,
+            dampingRatio: 0.5,
+            maxMotorTorque: 100,
+            drawScale: 2,
+        });
+        state.joints.push(joint);
+    }
+}
+function door(world: World): number[] {
+    const anchor = ground(world);
+    const eid = body(world, [0, 1.5, 0]);
+    world.storage(Body).gravityScale.set(eid, 2);
+    box(world, eid, [0.75, 1.5, 0.1]);
+    world.storage(Shape).density.set(eid, 1000);
+    const state = world.resource(DoorState);
+    state.door = eid;
+    doorJoints(world, anchor, eid, 1, 120, 0);
+    return [eid];
+}
+const doorControls: Controls = {
+    Impulse: {
+        label: "Impulse",
+        value: 0,
+        button: true,
+        set(world, _bodies, _value, values) {
+            const state = world.resource(DoorState);
+            state.impulse = values.Magnitude!;
+            state.errors.fill(0);
+        },
+    },
+    Magnitude: { label: "Magnitude", value: 50000, min: 1000, max: 100000, step: 1, set() {} },
+    Limit: {
+        label: "Limit",
+        value: 1,
+        set(world, _bodies, value) {
+            for (const eid of world.resource(DoorState).joints)
+                world.storage(RevoluteJoint).enableLimit.set(eid, value);
+        },
+    },
+    "Two joints": {
+        label: "Two joints",
+        value: 1,
+        set(world, bodies, value, values) {
+            const [joint] = world.resource(DoorState).joints;
+            const anchor = world.storage(RevoluteJoint).a.get(joint!);
+            doorJoints(world, anchor, bodies[0]!, value, values.Hertz!, values.Damping!);
+        },
+    },
+    ...Object.fromEntries(
+        (
+            [
+                ["Hertz", "constraintHertz", 120, 15, 240, 1],
+                ["Damping", "constraintDampingRatio", 0, 0, 10, 0.1],
+            ] as const
+        ).map(([label, field, value, min, max, step]) => [
+            label,
+            {
+                label,
+                value,
+                min,
+                max,
+                step,
+                set(world, _bodies, value) {
+                    for (const eid of world.resource(DoorState).joints)
+                        world.storage(RevoluteJoint)[field].set(eid, value);
+                },
+            } satisfies Controls[string],
+        ]),
+    ),
+    ...Object.fromEntries(
+        [0, 1].map((i) => [
+            `Translation error ${i + 1}`,
+            {
+                label: `Translation error ${i + 1}`,
+                value: 0,
+                read(world) {
+                    const state = world.resource(DoorState);
+                    return state.joints[i] === undefined ? null : state.errors[i]!;
+                },
+                set() {},
+            } satisfies Controls[string],
+        ]),
+    ),
+};
+
 export const jointScenes = {
+    door: {
+        construct: door,
+        gridExtent: 20,
+        gridSpacing: 1,
+        camera: { yaw: 45, pitch: 30, distance: 15, target: [0, 2, 0] },
+        controls: doorControls,
+    },
     distance: {
         construct: distance,
         gridExtent: 25,
