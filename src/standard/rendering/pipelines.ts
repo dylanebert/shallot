@@ -380,6 +380,42 @@ const producerRow = tgpu.fn(
     return instance.x === 0xffffffff ? instance.z - 1 : d.u32(0xffffffff);
 });
 
+// Bit 31 of the flat material word marks a mirrored instance, one whose placement has an odd count of
+// negative scale axes, as Bevy's per-instance SIGN_DETERMINANT_MODEL_3X3 mesh flag does; a material
+// vertex function's output does not change it. Fragment contexts take the row from materialRow and the
+// face from logicalFrontFacing.
+const MIRRORED = 0x80000000;
+
+const mirroredMaterial = tgpu.fn(
+    [d.u32, d.vec3f],
+    d.u32,
+)((material, scale) => {
+    "use gpu";
+    const xy = scale.x < 0 !== scale.y < 0;
+    const mirrored = xy !== scale.z < 0;
+    return std.select(material, material | d.u32(MIRRORED), mirrored);
+});
+
+const materialRow = tgpu.fn(
+    [d.u32],
+    d.u32,
+)((word) => {
+    "use gpu";
+    return word & d.u32(MIRRORED - 1);
+});
+
+// A mirrored instance's front face rasterizes as a back face (Bevy's winding_corrected_front_facing).
+// ctx.frontFacing is logical for every material, where Bevy corrects only its PBR paths, since it is
+// already derived from the cull key outside cull-none pipelines.
+const logicalFrontFacing = tgpu.fn(
+    [d.bool, d.u32],
+    d.bool,
+)((rasterFront, word) => {
+    "use gpu";
+    const mirrored = word >= d.u32(MIRRORED);
+    return rasterFront !== mirrored;
+});
+
 // Reserve locations after the fixed fragment fields to prevent custom varying collisions.
 const VARYING_BASE = 7;
 
@@ -606,7 +642,7 @@ function colorVertex(surface: AnyMaterialType, clip: boolean, suffix = clip ? "C
                 world: world.xyz,
                 uv,
                 localPos,
-                material,
+                material: mirroredMaterial(material, xform.scale),
                 alphaMode,
                 alphaCutoff,
             });
@@ -777,10 +813,13 @@ function colorFs(
                 worldNormal,
                 uv: needUv ? input.uv : d.vec2f(0),
                 localPos: needLocalPos ? input.localPos : d.vec3f(0),
-                material: input.material,
+                material: materialRow(input.material),
                 alphaMode: alphaToCoverageFallback ? AlphaModeCode.Opaque : input.alphaMode,
                 alphaCutoff: input.alphaCutoff,
-                frontFacing: readsFacing ? input.frontFacing : facing,
+                frontFacing: logicalFrontFacing(
+                    readsFacing ? input.frontFacing : facing,
+                    input.material,
+                ),
                 fragCoord: input.pos,
                 prepass: false,
             } as any);
@@ -878,10 +917,13 @@ function clipFs(
                 worldNormal: std.normalize(fin.worldNormal),
                 uv: needUv ? (fin as any).uv : d.vec2f(0),
                 localPos: needLocalPos ? (fin as any).localPos : d.vec3f(0),
-                material: fin.material,
+                material: materialRow(fin.material),
                 alphaMode: d.u32(0),
                 alphaCutoff: fin.alphaCutoff,
-                frontFacing: readsFacing ? fin.frontFacing : facing,
+                frontFacing: logicalFrontFacing(
+                    readsFacing ? fin.frontFacing : facing,
+                    fin.material,
+                ),
                 fragCoord: fin.pos,
                 prepass: true,
             });
@@ -937,10 +979,13 @@ function varyingClipFs(
             ctx.worldNormal = std.normalize(input.worldNormal);
             ctx.uv = needUv ? d.vec2f((input as any).uv) : d.vec2f(0);
             ctx.localPos = needLocalPos ? d.vec3f((input as any).localPos) : d.vec3f(0);
-            ctx.material = input.material;
+            ctx.material = materialRow(input.material);
             ctx.alphaMode = d.u32(0);
             ctx.alphaCutoff = input.alphaCutoff;
-            ctx.frontFacing = readsFacing ? input.frontFacing : facing;
+            ctx.frontFacing = logicalFrontFacing(
+                readsFacing ? input.frontFacing : facing,
+                input.material,
+            );
             ctx.fragCoord = d.vec4f(input.pos);
             ctx.prepass = true;
             for (const i of tgpu.unroll(std.range(keys.length))) {
@@ -1006,6 +1051,7 @@ function varyingVs(surface: AnyMaterialType, clip = false, suffix = clip ? "Clip
     // The engine view is retained only when the generated vertex body uses it; a dead dot-chain
     // reference is removed from the pipeline layout.
     if (clip) uses.shadowG = shadowG;
+    uses.mirroredMaterial = mirroredMaterial;
     if (instanced) {
         uses.xformPoint = xformPoint;
         uses.xformNormal = xformNormal;
@@ -1072,7 +1118,7 @@ ${
     out.eid = eid;
     out.row = row;
     out.world = world.xyz;
-    out.material = material;
+    out.material = mirroredMaterial(material, xform.scale);
     out.alphaMode = alphaMode;
     out.alphaCutoff = alphaCutoff;
 ${fragmentAssigns}
@@ -1160,10 +1206,13 @@ function varyingFs(
             ctx.worldNormal = d.vec3f(worldNormal);
             ctx.uv = needUv ? d.vec2f((input as any).uv) : d.vec2f(0);
             ctx.localPos = needLocalPos ? d.vec3f((input as any).localPos) : d.vec3f(0);
-            ctx.material = input.material;
+            ctx.material = materialRow(input.material);
             ctx.alphaMode = alphaToCoverageFallback ? AlphaModeCode.Opaque : input.alphaMode;
             ctx.alphaCutoff = input.alphaCutoff;
-            ctx.frontFacing = readsFacing ? input.frontFacing : facing;
+            ctx.frontFacing = logicalFrontFacing(
+                readsFacing ? input.frontFacing : facing,
+                input.material,
+            );
             ctx.fragCoord = d.vec4f(input.pos);
             ctx.prepass = false;
             for (const i of tgpu.unroll(std.range(varyingKeys.length))) {
@@ -1651,7 +1700,7 @@ function clipShadowVertex(
                 world: world.xyz,
                 uv,
                 localPos,
-                material,
+                material: mirroredMaterial(material, xform.scale),
                 alphaCutoff,
             });
         })
@@ -1835,7 +1884,7 @@ ${
     out.eid = eid;
     out.row = row;
     out.world = world.xyz;
-    out.material = material;
+    out.material = mirroredMaterial(material, xform.scale);
     out.alphaCutoff = alphaCutoff;
 ${fragmentAssigns}
 ${assigns}
@@ -1853,6 +1902,7 @@ ${assigns}
             xformPoint,
             xformNormal,
             producerRow,
+            mirroredMaterial,
             ...(hasVs ? { MaterialVertexInput, vs: materialVertexFunction(surface) } : {}),
         })
         .$name(`${surface.name}${cascade ? "Cascade" : "Point"}ClipCopier`);
@@ -1948,10 +1998,13 @@ function varyingShadowFs(surface: AnyMaterialType, cullMode: number) {
             ctx.worldNormal = std.normalize(input.worldNormal);
             ctx.uv = needUv ? d.vec2f((input as any).uv) : d.vec2f(0);
             ctx.localPos = needLocalPos ? d.vec3f((input as any).localPos) : d.vec3f(0);
-            ctx.material = input.material;
+            ctx.material = materialRow(input.material);
             ctx.alphaMode = d.u32(0);
             ctx.alphaCutoff = input.alphaCutoff;
-            ctx.frontFacing = readsFacing ? input.frontFacing : facing;
+            ctx.frontFacing = logicalFrontFacing(
+                readsFacing ? input.frontFacing : facing,
+                input.material,
+            );
             ctx.fragCoord = d.vec4f(input.pos);
             ctx.prepass = true;
             for (const i of tgpu.unroll(std.range(keys.length))) {
@@ -2003,10 +2056,13 @@ function clipShadowFs(surface: AnyMaterialType, cullMode: number) {
                 worldNormal: std.normalize(input.worldNormal),
                 uv: needUv ? (input as any).uv : d.vec2f(0),
                 localPos: needLocalPos ? (input as any).localPos : d.vec3f(0),
-                material: input.material,
+                material: materialRow(input.material),
                 alphaMode: d.u32(0),
                 alphaCutoff: input.alphaCutoff,
-                frontFacing: readsFacing ? input.frontFacing : facing,
+                frontFacing: logicalFrontFacing(
+                    readsFacing ? input.frontFacing : facing,
+                    input.material,
+                ),
                 fragCoord: input.pos,
                 prepass: true,
             });

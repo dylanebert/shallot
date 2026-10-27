@@ -463,8 +463,10 @@ function materialFragmentContext<
         alphaMode: d.u32,
         alphaCutoff: d.f32,
         /** Whether the fragment lies on its triangle's front face, counter-clockwise in the pass's view.
-         * Constant true where the row culls back faces and false where it culls front faces; read from
-         * `@builtin(front_facing)` only where it culls none, which counts one inter-stage variable. */
+         * On a mirrored instance, one with an odd count of negative scale axes, the winding reverses and
+         * this names the face unmirrored. The rasterized face is fixed where the row culls one, front where
+         * it culls back faces and back where it culls front faces, and read from `@builtin(front_facing)`
+         * only where it culls none, which counts one inter-stage variable. */
         frontFacing: d.bool,
         /** Framebuffer pixel centres in the view's render target at its Resolution, origin top-left.
          * z and w retain WGSL @builtin(position) semantics: depth and interpolated reciprocal clip w.
