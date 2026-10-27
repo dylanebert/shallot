@@ -693,6 +693,50 @@ test("explicit identity hull transforms recreate on change and recover both buil
     });
 });
 
+for (const flag of [0, 1]) {
+    test(`pending hull transform flag ${1 - flag} to ${flag} survives restore and recreates the requested topology`, async () => {
+        await withPhysics((world) => {
+            const geometry = world.resource(Hulls).add({
+                name: "cylinder",
+                cylinder: { height: 1, radius: 0.5, yOffset: 0, sides: 15 },
+            });
+            const scale: [number, number, number] = [-0.75, 1, 1];
+            const eid = world.create();
+            world.add(eid, Body, { type: BodyType.Dynamic, gravityScale: 0 });
+            world.add(eid, Shape, { geometry, scale, enableHullTransform: 1 - flag });
+            world.tick();
+            const topology = ({ points, vertices, edges, faces }: HullData) => ({
+                points,
+                vertices,
+                edges,
+                faces,
+            });
+            const before = topology(readShapeHull(stateFor(world), 0));
+            const expected = topology(
+                buildPlacedHull(
+                    world,
+                    world.resource(Hulls).get(geometry)!,
+                    scale,
+                    undefined,
+                    undefined,
+                    undefined,
+                    flag !== 0,
+                ),
+            );
+            expect(before).not.toEqual(expected);
+            world.storage(Shape).enableHullTransform.set(eid, flag);
+            const pending = world.snapshot();
+            world.storage(Shape).enableHullTransform.set(eid, 1 - flag);
+            world.tick();
+            world.restore(pending);
+            expect(world.storage(Shape).enableHullTransform.get(eid)).toBe(flag);
+            expect(topology(readShapeHull(stateFor(world), 0))).toEqual(before);
+            world.tick();
+            expect(topology(readShapeHull(stateFor(world), 0))).toEqual(expected);
+        });
+    });
+}
+
 test("computeCosSin returns caller-owned Box3D float results", async () => {
     await withPhysics((world) => {
         const k = kernel(world);
