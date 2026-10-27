@@ -1,15 +1,22 @@
-import { expect, setDefaultTimeout, test } from "bun:test";
+import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { Body, Shape, ShapeKind } from "../../core/physics";
 import { Transform } from "../../core/transform";
-import { createApp, World } from "../../engine";
-import { castShape, type PhysicsQueryHit, PhysicsWorldDefinition, StandardPhysicsPlugin } from ".";
+import { createApp, type Plugin, type System, World } from "../../engine";
+import {
+    castShape,
+    type PhysicsQueryHit,
+    PhysicsWorldDefinition,
+    StandardPhysicsPlugin,
+    StepPhysicsSystem,
+} from ".";
 import { contactIds } from "./collision/contact";
 import { readContactManifolds } from "./collision/manifoldstore";
 import { BodyType, defaultFilter, defaultSurfaceMaterial } from "./common/types";
 import { kernel, rethrowQueryError, setQueryCallback } from "./kernel/kernel";
 import { queryColumns } from "./kernel/querycolumns";
 import { readFatAabb, readShapeAabb } from "./kernel/shapecolumns";
+import { physicsBodyIndex } from "./runtime";
 import { makeBoxHull } from "./shapes/build-hull";
 import { createGridMesh } from "./shapes/build-nonconvex";
 import { readShapeHull } from "./shapes/hull";
@@ -396,6 +403,60 @@ test("public cast hits read every hit after a callback grows memory", async () =
         const expected = run(false);
         expect(expected).toHaveLength(3);
         expect(run(true)).toEqual(expected);
+    } finally {
+        app.dispose();
+    }
+});
+
+test("a teleport that grows memory leaves the pose re-check reading later bodies' current poses", async () => {
+    const eids: number[] = [];
+    let write = false;
+    const writer: System = {
+        name: "teleport-before-step",
+        group: "fixed",
+        before: [StepPhysicsSystem],
+        update(world) {
+            if (write) world.storage(Transform).translation.set(eids[0], 20, 0, 0);
+        },
+    };
+    const plugin: Plugin = {
+        name: "Teleport",
+        dependencies: [StandardPhysicsPlugin],
+        recovery: "stateless",
+        systems: [writer],
+    };
+    const app = await createApp({
+        defaults: false,
+        plugins: [plugin],
+        setup(world) {
+            world.resource(PhysicsWorldDefinition).workerCount = 0;
+        },
+    });
+    try {
+        const world = app.world;
+        for (const x of [2, 4, 6]) {
+            const eid = world.create();
+            world.add(eid, Transform, { translation: [x, 0, 0] });
+            world.add(eid, Body);
+            world.add(eid, Shape, { kind: ShapeKind.Sphere, radius: 0.5 });
+            eids.push(eid);
+        }
+        // Each published body is re-checked next tick, the teleported one first.
+        world.tick();
+        const k = kernel(world);
+        const setPose = k.bodySetPose;
+        const setter = spyOn(k, "bodySetPose").mockImplementation((...args) => {
+            setPose(...args);
+            detach(world);
+        });
+        try {
+            write = true;
+            world.tick();
+            expect(setter).toHaveBeenCalledTimes(1);
+            expect(setter.mock.calls[0][1]).toBe(physicsBodyIndex(world, eids[0]));
+        } finally {
+            setter.mockRestore();
+        }
     } finally {
         app.dispose();
     }
