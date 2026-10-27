@@ -969,7 +969,8 @@ function panicImport(memory: () => WebAssembly.Memory): (pointer: number, length
 }
 
 const callbackShapeEntity: ShapeEntity = { shape: 0 as EntityRef, body: 0 as EntityRef };
-function ecsShapeReference(world: WorldState, shape: EntityId) {
+/** @internal The Shape EntityRef a kernel callback names for `shape`, live or retired since the last event read. */
+export function ecsShapeReference(world: WorldState, shape: EntityId): EntityRef {
     if (
         !shapeEntityAt(world.shapeEntities, shape.index1 - 1, shape.generation, callbackShapeEntity)
     )
