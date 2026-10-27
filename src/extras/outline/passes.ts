@@ -234,8 +234,11 @@ export const distanceFs = tgpu.fragmentFn({
     const p = d.vec2i(input.pos.xy);
     const seed = std.textureLoad(distanceLayout.$.seed, p, 0).xy;
     const distance = std.distance(std.add(std.mul(d.vec2f(p), 2), 0.5), d.vec2f(seed));
-    // Round before attachment conversion, whose rounding mode may otherwise differ by backend.
-    return d.vec4f(std.unpack2x16float(std.pack2x16float(d.vec2f(distance, 0))), 0, 0);
+    // Distances are normal f16 values; round their 11 significant bits to nearest, ties to even.
+    // The attachment conversion is then exact on every backend.
+    const parts = std.frexp(distance);
+    const rounded = std.ldexp(std.round(parts.fract * 2048), parts.exp - 11);
+    return d.vec4f(rounded, 0, 0, 0);
 });
 
 /**
