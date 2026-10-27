@@ -58,6 +58,19 @@ const Banded = extendedMaterial(Materials, {
         return d.vec4f(d.vec3f(value), color.a);
     },
 });
+const BandParameters = d.struct({ steps: d.u32 });
+const Quantized = extendedMaterial(Materials, {
+    name: "ParameterizedBands",
+    parameters: BandParameters,
+    defaults: { steps: 4 },
+    fragment: (ctx, extension) => {
+        "use gpu";
+        const color = applyPbrLighting(pbrInputFromStandardMaterial(ctx));
+        const steps = d.f32(extension.steps);
+        const value = std.min(std.floor(color.r * steps), steps - 1) / (steps - 1);
+        return d.vec4f(d.vec3f(value), color.a);
+    },
+});
 const rendering = [StandardRenderingPlugin, MeshRenderPlugin];
 function litScene(world: World, antialias: number) {
     const camera = world.create();
@@ -138,7 +151,7 @@ const gradient = gpuScene(
     import.meta.path,
     {
         defaults: false,
-        plugins: [...rendering, MaterialPlugin(Banded)],
+        plugins: [...rendering, MaterialPlugin(Banded), MaterialPlugin(Quantized)],
     },
     (world) => {
         const scene = litScene(world, 0);
@@ -153,6 +166,8 @@ const gradient = gpuScene(
             ...scene,
             baseline: world.resource(Materials).add(white),
             quantized: world.resource(Banded).add(white),
+            two: world.resource(Quantized).add({ ...white, steps: 2 }),
+            eight: world.resource(Quantized).add({ ...white, steps: 8 }),
         };
     },
 );
@@ -193,6 +208,27 @@ test("extended standard preserves alpha and shading with prepass and sun shadows
     expect(values.size).toBeGreaterThan(4);
     expect(colors.size).toBeGreaterThan(1);
     expect(colors.size).toBeLessThanOrEqual(4);
+});
+
+test("extended parameter rows independently control lit gradient bands and update in place", async () => {
+    const { world, scene } = gradient();
+    const levels = async (handle: MaterialHandle) => {
+        const pixels = await frame(world, scene.camera, scene.eid, handle);
+        const values = new Set<number>();
+        for (let y = 24; y < 40; y++)
+            for (let x = 24; x < 40; x++) values.add(pixels[(y * 64 + x) * 4]!);
+        return values;
+    };
+    const two = await levels(scene.two);
+    const eight = await levels(scene.eight);
+    console.log("extension band measurements", { two: [...two], eight: [...eight] });
+    expect(two.size).toBeLessThanOrEqual(3);
+    expect(eight.size).toBeGreaterThan(4);
+    const assets = world.resource(Quantized);
+    const row = scene.two.material;
+    assets.update(scene.two, { steps: 8 });
+    expect(scene.two.material).toBe(row);
+    expect(await levels(scene.two)).toEqual(eight);
 });
 
 const fogScene = gpuScene(
