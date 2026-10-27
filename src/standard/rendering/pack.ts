@@ -21,6 +21,8 @@ export const CullParams = d.struct({
     meshCount: d.u32,
     instanceCount: d.u32,
     instanceCapacity: d.u32,
+    /** keys per material type in pair indices: six alpha pipeline keys per cull mode held */
+    keyCount: d.u32,
 });
 
 /** Generation and bounds share one binding, indexed by the dense handle index. @internal */
@@ -136,9 +138,11 @@ function pairFactory(materialTypeCount: number) {
             const mid = instance.mesh & HANDLE_INDEX_MASK;
             const materialType = instance.materialType;
             const alphaMode = instance.alphaMode;
+            const cullMode = instance.cullMode;
             if (
                 materialType >= materialTypeCount ||
                 alphaMode > 6 ||
+                cullMode * 6 >= cullLayout.$.params.keyCount ||
                 mid >= cullLayout.$.params.meshCount ||
                 cullLayout.$.meshBounds[mid].handle !== instance.mesh ||
                 encodedGlobalTransform === 0
@@ -156,7 +160,10 @@ function pairFactory(materialTypeCount: number) {
             else if (alphaMode === 5) alphaKey = 4;
             else if (alphaMode === 6) alphaKey = 5;
             return Pair({
-                pair: (materialType * 6 + alphaKey) * cullLayout.$.params.meshCount + mid,
+                pair:
+                    (materialType * cullLayout.$.params.keyCount + alphaKey + cullMode * 6) *
+                        cullLayout.$.params.meshCount +
+                    mid,
                 mid,
                 eid,
                 row,

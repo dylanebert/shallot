@@ -286,6 +286,10 @@ function materialFragmentContext<
         material: d.u32,
         alphaMode: d.u32,
         alphaCutoff: d.f32,
+        /** Whether the fragment lies on its triangle's front face, counter-clockwise in the pass's view.
+         * Constant true where the row culls back faces and false where it culls front faces; read from
+         * `@builtin(front_facing)` only where it culls none, which counts one inter-stage variable. */
+        frontFacing: d.bool,
         /** Framebuffer pixel centres in the view's render target at its Resolution, origin top-left.
          * z and w retain WGSL @builtin(position) semantics: depth and interpolated reciprocal clip w.
          * Depth and shadow passes use their own render target's coordinates. */
@@ -353,6 +357,37 @@ export const AlphaPipelineKey = {
 } as const;
 export const ALPHA_PIPELINE_KEY_COUNT = 6;
 
+/** Values carried in the mesh-instance table's `cullMode`, from a row's `GPUCullMode`. */
+export const CullModeCode = { Back: 0, None: 1, Front: 2 } as const;
+export type CullModeCode = (typeof CullModeCode)[keyof typeof CullModeCode];
+
+export function cullModeCode(mode: GPUCullMode): CullModeCode {
+    switch (mode) {
+        case "back":
+            return CullModeCode.Back;
+        case "none":
+            return CullModeCode.None;
+        case "front":
+            return CullModeCode.Front;
+        default:
+            throw new RangeError(`cullMode must be "back", "none" or "front"`);
+    }
+}
+
+/** One pipeline variant: its alpha pipeline key within the band of its CullModeCode. */
+export function pipelineKey(alphaPipelineKey: number, cullMode: number): number {
+    return alphaPipelineKey + ALPHA_PIPELINE_KEY_COUNT * cullMode;
+}
+
+/** Keys per material type in pair indices: one alpha band per cull code up to the highest any
+ * type's `pipelineKeys` holds, so worlds whose rows cull only back faces keep six. @internal */
+export function pipelineKeyCount(sources: readonly (MaterialSource<any> | undefined)[]): number {
+    let keys = 0;
+    for (const source of sources) keys |= source?.pipelineKeys ?? 0;
+    const highest = keys === 0 ? 0 : 31 - Math.clz32(keys);
+    return ALPHA_PIPELINE_KEY_COUNT * (1 + Math.floor(highest / ALPHA_PIPELINE_KEY_COUNT));
+}
+
 export function alphaModeFields(mode: AlphaMode): { alphaMode: number; alphaCutoff: number } {
     switch (mode.kind) {
         case "opaque":
@@ -397,18 +432,20 @@ export function alphaPipelineKey(alphaMode: number): number {
 
 export type AlphaPipelineKey = (typeof AlphaPipelineKey)[keyof typeof AlphaPipelineKey];
 
-/** A material's externally owned parameter table and alpha pipeline inputs.
+/** A material's externally owned parameter table and pipeline inputs.
  * The owner fills and uploads its table through World's table schedule, and publishes each consumer's
- * alphaMode/alphaCutoff into meshInstanceTable after upload and before MeshPreprocessSystem.
- * alphaMode reads the selected row for CPU transparent sorting; alphaKeys is the growing bitset of
- * `1 << AlphaPipelineKey` values the type can draw. Rows remain valid for the source's stated lifetime.
+ * alphaMode/alphaCutoff/cullMode into meshInstanceTable after upload and before MeshPreprocessSystem.
+ * alphaMode and cullMode read the selected row for CPU transparent sorting; cullMode omitted is
+ * CullModeCode.Back. pipelineKeys is the growing bitset of `1 << pipelineKey(alphaPipelineKey,
+ * cullMode)` values the type can draw. Rows remain valid for the source's stated lifetime.
  * cullBounds, when supplied, reads the selected row and writes a local-space [x, y, z, radius] sphere
  * into caller-owned scratch during transparent queuing. Shared consumers use the same row's geometry;
  * geometry-changing shaders must cover their expanded geometry here too. */
 export interface MaterialSource<P extends AnyWgslStruct = AnyWgslStruct> {
     readonly table: GpuTable<P>;
-    readonly alphaKeys: number;
+    readonly pipelineKeys: number;
     alphaMode(row: number): number;
+    cullMode?(row: number): number;
     cullBounds?(row: number, out: Float32Array): void;
 }
 
@@ -444,12 +481,20 @@ export interface MaterialType<
     readonly defaults?: d.InferInput<P>;
 }
 
-/** A material handle can be added directly as `MeshMaterial`; alpha fields mirror its live row. */
+/** A material handle can be added directly as `MeshMaterial`; alpha and cull fields mirror its live row. */
 export interface MaterialHandle {
     readonly type: number;
     readonly material: number;
     readonly alphaMode: number;
     readonly alphaCutoff: number;
+    readonly cullMode: number;
+}
+
+/** Pipeline options of one material row. cullMode is the faces the row does not draw in any pass,
+ * shadows and prepasses included, as GPUCullMode names them; it defaults to "back". */
+export interface MaterialRowOptions {
+    alphaMode?: AlphaMode;
+    cullMode?: GPUCullMode;
 }
 
 /** CPU-authored material assets with a lazily published GPU table using the type's parameter schema.
@@ -465,10 +510,11 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
     private _view: DataView;
     private _alphaModes = new Uint32Array([AlphaModeCode.Opaque]);
     private _alphaCutoffs = new Float32Array([0.5]);
+    private _cullModes = new Uint32Array([CullModeCode.Back]);
     private readonly _handles: (MaterialHandle | undefined)[] = [undefined];
     private _highWater = 1;
-    // row zero starts Opaque, and rows reserved past the high-water mark start at its zero code
-    private _alphaKeys = 1 << AlphaPipelineKey.Opaque;
+    // row zero starts Opaque and culls back faces, as do rows reserved past the high-water mark
+    private _pipelineKeys = 1 << AlphaPipelineKey.Opaque;
     private _table: GpuTable<P> | undefined;
 
     constructor(world: World, type: MaterialType<P, any, any>) {
@@ -528,6 +574,9 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
             const alphaCutoffs = new Float32Array(capacity).fill(0.5);
             alphaCutoffs.set(this._alphaCutoffs);
             this._alphaCutoffs = alphaCutoffs;
+            const cullModes = new Uint32Array(capacity);
+            cullModes.set(this._cullModes);
+            this._cullModes = cullModes;
         }
         this._highWater = Math.max(this._highWater, rows);
     }
@@ -544,20 +593,23 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
         this._table.markRange(firstRow, count);
     }
 
-    /** Add a material value and return its type and type-local row for a MeshMaterial component. */
-    add(values: d.InferInput<P>, options: { alphaMode?: AlphaMode } = {}): MaterialHandle {
+    /** Add a material value and return its type and type-local row for a MeshMaterial component.
+     * A row's first use of an alpha mode and cull mode pair after warm compiles its pipelines at draw. */
+    add(values: d.InferInput<P>, options: MaterialRowOptions = {}): MaterialHandle {
         const alphaMode = options.alphaMode ?? AlphaMode.Opaque;
         alphaModeFields(alphaMode);
+        const cullMode = cullModeCode(options.cullMode ?? "back");
         const row = this._freeRows.pop() ?? this._highWater;
         this.reserveRows(row + 1);
         writeToArrayBuffer(this._scratch, this._type.parameters, values);
         this._bytes.set(new Uint8Array(this._scratch), row * this._rowBytes);
-        this._writeAlpha(row, alphaMode);
+        this._writePipeline(row, alphaModeFields(alphaMode), cullMode);
         this.publish(row, 1);
         const handle = {
             type: materialTypeId(this._world, this._type),
             material: row,
             ...this.alpha(row),
+            cullMode: this._cullModes[row],
         };
         this._handles[row] = handle;
         return handle;
@@ -576,37 +628,50 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
         return this._alphaModes[row];
     }
 
-    /** Bit `1 << key` for each alpha pipeline key any of this type's rows has held; it only grows. */
-    get alphaKeys(): number {
-        return this._alphaKeys;
+    /** CullModeCode at one asset row. */
+    cullMode(row: number): number {
+        return this._cullModes[row];
     }
 
-    private _writeAlpha(row: number, mode: AlphaMode): void {
-        const fields = alphaModeFields(mode);
+    /** Bit `1 << pipelineKey(alphaPipelineKey, cullMode)` for each pair any of this type's rows has
+     * held; it only grows. */
+    get pipelineKeys(): number {
+        return this._pipelineKeys;
+    }
+
+    private _writePipeline(
+        row: number,
+        fields: { alphaMode: number; alphaCutoff: number },
+        cullMode: number,
+    ): void {
         if (
             this._alphaModes[row] === fields.alphaMode &&
-            this._alphaCutoffs[row] === fields.alphaCutoff
+            this._alphaCutoffs[row] === fields.alphaCutoff &&
+            this._cullModes[row] === cullMode
         )
             return;
         this._alphaModes[row] = fields.alphaMode;
         this._alphaCutoffs[row] = fields.alphaCutoff;
-        this._alphaKeys |= 1 << alphaPipelineKey(fields.alphaMode);
+        this._cullModes[row] = cullMode;
+        this._pipelineKeys |= 1 << pipelineKey(alphaPipelineKey(fields.alphaMode), cullMode);
         const handle = this._handles[row];
-        if (handle) Object.assign(handle, fields);
+        if (handle) Object.assign(handle, fields, { cullMode });
         const declaresMeshMaterial = [...this._world.registry.entries()].some(
             ({ component }) => component === MeshMaterial,
         );
         if (declaresMeshMaterial) copyMeshAlpha(this._world, true);
     }
 
-    /** Copy this type's row alpha into the entity's MeshMaterial where they differ; an unknown row is left. @internal */
+    /** Copy this type's row alpha and cull into the entity's MeshMaterial where they differ; an unknown row is left. @internal */
     copyAlpha(storage: MeshMaterialStorage, eid: number): void {
         const row = storage.material.get(eid);
         if (row >= this._highWater) return;
         const alphaMode = this._alphaModes[row];
         const alphaCutoff = this._alphaCutoffs[row];
+        const cullMode = this._cullModes[row];
         if (storage.alphaMode.get(eid) !== alphaMode) storage.alphaMode.set(eid, alphaMode);
         if (storage.alphaCutoff.get(eid) !== alphaCutoff) storage.alphaCutoff.set(eid, alphaCutoff);
+        if (storage.cullMode.get(eid) !== cullMode) storage.cullMode.set(eid, cullMode);
     }
 
     /**
@@ -636,11 +701,12 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
     }
 
     /** Write per-entity data at a stable eid-indexed row, filling intervening rows with defaults. */
-    setAt(row: number, values: d.InferInput<P>, options: { alphaMode?: AlphaMode } = {}): void {
+    setAt(row: number, values: d.InferInput<P>, options: MaterialRowOptions = {}): void {
         if (!Number.isSafeInteger(row) || row < 0) {
             throw new RangeError(`Materials.setAt: invalid ${this._type.name} row ${row}`);
         }
         if (options.alphaMode) alphaModeFields(options.alphaMode);
+        const cullMode = options.cullMode && cullModeCode(options.cullMode);
         const previousHighWater = this._highWater;
         if (row >= previousHighWater) {
             this.reserveRows(row + 1);
@@ -655,7 +721,7 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
         }
         writeToArrayBuffer(this._scratch, this._type.parameters, values);
         this._bytes.set(new Uint8Array(this._scratch), row * this._rowBytes);
-        if (options.alphaMode) this._writeAlpha(row, options.alphaMode);
+        this._writeOptions(row, options.alphaMode, cullMode);
         this.publish(Math.min(row, previousHighWater), Math.max(1, row - previousHighWater + 1));
     }
 
@@ -696,7 +762,7 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
     update(
         handle: number | MaterialHandle,
         values: Partial<d.InferInput<P>>,
-        options?: { alphaMode?: AlphaMode },
+        options?: MaterialRowOptions,
     ): void {
         const row = typeof handle === "number" ? handle : handle.material;
         if (typeof handle !== "number" && handle.type !== materialTypeId(this._world, this._type)) {
@@ -712,6 +778,7 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
         }
         const alphaMode = options?.alphaMode;
         if (alphaMode) alphaModeFields(alphaMode);
+        const cullMode = options?.cullMode && cullModeCode(options.cullMode);
         const base = row * this._rowBytes;
         const given = values as Record<string, unknown>;
         for (let i = 0; i < this._fields.length; i++) {
@@ -735,8 +802,20 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
                     writeLane(this._view, offset + lane * 4, field.format, lanes[lane]);
             }
         }
-        if (alphaMode) this._writeAlpha(row, alphaMode);
+        this._writeOptions(row, alphaMode, cullMode);
         this.publish(row, 1);
+    }
+
+    /** Write the given options at a row, keeping the ones left out. */
+    private _writeOptions(row: number, alphaMode?: AlphaMode, cullMode?: number): void {
+        if (!alphaMode && cullMode === undefined) return;
+        this._writePipeline(
+            row,
+            alphaMode
+                ? alphaModeFields(alphaMode)
+                : { alphaMode: this._alphaModes[row], alphaCutoff: this._alphaCutoffs[row] },
+            cullMode ?? this._cullModes[row],
+        );
     }
 }
 
@@ -773,10 +852,19 @@ const materialTypesKey = {
 };
 
 const MESH_MATERIALS = [MeshMaterial];
-const TRANSPARENT_KEYS =
-    (1 << AlphaPipelineKey.Blend) |
-    (1 << AlphaPipelineKey.Premultiplied) |
-    (1 << AlphaPipelineKey.Multiply);
+/** pipelineKeys bits of the blended alpha keys in every cull band. @internal */
+export const TRANSPARENT_KEYS = [
+    CullModeCode.Back,
+    CullModeCode.None,
+    CullModeCode.Front,
+].reduce<number>(
+    (keys, cull) =>
+        keys |
+        (1 << pipelineKey(AlphaPipelineKey.Blend, cull)) |
+        (1 << pipelineKey(AlphaPipelineKey.Premultiplied, cull)) |
+        (1 << pipelineKey(AlphaPipelineKey.Multiply, cull)),
+    0,
+);
 
 /** Standard's upload-time classification; no ECS membership changes during table gathering. @internal */
 export const TransparentMeshes = {
@@ -790,7 +878,7 @@ export const TransparentMeshes = {
             const type = storage.type.get(eid);
             const source = types[type]?.source ? sources[type] : undefined;
             const transparent = source
-                ? (source.alphaKeys & TRANSPARENT_KEYS) !== 0
+                ? (source.pipelineKeys & TRANSPARENT_KEYS) !== 0
                 : ((1 << alphaPipelineKey(storage.alphaMode.get(eid))) & TRANSPARENT_KEYS) !== 0;
             if (
                 transparent &&
@@ -822,7 +910,7 @@ export const TransparentMeshes = {
             },
             growSources() {
                 for (let type = 0; type < sources.length; type++) {
-                    const next = types[type]?.source ? (sources[type]?.alphaKeys ?? 0) : 0;
+                    const next = types[type]?.source ? (sources[type]?.pipelineKeys ?? 0) : 0;
                     if (keys[type] === next) continue;
                     keys[type] = next;
                     for (const eid of external[type] ?? []) refresh(eid);
@@ -849,8 +937,9 @@ export function copyMeshAlpha(world: World, all = false): void {
     const material = world.fieldStorage(MeshMaterial, "material").dirty;
     const mode = world.fieldStorage(MeshMaterial, "alphaMode").dirty;
     const cutoff = world.fieldStorage(MeshMaterial, "alphaCutoff").dirty;
+    const cull = world.fieldStorage(MeshMaterial, "cullMode").dirty;
     for (let word = 0; word < type.length; word++) {
-        let bits = type[word] | material[word] | mode[word] | cutoff[word];
+        let bits = type[word] | material[word] | mode[word] | cutoff[word] | cull[word];
         while (bits !== 0) {
             const bit = 31 - Math.clz32(bits & -bits);
             const eid = (word << 5) + bit;

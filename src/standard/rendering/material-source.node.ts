@@ -69,7 +69,7 @@ const Source = {
             warm() {
                 world.gpu.root.unwrap(pipeline);
             },
-            alphaKeys: 1 << AlphaPipelineKey.Mask,
+            pipelineKeys: 1 << AlphaPipelineKey.Mask,
             alphaMode(row: number) {
                 if (view?.buffer !== table.bytes.buffer) view = new DataView(table.bytes.buffer);
                 return view.getFloat32(row * table.rowBytes + 16, true);
@@ -163,7 +163,7 @@ test("a material borrows externally owned rows and alpha inputs without taking o
             after: [ClearChangeMarksSystem],
             before: [MeshPreprocessSystem],
             update() {
-                source.alphaKeys |= 1 << AlphaPipelineKey.Blend;
+                source.pipelineKeys |= 1 << AlphaPipelineKey.Blend;
             },
         };
         world.addSystem(grow);

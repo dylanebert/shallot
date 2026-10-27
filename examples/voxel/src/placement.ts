@@ -77,6 +77,7 @@ export function placement(
                 alphaMode: part.alphaMode,
                 alphaCutoff: part.alphaCutoff,
                 flags: 0,
+                cullMode: part.cullMode,
                 cullBounds: d.vec4f(0, 0, 0, -1),
             });
         }

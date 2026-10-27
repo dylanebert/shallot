@@ -54,6 +54,7 @@ import {
     ALPHA_PIPELINE_KEY_COUNT,
     AlphaModeCode,
     AlphaPipelineKey,
+    CullModeCode,
     MaterialTypes,
     MeshVertexInput as MaterialVertexInput,
     materialSource,
@@ -202,6 +203,7 @@ export interface CompiledMaterial {
         fragment: ReturnType<typeof colorFs>;
         singleFragment: ReturnType<typeof colorFs>;
         alphaPipelineKey: number;
+        cullMode: number;
         primitive: GPUPrimitiveState;
         name: string;
     };
@@ -387,9 +389,23 @@ function fragmentInterstage(surface: AnyMaterialType): Record<string, AnyWgslDat
     };
 }
 
-/** Shared triangle-list state for standard material color, depth and atlas pipelines. */
-function materialPrimitive(): GPUPrimitiveState {
-    return { topology: "triangle-list", cullMode: "back", frontFace: "ccw" };
+const CULL_FACES: readonly GPUCullMode[] = ["back", "none", "front"];
+
+/** Shared triangle-list state for standard material color, depth and atlas pipelines of one CullModeCode. */
+function materialPrimitive(cullMode: number): GPUPrimitiveState {
+    return { topology: "triangle-list", cullMode: CULL_FACES[cullMode], frontFace: "ccw" };
+}
+
+/** A pipeline variant's name: its alpha pipeline key, and its cull mode where it does not cull back. */
+function variantName(surface: AnyMaterialType, alphaPipelineKey: number, cullMode: number): string {
+    return cullMode === CullModeCode.Back
+        ? `${surface.name}-${alphaPipelineKey}`
+        : `${surface.name}-${alphaPipelineKey}-${CULL_FACES[cullMode]}`;
+}
+
+/** front_facing is a fragment input only where a pipeline culls no face; elsewhere culling fixes it. */
+function facingInput(cullMode: number): { frontFacing?: typeof d.builtin.frontFacing } {
+    return cullMode === CullModeCode.None ? { frontFacing: d.builtin.frontFacing } : {};
 }
 
 function isInstanced(surface: AnyMaterialType): boolean {
@@ -644,7 +660,10 @@ function colorFs(
     alphaToCoverageFallback = false,
     fogged = false,
     coverage = false,
+    cullMode: number = CullModeCode.Back,
 ) {
+    const readsFacing = cullMode === CullModeCode.None;
+    const facing = cullMode === CullModeCode.Back;
     const fogColor = fogged ? foggedColor : unfoggedColor;
     // Reuse the function's schema identity: a structurally equal context forces an implicit conversion.
     const fragment = materialFragmentFunction(surface);
@@ -661,6 +680,7 @@ function colorFs(
         alphaMode: d.interpolate("flat", d.u32),
         alphaCutoff: d.interpolate("flat", d.f32),
         ...fragmentInterstage(surface),
+        ...facingInput(cullMode),
     };
     return tgpu
         .fragmentFn({
@@ -709,6 +729,7 @@ function colorFs(
                 material: input.material,
                 alphaMode: alphaToCoverageFallback ? AlphaModeCode.Opaque : input.alphaMode,
                 alphaCutoff: input.alphaCutoff,
+                frontFacing: readsFacing ? input.frontFacing : facing,
                 fragCoord: input.pos,
             } as any);
             const col = d.vec4f(std.add(fragment(ctx), d.vec4f(forcedZero)));
@@ -771,7 +792,14 @@ const prepassNormalColor = tgpu.fn(
 
 /** The material fragment in a depth pass: `clip` discards below the cutoff, `normals` writes
  * {@link prepassNormalColor}. */
-function clipFs(surface: AnyMaterialType, normals = false, clip = true) {
+function clipFs(
+    surface: AnyMaterialType,
+    normals = false,
+    clip = true,
+    cullMode: number = CullModeCode.Back,
+) {
+    const readsFacing = cullMode === CullModeCode.None;
+    const facing = cullMode === CullModeCode.Back;
     const needUv = !!surface.fragmentInputs?.uv;
     const needLocalPos = !!surface.fragmentInputs?.localPos;
     const fragment = materialFragmentFunction(surface);
@@ -786,9 +814,10 @@ function clipFs(surface: AnyMaterialType, normals = false, clip = true) {
         alphaMode: d.interpolate("flat", d.u32),
         alphaCutoff: d.interpolate("flat", d.f32),
         ...fragmentInterstage(surface),
+        ...facingInput(cullMode),
     };
     return tgpu
-        .fragmentFn({ in: input, out: normals ? colorOutput : d.Void })((fin) => {
+        .fragmentFn({ in: input, out: normals ? colorOutput : d.Void })((fin: any) => {
             "use gpu";
             const ctx = Ctx({
                 eid: fin.eid,
@@ -800,6 +829,7 @@ function clipFs(surface: AnyMaterialType, normals = false, clip = true) {
                 material: fin.material,
                 alphaMode: d.u32(0),
                 alphaCutoff: fin.alphaCutoff,
+                frontFacing: readsFacing ? fin.frontFacing : facing,
                 fragCoord: fin.pos,
             });
             const color = fragment(ctx);
@@ -810,7 +840,14 @@ function clipFs(surface: AnyMaterialType, normals = false, clip = true) {
         .$name(`${surface.name}ClipFs`);
 }
 
-function varyingClipFs(surface: AnyMaterialType, normals = false, clip = true) {
+function varyingClipFs(
+    surface: AnyMaterialType,
+    normals = false,
+    clip = true,
+    cullMode: number = CullModeCode.Back,
+) {
+    const readsFacing = cullMode === CullModeCode.None;
+    const facing = cullMode === CullModeCode.Back;
     const needUv = !!surface.fragmentInputs?.uv;
     const needLocalPos = !!surface.fragmentInputs?.localPos;
     const varyings = surface.varyings ?? {};
@@ -831,13 +868,14 @@ function varyingClipFs(surface: AnyMaterialType, normals = false, clip = true) {
         material: d.interpolate("flat", d.u32),
         alphaCutoff: d.interpolate("flat", d.f32),
         ...fragmentInterstage(surface),
+        ...facingInput(cullMode),
         ...located,
     };
     return tgpu
         .fragmentFn({
             in: entryIn,
             out: normals ? colorOutput : d.Void,
-        })((input) => {
+        })((input: any) => {
             "use gpu";
             const ctx = Ctx();
             ctx.eid = input.eid;
@@ -849,6 +887,7 @@ function varyingClipFs(surface: AnyMaterialType, normals = false, clip = true) {
             ctx.material = input.material;
             ctx.alphaMode = d.u32(0);
             ctx.alphaCutoff = input.alphaCutoff;
+            ctx.frontFacing = readsFacing ? input.frontFacing : facing;
             ctx.fragCoord = d.vec4f(input.pos);
             for (const i of tgpu.unroll(std.range(keys.length))) {
                 (ctx as any)[keys[i]] = (schemas[i] as any)((input as any)[slots[i]]);
@@ -1025,7 +1064,10 @@ function varyingFs(
     alphaToCoverageFallback = false,
     fogged = false,
     coverage = false,
+    cullMode: number = CullModeCode.Back,
 ) {
+    const readsFacing = cullMode === CullModeCode.None;
+    const facing = cullMode === CullModeCode.Back;
     const out = (coverage ? coverageOutput : colorOutput) as typeof colorOutput;
     const fogColor = fogged ? foggedColor : unfoggedColor;
     const varyings = surface.varyings ?? {};
@@ -1049,11 +1091,12 @@ function varyingFs(
         alphaMode: d.interpolate("flat", d.u32),
         alphaCutoff: d.interpolate("flat", d.f32),
         ...fragmentInterstage(surface),
+        ...facingInput(cullMode),
     };
     const name = `${surface.name}${alphaToCoverageFallback ? "Single" : ""}Fs`;
     const entryIn = { ...base, ...located };
     return tgpu
-        .fragmentFn({ in: entryIn, out })((input) => {
+        .fragmentFn({ in: entryIn, out })((input: any) => {
             "use gpu";
             const worldNormal = std.normalize(input.worldNormal);
             const ctx = Ctx();
@@ -1066,6 +1109,7 @@ function varyingFs(
             ctx.material = input.material;
             ctx.alphaMode = alphaToCoverageFallback ? AlphaModeCode.Opaque : input.alphaMode;
             ctx.alphaCutoff = input.alphaCutoff;
+            ctx.frontFacing = readsFacing ? input.frontFacing : facing;
             ctx.fragCoord = d.vec4f(input.pos);
             for (const i of tgpu.unroll(std.range(varyingKeys.length))) {
                 (ctx as any)[varyingKeys[i]] = (schemas[i] as any)((input as any)[slots[i]]);
@@ -1122,11 +1166,15 @@ export function compileMaterial<
     surface: MaterialType<P, B, V>,
     capacity: number,
     alphaPipelineKey: number,
+    cullMode: number = CullModeCode.Back,
 ): CompiledMaterial {
     const varyingCount = Object.keys(surface.varyings ?? {}).length;
     const uv = !!surface.fragmentInputs?.uv;
     const localPos = !!surface.fragmentInputs?.localPos;
-    const interstageCount = VARYING_BASE + Number(uv) + Number(localPos) + varyingCount;
+    // WebGPU counts @builtin(front_facing) against the fragment stage's inter-stage variables.
+    const frontFacing = cullMode === CullModeCode.None;
+    const interstageCount =
+        VARYING_BASE + Number(uv) + Number(localPos) + varyingCount + Number(frontFacing);
     const limit = world.gpu.device.limits.maxInterStageShaderVariables;
     if (interstageCount > limit) {
         const fields = [
@@ -1134,13 +1182,14 @@ export function compileMaterial<
             ...(uv ? ["uv"] : []),
             ...(localPos ? ["localPos"] : []),
             `${varyingCount} varyings`,
+            ...(frontFacing ? ["frontFacing"] : []),
         ];
         throw new Error(
             `standard: material "${surface.name}" uses ${interstageCount} inter-stage variables (${fields.join(", ")}); device.limits.maxInterStageShaderVariables is ${limit}`,
         );
     }
     const _render = world.resource(RenderContext);
-    const cacheKey = `${surface.name}:${alphaPipelineKey}`;
+    const cacheKey = `${surface.name}:${alphaPipelineKey}:${cullMode}`;
     const cached = pipelineState(world).compiledMaterials.get(cacheKey);
     if (cached?.owner === surface && cached.layout === surface.layout) return cached;
     const hasVaryings = !!surface.varyings && Object.keys(surface.varyings).length > 0;
@@ -1151,18 +1200,23 @@ export function compileMaterial<
             alphaPipelineKey === AlphaPipelineKey.Premultiplied ||
             alphaPipelineKey === AlphaPipelineKey.Multiply);
     const fragment = (
-        hasVaryings ? varyingFs(surface, false, fogged) : colorFs(surface, false, fogged)
+        hasVaryings
+            ? varyingFs(surface, false, fogged, false, cullMode)
+            : colorFs(surface, false, fogged, false, cullMode)
     ) as ReturnType<typeof colorFs>;
     const singleFragment = (
-        hasVaryings ? varyingFs(surface, true, fogged) : colorFs(surface, true, fogged)
+        hasVaryings
+            ? varyingFs(surface, true, fogged, false, cullMode)
+            : colorFs(surface, true, fogged, false, cullMode)
     ) as ReturnType<typeof colorFs>;
-    const name = `${surface.name}-${alphaPipelineKey}`;
-    const primitive = materialPrimitive();
+    const name = variantName(surface, alphaPipelineKey, cullMode);
+    const primitive = materialPrimitive(cullMode);
     const args: CompiledMaterial["args"] = {
         vertex,
         fragment,
         singleFragment,
         alphaPipelineKey,
+        cullMode,
         primitive,
         name,
     };
@@ -1207,7 +1261,7 @@ export function compileMaterial<
         prepass:
             surface.depthPass?.prepass === false
                 ? null
-                : compilePrepass(world, surface, alphaPipelineKey),
+                : compilePrepass(world, surface, alphaPipelineKey, cullMode),
         prepassSingle: null,
         normal: null,
         normalSingle: null,
@@ -1218,7 +1272,7 @@ export function compileMaterial<
         args,
     };
     if (surface.depthPass?.shadows !== false && !transparent) {
-        const shadows = compileShadow(world, surface, capacity, alphaPipelineKey);
+        const shadows = compileShadow(world, surface, capacity, alphaPipelineKey, cullMode);
         compiled.point = shadows.point;
         compiled.cascade = shadows.cascade;
     }
@@ -1236,10 +1290,16 @@ export function ensureSingle(world: World, t: CompiledMaterial): void {
     const _render = world.resource(RenderContext);
     if (t.single) {
         if (t.prepass && !t.prepassSingle)
-            t.prepassSingle = compilePrepass(world, t.owner, t.args.alphaPipelineKey, 1);
+            t.prepassSingle = compilePrepass(
+                world,
+                t.owner,
+                t.args.alphaPipelineKey,
+                t.args.cullMode,
+                1,
+            );
         return;
     }
-    const { vertex, singleFragment, alphaPipelineKey, primitive, name } = t.args;
+    const { vertex, singleFragment, alphaPipelineKey, cullMode, primitive, name } = t.args;
     const transparent =
         alphaPipelineKey === AlphaPipelineKey.Blend ||
         alphaPipelineKey === AlphaPipelineKey.Premultiplied ||
@@ -1270,7 +1330,7 @@ export function ensureSingle(world: World, t: CompiledMaterial): void {
         })
         .$name(`standard-${name}-1x`);
     t.single = { color: transparent ? null : pipeline, transparent: transparent ? pipeline : null };
-    if (t.prepass) t.prepassSingle = compilePrepass(world, t.owner, alphaPipelineKey, 1);
+    if (t.prepass) t.prepassSingle = compilePrepass(world, t.owner, alphaPipelineKey, cullMode, 1);
 }
 
 /**
@@ -1280,11 +1340,13 @@ export function ensureSingle(world: World, t: CompiledMaterial): void {
  */
 export function ensureStacked(world: World, t: CompiledMaterial): TgpuRenderPipeline<any> {
     if (t.stacked) return t.stacked;
-    const { vertex, primitive, name } = t.args;
+    const { vertex, primitive, name, cullMode } = t.args;
     const surface = t.owner;
     const hasVaryings = !!surface.varyings && Object.keys(surface.varyings).length > 0;
     const fragment = (
-        hasVaryings ? varyingFs(surface, false, false, true) : colorFs(surface, false, false, true)
+        hasVaryings
+            ? varyingFs(surface, false, false, true, cullMode)
+            : colorFs(surface, false, false, true, cullMode)
     ) as ReturnType<typeof colorFs>;
     t.stacked = materialRoot(world, surface)
         .createRenderPipeline({
@@ -1318,6 +1380,7 @@ function compilePrepass(
     world: World,
     surface: AnyMaterialType,
     alphaPipelineKey: number,
+    cullMode: number,
     sampleCount = SAMPLE_COUNT,
     normals = false,
 ): TgpuRenderPipeline<any> | null {
@@ -1327,7 +1390,7 @@ function compilePrepass(
         alphaPipelineKey === AlphaPipelineKey.Multiply
     )
         return null;
-    const primitive = materialPrimitive();
+    const primitive = materialPrimitive(cullMode);
     const depthStencil: GPUDepthStencilState = {
         format: DEPTH_FORMAT,
         depthWriteEnabled: true,
@@ -1349,18 +1412,22 @@ function compilePrepass(
                       ? colorVs(surface, true)
                       : prepassVs(surface),
             fragment: clip
-                ? ((varying ? varyingClipFs(surface, normals) : clipFs(surface, normals)) as never)
+                ? ((varying
+                      ? varyingClipFs(surface, normals, true, cullMode)
+                      : clipFs(surface, normals, true, cullMode)) as never)
                 : normals
                   ? ((varying
-                        ? varyingClipFs(surface, true, false)
-                        : clipFs(surface, true, false)) as never)
+                        ? varyingClipFs(surface, true, false, cullMode)
+                        : clipFs(surface, true, false, cullMode)) as never)
                   : depthOnlyFs,
             targets: (normals ? { color: { format: NORMAL_FORMAT } } : undefined) as never,
             primitive,
             depthStencil,
             multisample: { count: sampleCount },
         })
-        .$name(`standard-prepass-${surface.name}-${alphaPipelineKey}-${sampleCount}x`);
+        .$name(
+            `standard-prepass-${variantName(surface, alphaPipelineKey, cullMode)}-${sampleCount}x`,
+        );
     return depthOnly;
 }
 
@@ -1773,7 +1840,9 @@ ${outputAssignments}
         .$name(`${surface.name}${cascade ? "Cascade" : "Point"}ClipVs`);
 }
 
-function varyingShadowFs(surface: AnyMaterialType) {
+function varyingShadowFs(surface: AnyMaterialType, cullMode: number) {
+    const readsFacing = cullMode === CullModeCode.None;
+    const facing = cullMode === CullModeCode.Back;
     const varyings = surface.varyings ?? {};
     const keys = Object.keys(varyings);
     const schemas = keys.map((key) => varyings[key]);
@@ -1795,13 +1864,14 @@ function varyingShadowFs(surface: AnyMaterialType) {
         material: d.interpolate("flat", d.u32),
         alphaCutoff: d.interpolate("flat", d.f32),
         ...fragmentInterstage(surface),
+        ...facingInput(cullMode),
         ...located,
     };
     return tgpu
         .fragmentFn({
             in: entryIn,
             out: d.Void,
-        })((input) => {
+        })((input: any) => {
             "use gpu";
             const p = input.pos.xy;
             const mn = input.tileBox.xy;
@@ -1819,6 +1889,7 @@ function varyingShadowFs(surface: AnyMaterialType) {
             ctx.material = input.material;
             ctx.alphaMode = d.u32(0);
             ctx.alphaCutoff = input.alphaCutoff;
+            ctx.frontFacing = readsFacing ? input.frontFacing : facing;
             ctx.fragCoord = d.vec4f(input.pos);
             for (const i of tgpu.unroll(std.range(keys.length))) {
                 (ctx as any)[keys[i]] = (schemas[i] as any)((input as any)[slots[i]]);
@@ -1832,7 +1903,9 @@ function varyingShadowFs(surface: AnyMaterialType) {
 
 /** the clipped atlas fragment: preserve the tile-seam discard, then call the surface fs solely for its
  * cutoff discard. Its color result is intentionally ignored by this depth-only pipeline. */
-function clipShadowFs(surface: AnyMaterialType) {
+function clipShadowFs(surface: AnyMaterialType, cullMode: number) {
+    const readsFacing = cullMode === CullModeCode.None;
+    const facing = cullMode === CullModeCode.Back;
     const needUv = !!surface.fragmentInputs?.uv;
     const needLocalPos = !!surface.fragmentInputs?.localPos;
     const fragment = materialFragmentFunction(surface);
@@ -1849,9 +1922,10 @@ function clipShadowFs(surface: AnyMaterialType) {
                 material: d.interpolate("flat", d.u32),
                 alphaCutoff: d.interpolate("flat", d.f32),
                 ...fragmentInterstage(surface),
+                ...facingInput(cullMode),
             },
             out: d.Void,
-        })((input) => {
+        })((input: any) => {
             "use gpu";
             const p = input.pos.xy;
             const mn = input.tileBox.xy;
@@ -1869,6 +1943,7 @@ function clipShadowFs(surface: AnyMaterialType) {
                 material: input.material,
                 alphaMode: d.u32(0),
                 alphaCutoff: input.alphaCutoff,
+                frontFacing: readsFacing ? input.frontFacing : facing,
                 fragCoord: input.pos,
             });
             const color = fragment(ctx);
@@ -1889,12 +1964,13 @@ function compileShadow(
     surface: AnyMaterialType,
     capacity: number,
     alphaPipelineKey: number,
+    cullMode: number,
 ): {
     point: TgpuRenderPipeline<any> | null;
     cascade: TgpuRenderPipeline<any> | null;
 } {
     if (!isInstanced(surface)) return { point: null, cascade: null };
-    const primitive = materialPrimitive();
+    const primitive = materialPrimitive(cullMode);
     const depthStencil: GPUDepthStencilState = {
         format: DEPTH_FORMAT,
         depthWriteEnabled: true,
@@ -1913,13 +1989,15 @@ function compileShadow(
                   ? clipShadowVs(surface, pointLayout, false, capacity)
                   : shadowVs(surface, pointLayout, false, capacity),
             fragment: clip
-                ? ((varying ? varyingShadowFs(surface) : clipShadowFs(surface)) as never)
+                ? ((varying
+                      ? varyingShadowFs(surface, cullMode)
+                      : clipShadowFs(surface, cullMode)) as never)
                 : shadowFs,
             primitive,
             depthStencil,
             multisample: { count: 1 },
         })
-        .$name(`standard-point-${surface.name}-${alphaPipelineKey}`);
+        .$name(`standard-point-${variantName(surface, alphaPipelineKey, cullMode)}`);
     const cascade = root
         .createRenderPipeline({
             vertex: clip
@@ -1930,13 +2008,15 @@ function compileShadow(
                   ? clipShadowVs(surface, cascadeLayout, true, capacity)
                   : shadowVs(surface, cascadeLayout, true, capacity),
             fragment: clip
-                ? ((varying ? varyingShadowFs(surface) : clipShadowFs(surface)) as never)
+                ? ((varying
+                      ? varyingShadowFs(surface, cullMode)
+                      : clipShadowFs(surface, cullMode)) as never)
                 : shadowFs,
             primitive,
             depthStencil,
             multisample: { count: 1 },
         })
-        .$name(`standard-cascade-${surface.name}-${alphaPipelineKey}`);
+        .$name(`standard-cascade-${variantName(surface, alphaPipelineKey, cullMode)}`);
     return { point, cascade };
 }
 
@@ -1946,8 +2026,9 @@ export function getCompiledMaterial(
     world: World,
     name: string,
     alphaPipelineKey: number = AlphaPipelineKey.Opaque,
+    cullMode: number = CullModeCode.Back,
 ): CompiledMaterial | undefined {
-    return pipelineState(world).compiledMaterials.get(`${name}:${alphaPipelineKey}`);
+    return pipelineState(world).compiledMaterials.get(`${name}:${alphaPipelineKey}:${cullMode}`);
 }
 
 // A background with only group 0 would drop group 1 when switching pipelines in the same pass.
@@ -2087,6 +2168,7 @@ export function ensureNormalPrepass(
             world,
             t.owner,
             t.args.alphaPipelineKey,
+            t.args.cullMode,
             1,
             true,
         ));
@@ -2094,6 +2176,7 @@ export function ensureNormalPrepass(
         world,
         t.owner,
         t.args.alphaPipelineKey,
+        t.args.cullMode,
         SAMPLE_COUNT,
         true,
     ));
@@ -2129,14 +2212,12 @@ export async function preparePipelines(
         if (!type) continue;
         const source = materialSource(world, type);
         source.table;
-        const alphaKeys = source.alphaKeys;
-        for (
-            let alphaPipelineKey = 0;
-            alphaPipelineKey < ALPHA_PIPELINE_KEY_COUNT;
-            alphaPipelineKey++
-        ) {
-            if (!(alphaKeys & (1 << alphaPipelineKey))) continue;
-            const compiled = compileMaterial(world, type, capacity, alphaPipelineKey);
+        const pipelineKeys = source.pipelineKeys;
+        for (let key = 0; key < 32; key++) {
+            if (!(pipelineKeys & (1 << key))) continue;
+            const alphaPipelineKey = key % ALPHA_PIPELINE_KEY_COUNT;
+            const cullMode = (key - alphaPipelineKey) / ALPHA_PIPELINE_KEY_COUNT;
+            const compiled = compileMaterial(world, type, capacity, alphaPipelineKey, cullMode);
             if (singleSample) ensureSingle(world, compiled);
             for (const samples of normalSamples) {
                 const pipeline = ensureNormalPrepass(world, compiled, samples === 1);

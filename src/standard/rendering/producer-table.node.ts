@@ -94,6 +94,7 @@ const kernel = tgpu.computeFn({ workgroupSize: [1] })(() => {
             alphaMode: 0,
             alphaCutoff: 0.5,
             flags: layout.$.flags,
+            cullMode: 0,
             cullBounds: d.vec4f(0, 0, 0, -1),
         });
     }

@@ -97,7 +97,7 @@ export default async function create(input = "", device?: GPUDevice) {
     const materialValues = { perceptualRoughness: 0.5 };
     const producer = registerProducerTable(world, { name: "allocation-producer", capacity: 1, meshes: [mesh], materials: [material] });
     producer.placements.write([{ pos: d.vec3f(1, 0, 0), quat: d.vec4f(0, 0, 0, 1), scale: d.vec3f(1) }]);
-    producer.meshInstances.write([{ mesh, materialType: material.type, material: material.material, alphaMode: 0, alphaCutoff: 0.5, flags: 0, cullBounds: d.vec4f(0, 0, 0, -1) }]);
+    producer.meshInstances.write([{ mesh, materialType: material.type, material: material.material, alphaMode: 0, alphaCutoff: 0.5, flags: 0, cullMode: 0, cullBounds: d.vec4f(0, 0, 0, -1) }]);
     producer.count.write(1);
     const a = new Float32Array([-1, 0, 0]);
     const b = new Float32Array([1, 0, 0]);

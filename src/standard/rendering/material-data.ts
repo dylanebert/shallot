@@ -15,6 +15,8 @@ import { component, f32, u32 } from "../../engine";
  *   single-sample views, discard fragments whose alpha is below the row's value.
  * - `flags`: bit 0 set keeps the row out of shadow passes, as NotShadowCaster does; write 0 to cast.
  *   Other bits are reserved and must be 0.
+ * - `cullMode`: that handle's `cullMode`, a CullModeCode; 0 culls back faces. With `alphaMode` it
+ *   selects the pipeline: a pair no declared handle of the type holds, or a code above 2, draws nothing.
  * - `cullBounds`: a local-space culling sphere `(center.xyz, radius)` in mesh units, scaled by the
  *   placement's largest absolute scale; a negative radius uses the mesh's bounds. A radius of 0
  *   culls the row once its center leaves a view, so write `(0, 0, 0, -1)` unless you supply a sphere.
@@ -27,6 +29,7 @@ export const MeshInstanceInput = d
         alphaMode: d.u32,
         alphaCutoff: d.f32,
         flags: d.u32,
+        cullMode: d.u32,
         cullBounds: d.vec4f,
     })
     .$name("MeshInstanceInput");
@@ -39,18 +42,18 @@ export const EntityMeshInstanceInput = d.struct({ ...instanceFields, layers: d.u
 
 /**
  * Selects one material row from one World-local material type. `type` identifies the shader and typed
- * parameter table; `material` is a row in that table. `alphaMode` and `alphaCutoff` copy that row's alpha
- * into the dense mesh table; the row owns it, and marked copies reconcile immediately before that
- * table gathers fields for upload. A direct write to either is replaced at the next upload, including
+ * parameter table; `material` is a row in that table. `alphaMode`, `alphaCutoff` and `cullMode` copy that
+ * row's alpha and cull mode into the dense mesh table; the row owns them, and marked copies reconcile immediately before that
+ * table gathers fields for upload. A direct write to any of them is replaced at the next upload, including
  * frames without a fixed tick. Writes after upload reconcile next frame. External parameter sources
- * instead publish alpha directly into the GPU mesh table; their CPU copy is not authoritative.
- * Draws group by `(type, alpha pipeline key, mesh)`. Missing MeshMaterial selects StandardMaterial
+ * instead publish alpha and cull directly into the GPU mesh table; their CPU copy is not authoritative.
+ * Draws group by `(type, alpha pipeline key, cull mode, mesh)`. Missing MeshMaterial selects StandardMaterial
  * type 0, row 0 with Opaque mode.
  */
 export const MeshMaterial = component(
     "MeshMaterial",
-    { type: u32, material: u32, alphaMode: u32, alphaCutoff: f32 },
-    { defaults: () => ({ type: 0, material: 0, alphaMode: 0, alphaCutoff: 0.5 }) },
+    { type: u32, material: u32, alphaMode: u32, alphaCutoff: f32, cullMode: u32 },
+    { defaults: () => ({ type: 0, material: 0, alphaMode: 0, alphaCutoff: 0.5, cullMode: 0 }) },
 );
 
 /** Standard forward PBR parameters, stored as one typed row per StandardMaterial instance. */
@@ -63,6 +66,7 @@ export const StandardMaterialInput = d
         emissive: d.vec3f,
         occlusion: d.f32,
         unlit: d.u32,
+        doubleSided: d.u32,
     })
     .$name("StandardMaterialInput");
 
@@ -76,6 +80,9 @@ type StandardMaterialOptions = {
     emissive?: readonly [number, number, number];
     occlusion?: number;
     unlit?: boolean;
+    /** Shade back faces with the flipped normal, as glTF's doubleSided; pair it with the row's
+     * `cullMode: "none"` so back faces draw. VertexMaterial ignores it. */
+    doubleSided?: boolean;
 };
 
 /**
@@ -92,5 +99,6 @@ export function StandardMaterial(values: StandardMaterialOptions = {}): Standard
         emissive: d.vec3f(...(values.emissive ?? [0, 0, 0])),
         occlusion: values.occlusion ?? 1,
         unlit: values.unlit ? 1 : 0,
+        doubleSided: values.doubleSided ? 1 : 0,
     };
 }

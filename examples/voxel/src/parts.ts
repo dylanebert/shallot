@@ -12,6 +12,7 @@ export const DetailPart = d.struct({
     material: d.u32,
     alphaMode: d.u32,
     alphaCutoff: d.f32,
+    cullMode: d.u32,
     count: d.u32,
 });
 function boxes(name: string, parts: Box[]) {
@@ -86,6 +87,7 @@ export function detailParts(world: World) {
                 material: material.material,
                 alphaMode: material.alphaMode,
                 alphaCutoff: material.alphaCutoff,
+                cullMode: material.cullMode,
                 count: parts.length,
             });
         }),

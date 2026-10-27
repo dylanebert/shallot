@@ -6,6 +6,7 @@ export {
     AlphaMode,
     AlphaModeCode,
     AlphaPipelineKey,
+    CullModeCode,
     MaterialPlugin,
     MaterialTypes,
     materialType,

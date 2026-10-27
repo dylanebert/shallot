@@ -47,7 +47,7 @@ export interface ProducerEntry {
  * Entity rows instead read their entity id in eid and 0xFFFFFFFF in row.
  * Producer rows belong to render layer 0, for both camera and shadow-light selection.
  * CPU picking, interpolation and snapshots do not include these rows. Blended materials are refused
- * because transparent sorting is on the CPU. Only declared mesh and material-type/alpha pairs draw.
+ * because transparent sorting is on the CPU. Only declared mesh and material-type/alpha/cull pairs draw.
  */
 export function registerProducerTable(
     world: World,
@@ -151,7 +151,8 @@ const producerPair = tgpu.fn(
     if (
         mid >= params.meshCount ||
         producerCullLayout.$.meshBounds[mid].handle !== instance.mesh ||
-        instance.materialType >= d.u32(basePairs / (ALPHA_PIPELINE_KEY_COUNT * params.meshCount)) ||
+        instance.materialType >= d.u32(basePairs / (params.keyCount * params.meshCount)) ||
+        instance.cullMode * ALPHA_PIPELINE_KEY_COUNT >= params.keyCount ||
         (instance.alphaMode !== AlphaModeCode.Opaque &&
             instance.alphaMode !== AlphaModeCode.Mask &&
             instance.alphaMode !== AlphaModeCode.AlphaToCoverage)
@@ -164,7 +165,10 @@ const producerPair = tgpu.fn(
     if (key === AlphaModeCode.AlphaToCoverage) key = AlphaPipelineKey.AlphaToCoverage;
     return (
         producerCullLayout.$.producer.pairOffset +
-        (instance.materialType * ALPHA_PIPELINE_KEY_COUNT + key) * params.meshCount +
+        (instance.materialType * params.keyCount +
+            key +
+            instance.cullMode * ALPHA_PIPELINE_KEY_COUNT) *
+            params.meshCount +
         mid
     );
 });

@@ -41,6 +41,19 @@ The entity table returned by `meshInstanceTable(world)` gains `layers` in existi
 
 `color` is removed from the material vertex input and fragment context; it was always `vec4f(1)`. Write `1`, or read a mesh attribute: declare `{ type: "attribute", element: d.vec4f }` in `materialLayout`, add the stream under the same name in the mesh's `attributes`, and pass `layout.$.<name>[input.vidx]` from the vertex function to the fragment as a varying.
 
+## Material rows choose their cull mode
+
+A material row takes `cullMode` beside `alphaMode`, as a `GPUCullMode` (`"back"` by default, `"none"` or `"front"`), in `add`, `setAt` and `update`. `MaterialHandle` and `MeshMaterial` gain its `cullMode` code (`CullModeCode`, back `0`). `StandardMaterial({ doubleSided: true })` shades back faces with the flipped normal; give such a row `cullMode: "none"`, as glTF's `doubleSided` does both. Fragment contexts gain `frontFacing`.
+
+```ts
+materials.add(StandardMaterial({ doubleSided: true }), { cullMode: "none" });
+```
+
+- `MaterialSource.alphaKeys` is renamed `pipelineKeys`: its bit for a row's pair is `1 << (alphaPipelineKey + 6 * cullMode)`, so an existing source that held only back-culled keys keeps its value. An optional `cullMode(row)` reports a row's code for CPU transparent sorting.
+- `MeshInstanceInput` gains `cullMode: u32` in existing padding; stride and the other offsets are unchanged. A producer row writes its handle's `cullMode`, `0` for back; the entity table's `layers` moves to the next word.
+- `StandardMaterialInput` gains `doubleSided: u32`; `StandardMaterial()` fills it, and a hand-built row writes `0`.
+- A hand-built `Draw` may set `cullMode`; omitted, it culls back faces.
+
 ## Adding an attached component replaces its values
 
 In 0.10, `world.add` on an entity that already held the component left its values unchanged and warned. Now it replaces them, as Bevy's `insert` does: supplied fields take their values, omitted fields take the declared defaults, or 0, and every field publishes a change. A call that relied on the old no-op to ensure presence resets the component; guard it with `world.has`, or write single fields through `world.storage`.

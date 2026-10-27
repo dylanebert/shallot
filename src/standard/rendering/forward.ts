@@ -76,13 +76,14 @@ import {
 } from "./lighting";
 import { MeshMaterial } from "./material-data";
 import {
-    ALPHA_PIPELINE_KEY_COUNT,
     AlphaModeCode,
     AlphaPipelineKey,
     alphaPipelineKey,
+    CullModeCode,
     type MaterialType,
     MaterialTypes,
     materialSource,
+    pipelineKey,
     registerMaterialType,
     rethrowMaterialError,
     TransparentMeshes,
@@ -122,6 +123,7 @@ import {
     MeshDrawBuffers,
     MeshPreprocessSystem,
     meshInstanceTable,
+    meshKeyCount,
 } from "./preprocess";
 import { producerCapacity } from "./producer-pack";
 import { producerTables } from "./producer-table";
@@ -495,13 +497,15 @@ function recordMaterial(
         );
     }
     const prev = getGroup(world, draw.name, surface);
-    let t = prev?.item.r.t ?? getCompiledMaterial(world, surface.name, draw.alphaPipelineKey);
+    const cullMode = draw.cullMode ?? CullModeCode.Back;
+    let t =
+        prev?.item.r.t ?? getCompiledMaterial(world, surface.name, draw.alphaPipelineKey, cullMode);
     if (!t || t.owner !== surface || t.layout !== surface.layout) {
         // registered after warm (`preparePipelines` compiles the rest) — sync, so no skip frame; a
         // throwing compile (a contract guard, or shader/device validation) must not take down the frame
         // loop, so it degrades to the warn-once skip
         try {
-            t = compileMaterial(world, surface, capacity, draw.alphaPipelineKey);
+            t = compileMaterial(world, surface, capacity, draw.alphaPipelineKey, cullMode);
         } catch (e) {
             return warnSkip(
                 world,
@@ -612,8 +616,8 @@ function recordMaterial(
 function resolveDraws(world: World, capacity: number): void {
     const state = world.resource(standardRendererStateKey);
     const meshCount = world.resource(meshResourcesKey).meshes.capacity;
-    const pairCount =
-        world.resource(MaterialTypes).types.length * ALPHA_PIPELINE_KEY_COUNT * meshCount;
+    const keyCount = meshKeyCount(world);
+    const pairCount = world.resource(MaterialTypes).types.length * keyCount * meshCount;
     state.frameCount = 0;
     state.depthReadLayers = 0;
     state.normalReadLayers = 0;
@@ -642,10 +646,11 @@ function resolveDraws(world: World, capacity: number): void {
         const index = meshes.index(instances.mesh.get(eid));
         if (index === undefined) continue;
         const source = world.resource(MaterialTypes).sources[type];
-        const alpha =
-            source?.alphaMode(materials.material.get(eid)) ?? materials.alphaMode.get(eid);
+        const row = materials.material.get(eid);
+        const alpha = source?.alphaMode(row) ?? materials.alphaMode.get(eid);
+        const cull = source ? (source.cullMode?.(row) ?? 0) : materials.cullMode.get(eid);
         const pair =
-            (type * ALPHA_PIPELINE_KEY_COUNT + alphaPipelineKey(alpha)) * meshCount + index;
+            (type * keyCount + pipelineKey(alphaPipelineKey(alpha), cull)) * meshCount + index;
         if (!state.frameDrawPairs[pair]) continue;
         const layers = renderLayers(world, eid);
         if (reads.depth) state.depthReadLayers |= layers;
@@ -666,7 +671,9 @@ function resolveDraw(world: World, draw: Draw, capacity: number, meshCount: numb
         if (reads.normal) state.normalReadLayers |= layers;
     }
     const pair =
-        (draw.materialType * ALPHA_PIPELINE_KEY_COUNT + draw.alphaPipelineKey) * meshCount +
+        (draw.materialType * meshKeyCount(world) +
+            pipelineKey(draw.alphaPipelineKey, draw.cullMode ?? CullModeCode.Back)) *
+            meshCount +
         world.resource(meshResourcesKey).meshes.index(draw.mesh)!;
     if (!item.r.g.producer && pair < state.framePairCount) state.frameDrawPairs[pair] = item;
 }
@@ -959,21 +966,22 @@ function queueTransparent(world: World, eid: number, view: View, phase: Transpar
     const planeBase = view.slot * CULL_VOLUME_FLOATS;
     const position = phase.positionScratch;
     const sources = world.resource(MaterialTypes).sources;
+    const keyCount = meshKeyCount(world);
     const cameraLayers = renderLayers(world, eid);
     for (const instanceEid of world.resource(TransparentMeshes).candidates) {
         if ((renderLayers(world, instanceEid) & cameraLayers) === 0) continue;
         const source = sources[materials.type.get(instanceEid)];
-        const alphaMode =
-            source?.alphaMode(materials.material.get(instanceEid)) ??
-            materials.alphaMode.get(instanceEid);
+        const row = materials.material.get(instanceEid);
+        const alphaMode = source?.alphaMode(row) ?? materials.alphaMode.get(instanceEid);
         if (!transparentAlpha(alphaMode)) continue;
         const meshId = instances.mesh.get(instanceEid);
         const mesh = meshRegistry.get(meshId as MeshHandle);
         if (!mesh || mesh.pending) continue;
         const type = materials.type.get(instanceEid);
-        const key = alphaPipelineKey(alphaMode);
+        const cull = source ? (source.cullMode?.(row) ?? 0) : materials.cullMode.get(instanceEid);
+        const key = pipelineKey(alphaPipelineKey(alphaMode), cull);
         const pair =
-            (type * ALPHA_PIPELINE_KEY_COUNT + key) * meshCount +
+            (type * keyCount + key) * meshCount +
             world.resource(meshResourcesKey).meshes.index(meshId)!;
         if (!state.frameDrawPairs[pair]) continue;
 

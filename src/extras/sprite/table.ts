@@ -95,7 +95,7 @@ export function createSpriteSource(
     let group: GPUBindGroup | undefined;
     return {
         table,
-        get alphaKeys() {
+        get pipelineKeys() {
             for (const eid of world.query(terms)) {
                 const mode = sprite.alphaMode.x.get(eid);
                 if (mode === AlphaModeCode.Mask) keys |= 1 << AlphaPipelineKey.Mask;

@@ -73,7 +73,8 @@ export function pbrInputFromMaterial(ctx: { world: d.v3f; worldNormal: d.v3f }) 
     });
 }
 
-/** Sample standard's parameters into mutable surface values before lighting. Does not change depth-pass coverage. */
+/** Sample standard's parameters into mutable surface values before lighting; a doubleSided row's back
+ * face takes the flipped normal. Does not change depth-pass coverage. */
 export const pbrInputFromStandardMaterial = tgpu.fn(
     [StandardContext],
     PbrInput,
@@ -102,6 +103,9 @@ export const pbrInputFromStandardMaterial = tgpu.fn(
         baseColor.a = (baseColor.a - ctx.alphaCutoff) / std.max(alphaWidth, 0.0001) + 0.5;
     }
     const input = pbrInputFromMaterial(ctx);
+    // glTF doubleSided: a back face shades with the reversed normal.
+    if (material.doubleSided !== 0 && !ctx.frontFacing)
+        input.worldNormal = std.mul(input.worldNormal, -1);
     input.baseColor = d.vec4f(baseColor);
     input.metallic = material.metallic;
     input.perceptualRoughness = material.perceptualRoughness;
@@ -167,7 +171,7 @@ const vertexVaryings = { litColor: d.vec4f };
 /**
  * Built-in Gouraud material: standard lighting is evaluated once per vertex and interpolated.
  * Does not light point or spot lights or receive sun shadows (litPbr's vertex-stage limit).
- * Ignores baseColorTexture; its interpolated colour uses baseColor alone.
+ * Ignores baseColorTexture and doubleSided; its interpolated colour uses baseColor alone.
  */
 export const VertexMaterialType = materialType({
     name: "VertexMaterial",

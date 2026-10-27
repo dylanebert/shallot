@@ -47,6 +47,7 @@ export {
     AlphaModeCode,
     applyPbrLighting,
     CameraBackground,
+    CullModeCode,
     DirectionalLightShadowMap,
     extendedMaterial,
     MAX_CASCADES,

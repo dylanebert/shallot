@@ -11,7 +11,7 @@ import {
     setComputePipeline,
 } from "../../engine/runtime";
 
-import { AlphaPipelineKey, MaterialTypes, materialSource } from "./material-type";
+import { MaterialTypes, materialSource, TRANSPARENT_KEYS } from "./material-type";
 
 const descriptor = { label: "shallot-mesh-count" };
 const sourceLayout = tgpu
@@ -221,12 +221,8 @@ function transparentCountPipeline(world: World): GPUComputePipeline {
 export function warmTransparentCounts(world: World): GPUComputePipeline[] {
     const meshes = world.resource(meshResourcesKey).meshes;
     if (![...meshes.values()].some((mesh) => mesh.indirectIndexCount)) return [];
-    const transparent =
-        (1 << AlphaPipelineKey.Blend) |
-        (1 << AlphaPipelineKey.Premultiplied) |
-        (1 << AlphaPipelineKey.Multiply);
     for (const type of world.resource(MaterialTypes).types) {
-        if (type && materialSource(world, type).alphaKeys & transparent)
+        if (type && materialSource(world, type).pipelineKeys & TRANSPARENT_KEYS)
             return [transparentCountPipeline(world)];
     }
     return [];
