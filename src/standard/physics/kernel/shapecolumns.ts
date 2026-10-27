@@ -165,7 +165,7 @@ export class ShapeStore extends KernelViews {
 
     /** Copy one live inline or owned material into caller-owned scratch. */
     readMaterialAt(shape: Shape, index: number, out: SurfaceMaterial): SurfaceMaterial {
-        this.refreshViews();
+        this.ensureViews();
         const k = kernel(this.ecsState);
         const count = k.shapeMaterialCount(this._worldId, shape) >>> 0;
         if (count === 0) throw new Error(`physics: no material on shape ${shape}`);
@@ -186,7 +186,7 @@ export class ShapeStore extends KernelViews {
 
     /** Read a material's user id without constructing a TypeScript material copy. */
     userMaterialIdAt(shape: Shape, index: number): bigint {
-        this.refreshViews();
+        this.ensureViews();
         const k = kernel(this.ecsState);
         if (k.shapeMaterialCount(this._worldId, shape) >>> 0 === 0) return 0n;
         const o = k.shapeMaterialPtr(this._worldId, shape) / 4 + index * MATERIAL_STRIDE;
@@ -234,13 +234,13 @@ export function shapeMaterialCount(world: WorldState, shape: Shape): number {
 
 /** Copy the kernel-owned tight bounds into caller-owned scratch. */
 export function readShapeAabb(world: WorldState, shapeId: number, out: AABB): AABB {
-    world.shapeStore.refreshViews();
+    world.shapeStore.ensureViews();
     return readBounds(world.shapeStore.shapeF, shapeId * SHAPE_STRIDE + 10, out);
 }
 
 /** Copy the kernel-owned fat bounds into caller-owned scratch. */
 export function readFatAabb(world: WorldState, shapeId: number, out: AABB): AABB {
-    world.shapeStore.refreshViews();
+    world.shapeStore.ensureViews();
     return readBounds(world.shapeStore.shapeF, shapeId * SHAPE_STRIDE + 16, out);
 }
 

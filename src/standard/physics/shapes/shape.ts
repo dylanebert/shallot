@@ -35,7 +35,7 @@ export type ShapeExtent = { minExtent: number; maxExtent: Vec3 };
 export type Shape = number;
 export function shapeIsValid(world: WorldState, id: EntityId): boolean {
     if (!world.inUse) return false;
-    world.shapeStore.refreshViews();
+    world.shapeStore.ensureViews();
     const shape = id.index1 - 1;
     const k = kernel(world.ecsState);
     return (
@@ -47,14 +47,14 @@ export function shapeIsValid(world: WorldState, id: EntityId): boolean {
 }
 
 export function readShapeSphere(world: WorldState, shape: Shape): Sphere {
-    world.shapeStore.refreshViews();
+    world.shapeStore.ensureViews();
     const f = world.shapeStore.shapeF,
         o = shape * SHAPE_STRIDE + S_GEO_REFERENCE;
     return { center: { x: f[o], y: f[o + 1], z: f[o + 2] }, radius: f[o + 3] };
 }
 
 export function readShapeCapsule(world: WorldState, shape: Shape): Capsule {
-    world.shapeStore.refreshViews();
+    world.shapeStore.ensureViews();
     const f = world.shapeStore.shapeF,
         o = shape * SHAPE_STRIDE + S_GEO_REFERENCE;
     return {
@@ -100,14 +100,14 @@ export function getShapeGeometryReference(world: WorldState, shape: Shape): numb
 }
 
 export function getShapeGeometryScale(world: WorldState, shape: Shape): Vec3 {
-    world.shapeStore.refreshViews();
+    world.shapeStore.ensureViews();
     const offset = shape * SHAPE_STRIDE + S_GEO_REFERENCE + 1;
     const values = world.shapeStore.shapeF;
     return { x: values[offset], y: values[offset + 1], z: values[offset + 2] };
 }
 
 export function getShapeFilter(world: WorldState, shape: Shape): Filter {
-    world.shapeStore.refreshViews();
+    world.shapeStore.ensureViews();
     const offset = shape * SHAPE_STRIDE;
     const words = world.shapeStore.shapeU;
     return {

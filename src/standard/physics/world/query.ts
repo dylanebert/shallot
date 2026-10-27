@@ -138,7 +138,7 @@ export function worldCastRay(
     const k = q.prepare(origin, filter);
     q.translation(translation);
     const previous = setQueryCallback(world.ecsState, (_kind, id, data) => {
-        world.shapeStore.refreshViews();
+        world.shapeStore.ensureViews();
         return callback(queryCastHit(world, id, world.shapeStore.materialF, data >>> 2, origin));
     });
     try {
@@ -205,7 +205,7 @@ export function worldCastShape(
     q.proxy(proxy);
     q.translation(translation);
     const previous = setQueryCallback(world.ecsState, (_kind, id, data) => {
-        world.shapeStore.refreshViews();
+        world.shapeStore.ensureViews();
         return callback(queryCastHit(world, id, world.shapeStore.materialF, data >>> 2, origin));
     });
     try {
@@ -229,7 +229,7 @@ export function worldCollideMover(
     const k = q.prepare(origin, filter);
     q.mover(mover.center1, mover.center2, mover.radius);
     const previous = setQueryCallback(world.ecsState, (_kind, id, data, count) => {
-        world.shapeStore.refreshViews();
+        world.shapeStore.ensureViews();
         const f = world.shapeStore.materialF;
         const base = data >>> 2;
         const planes: PlaneResult[] = [];

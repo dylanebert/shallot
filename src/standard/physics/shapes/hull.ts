@@ -33,12 +33,12 @@ export type HullData = {
 /** Independent hull geometry for a requested debug-draw callback. */
 export function readShapeHull(world: WorldState, shape: number): HullData {
     const store = world.shapeStore;
-    store.refreshViews();
+    store.ensureViews();
     return readHullAt(world, store.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE]);
 }
 const hullViews = new WeakMap<WorldState, DataView>();
 export function readHullAt(world: WorldState, ptr: number): HullData {
-    world.shapeStore.refreshViews();
+    world.shapeStore.ensureViews();
     const buffer = world.shapeStore.materialF.buffer;
     let view = hullViews.get(world);
     if (!view || view.buffer !== buffer) {
