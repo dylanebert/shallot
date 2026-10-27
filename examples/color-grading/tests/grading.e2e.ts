@@ -16,11 +16,7 @@ test("the first frame has no late-pipeline warning", async ({ page }) => {
 });
 
 test("each panel control leaves the orbit key working", async ({ page }) => {
-    // Each step queues a full draw, and every pointer action then waits behind the queue; at 1280 px a
-    // software adapter spends about a second on each. Focus and the orbit key hold at a quarter of it,
-    // still above the 480 px phone layout.
-    await page.setViewportSize({ width: 640, height: 360 });
-    await page.goto("http://127.0.0.1:4296/tests/stepped.html");
+    await page.goto("http://127.0.0.1:4296/tests/stepped.html?controls");
     await page.waitForFunction(() => "controlsKey" in window);
     await gameKeyMovesCamera(page);
     await pointerControl(page, page.locator("summary"));
