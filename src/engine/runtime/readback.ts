@@ -88,6 +88,14 @@ export class ReadbackPool {
         label: string,
         encode: (encoder: GPUCommandEncoder, staging: GPUBuffer) => void,
     ): Promise<ReadbackStamp & { bytes: ArrayBuffer }> {
+        const failed = deviceFailure(this._device);
+        if (failed && !this._world.disposed)
+            throw new ReadbackError(
+                label,
+                this._world.gpu.frame,
+                this._world.time.fixedTick,
+                failed,
+            );
         if (deviceLost(this._device)) this.dispose(new Error("GPU device lost"));
         if (this._disposed) throw new Error(`${label}: readback world or device is disposed`);
         if (
@@ -102,8 +110,6 @@ export class ReadbackPool {
         }
         const frame = this._world.gpu.frame;
         const fixedTick = this._world.time.fixedTick;
-        const failed = deviceFailure(this._device);
-        if (failed) throw new ReadbackError(label, frame, fixedTick, failed);
         let slot = this._slots.find((entry) => !entry.busy && entry.buffer.size === size);
         if (!slot) {
             const descriptor: GPUBufferDescriptor = {

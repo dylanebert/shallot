@@ -1,10 +1,12 @@
 import type { World } from "../ecs";
-import { deviceLost } from "./gpu";
+import { deviceFailure, deviceLost } from "./gpu";
 import type { ReadbackStamp } from "./readback";
 
 const COPY_ALIGNMENT = 4;
 function assertRequestAllowed(owner: World): void {
-    if (owner.disposed || deviceLost(owner.gpu.device))
+    const device = owner.disposed ? undefined : owner.gpu.device;
+    // a stopped device's request refuses with the error that stopped it
+    if (!device || (deviceLost(device) && !deviceFailure(device)))
         throw new Error("readback world or device is disposed");
 }
 const ROW_ALIGNMENT = 256;
