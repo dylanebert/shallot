@@ -27,7 +27,8 @@ type ShaderStage = "vertex" | "fragment";
 const VS_FS: ShaderStage[] = ["vertex", "fragment"];
 
 /** A material-owned resource or mesh attribute made available to its shaders. A texture is a 2d float
- * texture and a sampler filters unless their options say otherwise. */
+ * texture and a sampler filters unless their options say otherwise; a sint or uint texture is read with
+ * textureLoad. */
 export type MaterialBinding =
     | { type: "uniform"; struct: AnyWgslStruct }
     | { type: "attribute"; element: AnyWgslData }
@@ -44,6 +45,7 @@ export type MaterialBinding =
           /** False binds `unfilterable-float`, which formats such as r32float require. */
           filterable?: boolean;
       }
+    | { type: "texture"; dimension?: "2d" | "2d-array"; sampleType: "sint" | "uint" }
     | { type: "texture"; dimension?: "2d"; sampleType: "depth" }
     | { type: "sampler"; samplerType?: "filtering" | "non-filtering" | "comparison" };
 
@@ -55,11 +57,16 @@ type OptionOf<B, K extends string> = B extends { [P in K]: infer V }
       : undefined;
 type TextureEntry<T> = { texture: T; visibility: ShaderStage[] };
 type FloatEntry<T> = TextureEntry<T> & { sampleType?: "unfilterable-float" };
+type ChannelOf<S> = S extends "sint" ? d.I32 : d.U32;
 type TextureEntryOf<S, D> = S extends "depth"
     ? TextureEntry<d.WgslTextureDepth2d>
-    : D extends "2d-array"
-      ? FloatEntry<d.WgslTexture2dArray<d.F32>>
-      : FloatEntry<d.WgslTexture2d<d.F32>>;
+    : S extends "sint" | "uint"
+      ? D extends "2d-array"
+          ? TextureEntry<d.WgslTexture2dArray<ChannelOf<S>>>
+          : TextureEntry<d.WgslTexture2d<ChannelOf<S>>>
+      : D extends "2d-array"
+        ? FloatEntry<d.WgslTexture2dArray<d.F32>>
+        : FloatEntry<d.WgslTexture2d<d.F32>>;
 type SamplerEntryOf<T> = T extends "comparison"
     ? { sampler: "comparison"; visibility: ShaderStage[] }
     : {
@@ -101,18 +108,25 @@ export function bindingEntry<B extends MaterialBinding>(binding: B): EntryFor<B>
                       ? ["fragment"]
                       : VS_FS,
             } as EntryFor<B>;
-        case "texture":
+        case "texture": {
+            if (binding.sampleType === "depth")
+                return { texture: d.textureDepth2d(), visibility: VS_FS } as EntryFor<B>;
+            const channel =
+                binding.sampleType === "sint"
+                    ? d.i32
+                    : binding.sampleType === "uint"
+                      ? d.u32
+                      : d.f32;
             return {
                 texture:
-                    binding.sampleType === "depth"
-                        ? d.textureDepth2d()
-                        : binding.dimension === "2d-array"
-                          ? d.texture2dArray()
-                          : d.texture2d(),
-                ...(binding.sampleType !== "depth" &&
+                    binding.dimension === "2d-array"
+                        ? d.texture2dArray(channel)
+                        : d.texture2d(channel),
+                ...("filterable" in binding &&
                     binding.filterable === false && { sampleType: "unfilterable-float" }),
                 visibility: VS_FS,
             } as EntryFor<B>;
+        }
         case "sampler":
             return {
                 sampler: binding.samplerType ?? "filtering",
