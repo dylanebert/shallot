@@ -203,8 +203,12 @@ test("extension binding 100 is present in resolved colour and clipped depth shad
     const pixel = Array.from(shot.rgba.slice((32 * 64 + 32) * 4, (32 * 64 + 32) * 4 + 4));
     expect(pixel).toEqual([137, 188, 225, 255]);
     const uses = s.shaders.filter((shader) => shader.code.includes("@binding(100)"));
-    expect(uses.some((shader) => shader.code.includes("@fragment"))).toBe(true);
-    expect(uses.length).toBeGreaterThanOrEqual(3);
+    for (const entry of ["Fs", "ClipFs", "ClipShadowFs", "CascadeClipVs", "PointClipVs"]) {
+        expect(
+            uses.some((shader) => shader.code.includes(`Binding100Extension${entry}`)),
+            entry,
+        ).toBe(true);
+    }
     expect(
         s.layouts.some((layout) =>
             Array.from(layout.entries).some(
