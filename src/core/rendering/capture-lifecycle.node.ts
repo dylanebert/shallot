@@ -1,7 +1,8 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { expectError } from "../../../scripts/test-console";
 import { World } from "../../engine";
-import type { WorldGpu } from "../../engine/runtime";
+import { observeDevice, type WorldGpu } from "../../engine/runtime";
 import { captureFrame } from "./capture";
 import { RenderContext } from "./render";
 import { attachCanvas, detachView } from "./view";
@@ -151,6 +152,34 @@ test("a pending canvas frame capture rejects on GPU device loss with its label",
         expect(fixture.buffers).toHaveLength(1);
         expect(fixture.buffers[0]!.destroyed).toBe(true);
     } finally {
+        fixture.world.dispose();
+        restore();
+    }
+});
+
+test("a pending canvas capture names the first validation error when loss follows before classification", async () => {
+    const canvas = testCanvas();
+    const restore = installCanvasGlobals(canvas);
+    const fixture = testWorld();
+    const observed = observeDevice(fixture.device);
+    try {
+        bindCanvas(fixture.world, canvas);
+        const pending = captureFrame(canvas).then(
+            () => new Error("capture unexpectedly resolved"),
+            (error: unknown) => error,
+        );
+        expectError(/GpuDeviceLostError\]: GPU device lost unknown: SECOND loss/);
+        fixture.device.onuncapturederror!({
+            error: new Error("FIRST validation"),
+            preventDefault() {},
+        } as unknown as GPUUncapturedErrorEvent);
+        fixture.lost.resolve({ message: "SECOND loss", reason: "unknown" } as GPUDeviceLostInfo);
+        const failure = await pending;
+        expect(failure).toBeInstanceOf(Error);
+        expect((failure as Error).message).toBe("canvas frame capture: FIRST validation");
+        expect(fixture.buffers[0]!.destroyed).toBe(true);
+    } finally {
+        await observed.error;
         fixture.world.dispose();
         restore();
     }
