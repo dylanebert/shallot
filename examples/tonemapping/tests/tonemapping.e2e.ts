@@ -76,6 +76,9 @@ test("each method is distinct on both scenes and the scene picker changes the fr
 }) => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
+    // Each capture waits on a full draw, which a software adapter spends most of the test on. The
+    // difference is a per-pixel mean, so the claim holds at a quarter of the 1280 px frame.
+    await page.setViewportSize({ width: 640, height: 360 });
     await page.goto("http://127.0.0.1:4297/tests/stepped.html");
     await page.waitForFunction(() => "captureScene" in window);
     const basic = await capture(page);
