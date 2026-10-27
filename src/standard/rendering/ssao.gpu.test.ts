@@ -5,9 +5,9 @@ import { Meshes, MeshInstance, sphere } from "../../core/mesh";
 import {
     attachTexture,
     Camera,
+    computeClipFromWorld,
     DirectionalLight,
     GlobalAmbientLight,
-    RenderContext,
     Views,
 } from "../../core/rendering";
 import { viewTargetsKey } from "../../core/rendering/targets";
@@ -150,11 +150,11 @@ test("Medium occludes the ambient-lit plane at box contact, and absent SSAO leav
     const eid = cameras[0]!;
     async function luminance(x: number, z: number) {
         const view = world.resource(Views).get(eid)!;
-        const m = world.resource(RenderContext).viewStaging;
-        const at = view.slot * 64;
-        const w = m[at + 3]! * x + m[at + 11]! * z + m[at + 15]!;
-        const sx = (m[at]! * x + m[at + 8]! * z + m[at + 12]!) / w;
-        const sy = (m[at + 1]! * x + m[at + 9]! * z + m[at + 13]!) / w;
+        const m = new Float32Array(16);
+        computeClipFromWorld(world, eid, view.width / view.height, m);
+        const w = m[3]! * x + m[11]! * z + m[15]!;
+        const sx = (m[0]! * x + m[8]! * z + m[12]!) / w;
+        const sy = (m[1]! * x + m[9]! * z + m[13]!) / w;
         const px = Math.floor((sx * 0.5 + 0.5) * view.width);
         const py = Math.ceil((0.5 - sy * 0.5) * view.height);
         const result = await probeTexture(world, offscreenTexture(world, eid)!, {
