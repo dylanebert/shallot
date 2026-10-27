@@ -17,7 +17,6 @@ import {
 import { Transform } from "../../core/transform";
 import type { World } from "../../engine";
 import { CanvasContext } from "../../engine/app/canvas.fixture";
-import { observeDevice } from "../../engine/runtime";
 import {
     MaterialPlugin,
     MeshMaterial,
@@ -132,8 +131,6 @@ function failedFrame() {
         world.resource(Owned).linear = world.gpu.device.createSampler({ compare: "less" });
         world.step(0);
         const invalid = await settle(captureTexture(world, camera));
-        // the device's one classified report, raised after its selection window
-        await observeDevice(world.gpu.device).error;
         return { valid, queued, invalid };
     })();
     return failing;

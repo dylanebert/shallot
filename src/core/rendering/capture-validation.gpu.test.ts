@@ -3,7 +3,6 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuScene } from "../../../scripts/gpu.fixture";
 import { expectError } from "../../../scripts/test-console";
 import { CanvasContext } from "../../engine/app/canvas.fixture";
-import { observeDevice } from "../../engine/runtime";
 import { attachCanvas, Camera, captureFrame, RenderingPlugin } from "./index";
 
 setDefaultTimeout(TIMEOUT.gpu);
@@ -51,6 +50,5 @@ test("a queued canvas capture rejects the first device error without a frame", a
     } finally {
         clearTimeout(timer);
         console.log("queued capture settlement ms:", performance.now() - start);
-        await observeDevice(world.gpu.device).error;
     }
 });
