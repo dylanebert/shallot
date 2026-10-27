@@ -384,14 +384,19 @@ function layoutResources(
         if (isBuffer(res)) validateMeshBindingOverrides({ entries }, { [name]: res });
         resources.push(res);
         names.push(name);
-        // a texture binds a view of the schema's own dimension
-        values[name] =
+        // a texture binds a view of the schema's own dimension; a storage texture binds mip 0
+        const schema =
             "texture" in entry
-                ? (res as GPUTexture).createView({
-                      dimension: (entry as { texture: { dimension: GPUTextureViewDimension } })
-                          .texture.dimension,
-                  })
-                : res;
+                ? entry.texture
+                : "storageTexture" in entry
+                  ? entry.storageTexture
+                  : undefined;
+        values[name] = schema
+            ? (res as GPUTexture).createView({
+                  dimension: (schema as { dimension: GPUTextureViewDimension }).dimension,
+                  ...("storageTexture" in entry && { mipLevelCount: 1 }),
+              })
+            : res;
     }
     return { values, resources, names };
 }

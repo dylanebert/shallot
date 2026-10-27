@@ -27,12 +27,17 @@ type ShaderStage = "vertex" | "fragment";
 const VS_FS: ShaderStage[] = ["vertex", "fragment"];
 type Dimension = "1d" | "2d" | "2d-array" | "cube" | "cube-array" | "3d";
 type DepthDimension = "2d" | "2d-array" | "cube" | "cube-array";
+type StorageDimension = "1d" | "2d" | "2d-array" | "3d";
+/** The texture formats WGSL storage textures take. */
+type StorageFormat = Parameters<typeof d.textureStorage2d>[0];
+type StorageAccess = "read" | "write" | "read_write";
 
 /** A material-owned resource or mesh attribute made available to its shaders. A texture is a 2d float
  * texture and a sampler filters unless their options say otherwise; a sint or uint texture is read with
  * textureLoad. A texture binds as one view of its dimension over every mip and layer, so a cube texture
  * has six layers and a cube array a multiple of six. A multisampled texture is 2d, read with textureLoad
- * by sample index; a float one is never filtered, so it binds `unfilterable-float`. */
+ * by sample index; a float one is never filtered, so it binds `unfilterable-float`. A storage texture
+ * binds its mip 0 to the fragment stage alone, at most four per material. */
 export type MaterialBinding =
     | { type: "uniform"; struct: AnyWgslStruct }
     | { type: "attribute"; element: AnyWgslData }
@@ -61,6 +66,12 @@ export type MaterialBinding =
           dimension?: DepthDimension;
           sampleType: "depth";
           multisampled?: boolean;
+      }
+    | {
+          type: "storage-texture";
+          format: StorageFormat;
+          access: StorageAccess;
+          dimension?: StorageDimension;
       }
     | { type: "sampler"; samplerType?: "filtering" | "non-filtering" | "comparison" };
 
@@ -98,6 +109,23 @@ type TextureEntryOf<S, D, M> = S extends "depth"
             M extends true ? d.WgslTextureMultisampled2d<ChannelOf<S>> : SampledOf<D, ChannelOf<S>>
         >
       : FloatEntry<M extends true ? d.WgslTextureMultisampled2d<d.F32> : SampledOf<D, d.F32>>;
+type GpuAccessOf<A> = A extends "read"
+    ? "read-only"
+    : A extends "write"
+      ? "write-only"
+      : "read-write";
+type StorageOf<D, F extends StorageFormat, A extends GPUStorageTextureAccess> = D extends "1d"
+    ? d.WgslStorageTexture1d<F, A>
+    : D extends "2d-array"
+      ? d.WgslStorageTexture2dArray<F, A>
+      : D extends "3d"
+        ? d.WgslStorageTexture3d<F, A>
+        : d.WgslStorageTexture2d<F, A>;
+type StorageTextureEntryOf<F, A, D> = F extends StorageFormat
+    ? A extends StorageAccess
+        ? { storageTexture: StorageOf<D, F, GpuAccessOf<A>>; visibility: ShaderStage[] }
+        : never
+    : never;
 type SamplerEntryOf<T> = T extends "comparison"
     ? { sampler: "comparison"; visibility: ShaderStage[] }
     : {
@@ -120,7 +148,13 @@ export type EntryFor<B extends MaterialBinding> = B extends { type: "uniform" }
               OptionOf<B, "dimension">,
               OptionOf<B, "multisampled">
           >
-        : SamplerEntryOf<OptionOf<B, "samplerType">>;
+        : B extends { type: "storage-texture" }
+          ? StorageTextureEntryOf<
+                OptionOf<B, "format">,
+                OptionOf<B, "access">,
+                OptionOf<B, "dimension">
+            >
+          : SamplerEntryOf<OptionOf<B, "samplerType">>;
 
 const sampled: Record<Dimension, (channel: d.F32 | d.I32 | d.U32) => d.WgslTexture> = {
     "1d": d.texture1d,
@@ -135,6 +169,16 @@ const depth: Record<DepthDimension, () => d.WgslTexture> = {
     "2d-array": d.textureDepth2dArray,
     cube: d.textureDepthCube,
     "cube-array": d.textureDepthCubeArray,
+};
+
+const storage: Record<
+    StorageDimension,
+    (format: StorageFormat, access: GPUStorageTextureAccess) => d.WgslStorageTexture
+> = {
+    "1d": d.textureStorage1d,
+    "2d": d.textureStorage2d,
+    "2d-array": d.textureStorage2dArray,
+    "3d": d.textureStorage3d,
 };
 
 /** @internal */
@@ -184,6 +228,18 @@ export function bindingEntry<B extends MaterialBinding>(binding: B): EntryFor<B>
                 visibility: VS_FS,
             } as EntryFor<B>;
         }
+        case "storage-texture":
+            return {
+                storageTexture: storage[binding.dimension ?? "2d"](
+                    binding.format,
+                    binding.access === "read"
+                        ? "read-only"
+                        : binding.access === "write"
+                          ? "write-only"
+                          : "read-write",
+                ),
+                visibility: ["fragment"],
+            } as EntryFor<B>;
         case "sampler":
             return {
                 sampler: binding.samplerType ?? "filtering",
@@ -292,6 +348,21 @@ export function materialLayout<B extends Record<string, MaterialBinding>, P exte
     if (textures + 5 > 16) {
         throw new Error(
             `material layout uses ${textures + 5} fragment sampled textures; WebGPU's limit is 16`,
+        );
+    }
+    let storageTextures = 0;
+    for (const [name, binding] of Object.entries(bindings)) {
+        if (binding.type !== "storage-texture") continue;
+        storageTextures++;
+        if ((binding as { visibility?: readonly ShaderStage[] }).visibility?.includes("vertex")) {
+            throw new Error(
+                `material binding "${name}" is a storage texture, which binds to the fragment stage only`,
+            );
+        }
+    }
+    if (storageTextures > 4) {
+        throw new Error(
+            `material layout uses ${storageTextures} fragment storage textures; WebGPU's maxStorageTexturesInFragmentStage is 4`,
         );
     }
     const builtins = {
