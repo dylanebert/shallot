@@ -41,20 +41,17 @@ export type MaterialBinding =
     | { type: "texture"; dimension?: "2d"; sampleType: "depth" }
     | { type: "sampler"; samplerType?: "filtering" | "comparison" };
 
+/** The values a binding's option may take; unknown where the binding omits it. */
+type OptionOf<B, K extends string> = B extends { [P in K]?: infer V } ? V : unknown;
 type TextureEntry<T> = { texture: T; visibility: ShaderStage[] };
-type TextureEntryFor<B> = B extends { sampleType: "depth" }
+type TextureEntryOf<S, D> = S extends "depth"
     ? TextureEntry<d.WgslTextureDepth2d>
-    : B extends { dimension: "2d-array" }
+    : D extends "2d-array"
       ? TextureEntry<d.WgslTexture2dArray<d.F32>>
-      : B extends { type: "texture"; dimension?: "2d" }
-        ? TextureEntry<d.WgslTexture2d<d.F32>>
-        : TextureEntry<d.WgslTexture2d<d.F32>> | TextureEntry<d.WgslTexture2dArray<d.F32>>;
-type SamplerEntry<T> = { sampler: T; visibility: ShaderStage[] };
-type SamplerEntryFor<B> = B extends { samplerType: "comparison" }
-    ? SamplerEntry<"comparison">
-    : B extends { type: "sampler"; samplerType?: "filtering" }
-      ? SamplerEntry<"filtering">
-      : SamplerEntry<"filtering"> | SamplerEntry<"comparison">;
+      : TextureEntry<d.WgslTexture2d<d.F32>>;
+type SamplerEntryOf<T> = T extends "comparison"
+    ? { sampler: "comparison"; visibility: ShaderStage[] }
+    : { sampler: "filtering"; visibility: ShaderStage[] };
 
 /** @internal The TypeGPU layout entry a material or background binding declares. */
 export type EntryFor<B extends MaterialBinding> = B extends { type: "uniform" }
@@ -66,8 +63,8 @@ export type EntryFor<B extends MaterialBinding> = B extends { type: "uniform" }
             visibility: ShaderStage[];
         }
       : B extends { type: "texture" }
-        ? TextureEntryFor<B>
-        : SamplerEntryFor<B>;
+        ? TextureEntryOf<OptionOf<B, "sampleType">, OptionOf<B, "dimension">>
+        : SamplerEntryOf<OptionOf<B, "samplerType">>;
 
 /** @internal */
 export function bindingEntry<B extends MaterialBinding>(binding: B): EntryFor<B> {
