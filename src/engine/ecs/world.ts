@@ -665,14 +665,19 @@ export class World {
     /** Advance exactly one fixed tick, ignoring pause, scale and catch-up limits. Runs only the fixed
      * group (including its lazy system setup), not setup, simulation or draw groups. Does not advance
      * the GPU frame or readback; queued table writes remain ordered before the next frame submission.
+     * On a world without a GPU, field marks clear when a tick completes successfully, as after a CPU-only step;
+     * a GPU world keeps them for its next frame upload.
      * Refuses inside a step or tick. Errors follow {@link step}; the tick count is not rolled back. */
     tick(): void {
         if (this._stepping) throw new Error("World.tick: refuses inside a step or tick");
+        let ticked = false;
         this._stepping = true;
         try {
             this._scheduler.tick(this);
+            ticked = true;
         } finally {
             this._stepping = false;
+            if (!this._gpu && ticked) this.clearChanges();
         }
     }
 

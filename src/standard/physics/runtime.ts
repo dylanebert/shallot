@@ -1838,6 +1838,14 @@ function collectFieldCandidates(world: World): void {
     captureFieldCandidates(world, runtime.constraints.candidates, jointBindings(world));
 }
 
+/** Captures fixed writes before CPU-only World.tick clears field marks on return. */
+export const CollectFixedPhysicsFieldCandidatesSystem: System = {
+    name: "fixed-physics-field-candidates",
+    group: "fixed",
+    boundary: "after",
+    update: collectFieldCandidates,
+};
+
 /** Captures authored field marks before the frame's clearChanges point. */
 export const CollectPhysicsFieldCandidatesSystem: System = {
     name: "physics-field-candidates",
@@ -2224,6 +2232,7 @@ export const StandardPhysicsPlugin: Plugin = {
         SyncPhysicsWorldDefinitionSystem,
         SyncPhysicsConstraintsSystem,
         StepPhysicsSystem,
+        CollectFixedPhysicsFieldCandidatesSystem,
         CollectPhysicsFieldCandidatesSystem,
         CollectDrawPhysicsFieldCandidatesSystem,
     ],

@@ -20,6 +20,8 @@
 - `world.add` on a component the entity already has replaces its values, resetting omitted fields to defaults; 0.10 kept them and warned
 - web builds default to `base: "./"`; an app that routes nested urls through the history api sets `base: "/"`
 - agx tonemapping colors change
+- fixed body scale writes from simulation and late fixed systems not reaching physics shapes
+- cpu-only `World.tick` clears field marks on successful return; gpu worlds keep them for the next frame upload
 - the optional playwright peer requires `^1.64.1`
 - `@dylanebert/shallot/vignette` and `VignettePlugin` are deprecated in favor of `@dylanebert/shallot/effect-stack` and `EffectStackPlugin`, and are removed in 0.11
 

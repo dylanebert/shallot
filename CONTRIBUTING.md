@@ -14,7 +14,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - Components declare fields, not storage or GPU residency
 - Component columns are eid-indexed: even a one-holder component on a high eid costs its row bytes per eid
 - A live page re-evaluates only a module Vite hot-updates in place, such as one only a Svelte component imports; an edit reaching the entry reloads the page
-- Field changes are frame-scoped: every consuming table reads them at upload before they clear, and later writes reach the next frame
+- Field changes are frame-scoped: every consuming table reads them at upload before they clear, and later writes reach the next frame. On a world without a GPU, field marks clear when a tick completes successfully, as after a CPU-only step; a GPU world keeps them for its next frame upload
 - Plugin state lives in `world.resource`, never module globals
 - GPU allocations go through `world.gpu`, whose context and TypeGPU root own buffers and textures; other GPU allocations register with `world.own`, other cleanup with `world.onDispose`
 - Field, resource and GPU access resolves through the World passed to the callback

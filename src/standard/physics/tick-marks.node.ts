@@ -23,7 +23,8 @@ for (const kind of ["scale", "teleport", "body"] as const)
                 if (!pending) return;
                 pending = false;
                 if (kind === "scale") world.storage(Transform).scale.set(eid, 3, 3, 3);
-                else if (kind === "teleport") world.storage(Transform).translation.set(eid, 5, 0, 0);
+                else if (kind === "teleport")
+                    world.storage(Transform).translation.set(eid, 5, 0, 0);
                 else world.storage(Body).gravityScale.set(eid, 1);
             },
         };
