@@ -448,6 +448,45 @@ test("a producer row with its handle's cullMode none draws its back face", async
     expect((await pixels(world, scene.back)).center).toEqual(BLUE);
 });
 
+const malformed = gpuScene(import.meta.path, { defaults: false, plugins: cullPlugins }, (world) => {
+    const mesh = quad(world, "cull-malformed-quad");
+    const row = world.resource(Plain).add({ color: d.vec4f(0, 0, 1, 1) });
+    const table = registerProducerTable(world, {
+        name: "cull-malformed",
+        capacity: 1,
+        meshes: [mesh],
+        materials: [row],
+    });
+    table.placements.write([{ pos: d.vec3f(0), quat: d.vec4f(0, 0, 0, 1), scale: d.vec3f(1) }]);
+    table.count.write(1);
+    return { mesh, row, table, front: camera(world, 5) };
+});
+
+test("a producer row whose cullMode is above 2 draws nothing, including codes whose multiple wraps to a declared pair", async () => {
+    const { world, scene } = malformed();
+    const seen = async (cullMode: number) => {
+        scene.table.meshInstances.write([
+            {
+                mesh: scene.mesh,
+                materialType: scene.row.type,
+                material: scene.row.material,
+                alphaMode: scene.row.alphaMode,
+                alphaCutoff: scene.row.alphaCutoff,
+                flags: 0,
+                cullMode,
+                cullBounds: d.vec4f(0, 0, 0, -1),
+            },
+        ]);
+        world.step(0);
+        return pixels(world, scene.front);
+    };
+    expect((await seen(0)).center).toEqual(BLUE);
+    for (const code of [3, 0x80000000, 0xaaaaaaab]) {
+        const drawn = await seen(code);
+        expect(drawn.center, `cullMode ${code}`).toEqual(drawn.clear);
+    }
+});
+
 // Nine varyings fill the default 16 inter-stage variables beside the seven engine ones.
 const nineVaryings = Object.fromEntries(
     Array.from({ length: 9 }, (_, i) => [`v${i}`, d.f32]),
