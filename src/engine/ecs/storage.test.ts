@@ -197,6 +197,7 @@ for (const type of [f32, f16, vec2, vec4] as const) {
         handle.writeEncoded(new Uint32Array([70]), new type.ctor(type.lanes));
         handle.column[100 * type.lanes] = 1;
         handle.markChanged(100);
+        expect(column.changeTick).toBe(Math.max(...column.changeTicks));
         expect(Array.from(column.changeTicks, (tick) => tick > second)).toEqual([
             false,
             true,

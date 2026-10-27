@@ -101,8 +101,10 @@ export function captureFieldCandidate(
     const since = candidates.lastRun;
     candidates.lastRun = world.incrementChangeTick();
     for (let fieldIndex = 0; fieldIndex < binding.dirty.length; fieldIndex++) {
-        const dirty = binding.dirty[fieldIndex].dirty;
-        const ticks = binding.dirty[fieldIndex].changeTicks;
+        const field = binding.dirty[fieldIndex];
+        if (field.changeTick <= since) continue;
+        const dirty = field.dirty;
+        const ticks = field.changeTicks;
         for (let word = 0; word < Math.min(dirty.length, words); word++) {
             if (ticks[word] <= since) continue;
             let bits = dirty[word];

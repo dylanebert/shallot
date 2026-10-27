@@ -1757,6 +1757,7 @@ function capturePoseCandidates(world: World, runtime: PhysicsRuntime): void {
     const candidates = runtime.poseCandidates;
     const since = candidates.lastRun;
     candidates.lastRun = world.incrementChangeTick();
+    if (translation.changeTick <= since && rotation.changeTick <= since) return;
     const words = Math.max(positions.length, rotations.length);
     for (let word = 0; word < words; word++) {
         let bits =
@@ -1972,6 +1973,7 @@ function captureScaleCandidates(world: World, runtime: PhysicsRuntime): void {
     const ticks = scale.changeTicks;
     const since = runtime.scaleRun;
     runtime.scaleRun = world.incrementChangeTick();
+    if (scale.changeTick <= since) return;
     const dependencies = runtime.shapeDependencies;
     for (let word = 0; word < scaleDirty.length; word++) {
         if (ticks[word] <= since) continue;

@@ -23,6 +23,8 @@ type Column = {
     dirty: Uint32Array;
     /** Each mark word's latest change tick, read from `clock` at each mark. */
     ticks: Float64Array;
+    /** The latest change tick of any mark. */
+    latest: number;
     clock: ChangeClock;
 };
 
@@ -54,6 +56,7 @@ export class WorldField<T extends FieldType = FieldType> {
             array: new schema.ctor(initialCapacity * schema.lanes),
             dirty: new Uint32Array((initialCapacity + 31) >>> 5),
             ticks: new Float64Array((initialCapacity + 31) >>> 5),
+            latest: 0,
             clock: world?.changeClock ?? { tick: 1 },
         };
     }
@@ -103,9 +106,9 @@ export class WorldField<T extends FieldType = FieldType> {
         }
         live.fill(0, imageLength, end);
         for (let word = 0; word < marks.length; word++) dirty[word] |= marks[word];
-        const { ticks, clock } = this.#column;
+        const column = this.#column;
         for (let word = 0; word < dirty.length; word++)
-            if (dirty[word] !== 0) ticks[word] = clock.tick;
+            if (dirty[word] !== 0) column.latest = column.ticks[word] = column.clock.tick;
     }
 
     ensure(capacity: number): void {
@@ -131,7 +134,7 @@ export class WorldField<T extends FieldType = FieldType> {
         if (eid + 1 > this.#column.array.length / this.type.lanes) this.ensure(eid + 1);
         const column = this.#column;
         column.dirty[eid >>> 5] |= 1 << (eid & 31);
-        column.ticks[eid >>> 5] = column.clock.tick;
+        column.latest = column.ticks[eid >>> 5] = column.clock.tick;
     }
 
     set(eid: number, x: number, y = 0, z = 0, w = 0): void {
@@ -158,7 +161,7 @@ export class WorldField<T extends FieldType = FieldType> {
             }
         }
         column.dirty[eid >>> 5] |= 1 << (eid & 31);
-        column.ticks[eid >>> 5] = column.clock.tick;
+        column.latest = column.ticks[eid >>> 5] = column.clock.tick;
     }
 
     /** Copy encoded typed rows and publish the same change marks as scalar setters. */
@@ -192,8 +195,10 @@ export class WorldField<T extends FieldType = FieldType> {
                 rows.push(source.subarray(i * lanes, (i + 1) * lanes) as TypedArray);
             byLanes.set(lanes, rows);
         }
-        const { array, dirty, ticks, clock } = this.#column;
-        const tick = clock.tick;
+        const column = this.#column;
+        const { array, dirty, ticks } = column;
+        const tick = column.clock.tick;
+        if (eids.length !== 0) column.latest = tick;
         for (let i = 0; i < eids.length; i++) {
             const eid = eids[i];
             array.set(rows[i], eid * this.type.lanes + Math.max(0, lane));
@@ -215,12 +220,13 @@ export class WorldField<T extends FieldType = FieldType> {
     }
 
     clear(eid: number): void {
-        const { array, dirty, ticks, clock } = this.#column;
+        const column = this.#column;
+        const { array, dirty } = column;
         const base = eid * this.type.lanes;
         if (base + this.type.lanes > array.length) return;
         for (let lane = 0; lane < this.type.lanes; lane++) array[base + lane] = 0;
         dirty[eid >>> 5] |= 1 << (eid & 31);
-        ticks[eid >>> 5] = clock.tick;
+        column.latest = column.ticks[eid >>> 5] = column.clock.tick;
     }
 
     get column(): TypedArray {
@@ -235,6 +241,11 @@ export class WorldField<T extends FieldType = FieldType> {
      * than a consumer's last {@link World.incrementChangeTick} holds a mark written since. */
     get changeTicks(): Float64Array {
         return this.#column.ticks;
+    }
+
+    /** @internal The latest of {@link changeTicks}: no word holds a newer mark. */
+    get changeTick(): number {
+        return this.#column.latest;
     }
 
     bind(): FieldStorage<T> {
@@ -323,7 +334,7 @@ export class WorldField<T extends FieldType = FieldType> {
                 if (i >= column.array.length) field.ensure(eid + 1);
                 column.array[i] = value;
                 column.dirty[eid >>> 5] |= 1 << (eid & 31);
-                column.ticks[eid >>> 5] = column.clock.tick;
+                column.latest = column.ticks[eid >>> 5] = column.clock.tick;
             },
             get(eid) {
                 return column.array[eid * lanes + offset] ?? 0;
@@ -351,7 +362,7 @@ export class WorldField<T extends FieldType = FieldType> {
                         if (eid >= column.array.length) field.ensure(eid + 1);
                         column.array[eid] = value;
                         column.dirty[eid >>> 5] |= 1 << (eid & 31);
-                        column.ticks[eid >>> 5] = column.clock.tick;
+                        column.latest = column.ticks[eid >>> 5] = column.clock.tick;
                     },
                     get: (eid: number) => column.array[eid] ?? 0,
                 },
@@ -371,7 +382,7 @@ export class WorldField<T extends FieldType = FieldType> {
                         a[o] = x;
                         a[o + 1] = y;
                         column.dirty[eid >>> 5] |= 1 << (eid & 31);
-                        column.ticks[eid >>> 5] = column.clock.tick;
+                        column.latest = column.ticks[eid >>> 5] = column.clock.tick;
                     },
                     read: (eid: number, out: Float32Array) => field.read(eid, out),
                     x: lane(0),
@@ -394,7 +405,7 @@ export class WorldField<T extends FieldType = FieldType> {
                     a[o + 2] = z;
                     a[o + 3] = w;
                     column.dirty[eid >>> 5] |= 1 << (eid & 31);
-                    column.ticks[eid >>> 5] = column.clock.tick;
+                    column.latest = column.ticks[eid >>> 5] = column.clock.tick;
                 },
                 read: (eid: number, out: Float32Array) => field.read(eid, out),
                 x: lane(0),
@@ -412,7 +423,7 @@ export class WorldField<T extends FieldType = FieldType> {
         this.#column.array[eid * this.type.lanes + lane] = encode(value);
         const column = this.#column;
         column.dirty[eid >>> 5] |= 1 << (eid & 31);
-        column.ticks[eid >>> 5] = column.clock.tick;
+        column.latest = column.ticks[eid >>> 5] = column.clock.tick;
     }
 }
 
