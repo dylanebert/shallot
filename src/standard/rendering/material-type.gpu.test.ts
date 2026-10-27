@@ -12,7 +12,7 @@ import {
     TonemappingMethod,
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
-import type { World } from "../../engine";
+import type { Plugin, World } from "../../engine";
 import {
     extendedMaterial,
     type MaterialBinding,
@@ -145,6 +145,42 @@ const Owned = {
         for (const texture of [pair, layers, depth, scalars, signed, unsigned]) world.own(texture);
         for (const texture of [line, volume, cube, cubes, depthLayers, depthCube])
             world.own(texture);
+        // cleared red, then sample 2 alone drawn green
+        const samples = device.createTexture({
+            size: [1, 1],
+            format: "rgba8unorm",
+            sampleCount: 4,
+            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT,
+        });
+        world.own(samples);
+        const module = device.createShaderModule({
+            code: `@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+    return vec4f(f32(i / 2u) * 4 - 1, f32(i % 2u) * 4 - 1, 0, 1);
+}
+@fragment fn fs() -> @location(0) vec4f { return vec4f(0, 1, 0, 1); }`,
+        });
+        const pipeline = device.createRenderPipeline({
+            label: "owned-sample-2",
+            layout: "auto",
+            vertex: { module },
+            fragment: { module, targets: [{ format: "rgba8unorm" }] },
+            multisample: { count: 4, mask: 1 << 2 },
+        });
+        const encoder = device.createCommandEncoder();
+        const pass = encoder.beginRenderPass({
+            colorAttachments: [
+                {
+                    view: samples.createView(),
+                    clearValue: [1, 0, 0, 1],
+                    loadOp: "clear",
+                    storeOp: "store",
+                },
+            ],
+        });
+        pass.setPipeline(pipeline);
+        pass.draw(3);
+        pass.end();
+        device.queue.submit([encoder.finish()]);
         return {
             pair,
             layers,
@@ -158,6 +194,7 @@ const Owned = {
             cubes,
             depthLayers,
             depthCube,
+            samples,
             linear: device.createSampler({ magFilter: "linear", minFilter: "linear" }),
             less: device.createSampler({ compare: "less" }),
             nearest: device.createSampler(),
@@ -201,6 +238,9 @@ const depthLayersLayout = materialLayout(Unused, {
 const depthCubeLayout = materialLayout(Unused, {
     depthCube: { type: "texture", dimension: "cube", sampleType: "depth" },
     nearest: { type: "sampler", samplerType: "non-filtering" },
+});
+const samplesLayout = materialLayout(Unused, {
+    samples: { type: "texture", multisampled: true },
 });
 const bindingKinds: Record<
     string,
@@ -416,6 +456,22 @@ const bindingKinds: Record<
             },
         }),
     },
+    // red from sample 0, green from sample 2
+    "multisampled texture": {
+        expected: [255, 255, 0, 255],
+        type: materialType({
+            name: "OwnedTextureMultisampled2d",
+            layout: samplesLayout,
+            defaults: { unused: 0 },
+            bindings: (world) => world.resource(Owned),
+            fragment: () => {
+                "use gpu";
+                const first = std.textureLoad(samplesLayout.$.samples, d.vec2i(0, 0), 0);
+                const third = std.textureLoad(samplesLayout.$.samples, d.vec2i(0, 0), 2);
+                return d.vec4f(first.x, third.y, 0, 1);
+            },
+        }),
+    },
     // the right half of the texture samples texel 1 alone
     "unfilterable texture and non-filtering sampler": {
         expected: [srgbByte(0.75), 0, 0, 255],
@@ -435,12 +491,21 @@ const bindingKinds: Record<
         }),
     },
 };
+// Owned's sample pattern renders through a pipeline, so it is created while plugins initialize.
+const OwnedPlugin: Plugin = {
+    name: "OwnedBindings",
+    gpu: {},
+    initialize(world) {
+        world.resource(Owned);
+    },
+};
 const subjects = gpuApps(import.meta.path, [
     {
         defaults: false,
         plugins: [
             StandardRenderingPlugin,
             MeshRenderPlugin,
+            OwnedPlugin,
             MaterialPlugin(PixelMaterial),
             MaterialPlugin(ExtendedPixelMaterial),
             ...Object.values(bindingKinds).map(({ type }) => MaterialPlugin(type)),

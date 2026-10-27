@@ -159,6 +159,47 @@ test("dimension options declare their WGSL texture types", () => {
     expect(e.unfilteredVolume.sampleType).toBe("unfilterable-float");
 });
 
+test("multisampled options declare multisampled WGSL texture types", () => {
+    const layout = materialLayout(d.struct({ unused: d.f32 }), {
+        samples: { type: "texture", multisampled: true },
+        unsignedSamples: { type: "texture", sampleType: "uint", multisampled: true },
+        signedSamples: { type: "texture", sampleType: "sint", multisampled: true },
+        depthSamples: { type: "texture", sampleType: "depth", multisampled: true },
+        single: { type: "texture", multisampled: false },
+    });
+    type Resources = (typeof layout)["$"];
+    expectTypeOf<Resources["samples"]>().toEqualTypeOf<
+        d.InferGPU<d.WgslTextureMultisampled2d<d.F32>>
+    >();
+    expectTypeOf<Resources["unsignedSamples"]>().toEqualTypeOf<
+        d.InferGPU<d.WgslTextureMultisampled2d<d.U32>>
+    >();
+    expectTypeOf<Resources["signedSamples"]>().toEqualTypeOf<
+        d.InferGPU<d.WgslTextureMultisampled2d<d.I32>>
+    >();
+    expectTypeOf<Resources["depthSamples"]>().toEqualTypeOf<
+        d.InferGPU<d.WgslTextureDepthMultisampled2d>
+    >();
+    expectTypeOf<Resources["single"]>().toEqualTypeOf<d.InferGPU<d.WgslTexture2d<d.F32>>>();
+    const { samples, unsignedSamples, signedSamples, depthSamples, single } = layout.entries;
+    expect(
+        [samples, unsignedSamples, signedSamples, depthSamples, single].map(
+            ({ texture }) => texture.type,
+        ),
+    ).toEqual([
+        "texture_multisampled_2d",
+        "texture_multisampled_2d",
+        "texture_multisampled_2d",
+        "texture_depth_multisampled_2d",
+        "texture_2d",
+    ]);
+    // a multisampled float texture cannot be filtered
+    expect(samples.sampleType).toBe("unfilterable-float");
+    expect(
+        [unsignedSamples, signedSamples, depthSamples, single].some((e) => "sampleType" in e),
+    ).toBe(false);
+});
+
 test("a union of texture or sampler options declares the union of their WGSL resource types", () => {
     const sampleType = "float" as "float" | "depth";
     const samplerType = "filtering" as "filtering" | "comparison";
@@ -167,6 +208,7 @@ test("a union of texture or sampler options declares the union of their WGSL res
     const integer = "uint" as "float" | "sint" | "uint";
     const dimension = "3d" as "3d" | "cube";
     const depthDimension = "cube" as "2d-array" | "cube";
+    const multisampled = true as boolean;
     const layout = materialLayout(d.struct({ unused: d.f32 }), {
         either: { type: "texture", sampleType },
         sampler: { type: "sampler", samplerType },
@@ -175,6 +217,8 @@ test("a union of texture or sampler options declares the union of their WGSL res
         integer: { type: "texture", sampleType: integer },
         volumeOrCube: { type: "texture", dimension },
         depthLayersOrCube: { type: "texture", dimension: depthDimension, sampleType: "depth" },
+        maybeSamples: { type: "texture", multisampled },
+        maybeDepthSamples: { type: "texture", sampleType: "depth", multisampled },
     });
     type Resources = (typeof layout)["$"];
     expectTypeOf<Resources["either"]>().toEqualTypeOf<
@@ -210,6 +254,16 @@ test("a union of texture or sampler options declares the union of their WGSL res
         layout.entries.volumeOrCube.texture.type,
         layout.entries.depthLayersOrCube.texture.type,
     ]).toEqual(["texture_3d", "texture_depth_cube"]);
+    expectTypeOf<Resources["maybeSamples"]>().toEqualTypeOf<
+        d.InferGPU<d.WgslTexture2d<d.F32>> | d.InferGPU<d.WgslTextureMultisampled2d<d.F32>>
+    >();
+    expectTypeOf<Resources["maybeDepthSamples"]>().toEqualTypeOf<
+        d.InferGPU<d.WgslTextureDepth2d> | d.InferGPU<d.WgslTextureDepthMultisampled2d>
+    >();
+    expect([
+        layout.entries.maybeSamples.texture.type,
+        layout.entries.maybeDepthSamples.texture.type,
+    ]).toEqual(["texture_multisampled_2d", "texture_depth_multisampled_2d"]);
 });
 
 test("an optional texture or sampler option also declares its default WGSL resource type", () => {
@@ -219,6 +273,7 @@ test("an optional texture or sampler option also declares its default WGSL resou
     const nearest: { type: "sampler"; samplerType?: "non-filtering" } = { type: "sampler" };
     const unsigned: { type: "texture"; sampleType?: "uint" } = { type: "texture" };
     const volume: { type: "texture"; dimension?: "3d" } = { type: "texture" };
+    const samples: { type: "texture"; multisampled?: true } = { type: "texture" };
     const depthCube: { type: "texture"; dimension?: "cube"; sampleType: "depth" } = {
         type: "texture",
         sampleType: "depth",
@@ -231,6 +286,7 @@ test("an optional texture or sampler option also declares its default WGSL resou
         unsigned,
         volume,
         depthCube,
+        samples,
     });
     type Resources = (typeof layout)["$"];
     expectTypeOf<Resources["layers"]>().toEqualTypeOf<
@@ -267,6 +323,10 @@ test("an optional texture or sampler option also declares its default WGSL resou
         "texture_2d",
         "texture_depth_2d",
     ]);
+    expectTypeOf<Resources["samples"]>().toEqualTypeOf<
+        d.InferGPU<d.WgslTexture2d<d.F32>> | d.InferGPU<d.WgslTextureMultisampled2d<d.F32>>
+    >();
+    expect(layout.entries.samples.texture.type).toBe("texture_2d");
 });
 
 test("an option that may be undefined also declares its default WGSL resource type", () => {
@@ -294,6 +354,10 @@ test("an option that may be undefined also declares its default WGSL resource ty
         type: "texture",
         dimension: undefined,
     };
+    const samples: { type: "texture"; multisampled: true | undefined } = {
+        type: "texture",
+        multisampled: undefined,
+    };
     const depthCube: { type: "texture"; dimension: "cube" | undefined; sampleType: "depth" } = {
         type: "texture",
         dimension: undefined,
@@ -307,6 +371,7 @@ test("an option that may be undefined also declares its default WGSL resource ty
         unsigned,
         volume,
         depthCube,
+        samples,
     });
     type Resources = (typeof layout)["$"];
     expectTypeOf<Resources["layers"]>().toEqualTypeOf<
@@ -343,4 +408,8 @@ test("an option that may be undefined also declares its default WGSL resource ty
         "texture_2d",
         "texture_depth_2d",
     ]);
+    expectTypeOf<Resources["samples"]>().toEqualTypeOf<
+        d.InferGPU<d.WgslTexture2d<d.F32>> | d.InferGPU<d.WgslTextureMultisampled2d<d.F32>>
+    >();
+    expect(layout.entries.samples.texture.type).toBe("texture_2d");
 });
