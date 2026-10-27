@@ -1828,18 +1828,22 @@ export const SyncPhysicsConstraintsSystem: System = {
     },
 };
 
+/** Latches every field mark physics reads into its candidate queues before a clear point. */
+function collectFieldCandidates(world: World): void {
+    const runtime = runtimeFor(world);
+    capturePoseCandidates(world, runtime);
+    captureScaleCandidates(world, runtime);
+    captureFieldCandidate(world, runtime.bodyCandidates, bodyBinding(world));
+    captureFieldCandidate(world, runtime.shapeCandidates, shapeBinding(world));
+    captureFieldCandidates(world, runtime.constraints.candidates, jointBindings(world));
+}
+
 /** Captures authored field marks before the frame's clearChanges point. */
 export const CollectPhysicsFieldCandidatesSystem: System = {
     name: "physics-field-candidates",
     group: "simulation",
     boundary: "after",
-    update(world) {
-        const runtime = runtimeFor(world);
-        capturePoseCandidates(world, runtime);
-        captureFieldCandidate(world, runtime.bodyCandidates, bodyBinding(world));
-        captureFieldCandidate(world, runtime.shapeCandidates, shapeBinding(world));
-        captureFieldCandidates(world, runtime.constraints.candidates, jointBindings(world));
-    },
+    update: collectFieldCandidates,
 };
 
 /** Captures draw writes before CPU-only World.step clears frame marks on return. */
@@ -1847,13 +1851,7 @@ export const CollectDrawPhysicsFieldCandidatesSystem: System = {
     name: "draw-physics-field-candidates",
     group: "draw",
     boundary: "after",
-    update(world) {
-        const runtime = runtimeFor(world);
-        capturePoseCandidates(world, runtime);
-        captureFieldCandidate(world, runtime.bodyCandidates, bodyBinding(world));
-        captureFieldCandidate(world, runtime.shapeCandidates, shapeBinding(world));
-        captureFieldCandidates(world, runtime.constraints.candidates, jointBindings(world));
-    },
+    update: collectFieldCandidates,
 };
 
 // Retain query terms to avoid steady-sync allocations.
@@ -1928,19 +1926,17 @@ function warnShape(runtime: PhysicsRuntime, eid: number, error: unknown): void {
     console.warn(`[physics] Shape ${eid} was not attached: ${String(error)}`);
 }
 
-function syncShapes(world: World, runtime: PhysicsRuntime, checkScale = true): void {
-    const state = runtime.physicsWorld;
-    if (!state) return;
+/** Queues each attached shape whose body's marked Transform.scale differs from its built scale. */
+function captureScaleCandidates(world: World, runtime: PhysicsRuntime): void {
     const candidates = runtime.shapeCandidates;
-    const binding = shapeBinding(world);
     const scaleDirty = world.fieldStorage(Transform, "scale").dirty;
-    for (let word = 0; checkScale && word < scaleDirty.length; word++) {
+    const dependencies = runtime.shapeDependencies;
+    for (let word = 0; word < scaleDirty.length; word++) {
         let bits = scaleDirty[word];
         while (bits !== 0) {
             const low = bits & -bits;
             bits ^= low;
             const body = (word << 5) | (31 - Math.clz32(low));
-            const dependencies = runtime.shapeDependencies;
             for (let eid = dependencies.first(body); eid !== 0; eid = dependencies.following(eid)) {
                 if (
                     runtime.shapeBodies.get(eid) === body &&
@@ -1950,6 +1946,14 @@ function syncShapes(world: World, runtime: PhysicsRuntime, checkScale = true): v
             }
         }
     }
+}
+
+function syncShapes(world: World, runtime: PhysicsRuntime, checkScale = true): void {
+    const state = runtime.physicsWorld;
+    if (!state) return;
+    const candidates = runtime.shapeCandidates;
+    const binding = shapeBinding(world);
+    if (checkScale) captureScaleCandidates(world, runtime);
     const count = candidates.count;
     let pending = 0;
     for (let i = 0; i < count; i++) {
