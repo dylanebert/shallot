@@ -12,13 +12,13 @@ import {
     SphericalJoint,
 } from "../../core/physics";
 import { GlobalTransform, Transform } from "../../core/transform";
-import type { World } from "../../engine";
+import { type System, Time, type World } from "../../engine";
 import { createApp } from "../../engine/app";
 import { Character, CharacterPlugin, hashPhysics, StandardPhysicsPlugin } from ".";
 import { compoundBuild, heightFieldBuild } from "./geometry-builds";
 import { BodyField, bodyField } from "./kernel/bodyrecords";
 import { ShapeField, shapeField } from "./kernel/shaperecords";
-import { physicsBodyIndex, physicsState } from "./runtime";
+import { physicsBodyIndex, physicsState, StepPhysicsSystem } from "./runtime";
 import { getShapeGeometryScale, readShapeCapsule, readShapeSphere } from "./shapes/shape";
 import { getMassData } from "./world/body";
 import { worldCounters } from "./world/world";
@@ -174,6 +174,38 @@ for (const kind of [ShapeKind.Sphere, ShapeKind.Capsule])
             w.storage(Transform).scale.set(eid, 4, 4, 4);
             w.tick();
             expect(worldCounters(state).shapeCount).toBe(1);
+        } finally {
+            a.dispose();
+        }
+    });
+
+for (const group of ["simulation", "fixed"] as const)
+    test(`a body scale written by a ${group === "fixed" ? "fixed system after the physics step" : "simulation system"} reaches the kernel's shape under World.step`, async () => {
+        let eid = -1,
+            pending = false;
+        const writer: System = {
+            name: "scale-writer",
+            group,
+            after: group === "fixed" ? [StepPhysicsSystem] : [],
+            update(world) {
+                if (!pending) return;
+                pending = false;
+                world.storage(Transform).scale.set(eid, 3, 3, 3);
+            },
+        };
+        const a = await createApp({
+            defaults: false,
+            plugins: [StandardPhysicsPlugin, { name: "ScaleWriter", systems: [writer] }],
+        });
+        try {
+            const w = a.world;
+            eid = body(w);
+            w.add(eid, Shape, { kind: ShapeKind.Sphere, radius: 0.5 });
+            w.step(Time.FIXED_DT);
+            pending = true;
+            for (let i = 0; i < 3; i++) w.step(Time.FIXED_DT);
+            expect(pending).toBe(false);
+            expect(readShapeSphere(physicsState(w)!, shapeId(w, eid)).radius).toBe(1.5);
         } finally {
             a.dispose();
         }
