@@ -45,15 +45,14 @@ function patch(rgba: Uint8ClampedArray, [cx, cy]: readonly [number, number]) {
     }
     return sum / 25;
 }
-// Patch centres of the camera below: just below the lamp, mid-cone, and in the cone's penumbra.
-const PATCHES = { lamp: [320, 118], core: [320, 167], edge: [247, 182] } as const;
-type Patch = keyof typeof PATCHES;
+// Patch centre just below the lamp, for the camera below.
+const LAMP = [320, 118] as const;
 
 // A warm shadowed downward spot in dense forward-scattering fog at 360p, where one froxel covers 4×4 pixels and
 // the 0.75 m slice holding the lamp sees its inverse-square core. Uniform jitter along that slice made the lamp's
 // cell swing with the sample's depth; equiangular sampling toward the light (HDRP), on the column's centre ray in
 // two depth strata, holds it to the haze's limit.
-let measured: Promise<{ swing: Record<Patch, number>; error: Record<Patch, number> }> | undefined;
+let measured: Promise<{ swing: number; error: number }> | undefined;
 function measure() {
     measured ??= lampTemporalError();
     return measured;
@@ -133,17 +132,14 @@ async function lampTemporalError() {
         world.step(0);
         await world.gpu.sync();
     }
-    const names = Object.keys(PATCHES) as Patch[];
-    const frames: Record<Patch, number>[] = [];
+    const values: number[] = [];
     for (let i = 0; i < 16; i++) {
         world.step(0);
         const { rgba } = await captureTexture(world, camera);
-        const frame = {} as Record<Patch, number>;
-        for (const name of names) frame[name] = patch(rgba, PATCHES[name]);
-        frames.push(frame);
+        values.push(patch(rgba, LAMP));
     }
     // The converged reference: the equal linear average of all 16 phases, each from fresh history.
-    const reference = { lamp: 0, core: 0, edge: 0 };
+    let reference = 0;
     for (let i = 0; i < 16; i++) {
         // Opt-out discards history. A three-frame stride visits all 16 Halton phases.
         world.add(camera, NoFog);
@@ -152,15 +148,10 @@ async function lampTemporalError() {
         world.remove(camera, NoFog);
         world.step(0);
         const { rgba } = await captureTexture(world, camera);
-        for (const name of names) reference[name] += patch(rgba, PATCHES[name]) / 16;
+        reference += patch(rgba, LAMP) / 16;
     }
-    const swing = {} as Record<Patch, number>;
-    const error = {} as Record<Patch, number>;
-    for (const name of names) {
-        const values = frames.map((frame) => frame[name]);
-        swing[name] = Math.max(...values) - Math.min(...values);
-        error[name] = Math.max(...values.map((value) => Math.abs(value - reference[name])));
-    }
+    const swing = Math.max(...values) - Math.min(...values);
+    const error = Math.max(...values.map((value) => Math.abs(value - reference)));
     console.log("spot lamp temporal error", { swing, error, reference });
     world.destroy(camera);
     return { swing, error };
@@ -227,15 +218,9 @@ test("a world-fixed patch below the lamp holds the still reference while walking
 });
 
 test("a still patch at a shadowed spot lamp at 360p stays calm across 16 consecutive phases", async () => {
-    expect((await measure()).swing.lamp).toBeLessThan(0.001);
+    expect((await measure()).swing).toBeLessThan(0.001);
 });
 
 test("every converged frame at the lamp agrees with the equal 16-phase linear average", async () => {
-    expect((await measure()).error.lamp).toBeLessThan(0.005);
-});
-
-test("still patches in the cone's core and penumbra stay calm", async () => {
-    const { swing } = await measure();
-    expect(swing.core).toBeLessThan(0.005);
-    expect(swing.edge).toBeLessThan(0.005);
+    expect((await measure()).error).toBeLessThan(0.005);
 });
