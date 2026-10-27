@@ -42,9 +42,11 @@ export type MaterialBinding =
     | { type: "sampler"; samplerType?: "filtering" | "comparison" };
 
 /** The values a binding's option may take, with undefined where it may be absent. */
-type OptionOf<B, K extends string> = B extends { [P in K]?: infer V }
-    ? V | (B extends { [P in K]: unknown } ? never : undefined)
-    : undefined;
+type OptionOf<B, K extends string> = B extends { [P in K]: infer V }
+    ? V
+    : B extends { [P in K]?: infer V }
+      ? V | undefined
+      : undefined;
 type TextureEntry<T> = { texture: T; visibility: ShaderStage[] };
 type TextureEntryOf<S, D> = S extends "depth"
     ? TextureEntry<d.WgslTextureDepth2d>
