@@ -3,7 +3,7 @@ import tgpu, { isTgpuFn } from "typegpu";
 import * as d from "typegpu/data";
 import type { World } from "../../engine";
 import { backgroundsKey } from "./contract-state";
-import { bindingEntry, type EntryFor, type MaterialBinding } from "./material-type";
+import { bindingEntry, type EntryFor, type MaterialBinding, refuseBindings } from "./material-type";
 import type { BindResource } from "./pipelines";
 
 function ownEntries<B extends Record<string, MaterialBinding>>(
@@ -23,6 +23,7 @@ export type BackgroundLayout<B extends Record<string, MaterialBinding>> = TgpuBi
 export function backgroundLayout<B extends Record<string, MaterialBinding>>(
     bindings: B,
 ): BackgroundLayout<B> {
+    refuseBindings("background", bindings);
     return tgpu.bindGroupLayout(ownEntries(bindings)).$idx(2) as BackgroundLayout<B>;
 }
 

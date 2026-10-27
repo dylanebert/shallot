@@ -181,6 +181,50 @@ const storage: Record<
     "3d": d.textureStorage3d,
 };
 
+/** @internal Refuse texture options WebGPU cannot bind and storage textures past its fragment limit. */
+export function refuseBindings(
+    owner: "material" | "background",
+    bindings: Record<string, MaterialBinding>,
+): void {
+    let storageTextures = 0;
+    for (const [name, binding] of Object.entries(bindings)) {
+        const refuse = (reason: string) => {
+            throw new Error(`${owner} binding "${name}" ${reason}`);
+        };
+        if (binding.type === "storage-texture") {
+            storageTextures++;
+            if ((binding as { visibility?: readonly ShaderStage[] }).visibility?.includes("vertex"))
+                refuse("is a storage texture, which binds to the fragment stage only");
+        }
+        if (binding.type !== "texture") continue;
+        const {
+            dimension = "2d",
+            multisampled,
+            filterable,
+        } = binding as {
+            dimension?: Dimension;
+            multisampled?: boolean;
+            filterable?: boolean;
+        };
+        const float = binding.sampleType === undefined || binding.sampleType === "float";
+        if (binding.sampleType === "depth" && !(dimension in depth))
+            refuse(
+                `is a depth texture, which takes dimension 2d, 2d-array, cube or cube-array, not ${dimension}`,
+            );
+        if (multisampled && dimension !== "2d")
+            refuse(`is multisampled, which takes dimension 2d, not ${dimension}`);
+        if (filterable !== undefined && !float)
+            refuse("sets filterable, which only a float texture takes");
+        if (multisampled && filterable)
+            refuse("is multisampled, which a filtering sampler cannot read");
+    }
+    if (storageTextures > 4) {
+        throw new Error(
+            `${owner} layout uses ${storageTextures} fragment storage textures; WebGPU's maxStorageTexturesInFragmentStage is 4`,
+        );
+    }
+}
+
 /** @internal */
 export function bindingEntry<B extends MaterialBinding>(binding: B): EntryFor<B> {
     switch (binding.type) {
@@ -350,21 +394,7 @@ export function materialLayout<B extends Record<string, MaterialBinding>, P exte
             `material layout uses ${textures + 5} fragment sampled textures; WebGPU's limit is 16`,
         );
     }
-    let storageTextures = 0;
-    for (const [name, binding] of Object.entries(bindings)) {
-        if (binding.type !== "storage-texture") continue;
-        storageTextures++;
-        if ((binding as { visibility?: readonly ShaderStage[] }).visibility?.includes("vertex")) {
-            throw new Error(
-                `material binding "${name}" is a storage texture, which binds to the fragment stage only`,
-            );
-        }
-    }
-    if (storageTextures > 4) {
-        throw new Error(
-            `material layout uses ${storageTextures} fragment storage textures; WebGPU's maxStorageTexturesInFragmentStage is 4`,
-        );
-    }
+    refuseBindings("material", bindings);
     const builtins = {
         eids: bindingEntry({ type: "storage", element: d.vec4u }),
         globalTransforms: bindingEntry({ type: "storage", element: Xform }),
