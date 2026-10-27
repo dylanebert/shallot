@@ -26,7 +26,8 @@ function constructed(world: World) {
     }
     return { hash: hashPhysics(world), entities: world.entities().length };
 }
-for (const { id } of benchmarks) {
+// Large World's full-scale construction parity lives in diagnostics/box3d-parity/large-world-construction.oracle.ts.
+for (const { id } of benchmarks.filter(({ id }) => id !== "largeWorld")) {
     test(`${id} switched construction equals a fresh build before its first step`, async () => {
         const app = await createApp({
             defaults: false,
