@@ -1,10 +1,10 @@
-import { afterAll, beforeAll } from "bun:test";
+import { afterAll, afterEach, beforeAll } from "bun:test";
 import { relative } from "node:path";
 import { createApp, type Plugin, type World } from "@dylanebert/shallot";
 import { CEILING } from "@dylanebert/shallot/testing";
 import { attachTexture, Camera, CorePipelinePlugin, captureTexture } from "../src/core/rendering";
 import { Transform } from "../src/core/transform";
-import { rawDevice } from "../src/engine/runtime";
+import { deviceFailure, observedDeviceError, rawDevice } from "../src/engine/runtime";
 import type { AdapterVerdict } from "../src/engine/runtime/adapter";
 import { adapterNotice } from "../src/engine/runtime/gpu";
 import { normalizePath } from "../src/project/paths";
@@ -175,12 +175,15 @@ export function gpuScene<T>(
     return () => ({ world: apps()[0].world, scene });
 }
 
-/** Prebuild independent worlds on one file device; never share pipelines between worlds. */
+/** Prebuild independent worlds on one file device; never share pipelines between worlds.
+ * A test whose work fails the device waits for its classified report, so the test that raised it fails.
+ */
 export function gpuApps(
     path: string,
     configs: Parameters<typeof createApp>[0][],
 ): () => Awaited<ReturnType<typeof createApp>>[] {
     const apps: Awaited<ReturnType<typeof createApp>>[] = [];
+    let device: GPUDevice | undefined;
     const subject = compileGpuFile(path, async () => {
         const owner = await createTestGpuApp({
             defaults: false,
@@ -192,7 +195,7 @@ export function gpuApps(
             ],
         });
         apps.push(owner);
-        const device = rawDevice(owner.world.gpu.device);
+        device = rawDevice(owner.world.gpu.device);
         const worlds = [];
         for (const config of configs) {
             const app = await createTestGpuApp({ ...config, device });
@@ -200,6 +203,10 @@ export function gpuApps(
             worlds.push(app);
         }
         return worlds;
+    });
+    // Runs before the preload's console guard reads this test's console.
+    afterEach(async () => {
+        if (device && deviceFailure(device)) await observedDeviceError(device);
     });
     afterAll(() => disposeGpuApps(apps));
     return subject;
