@@ -42,9 +42,9 @@ function watchFrameCaptureDevice(view: View, device: GPUDevice): void {
     void device.lost.then((info) => {
         const liveView = viewRef.deref();
         if (!liveView) return;
-        const error = (liveView.frameCaptureLost ??= new Error(
-            `GPU device lost: ${info.message || info.reason || "device lost"}`,
-        ));
+        const error = (liveView.frameCaptureLost ??=
+            deviceFailure(device) ??
+            new Error(`GPU device lost: ${info.message || info.reason || "device lost"}`));
         for (const capture of liveView.frameCaptures ?? []) capture.reject(error);
         liveView.frameCaptures = undefined;
     });
