@@ -3,7 +3,7 @@ import { LocalPlayer, Player } from "../../../examples/interact/src/player";
 import { Room, RoomPlugin } from "../../../examples/interact/src/room";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { Meshes, MeshInstance } from "../../core/mesh";
-import { attachTexture, Camera, detachView } from "../../core/rendering";
+import { attachTexture, Camera } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import { DEFAULT_PLUGINS } from "../../standard";
 import { setTransform } from "../../standard/physics";
@@ -14,7 +14,20 @@ import { coverage } from "./reference.fixture";
 
 const subjects = gpuApps(import.meta.path, [
     { defaults: false, plugins: [...DEFAULT_PLUGINS, OutlinePlugin] },
-    { defaults: false, plugins: [...DEFAULT_PLUGINS, RoomPlugin] },
+    ...[0, 1].map((antialias) => ({
+        defaults: false,
+        plugins: [
+            ...DEFAULT_PLUGINS,
+            RoomPlugin,
+            {
+                name: "OracleAntialias",
+                dependencies: [RoomPlugin],
+                initialize(world: import("../../engine").World) {
+                    world.storage(Camera).antialias.set(world.resource(Room).camera, antialias);
+                },
+            },
+        ],
+    })),
 ]);
 
 function characterize(
@@ -24,6 +37,7 @@ function characterize(
     height: number,
     bandWidth: number,
     name: string,
+    distances?: Float32Array,
 ) {
     const inside = new Uint8Array(width * height);
     let seedCount = 0;
@@ -50,7 +64,11 @@ function characterize(
                     )
                         if (inside[sy * width + sx])
                             exact = Math.min(exact, (sx - x) ** 2 + (sy - y) ** 2);
-            const flood = (nearest[i * 2]! - x) ** 2 + (nearest[i * 2 + 1]! - y) ** 2;
+            const flood = distances
+                ? inside[i]
+                    ? 0
+                    : distances[i]! ** 2
+                : (nearest[i * 2]! - x) ** 2 + (nearest[i * 2 + 1]! - y) ** 2;
             if (exact > 0 && exact < bandWidth ** 2) bandPixels++;
             if (exact < bandWidth ** 2 && exact !== flood) distanceErrors++;
             // Ideal coverage isolates geometric error from float rounding.
@@ -120,8 +138,8 @@ for (const c of [
         try {
             world.step(0);
             world.step(0);
-            const { mask, nearest } = await capture.read();
-            characterize(mask, nearest, c.size, c.size, c.width, c.name);
+            const { mask, nearest, distances } = await capture.read();
+            characterize(mask, nearest, c.size, c.size, c.width, c.name, distances);
         } finally {
             capture.restore();
             world.destroy(entity);
@@ -138,13 +156,11 @@ for (const [width, height] of [
     [1280, 720],
 ] as const) {
     test(`interact at ${width}x${height}: real-mask brute-force characterization`, async () => {
-        const { world } = subjects()[1];
+        const { world } = subjects()[width === 320 ? 1 : 2]!;
         const room = world.resource(Room);
         world.resource(PointShadows).atlas = 512;
         world.resource(PointShadows).casters = 1;
-        if (width !== 320) detachView(world, room.camera);
         attachTexture(world, room.camera, { width, height });
-        world.storage(Camera).antialias.set(room.camera, width === 320 ? 0 : 1);
         const capture = captureSeeds(world, room.camera, width, height);
         try {
             // The example's stepped check places the player; its controller poses the camera.
@@ -176,7 +192,7 @@ for (const [width, height] of [
                 world.step(1 / 60);
                 if (!world.has(target, Outline))
                     throw new Error(`Interact target ${index} is not focused`);
-                const { mask, nearest } = await capture.read();
+                const { mask, nearest, distances } = await capture.read();
                 characterize(
                     mask,
                     nearest,
@@ -184,6 +200,7 @@ for (const [width, height] of [
                     height,
                     world.storage(Outline).width.get(target),
                     `${["lamp", "button", "held"][index]} d=${distance} yaw=${yaw} pitch=${pitch}`,
+                    distances,
                 );
             }
         } finally {

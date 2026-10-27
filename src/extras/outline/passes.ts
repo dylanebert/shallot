@@ -146,6 +146,7 @@ export const jfaLayout = tgpu.bindGroupLayout({
  *  and the rgba16float scratch the band is written into.
  *  @internal */
 export const compositeLayout = tgpu.bindGroupLayout({
+    distance: { texture: d.texture2d(d.f32), visibility: ["compute"] },
     scene: { texture: d.texture2d(d.f32), visibility: ["compute"] },
     seed: { texture: d.texture2d(d.u32), visibility: ["compute"] },
     attr: { texture: d.texture2d(d.f32), visibility: ["compute"] },
@@ -161,31 +162,80 @@ export const compositeLayout = tgpu.bindGroupLayout({
  * fragment target as a 4-component vector — the `rg16uint` attachment consumes `xy` and drops the rest.
  * @internal
  */
-export const jfaFs = tgpu.fragmentFn({
+function jfaFragment(scale: number) {
+    return tgpu.fragmentFn({
+        in: { pos: d.builtin.position },
+        out: d.vec4u,
+    })((input) => {
+        "use gpu";
+        const dim = d.vec2i(std.textureDimensions(jfaLayout.$.seed));
+        const p = d.vec2i(input.pos.xy);
+        const here = std.add(std.mul(d.vec2f(p), scale), (scale - 1) * 0.5);
+        let best = std.textureLoad(jfaLayout.$.seed, p, 0).xy;
+        let bestD = std.distance(here, d.vec2f(best));
+        const s = d.i32(jfaLayout.$.step);
+        for (let oy = d.i32(-1); oy <= 1; oy = oy + 1) {
+            for (let ox = d.i32(-1); ox <= 1; ox = ox + 1) {
+                const q = std.add(p, std.mul(d.vec2i(ox, oy), s));
+                if (q.x < 0 || q.y < 0 || q.x >= dim.x || q.y >= dim.y) continue;
+                const cand = std.textureLoad(jfaLayout.$.seed, q, 0).xy;
+                const dist = std.distance(here, d.vec2f(cand));
+                if (dist < bestD) {
+                    bestD = dist;
+                    // the copy constructor is required: TGSL rejects a bare vector-to-vector assignment
+                    best = d.vec2u(cand);
+                }
+            }
+        }
+        return d.vec4u(best.x, best.y, 0, 0);
+    });
+}
+export const jfaFs = jfaFragment(1);
+export const jfaHalfFs = jfaFragment(2);
+
+export const reduceLayout = tgpu.bindGroupLayout({
+    mask: { texture: d.texture2d(d.u32), visibility: ["fragment"] },
+});
+
+/** Preserve a full-resolution seed from each 2×2 footprint, nearest its center. */
+export const reduceFs = tgpu.fragmentFn({
     in: { pos: d.builtin.position },
     out: d.vec4u,
 })((input) => {
     "use gpu";
-    const dim = d.vec2i(std.textureDimensions(jfaLayout.$.seed));
-    const p = d.vec2i(input.pos.xy);
-    const here = d.vec2f(p);
-    let best = std.textureLoad(jfaLayout.$.seed, p, 0).xy;
-    let bestD = std.distance(here, d.vec2f(best));
-    const s = d.i32(jfaLayout.$.step);
-    for (let oy = d.i32(-1); oy <= 1; oy = oy + 1) {
-        for (let ox = d.i32(-1); ox <= 1; ox = ox + 1) {
-            const q = std.add(p, std.mul(d.vec2i(ox, oy), s));
-            if (q.x < 0 || q.y < 0 || q.x >= dim.x || q.y >= dim.y) continue;
-            const cand = std.textureLoad(jfaLayout.$.seed, q, 0).xy;
-            const dist = std.distance(here, d.vec2f(cand));
+    const base = std.mul(d.vec2i(input.pos.xy), 2);
+    const dim = d.vec2i(std.textureDimensions(reduceLayout.$.mask));
+    const center = std.add(d.vec2f(base), 0.5);
+    let best = d.vec2u(30000);
+    let bestD = d.f32(1e10);
+    for (let y = d.i32(0); y < 2; y++) {
+        for (let x = d.i32(0); x < 2; x++) {
+            const p = std.add(base, d.vec2i(x, y));
+            if (p.x >= dim.x || p.y >= dim.y) continue;
+            const seed = std.textureLoad(reduceLayout.$.mask, p, 0).xy;
+            const dist = std.distance(center, d.vec2f(seed));
             if (dist < bestD) {
+                best = d.vec2u(seed);
                 bestD = dist;
-                // the copy constructor is required: TGSL rejects a bare vector-to-vector assignment
-                best = d.vec2u(cand);
             }
         }
     }
-    return d.vec4u(best.x, best.y, 0, 0);
+    return d.vec4u(best, 0, 0);
+});
+
+export const distanceLayout = tgpu.bindGroupLayout({
+    seed: { texture: d.texture2d(d.u32), visibility: ["fragment"] },
+});
+export const distanceFs = tgpu.fragmentFn({
+    in: { pos: d.builtin.position },
+    out: d.vec4f,
+})((input) => {
+    "use gpu";
+    const p = d.vec2i(input.pos.xy);
+    const seed = std.textureLoad(distanceLayout.$.seed, p, 0).xy;
+    const distance = std.distance(std.add(std.mul(d.vec2f(p), 2), 0.5), d.vec2f(seed));
+    // Round before attachment conversion, whose rounding mode may otherwise differ by backend.
+    return d.vec4f(std.unpack2x16float(std.pack2x16float(d.vec2f(distance, 0))), 0, 0);
 });
 
 /**
@@ -195,25 +245,53 @@ export const jfaFs = tgpu.fragmentFn({
  * texture, so discarding would leave pixels unwritten for tonemapping.
  * @internal
  */
-export const compositeKernel = tgpu.computeFn({
-    workgroupSize: [WORKGROUP, WORKGROUP],
-    in: { gid: d.builtin.globalInvocationId },
-})((input) => {
-    "use gpu";
-    const dim = std.textureDimensions(compositeLayout.$.output);
-    if (input.gid.x >= dim.x || input.gid.y >= dim.y) return;
-    const p = d.vec2i(input.gid.xy);
-    const scene = std.textureLoad(compositeLayout.$.scene, p, 0);
-    const s = std.textureLoad(compositeLayout.$.seed, p, 0).xy;
-    const dist = std.distance(d.vec2f(p), d.vec2f(s));
-    // out-of-bounds (sentinel seed) reads 0 → width 0 → no band
-    const a = std.textureLoad(compositeLayout.$.attr, d.vec2i(s), 0);
-    const width = a.w;
-    const alpha = std.smoothstep(0, 1, dist) * (1 - std.smoothstep(width - 1, width, dist));
-    const band = std.select(0, alpha, width > 0);
-    std.textureStore(
-        compositeLayout.$.output,
-        p,
-        d.vec4f(std.mix(scene.xyz, a.xyz, band), scene.w + band * (1 - scene.w)),
-    );
-});
+function composite(half: boolean) {
+    return tgpu.computeFn({
+        workgroupSize: [WORKGROUP, WORKGROUP],
+        in: { gid: d.builtin.globalInvocationId },
+    })((input) => {
+        "use gpu";
+        const dim = std.textureDimensions(compositeLayout.$.output);
+        if (input.gid.x >= dim.x || input.gid.y >= dim.y) return;
+        const p = d.vec2i(input.gid.xy);
+        const scene = std.textureLoad(compositeLayout.$.scene, p, 0);
+        const q = half ? d.vec2i(std.div(d.vec2f(p), 2)) : d.vec2i(p);
+        const s = std.textureLoad(compositeLayout.$.seed, q, 0).xy;
+        let dist = std.distance(d.vec2f(p), d.vec2f(s));
+        if (half) {
+            const fieldSize = d.vec2i(std.textureDimensions(compositeLayout.$.distance));
+            const uv = std.sub(std.div(std.add(d.vec2f(p), 0.5), 2), 0.5);
+            const base = d.vec2i(std.floor(uv));
+            const f = std.fract(uv);
+            const a = std.clamp(base, d.vec2i(0), std.sub(fieldSize, 1));
+            const b = std.clamp(std.add(base, 1), d.vec2i(0), std.sub(fieldSize, 1));
+            // Explicit f32 interpolation avoids hardware half-precision filtering changing the band coverage.
+            dist = std.mix(
+                std.mix(
+                    std.textureLoad(compositeLayout.$.distance, a, 0).x,
+                    std.textureLoad(compositeLayout.$.distance, d.vec2i(b.x, a.y), 0).x,
+                    f.x,
+                ),
+                std.mix(
+                    std.textureLoad(compositeLayout.$.distance, d.vec2i(a.x, b.y), 0).x,
+                    std.textureLoad(compositeLayout.$.distance, b, 0).x,
+                    f.x,
+                ),
+                f.y,
+            );
+            if (std.textureLoad(compositeLayout.$.attr, p, 0).w > 0) dist = 0;
+        }
+        // out-of-bounds (sentinel seed) reads 0 → width 0 → no band
+        const a = std.textureLoad(compositeLayout.$.attr, d.vec2i(s), 0);
+        const width = a.w;
+        const alpha = std.smoothstep(0, 1, dist) * (1 - std.smoothstep(width - 1, width, dist));
+        const band = std.select(0, alpha, width > 0);
+        std.textureStore(
+            compositeLayout.$.output,
+            p,
+            d.vec4f(std.mix(scene.xyz, a.xyz, band), scene.w + band * (1 - scene.w)),
+        );
+    });
+}
+export const compositeKernel = composite(false);
+export const compositeHalfKernel = composite(true);

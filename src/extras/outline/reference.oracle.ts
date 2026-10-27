@@ -27,10 +27,12 @@ for (const mask of masks)
                     const exactSquared = Math.min(
                         ...mask.pixels.map(([sx, sy]) => (x - sx) ** 2 + (y - sy) ** 2),
                     );
-                    const floodSquared = squaredDistance(actual.nearest, x, y);
+                    const floodSquared = actual.distances
+                        ? actual.distances[y * size + x]! ** 2
+                        : squaredDistance(actual.nearest, x, y);
                     if (exactSquared < width ** 2 && exactSquared !== floodSquared)
                         distanceErrors.push({ pixel: [x, y], exactSquared, floodSquared });
-                    // Compare ideal coverages to isolate geometric error from float rounding.
+                    // Compare the distance field's coverage before the composite's output rounding.
                     if (
                         coverage(Math.sqrt(exactSquared), width) !==
                         coverage(Math.sqrt(floodSquared), width)

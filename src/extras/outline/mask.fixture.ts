@@ -1,5 +1,6 @@
 import type { World } from "../../engine";
 import { probeTexture } from "../../engine/runtime";
+import { sampleDistance } from "./reference.fixture";
 
 /** Copies the real mask before the first flood, and exposes the production final seed field. */
 export function captureSeeds(world: World, camera: number, width: number, height: number) {
@@ -14,13 +15,20 @@ export function captureSeeds(world: World, camera: number, width: number, height
     const createTexture = device.createTexture.bind(device);
     const createEncoder = device.createCommandEncoder.bind(device);
     let finalSeed: GPUTexture | undefined;
+    let distance: GPUTexture | undefined;
     let copies = 0;
     device.createTexture = (descriptor) => {
-        if (!descriptor.label?.startsWith("outline-seed")) return createTexture(descriptor);
+        if (
+            !descriptor.label?.startsWith("outline-seed") &&
+            !descriptor.label?.startsWith("outline-mask-seed") &&
+            !descriptor.label?.startsWith("outline-distance")
+        )
+            return createTexture(descriptor);
         const texture = createTexture({
             ...descriptor,
             usage: descriptor.usage | GPUTextureUsage.COPY_SRC,
         });
+        if (descriptor.label === `outline-distance-${camera}`) distance = texture;
         // The production seven-slot ladder always finishes in seed B.
         if (descriptor.label === `outline-seedB-${camera}`) finalSeed = texture;
         const createView = texture.createView.bind(texture);
@@ -59,7 +67,24 @@ export function captureSeeds(world: World, camera: number, width: number, height
         },
         async read() {
             if (!finalSeed || copies === 0) throw new Error("No outline mask was captured");
+            const raw =
+                distance && distance.width < width
+                    ? new Float16Array((await probeTexture(world, distance)).bytes as ArrayBuffer)
+                    : undefined;
+            const field = raw && Float32Array.from(raw);
+            const distances = field
+                ? Float32Array.from({ length: width * height }, (_, i) =>
+                      sampleDistance(
+                          field,
+                          distance!.width,
+                          distance!.height,
+                          i % width,
+                          Math.floor(i / width),
+                      ),
+                  )
+                : undefined;
             return {
+                distances,
                 mask: new Uint16Array((await probeTexture(world, snapshot)).bytes as ArrayBuffer),
                 nearest: new Uint16Array(
                     (await probeTexture(world, finalSeed)).bytes as ArrayBuffer,

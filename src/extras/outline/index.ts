@@ -44,9 +44,13 @@ import {
 import { unpackColorInto } from "../../engine/utils";
 import { MeshRenderPlugin, StandardRenderer } from "../../standard/rendering";
 import {
+    compositeHalfKernel,
     compositeKernel,
     compositeLayout,
+    distanceFs,
+    distanceLayout,
     jfaFs,
+    jfaHalfFs,
     jfaLayout,
     jfaPassCount,
     jfaStep,
@@ -57,6 +61,8 @@ import {
     maskLayoutOccludeMultisampled,
     maskLayoutPlain,
     maskVertex,
+    reduceFs,
+    reduceLayout,
     WORKGROUP,
 } from "./passes";
 
@@ -72,7 +78,7 @@ export const Outline = component(
     {
         /** Band color as 0xRRGGBB sRGB. */
         color: f32,
-        /** band thickness in pixels, clamped to 64 */
+        /** Band thickness in device pixels, clamped to 64. */
         width: f32,
         /** 0 = always-on-top (default); 1 = occlusion-aware, hidden where the object is behind other geometry */
         occlude: f32,
@@ -108,6 +114,14 @@ type MaskTargets = { seed: d.Vec4u; attr: d.Vec4f };
 
 // Camera-eid keys keep views' targets independent; resizing recreates them.
 interface Targets {
+    half: boolean;
+    maskSeed: GPUTexture;
+    distance: GPUTexture;
+    distanceView: GPUTextureView;
+    reduceGroup: GPUBindGroup;
+    distanceGroup: GPUBindGroup;
+    reduce: [GPURenderPassDescriptor, GPURenderPassDescriptor];
+    distancePass: GPURenderPassDescriptor;
     seeds: [GPUTexture, GPUTexture];
     seedViews: [GPUTextureView, GPUTextureView];
     attr: GPUTexture;
@@ -126,16 +140,22 @@ function destroyTargets(t: Targets): void {
     t.seeds[0].destroy();
     t.seeds[1].destroy();
     t.attr.destroy();
+    if (t.half) {
+        t.maskSeed.destroy();
+        t.distance.destroy();
+    }
 }
 
-function targets(world: World, eid: number, w: number, h: number): Targets {
+function targets(world: World, eid: number, w: number, h: number, half: boolean): Targets {
     const _outlineState = outlineState(world);
     const cached = _outlineState.targets.get(eid);
-    if (cached && cached.w === w && cached.h === h) return cached;
+    if (cached && cached.w === w && cached.h === h && cached.half === half) return cached;
     if (cached) destroyTargets(cached);
     const usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING;
-    const tex = (label: string, format: GPUTextureFormat) =>
-        world.gpu.device.createTexture({ label, size: { width: w, height: h }, format, usage });
+    const fw = half ? Math.ceil(w / 2) : w;
+    const fh = half ? Math.ceil(h / 2) : h;
+    const tex = (label: string, format: GPUTextureFormat, width = fw, height = fh) =>
+        world.gpu.device.createTexture({ label, size: { width, height }, format, usage });
     const seeds: [GPUTexture, GPUTexture] = [
         tex(`outline-seedA-${eid}`, SEED_FORMAT),
         tex(`outline-seedB-${eid}`, SEED_FORMAT),
@@ -144,8 +164,11 @@ function targets(world: World, eid: number, w: number, h: number): Targets {
         seeds[0].createView(),
         seeds[1].createView(),
     ];
-    const attr = tex(`outline-attr-${eid}`, ATTR_FORMAT);
+    const attr = tex(`outline-attr-${eid}`, ATTR_FORMAT, w, h);
     const attrView = attr.createView();
+    const maskSeed = half ? tex(`outline-mask-seed-${eid}`, SEED_FORMAT, w, h) : seeds[0];
+    const distance = half ? tex(`outline-distance-${eid}`, "r16float") : attr;
+    const distanceView = distance.createView();
     const mask = (seed: GPUTextureView): GPURenderPassDescriptor => ({
         label: `outline-mask/${eid}`,
         colorAttachments: [
@@ -171,13 +194,30 @@ function targets(world: World, eid: number, w: number, h: number): Targets {
         );
     }
     const entry: Targets = {
+        half,
+        maskSeed,
+        distance,
+        distanceView,
+        reduceGroup: world.gpu.root.unwrap(
+            world.gpu.root.createBindGroup(reduceLayout, { mask: maskSeed.createView() }),
+        ),
+        distanceGroup: world.gpu.root.unwrap(
+            world.gpu.root.createBindGroup(distanceLayout, { seed: seedViews[FINAL_SEED] }),
+        ),
+        reduce: [jfa(seedViews[0]), jfa(seedViews[1])],
+        distancePass: {
+            label: `outline-distance/${eid}`,
+            colorAttachments: [{ view: distanceView, loadOp: "clear", storeOp: "store" }],
+        },
         seeds,
         seedViews,
         attr,
         attrView,
         w,
         h,
-        mask: [mask(seedViews[0]), mask(seedViews[1])],
+        mask: half
+            ? [mask(maskSeed.createView()), mask(maskSeed.createView())]
+            : [mask(seedViews[0]), mask(seedViews[1])],
         jfa: [jfa(seedViews[1]), jfa(seedViews[0])],
         composite: { label: `outline-composite/${eid}` },
         jfaGroups,
@@ -218,6 +258,10 @@ interface OutlineGpuState {
     maskOccludeMultisampled: TgpuRenderPipeline<MaskTargets> | null;
     jfa: TgpuRenderPipeline<d.Vec4u> | null;
     composite: TgpuComputePipeline | null;
+    compositeHalf: TgpuComputePipeline | null;
+    jfaHalf: TgpuRenderPipeline<d.Vec4u> | null;
+    reduce: TgpuRenderPipeline<d.Vec4u> | null;
+    distance: TgpuRenderPipeline<d.Vec4f> | null;
     eids: GPUBuffer | null;
     attrs: GPUBuffer | null;
     steps: StepBuffer[];
@@ -252,6 +296,10 @@ const createOutlineState = (): OutlineState => ({
         maskOccludeMultisampled: null,
         jfa: null,
         composite: null,
+        compositeHalf: null,
+        jfaHalf: null,
+        reduce: null,
+        distance: null,
         eids: null,
         attrs: null,
         steps: [],
@@ -285,6 +333,7 @@ function compositeBind(
         return cached.group;
     const group = world.gpu.root.unwrap(
         world.gpu.root.createBindGroup(compositeLayout, {
+            distance: t.distanceView,
             scene: read,
             seed: t.seedViews[FINAL_SEED],
             attr: t.attrView,
@@ -398,6 +447,7 @@ function renderOutline(
     globalTransforms: GPUBuffer,
     groupCount: number,
     passes: number,
+    half: boolean,
     occlude: boolean,
 ): void {
     const _outlineState = world.resource(outlineStateKey);
@@ -406,7 +456,7 @@ function renderOutline(
 
     if (!view.framebuffer) return;
     const encoder = world.frameEncoder()!;
-    const t = targets(world, camEid, view.width, view.height);
+    const t = targets(world, camEid, view.width, view.height, half);
     const variant = !occlude
         ? "plain"
         : world.storage(Camera).antialias.get(camEid) !== 0
@@ -440,7 +490,16 @@ function renderOutline(
     endRenderPass(mask);
 
     // 2. JFA — slot k reads seeds[k % 2] and writes the other; the last slot always writes FINAL_SEED
-    const jfa = root.unwrap(gpu.jfa!);
+    if (half) {
+        const descriptor = t.reduce[offset % 2];
+        descriptor.timestampWrites = world.gpu.span?.("outline:seed");
+        const pass = beginRenderPass(encoder, descriptor);
+        setRenderPipeline(pass, root.unwrap(gpu.reduce!));
+        setRenderBindGroup(pass, 0, t.reduceGroup);
+        draw(pass, 3);
+        endRenderPass(pass);
+    }
+    const jfa = root.unwrap(half ? gpu.jfaHalf! : gpu.jfa!);
     for (let k = offset; k < MAX_JFA_PASSES; k++) {
         const descriptor = t.jfa[k % 2];
         descriptor.timestampWrites = world.gpu.span?.("outline:jfa");
@@ -451,11 +510,20 @@ function renderOutline(
         endRenderPass(pass);
     }
 
+    if (half) {
+        t.distancePass.timestampWrites = world.gpu.span?.("outline:distance");
+        const pass = beginRenderPass(encoder, t.distancePass);
+        setRenderPipeline(pass, root.unwrap(gpu.distance!));
+        setRenderBindGroup(pass, 0, t.distanceGroup);
+        draw(pass, 3);
+        endRenderPass(pass);
+    }
+
     // Call sceneTransform after early returns: it repoints the framebuffer to the scratch we must write.
     const { read, write } = sceneTransform(world, view, camEid);
     t.composite.timestampWrites = world.gpu.span?.("outline:composite");
     const composite = beginComputePass(encoder, t.composite);
-    setComputePipeline(composite, root.unwrap(gpu.composite!));
+    setComputePipeline(composite, root.unwrap(half ? gpu.compositeHalf! : gpu.composite!));
     setComputeBindGroup(composite, 0, compositeBind(world, camEid, read, write, t));
     dispatchWorkgroups2(
         composite,
@@ -509,6 +577,7 @@ const OutlineSystem: System = {
             const start = cursor;
             let groupCount = 0;
             let maxWidth = 1;
+            let minWidth = Infinity;
             let occlude = false;
             // group by mesh in first-seen order: each group's eids become a contiguous instance slice
             for (let i = 0; i < n; i++) {
@@ -539,6 +608,7 @@ const OutlineSystem: System = {
                     attrStaging[o + 4] = w;
                     attrStaging[o + 5] = occ;
                     if (w > maxWidth) maxWidth = w;
+                    if (w > 0 && w < minWidth) minWidth = w;
                     if (occ > 0.5) occlude = true;
                     cursor++;
                 }
@@ -571,7 +641,8 @@ const OutlineSystem: System = {
                 (cursor - start) * 8,
             );
 
-            const passes = jfaPassCount(maxWidth);
+            const half = maxWidth >= 2 && minWidth >= 2;
+            const passes = jfaPassCount(half ? maxWidth / 2 : maxWidth);
             // occlusion needs the shared depth lane; without another requester, the outline plugin supplies it.
             renderOutline(
                 world,
@@ -580,6 +651,7 @@ const OutlineSystem: System = {
                 globalTransforms,
                 groupCount,
                 passes,
+                half,
                 occlude && !!view.depth,
             );
         }
@@ -633,6 +705,33 @@ function prepareOutline(world: World): void {
             primitive: fullscreen,
         })
         .$name("outline-jfa");
+    _outlineState.gpu.jfaHalf = world.gpu.root
+        .createRenderPipeline({
+            vertex: fullscreenVertex,
+            fragment: jfaHalfFs,
+            targets: { format: SEED_FORMAT },
+            primitive: fullscreen,
+        })
+        .$name("outline-jfa-half");
+    _outlineState.gpu.reduce = world.gpu.root
+        .createRenderPipeline({
+            vertex: fullscreenVertex,
+            fragment: reduceFs,
+            targets: { format: SEED_FORMAT },
+            primitive: fullscreen,
+        })
+        .$name("outline-seed-reduce");
+    _outlineState.gpu.distance = world.gpu.root
+        .createRenderPipeline({
+            vertex: fullscreenVertex,
+            fragment: distanceFs,
+            targets: { format: "r16float" },
+            primitive: fullscreen,
+        })
+        .$name("outline-distance");
+    _outlineState.gpu.compositeHalf = world.gpu.root
+        .createComputePipeline({ compute: compositeHalfKernel })
+        .$name("outline-composite-half");
     _outlineState.gpu.composite = world.gpu.root
         .createComputePipeline({ compute: compositeKernel })
         .$name("outline-composite");
@@ -663,6 +762,12 @@ function prepareOutline(world: World): void {
 
     // typegpu creates pipelines lazily, so an uncompiled pass would stall the first frame a highlight exists
     const gpu = _outlineState.gpu;
+    precompile(world, "outline-half", () => [
+        gpu.jfaHalf!,
+        gpu.reduce!,
+        gpu.distance!,
+        gpu.compositeHalf!,
+    ]);
     precompile(world, "outline-jfa", () => gpu.jfa!);
     precompile(world, "outline-composite", () => gpu.composite!);
     precompile(world, "outline-mask", () => gpu.maskPlain!);
@@ -684,6 +789,10 @@ function disposeOutline(world: World): void {
     _outlineState.gpu.maskOcclude = null;
     _outlineState.gpu.maskOccludeMultisampled = null;
     _outlineState.gpu.jfa = null;
+    _outlineState.gpu.jfaHalf = null;
+    _outlineState.gpu.reduce = null;
+    _outlineState.gpu.distance = null;
+    _outlineState.gpu.compositeHalf = null;
     _outlineState.gpu.composite = null;
     _outlineState.gpu.capacity = 0;
     _outlineState.eidsStaging = new Uint32Array(0);
