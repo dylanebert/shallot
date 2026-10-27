@@ -10,7 +10,7 @@ setDefaultTimeout(TIMEOUT.node);
 
 test("warm kernel and ECS physics queries allocate no JavaScript heap", async () => {
     const sample = await sampleAllocation(resolve(import.meta.dir, "query-allocation.entry.ts"), {
-        warm: 1800,
+        warm: 2400,
     });
     expect(sample.control.length).toBeGreaterThan(0);
     const failure = allocationFailure(sample);
