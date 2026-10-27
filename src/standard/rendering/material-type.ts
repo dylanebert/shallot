@@ -25,10 +25,13 @@ export function rethrowMaterialError(name: string, error: unknown): never {
 
 type ShaderStage = "vertex" | "fragment";
 const VS_FS: ShaderStage[] = ["vertex", "fragment"];
+type Dimension = "1d" | "2d" | "2d-array" | "cube" | "cube-array" | "3d";
+type DepthDimension = "2d" | "2d-array" | "cube" | "cube-array";
 
 /** A material-owned resource or mesh attribute made available to its shaders. A texture is a 2d float
  * texture and a sampler filters unless their options say otherwise; a sint or uint texture is read with
- * textureLoad. */
+ * textureLoad. A texture binds as one view of its dimension over every mip and layer, so a cube texture
+ * has six layers and a cube array a multiple of six. */
 export type MaterialBinding =
     | { type: "uniform"; struct: AnyWgslStruct }
     | { type: "attribute"; element: AnyWgslData }
@@ -40,13 +43,13 @@ export type MaterialBinding =
       }
     | {
           type: "texture";
-          dimension?: "2d" | "2d-array";
+          dimension?: Dimension;
           sampleType?: "float";
           /** False binds `unfilterable-float`, which formats such as r32float require. */
           filterable?: boolean;
       }
-    | { type: "texture"; dimension?: "2d" | "2d-array"; sampleType: "sint" | "uint" }
-    | { type: "texture"; dimension?: "2d"; sampleType: "depth" }
+    | { type: "texture"; dimension?: Dimension; sampleType: "sint" | "uint" }
+    | { type: "texture"; dimension?: DepthDimension; sampleType: "depth" }
     | { type: "sampler"; samplerType?: "filtering" | "non-filtering" | "comparison" };
 
 /** The values a binding's option may take, with undefined where it may be absent. */
@@ -58,15 +61,29 @@ type OptionOf<B, K extends string> = B extends { [P in K]: infer V }
 type TextureEntry<T> = { texture: T; visibility: ShaderStage[] };
 type FloatEntry<T> = TextureEntry<T> & { sampleType?: "unfilterable-float" };
 type ChannelOf<S> = S extends "sint" ? d.I32 : d.U32;
+type SampledOf<D, C extends d.F32 | d.I32 | d.U32> = D extends "1d"
+    ? d.WgslTexture1d<C>
+    : D extends "2d-array"
+      ? d.WgslTexture2dArray<C>
+      : D extends "cube"
+        ? d.WgslTextureCube<C>
+        : D extends "cube-array"
+          ? d.WgslTextureCubeArray<C>
+          : D extends "3d"
+            ? d.WgslTexture3d<C>
+            : d.WgslTexture2d<C>;
+type DepthOf<D> = D extends "2d-array"
+    ? d.WgslTextureDepth2dArray
+    : D extends "cube"
+      ? d.WgslTextureDepthCube
+      : D extends "cube-array"
+        ? d.WgslTextureDepthCubeArray
+        : d.WgslTextureDepth2d;
 type TextureEntryOf<S, D> = S extends "depth"
-    ? TextureEntry<d.WgslTextureDepth2d>
+    ? TextureEntry<DepthOf<D>>
     : S extends "sint" | "uint"
-      ? D extends "2d-array"
-          ? TextureEntry<d.WgslTexture2dArray<ChannelOf<S>>>
-          : TextureEntry<d.WgslTexture2d<ChannelOf<S>>>
-      : D extends "2d-array"
-        ? FloatEntry<d.WgslTexture2dArray<d.F32>>
-        : FloatEntry<d.WgslTexture2d<d.F32>>;
+      ? TextureEntry<SampledOf<D, ChannelOf<S>>>
+      : FloatEntry<SampledOf<D, d.F32>>;
 type SamplerEntryOf<T> = T extends "comparison"
     ? { sampler: "comparison"; visibility: ShaderStage[] }
     : {
@@ -86,6 +103,21 @@ export type EntryFor<B extends MaterialBinding> = B extends { type: "uniform" }
       : B extends { type: "texture" }
         ? TextureEntryOf<OptionOf<B, "sampleType">, OptionOf<B, "dimension">>
         : SamplerEntryOf<OptionOf<B, "samplerType">>;
+
+const sampled: Record<Dimension, (channel: d.F32 | d.I32 | d.U32) => d.WgslTexture> = {
+    "1d": d.texture1d,
+    "2d": d.texture2d,
+    "2d-array": d.texture2dArray,
+    cube: d.textureCube,
+    "cube-array": d.textureCubeArray,
+    "3d": d.texture3d,
+};
+const depth: Record<DepthDimension, () => d.WgslTexture> = {
+    "2d": d.textureDepth2d,
+    "2d-array": d.textureDepth2dArray,
+    cube: d.textureDepthCube,
+    "cube-array": d.textureDepthCubeArray,
+};
 
 /** @internal */
 export function bindingEntry<B extends MaterialBinding>(binding: B): EntryFor<B> {
@@ -110,7 +142,10 @@ export function bindingEntry<B extends MaterialBinding>(binding: B): EntryFor<B>
             } as EntryFor<B>;
         case "texture": {
             if (binding.sampleType === "depth")
-                return { texture: d.textureDepth2d(), visibility: VS_FS } as EntryFor<B>;
+                return {
+                    texture: depth[binding.dimension ?? "2d"](),
+                    visibility: VS_FS,
+                } as EntryFor<B>;
             const channel =
                 binding.sampleType === "sint"
                     ? d.i32
@@ -118,10 +153,7 @@ export function bindingEntry<B extends MaterialBinding>(binding: B): EntryFor<B>
                       ? d.u32
                       : d.f32;
             return {
-                texture:
-                    binding.dimension === "2d-array"
-                        ? d.texture2dArray(channel)
-                        : d.texture2d(channel),
+                texture: sampled[binding.dimension ?? "2d"](channel),
                 ...("filterable" in binding &&
                     binding.filterable === false && { sampleType: "unfilterable-float" }),
                 visibility: VS_FS,
