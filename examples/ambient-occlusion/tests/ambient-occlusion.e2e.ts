@@ -50,6 +50,9 @@ test("every ambient occlusion control changes the captured frame and off restore
 }) => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
+    // Each capture waits on a full draw, which a software adapter spends most of the test on. The
+    // differences are per-pixel means, and the samples are the 1280 px frame's points halved.
+    await page.setViewportSize({ width: 640, height: 360 });
     await page.goto("http://127.0.0.1:4276/tests/stepped.html");
     await page.waitForFunction(() => "captureScene" in window);
     const toggle = page.getByRole("checkbox");
@@ -63,16 +66,16 @@ test("every ambient occlusion control changes the captured frame and off restore
         ([on, off]) => {
             const frames = (window as unknown as CaptureWindow).captures;
             const sample = (frame: number, x: number, y: number) => {
-                const i = (y * 1280 + x) * 4;
+                const i = (y * 640 + x) * 4;
                 return frames[frame][i] + frames[frame][i + 1] + frames[frame][i + 2];
             };
             return {
-                creaseOn: sample(on, 640, 260),
-                creaseOff: sample(off, 640, 260),
-                farOn: sample(on, 520, 220),
-                farOff: sample(off, 520, 220),
-                sphereOn: sample(on, 640, 440),
-                sphereOff: sample(off, 640, 440),
+                creaseOn: sample(on, 320, 130),
+                creaseOff: sample(off, 320, 130),
+                farOn: sample(on, 260, 110),
+                farOff: sample(off, 260, 110),
+                sphereOn: sample(on, 320, 220),
+                sphereOff: sample(off, 320, 220),
             };
         },
         [occluded, off],
