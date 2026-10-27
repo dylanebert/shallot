@@ -306,7 +306,7 @@ function createDepthKernel(multisampled: boolean) {
             );
             let deepest = d.f32(3.4e38);
             if (deepestDepth > 0) {
-                const forward = std.neg(std.cross(camView.right.xyz, camView.up.xyz));
+                const forward = std.neg(std.mul(d.vec4f(0, 0, 1, 0), camView.viewFromWorld).xyz);
                 const hit = reconstructWorld(camView.worldFromClip, deepUv, deepestDepth);
                 deepest = std.dot(std.sub(hit, camView.eye.xyz), forward) - camView.projection.x;
             }
@@ -414,7 +414,7 @@ function createGridKernel(multisampled: boolean) {
             const camView = layout.$.view;
             const near = camView.projection.x;
             const far = camView.projection.y;
-            const forward = std.neg(std.cross(camView.right.xyz, camView.up.xyz));
+            const forward = std.neg(std.mul(d.vec4f(0, 0, 1, 0), camView.viewFromWorld).xyz);
             const slot = d.u32(camView.projection.w);
 
             const rayScale = 1 / std.max(std.dot(dir, forward), 1e-6);
@@ -867,7 +867,7 @@ export const fogIntegrateKernel = tgpu
         const dir = std.normalize(
             std.sub(reconstructWorld(camView.worldFromClip, uv, 0.0001), nearWorld),
         );
-        const forward = std.neg(std.cross(camView.right.xyz, camView.up.xyz));
+        const forward = std.neg(std.mul(d.vec4f(0, 0, 1, 0), camView.viewFromWorld).xyz);
         const rayScale = 1 / std.max(std.dot(dir, forward), 1e-6);
         const cfg = fogIntegrateLayout.$.fog;
         const extent = std.max(cfg.medium.w - camView.projection.x, 0.001);
@@ -1013,7 +1013,7 @@ export const readFogInScatter = tgpu
         const view = fogReadLayout.$.view;
         const cfg = fogReadLayout.$.fog;
         if (cfg.medium.x === 0) return d.vec3f(0);
-        const forward = std.neg(std.cross(view.right.xyz, view.up.xyz));
+        const forward = std.neg(std.mul(d.vec4f(0, 0, 1, 0), view.viewFromWorld).xyz);
         const viewZ = std.dot(std.sub(point, view.eye.xyz), forward);
         if (viewZ <= view.projection.x) return d.vec3f(0);
         const clip = std.mul(view.clipFromWorld, d.vec4f(point, 1));
@@ -1065,7 +1065,7 @@ export const readFog = tgpu
         if (cfg.medium.x === 0) return d.vec4f(0, 0, 0, 1);
         const clip = std.mul(camView.clipFromWorld, d.vec4f(point, 1));
         const uv = std.add(std.mul(std.div(clip.xy, clip.w), d.vec2f(0.5, -0.5)), 0.5);
-        const forward = std.neg(std.cross(camView.right.xyz, camView.up.xyz));
+        const forward = std.neg(std.mul(d.vec4f(0, 0, 1, 0), camView.viewFromWorld).xyz);
         const nearWorld = reconstructWorld(camView.worldFromClip, uv, 1);
         const dir = std.normalize(std.sub(point, nearWorld));
         const surfaceZ = std.dot(std.sub(point, camView.eye.xyz), forward);

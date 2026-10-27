@@ -29,14 +29,10 @@ export const ViewUniforms = d
         exposure: d.f32,
         /** Per-camera shadow filter enum; absent ShadowFilteringMethod packs Gaussian. */
         shadowFilteringMethod: d.u32,
+        viewFromWorld: d.mat4x4f,
+        clipFromView: d.mat4x4f,
     })
     .$name("ViewUniforms");
-
-/**
- * @internal Byte spacing of shading slots in RenderContext.viewStaging, at least VIEW_BYTES. Staging only:
- * each slot uploads its leading VIEW_BYTES into its own buffer at offset 0.
- */
-export const VIEW_STRIDE = 256;
 
 /** One initial slot keeps the common single-view path small; all per-view state grows on demand. */
 export const INITIAL_VIEW_CAPACITY = 1;
@@ -62,7 +58,7 @@ export function presentingViewRefusal(eid: number): string {
     return `shallot: ${MAX_VIEWS} presenting-view cull limit reached; entity ${eid} skipped`;
 }
 
-/** Byte size of each shading slot's whole ViewUniforms buffer. */
+/** Byte size of each shading slot's whole ViewUniforms buffer, and its spacing in RenderContext.viewStaging. */
 export const VIEW_BYTES = d.sizeOf(ViewUniforms);
 
 /** Linear→sRGB (IEC 61966-2-1); presentation into a non-sRGB target must encode exactly once. */
@@ -126,7 +122,7 @@ export interface View {
     depth: GPUTextureView | null;
     /** Encoded world normals at depth's sample count; null unless requested for this frame. */
     normal: GPUTextureView | null;
-    /** CPU-only world-to-view matrix shared by camera sorting and clustered-light packing. */
+    /** World-to-view matrix, equal to its slot's ViewUniforms.viewFromWorld. */
     viewFromWorld?: Float32Array;
     slot: number;
     camera: EntityRef;

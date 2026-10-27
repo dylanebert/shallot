@@ -111,8 +111,7 @@ export function computeViewFromWorld(world: World, eid: number, out: Float32Arra
 
 /**
  * compute the world→clip matrix for a camera entity. `aspect` is the bound surface's width / height.
- * `viewOut` optionally receives the world→view matrix alone (the light cull
- * transforms world-space lights into view space with it)
+ * `viewOut` optionally receives the world→view matrix and `projectionOut` the view→clip matrix.
  */
 export function computeClipFromWorld(
     world: World,
@@ -120,6 +119,7 @@ export function computeClipFromWorld(
     aspect: number,
     out: Float32Array,
     viewOut?: Float32Array,
+    projectionOut?: Float32Array,
 ): void {
     const near = world.storage(Camera).near.get(eid);
     const far = world.storage(Camera).far.get(eid);
@@ -130,5 +130,6 @@ export function computeClipFromWorld(
     composeGlobalTransform(world, eid, _world);
     const view = invertMat4(_world, _view);
     viewOut?.set(view);
+    projectionOut?.set(proj);
     multiplyMat4(proj, view, out);
 }

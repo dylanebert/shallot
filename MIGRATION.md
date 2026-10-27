@@ -76,7 +76,7 @@ materials.add(StandardMaterial({ doubleSided: true }), { cullMode: "none" });
 
 ## View uniforms use Bevy's matrix names
 
-`ViewUniforms.viewProj` is now `clipFromWorld` and `invViewProj` is `worldFromClip`, as in Bevy's `View`; `computeViewProj` is now `computeClipFromWorld`, with the same arguments. Rename each read in a material, background or extension shader. Byte offsets are unchanged, so a raw WGSL struct that declares only the leading matrix still binds.
+`ViewUniforms.viewProj` is now `clipFromWorld` and `invViewProj` is `worldFromClip`, as in Bevy's `View`; `computeViewProj` is now `computeClipFromWorld`, which also takes an optional view→clip output. Rename each read in a material, background or extension shader. `ViewUniforms` gains `viewFromWorld` and `clipFromView` after its existing fields, so a shader reads the view and projection matrices instead of uploading its own; existing byte offsets are unchanged, and a raw WGSL struct that declares only the leading matrix still binds.
 
 ## Adding an attached component replaces its values
 

@@ -8,7 +8,6 @@ import {
     NormalPrepassRequests,
     PrepassSystem,
     RenderContext,
-    VIEW_STRIDE,
     type View,
     Views,
 } from "../../core/rendering";
@@ -302,18 +301,10 @@ const SsaoSystem: System = {
                 camera = allocate(world, view, msaa);
                 state.cameras.set(eid, camera);
             }
-            camera.staging.set(view.viewFromWorld!, 0);
-            camera.staging[16] = radius;
-            camera.staging[17] = thickness;
-            const staging = world.resource(RenderContext).viewStaging;
-            const at = (view.slot * VIEW_STRIDE) / 4;
-            const x = staging[at]!;
-            const y = staging[at + 4]!;
-            const z = staging[at + 8]!;
-            // Math.hypot allocates per call in optimized code; squares of f32 entries are exact in f64.
-            camera.staging[18] = Math.sqrt(x * x + y * y + z * z);
-            camera.words[19] = slices;
-            camera.words[20] = samples;
+            camera.staging[0] = radius;
+            camera.staging[1] = thickness;
+            camera.words[2] = slices;
+            camera.words[3] = samples;
             world.gpu.device.queue.writeBuffer(camera.settings, 0, camera.staging);
             dispatch(
                 world,

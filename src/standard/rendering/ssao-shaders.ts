@@ -6,10 +6,8 @@ import { ViewUniforms } from "../../core/rendering";
 // Visibility bitmask AO (Therrien et al., 2023), Bevy b3bdd75be
 // ssao/{preprocess_depth,ssao,spatial_denoise}.wesl.
 export const SsaoSettings = d.struct({
-    viewFromWorld: d.mat4x4f,
     radius: d.f32,
     thickness: d.f32,
-    projectionX: d.f32,
     slices: d.u32,
     samples: d.u32,
 });
@@ -130,7 +128,7 @@ const position = tgpu.fn(
     "use gpu";
     const clip = d.vec4f(uv.x * 2 - 1, 1 - 2 * uv.y, depth, 1);
     const world = s.mul(aoLayout.$.view.worldFromClip, clip);
-    return s.mul(aoLayout.$.settings.viewFromWorld, d.vec4f(s.div(world.xyz, world.w), 1)).xyz;
+    return s.mul(aoLayout.$.view.viewFromWorld, d.vec4f(s.div(world.xyz, world.w), 1)).xyz;
 });
 const samplePosition = tgpu.fn(
     [d.vec2f, d.f32],
@@ -191,7 +189,7 @@ export function aoKernel() {
             s.textureStore(aoLayout.$.edges, px, d.vec4u(s.pack4x8unorm(edges), 0, 0, 0));
             const p = position(centre + 0.00001, uv);
             const worldNormal = s.sub(s.mul(s.textureLoad(aoLayout.$.normals, px, 0).xyz, 2), 1);
-            const normal = s.mul(aoLayout.$.settings.viewFromWorld, d.vec4f(worldNormal, 0)).xyz;
+            const normal = s.mul(aoLayout.$.view.viewFromWorld, d.vec4f(worldNormal, 0)).xyz;
             const view = s.normalize(s.neg(p));
             const index = s.textureLoad(aoLayout.$.noise, d.vec2i(px.x % 64, px.y % 64), 0).x;
             const noise = s.fract(
@@ -200,7 +198,7 @@ export function aoKernel() {
             const scale =
                 (-0.5 *
                     s.max(aoLayout.$.settings.radius, 0.0001) *
-                    aoLayout.$.settings.projectionX) /
+                    s.mul(aoLayout.$.view.clipFromView, d.vec4f(1, 0, 0, 0)).x) /
                 p.z;
             let occluded = d.u32(0);
             for (let slice = d.f32(0); slice < slices; slice += 1) {

@@ -12,7 +12,7 @@ import {
     RenderingPlugin,
     RenderPhases,
     SAMPLE_COUNT,
-    VIEW_STRIDE,
+    VIEW_BYTES,
     Views,
 } from "../../core/rendering";
 import type { Plugin, System, World } from "../../engine";
@@ -657,18 +657,13 @@ const FogSystem: System = {
             cam.staging[31] = cam.valid ? 1 : 0;
             world.gpu.device.queue.writeBuffer(cam.temporal, 0, cam.staging);
             const current = _render.viewStaging;
-            const start = (view.slot * VIEW_STRIDE) / 4;
+            const start = (view.slot * VIEW_BYTES) / 4;
             for (let i = 0; i < 16; i++) cam.staging[i] = current[start + i];
             for (let i = 0; i < 3; i++) cam.staging[16 + i] = current[start + 32 + i];
-            const rx = current[start + 20],
-                ry = current[start + 21],
-                rz = current[start + 22];
-            const ux = current[start + 24],
-                uy = current[start + 25],
-                uz = current[start + 26];
-            cam.staging[20] = -(ry * uz - rz * uy);
-            cam.staging[21] = -(rz * ux - rx * uz);
-            cam.staging[22] = -(rx * uy - ry * ux);
+            const viewFromWorld = view.viewFromWorld!;
+            cam.staging[20] = -viewFromWorld[2]!;
+            cam.staging[21] = -viewFromWorld[6]!;
+            cam.staging[22] = -viewFromWorld[10]!;
             cam.staging[24] = current[start + 28];
             cam.staging[25] = Math.max(_fogState.staging[7] - cam.staging[24], 0.001);
             cam.staging[26] = current[start + 56];

@@ -75,7 +75,6 @@ import {
     sizeView,
     stacked,
     VIEW_BYTES,
-    VIEW_STRIDE,
     type View as ViewSlot,
     Views,
     ViewUniforms,
@@ -93,6 +92,26 @@ const AMBIENT_COLOR_F32 = d.memoryLayoutOf(ViewUniforms, (view) => view.ambientC
 const EXPOSURE_F32 = d.memoryLayoutOf(ViewUniforms, (view) => view.exposure).offset / 4;
 const SHADOW_FILTERING_U32 =
     d.memoryLayoutOf(ViewUniforms, (view) => view.shadowFilteringMethod).offset / 4;
+const CLIP_FROM_WORLD_F32 = d.memoryLayoutOf(ViewUniforms, (v) => v.clipFromWorld).offset / 4;
+const WORLD_FROM_CLIP_F32 = d.memoryLayoutOf(ViewUniforms, (v) => v.worldFromClip).offset / 4;
+const VIEW_FROM_WORLD_F32 = d.memoryLayoutOf(ViewUniforms, (v) => v.viewFromWorld).offset / 4;
+const CLIP_FROM_VIEW_F32 = d.memoryLayoutOf(ViewUniforms, (v) => v.clipFromView).offset / 4;
+
+// One ViewUniforms matrix of every slot, as views into `staging`.
+function slotMatrices(staging: Float32Array, capacity: number, at: number): Float32Array[] {
+    return Array.from({ length: capacity }, (_, slot) =>
+        staging.subarray(slot * SLOT_FLOATS + at, slot * SLOT_FLOATS + at + 16),
+    );
+}
+
+function bindSlotMatrices(world: World, capacity: number): void {
+    const frame = world.resource(renderFrameKey);
+    const staging = world.resource(RenderContext).viewStaging;
+    frame.clipFromWorlds = slotMatrices(staging, capacity, CLIP_FROM_WORLD_F32);
+    frame.worldFromClips = slotMatrices(staging, capacity, WORLD_FROM_CLIP_F32);
+    frame.viewFromWorlds = slotMatrices(staging, capacity, VIEW_FROM_WORLD_F32);
+    frame.clipFromViews = slotMatrices(staging, capacity, CLIP_FROM_VIEW_F32);
+}
 
 export { Camera, CameraMode, Exposure, Resolution } from "./camera";
 export { CAPTURE_CONTRACT, type Capture, captureFrame, captureTexture } from "./capture";
@@ -121,7 +140,7 @@ export {
     SAMPLE_COUNT,
 } from "./targets";
 
-const SLOT_FLOATS = VIEW_STRIDE / 4;
+const SLOT_FLOATS = VIEW_BYTES / 4;
 const CAMERAS = [Camera];
 const GLOBAL_TRANSFORM_PASS: GPUComputePassDescriptor = {};
 function basisColumn(world: Float32Array, base: number, out: Float32Array, at: number): void {
@@ -174,7 +193,16 @@ function packView(world: World, eid: number, view: ViewSlot, shading: boolean, s
     )
         ? world.storage(ShadowFilteringMethod).method.get(eid)
         : ShadowFilteringMethodMode.Gaussian;
-    computeClipFromWorld(world, eid, view.width / view.height, clipFromWorld, view.viewFromWorld);
+    const viewFromWorld = _renderFrame.viewFromWorlds[slot]!;
+    computeClipFromWorld(
+        world,
+        eid,
+        view.width / view.height,
+        clipFromWorld,
+        viewFromWorld,
+        _renderFrame.clipFromViews[slot],
+    );
+    view.viewFromWorld?.set(viewFromWorld);
     // resolution (pixels) follows clipFromWorld in the ViewUniforms struct — a screen-space
     // producer (lines) reads it to size constant-pixel-width geometry
     _render.viewStaging[offset + 16] = view.width;
@@ -211,7 +239,7 @@ function packView(world: World, eid: number, view: ViewSlot, shading: boolean, s
     _render.viewStaging[offset + 35] = 1;
     // Only shading views reconstruct screen-space positions; depth-only views need no inverse.
     if (shading) invertMat4(clipFromWorld, _renderFrame.worldFromClips[slot]);
-    else _render.viewStaging.fill(0, offset + 36, offset + 52);
+    else _renderFrame.worldFromClips[slot]!.fill(0);
 }
 
 // whether this slot's pack inputs differ from the ones it was last packed with; records them when they do.
@@ -277,12 +305,7 @@ function ensureRenderSlotCapacity(world: World, requiredSlots: number, shadeCoun
         const keys = new Float64Array(nextCapacity * VIEW_KEY_FLOATS).fill(Number.NaN);
         keys.set(frame.viewKeys);
         frame.viewKeys = keys;
-        frame.clipFromWorlds = Array.from({ length: nextCapacity }, (_, slot) =>
-            staging.subarray(slot * SLOT_FLOATS, slot * SLOT_FLOATS + 16),
-        );
-        frame.worldFromClips = Array.from({ length: nextCapacity }, (_, slot) =>
-            staging.subarray(slot * SLOT_FLOATS + 36, slot * SLOT_FLOATS + 52),
-        );
+        bindSlotMatrices(world, nextCapacity);
     }
     while (render.viewBuffers.length < shadeCount) {
         const slot = render.viewBuffers.length;
@@ -559,13 +582,7 @@ async function initRender(world: World): Promise<void> {
     _render.viewStaging = new Float32Array(INITIAL_VIEW_CAPACITY * SLOT_FLOATS);
     // Fresh staging: each active slot repacks against its own buffer on its first frame.
     _renderFrame.viewKeys.fill(Number.NaN);
-    const staging = _render.viewStaging;
-    _renderFrame.clipFromWorlds = Array.from({ length: INITIAL_VIEW_CAPACITY }, (_, slot) =>
-        staging.subarray(slot * SLOT_FLOATS, slot * SLOT_FLOATS + 16),
-    );
-    _renderFrame.worldFromClips = Array.from({ length: INITIAL_VIEW_CAPACITY }, (_, slot) =>
-        staging.subarray(slot * SLOT_FLOATS + 36, slot * SLOT_FLOATS + 52),
-    );
+    bindSlotMatrices(world, INITIAL_VIEW_CAPACITY);
     world.resource(Frame).buffer = uniform("shallot-frame", FRAME_UNIFORM_SIZE);
 
     // one tagged cull volume per view, packed for the GPU cull pass and published
@@ -654,7 +671,7 @@ export {
     MAX_VIEWS,
     sceneTransform,
     sizeView,
-    VIEW_STRIDE,
+    VIEW_BYTES,
     type View,
     Views,
     ViewUniforms,

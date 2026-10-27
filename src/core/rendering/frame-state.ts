@@ -17,6 +17,8 @@ export const renderFrameKey = {
         targetViews: [] as import("./view").View[],
         clipFromWorlds: [] as Float32Array[],
         worldFromClips: [] as Float32Array[],
+        viewFromWorlds: [] as Float32Array[],
+        clipFromViews: [] as Float32Array[],
         // the View each slot was last packed for: a new View starts with an unfilled viewFromWorld
         slotViews: [] as (import("./view").View | undefined)[],
         viewKeys: new Float64Array(INITIAL_VIEW_CAPACITY * VIEW_KEY_FLOATS).fill(Number.NaN),
