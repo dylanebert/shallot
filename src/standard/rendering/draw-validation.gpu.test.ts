@@ -6,14 +6,17 @@ import { gpuScene } from "../../../scripts/gpu.fixture";
 import { expectError } from "../../../scripts/test-console";
 import { MeshInstance } from "../../core/mesh";
 import {
+    attachCanvas,
     attachTexture,
     Camera,
+    captureFrame,
     captureTexture,
     Tonemapping,
     TonemappingMethod,
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import type { World } from "../../engine";
+import { CanvasContext } from "../../engine/app/canvas.fixture";
 import { observeDevice } from "../../engine/runtime";
 import {
     MaterialPlugin,
@@ -72,22 +75,58 @@ const subject = gpuScene(
         world.add(camera, StandardRenderer);
         world.add(camera, Tonemapping, { method: TonemappingMethod.None });
         attachTexture(world, camera, { width: 4, height: 4 });
+        const canvas = {
+            width: 4,
+            height: 4,
+            style: {},
+            getBoundingClientRect: () => ({ width: 4, height: 4 }),
+        } as unknown as HTMLCanvasElement;
+        const context = new CanvasContext(canvas, 4, 4);
+        canvas.getContext = (() => context) as unknown as typeof canvas.getContext;
+        context.configure({
+            device: world.gpu.device,
+            format: "bgra8unorm",
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+        });
+        world.onDispose(() => context.unconfigure());
+        const canvasCamera = world.create();
+        world.add(canvasCamera, Transform, { translation: [0, 0, 5, 0] });
+        world.add(canvasCamera, Camera, { antialias: 0 });
+        world.add(canvasCamera, StandardRenderer);
+        attachCanvas(world, canvasCamera, canvas);
         const mesh = world.create();
         world.add(mesh, Transform, { scale: [20, 20, 1, 0] });
         world.add(mesh, MeshInstance);
         world.add(mesh, MeshMaterial, world.resource(Sampled).add({ unused: 0 }));
-        return camera;
+        return { camera, canvas };
     },
 );
 
+let queuedCapture: Promise<unknown>;
+
 test("a capture after a frame whose draw failed validation rejects instead of reading the stale target", async () => {
-    const { world, scene: camera } = subject();
+    const {
+        world,
+        scene: { camera },
+    } = subject();
     world.step(0);
     expect(Array.from((await captureTexture(world, camera)).rgba.subarray(0, 4))).toEqual([
         0, 255, 0, 255,
     ]);
     expectError(
         /GpuValidationError\]: Comparison sampler .* is incompatible with non-comparison sampler binding/,
+    );
+    await world.frameFence;
+    subject()
+        .scene.canvas.getContext("webgpu")!
+        .configure({
+            device: world.gpu.device,
+            format: "bgra8unorm",
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+        });
+    queuedCapture = captureFrame(subject().scene.canvas).then(
+        (value) => value,
+        (error) => error,
     );
     world.resource(Owned).linear = world.gpu.device.createSampler({ compare: "less" });
     world.step(0);
@@ -98,9 +137,39 @@ test("a capture after a frame whose draw failed validation rejects instead of re
     await observeDevice(world.gpu.device).error;
 });
 
+test("a capture encoded into an invalid frame rejects instead of returning zero bytes", async () => {
+    const result = await queuedCapture;
+    expect(result).toBeInstanceOf(Error);
+    expect((result as Error).message).toMatch(
+        /canvas frame capture: .*Comparison sampler .* is incompatible/,
+    );
+});
+
+test("a bound canvas capture after a failed frame rejects without another step", async () => {
+    const {
+        scene: { canvas },
+    } = subject();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+        await expect(
+            Promise.race([
+                captureFrame(canvas),
+                new Promise<never>((_, reject) => {
+                    timer = setTimeout(() => reject(new Error("captureFrame did not settle")), 200);
+                }),
+            ]),
+        ).rejects.toThrow(/canvas frame capture: .*Comparison sampler .* is incompatible/);
+    } finally {
+        clearTimeout(timer);
+    }
+});
+
 test("a capture after the failed device is lost still names the error that stopped it", async () => {
     // the device the previous test stopped
-    const { world, scene: camera } = subject();
+    const {
+        world,
+        scene: { camera },
+    } = subject();
     world.gpu.device.destroy();
     await world.gpu.device.lost;
     await expect(captureTexture(world, camera)).rejects.toThrow(
