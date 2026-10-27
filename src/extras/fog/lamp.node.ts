@@ -227,7 +227,7 @@ test("a world-fixed patch below the lamp holds the still reference while walking
 });
 
 test("a still patch at a shadowed spot lamp at 360p stays calm across 16 consecutive phases", async () => {
-    expect((await measure()).swing.lamp).toBeLessThan(0.005);
+    expect((await measure()).swing.lamp).toBeLessThan(0.001);
 });
 
 test("every converged frame at the lamp agrees with the equal 16-phase linear average", async () => {
