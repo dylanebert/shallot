@@ -349,7 +349,7 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
             spriteVertex: 7,
             spriteFragment: 7,
             spritePublicationCompute: 3,
-            textVertex: 5,
+            textVertex: 6,
             textFragment: 0,
             linesVertex: 2,
             linesFragment: 0,
