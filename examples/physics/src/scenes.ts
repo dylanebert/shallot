@@ -16,6 +16,7 @@ import {
 import { PhysicsWorldDefinition, setAwake } from "@dylanebert/shallot/standard/physics";
 import { benchmarkScenes } from "./benchmarks";
 import { eventScenes } from "./events";
+import { jointScenes } from "./joints";
 import { MotorizedJoint } from "./roles";
 import { StackingImpulses, stackingScenes } from "./stacking";
 
@@ -29,7 +30,8 @@ export type Scene =
     | "parallel"
     | keyof typeof eventScenes
     | keyof typeof benchmarkScenes
-    | keyof typeof stackingScenes;
+    | keyof typeof stackingScenes
+    | keyof typeof jointScenes;
 export const categories: { name: string; scenes: { id: Scene; name: string }[] }[] = [
     {
         name: "Benchmark",
@@ -66,12 +68,16 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
     {
         name: "Joints",
         scenes: [
+            { id: "ballAndChain", name: "Ball and Chain" },
             { id: "bridge", name: "Bridge" },
             { id: "filter", name: "Filter" },
+            { id: "foldOut", name: "Fold Out" },
             { id: "motor", name: "Motor Joint" },
             { id: "parallel", name: "Parallel Spring" },
             { id: "prismatic", name: "Prismatic" },
             { id: "revolute", name: "Revolute" },
+            { id: "topDownFriction", name: "Top Down Friction" },
+            { id: "weld", name: "Weld" },
             { id: "wheel", name: "Wheel" },
         ],
     },
@@ -157,6 +163,7 @@ export const scenes = {
     ...eventScenes,
     ...benchmarkScenes,
     ...stackingScenes,
+    ...jointScenes,
     boxStack: {
         construct: boxStack,
         gridExtent: 40,

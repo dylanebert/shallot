@@ -46,6 +46,7 @@ void DrawWireSphere( b3WorldTransform, const b3Sphere*, int, int ) {}
 void DrawString3D( b3Pos, int, const char*, ... ) {}
 int MakeColorAlpha( int color, float ) { return color; }
 constexpr int TRANSPARENT_SHADOW_NONE = 0;
+void DrawSolidSphere( b3WorldTransform, b3Sphere, int ) {}
 void DrawSphereEx( b3WorldTransform, float, int, float, float, int ) {}
 void DrawHull( b3WorldTransform, const b3HullData*, int ) {}
 bool recordQueriesAndBuilds = false;
@@ -247,6 +248,7 @@ int main( int argc, char** argv )
 		{ "arch", Arch::Create }, { "doubleDomino", DoubleDomino::Create },
 		{ "pyramid2D", Pyramid2D::Create }, { "edgeCrossing", EdgeCrossing::Create },
 		{ "box_stack", BoxStack::Create }, { "bridge", Bridge::Create },
+		{ "ballAndChain", BallAndChain::Create }, { "foldOut", FoldOut::Create }, { "topDownFriction", TopDownFriction::Create }, { "weld", WeldJoint::Create },
 		{ "revolute", RevoluteJoint::Create }, { "prismatic", PrismaticJoint::Create },
 		{ "wheel", WheelJoint::Create }, { "filter", FilterJoint::Create }, { "parallel", ParallelJoint::Create },
 		{ "motor", MotorJoint::Create }, { "joint", JointEvent::Create },

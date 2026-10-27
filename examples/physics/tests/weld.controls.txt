@@ -1,0 +1,4 @@
+60	Linear Hertz	3
+120	Linear Damping	0.5
+180	Angular Hertz	5
+240	Angular Damping	1

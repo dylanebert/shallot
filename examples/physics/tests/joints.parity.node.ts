@@ -15,20 +15,30 @@ import { sampleGold } from "./gold";
 
 setDefaultTimeout(TIMEOUT.node);
 
-for (const scene of ["revolute", "prismatic", "wheel", "filter", "parallel"] satisfies Scene[]) {
+for (const scene of [
+    "revolute",
+    "prismatic",
+    "wheel",
+    "filter",
+    "parallel",
+    "ballAndChain",
+    "foldOut",
+    "topDownFriction",
+    "weld",
+] satisfies Scene[]) {
     for (const controlled of [false, true]) {
         test(`${scene} equals every native step ${controlled ? "through all controls" : "by default"}`, async () => {
             const start = performance.now();
             const gold = sampleGold(
                 await Bun.file(
                     new URL(
-                        `./${scene}${controlled && scene !== "filter" ? ".controls" : ""}.gold.txt`,
+                        `./${scene}${controlled && scenes[scene].controls !== undefined ? ".controls" : ""}.gold.txt`,
                         import.meta.url,
                     ),
                 ).text(),
             );
             const sequence =
-                controlled && scene !== "filter"
+                controlled && scenes[scene].controls !== undefined
                     ? (await Bun.file(new URL(`./${scene}.controls.txt`, import.meta.url)).text())
                           .trim()
                           .split("\n")
