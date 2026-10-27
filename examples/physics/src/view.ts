@@ -38,6 +38,7 @@ import { drawingBounds, drawSet } from "./draw-set";
 import { DrivingState } from "./driving";
 import { EventSample } from "./events";
 import { Grab } from "./grab";
+import { drawJoints, JOINT_DOT_DIAMETER, JOINT_LINE } from "./joint-presentation";
 import {
     drivenBodies,
     type ShapeGeometryCache,
@@ -48,6 +49,38 @@ import {
 } from "./presentation";
 import { castHeightField } from "./queries";
 import { type Scene, scenes } from "./scenes";
+
+function placeMarker(
+    world: World,
+    camera: number,
+    marker: number,
+    point: [number, number, number],
+    diameter: number,
+): void {
+    const transform = world.storage(Transform);
+    transform.translation.set(marker, ...point);
+    const q = world.storage(GlobalTransform).rotation;
+    // Project a camera-up metre at the attachment depth to keep the diameter in CSS pixels.
+    const cameraUp = qRotate(
+        q.x.get(camera),
+        q.y.get(camera),
+        q.z.get(camera),
+        q.w.get(camera),
+        0,
+        1,
+        0,
+    );
+    const center = worldToViewport(world, camera, point);
+    const up = worldToViewport(world, camera, [
+        point[0] + cameraUp[0],
+        point[1] + cameraUp[1],
+        point[2] + cameraUp[2],
+    ]);
+    if (center && up) {
+        const scale = diameter / Math.hypot(up[0] - center[0], up[1] - center[1]);
+        transform.scale.set(marker, scale, scale, scale);
+    }
+}
 
 const HIT_SEGMENT = { width: 2, depthBias: -1 };
 const HIT_POINT = { width: 3, depthBias: -1 };
@@ -169,28 +202,7 @@ function createView(world: World, scene: Scene, camera: number): () => void {
             p[0] = pose.translation.x.get(grab.body) + offset[0];
             p[1] = pose.translation.y.get(grab.body) + offset[1];
             p[2] = pose.translation.z.get(grab.body) + offset[2];
-            const transform = world.storage(Transform);
-            transform.translation.set(feedback.marker, ...p);
-            // Project a camera-up metre at the attachment depth to keep the diameter in CSS pixels.
-            const cameraUp = qRotate(
-                q.x.get(camera),
-                q.y.get(camera),
-                q.z.get(camera),
-                q.w.get(camera),
-                0,
-                1,
-                0,
-            );
-            const center = worldToViewport(world, camera, p);
-            const up = worldToViewport(world, camera, [
-                p[0] + cameraUp[0],
-                p[1] + cameraUp[1],
-                p[2] + cameraUp[2],
-            ]);
-            if (center && up) {
-                const scale = 8 / Math.hypot(up[0] - center[0], up[1] - center[1]);
-                transform.scale.set(feedback.marker, scale, scale, scale);
-            }
+            placeMarker(world, camera, feedback.marker, p, 8);
             drawLine(world, p, grab.point, 0xeee9df);
         },
     });
@@ -366,7 +378,36 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         after: OrbitPlugin.systems,
         update: updateShapes,
     });
-    if (scene === "joint" || scene === "motor") {
+    const jointDots: number[] = [];
+    const jointMaterial = materials.add(StandardMaterial({ baseColor: [0, 0, 0, 1], unlit: true }));
+    addSystem({
+        name: "joint-anchors",
+        group: "simulation",
+        after: OrbitPlugin.systems,
+        update(world) {
+            let index = 0;
+            drawJoints(
+                world,
+                scene,
+                (a, b) => drawLine(world, a, b, 0x000000, JOINT_LINE),
+                (point) => {
+                    let dot = jointDots[index];
+                    if (!dot) {
+                        dot = world.create();
+                        jointDots[index] = dot;
+                        world.add(dot, Transform);
+                        world.add(dot, NotShadowCaster);
+                        world.add(dot, MeshInstance, { mesh: markerMesh });
+                        world.add(dot, MeshMaterial, jointMaterial);
+                    }
+                    placeMarker(world, camera, dot, point, JOINT_DOT_DIAMETER);
+                    index++;
+                },
+            );
+            while (jointDots.length > index) world.destroy(jointDots.pop()!);
+        },
+    });
+    if (scene === "joint") {
         const draw = defaultDebugDraw();
         draw.drawJoints = true;
         draw.drawSegment = (a, b) => drawLine(world, [a.x, a.y, a.z], [b.x, b.y, b.z], 0x38a4b5);
@@ -385,6 +426,8 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         if (groundMesh !== undefined) meshes.remove(groundMesh);
         for (const material of stateMaterials.values()) materials.remove(material);
         materials.remove(markerMaterial);
+        materials.remove(jointMaterial);
+        for (const dot of jointDots) world.destroy(dot);
         Object.assign(feedback, GrabFeedback.create());
     };
 }
