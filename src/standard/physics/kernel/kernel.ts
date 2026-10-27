@@ -1079,7 +1079,10 @@ function materialImport(runtime: KernelState) {
 
 function queryImport(runtime: KernelState): QueryCallback {
     return (kind, shape, data, count) => {
-        if (runtime.queryFailed) return 0;
+        if (runtime.queryFailed) {
+            if (kind === 1) queryReturnView(runtime)[0] = 0;
+            return 0;
+        }
         ++runtime.callbackDepth;
         try {
             if (runtime.queryCallback === null)
@@ -1094,6 +1097,7 @@ function queryImport(runtime: KernelState): QueryCallback {
             return 1;
         } catch (error) {
             // Exceptions must not abandon Rust frames and leak the WASM shadow stack.
+            if (kind === 1) queryReturnView(runtime)[0] = 0;
             runtime.queryFailed = true;
             runtime.queryError = error;
             return 0;
