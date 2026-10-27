@@ -76,7 +76,7 @@ export const TextVertex = tgpu.vertexFn({
     );
     return {
         position: biasClipDepth(
-            std.mul(viewLayout.$.view.viewProj, d.vec4f(world, 1)),
+            std.mul(viewLayout.$.view.clipFromWorld, d.vec4f(world, 1)),
             glyph.depthBias,
         ),
         uvSize: d.vec4f(uv, glyph.size),

@@ -129,7 +129,7 @@ const position = tgpu.fn(
 )((depth, uv) => {
     "use gpu";
     const clip = d.vec4f(uv.x * 2 - 1, 1 - 2 * uv.y, depth, 1);
-    const world = s.mul(aoLayout.$.view.invViewProj, clip);
+    const world = s.mul(aoLayout.$.view.worldFromClip, clip);
     return s.mul(aoLayout.$.settings.viewFromWorld, d.vec4f(s.div(world.xyz, world.w), 1)).xyz;
 });
 const samplePosition = tgpu.fn(

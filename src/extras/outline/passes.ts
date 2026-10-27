@@ -91,7 +91,7 @@ export function maskVertex(layout: MaskLayout) {
             if (encodedRow === 0) return { pos: d.vec4f(2, 2, 2, 1), iid: input.iid };
             const x = Xform(layout.$.globalTransforms[encodedRow - 1]);
             const world = d.vec4f(xformPoint(x, p), 1);
-            return { pos: std.mul(layout.$.view.viewProj, world), iid: input.iid };
+            return { pos: std.mul(layout.$.view.clipFromWorld, world), iid: input.iid };
         })
         .$name(layout === maskLayoutPlain ? "maskVs" : "maskVsOcclude");
 }

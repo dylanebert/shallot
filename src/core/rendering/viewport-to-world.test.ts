@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { qRotate, resizeViewport, World } from "../../engine";
 import { component } from "../../engine/ecs/component";
 import { GlobalTransform } from "../transform";
-import { Camera, CameraMode, computeViewFromWorld, computeViewProj } from "./camera";
+import { Camera, CameraMode, computeClipFromWorld, computeViewFromWorld } from "./camera";
 import { type View, Views } from "./view";
 import { viewportToWorld, worldToViewport } from "./viewport-to-world";
 
@@ -170,7 +170,7 @@ for (const [name, mode] of [
     test(`worldToViewport agrees with the ${name} view-projection the renderer draws with`, () => {
         const { world, camera } = placedCamera(mode);
         const clip = new Float32Array(16);
-        computeViewProj(world, camera, 2, clip);
+        computeClipFromWorld(world, camera, 2, clip);
         try {
             for (const point of [
                 [0, 1, 0],
@@ -237,7 +237,7 @@ for (const [name, mode] of [
                 [1, 0.5, 3],
             ] as const) {
                 world.storage(GlobalTransform).scale.set(camera, scale[0], scale[1], scale[2], 0);
-                computeViewProj(world, camera, 2, clip);
+                computeClipFromWorld(world, camera, 2, clip);
                 for (const point of [
                     [2, 0, -6],
                     [-1, 3, 2],

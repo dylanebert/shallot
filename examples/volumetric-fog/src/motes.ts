@@ -32,7 +32,7 @@ const shader = `
 const CAMERA_FADE_NEAR: f32 = 0.3;
 const CAMERA_FADE_FAR: f32 = 0.8;
 const MOTE_SIZE_DEPTH: f32 = 2.0;
-struct View { viewProj: mat4x4f }
+struct View { clipFromWorld: mat4x4f }
 @group(0) @binding(0) var<uniform> moteView: View;
 @group(0) @binding(1) var<storage, read> positions: array<vec4f>;
 // Pure single-scattering albedo; coverage and camera fade are separate factors.
@@ -43,7 +43,7 @@ struct Vertex { @builtin(position) position: vec4f, @location(0) uv: vec2f, @loc
 @vertex fn vertex(@builtin(vertex_index) v: u32, @builtin(instance_index) i: u32) -> Vertex {
     let corners = array<vec2f, 6>(vec2f(-1,-1),vec2f(1,-1),vec2f(-1,1),vec2f(-1,1),vec2f(1,-1),vec2f(1,1));
     let p = positions[i];
-    var clip = moteView.viewProj * vec4f(p.xyz, 1);
+    var clip = moteView.clipFromWorld * vec4f(p.xyz, 1);
     let size = 0.006 * clip.w / max(clip.w, MOTE_SIZE_DEPTH);
     clip.x += corners[v].x * size;
     clip.y += corners[v].y * size;

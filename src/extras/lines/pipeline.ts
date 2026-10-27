@@ -62,14 +62,14 @@ const LineVertex = tgpu.vertexFn({
     if (seg.triangle !== 0) {
         const point = triangleVertex(seg.a, seg.b, seg.c, index);
         return {
-            position: biasClipDepth(std.mul(view.viewProj, d.vec4f(point, 1)), seg.depthBias),
+            position: biasClipDepth(std.mul(view.clipFromWorld, d.vec4f(point, 1)), seg.depthBias),
             rgba: unpackLdrColor(seg.color),
             edge: d.vec2f(0, 1),
         };
     }
     const quad = lineQuad(
-        std.mul(view.viewProj, d.vec4f(seg.a, 1)),
-        std.mul(view.viewProj, d.vec4f(seg.b, 1)),
+        std.mul(view.clipFromWorld, d.vec4f(seg.a, 1)),
+        std.mul(view.clipFromWorld, d.vec4f(seg.b, 1)),
         view.resolution,
         t,
         edge,

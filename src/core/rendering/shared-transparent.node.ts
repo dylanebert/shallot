@@ -26,7 +26,7 @@ import {
     TransparentPhases,
     type View,
 } from ".";
-import { computeViewProj } from "./camera";
+import { computeClipFromWorld } from "./camera";
 
 setDefaultTimeout(TIMEOUT.node);
 
@@ -56,7 +56,7 @@ function panePipeline(world: World, eid: number, z: number, color: readonly numb
     PrepareGlobalTransformSystem.update!(world);
     const matrix = new Float32Array(16);
     const view = new Float32Array(16);
-    computeViewProj(world, eid, 1, matrix, view);
+    computeClipFromWorld(world, eid, 1, matrix, view);
     const clipZ = matrix[10]! * z + matrix[14]!;
     const w = matrix[11]! * z + matrix[15]!;
     const format = world.resource(RenderContext).format;

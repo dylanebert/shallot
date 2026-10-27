@@ -20,7 +20,7 @@ import { Anchor } from "./anchor";
 import {
     Camera,
     CameraMode,
-    computeViewProj,
+    computeClipFromWorld,
     EXPOSURE_EV100_BLENDER,
     Exposure,
     Resolution,
@@ -145,13 +145,13 @@ function packView(world: World, eid: number, view: ViewSlot, shading: boolean, s
     const camera = world.storage(Camera);
     const isPerspective = camera.mode.get(eid) !== CameraMode.Orthographic;
     // the camera basis (floats 20-27) and the eye (32-35) come from the world matrix, which is also what
-    // the viewProj is composed from, so it is read before the unchanged-slot test below
+    // clipFromWorld is composed from, so it is read before the unchanged-slot test below
     composeGlobalTransform(world, eid, _renderFrame.camWorld);
     const mask = renderLayers(world, eid);
     _render.cullVolumeWords[slot * CULL_VOLUME_FLOATS + 2] = mask;
     if (!slotInputsChanged(world, eid, view, shading, slot)) return;
     const offset = slot * SLOT_FLOATS;
-    const viewProj = _renderFrame.viewProjs[slot];
+    const clipFromWorld = _renderFrame.clipFromWorlds[slot];
     const ambientPacked = world.has(eid, AmbientLight)
         ? world.storage(AmbientLight).color.get(eid)
         : world.resource(GlobalAmbientLight).color;
@@ -174,8 +174,8 @@ function packView(world: World, eid: number, view: ViewSlot, shading: boolean, s
     )
         ? world.storage(ShadowFilteringMethod).method.get(eid)
         : ShadowFilteringMethodMode.Gaussian;
-    computeViewProj(world, eid, view.width / view.height, viewProj, view.viewFromWorld);
-    // resolution (pixels) follows viewProj in the ViewUniforms struct — a screen-space
+    computeClipFromWorld(world, eid, view.width / view.height, clipFromWorld, view.viewFromWorld);
+    // resolution (pixels) follows clipFromWorld in the ViewUniforms struct — a screen-space
     // producer (lines) reads it to size constant-pixel-width geometry
     _render.viewStaging[offset + 16] = view.width;
     _render.viewStaging[offset + 17] = view.height;
@@ -187,7 +187,7 @@ function packView(world: World, eid: number, view: ViewSlot, shading: boolean, s
     frustumVolume(
         _render.cullVolumeStaging,
         slot,
-        viewProj,
+        clipFromWorld,
         isPerspective ? _renderFrame.camWorld : undefined,
         isPerspective ? camera.far.get(eid) : undefined,
     );
@@ -210,7 +210,7 @@ function packView(world: World, eid: number, view: ViewSlot, shading: boolean, s
     _render.viewStaging[offset + 34] = _renderFrame.camWorld[14];
     _render.viewStaging[offset + 35] = 1;
     // Only shading views reconstruct screen-space positions; depth-only views need no inverse.
-    if (shading) invertMat4(viewProj, _renderFrame.invViewProjs[slot]);
+    if (shading) invertMat4(clipFromWorld, _renderFrame.worldFromClips[slot]);
     else _render.viewStaging.fill(0, offset + 36, offset + 52);
 }
 
@@ -277,10 +277,10 @@ function ensureRenderSlotCapacity(world: World, requiredSlots: number, shadeCoun
         const keys = new Float64Array(nextCapacity * VIEW_KEY_FLOATS).fill(Number.NaN);
         keys.set(frame.viewKeys);
         frame.viewKeys = keys;
-        frame.viewProjs = Array.from({ length: nextCapacity }, (_, slot) =>
+        frame.clipFromWorlds = Array.from({ length: nextCapacity }, (_, slot) =>
             staging.subarray(slot * SLOT_FLOATS, slot * SLOT_FLOATS + 16),
         );
-        frame.invViewProjs = Array.from({ length: nextCapacity }, (_, slot) =>
+        frame.worldFromClips = Array.from({ length: nextCapacity }, (_, slot) =>
             staging.subarray(slot * SLOT_FLOATS + 36, slot * SLOT_FLOATS + 52),
         );
     }
@@ -560,10 +560,10 @@ async function initRender(world: World): Promise<void> {
     // Fresh staging: each active slot repacks against its own buffer on its first frame.
     _renderFrame.viewKeys.fill(Number.NaN);
     const staging = _render.viewStaging;
-    _renderFrame.viewProjs = Array.from({ length: INITIAL_VIEW_CAPACITY }, (_, slot) =>
+    _renderFrame.clipFromWorlds = Array.from({ length: INITIAL_VIEW_CAPACITY }, (_, slot) =>
         staging.subarray(slot * SLOT_FLOATS, slot * SLOT_FLOATS + 16),
     );
-    _renderFrame.invViewProjs = Array.from({ length: INITIAL_VIEW_CAPACITY }, (_, slot) =>
+    _renderFrame.worldFromClips = Array.from({ length: INITIAL_VIEW_CAPACITY }, (_, slot) =>
         staging.subarray(slot * SLOT_FLOATS + 36, slot * SLOT_FLOATS + 52),
     );
     world.resource(Frame).buffer = uniform("shallot-frame", FRAME_UNIFORM_SIZE);
@@ -637,7 +637,7 @@ export const RenderingPlugin: Plugin = {
 
 // Extension consumers read the packed cull table; they must not repack it independently.
 
-export { computeViewFromWorld, computeViewProj } from "./camera";
+export { computeClipFromWorld, computeViewFromWorld } from "./camera";
 export { Frame, FrameGpu } from "./frame";
 export { CULL_FRUSTUM, CULL_VOLUME_FLOATS } from "./frustum";
 export { Images, imageArray, registerImage } from "./image";

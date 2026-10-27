@@ -66,10 +66,10 @@ export const fogDensity = tgpu.fn(
 export const reconstructWorld = tgpu.fn(
     [d.mat4x4f, d.vec2f, d.f32],
     d.vec3f,
-)((invViewProj, uv, depth) => {
+)((worldFromClip, uv, depth) => {
     "use gpu";
     const ndc = d.vec3f(uv.x * 2 - 1, 1 - uv.y * 2, depth);
-    const h = std.mul(invViewProj, d.vec4f(ndc, 1));
+    const h = std.mul(worldFromClip, d.vec4f(ndc, 1));
     return std.div(h.xyz, h.w);
 });
 

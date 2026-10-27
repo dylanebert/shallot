@@ -32,7 +32,7 @@ import {
     type View,
     Views,
 } from ".";
-import { computeViewProj } from "./camera";
+import { computeClipFromWorld } from "./camera";
 
 setDefaultTimeout(TIMEOUT.node);
 const TransitionParameters = d.struct({ color: d.vec4f });
@@ -71,7 +71,7 @@ function panePipeline(world: World, camera: number, z: number, color: readonly n
     PrepareGlobalTransformSystem.update!(world);
     const label = `phase-qualification-${camera}-${z}-${color.join("-")}`;
     const matrix = new Float32Array(16);
-    computeViewProj(world, camera, 1, matrix);
+    computeClipFromWorld(world, camera, 1, matrix);
     const clipZ = matrix[10]! * z + matrix[14]!;
     const w = matrix[11]! * z + matrix[15]!;
     const format = world.resource(RenderContext).format;

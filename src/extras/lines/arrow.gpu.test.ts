@@ -8,7 +8,7 @@ import {
     Camera,
     CameraMode,
     captureTexture,
-    computeViewProj,
+    computeClipFromWorld,
     DebandDither,
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
@@ -95,7 +95,7 @@ test("different-length retained and immediate arrows given the same tip length f
         world.resource(Show).value = true;
         const after = await frame();
         const matrix = new Float32Array(16);
-        computeViewProj(world, camera, 1, matrix);
+        computeClipFromWorld(world, camera, 1, matrix);
         for (const y of [0, -1.5]) {
             const tip = d.vec3f(1, y, 0);
             const left = d.vec3f(-0.8, y, -0.9),

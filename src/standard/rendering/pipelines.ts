@@ -632,7 +632,7 @@ function colorVertex(surface: AnyMaterialType, clip: boolean, suffix = clip ? "C
                 world = d.vec4f(patched.world);
                 worldNormal = d.vec3f(patched.worldNormal);
             }
-            pos = d.vec4f(std.mul(engineLayout.$.view.viewProj, world));
+            pos = d.vec4f(std.mul(engineLayout.$.view.clipFromWorld, world));
             if (clip) pos = d.vec4f(std.add(pos, d.vec4f(shadowLayout.$.tileRects.rects[0].x * 0)));
             return MaterialTypeVertex({
                 pos,
@@ -860,7 +860,7 @@ function prepassVs(surface: AnyMaterialType) {
                 const xform = Xform(bound.globalTransforms[instance.y]);
                 world = d.vec4f(xformPoint(xform, world.xyz), world.w);
             }
-            const clip = std.mul(engineLayout.$.view.viewProj, world);
+            const clip = std.mul(engineLayout.$.view.clipFromWorld, world);
             // TypeGPU indexes layouts by group number; using only groups 0 and 2 leaves a hole
             // that Dawn rejects at pipeline creation. The returned zero keeps group 1 live;
             // renderPrepass binds shadowGroup there, but the stub receiver never samples it.
@@ -1113,7 +1113,7 @@ ${
         : ""
 }
     var out: Out;
-    out.pos = engine.view.viewProj * world${clip ? " + vec4f(shadowG.tileRects.rects[0].x * 0.0)" : ""};
+    out.pos = engine.view.clipFromWorld * world${clip ? " + vec4f(shadowG.tileRects.rects[0].x * 0.0)" : ""};
     out.worldNormal = normalize(worldNormal);
     out.eid = eid;
     out.row = row;
@@ -2179,7 +2179,7 @@ function bgFs(bg: AnyBackground) {
             "use gpu";
             const uv = std.div(input.pos.xy, engineLayout.$.view.resolution);
             const ndc = d.vec3f(uv.x * 2 - 1, 1 - uv.y * 2, 0);
-            const far = std.mul(engineLayout.$.view.invViewProj, d.vec4f(ndc, 1));
+            const far = std.mul(engineLayout.$.view.worldFromClip, d.vec4f(ndc, 1));
             let dir = d.vec3f(0);
             if (engineLayout.$.view.projection.z > 0.5) {
                 // Infinite reverse-Z maps perspective depth 0 to a homogeneous direction at infinity.

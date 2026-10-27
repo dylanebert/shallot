@@ -110,11 +110,11 @@ export function computeViewFromWorld(world: World, eid: number, out: Float32Arra
 }
 
 /**
- * compute viewProj for a camera entity. `aspect` is the bound surface's width / height.
+ * compute the world→clip matrix for a camera entity. `aspect` is the bound surface's width / height.
  * `viewOut` optionally receives the world→view matrix alone (the light cull
  * transforms world-space lights into view space with it)
  */
-export function computeViewProj(
+export function computeClipFromWorld(
     world: World,
     eid: number,
     aspect: number,

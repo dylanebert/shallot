@@ -53,12 +53,12 @@ export const PointsPlugin: Plugin = {
                 // WGSL escape hatch: point-list has no mesh or surface contract.
                 const module = world.gpu.device.createShaderModule({
                     code: `
-struct View { viewProj: mat4x4f }
+struct View { clipFromWorld: mat4x4f }
 @group(0) @binding(0) var<uniform> view: View;
 @vertex fn vertex(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
     let points = array<vec3f, 4>(vec3f(-1, 0, 0), vec3f(0, 0, 0),
         vec3f(1, 0, 0), vec3f(0, 0.25, 2));
-    return view.viewProj * vec4f(points[i], 1);
+    return view.clipFromWorld * vec4f(points[i], 1);
 }
 @fragment fn fragment() -> @location(0) vec4f { return vec4f(0, 1, 0, 1); }
 `,

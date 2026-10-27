@@ -730,7 +730,7 @@ export function updateCascades(world: World, main: number): void {
             farBound = farSplit;
         }
         cascadeTileRect(i, n, shadow.cascadeRects, i * 4);
-        // unfolded receiver viewProj (ortho × lookAt) — matches `computeViewProj` of this cascade's camera
+        // unfolded receiver viewProj (ortho × lookAt) — matches `computeClipFromWorld` of this cascade's camera
         // (aspect 1), so the cull frustum and the render projection agree; the folded VP adds the tile placement
         orthographic(_fit.extent[0], 1, 0, _fit.extent[1], _cascProj);
         lookAt(

@@ -7,7 +7,7 @@ import {
     attachCanvas,
     Camera,
     CameraMode,
-    computeViewProj,
+    computeClipFromWorld,
     DirectionalLight,
     PointLight,
     RenderContext,
@@ -74,7 +74,7 @@ function cameraFrame(world: World, eid: number): CameraFrame {
     const viewSlot = world.resource(Views).get(eid)!;
     const aspect = viewSlot.width / viewSlot.height;
     const view = new Float32Array(16);
-    computeViewProj(world, eid, aspect, new Float32Array(16), view);
+    computeClipFromWorld(world, eid, aspect, new Float32Array(16), view);
     return {
         eid,
         slot: viewSlot.slot,

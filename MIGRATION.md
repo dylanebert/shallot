@@ -74,6 +74,10 @@ materials.add(StandardMaterial({ doubleSided: true }), { cullMode: "none" });
 - `StandardMaterialInput` gains `doubleSided: u32`; `StandardMaterial()` fills it, and a hand-built row writes `0`.
 - A hand-built `Draw` may set `cullMode`; omitted, it culls back faces.
 
+## View uniforms use Bevy's matrix names
+
+`ViewUniforms.viewProj` is now `clipFromWorld` and `invViewProj` is `worldFromClip`, as in Bevy's `View`; `computeViewProj` is now `computeClipFromWorld`, with the same arguments. Rename each read in a material, background or extension shader. Byte offsets are unchanged, so a raw WGSL struct that declares only the leading matrix still binds.
+
 ## Adding an attached component replaces its values
 
 In 0.10, `world.add` on an entity that already held the component left its values unchanged and warned. Now it replaces them, as Bevy's `insert` does: supplied fields take their values, omitted fields take the declared defaults, or 0, and every field publishes a change. A call that relied on the old no-op to ensure presence resets the component; guard it with `world.has`, or write single fields through `world.storage`.

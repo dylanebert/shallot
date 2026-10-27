@@ -29,7 +29,7 @@ import {
 import { HALTON, HISTORY_WEIGHT, TEMPORAL_FRAMES } from "./temporal";
 
 export const FogHistory = d.struct({
-    viewProj: d.mat4x4f,
+    clipFromWorld: d.mat4x4f,
     eye: d.vec4f,
     forward: d.vec4f,
     range: d.vec4f,
@@ -307,7 +307,7 @@ function createDepthKernel(multisampled: boolean) {
             let deepest = d.f32(3.4e38);
             if (deepestDepth > 0) {
                 const forward = std.neg(std.cross(camView.right.xyz, camView.up.xyz));
-                const hit = reconstructWorld(camView.invViewProj, deepUv, deepestDepth);
+                const hit = reconstructWorld(camView.worldFromClip, deepUv, deepestDepth);
                 deepest = std.dot(std.sub(hit, camView.eye.xyz), forward) - camView.projection.x;
             }
             std.textureStore(layout.$.deepest, d.vec2i(input.wid.xy), d.vec4f(deepest, deepUv, 0));
@@ -371,8 +371,8 @@ function createGridKernel(multisampled: boolean) {
                 HALTON.$[(d.u32(layout.$.temporal.jitter.x) + phaseOffset) % TEMPORAL_FRAMES];
             const uv = std.div(std.add(d.vec2f(input.gid.xy), 0.5), d.vec2f(dim.xy));
             const sampleUv = std.div(std.add(d.vec2f(input.gid.xy), jitter.xy), d.vec2f(dim.xy));
-            const nearWorld = reconstructWorld(layout.$.view.invViewProj, uv, 1);
-            const farWorld = reconstructWorld(layout.$.view.invViewProj, uv, 0.0001);
+            const nearWorld = reconstructWorld(layout.$.view.worldFromClip, uv, 1);
+            const farWorld = reconstructWorld(layout.$.view.worldFromClip, uv, 0.0001);
             // Phase uses the unjittered ray, so moving the sample cannot jitter anisotropy.
             const dir = std.normalize(std.sub(farWorld, nearWorld));
             // The angle one froxel subtends: twice HDRP's _HalfVoxelArcLength.
@@ -380,23 +380,26 @@ function createGridKernel(multisampled: boolean) {
                 std.add(d.vec2f(input.gid.xy), d.vec2f(0.5, 1)),
                 d.vec2f(dim.xy),
             );
-            const edgeNear = reconstructWorld(layout.$.view.invViewProj, edgeUv, 1);
+            const edgeNear = reconstructWorld(layout.$.view.worldFromClip, edgeUv, 1);
             const froxelArc =
                 2 *
                 std.length(
                     std.sub(
                         std.normalize(
                             std.sub(
-                                reconstructWorld(layout.$.view.invViewProj, edgeUv, 0.0001),
+                                reconstructWorld(layout.$.view.worldFromClip, edgeUv, 0.0001),
                                 edgeNear,
                             ),
                         ),
                         dir,
                     ),
                 );
-            const sampleNear = reconstructWorld(layout.$.view.invViewProj, sampleUv, 1);
+            const sampleNear = reconstructWorld(layout.$.view.worldFromClip, sampleUv, 1);
             const sampleDir = std.normalize(
-                std.sub(reconstructWorld(layout.$.view.invViewProj, sampleUv, 0.0001), sampleNear),
+                std.sub(
+                    reconstructWorld(layout.$.view.worldFromClip, sampleUv, 0.0001),
+                    sampleNear,
+                ),
             );
 
             // `cfg`/`camView` — not `fog`/`view` — to avoid colliding with the group-0 binding keys of the same
@@ -419,7 +422,7 @@ function createGridKernel(multisampled: boolean) {
             const centerDepth = loadDepth(uv, camView.resolution);
             let centerSurface = d.f32(extent);
             if (centerDepth > 0) {
-                const hit = reconstructWorld(camView.invViewProj, uv, centerDepth);
+                const hit = reconstructWorld(camView.worldFromClip, uv, centerDepth);
                 centerSurface = std.dot(std.sub(hit, camView.eye.xyz), forward) - near;
             }
             std.textureStore(layout.$.surface, px, d.vec4f(centerSurface));
@@ -441,14 +444,14 @@ function createGridKernel(multisampled: boolean) {
             const deepest = deep.x;
             // The ray of the pixel that sees that surface, clear up to it by that pixel's depth sample.
             const deepUv = deep.yz;
-            const deepNear = reconstructWorld(layout.$.view.invViewProj, deepUv, 1);
+            const deepNear = reconstructWorld(layout.$.view.worldFromClip, deepUv, 1);
             const deepDir = std.normalize(
-                std.sub(reconstructWorld(layout.$.view.invViewProj, deepUv, 0.0001), deepNear),
+                std.sub(reconstructWorld(layout.$.view.worldFromClip, deepUv, 0.0001), deepNear),
             );
             const sceneDepth = loadDepth(sampleUv, camView.resolution);
             let surface = d.f32(extent);
             if (sceneDepth > 0) {
-                const hit = reconstructWorld(layout.$.view.invViewProj, sampleUv, sceneDepth);
+                const hit = reconstructWorld(layout.$.view.worldFromClip, sampleUv, sceneDepth);
                 surface = std.dot(std.sub(hit, camView.eye.xyz), forward) - near;
             }
             // Shadow receivers use free binding names invisible to the call-graph walk.
@@ -639,7 +642,7 @@ function createGridKernel(multisampled: boolean) {
                 // Angular scattering in history remains approximate when the camera turns.
                 const prev = layout.$.temporal;
                 const beyond = pastSurface(i, extent, centerSurface);
-                const clip = std.mul(prev.viewProj, d.vec4f(center, 1));
+                const clip = std.mul(prev.clipFromWorld, d.vec4f(center, 1));
                 const prevUv = std.add(std.mul(std.div(clip.xy, clip.w), d.vec2f(0.5, -0.5)), 0.5);
                 const depth = std.dot(std.sub(center, prev.eye.xyz), prev.forward.xyz);
                 const sliceDepth = (depth - prev.range.x) / prev.range.y;
@@ -860,9 +863,9 @@ export const fogIntegrateKernel = tgpu
         const last = d.i32(dim.y) - 1;
         const uv = std.div(std.add(d.vec2f(input.gid.xy), 0.5), d.vec2f(dim.xy));
         const camView = fogIntegrateLayout.$.view;
-        const nearWorld = reconstructWorld(camView.invViewProj, uv, 1);
+        const nearWorld = reconstructWorld(camView.worldFromClip, uv, 1);
         const dir = std.normalize(
-            std.sub(reconstructWorld(camView.invViewProj, uv, 0.0001), nearWorld),
+            std.sub(reconstructWorld(camView.worldFromClip, uv, 0.0001), nearWorld),
         );
         const forward = std.neg(std.cross(camView.right.xyz, camView.up.xyz));
         const rayScale = 1 / std.max(std.dot(dir, forward), 1e-6);
@@ -1013,9 +1016,9 @@ export const readFogInScatter = tgpu
         const forward = std.neg(std.cross(view.right.xyz, view.up.xyz));
         const viewZ = std.dot(std.sub(point, view.eye.xyz), forward);
         if (viewZ <= view.projection.x) return d.vec3f(0);
-        const clip = std.mul(view.viewProj, d.vec4f(point, 1));
+        const clip = std.mul(view.clipFromWorld, d.vec4f(point, 1));
         const uv = std.add(std.mul(std.div(clip.xy, clip.w), d.vec2f(0.5, -0.5)), 0.5);
-        const nearWorld = reconstructWorld(view.invViewProj, uv, 1);
+        const nearWorld = reconstructWorld(view.worldFromClip, uv, 1);
         const dir = std.normalize(std.sub(point, nearWorld));
         const cosine = std.max(std.dot(dir, forward), 1e-6);
         if (viewZ > cfg.extra.x * cosine || cfg.extra.x <= 0) return d.vec3f(0);
@@ -1060,10 +1063,10 @@ export const readFog = tgpu
         const camView = fogReadLayout.$.view;
         const cfg = fogReadLayout.$.fog;
         if (cfg.medium.x === 0) return d.vec4f(0, 0, 0, 1);
-        const clip = std.mul(camView.viewProj, d.vec4f(point, 1));
+        const clip = std.mul(camView.clipFromWorld, d.vec4f(point, 1));
         const uv = std.add(std.mul(std.div(clip.xy, clip.w), d.vec2f(0.5, -0.5)), 0.5);
         const forward = std.neg(std.cross(camView.right.xyz, camView.up.xyz));
-        const nearWorld = reconstructWorld(camView.invViewProj, uv, 1);
+        const nearWorld = reconstructWorld(camView.worldFromClip, uv, 1);
         const dir = std.normalize(std.sub(point, nearWorld));
         const surfaceZ = std.dot(std.sub(point, camView.eye.xyz), forward);
         const cosine = std.max(std.dot(dir, forward), 1e-6);
@@ -1103,9 +1106,9 @@ const applyFog = tgpu.fn(
     "use gpu";
     const uv = std.div(position.xy, fogReadLayout.$.view.resolution);
     const camView = fogReadLayout.$.view;
-    let point = reconstructWorld(camView.invViewProj, uv, depth);
+    let point = reconstructWorld(camView.worldFromClip, uv, depth);
     if (depth === 0 && camView.projection.z > 0.5) {
-        const nearWorld = reconstructWorld(camView.invViewProj, uv, 1);
+        const nearWorld = reconstructWorld(camView.worldFromClip, uv, 1);
         const dir = std.normalize(std.sub(nearWorld, camView.eye.xyz));
         point = std.add(
             camView.eye.xyz,

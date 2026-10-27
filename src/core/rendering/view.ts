@@ -15,14 +15,14 @@ import { releaseViewTargets } from "./targets";
  */
 export const ViewUniforms = d
     .struct({
-        viewProj: d.mat4x4f,
+        clipFromWorld: d.mat4x4f,
         resolution: d.vec2f,
         right: d.vec4f,
         up: d.vec4f,
         /** `x` near and `y` far plane distance, `z` 1 for perspective and 0 for orthographic, `w` the cull slot; `xyz` are 0 for views that do not shade. */
         projection: d.vec4f,
         eye: d.vec4f,
-        invViewProj: d.mat4x4f,
+        worldFromClip: d.mat4x4f,
         /** The selected global or camera ambient source, already multiplied by its cd/m² brightness. */
         ambientColor: d.vec4f,
         /** EV100 exposure factor, `2^-EV100 / 1.2`. */
@@ -548,7 +548,7 @@ export function attachView(world: World, eid: number): void {
         canvas: null,
         context: null,
         // square (aspect 1) — an off-screen view's own target sets the resolution; only the aspect
-        // feeds `computeViewProj`, so a shadow's ortho box stays square
+        // feeds `computeClipFromWorld`, so a shadow's ortho box stays square
         width: 1,
         height: 1,
         clientWidth: 0,
