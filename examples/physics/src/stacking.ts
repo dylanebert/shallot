@@ -75,7 +75,7 @@ function rotation(world: World, axis: V3, angle: number): Q4 {
 }
 function jengaStack(world: World, capsule = 0): number[] {
     ground(world, 20);
-    const geometry = box(world, [1, 0.1, 0.1]);
+    const geometry = capsule ? 0 : box(world, [1, 0.1, 0.1]);
     const bodies: number[] = [];
     for (let i = 0; i < 30; i++) {
         const alpha = i & 1 ? 0 : f(0.5 * pi);
@@ -84,12 +84,12 @@ function jengaStack(world: World, capsule = 0): number[] {
         const z = i & 1 ? offset : 0;
         const y = f(f(f(f(2.1) * i) + 0.5) * f(0.1));
         for (const sign of [1, -1]) {
-            const eid = body(
-                world,
-                geometry,
-                [sign * x, y, sign * z],
-                rotation(world, [0, 1, 0], alpha),
-            );
+            const eid = world.create();
+            world.add(eid, Transform, {
+                translation: [sign * x, y, sign * z],
+                rotation: rotation(world, [0, 1, 0], alpha),
+            });
+            world.add(eid, Body, { type: BodyType.Dynamic });
             world.add(
                 eid,
                 Shape,
@@ -409,7 +409,7 @@ export const stackingScenes = {
     },
     jenga: {
         construct: jengaStack,
-        gridExtent: 40,
+        gridExtent: 20,
         gridSpacing: 1,
         camera: { yaw: 35, pitch: 15, distance: 12, target: [0, 3, 0] },
         controls: jengaControls,

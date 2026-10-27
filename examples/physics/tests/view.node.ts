@@ -265,7 +265,7 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 singleBox: 20,
                 cylinder: 10,
                 cylinderStack: 10,
-                jenga: 40,
+                jenga: 20,
                 dominoes: 80,
                 wedge: 20,
                 arch: 40,
