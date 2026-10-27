@@ -296,7 +296,7 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
             const extent = {
                 driving: 200,
                 gearLift: 20,
-                distance: 25,
+                distance: 20,
                 door: 20,
                 spherical: 20,
                 motionLocks: 20,

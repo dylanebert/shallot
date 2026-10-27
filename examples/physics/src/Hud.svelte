@@ -61,7 +61,7 @@
                 <fieldset class="section" disabled={!(name in controls)}>
                     {#if control.read}
                         {#if outputs[name] != null}
-                            <div class="row"><span>{control.label}</span><output aria-label={control.label}>{outputs[name]!.toExponential(3)}</output></div>
+                            <div class="row"><span>{control.label}</span><output aria-label={control.label}>{formatValue(Number(outputs[name]!.toPrecision(3)))}</output></div>
                         {/if}
                     {:else if control.button}
                         <button tabindex="-1" onfocus={(event) => event.currentTarget.blur()} onclick={() => update(name, 1)}>{control.label}</button>

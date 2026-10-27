@@ -927,9 +927,9 @@ export const jointScenes = {
     },
     distance: {
         construct: distance,
-        gridExtent: 25,
+        gridExtent: 20,
         gridSpacing: 1,
-        camera: { yaw: 0, pitch: 15, distance: 40, target: [0, 10, 0] },
+        camera: { yaw: 20, pitch: 15, distance: 14, target: [2, 17, 0] },
         controls: distanceControls,
     },
     spherical: {
