@@ -50,7 +50,7 @@ for (const kind of ["entity", "line", "box", "arrow"] as const)
                 expect(frame()).toBe(0);
                 if (!world.has(camera, RenderLayers)) world.add(camera, RenderLayers);
                 world.storage(RenderLayers).mask.set(camera, 3);
-                expect(frame()).toBe(kind === "box" ? 12 : kind === "arrow" ? 2 : 1);
+                expect(frame()).toBe(1);
             } finally {
                 world.destroy(entity);
                 world.remove(camera, RenderLayers);

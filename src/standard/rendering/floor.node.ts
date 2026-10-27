@@ -33,7 +33,11 @@ import { probeBuffer, stampAdapter } from "../../engine/runtime";
 import { type AdapterInfoFacts, classifyAdapter } from "../../engine/runtime/adapter";
 import { EffectStackPlugin, Vignette } from "../../extras/effect-stack";
 import { drawLine, Gizmo, GizmoAsset, LinesPlugin, registerGizmo } from "../../extras/lines";
-import { lineLayout, viewLayout as lineViewLayout } from "../../extras/lines/pipeline";
+import {
+    instanceLayout as lineInstanceLayout,
+    lineLayout,
+    viewLayout as lineViewLayout,
+} from "../../extras/lines/pipeline";
 import { Sprite, SpriteMaterialInput, SpriteMaterialType, SpritePlugin } from "../../extras/sprite";
 import { SpriteAlphaMode } from "../../extras/sprite/pack";
 import { spritePublicationLayout } from "../../extras/sprite/table";
@@ -329,7 +333,9 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
             textVertex: storageCount(textViewLayout, "vertex") + storageCount(textLayout, "vertex"),
             textFragment: storageCount(textLayout, "fragment"),
             linesVertex:
-                storageCount(lineViewLayout, "vertex") + storageCount(lineLayout, "vertex"),
+                storageCount(lineViewLayout, "vertex") +
+                storageCount(lineLayout, "vertex") +
+                storageCount(lineInstanceLayout, "vertex"),
             linesFragment: storageCount(lineLayout, "fragment"),
         };
         expect(layouts).toEqual({
@@ -345,7 +351,7 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
             spritePublicationCompute: 3,
             textVertex: 5,
             textFragment: 0,
-            linesVertex: 1,
+            linesVertex: 2,
             linesFragment: 0,
         });
         expect(layouts.standardVertex).toBeLessThanOrEqual(8);

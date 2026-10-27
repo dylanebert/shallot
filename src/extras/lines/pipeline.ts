@@ -15,6 +15,7 @@ export const Segment = d
         c: d.vec3f,
         triangle: d.u32,
         depthBias: d.f32,
+        layers: d.u32,
     })
     .$name("Segment");
 
@@ -40,13 +41,36 @@ export const lineLayout = tgpu
     })
     .$idx(1);
 
+export const LineInstance = d.struct({
+    worldFromLocal: d.mat4x4f,
+    width: d.f32,
+    opacity: d.f32,
+    depthBias: d.f32,
+    layers: d.u32,
+});
+export const instanceLayout = tgpu
+    .bindGroupLayout({
+        instances: { storage: d.arrayOf(LineInstance), access: "readonly", visibility: ["vertex"] },
+    })
+    .$idx(2);
+
 const LineVertex = tgpu.vertexFn({
     in: { vertex: d.builtin.vertexIndex, instance: d.builtin.instanceIndex },
     out: { position: d.builtin.position, rgba: d.vec4f, edge: d.vec2f },
 })((input) => {
     "use gpu";
-    const seg = Segment(lineLayout.$.segments[input.instance]);
+    const instance = instanceLayout.$.instances[input.instance];
+    const seg = Segment(lineLayout.$.segments[input.vertex / 6]);
     const index = input.vertex % 6;
+    const a = std.mul(instance.worldFromLocal, d.vec4f(seg.a, 1)).xyz;
+    const b = std.mul(instance.worldFromLocal, d.vec4f(seg.b, 1)).xyz;
+    const c = std.mul(instance.worldFromLocal, d.vec4f(seg.c, 1)).xyz;
+    const retained = instance.width >= 0;
+    const width = std.select(seg.width, instance.width, retained);
+    const bias = std.select(seg.depthBias, instance.depthBias, retained);
+    let rgba = unpackLdrColor(seg.color);
+    rgba = d.vec4f(rgba.xyz, rgba.w * instance.opacity);
+    if (!retained && (seg.layers & instance.layers) === 0) rgba = d.vec4f(0);
     let t = d.f32(0);
     let edge = d.f32(-1);
     if (index === 1) edge = d.f32(1);
@@ -60,24 +84,24 @@ const LineVertex = tgpu.vertexFn({
     }
     const view = viewLayout.$.view;
     if (seg.triangle !== 0) {
-        const point = triangleVertex(seg.a, seg.b, seg.c, index);
+        const point = triangleVertex(a, b, c, index);
         return {
-            position: biasClipDepth(std.mul(view.clipFromWorld, d.vec4f(point, 1)), seg.depthBias),
-            rgba: unpackLdrColor(seg.color),
+            position: biasClipDepth(std.mul(view.clipFromWorld, d.vec4f(point, 1)), bias),
+            rgba,
             edge: d.vec2f(0, 1),
         };
     }
     const quad = lineQuad(
-        std.mul(view.clipFromWorld, d.vec4f(seg.a, 1)),
-        std.mul(view.clipFromWorld, d.vec4f(seg.b, 1)),
+        std.mul(view.clipFromWorld, d.vec4f(a, 1)),
+        std.mul(view.clipFromWorld, d.vec4f(b, 1)),
         view.resolution,
         t,
         edge,
-        seg.width,
+        width,
     );
     return {
-        position: biasClipDepth(quad.clip, seg.depthBias),
-        rgba: std.mul(unpackLdrColor(seg.color), quad.tint),
+        position: biasClipDepth(quad.clip, bias),
+        rgba: std.mul(rgba, quad.tint),
         edge: quad.edge,
     };
 });

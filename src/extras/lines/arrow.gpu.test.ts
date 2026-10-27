@@ -10,19 +10,12 @@ import {
     captureTexture,
     computeClipFromWorld,
     DebandDither,
+    TransparentPhases,
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import { lookAtRotation } from "../../engine/utils";
 import { Gizmo, GizmoAsset, LinesPlugin, registerGizmo } from "./index";
-import { SEGMENT_FLOATS } from "./pipeline";
-import {
-    drawArrow,
-    drawLine,
-    drawWireBox,
-    lineCount,
-    lineStableIds,
-    lineStaging,
-} from "./segments";
+import { drawArrow, drawLine, drawWireBox, lineCount } from "./segments";
 
 setDefaultTimeout(TIMEOUT.gpu);
 const Show = { create: () => ({ value: false }) };
@@ -143,18 +136,11 @@ test("one asset's line, arrow and box move all fifteen primitives with its entit
     const after = await frame();
     expect(asset.segments.f32).toBe(source);
     expect(new Uint32Array(source.buffer)).toEqual(original);
-    expect(lineCount(world)).toBe(15);
-    const staged = lineStaging(world);
-    for (let i = 0; i < 15; i++) {
-        expect(lineStableIds(world)[i]).toBe(entity);
-        const at = i * SEGMENT_FLOATS;
-        for (const point of [0, 4, ...(asset.segments.u32[at + 11] ? [8] : [])]) {
-            expect(staged[at + point]).toBeCloseTo(source[at + point] + 1, 6);
-            expect(staged[at + point + 1]).toBeCloseTo(source[at + point + 1], 6);
-            expect(staged[at + point + 2]).toBeCloseTo(source[at + point + 2], 6);
-        }
-        expect(staged[at + 3]).toBe(2);
-    }
+    expect(lineCount(world)).toBe(0);
+    const phase = world.resource(TransparentPhases).get(camera)!;
+    expect(phase.length).toBe(1);
+    expect(phase.item(0).stableId).toBe(entity);
+    expect(phase.metrics.draws).toBe(1);
     const centroid = (pixels: Uint8ClampedArray) => {
         let count = 0,
             x = 0;

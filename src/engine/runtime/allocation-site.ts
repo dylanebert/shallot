@@ -189,6 +189,15 @@ export const gpuAllocationExpressions = [
         returns: false,
         expression: "pass.end()",
     },
+    {
+        fn: drawInstances,
+        wrapperSite: "src/engine/runtime/allocation-site.ts:220:30",
+        parameters:
+            "pass: GPURenderPassEncoder, vertexCount: number, instanceCount: number, firstInstance: number",
+        returnType: "void",
+        returns: false,
+        expression: "pass.draw(vertexCount, instanceCount, 0, firstInstance)",
+    },
 ] as const;
 
 export function dispatchWorkgroupsIndirect(
@@ -206,4 +215,13 @@ export function dispatchWorkgroups3(
     z: number,
 ): void {
     pass.dispatchWorkgroups(x, y, z);
+}
+
+export function drawInstances(
+    pass: GPURenderPassEncoder,
+    vertexCount: number,
+    instanceCount: number,
+    firstInstance: number,
+): void {
+    pass.draw(vertexCount, instanceCount, 0, firstInstance);
 }

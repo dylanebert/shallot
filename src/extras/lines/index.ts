@@ -1,3 +1,5 @@
+import type { StorageFlag, TgpuBuffer } from "typegpu";
+import * as d from "typegpu/data";
 import {
     BeginFrameSystem,
     Camera,
@@ -13,21 +15,27 @@ import {
 import { composeGlobalTransform, GlobalTransform } from "../../core/transform";
 import type { Plugin, System, World } from "../../engine";
 import { component, f32, precompile } from "../../engine";
-import { packColor } from "../../engine/utils";
-import { createLinePipeline, lineLayout, SEGMENT_FLOATS, viewLayout } from "./pipeline";
+import { drawInstances, setRenderBindGroup, setRenderPipeline } from "../../engine/runtime";
+import {
+    createLinePipeline,
+    instanceLayout,
+    LineInstance,
+    lineLayout,
+    SEGMENT_BYTES,
+    SEGMENT_FLOATS,
+    Segment,
+    viewLayout,
+} from "./pipeline";
 import {
     disposeSegments,
     flushSegments,
     type GizmoAsset,
-    grow,
     initializeSegmentState,
     Lines,
     lineCount,
-    lineStableIds,
-    lineStableParts,
-    lineStaging,
     ready,
     resetCount,
+    type SegmentState,
     segmentState,
     warmSegments,
 } from "./segments";
@@ -50,119 +58,237 @@ export const Gizmo = component(
     { defaults: () => ({ handle: 0, width: 2, opacity: 1, depthBias: 0 }) },
 );
 
-const gizmoAssets = { create: () => [] as GizmoAsset[] };
+interface AssetUpload {
+    asset: GizmoAsset;
+    revision: number;
+    buffer: (TgpuBuffer<d.WgslArray<typeof Segment>> & StorageFlag) | null;
+    group: GPUBindGroup | null;
+    center: Float32Array;
+}
+const gizmoAssets = { create: () => [] as AssetUpload[] };
 
 /** Registers shared local-space geometry in this World; returns its handle. */
 export function registerGizmo(world: World, asset: GizmoAsset): number {
-    return world.resource(gizmoAssets).push(asset);
+    return world
+        .resource(gizmoAssets)
+        .push({ asset, revision: -1, buffer: null, group: null, center: new Float32Array(3) });
 }
 
 const RETAINED_LINES_QUERY = [Gizmo, GlobalTransform];
 const matrixKey = { create: () => new Float32Array(16) };
 
-function expandRetained(world: World): void {
-    const matrix = world.resource(matrixKey);
-    const gizmos = world.storage(Gizmo);
-    const assets = world.resource(gizmoAssets);
-    const target = segmentState(world);
-    for (const eid of world.query(RETAINED_LINES_QUERY)) {
-        const asset = assets[gizmos.handle.get(eid) - 1];
-        if (!asset) continue;
-        composeGlobalTransform(world, eid, matrix);
-        const source = asset.segments;
-        const width = gizmos.width.get(eid);
-        const alpha = packColor(0, gizmos.opacity.get(eid)) & 0xff000000;
-        if (target.count + source.count > target.capacity)
-            grow(target, target.count + source.count);
-        for (let i = 0; i < source.count; i++) {
+function boundsCenter(
+    source: SegmentState,
+    count: number,
+    center: Float32Array | Float64Array,
+    mask = 0xffffffff,
+): boolean {
+    let visible = false;
+    for (let axis = 0; axis < 3; axis++) {
+        let min = Infinity;
+        let max = -Infinity;
+        for (let i = 0; i < count; i++) {
+            if (!(source.layers[i] & mask)) continue;
+            visible = true;
             const at = i * SEGMENT_FLOATS;
-            const index = target.count++;
-            const out = index * SEGMENT_FLOATS;
-            const triangle = source.u32[at + 11];
-            for (let point = 0; point < (triangle ? 12 : 8); point += 4) {
-                const x = source.f32[at + point];
-                const y = source.f32[at + point + 1];
-                const z = source.f32[at + point + 2];
-                target.f32[out + point] =
-                    matrix[0] * x + matrix[4] * y + matrix[8] * z + matrix[12];
-                target.f32[out + point + 1] =
-                    matrix[1] * x + matrix[5] * y + matrix[9] * z + matrix[13];
-                target.f32[out + point + 2] =
-                    matrix[2] * x + matrix[6] * y + matrix[10] * z + matrix[14];
+            for (let point = 0; point < (source.u32[at + 11] ? 12 : 8); point += 4) {
+                min = Math.min(min, source.f32[at + point + axis]);
+                max = Math.max(max, source.f32[at + point + axis]);
             }
-            target.f32[out + 3] = width;
-            target.u32[out + 7] = (source.u32[at + 7] & 0xffffff) | alpha;
-            target.u32[out + 11] = triangle;
-            target.f32[out + 12] = gizmos.depthBias.get(eid);
-            target.layers[index] = renderLayers(world, eid);
-            target.stableIds[index] = eid;
-            target.stableParts[index] = i;
         }
+        center[axis] = (min + max) * 0.5;
+    }
+    return visible;
+}
+
+function uploadAssets(world: World): void {
+    for (const upload of world.resource(gizmoAssets)) {
+        const source = upload.asset.segments;
+        if (upload.revision === source.revision) continue;
+        upload.revision = source.revision;
+        if (!source.count) continue;
+        if (
+            !upload.buffer ||
+            world.gpu.root.unwrap(upload.buffer).size < source.count * SEGMENT_BYTES
+        ) {
+            const stale = upload.buffer;
+            if (stale) world.gpu.device.queue.onSubmittedWorkDone().then(() => stale.destroy());
+            upload.buffer = world.gpu.root
+                .createBuffer(d.arrayOf(Segment, source.capacity))
+                .$usage("storage");
+            upload.group = world.gpu.root.unwrap(
+                world.gpu.root.createBindGroup(lineLayout, { segments: upload.buffer }),
+            );
+        }
+        world.gpu.device.queue.writeBuffer(
+            world.gpu.root.unwrap(upload.buffer),
+            0,
+            source.staging,
+            0,
+            source.count * SEGMENT_BYTES,
+        );
+        boundsCenter(source, source.count, upload.center);
     }
 }
 
-interface LineRendererState {
-    single: import("typegpu").TgpuRenderPipeline | null;
-    multisample: import("typegpu").TgpuRenderPipeline | null;
-    viewGroups: Map<number, { buffer: GPUBuffer; group: GPUBindGroup }>;
-    segmentBuffer: object | null;
-    segmentGroup: GPUBindGroup | null;
-    lastPipeline: import("typegpu").TgpuRenderPipeline | null;
-    lastViewGroup: GPUBindGroup | null;
-    lastSegmentGroup: GPUBindGroup | null;
+const INSTANCE_BYTES = d.sizeOf(LineInstance);
+const INSTANCE_WORDS = INSTANCE_BYTES / 4;
+function retainedRecords(capacity = 64) {
+    const staging = new ArrayBuffer(capacity * INSTANCE_BYTES);
+    return {
+        capacity,
+        count: 0,
+        floats: new Float32Array(staging),
+        ints: new Uint32Array(staging),
+        eids: new Uint32Array(capacity),
+        handles: new Uint32Array(capacity),
+        centers: new Float64Array(capacity * 3),
+    };
+}
+const retainedKey = { create: () => retainedRecords() };
+
+function extractGizmos(world: World): void {
+    const records = world.resource(retainedKey);
+    records.count = 0;
+    const gizmos = world.storage(Gizmo);
+    const assets = world.resource(gizmoAssets);
+    const matrix = world.resource(matrixKey);
+    for (const eid of world.query(RETAINED_LINES_QUERY)) {
+        const handle = gizmos.handle.get(eid);
+        const asset = assets[handle - 1];
+        if (!asset?.asset.segments.count) continue;
+        const row = ++records.count;
+        if (row >= records.capacity) {
+            const next = retainedRecords(records.capacity * 2);
+            next.count = records.count;
+            next.ints.set(records.ints);
+            next.eids.set(records.eids);
+            next.handles.set(records.handles);
+            next.centers.set(records.centers);
+            Object.assign(records, next);
+        }
+        composeGlobalTransform(world, eid, matrix);
+        const at = row * INSTANCE_WORDS;
+        records.floats.set(matrix, at);
+        records.floats[at + 16] = gizmos.width.get(eid);
+        records.floats[at + 17] = gizmos.opacity.get(eid);
+        records.floats[at + 18] = gizmos.depthBias.get(eid);
+        records.ints[at + 19] = renderLayers(world, eid);
+        records.eids[row] = eid;
+        records.handles[row] = handle;
+        const c = asset.center;
+        for (let axis = 0; axis < 3; axis++)
+            records.centers[row * 3 + axis] =
+                matrix[axis] * c[0] +
+                matrix[4 + axis] * c[1] +
+                matrix[8 + axis] * c[2] +
+                matrix[12 + axis];
+    }
+}
+
+interface InstanceUpload {
+    buffer: TgpuBuffer<d.WgslArray<typeof LineInstance>> & StorageFlag;
+    group: GPUBindGroup;
+    staging: ArrayBuffer;
+    floats: Float32Array;
+    ints: Uint32Array;
+    capacity: number;
 }
 const lineRendererKey = {
-    create: (): LineRendererState => ({
-        single: null,
-        multisample: null,
-        viewGroups: new Map(),
-        segmentBuffer: null,
-        segmentGroup: null,
-        lastPipeline: null,
-        lastViewGroup: null,
-        lastSegmentGroup: null,
+    create: () => ({
+        single: null as ReturnType<typeof createLinePipeline> | null,
+        multisample: null as ReturnType<typeof createLinePipeline> | null,
+        viewGroups: new Map<number, { buffer: GPUBuffer; group: GPUBindGroup }>(),
+        instances: new Map<number, InstanceUpload>(),
+        segmentBuffer: null as object | null,
+        segmentGroup: null as GPUBindGroup | null,
     }),
 };
 
-function queueLines(world: World, eid: number, _view: View, phase: TransparentPhase): void {
-    const count = lineCount(world);
-    if (!count || !world.resource(Lines).buffer) return;
-    const values = lineStaging(world);
-    const stableIds = lineStableIds(world);
-    const stableParts = lineStableParts(world);
+function queueLines(world: World, camera: number, _view: View, phase: TransparentPhase): void {
+    const mask = renderLayers(world, camera);
+    if (boundsCenter(segmentState(world), lineCount(world), phase.positionScratch, mask))
+        phase.addFromScratch(0, 0, 0);
+    const records = world.resource(retainedKey);
     const position = phase.positionScratch;
-    const cameraLayers = renderLayers(world, eid);
-    const segmentLayers = segmentState(world).layers;
-    for (let i = 0; i < count; i++) {
-        if (!(segmentLayers[i]! & cameraLayers)) continue;
-        const at = i * SEGMENT_FLOATS;
-        position[0] = (values[at]! + values[at + 4]!) * 0.5;
-        position[1] = (values[at + 1]! + values[at + 5]!) * 0.5;
-        position[2] = (values[at + 2]! + values[at + 6]!) * 0.5;
-        phase.addFromScratch(i, 0, stableIds[i]!, stableParts[i]!);
+    for (let row = 1; row <= records.count; row++) {
+        if (!(records.ints[row * INSTANCE_WORDS + 19] & mask)) continue;
+        for (let axis = 0; axis < 3; axis++) position[axis] = records.centers[row * 3 + axis];
+        phase.addFromScratch(row, records.handles[row], records.eids[row]);
     }
 }
 
-function prepareLines(world: World, _eid: number, view: View): void {
-    const lines = world.resource(Lines);
-    if (!lineCount(world) || !lines.buffer) return;
+function prepareLines(
+    world: World,
+    camera: number,
+    view: View,
+    phase: TransparentPhase,
+    renderer: number,
+): void {
     const state = world.resource(lineRendererKey);
     const viewBuffer = world.resource(RenderContext).viewBuffers[view.slot];
     if (!viewBuffer) return;
-    let viewGroup = state.viewGroups.get(view.slot);
-    if (!viewGroup || viewGroup.buffer !== viewBuffer) {
-        const group = world.gpu.root.createBindGroup(viewLayout, { view: viewBuffer });
-        viewGroup = { buffer: viewBuffer, group: world.gpu.root.unwrap(group) };
-        state.viewGroups.set(view.slot, viewGroup);
+    if (state.viewGroups.get(view.slot)?.buffer !== viewBuffer) {
+        const group = world.gpu.root.unwrap(
+            world.gpu.root.createBindGroup(viewLayout, { view: viewBuffer }),
+        );
+        state.viewGroups.set(view.slot, { buffer: viewBuffer, group });
     }
-    if (state.segmentBuffer !== lines.buffer || !state.segmentGroup) {
-        const group = world.gpu.root.createBindGroup(lineLayout, { segments: lines.buffer });
+    const lines = world.resource(Lines);
+    if (lines.buffer && state.segmentBuffer !== lines.buffer) {
         state.segmentBuffer = lines.buffer;
-        state.segmentGroup = world.gpu.root.unwrap(group);
+        state.segmentGroup = world.gpu.root.unwrap(
+            world.gpu.root.createBindGroup(lineLayout, { segments: lines.buffer }),
+        );
     }
-    state.lastPipeline = null;
-    state.lastViewGroup = null;
-    state.lastSegmentGroup = null;
+    if (!phase.length) return;
+    let instances = state.instances.get(view.slot);
+    if (!instances || instances.capacity < phase.length) {
+        const capacity = Math.max(64, 2 ** Math.ceil(Math.log2(phase.length)));
+        const stale = instances?.buffer;
+        if (stale) world.gpu.device.queue.onSubmittedWorkDone().then(() => stale.destroy());
+        const buffer = world.gpu.root
+            .createBuffer(d.arrayOf(LineInstance, capacity))
+            .$usage("storage");
+        const staging = new ArrayBuffer(capacity * d.sizeOf(LineInstance));
+        instances = {
+            buffer,
+            group: world.gpu.root.unwrap(
+                world.gpu.root.createBindGroup(instanceLayout, { instances: buffer }),
+            ),
+            staging,
+            floats: new Float32Array(staging),
+            ints: new Uint32Array(staging),
+            capacity,
+        };
+        state.instances.set(view.slot, instances);
+    }
+    const { floats, ints } = instances;
+    const records = world.resource(retainedKey);
+    const cameraLayers = renderLayers(world, camera);
+    for (let i = 0; i < phase.length; i++) {
+        const item = phase.item(i);
+        if (item.renderer !== renderer) continue;
+        const at = i * INSTANCE_WORDS;
+        if (item.batch) {
+            const source = item.draw * INSTANCE_WORDS;
+            for (let word = 0; word < INSTANCE_WORDS; word++)
+                ints[at + word] = records.ints[source + word];
+        } else {
+            floats.fill(0, at, at + INSTANCE_WORDS);
+            floats[at] = floats[at + 5] = floats[at + 10] = floats[at + 15] = 1;
+            floats[at + 16] = -1;
+            floats[at + 17] = 1;
+            ints[at + 19] = cameraLayers;
+        }
+    }
+    world.gpu.device.queue.writeBuffer(
+        world.gpu.root.unwrap(instances.buffer),
+        0,
+        instances.staging,
+        0,
+        phase.length * d.sizeOf(LineInstance),
+    );
 }
 
 function drawLines(
@@ -173,37 +299,30 @@ function drawLines(
     start: number,
     end: number,
     pass: GPURenderPassEncoder,
-    renderer: number,
+    _renderer: number,
 ): void {
     const state = world.resource(lineRendererKey);
     const viewGroup = state.viewGroups.get(view.slot)?.group;
-    const segmentGroup = state.segmentGroup;
-    if (!viewGroup || !segmentGroup) return;
+    const instances = state.instances.get(view.slot);
+    const batch = phase.item(start).batch;
+    const asset = batch ? world.resource(gizmoAssets)[batch - 1] : undefined;
+    const group = batch ? asset?.group : state.segmentGroup;
+    const count = batch ? asset?.asset.segments.count : lineCount(world);
+    if (!viewGroup || !instances || !group || !count) return;
     const key = world.storage(Camera).antialias.get(eid) ? "multisample" : "single";
     const pipeline = (state[key] ??= createLinePipeline(
         world,
         world.resource(RenderContext).format,
         key === "single" ? 1 : 4,
     ));
-    const previous = start > 0 ? phase.item(start - 1) : undefined;
-    if (previous?.renderer !== renderer) {
-        state.lastPipeline = null;
-        state.lastViewGroup = null;
-        state.lastSegmentGroup = null;
-    }
-    pass.setPipeline(world.gpu.root.unwrap(pipeline));
-    pass.setBindGroup(0, viewGroup);
-    pass.setBindGroup(1, segmentGroup);
-    if (state.lastPipeline !== pipeline) phase.metrics.pipelineChanges++;
-    if (state.lastViewGroup !== viewGroup) phase.metrics.bindGroupChanges++;
-    if (state.lastSegmentGroup !== segmentGroup) phase.metrics.bindGroupChanges++;
-    state.lastPipeline = pipeline;
-    state.lastViewGroup = viewGroup;
-    state.lastSegmentGroup = segmentGroup;
-    for (let i = start; i < end; i++) {
-        pass.draw(6, 1, 0, phase.item(i).draw);
-        phase.metrics.draws++;
-    }
+    setRenderPipeline(pass, world.gpu.root.unwrap(pipeline));
+    setRenderBindGroup(pass, 0, viewGroup);
+    setRenderBindGroup(pass, 1, group);
+    setRenderBindGroup(pass, 2, instances.group);
+    drawInstances(pass, 6 * count, end - start, start);
+    phase.metrics.draws++;
+    phase.metrics.pipelineChanges++;
+    phase.metrics.bindGroupChanges += 3;
 }
 
 const LinesSystem: System = {
@@ -213,24 +332,19 @@ const LinesSystem: System = {
     before: [PrepassSystem],
     update(world) {
         if (!ready(world)) return;
-        expandRetained(world);
+        uploadAssets(world);
+        extractGizmos(world);
         flushSegments(world, world.gpu.device);
     },
 };
 
-/**
- * the shallot debug-line producer: an immediate {@link drawLine} / {@link drawWireBox} / {@link drawArrow} API plus
- * retained {@link Gizmo} assets, both feeding one instanced-quad draw rendered
- * in core's transparent phase (screen-space constant-pixel width, no overlay pass). Depends on
- * {@link CorePipelinePlugin}; a core camera renders it
- */
+/** Screen-space pixel-width immediate lines and retained local-space gizmos in core's sorted transparent phase. */
 export const LinesPlugin: Plugin = {
     gpu: {},
     name: "Lines",
     components: [Gizmo],
     systems: [LinesSystem],
     dependencies: [CorePipelinePlugin],
-
     initialize(world) {
         initializeSegmentState(world);
         resetCount(world);
@@ -240,8 +354,7 @@ export const LinesPlugin: Plugin = {
             drawTransparent: drawLines,
         });
     },
-
-    warm(world: World) {
+    warm(world) {
         warmSegments(world);
         const format = world.resource(RenderContext).format;
         const state = world.resource(lineRendererKey);
@@ -255,17 +368,15 @@ export const LinesPlugin: Plugin = {
             return [];
         });
     },
-
-    dispose(world: World) {
+    dispose(world) {
         disposeSegments(world);
+        for (const asset of world.resource(gizmoAssets)) asset.buffer?.destroy();
         const state = world.resource(lineRendererKey);
+        for (const instances of state.instances.values()) instances.buffer.destroy();
+        state.instances.clear();
         state.viewGroups.clear();
         state.segmentBuffer = null;
         state.segmentGroup = null;
-        state.lastPipeline = null;
-        state.lastViewGroup = null;
-        state.lastSegmentGroup = null;
-        state.single = null;
-        state.multisample = null;
+        state.single = state.multisample = null;
     },
 };

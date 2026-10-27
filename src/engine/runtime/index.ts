@@ -12,6 +12,7 @@ export {
     dispatchWorkgroupsIndirect,
     draw,
     drawIndexedIndirect,
+    drawInstances,
     endComputePass,
     endRenderPass,
     executeRenderBundles,

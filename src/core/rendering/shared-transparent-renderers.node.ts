@@ -200,7 +200,55 @@ test("standard, text and line renderers alternate in one phase; text and lines d
     const labelItem = middle.find((item) => item.stableId === label)!;
     const lineItem = middle.find((item) => item.stableId === line)!;
     expect(labelItem.draw).not.toBe(label);
-    expect(lineItem.draw).toBe(1);
+    expect(lineItem.draw).not.toBe(line);
     expect(lineItem.stablePart).toBe(0);
     expect(lineItem.draw).not.toBe(lineItem.stablePart);
+});
+
+test("consecutive gizmos of one asset draw one run; an interleaved transparent mesh splits it", async () => {
+    const {
+        world,
+        scene: { camera, nearMaterial },
+    } = subject();
+    for (const eid of world.query([Gizmo])) world.remove(eid, Gizmo);
+    for (const eid of world.query([Text])) world.remove(eid, Text);
+    for (const eid of world.query([MeshInstance])) world.remove(eid, MeshInstance);
+    const asset = new GizmoAsset();
+    drawLine(asset, [-0.8, 0, 2], [0.8, 0, 2], 0xffffff);
+    drawLine(asset, [0, -0.8, 2], [0, 0.8, 2], 0xff3030);
+    const handle = registerGizmo(world, asset);
+    const far = world.create();
+    world.add(far, Transform, { translation: [0, 0, -3] });
+    world.add(far, Gizmo, { handle, width: 8, opacity: 0.5 });
+    const near = world.create();
+    world.add(near, Transform, { translation: [0, 0, -1] });
+    world.add(near, Gizmo, { handle, width: 4, opacity: 0.75 });
+    const combined = await readFrame(world, camera);
+    const phase = world.resource(TransparentPhases).get(camera)!;
+    expect(phase.length).toBe(2);
+    expect(phase.item(0).stableId).toBe(far);
+    expect(phase.item(1).stableId).toBe(near);
+    expect(phase.item(0).sortKey).toBeCloseTo(-6);
+    expect(phase.item(1).sortKey).toBeCloseTo(-4);
+    expect(phase.metrics.draws).toBe(1);
+    const pane = world.create();
+    world.add(pane, Transform, { scale: [0.7, 0.7, 0.02] });
+    world.add(pane, MeshInstance);
+    world.add(pane, MeshMaterial, nearMaterial);
+    const interleaved = await readFrame(world, camera);
+    expect(phase.length).toBe(3);
+    expect([phase.item(0).stableId, phase.item(1).stableId, phase.item(2).stableId]).toEqual([
+        far,
+        pane,
+        near,
+    ]);
+    expect(phase.item(0).batch).toBe(phase.item(2).batch);
+    expect(phase.metrics.draws).toBe(3);
+    expect(interleaved).not.toEqual(combined);
+    world.remove(pane, MeshInstance);
+    // Appending shared geometry invalidates its upload without changing its handle.
+    drawLine(asset, [-0.8, 0.5, 2], [0.8, 0.5, 2], 0x30ff30);
+    const changed = await readFrame(world, camera);
+    expect(phase.metrics.draws).toBe(1);
+    expect(changed).not.toEqual(combined);
 });

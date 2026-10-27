@@ -18,6 +18,7 @@ export interface SegmentState {
     capacity: number;
     count: number;
     publishedCount: number;
+    revision: number;
 }
 
 const segmentStateKey = { create: () => createSegmentState() };
@@ -35,6 +36,7 @@ function createSegmentState(capacity = INITIAL): SegmentState {
         capacity,
         count: 0,
         publishedCount: 0,
+        revision: 0,
     };
 }
 
@@ -109,6 +111,8 @@ export function push(
     state.u32[o + 11] = 0;
     state.f32[o + 12] = depthBias;
     state.layers[index] = renderLayers;
+    state.u32[o + 13] = renderLayers;
+    state.revision++;
     state.stableIds[index] = stableId;
     state.stableParts[index] = stablePart ?? index;
     state.count++;
@@ -159,6 +163,8 @@ export function head(state: SegmentState, tipLength: number, normal: ArrayLike<n
     state.f32[o + 6] = tz - dz * back + sz;
     state.u32[o + 7] = state.u32[shaft + 7];
     state.layers[index] = state.layers[index - 1];
+    state.u32[o + 13] = state.layers[index];
+    state.revision++;
     state.stableIds[index] = state.stableIds[index - 1];
     state.stableParts[index] = state.stableParts[index - 1] + 1;
     state.f32[o + 8] = tx - dx * back - sx;
@@ -327,7 +333,7 @@ export function ready(world: World): boolean {
     return !!segmentState(world).buffer;
 }
 
-/** Segment data published by the latest draw update, indexed by `instance_index`. */
+/** Immediate segment staging; six consecutive vertices draw one segment. */
 export function lineStaging(world: World): Float32Array {
     return segmentState(world).f32;
 }
