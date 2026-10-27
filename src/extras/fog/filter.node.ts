@@ -49,7 +49,7 @@ test("a dolly across a floor slice boundary keeps the shaft-edge step near the u
             eyeZ = 2 - (step * 0.01 * 3) / Math.hypot(3, 1.7);
         world.storage(Transform).translation.set(camera, 0, eyeY, eyeZ, 0);
         world.tick();
-        for (let i = 0; i < 48; i++) world.step(0);
+        for (let i = 0; i < 32; i++) world.step(0);
         const { rgba } = await captureTexture(world, camera);
         const image = new Float64Array(WIDTH * HEIGHT);
         for (let y = 0; y < HEIGHT; y++)
