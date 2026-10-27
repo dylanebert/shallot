@@ -81,12 +81,28 @@ const Owned = {
             { bytesPerRow: 8 },
             [2, 1],
         );
-        for (const texture of [pair, layers, depth, scalars]) world.own(texture);
+        const signed = device.createTexture({ size: [1, 1], format: "r32sint", usage });
+        device.queue.writeTexture(
+            { texture: signed },
+            new Int32Array([-7]),
+            { bytesPerRow: 4 },
+            [1, 1],
+        );
+        const unsigned = device.createTexture({ size: [1, 1], format: "r32uint", usage });
+        device.queue.writeTexture(
+            { texture: unsigned },
+            new Uint32Array([7]),
+            { bytesPerRow: 4 },
+            [1, 1],
+        );
+        for (const texture of [pair, layers, depth, scalars, signed, unsigned]) world.own(texture);
         return {
             pair,
             layers,
             depth,
             scalars,
+            signed,
+            unsigned,
             linear: device.createSampler({ magFilter: "linear", minFilter: "linear" }),
             less: device.createSampler({ compare: "less" }),
             nearest: device.createSampler(),
@@ -109,6 +125,10 @@ const comparisonLayout = materialLayout(Unused, {
 const unfilterableLayout = materialLayout(Unused, {
     scalars: { type: "texture", filterable: false },
     nearest: { type: "sampler", samplerType: "non-filtering" },
+});
+const signedLayout = materialLayout(Unused, { signed: { type: "texture", sampleType: "sint" } });
+const unsignedLayout = materialLayout(Unused, {
+    unsigned: { type: "texture", sampleType: "uint" },
 });
 const bindingKinds: Record<
     string,
@@ -195,6 +215,35 @@ const bindingKinds: Record<
                     0.9,
                 );
                 return d.vec4f(below, above, 0, 1);
+            },
+        }),
+    },
+    // -7 reads back negated, so the sign survives
+    "sint texture": {
+        expected: [srgbByte(7 / 255), 0, 0, 255],
+        type: materialType({
+            name: "OwnedTextureSint",
+            layout: signedLayout,
+            defaults: { unused: 0 },
+            bindings: (world) => world.resource(Owned),
+            fragment: () => {
+                "use gpu";
+                const texel = std.textureLoad(signedLayout.$.signed, d.vec2i(0, 0), 0);
+                return d.vec4f(d.f32(texel.x) / -255, 0, 0, 1);
+            },
+        }),
+    },
+    "uint texture": {
+        expected: [srgbByte(7 / 255), 0, 0, 255],
+        type: materialType({
+            name: "OwnedTextureUint",
+            layout: unsignedLayout,
+            defaults: { unused: 0 },
+            bindings: (world) => world.resource(Owned),
+            fragment: () => {
+                "use gpu";
+                const texel = std.textureLoad(unsignedLayout.$.unsigned, d.vec2i(0, 0), 0);
+                return d.vec4f(d.f32(texel.x) / 255, 0, 0, 1);
             },
         }),
     },

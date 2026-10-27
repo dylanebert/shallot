@@ -35,6 +35,10 @@ test("texture and sampler options declare their WGSL resource types", () => {
         unfilteredLayers: { type: "texture", dimension: "2d-array", filterable: false },
         filtered: { type: "texture", filterable: true },
         nearest: { type: "sampler", samplerType: "non-filtering" },
+        signed: { type: "texture", sampleType: "sint" },
+        unsigned: { type: "texture", sampleType: "uint" },
+        signedLayers: { type: "texture", dimension: "2d-array", sampleType: "sint" },
+        unsignedLayers: { type: "texture", dimension: "2d-array", sampleType: "uint" },
     });
     type Resources = (typeof layout)["$"];
     expectTypeOf<Resources["plain"]>().toEqualTypeOf<d.InferGPU<d.WgslTexture2d<d.F32>>>();
@@ -65,6 +69,33 @@ test("texture and sampler options declare their WGSL resource types", () => {
     ]);
     expect([plain, layers, filtered].some((entry) => "sampleType" in entry)).toBe(false);
     expect(nearest.sampler).toBe("non-filtering");
+    expectTypeOf<Resources["signed"]>().toEqualTypeOf<d.InferGPU<d.WgslTexture2d<d.I32>>>();
+    expectTypeOf<Resources["unsigned"]>().toEqualTypeOf<d.InferGPU<d.WgslTexture2d<d.U32>>>();
+    expectTypeOf<Resources["signedLayers"]>().toEqualTypeOf<
+        d.InferGPU<d.WgslTexture2dArray<d.I32>>
+    >();
+    expectTypeOf<Resources["unsignedLayers"]>().toEqualTypeOf<
+        d.InferGPU<d.WgslTexture2dArray<d.U32>>
+    >();
+    const integers = [
+        layout.entries.signed,
+        layout.entries.unsigned,
+        layout.entries.signedLayers,
+        layout.entries.unsignedLayers,
+    ];
+    expect(integers.map(({ texture }) => texture.type)).toEqual([
+        "texture_2d",
+        "texture_2d",
+        "texture_2d_array",
+        "texture_2d_array",
+    ]);
+    expect(integers.map(({ texture }) => texture.sampleType.type)).toEqual([
+        "i32",
+        "u32",
+        "i32",
+        "u32",
+    ]);
+    expect(integers.some((entry) => "sampleType" in entry)).toBe(false);
 });
 
 test("a union of texture or sampler options declares the union of their WGSL resource types", () => {
@@ -72,11 +103,13 @@ test("a union of texture or sampler options declares the union of their WGSL res
     const samplerType = "filtering" as "filtering" | "comparison";
     const filterable = false as boolean;
     const nearestOrLess = "non-filtering" as "non-filtering" | "comparison";
+    const integer = "uint" as "float" | "sint" | "uint";
     const layout = materialLayout(d.struct({ unused: d.f32 }), {
         either: { type: "texture", sampleType },
         sampler: { type: "sampler", samplerType },
         maybeFiltered: { type: "texture", filterable },
         nearestOrLess: { type: "sampler", samplerType: nearestOrLess },
+        integer: { type: "texture", sampleType: integer },
     });
     type Resources = (typeof layout)["$"];
     expectTypeOf<Resources["either"]>().toEqualTypeOf<
@@ -96,6 +129,12 @@ test("a union of texture or sampler options declares the union of their WGSL res
     expect([layout.entries.maybeFiltered.sampleType, layout.entries.nearestOrLess.sampler]).toEqual(
         ["unfilterable-float", "non-filtering"],
     );
+    expectTypeOf<Resources["integer"]>().toEqualTypeOf<
+        | d.InferGPU<d.WgslTexture2d<d.F32>>
+        | d.InferGPU<d.WgslTexture2d<d.I32>>
+        | d.InferGPU<d.WgslTexture2d<d.U32>>
+    >();
+    expect(layout.entries.integer.texture.sampleType.type).toBe("u32");
 });
 
 test("an optional texture or sampler option also declares its default WGSL resource type", () => {
@@ -103,11 +142,13 @@ test("an optional texture or sampler option also declares its default WGSL resou
     const less: { type: "sampler"; samplerType?: "comparison" } = { type: "sampler" };
     const unfiltered: { type: "texture"; filterable?: false } = { type: "texture" };
     const nearest: { type: "sampler"; samplerType?: "non-filtering" } = { type: "sampler" };
+    const unsigned: { type: "texture"; sampleType?: "uint" } = { type: "texture" };
     const layout = materialLayout(d.struct({ unused: d.f32 }), {
         layers,
         less,
         unfiltered,
         nearest,
+        unsigned,
     });
     type Resources = (typeof layout)["$"];
     expectTypeOf<Resources["layers"]>().toEqualTypeOf<
@@ -130,6 +171,10 @@ test("an optional texture or sampler option also declares its default WGSL resou
         undefined,
         "filtering",
     ]);
+    expectTypeOf<Resources["unsigned"]>().toEqualTypeOf<
+        d.InferGPU<d.WgslTexture2d<d.F32>> | d.InferGPU<d.WgslTexture2d<d.U32>>
+    >();
+    expect(layout.entries.unsigned.texture.sampleType.type).toBe("f32");
 });
 
 test("an option that may be undefined also declares its default WGSL resource type", () => {
@@ -149,11 +194,16 @@ test("an option that may be undefined also declares its default WGSL resource ty
         type: "sampler",
         samplerType: undefined,
     };
+    const unsigned: { type: "texture"; sampleType: "uint" | undefined } = {
+        type: "texture",
+        sampleType: undefined,
+    };
     const layout = materialLayout(d.struct({ unused: d.f32 }), {
         layers,
         less,
         unfiltered,
         nearest,
+        unsigned,
     });
     type Resources = (typeof layout)["$"];
     expectTypeOf<Resources["layers"]>().toEqualTypeOf<
@@ -176,4 +226,8 @@ test("an option that may be undefined also declares its default WGSL resource ty
         undefined,
         "filtering",
     ]);
+    expectTypeOf<Resources["unsigned"]>().toEqualTypeOf<
+        d.InferGPU<d.WgslTexture2d<d.F32>> | d.InferGPU<d.WgslTexture2d<d.U32>>
+    >();
+    expect(layout.entries.unsigned.texture.sampleType.type).toBe("f32");
 });
