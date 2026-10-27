@@ -14,6 +14,7 @@ import {
     type System,
     sampleDiagnosticTime,
     Time,
+    type TypedArray,
     type World,
 } from "../../engine";
 import { reportStartup } from "../../engine/runtime";
@@ -1711,20 +1712,39 @@ function rebuildPhysicsEvents(world: World, runtime: PhysicsRuntime): void {
 
 /** @internal Applies a marked teleport before a pose producer consumes the body's pose. */
 export function applyTransformPose(world: World, eid: number): void {
-    const positions = world.fieldStorage(Transform, "translation").dirty;
-    const rotations = world.fieldStorage(Transform, "rotation").dirty;
     const runtime = runtimeFor(world);
+    const state = runtime.physicsWorld;
+    if (!state) return;
+    const pose = world.storage(Transform);
+    applyPose(
+        world,
+        runtime,
+        state,
+        world.fieldStorage(Transform, "translation").dirty,
+        world.fieldStorage(Transform, "rotation").dirty,
+        pose.translation.column,
+        pose.rotation.column,
+        eid,
+    );
+}
+
+function applyPose(
+    world: World,
+    runtime: PhysicsRuntime,
+    state: WorldState,
+    positions: Uint32Array,
+    rotations: Uint32Array,
+    p: TypedArray,
+    q: TypedArray,
+    eid: number,
+): void {
     if (
         ((positions[eid >>> 5] | rotations[eid >>> 5]) & (1 << (eid & 31))) === 0 &&
         !runtime.poseCandidates.fieldMarks[eid]
     )
         return;
-    const state = runtime.physicsWorld;
     const body = runtime.bodies.get(eid);
-    if (!state || !body) return;
-    const pose = world.storage(Transform);
-    const p = pose.translation.column;
-    const q = pose.rotation.column;
+    if (!body) return;
     const current = bodyGetTransform(state, body.index1 - 1, spawnTransform);
     const offset = eid * 4;
     if (
@@ -1768,7 +1788,16 @@ function capturePoseCandidates(world: World, runtime: PhysicsRuntime): void {
 function applyTransformPoses(world: World, runtime: PhysicsRuntime): void {
     capturePoseCandidates(world, runtime);
     const candidates = runtime.poseCandidates;
-    for (let i = 0; i < candidates.count; i++) applyTransformPose(world, candidates.eids[i]);
+    const state = runtime.physicsWorld;
+    if (state) {
+        const positions = world.fieldStorage(Transform, "translation").dirty;
+        const rotations = world.fieldStorage(Transform, "rotation").dirty;
+        const pose = world.storage(Transform);
+        const p = pose.translation.column;
+        const q = pose.rotation.column;
+        for (let i = 0; i < candidates.count; i++)
+            applyPose(world, runtime, state, positions, rotations, p, q, candidates.eids[i]);
+    }
     clearFieldCandidates(candidates);
 }
 
