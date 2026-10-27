@@ -63,3 +63,20 @@ test("a union of texture or sampler options declares the union of their WGSL res
     >();
     expect(layout.entries.either.texture.type).toBe("texture_2d");
 });
+
+test("an optional texture or sampler option also declares its default WGSL resource type", () => {
+    const layers: { type: "texture"; dimension?: "2d-array" } = { type: "texture" };
+    const less: { type: "sampler"; samplerType?: "comparison" } = { type: "sampler" };
+    const layout = materialLayout(d.struct({ unused: d.f32 }), { layers, less });
+    type Resources = (typeof layout)["$"];
+    expectTypeOf<Resources["layers"]>().toEqualTypeOf<
+        d.InferGPU<d.WgslTexture2d<d.F32>> | d.InferGPU<d.WgslTexture2dArray<d.F32>>
+    >();
+    expectTypeOf<Resources["less"]>().toEqualTypeOf<
+        d.InferGPU<d.WgslSampler> | d.InferGPU<d.WgslComparisonSampler>
+    >();
+    expect([layout.entries.layers.texture.type, layout.entries.less.sampler]).toEqual([
+        "texture_2d",
+        "filtering",
+    ]);
+});
