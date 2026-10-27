@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { pipelineWarnings } from "@dylanebert/shallot/testing";
-import { expect, test } from "playwright/test";
+import { expect, type Page, test } from "playwright/test";
 
 declare global {
     interface Window {
@@ -26,19 +26,20 @@ test("the first frame has no late-pipeline warning", async ({ page }) => {
     );
 });
 
+// Both claims observe the same stepped hall; the seam is read before the walk moves its player.
 test.describe("stepped hall", () => {
+    let page: Page;
     const errors: string[] = [];
-    test.beforeEach(async ({ page }) => {
-        errors.length = 0;
+    test.beforeAll(async ({ browser }) => {
+        page = await browser.newPage();
         page.on("pageerror", (error) => errors.push(error.message));
         const session = await page.context().newCDPSession(page);
         await session.send("Emulation.setHardwareConcurrencyOverride", { hardwareConcurrency: 1 });
         await page.goto("/tests/stepped.html");
         await page.waitForFunction(() => window.hall);
     });
-    test("the far wall's top seam takes no sunlight from the air above the hall", async ({
-        page,
-    }) => {
+    test.afterAll(() => page.close());
+    test("the far wall's top seam takes no sunlight from the air above the hall", async () => {
         // Ceiling columns at the seam end metres short of the far wall their neighbours see, and the cells between
         // lie in the sunlit air above the hall. Lit there, they streaked the seam's haze column by column: the
         // brightest pixel column took 1.6 of sunlight at b8718d34.
@@ -48,9 +49,7 @@ test.describe("stepped hall", () => {
         expect(errors).toEqual([]);
     });
 
-    test("the window shaft, spot cone and point glow brighten haze beside their shadows in the walked hall", async ({
-        page,
-    }) => {
+    test("the window shaft, spot cone and point glow brighten haze beside their shadows in the walked hall", async () => {
         console.log("hall adapter", await page.evaluate(() => window.hall.adapter));
         // Paired mid-air patches across the side-on shaft, below the spot and below the far pendant.
         // Fog-on minus fog-off isolates air light from the lit wall behind each patch.
