@@ -1,9 +1,11 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { HeightFields, Hulls, PhysicsMeshes, ShapeKind } from "../../core/physics";
-import { World } from "../../engine";
+import { Body, HeightFields, Hulls, PhysicsMeshes, Shape, ShapeKind } from "../../core/physics";
+import { createApp, World } from "../../engine";
 import { heightFieldBuild } from "./geometry-builds";
 import { StandardPhysicsPlugin, shapeEdges, shapeMesh } from "./index";
+import { physicsState } from "./runtime";
 import { getHeightFieldTriangle, HEIGHT_FIELD_HOLE } from "./shapes/heightfield";
+import { readShapeHull } from "./shapes/hull";
 
 type Point = [number, number, number];
 type Geometry = ReturnType<typeof shapeMesh>;
@@ -179,6 +181,47 @@ for (const scale of [
         });
     });
 }
+
+test("mirrored cylinder mesh preserves the solver's transformed hull topology and vertices", async () => {
+    const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
+    try {
+        const world = app.world;
+        const geometry = world
+            .resource(Hulls)
+            .add({ name: "cylinder", cylinder: { height: 1, radius: 0.5, yOffset: 0, sides: 15 } });
+        const scale: Point = [-0.75, 1, 1];
+        const rebuilt = shapeMesh(world, definition({ geometry, scale, enableHullTransform: 0 }));
+        const transformed = shapeMesh(
+            world,
+            definition({ geometry, scale, enableHullTransform: 1 }),
+        );
+        expect(transformed.vertices).not.toEqual(rebuilt.vertices);
+        const eid = world.create();
+        world.add(eid, Body);
+        world.add(eid, Shape, { geometry, scale, enableHullTransform: 1 });
+        world.tick();
+        const hull = readShapeHull(physicsState(world)!, 0);
+        const triangles: Point[] = [];
+        for (const face of hull.faces) {
+            const points: Point[] = [];
+            let edge = face.edge;
+            do {
+                const p = hull.points[hull.edges[edge]!.origin]!;
+                points.push([p.x, p.y, p.z]);
+                edge = hull.edges[edge]!.next;
+            } while (edge !== face.edge);
+            for (let i = 1; i + 1 < points.length; i++)
+                triangles.push(points[0]!, points[i]!, points[i + 1]!);
+        }
+        expect(
+            Array.from(transformed.indices, (index) =>
+                Array.from(transformed.vertices.subarray(index * 8, index * 8 + 3)),
+            ),
+        ).toEqual(triangles);
+    } finally {
+        app.dispose();
+    }
+});
 
 test("hull placement follows Shape.scale and has analytic bounds, outward normals and area", () => {
     const geometry = world.resource(Hulls).add({ name: "placed box", halfExtents: [1, 2, 3] });

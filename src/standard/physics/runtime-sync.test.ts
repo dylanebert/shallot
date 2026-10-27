@@ -31,6 +31,7 @@ import {
 import { GlobalTransform, Transform, TransformPlugin } from "@dylanebert/shallot/transform";
 import { expectWarning } from "../../../scripts/test-console";
 import { makeShapeId } from "./api/config";
+import { buildPlacedHull } from "./geometry-builds";
 import { BodyField, bodyField } from "./kernel/bodyrecords";
 import { DJ_IMPULSE, RJ_MOTOR_SPEED } from "./kernel/columns";
 import { readJointFloat, writeJointFloat } from "./kernel/jointcolumns";
@@ -38,6 +39,7 @@ import { JointField, jointField } from "./kernel/jointrecords";
 import { kernel } from "./kernel/kernel";
 import { ShapeField, ShapeFlags, shapeField, shapeFlag } from "./kernel/shaperecords";
 import { physicsBodyIndex, physicsState } from "./runtime";
+import { type HullData, readShapeHull } from "./shapes/hull";
 import {
     getShapeDensity,
     getShapeFilter,
@@ -649,27 +651,45 @@ test("hull placement recreates only on a different value and recovers pending wr
     });
 });
 
-test("explicit identity hull transforms recreate on change and recover pending writes", async () => {
+test("explicit identity hull transforms recreate on change and recover both build paths", async () => {
     await withPhysics((world) => {
         const geometry = world
             .resource(Hulls)
             .add({ name: "cylinder", cylinder: { height: 1, radius: 0.5, yOffset: 0, sides: 15 } });
         const eid = world.create();
         world.add(eid, Body, { type: BodyType.Dynamic, gravityScale: 0 });
-        world.add(eid, Shape, { geometry, scale: [-0.75, 1, 1], enableHullTransform: 1 });
-        world.tick();
-        const original = shapeId(world);
-        world.storage(Shape).enableHullTransform.set(eid, 1);
-        world.tick();
-        expect(shapeIsValid(stateFor(world), original)).toBe(true);
-        world.storage(Shape).enableHullTransform.set(eid, 0);
-        const saved = world.snapshot();
-        world.tick();
-        expect(shapeIsValid(stateFor(world), original)).toBe(false);
-        const bounds = computeBodyAABB(world, eid);
-        world.restore(saved);
-        world.tick();
-        expect(computeBodyAABB(world, eid)).toEqual(bounds);
+        const scale: [number, number, number] = [-0.75, 1, 1];
+        world.add(eid, Shape, { geometry, scale });
+        const topology = ({ points, vertices, edges, faces }: HullData) => ({
+            points,
+            vertices,
+            edges,
+            faces,
+        });
+        const hull = world.resource(Hulls).get(geometry)!;
+        const expected = [false, true].map((flag) =>
+            topology(buildPlacedHull(world, hull, scale, undefined, undefined, undefined, flag)),
+        );
+        expect(expected[0]).not.toEqual(expected[1]);
+        for (const flag of [0, 1]) {
+            world.storage(Shape).enableHullTransform.set(eid, flag);
+            world.tick();
+            const original = shapeId(world);
+            world.storage(Shape).enableHullTransform.set(eid, flag);
+            world.tick();
+            expect(shapeIsValid(stateFor(world), original)).toBe(true);
+            const before = topology(readShapeHull(stateFor(world), 0));
+            const saved = world.snapshot();
+            world.storage(Shape).enableHullTransform.set(eid, 1 - flag);
+            world.tick();
+            expect(shapeIsValid(stateFor(world), original)).toBe(false);
+            world.restore(saved);
+            const restored = topology(readShapeHull(stateFor(world), 0));
+            expect(restored).toEqual(before);
+            expect(restored).toEqual(expected[flag]);
+            world.tick();
+            expect(topology(readShapeHull(stateFor(world), 0))).toEqual(expected[flag]);
+        }
     });
 });
 
