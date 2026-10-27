@@ -132,14 +132,6 @@ export class ShapeStore extends KernelViews {
                 this.materialU[o + 7],
                 m.customColor,
             );
-            let cached = this._ids.get(o);
-            if (!cached) {
-                cached = { low: 0, high: 0, value: 0n };
-                this._ids.set(o, cached);
-            }
-            cached.low = this.materialU[o + 6];
-            cached.high = this.materialU[o + 7];
-            cached.value = m.userMaterialId;
         }
     }
 

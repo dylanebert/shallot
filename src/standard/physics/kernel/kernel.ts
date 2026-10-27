@@ -3,9 +3,10 @@
 // synchronous. init() owns threading and startup contracts. The shared artifact loads dynamically
 // so single-thread consumers never parse it.
 
-import type { World } from "../../../engine";
+import type { EntityRef, World } from "../../../engine";
 import { makeShapeId } from "../api/config";
 import type { EntityId } from "../common/ids";
+import { type ShapeEntity, shapeEntityAt } from "../world/shape-entities";
 import type { WorldState } from "../world/world";
 import { KERNEL_WASM_BASE64 } from "./kernel.wasm";
 import { createPool, maxWorkers, type Pool, solverPause } from "./pool";
@@ -967,11 +968,13 @@ function panicImport(memory: () => WebAssembly.Memory): (pointer: number, length
     };
 }
 
+const callbackShapeEntity: ShapeEntity = { shape: 0 as EntityRef, body: 0 as EntityRef };
 function ecsShapeReference(world: WorldState, shape: EntityId) {
-    const binding = world.shapeEntityRefs[shape.index1 - 1];
-    if (!binding || binding.generation !== shape.generation)
+    if (
+        !shapeEntityAt(world.shapeEntities, shape.index1 - 1, shape.generation, callbackShapeEntity)
+    )
         throw new Error("physics: ECS shape callback reference is stale");
-    return binding.reference;
+    return callbackShapeEntity.shape;
 }
 
 function collisionImport(runtime: KernelState) {

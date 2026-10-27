@@ -42,6 +42,7 @@ import type { QueryColumns } from "../kernel/querycolumns";
 import { createShapeStore, type ShapeStore } from "../kernel/shapecolumns";
 import type { HullData } from "../shapes/hull";
 import { createStepProfile, readStepProfile, type StepProfile } from "./profile";
+import { createShapeEntities, type ShapeEntities } from "./shape-entities";
 
 /** Maximum concurrent worlds (B3_MAX_WORLDS). */
 export const MAX_WORLDS = 128;
@@ -74,8 +75,8 @@ export type WorldState = {
     geometryIdentityValues: Map<number, object>;
     shapeUserData: unknown[];
     shapeNames: string[];
-    /** Current ECS entity identity for callback arguments, keyed by solver shape slot and generation. */
-    shapeEntityRefs: { generation: number; reference: import("../../../engine").EntityRef }[];
+    /** ECS identity for callback arguments, queries and events, keyed by solver shape slot and generation. */
+    shapeEntities: ShapeEntities;
     shapeDefInput: ShapeDef;
 
     geometryUploadScratch?: import("../kernel/geocolumns").GeometryUploadScratch;
@@ -176,7 +177,7 @@ function makeWorldState(
         geometryIdentityValues: new Map(),
         shapeUserData: [],
         shapeNames: [],
-        shapeEntityRefs: [],
+        shapeEntities: createShapeEntities(),
         shapeDefInput: defaultShapeDef(),
         manifoldStore: createManifoldStore(world, worldId),
         bodyStore: createBodyStore(world, worldId),

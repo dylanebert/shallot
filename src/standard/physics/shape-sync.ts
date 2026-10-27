@@ -1,6 +1,6 @@
 import { ShapeKind, ShapeMaterials } from "../../core/physics";
 import { Transform } from "../../core/transform";
-import type { World } from "../../engine";
+import type { Vector4Field, World } from "../../engine";
 import { type FieldBinding, fieldMarked } from "./authoring";
 import type { EntityId } from "./common/ids";
 import type { Filter, SurfaceMaterial } from "./common/types";
@@ -68,36 +68,102 @@ const RECREATION_FIELD_INDEX: Map<string, number> = new Map(
     RECREATION_FIELDS.map((field, index) => [field, index]),
 );
 
-/** Captures only authored fields that require shape recreation and lack a live getter. */
+const STRIDE = RECREATION_FIELDS.length + 10;
+const SCALE = RECREATION_FIELDS.length;
+const PLACEMENT = RECREATION_FIELDS.length + 3;
+
+/** Each attached shape's last applied authored fields that require shape recreation and lack a live
+ * getter, with its body scale and hull placement: eid-indexed rows, present where `captured` is 1. */
+export interface ShapeRecreationStates {
+    values: Float64Array;
+    captured: Uint8Array;
+}
+
+export function createShapeRecreationStates(): ShapeRecreationStates {
+    return { values: new Float64Array(16 * STRIDE), captured: new Uint8Array(16) };
+}
+
+/** A copy of `eid`'s captured row, or undefined when it has none. */
+export function shapeRecreationState(
+    states: ShapeRecreationStates,
+    eid: number,
+): Float64Array | undefined {
+    if (!states.captured[eid]) return undefined;
+    return states.values.slice(eid * STRIDE, (eid + 1) * STRIDE);
+}
+
+export function forgetShapeRecreationState(states: ShapeRecreationStates, eid: number): void {
+    if (eid < states.captured.length) states.captured[eid] = 0;
+}
+
+export function clearShapeRecreationStates(states: ShapeRecreationStates): void {
+    states.captured.fill(0);
+}
+
+/** Writes `eid`'s row from `values`, as captured. */
+export function restoreShapeRecreationState(
+    states: ShapeRecreationStates,
+    eid: number,
+    values: Float64Array,
+): void {
+    ensureRecreationCapacity(states, eid);
+    states.values.set(values, eid * STRIDE);
+    states.captured[eid] = 1;
+}
+
+function ensureRecreationCapacity(states: ShapeRecreationStates, eid: number): void {
+    if (eid < states.captured.length) return;
+    let capacity = states.captured.length;
+    while (capacity <= eid) capacity *= 2;
+    const values = new Float64Array(capacity * STRIDE);
+    values.set(states.values);
+    states.values = values;
+    const captured = new Uint8Array(capacity);
+    captured.set(states.captured);
+    states.captured = captured;
+}
+
+/** Captures `eid`'s row from its authored fields and body scale. */
 export function captureShapeRecreationState(
     world: World,
     binding: FieldBinding,
     eid: number,
-    values: Float64Array<ArrayBufferLike> = new Float64Array(RECREATION_FIELDS.length + 10),
-): Float64Array<ArrayBufferLike> {
+    states: ShapeRecreationStates,
+): void {
+    ensureRecreationCapacity(states, eid);
+    const values = states.values;
+    const o = eid * STRIDE;
     for (let i = 0; i < RECREATION_FIELDS.length; i++)
-        values[i] = scalar(binding, eid, RECREATION_FIELDS[i]);
+        values[o + i] = scalar(binding, eid, RECREATION_FIELDS[i]);
     const s = shapeBodyScale(world, eid);
-    values[RECREATION_FIELDS.length] = s.x;
-    values[RECREATION_FIELDS.length + 1] = s.y;
-    values[RECREATION_FIELDS.length + 2] = s.z;
-    const position = vector(binding, eid, "hullPosition"),
-        rotation = vector(binding, eid, "hullRotation");
-    values.set(position.slice(0, 3), RECREATION_FIELDS.length + 3);
-    values.set(rotation, RECREATION_FIELDS.length + 6);
-    return values;
+    values[o + SCALE] = s.x;
+    values[o + SCALE + 1] = s.y;
+    values[o + SCALE + 2] = s.z;
+    const position = binding.storage.hullPosition as Vector4Field;
+    const rotation = binding.storage.hullRotation as Vector4Field;
+    values[o + PLACEMENT] = position.x.get(eid);
+    values[o + PLACEMENT + 1] = position.y.get(eid);
+    values[o + PLACEMENT + 2] = position.z.get(eid);
+    values[o + PLACEMENT + 3] = rotation.x.get(eid);
+    values[o + PLACEMENT + 4] = rotation.y.get(eid);
+    values[o + PLACEMENT + 5] = rotation.z.get(eid);
+    values[o + PLACEMENT + 6] = rotation.w.get(eid);
+    states.captured[eid] = 1;
 }
 
+/** Whether `body`'s Transform.scale differs from the scale `eid`'s row was built at, or it has none. */
 export function shapeBodyScaleChanged(
     world: World,
     body: number,
-    previous: Float64Array | undefined,
+    states: ShapeRecreationStates,
+    eid: number,
 ): boolean {
-    if (!previous) return true;
+    if (!states.captured[eid]) return true;
     const scale = world.storage(Transform).scale.column;
     const offset = body * 4;
+    const o = eid * STRIDE + SCALE;
     for (let i = 0; i < 3; i++)
-        if (!Object.is(scale[offset + i] ?? 0, previous[RECREATION_FIELDS.length + i])) return true;
+        if (!Object.is(scale[offset + i] ?? 0, states.values[o + i])) return true;
     return false;
 }
 
@@ -105,11 +171,13 @@ function fieldDiffersFromSnapshot(
     binding: FieldBinding,
     eid: number,
     field: string,
-    previous: Float64Array | undefined,
+    states: ShapeRecreationStates,
 ): boolean {
-    if (!previous) return true;
+    if (!states.captured[eid]) return true;
     const index = RECREATION_FIELD_INDEX.get(field);
-    return index !== undefined && scalar(binding, eid, field) !== previous[index];
+    return (
+        index !== undefined && scalar(binding, eid, field) !== states.values[eid * STRIDE + index]
+    );
 }
 function anyChanged(binding: FieldBinding, mask: number, fields: readonly string[]): boolean {
     for (const field of fields) if (fieldMarked(binding, mask, field)) return true;
@@ -188,7 +256,7 @@ export function shapeNeedsRecreation(
     binding: FieldBinding,
     eid: number,
     mask: number,
-    previous: Float64Array | undefined,
+    states: ShapeRecreationStates,
     shape: EntityId,
     state: WorldState,
     bodyScaleChanged = false,
@@ -202,9 +270,9 @@ export function shapeNeedsRecreation(
             ...vector(binding, eid, "hullRotation"),
         ];
         if (
-            !previous ||
+            !states.captured[eid] ||
             placement.some(
-                (value, i) => !Object.is(value, previous[RECREATION_FIELDS.length + 3 + i]),
+                (value, i) => !Object.is(value, states.values[eid * STRIDE + PLACEMENT + i]),
             )
         )
             return true;
@@ -213,22 +281,22 @@ export function shapeNeedsRecreation(
         return true;
     if (
         fieldMarked(binding, mask, "explosionScale") &&
-        fieldDiffersFromSnapshot(binding, eid, "explosionScale", previous)
+        fieldDiffersFromSnapshot(binding, eid, "explosionScale", states)
     )
         return true;
     if (
         fieldMarked(binding, mask, "enableCustomFiltering") &&
-        fieldDiffersFromSnapshot(binding, eid, "enableCustomFiltering", previous)
+        fieldDiffersFromSnapshot(binding, eid, "enableCustomFiltering", states)
     )
         return true;
     if (
         fieldMarked(binding, mask, "enableSpeculativeContact") &&
-        fieldDiffersFromSnapshot(binding, eid, "enableSpeculativeContact", previous)
+        fieldDiffersFromSnapshot(binding, eid, "enableSpeculativeContact", states)
     )
         return true;
     if (
         fieldMarked(binding, mask, "invokeContactCreation") &&
-        fieldDiffersFromSnapshot(binding, eid, "invokeContactCreation", previous)
+        fieldDiffersFromSnapshot(binding, eid, "invokeContactCreation", states)
     )
         return true;
     if (fieldMarked(binding, mask, "isSensor")) {
@@ -237,7 +305,7 @@ export function shapeNeedsRecreation(
     }
     if (
         fieldMarked(binding, mask, "geometry") &&
-        fieldDiffersFromSnapshot(binding, eid, "geometry", previous) &&
+        fieldDiffersFromSnapshot(binding, eid, "geometry", states) &&
         (kind === ShapeKind.HeightField || kind === ShapeKind.Compound)
     )
         return true;

@@ -100,8 +100,14 @@ import { marshalBody } from "./marshal";
 import { marshalShape, shapeBodyScale } from "./marshal-shape";
 import {
     captureShapeRecreationState,
+    clearShapeRecreationStates,
+    createShapeRecreationStates,
+    forgetShapeRecreationState,
+    restoreShapeRecreationState,
+    type ShapeRecreationStates,
     shapeBodyScaleChanged,
     shapeNeedsRecreation,
+    shapeRecreationState,
     syncShapeFields,
 } from "./shape-sync";
 import { destroyShape, shapeIsValid } from "./shapes/shape";
@@ -129,6 +135,16 @@ import {
 import { type DebugDraw, worldDraw } from "./world/draw";
 import { hashWorldState } from "./world/hash";
 import { PROFILE_FIELDS, readStepProfile } from "./world/profile";
+import {
+    bindShapeEntity,
+    clearShapeEntities,
+    liveShapeEntity,
+    liveShapeGeneration,
+    pruneShapeEntities,
+    retireShapeEntity,
+    type ShapeEntity,
+    shapeEntityAt,
+} from "./world/shape-entities";
 import {
     createWorld,
     destroyWorld,
@@ -168,13 +184,12 @@ interface PhysicsRuntime {
     shapes: Map<number, EntityId>;
     shapeBodies: Map<number, number>;
     shapeDependencies: BodyDependencies;
-    shapeEntities: ShapeEntityMap;
     queryContexts: QueryContext[];
     queryDepth: number;
     queryCastCallback: QueryCallback;
     queryOverlapCallback: QueryCallback;
     shapeStamps: Map<number, EntityRef>;
-    shapeRecreationState: Map<number, Float64Array>;
+    shapeRecreationState: ShapeRecreationStates;
     shapeRemovalMass: Map<number, boolean>;
     warnedShapes: Set<number>;
     physicsWorld: WorldState | null;
@@ -224,23 +239,6 @@ interface QueryContext {
 
 type BoundBodyId = EntityId & { stamp: EntityRef };
 
-interface ShapeEntityBinding {
-    slot: number;
-    generation: number;
-    shape: EntityRef;
-    body: EntityRef;
-    retiring: boolean;
-}
-
-interface ShapeEntityMap {
-    slots: (ShapeEntityBinding[] | undefined)[];
-    retiring: ShapeEntityBinding[];
-}
-
-function newShapeEntityMap(): ShapeEntityMap {
-    return { slots: new Array(64), retiring: [] };
-}
-
 const physicsRuntimeKey = { create: newRuntime };
 
 function newRuntime(): PhysicsRuntime {
@@ -254,13 +252,12 @@ function newRuntime(): PhysicsRuntime {
         shapes: new Map(),
         shapeBodies: new Map(),
         shapeDependencies: new BodyDependencies(),
-        shapeEntities: newShapeEntityMap(),
         queryContexts: [newQueryContext()],
         queryDepth: 0,
         queryCastCallback: null!,
         queryOverlapCallback: null!,
         shapeStamps: new Map(),
-        shapeRecreationState: new Map(),
+        shapeRecreationState: createShapeRecreationStates(),
         shapeRemovalMass: new Map(),
         warnedShapes: new Set(),
         physicsWorld: null,
@@ -349,24 +346,24 @@ function queryShapeEntities(
     shapeId: number,
     context: QueryContext,
 ): boolean {
-    const bindings = runtime.shapeEntities.slots[shapeId];
-    if (!bindings) return false;
-    for (let i = bindings.length - 1; i >= 0; --i) {
-        const binding = bindings[i];
-        if (binding.retiring) continue;
-        const shapeEid = world.resolve(binding.shape);
-        if (!shapeEid || !world.has(shapeEid, ShapeComponent)) continue;
-        const bodyEid = world.resolve(binding.body);
-        if (!bodyEid || !world.has(bodyEid, Body)) continue;
-        const shape = runtime.shapes.get(shapeEid);
-        if (!shape || shape.index1 !== shapeId + 1 || shape.generation !== binding.generation)
-            continue;
-        context.shapeEid = shapeEid;
-        context.bodyEid = bodyEid;
-        return true;
-    }
-    return false;
+    const entities = runtime.physicsWorld!.shapeEntities;
+    if (!liveShapeEntity(entities, shapeId, queryShapeEntity)) return false;
+    const shapeEid = world.resolve(queryShapeEntity.shape);
+    if (!shapeEid || !world.has(shapeEid, ShapeComponent)) return false;
+    const bodyEid = world.resolve(queryShapeEntity.body);
+    if (!bodyEid || !world.has(bodyEid, Body)) return false;
+    const shape = runtime.shapes.get(shapeEid);
+    if (
+        !shape ||
+        shape.index1 !== shapeId + 1 ||
+        shape.generation !== liveShapeGeneration(entities, shapeId)
+    )
+        return false;
+    context.shapeEid = shapeEid;
+    context.bodyEid = bodyEid;
+    return true;
 }
+const queryShapeEntity: ShapeEntity = { shape: 0 as EntityRef, body: 0 as EntityRef };
 
 function newQueryContext(): QueryContext {
     return {
@@ -462,67 +459,18 @@ function rememberShapeEntity(
     shapeEid: number,
     bodyEid: number,
 ): void {
-    const slot = shape.index1 - 1;
-    const map = runtime.shapeEntities.slots;
-    if (slot >= map.length) map.length = Math.max(slot + 1, map.length * 2);
-    const bindings = (map[slot] ??= []);
-    const reference = world.ref(shapeEid);
+    bindShapeEntity(
+        runtime.physicsWorld!.shapeEntities,
+        shape.index1 - 1,
+        shape.generation,
+        world.ref(shapeEid),
+        world.ref(bodyEid),
+    );
+}
+
+function retireShape(runtime: PhysicsRuntime, shape: EntityId | undefined): void {
     const state = runtime.physicsWorld;
-    if (state) state.shapeEntityRefs[slot] = { generation: shape.generation, reference };
-    for (const binding of bindings)
-        if (binding.generation !== shape.generation && !binding.retiring) {
-            binding.retiring = true;
-            runtime.shapeEntities.retiring.push(binding);
-        }
-    for (const binding of bindings)
-        if (binding.generation === shape.generation) {
-            binding.shape = reference;
-            binding.body = world.ref(bodyEid);
-            return;
-        }
-    bindings.push({
-        slot,
-        generation: shape.generation,
-        shape: reference,
-        body: world.ref(bodyEid),
-        retiring: false,
-    });
-}
-
-function retireShapeEntity(runtime: PhysicsRuntime, shape: EntityId | undefined): void {
-    if (!shape) return;
-    const slot = shape.index1 - 1;
-    const bindings = runtime.shapeEntities.slots[slot];
-    if (!bindings) return;
-    for (const binding of bindings)
-        if (binding.generation === shape.generation && !binding.retiring) {
-            binding.retiring = true;
-            runtime.shapeEntities.retiring.push(binding);
-            return;
-        }
-}
-
-function clearShapeEntities(runtime: PhysicsRuntime): void {
-    runtime.shapeEntities.slots.fill(undefined);
-    runtime.shapeEntities.retiring.length = 0;
-    if (runtime.physicsWorld) runtime.physicsWorld.shapeEntityRefs.length = 0;
-}
-
-function pruneShapeEntities(runtime: PhysicsRuntime): void {
-    const { slots, retiring } = runtime.shapeEntities;
-    for (let i = 0; i < retiring.length; i++) {
-        const binding = retiring[i];
-        const bindings = slots[binding.slot];
-        if (!bindings) continue;
-        const index = bindings.indexOf(binding);
-        if (index >= 0) {
-            bindings[index] = bindings[bindings.length - 1];
-            bindings.pop();
-            if (bindings.length === 0) slots[binding.slot] = undefined;
-        }
-        binding.retiring = false;
-    }
-    retiring.length = 0;
+    if (shape && state) retireShapeEntity(state.shapeEntities, shape.index1 - 1, shape.generation);
 }
 
 function markChanged(runtime: PhysicsRuntime, eid: number): void {
@@ -588,7 +536,7 @@ function forget(world: World, runtime: PhysicsRuntime, eid: number): void {
         shapeEid = dependencies.following(shapeEid)
     )
         if (runtime.shapeBodies.get(shapeEid) === eid)
-            retireShapeEntity(runtime, runtime.shapes.get(shapeEid));
+            retireShape(runtime, runtime.shapes.get(shapeEid));
     const body = runtime.bodies.get(eid);
     const state = runtime.physicsWorld;
     if (body && state && bodyIsValid(state, body)) destroyBody(state, body.index1 - 1);
@@ -602,7 +550,7 @@ function forget(world: World, runtime: PhysicsRuntime, eid: number): void {
             runtime.shapes.delete(shapeEid);
             runtime.shapeBodies.delete(shapeEid);
             runtime.shapeStamps.delete(shapeEid);
-            runtime.shapeRecreationState.delete(shapeEid);
+            forgetShapeRecreationState(runtime.shapeRecreationState, shapeEid);
             runtime.shapeRemovalMass.delete(shapeEid);
             runtime.warnedShapes.delete(shapeEid);
         }
@@ -620,9 +568,9 @@ function clearBodies(world: World, runtime: PhysicsRuntime): void {
     runtime.bodies.clear();
     runtime.shapes.clear();
     runtime.shapeBodies.clear();
-    clearShapeEntities(runtime);
+    if (runtime.physicsWorld) clearShapeEntities(runtime.physicsWorld.shapeEntities);
     runtime.shapeStamps.clear();
-    runtime.shapeRecreationState.clear();
+    clearShapeRecreationStates(runtime.shapeRecreationState);
     runtime.shapeRemovalMass.clear();
     clearFieldCandidates(runtime.poseCandidates);
     runtime.warnedShapes.clear();
@@ -1001,11 +949,10 @@ export function applyWind(
     const state = runtime.physicsWorld;
     const shape = runtime.shapes.get(eid);
     if (!state || !shape || !world.has(eid, ShapeComponent)) return;
-    const binding = state.shapeEntityRefs[shape.index1 - 1];
+    const slot = shape.index1 - 1;
     if (
-        !binding ||
-        binding.generation !== shape.generation ||
-        world.resolve(binding.reference) !== eid
+        liveShapeGeneration(state.shapeEntities, slot) !== shape.generation ||
+        world.resolve(state.shapeEntities.shapes[slot] as EntityRef) !== eid
     )
         return;
     kernel(state.ecsState).shapeApplyWind(
@@ -1275,6 +1222,15 @@ function warmWorld(runtime: PhysicsRuntime): WorldState {
     return physicsWorld;
 }
 
+function captureShapeRecreationStates(states: ShapeRecreationStates): [number, Float64Array][] {
+    const captured: [number, Float64Array][] = [];
+    for (let eid = 0; eid < states.captured.length; eid++) {
+        const values = shapeRecreationState(states, eid);
+        if (values) captured.push([eid, values]);
+    }
+    return captured;
+}
+
 function captureBodyCandidates(candidates: FieldCandidates): [number, number][] {
     const pending: [number, number][] = [];
     for (let i = 0; i < candidates.count; i++) {
@@ -1306,10 +1262,7 @@ function captureBindings(world: World, runtime: PhysicsRuntime): Bindings {
         shapeCandidates: captureBodyCandidates(runtime.shapeCandidates),
         shapeDependencies: runtime.shapeDependencies.snapshot(),
         shapeRemovalMass: Array.from(runtime.shapeRemovalMass),
-        shapeRecreationState: Array.from(runtime.shapeRecreationState, ([eid, values]) => [
-            eid,
-            values.slice(),
-        ]),
+        shapeRecreationState: captureShapeRecreationStates(runtime.shapeRecreationState),
         constraints: captureConstraints(runtime.constraints, warmWorld(runtime)),
         bodyCandidates: captureBodyCandidates(runtime.bodyCandidates),
         poseCandidates: captureBodyCandidates(runtime.poseCandidates),
@@ -1337,9 +1290,9 @@ function restoreBindings(
     runtime.bodies.clear();
     runtime.shapes.clear();
     runtime.shapeBodies.clear();
-    clearShapeEntities(runtime);
+    if (runtime.physicsWorld) clearShapeEntities(runtime.physicsWorld.shapeEntities);
     runtime.shapeStamps.clear();
-    runtime.shapeRecreationState.clear();
+    clearShapeRecreationStates(runtime.shapeRecreationState);
     for (let i = 0; i < b.bodies.length; i += 4) {
         const eid = b.bodies[i];
         claimTransformPose(world, eid);
@@ -1366,7 +1319,7 @@ function restoreBindings(
     for (const [eid, updateMass] of b.shapeRemovalMass)
         runtime.shapeRemovalMass.set(eid, updateMass);
     for (const [eid, values] of b.shapeRecreationState)
-        runtime.shapeRecreationState.set(eid, values.slice());
+        restoreShapeRecreationState(runtime.shapeRecreationState, eid, values);
     runtime.shapeDependencies.restore(b.shapeDependencies);
     restoreConstraints(runtime.constraints, b.constraints, physicsWorld);
     restoreGeometryBuilds(world, b.geometry);
@@ -1510,23 +1463,21 @@ export function hashPhysics(world: World): bigint {
     return hashWorldState(warmWorld(runtimeFor(world)));
 }
 
-function eventShapeBinding(
-    runtime: PhysicsRuntime,
+/** Copies the entities of the shape an event names at `lane` into `out`; false for a shape no entity carried. */
+function eventShapeEntity(
+    state: WorldState,
     k: ReturnType<typeof kernel>,
-    worldId: number,
     kind: number,
     eventIndex: number,
     lane: number,
-): ShapeEntityBinding | null {
-    const id = k.eventWord(worldId, kind, eventIndex, lane) - 1;
-    const generation = k.eventWord(worldId, kind, eventIndex, lane + 1) >>> 16;
-    if (id < 0) return null;
-    const bindings = runtime.shapeEntities.slots[id];
-    if (!bindings) return null;
-    for (let i = bindings.length - 1; i >= 0; --i)
-        if (bindings[i].generation === generation) return bindings[i];
-    return null;
+    out: ShapeEntity,
+): boolean {
+    const id = k.eventWord(state.worldId, kind, eventIndex, lane) - 1;
+    const generation = k.eventWord(state.worldId, kind, eventIndex, lane + 1) >>> 16;
+    return id >= 0 && shapeEntityAt(state.shapeEntities, id, generation, out);
 }
+const eventShapeA: ShapeEntity = { shape: 0 as EntityRef, body: 0 as EntityRef };
+const eventShapeB: ShapeEntity = { shape: 0 as EntityRef, body: 0 as EntityRef };
 
 function sensorRecordAt(
     list: PhysicsEventRecords<PhysicsSensorEvent>,
@@ -1595,7 +1546,6 @@ function jointRecordAt(
 }
 
 function fillSensorRecords(
-    runtime: PhysicsRuntime,
     state: WorldState,
     list: PhysicsEventRecords<PhysicsSensorEvent>,
     kind: number,
@@ -1604,9 +1554,13 @@ function fillSensorRecords(
     const count = eventCount(state, kind);
     let written = 0;
     for (let i = 0; i < count; i++) {
-        const sensor = eventShapeBinding(runtime, k, state.worldId, kind, i, 0);
-        const visitor = eventShapeBinding(runtime, k, state.worldId, kind, i, 2);
-        if (!sensor || !visitor) continue;
+        const sensor = eventShapeA;
+        const visitor = eventShapeB;
+        if (
+            !eventShapeEntity(state, k, kind, i, 0, sensor) ||
+            !eventShapeEntity(state, k, kind, i, 2, visitor)
+        )
+            continue;
         const record = sensorRecordAt(list, written++);
         record.sensorShape = sensor.shape;
         record.sensorBody = sensor.body;
@@ -1617,7 +1571,6 @@ function fillSensorRecords(
 }
 
 function fillContactRecords(
-    runtime: PhysicsRuntime,
     state: WorldState,
     list: PhysicsEventRecords<PhysicsContactEvent>,
     kind: number,
@@ -1626,9 +1579,13 @@ function fillContactRecords(
     const count = eventCount(state, kind);
     let written = 0;
     for (let i = 0; i < count; i++) {
-        const a = eventShapeBinding(runtime, k, state.worldId, kind, i, 0);
-        const b = eventShapeBinding(runtime, k, state.worldId, kind, i, 2);
-        if (!a || !b) continue;
+        const a = eventShapeA;
+        const b = eventShapeB;
+        if (
+            !eventShapeEntity(state, k, kind, i, 0, a) ||
+            !eventShapeEntity(state, k, kind, i, 2, b)
+        )
+            continue;
         const record = contactRecordAt(list, written++);
         record.shapeA = a.shape;
         record.bodyA = a.body;
@@ -1650,9 +1607,13 @@ function fillHitRecords(
     const count = eventCount(state, kind);
     let written = 0;
     for (let i = 0; i < count; i++) {
-        const a = eventShapeBinding(runtime, k, state.worldId, kind, i, 0);
-        const b = eventShapeBinding(runtime, k, state.worldId, kind, i, 2);
-        if (!a || !b) continue;
+        const a = eventShapeA;
+        const b = eventShapeB;
+        if (
+            !eventShapeEntity(state, k, kind, i, 0, a) ||
+            !eventShapeEntity(state, k, kind, i, 2, b)
+        )
+            continue;
         const at = written * 4;
         const record = hitRecordAt(runtime, list, written++);
         record.shapeA = a.shape;
@@ -1714,13 +1675,13 @@ function fillJointRecords(
 function rebuildPhysicsEvents(world: World, runtime: PhysicsRuntime): void {
     const state = runtime.physicsWorld!;
     const events = world.resource(PhysicsEvents);
-    fillSensorRecords(runtime, state, events.sensorBegin, EventKind.SensorBegin);
-    fillSensorRecords(runtime, state, events.sensorEnd, EventKind.SensorEnd);
-    fillContactRecords(runtime, state, events.contactBegin, EventKind.ContactBegin);
-    fillContactRecords(runtime, state, events.contactEnd, EventKind.ContactEnd);
+    fillSensorRecords(state, events.sensorBegin, EventKind.SensorBegin);
+    fillSensorRecords(state, events.sensorEnd, EventKind.SensorEnd);
+    fillContactRecords(state, events.contactBegin, EventKind.ContactBegin);
+    fillContactRecords(state, events.contactEnd, EventKind.ContactEnd);
     fillHitRecords(runtime, state, events.contactHit);
     fillJointRecords(world, state, events.joints);
-    pruneShapeEntities(runtime);
+    pruneShapeEntities(state.shapeEntities);
 }
 
 /** @internal Applies a marked teleport before a pose producer consumes the body's pose. */
@@ -1980,13 +1941,13 @@ function removeShape(
     runtime.shapeRemovalMass.delete(eid);
     const shape = runtime.shapes.get(eid);
     const state = runtime.physicsWorld;
-    retireShapeEntity(runtime, shape);
+    retireShape(runtime, shape);
     if (shape && state && shapeIsValid(state, shape))
         destroyShape(state, shape.index1 - 1, updateBodyMass);
     runtime.shapes.delete(eid);
     runtime.shapeBodies.delete(eid);
     runtime.shapeStamps.delete(eid);
-    runtime.shapeRecreationState.delete(eid);
+    forgetShapeRecreationState(runtime.shapeRecreationState, eid);
     runtime.warnedShapes.delete(eid);
 }
 
@@ -2022,7 +1983,7 @@ function captureScaleCandidates(world: World, runtime: PhysicsRuntime): void {
             for (let eid = dependencies.first(body); eid !== 0; eid = dependencies.following(eid)) {
                 if (
                     runtime.shapeBodies.get(eid) === body &&
-                    shapeBodyScaleChanged(world, body, runtime.shapeRecreationState.get(eid))
+                    shapeBodyScaleChanged(world, body, runtime.shapeRecreationState, eid)
                 )
                     markFieldCandidate(candidates, eid);
             }
@@ -2094,8 +2055,12 @@ function syncShapes(world: World, runtime: PhysicsRuntime, checkScale = true): v
                 candidates.positions[eid] = ++pending;
                 continue;
             }
-            const previous = runtime.shapeRecreationState.get(eid);
-            const scaleChanged = shapeBodyScaleChanged(world, bodyEid, previous);
+            const scaleChanged = shapeBodyScaleChanged(
+                world,
+                bodyEid,
+                runtime.shapeRecreationState,
+                eid,
+            );
             try {
                 if (
                     shapeNeedsRecreation(
@@ -2103,7 +2068,7 @@ function syncShapes(world: World, runtime: PhysicsRuntime, checkScale = true): v
                         binding,
                         eid,
                         mask,
-                        previous,
+                        runtime.shapeRecreationState,
                         shape,
                         state,
                         scaleChanged,
@@ -2136,10 +2101,7 @@ function syncShapes(world: World, runtime: PhysicsRuntime, checkScale = true): v
             }
         }
         rememberShapeEntity(world, runtime, shape, eid, bodyEid);
-        runtime.shapeRecreationState.set(
-            eid,
-            captureShapeRecreationState(world, binding, eid, runtime.shapeRecreationState.get(eid)),
-        );
+        captureShapeRecreationState(world, binding, eid, runtime.shapeRecreationState);
         candidates.positions[eid] = 0;
         candidates.fieldMarks[eid] = 0;
     }
