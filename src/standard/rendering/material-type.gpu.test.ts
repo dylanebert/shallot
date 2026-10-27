@@ -85,22 +85,22 @@ const Owned = {
 };
 const DEPTH = 0xc000 / 0xffff;
 const Unused = d.struct({ unused: d.f32 });
-const pairLayout = materialLayout(Unused, { pair: { type: "texture-2d" } });
-const layersLayout = materialLayout(Unused, { layers: { type: "texture-2d-array" } });
-const depthLayout = materialLayout(Unused, { depth: { type: "texture-depth-2d" } });
+const pairLayout = materialLayout(Unused, { pair: { type: "texture" } });
+const layersLayout = materialLayout(Unused, { layers: { type: "texture", dimension: "2d-array" } });
+const depthLayout = materialLayout(Unused, { depth: { type: "texture", sampleType: "depth" } });
 const samplerLayout = materialLayout(Unused, {
-    pair: { type: "texture-2d" },
+    pair: { type: "texture" },
     linear: { type: "sampler" },
 });
 const comparisonLayout = materialLayout(Unused, {
-    depth: { type: "texture-depth-2d" },
-    less: { type: "sampler-comparison" },
+    depth: { type: "texture", sampleType: "depth" },
+    less: { type: "sampler", samplerType: "comparison" },
 });
 const bindingKinds: Record<
     string,
     { expected: number[]; type: MaterialType<typeof Unused, Record<string, MaterialBinding>> }
 > = {
-    "texture-2d": {
+    texture: {
         expected: [0, 255, 0, 255],
         type: materialType({
             name: "OwnedTexture2d",
@@ -113,7 +113,7 @@ const bindingKinds: Record<
             },
         }),
     },
-    "texture-2d-array": {
+    "2d-array texture": {
         expected: [0, 255, 0, 255],
         type: materialType({
             name: "OwnedTexture2dArray",
@@ -126,7 +126,7 @@ const bindingKinds: Record<
             },
         }),
     },
-    "texture-depth-2d": {
+    "depth texture": {
         expected: [srgbByte(DEPTH), 0, 0, 255],
         type: materialType({
             name: "OwnedTextureDepth2d",
@@ -158,7 +158,7 @@ const bindingKinds: Record<
         }),
     },
     // "less" passes a reference below the stored depth and fails one above it
-    "sampler-comparison": {
+    "comparison sampler": {
         expected: [255, 0, 0, 255],
         type: materialType({
             name: "OwnedSamplerComparison",

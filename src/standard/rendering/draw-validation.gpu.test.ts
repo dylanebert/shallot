@@ -49,7 +49,7 @@ const Owned = {
     },
 };
 const layout = materialLayout(d.struct({ unused: d.f32 }), {
-    image: { type: "texture-2d" },
+    image: { type: "texture" },
     linear: { type: "sampler" },
 });
 const Sampled = materialType({
