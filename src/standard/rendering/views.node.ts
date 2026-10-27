@@ -293,10 +293,10 @@ describe.each([0, 1])("lit fogged outlined views, antialias %i", (antialias) => 
         const { world } = app;
         await grow();
         for (const point of points) world.remove(point, PointLight);
-        for (let i = 0; i < 16; i++) world.step(0);
+        world.step(0);
         for (let i = 0; i < points.length; i++)
             world.add(points[i]!, PointLight, pointSpecs[i]!.light);
-        for (let i = 0; i < SETTLE; i++) world.step(0);
+        for (let i = 1; i < SETTLE; i++) world.step(0);
         const restored = [await captureTexture(world, first), await captureTexture(world, second)];
         for (let slot = 0; slot < 2; slot++)
             expectSettledPixels(restored[slot]!.rgba, [grownFirst, grownSecond][slot]!.rgba);
@@ -329,7 +329,7 @@ describe.each([0, 1])("lit fogged outlined views, antialias %i", (antialias) => 
         await grow();
         const beforeSlotShift = grownSecond;
         world.remove(first, Camera);
-        for (let i = 0; i < 96; i++) world.step(0);
+        for (let i = 0; i < SETTLE; i++) world.step(0);
         expect(world.resource(Views).get(second)?.slot).toBe(0);
         const afterSlotShift = await captureTexture(world, second);
         expectSettledPixels(afterSlotShift.rgba, beforeSlotShift.rgba);
