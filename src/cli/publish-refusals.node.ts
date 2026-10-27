@@ -1,11 +1,14 @@
-import { afterAll, afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { expectError } from "../../scripts/test-console";
 import { normalizePath } from "../project";
 import { publishHeaders, publishProject, readPublishLink } from "./publish";
 import { projectChromium } from "./publish-verify";
+
+setDefaultTimeout(TIMEOUT.node);
 
 const root = mkdtempSync(join(tmpdir(), "shallot-publish-refusals-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
