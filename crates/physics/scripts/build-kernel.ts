@@ -41,9 +41,9 @@ const INSTALL = `rustup toolchain install ${NIGHTLY} --component rust-src --targ
 /** Shadow-stack size of the shared build (link arg). Partitioned into per-thread slices by the pool
  * (src/pool.ts); raising it raises the thread ceiling and the module's declared page count. */
 const SHARED_STACK_SIZE = 3145728;
-/** Link-time memory ceiling of the shared build, in bytes (16384 pages). A JS-created shared memory may
+/** Link-time memory ceiling of the shared build, in bytes (65536 pages). A JS-created shared memory may
  * only lower it — the import's declared maximum is the hard cap. */
-const SHARED_MAX_MEMORY = 1073741824;
+const SHARED_MAX_MEMORY = 4294967296;
 
 function stableRustflags(): string {
     return [

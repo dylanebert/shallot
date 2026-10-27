@@ -2326,7 +2326,10 @@ export const StandardPhysicsPlugin: Plugin = {
     async warm(world) {
         const runtime = runtimeFor(world);
         const definition = world.resource(PhysicsWorldDefinition);
-        await init(world, { threads: definition.workerCount });
+        await init(world, {
+            threads: definition.workerCount,
+            maximumMemory: definition.maximumMemory,
+        });
         if (runtime.physicsWorld) destroyWorld(runtime.physicsWorld);
         const id = createWorld(world, {
             ...defaultWorldDef(),

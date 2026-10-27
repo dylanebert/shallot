@@ -797,11 +797,11 @@ export type InitOptions = {
      * Pass `0` to force the single-thread kernel, or `n` to
      * override the auto count (counting the calling thread, clamped to the ceiling the shadow stack
      * affords). `n` still needs a host that can hold shared memory — a browser without cross-origin
-     * isolation runs single-thread whatever you ask. read {@link threads} for what you got. the
-     * multithreaded kernel caps linear memory at 1 GiB (the single-thread one is unbounded), which bounds
-     * the scene it can hold.
+     * isolation runs single-thread whatever you ask. read {@link threads} for what you got.
      */
     threads?: number;
+    /** Shared linear memory ceiling in bytes; defaults to 1 GiB. Read once at initialization. */
+    maximumMemory?: number;
 };
 
 export type QueryCallback = (kind: number, shape: number, data: number, count: number) => number;
@@ -821,6 +821,7 @@ export interface KernelState {
     queryError: unknown;
     instance: Kernel | null;
     sharedMemory: WebAssembly.Memory | null;
+    maximumMemory: number;
     pool: Pool | null;
     resolved: number;
     booting: Promise<void> | null;
@@ -846,6 +847,7 @@ function createKernelState(): KernelState {
         queryError: undefined,
         instance: null,
         sharedMemory: null,
+        maximumMemory: 1073741824,
         pool: null,
         resolved: 1,
         booting: null,
@@ -1175,6 +1177,11 @@ function kernelImports(runtime: KernelState, memory: () => WebAssembly.Memory) {
         collisionCallback: collisionImport(runtime),
         now: clockImport(memory),
         kernelPanic: panicImport(memory),
+        allocationFailed: () => {
+            throw new Error(
+                `physics: shared kernel allocation failed at the ${runtime.maximumMemory} byte ceiling; increase PhysicsWorldDefinition.maximumMemory (up to 4294967296 bytes).`,
+            );
+        },
     };
 }
 
@@ -1188,14 +1195,15 @@ async function single(runtime: KernelState): Promise<void> {
 }
 
 async function multi(runtime: KernelState, want: number): Promise<void> {
-    const { KERNEL_SHARED_WASM_BASE64, SHARED_INITIAL_PAGES, SHARED_MAX_PAGES, SHARED_STACK_SIZE } =
-        await import("./kernel.shared.wasm");
+    const { KERNEL_SHARED_WASM_BASE64, SHARED_INITIAL_PAGES, SHARED_STACK_SIZE } = await import(
+        "./kernel.shared.wasm"
+    );
 
     // The module declares its own memory floor (data + shadow stack), so `initial` may not go below it;
     // `maximum` is the link-time ceiling and a JS memory may only lower it.
     const memory = new WebAssembly.Memory({
         initial: SHARED_INITIAL_PAGES,
-        maximum: SHARED_MAX_PAGES,
+        maximum: runtime.maximumMemory / 65536,
         shared: true,
     });
     const module = await WebAssembly.compile(decode(KERNEL_SHARED_WASM_BASE64));
@@ -1226,6 +1234,8 @@ async function multi(runtime: KernelState, want: number): Promise<void> {
                   exports.__stack_pointer.value as number,
                   SHARED_STACK_SIZE,
                   exports,
+                  false,
+                  runtime.maximumMemory,
               )
             : null;
 
@@ -1240,6 +1250,12 @@ async function boot(runtime: KernelState, threads: number | undefined): Promise<
     const plan = resolve(threads, host());
     announce(plan);
     if (plan.want >= 1) {
+        const { SHARED_INITIAL_PAGES } = await import("./kernel.shared.wasm");
+        if (runtime.maximumMemory < SHARED_INITIAL_PAGES * 65536) {
+            throw new Error(
+                `PhysicsWorldDefinition.maximumMemory must be at least ${SHARED_INITIAL_PAGES * 65536} bytes.`,
+            );
+        }
         try {
             await multi(runtime, plan.want);
             return;
@@ -1273,6 +1289,15 @@ async function boot(runtime: KernelState, threads: number | undefined): Promise<
  */
 export function init(world: World | undefined, options?: InitOptions): Promise<void> {
     const runtime = kernelState(world);
+    if (!runtime.booting) {
+        const maximum = options?.maximumMemory ?? 1073741824;
+        if (!Number.isInteger(maximum / 65536) || maximum < 65536 || maximum > 4294967296) {
+            throw new Error(
+                "PhysicsWorldDefinition.maximumMemory must be a multiple of 65536 bytes, at most 4294967296 bytes (4 GiB).",
+            );
+        }
+        runtime.maximumMemory = maximum;
+    }
     runtime.booting ??= boot(runtime, normalizeThreads(options?.threads));
     return runtime.booting;
 }

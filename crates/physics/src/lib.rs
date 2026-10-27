@@ -104,6 +104,12 @@ mod checked {
 mod allocation;
 #[cfg(target_arch = "wasm32")]
 mod arena;
+#[cfg(all(
+    target_arch = "wasm32",
+    target_feature = "atomics",
+    not(feature = "count-allocations")
+))]
+mod shared_allocation;
 
 #[cfg(target_arch = "wasm32")]
 mod bodies;

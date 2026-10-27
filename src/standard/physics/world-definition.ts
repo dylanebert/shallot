@@ -29,6 +29,13 @@ export type PhysicsWorldDefinitionConfig = Omit<
 > & {
     /** Solver threads including the calling thread; absent selects the host default. Read at build only. */
     workerCount?: number;
+    /**
+     * Shared kernel's maximum linear memory in bytes, a multiple of 64 KiB, from the module's initial
+     * memory through 4 GiB. Defaults to 1 GiB; read at build only. Does not affect the unshared kernel.
+     * Hosts that reserve the maximum up front pay for a larger value even before memory grows
+     * (https://bugs.webkit.org/show_bug.cgi?id=255103).
+     */
+    maximumMemory?: number;
     /** Solver substeps per fixed tick. Box3D's recommended default is four. */
     subStepCount: number;
     /** Whether contact and joint impulses are warm-started. */

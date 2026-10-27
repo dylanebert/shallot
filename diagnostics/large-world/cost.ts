@@ -19,6 +19,7 @@ const config = {
     setup(world: import("@dylanebert/shallot").World) {
         const definition = world.resource(PhysicsWorldDefinition);
         definition.workerCount = workerCount;
+        definition.maximumMemory = 4294967296;
         definition.capacity = {
             staticShapeCount: grid * grid,
             staticBodyCount: grid * grid,

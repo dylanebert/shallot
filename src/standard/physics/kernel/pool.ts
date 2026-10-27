@@ -22,6 +22,7 @@ const boot = (d, post) => {
         queryCallback() { throw new Error("physics: worker invoked a user query callback"); },
         materialCallback() { throw new Error("physics: worker invoked a user material callback"); },
         collisionCallback() { throw new Error("physics: worker invoked a user collision callback"); },
+        allocationFailed() { throw new Error("physics: shared kernel allocation failed at the " + d.memoryMaximum + " byte ceiling; increase PhysicsWorldDefinition.maximumMemory (up to 4294967296 bytes)."); },
         kernelPanic(p, n) { console.error("physics kernel " + new TextDecoder().decode(new Uint8Array(d.memory.buffer, p, n).slice())); }
     } }).exports;
     ex.__stack_pointer.value = d.stackTop;
@@ -45,6 +46,7 @@ type Boot = {
     stackTop: number;
     tlsBase: number;
     testFault: boolean;
+    memoryMaximum: number;
 };
 export type WorkerReady = { index: number; stackPointer: number; tlsBase: number };
 type Spawned = {
@@ -111,6 +113,7 @@ export async function createPool(
     scheduler: SchedulerExports,
     /** Arm every worker to trap on its first task wake: the caller can finish a step without any one worker. */
     testFault = false,
+    memoryMaximum = 1073741824,
 ): Promise<Pool> {
     scheduler.schedulerStart();
     // The flag lives in the module's static data; this view remains valid when shared memory grows.
@@ -125,6 +128,7 @@ export async function createPool(
                 stackTop: base + (i + 2) * SLICE,
                 tlsBase: base + (i + 1) * SLICE,
                 testFault,
+                memoryMaximum,
             }),
         ),
     );
