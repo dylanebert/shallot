@@ -1,0 +1,20 @@
+30	Cone Limit	1
+40	Cone Angle	45
+50	Twist Limit	1
+60	Lower Twist	-50
+70	Upper Twist	60
+80	Motor	1
+90	Max Torque	300
+100	Velocity X	2
+110	Velocity Y	3
+120	Velocity Z	-2
+130	Spring	1
+140	Hertz	3
+150	Damping	0.5
+160	Rotation X	30
+170	Rotation Y	45
+180	Rotation Z	-20
+240	Cone Limit	0
+250	Twist Limit	0
+260	Motor	0
+270	Spring	0

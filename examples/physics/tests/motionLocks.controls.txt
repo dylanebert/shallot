@@ -1,0 +1,12 @@
+30	Lock Linear X	1
+40	Lock Linear Y	1
+50	Lock Linear Z	1
+60	Lock Angular X	1
+70	Lock Angular Y	1
+80	Lock Angular Z	1
+140	Lock Linear X	0
+150	Lock Linear Y	0
+160	Lock Linear Z	0
+170	Lock Angular X	0
+180	Lock Angular Y	0
+190	Lock Angular Z	0

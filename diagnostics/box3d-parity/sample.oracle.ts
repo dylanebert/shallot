@@ -46,6 +46,9 @@ const stackingMutations: Record<string, [string, string, string]> = {
     edgeCrossing: ["EdgeCrossing", "{ 0.2f, 0.02f, 0.04f }", "{ 0.21f, 0.02f, 0.04f }"],
 };
 const jointMutations: Record<string, [string, string, string]> = {
+    distance: ["DistanceJoint", "float radius = 0.25f;", "float radius = 0.26f;"],
+    spherical: ["SphericalJoint", "bodyDef.position = { 0.0f, 4.0f, 0.0f };", "bodyDef.position = { 0.0f, 4.1f, 0.0f };"],
+    motionLocks: ["MotionLocks", "b3Pos position = { -12.5f, 10.0, 0.0f };", "b3Pos position = { -12.4f, 10.0, 0.0f };"],
     ballAndChain: ["BallAndChain", "float linkRadius = 0.125f;", "float linkRadius = 0.126f;"],
     foldOut: ["FoldOut", "float halfLength = 2.0f;", "float halfLength = 2.1f;"],
     topDownFriction: ["TopDownFriction", "int n = 10;", "int n = 9;"],
@@ -58,7 +61,7 @@ for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "f
         const hashes = run([binary, scene, String(steps)]);
         equalSampleSteps(run([binary, scene, String(steps)]), hashes, `${scene} repeat`);
         equalSampleSteps(hashes, readFileSync(new URL(`../../examples/physics/tests/${scene === "box_stack" ? "boxStack" : scene}.gold.txt`, import.meta.url), "utf8"), scene);
-        if (["revolute", "prismatic", "wheel", "parallel", "motor", "joint", "contact", "jenga", "weld", "topDownFriction"].includes(scene)) {
+        if (["revolute", "prismatic", "wheel", "parallel", "motor", "joint", "contact", "jenga", "weld", "topDownFriction", "distance", "spherical", "motionLocks"].includes(scene)) {
             const sequence = fileURLToPath(new URL(`../../examples/physics/tests/${scene}.controls.txt`, import.meta.url));
             const controlledSteps = scene === "contact" ? 1204 : steps;
             const controlled = run([binary, scene, String(controlledSteps), sequence]);

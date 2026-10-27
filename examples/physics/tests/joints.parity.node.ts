@@ -1,5 +1,12 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { Body, createApp, hashPhysics, Shape, StandardPhysicsPlugin } from "@dylanebert/shallot";
+import {
+    Body,
+    createApp,
+    DistanceJoint,
+    hashPhysics,
+    Shape,
+    StandardPhysicsPlugin,
+} from "@dylanebert/shallot";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import {
     type Controls,
@@ -16,6 +23,9 @@ import { sampleGold } from "./gold";
 setDefaultTimeout(TIMEOUT.node);
 
 for (const scene of [
+    "distance",
+    "spherical",
+    "motionLocks",
     "revolute",
     "prismatic",
     "wheel",
@@ -87,6 +97,33 @@ for (const scene of [
         });
     }
 }
+
+test("distance Count replaces its chain while retaining the running world and anchor", async () => {
+    let bodies: number[] = [];
+    const app = await createApp({
+        defaults: false,
+        plugins: [StandardPhysicsPlugin],
+        setup(world) {
+            bodies = createScene(world, "distance");
+        },
+    });
+    try {
+        const world = app.world;
+        world.tick();
+        const oldBodies = bodies.map((eid) => world.ref(eid));
+        const oldJoints = [...world.query([DistanceJoint])].map((eid) => world.ref(eid));
+        const anchor = world.ref(world.storage(DistanceJoint).a.get(world.resolve(oldJoints[0]!)));
+        changeControl(world, "distance", bodies, controlValues("distance"), "Count", 5);
+        expect(oldBodies.every((ref) => world.resolve(ref) === 0)).toBe(true);
+        expect(oldJoints.every((ref) => world.resolve(ref) === 0)).toBe(true);
+        expect(world.resolve(anchor)).not.toBe(0);
+        expect(bodies).toHaveLength(5);
+        expect([...world.query([DistanceJoint])]).toHaveLength(5);
+        world.tick();
+    } finally {
+        app.dispose();
+    }
+});
 
 test("bridge equals every recorded native sample step and rejects a density change", async () => {
     const gold = sampleGold(await Bun.file(new URL("./bridge.gold.txt", import.meta.url)).text());

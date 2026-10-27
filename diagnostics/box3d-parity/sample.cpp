@@ -29,10 +29,10 @@ struct Camera
 	b3Vec3 GetForward() const { return { 0, 0, 1 }; }
 	b3Vec3 GetRight() const { return { 1, 0, 0 }; }
 };
-constexpr int KEY_W = 1, KEY_S = 2, KEY_A = 3, KEY_D = 4;
+constexpr int KEY_W = 1, KEY_S = 2, KEY_A = 3, KEY_D = 4, KEY_L = 5;
 bool IsKeyDown( int key ) {
 	float value = 0;
-	const char* names[] = { "", "W", "S", "A", "D" };
+	const char* names[] = { "", "W", "S", "A", "D", "L" };
 	for ( const Change& change : changes )
 		if ( change.step <= currentStep && change.name == names[key] ) value = change.value;
 	return value != 0;
@@ -88,10 +88,24 @@ namespace ImGui
 {
 void PushItemWidth( float ) {}
 float GetFontSize() { return 14.0f; }
-bool SliderFloat( const char* name, float* value, float, float, const char* ) {
+bool SliderFloat( const char* name, float* value, float, float, const char* = "%.3f" ) {
     for ( const Change& change : changes )
         if ( change.step == currentStep && change.name == name ) { *value = change.value; return true; }
     return false;
+}
+bool SliderInt( const char* name, int* value, int, int ) {
+    float result = float(*value);
+    bool changed = SliderFloat( name, &result, 0, 0, "" );
+    *value = int(result);
+    return changed;
+}
+bool SliderFloat3( const char* name, float* value, float min, float max, const char* format ) {
+    bool changed = false;
+    for ( int i = 0; i < 3; ++i ) {
+        std::string label = std::string(name) + " " + "XYZ"[i];
+        changed = SliderFloat( label.c_str(), value + i, min, max, format ) || changed;
+    }
+    return changed;
 }
 bool RadioButton( const char* name, int* value, int selected ) {
     float pressed = 0;
@@ -248,7 +262,8 @@ int main( int argc, char** argv )
 		{ "arch", Arch::Create }, { "doubleDomino", DoubleDomino::Create },
 		{ "pyramid2D", Pyramid2D::Create }, { "edgeCrossing", EdgeCrossing::Create },
 		{ "box_stack", BoxStack::Create }, { "bridge", Bridge::Create },
-		{ "ballAndChain", BallAndChain::Create }, { "foldOut", FoldOut::Create }, { "topDownFriction", TopDownFriction::Create }, { "weld", WeldJoint::Create },
+		{ "distance", DistanceJoint::Create }, { "spherical", SphericalJoint::Create }, { "motionLocks", MotionLocks::Create },
+        { "ballAndChain", BallAndChain::Create }, { "foldOut", FoldOut::Create }, { "topDownFriction", TopDownFriction::Create }, { "weld", WeldJoint::Create },
 		{ "revolute", RevoluteJoint::Create }, { "prismatic", PrismaticJoint::Create },
 		{ "wheel", WheelJoint::Create }, { "filter", FilterJoint::Create }, { "parallel", ParallelJoint::Create },
 		{ "motor", MotorJoint::Create }, { "joint", JointEvent::Create },

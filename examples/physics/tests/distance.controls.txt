@@ -1,0 +1,13 @@
+30	Length	1.5
+40	Spring	1
+50	Tension##Spring	1500
+60	Compression##Spring	150
+70	Hertz##Spring	4
+80	Damping##Spring	0.8
+90	Limit	1
+100	Min##Limit	0.5
+110	Max##Limit	2
+120	Count	5
+180	Count	3
+240	Spring	0
+260	Limit	0

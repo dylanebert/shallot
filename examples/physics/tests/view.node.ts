@@ -33,6 +33,18 @@ setDefaultTimeout(TIMEOUT.node);
 
 // The accepted critical-set baseline, in eid order; counts compress adjacent equal roles.
 const acceptedRoles = {
+    distance: [
+        ["ground", 1],
+        ["subject", 1],
+    ],
+    spherical: [
+        ["ground", 1],
+        ["subject", 1],
+    ],
+    motionLocks: [
+        ["ground", 1],
+        ["subject", 4],
+    ],
     ballAndChain: [["subject", 33]],
     foldOut: [
         ["ground", 1],
@@ -269,6 +281,9 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 expect(ground.mesh.indices.length).toBeGreaterThan(0);
             } else expect(presentation.ground).toBeUndefined();
             const extent = {
+                distance: 25,
+                spherical: 20,
+                motionLocks: 20,
                 heightField: 30,
                 hull: 5,
                 ballAndChain: 40,

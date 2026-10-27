@@ -1,8 +1,10 @@
 import {
     Body,
     BodyType,
+    DistanceJoint,
     Hulls,
     MotorJoint,
+    PrismaticJoint,
     RevoluteJoint,
     Shape,
     ShapeKind,
@@ -11,7 +13,7 @@ import {
     WeldJoint,
     type World,
 } from "@dylanebert/shallot";
-import { explode, setAwake } from "@dylanebert/shallot/standard/physics";
+import { computeCosSin, explode, setAwake } from "@dylanebert/shallot/standard/physics";
 import type { Controls } from "./scenes";
 
 type V3 = [number, number, number];
@@ -173,7 +175,280 @@ const weldControls = Object.fromEntries(
         } satisfies Controls[string],
     ]),
 );
+type JointControl = [string, string, number, number?, number?, number?, string?];
+const distanceRows: JointControl[] = [
+    ["Length", "length", 1, 0.1, 4, 0.1],
+    ["Spring", "enableSpring", 0],
+    ["Tension", "lowerSpringForce", 2000, 0, 4000, 0.001, "Spring"],
+    ["Compression", "upperSpringForce", 100, 0, 200, 0.001, "Spring"],
+    ["Hertz", "hertz", 5, 0, 15, 0.1, "Spring"],
+    ["Damping", "dampingRatio", 0.5, 0, 4, 0.1, "Spring"],
+    ["Limit", "enableLimit", 0],
+    ["Min", "minLength", 1, 0.1, 4, 0.1, "Limit"],
+    ["Max", "maxLength", 1, 0.1, 4, 0.1, "Limit"],
+];
+function distanceChain(
+    world: World,
+    anchor: number,
+    count: number,
+    values: Record<string, number>,
+): number[] {
+    let parent = anchor;
+    const bodies: number[] = [];
+    const length = Math.fround(values.Length!);
+    for (let i = 0; i < count; i++) {
+        const eid = body(world, [Math.fround(length * (i + 1)), 20, 0]);
+        world.storage(Body).angularDamping.set(eid, 1);
+        world.add(eid, Shape, { kind: ShapeKind.Sphere, radius: 0.25, density: 20 });
+        world.add(world.create(), DistanceJoint, {
+            a: parent,
+            b: eid,
+            localAnchorA: i ? [0, 0, 0] : [0, 20, 0],
+            ...Object.fromEntries(
+                distanceRows.map(([label, field]) => [
+                    field,
+                    label === "Tension" ? -values[label]! : values[label]!,
+                ]),
+            ),
+        });
+        bodies.push(eid);
+        parent = eid;
+    }
+    return bodies;
+}
+function distance(world: World): number[] {
+    ground(world);
+    const anchor = body(world, [0, 0, 0], false);
+    return distanceChain(
+        world,
+        anchor,
+        1,
+        Object.fromEntries(distanceRows.map(([label, , value]) => [label, value])),
+    );
+}
+const distanceControls: Controls = Object.fromEntries(
+    distanceRows.map(([label, field, value, min, max, step, when]) => [
+        when ? `${label}##${when}` : label,
+        {
+            label,
+            value,
+            min,
+            max,
+            step,
+            when: when ? [when] : undefined,
+            set(world, bodies, value) {
+                for (const eid of world.query([DistanceJoint]))
+                    world
+                        .storage(DistanceJoint)
+                        [field as "length"].set(eid, label === "Tension" ? -value : value);
+                for (const eid of bodies) setAwake(world, eid, true);
+            },
+        } satisfies Controls[string],
+    ]),
+);
+distanceControls.Count = {
+    label: "Count",
+    value: 1,
+    min: 1,
+    max: 20,
+    step: 1,
+    set(world, bodies, value, values) {
+        const [joint] = world.query([DistanceJoint]);
+        const anchor = world.storage(DistanceJoint).a.get(joint!);
+        for (const eid of world.query([DistanceJoint])) world.destroy(eid);
+        for (const eid of bodies) world.destroy(eid);
+        (bodies as number[]).splice(
+            0,
+            bodies.length,
+            ...distanceChain(
+                world,
+                anchor,
+                value,
+                Object.fromEntries(
+                    distanceRows.map(([label, , , , , , when]) => [
+                        label,
+                        values[when ? `${label}##${when}` : label]!,
+                    ]),
+                ),
+            ),
+        );
+    },
+};
+const radians = (degrees: number) =>
+    Math.fround(Math.fround(Math.fround(Math.PI) / 180) * Math.fround(degrees));
+const sphericalRows: JointControl[] = [
+    ["Cone Limit", "enableConeLimit", 0],
+    ["Cone Angle", "coneAngle", 30, 0, 90, 1, "Cone Limit"],
+    ["Twist Limit", "enableTwistLimit", 0],
+    ["Lower Twist", "lowerTwistAngle", -35, -180, 180, 1, "Twist Limit"],
+    ["Upper Twist", "upperTwistAngle", 35, -180, 180, 1, "Twist Limit"],
+    ["Motor", "enableMotor", 0],
+    ["Max Torque", "maxMotorTorque", 20, 0, 10000, 1, "Motor"],
+    ...["X", "Y", "Z"].map(
+        (axis): JointControl => [`Velocity ${axis}`, "motorVelocity", 0, -10, 10, 1, "Motor"],
+    ),
+    ["Spring", "enableSpring", 1],
+    ["Hertz", "hertz", 2, 0, 10, 0.1, "Spring"],
+    ["Damping", "dampingRatio", 0.7, 0, 2, 0.1, "Spring"],
+    ...["X", "Y", "Z"].map(
+        (axis): JointControl => [`Rotation ${axis}`, "targetRotation", 0, -180, 180, 1, "Spring"],
+    ),
+];
+function spherical(world: World): number[] {
+    ground(world);
+    const anchor = body(world, [0, -1, 0], false);
+    const eid = body(world, [0, 4, 0]);
+    world.storage(Body).gravityScale.set(eid, 0);
+    box(world, eid, [0.5, 1.5, 0.25]);
+    world.storage(Shape).density.set(eid, 100);
+    world.add(world.create(), SphericalJoint, {
+        a: anchor,
+        b: eid,
+        localAnchorA: [0, 6.5, 0],
+        localAnchorB: [0, 1.5, 0],
+        drawScale: 2,
+        coneAngle: radians(30),
+        lowerTwistAngle: radians(-35),
+        upperTwistAngle: radians(35),
+        hertz: 2,
+        dampingRatio: 0.7,
+        maxMotorTorque: 20,
+        enableSpring: 1,
+    });
+    return [eid];
+}
+const sphericalControls: Controls = Object.fromEntries(
+    sphericalRows.map(([label, field, value, min, max, step, when]) => [
+        label,
+        {
+            label,
+            value,
+            min,
+            max,
+            step,
+            when: when ? [when] : undefined,
+            set(world, bodies, value, values) {
+                const [eid] = world.query([SphericalJoint]);
+                const joint = world.storage(SphericalJoint);
+                if (label === "Lower Twist")
+                    values[label] = value = Math.min(value, values["Upper Twist"]!);
+                if (label === "Upper Twist")
+                    values[label] = value = Math.max(value, values["Lower Twist"]!);
+                if (field === "motorVelocity")
+                    joint.motorVelocity.set(
+                        eid!,
+                        values["Velocity X"]!,
+                        values["Velocity Y"]!,
+                        values["Velocity Z"]!,
+                    );
+                else if (field === "targetRotation") {
+                    const f = Math.fround;
+                    const angles = ["X", "Y", "Z"].map((axis) =>
+                        f(0.5 * radians(values[`Rotation ${axis}`]!)),
+                    );
+                    const cs = angles.map((a) => computeCosSin(world, a));
+                    const [sx, sy, sz] = cs.map((pair) => pair[1]);
+                    const [cx, cy, cz] = cs.map((pair) => pair[0]);
+                    joint.targetRotation.set(
+                        eid!,
+                        f(f(cz! * f(cy! * sx!)) - f(sz! * f(sy! * cx!))),
+                        f(f(cz! * f(sy! * cx!)) + f(sz! * f(cy! * sx!))),
+                        f(f(sz! * f(cy! * cx!)) - f(cz! * f(sy! * sx!))),
+                        f(f(cz! * f(cy! * cx!)) + f(sz! * f(sy! * sx!))),
+                    );
+                } else
+                    joint[field as "hertz"].set(
+                        eid!,
+                        field.includes("Angle") ? radians(value) : value,
+                    );
+                for (const body of bodies) setAwake(world, body, true);
+            },
+        } satisfies Controls[string],
+    ]),
+);
+function motionLocks(world: World): number[] {
+    ground(world);
+    const anchor = body(world, [0, 0, 0], false);
+    return [DistanceJoint, PrismaticJoint, RevoluteJoint, WeldJoint].map((kind, i) => {
+        const x = -12.5 + 5 * i;
+        const eid = body(world, [x, 10, 0]);
+        world.storage(Body).enableSleep.set(eid, 0);
+        world.storage(Body).angularDamping.set(eid, 0.5);
+        box(world, eid, [1, 1, 0.5]);
+        world.storage(Shape).density.set(eid, 1);
+        const base = {
+            a: anchor,
+            b: eid,
+            forceThreshold: 20000,
+            torqueThreshold: 10000,
+            collideConnected: 1,
+        };
+        if (kind === DistanceJoint)
+            world.add(world.create(), DistanceJoint, {
+                ...base,
+                localAnchorA: [x, 13, 0],
+                localAnchorB: [0, 1, 0],
+                length: 2,
+            });
+        else if (kind === WeldJoint)
+            world.add(world.create(), WeldJoint, {
+                ...base,
+                localAnchorA: [x - 1, 10, 0],
+                localAnchorB: [-1, 0, 0],
+                angularHertz: 2,
+                angularDampingRatio: 0.5,
+            });
+        else
+            world.add(world.create(), kind, {
+                ...base,
+                localAnchorA: [x - 1, 10, 0],
+                localAnchorB: [-1, 0, 0],
+            });
+        return eid;
+    });
+}
+const motionLockControls: Controls = Object.fromEntries(
+    ["Linear X", "Linear Y", "Linear Z", "Angular X", "Angular Y", "Angular Z"].map((axis, bit) => [
+        `Lock ${axis}`,
+        {
+            label: `Lock ${axis}`,
+            value: 0,
+            set(world, bodies, value) {
+                const locks = world.storage(Body).motionLocks;
+                for (const eid of bodies) {
+                    locks.set(
+                        eid,
+                        value ? locks.get(eid) | (1 << bit) : locks.get(eid) & ~(1 << bit),
+                    );
+                    setAwake(world, eid, true);
+                }
+            },
+        } satisfies Controls[string],
+    ]),
+);
+
 export const jointScenes = {
+    distance: {
+        construct: distance,
+        gridExtent: 25,
+        gridSpacing: 1,
+        camera: { yaw: 0, pitch: 15, distance: 40, target: [0, 10, 0] },
+        controls: distanceControls,
+    },
+    spherical: {
+        construct: spherical,
+        gridExtent: 20,
+        gridSpacing: 1,
+        camera: { yaw: 45, pitch: 30, distance: 15, target: [0, 2, 0] },
+        controls: sphericalControls,
+    },
+    motionLocks: {
+        construct: motionLocks,
+        gridExtent: 20,
+        gridSpacing: 1,
+        camera: { yaw: 0, pitch: 30, distance: 40, target: [0, 5, 0] },
+        controls: motionLockControls,
+    },
     ballAndChain: {
         construct: ballAndChain,
         gridExtent: 40,
