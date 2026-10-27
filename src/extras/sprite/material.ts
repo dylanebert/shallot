@@ -46,9 +46,9 @@ export const SpriteSource = {
 };
 
 const layout = materialLayout(SpriteMaterialInput, {
-    images: { type: "texture-2d-array" },
+    images: { type: "texture", dimension: "2d-array" },
     imageSampler: { type: "sampler" },
-    imageSettings: { type: "texture-2d" },
+    imageSettings: { type: "texture" },
 });
 
 /** Fill mask: radial clockwise from 12 o'clock, vertical bottom-up, horizontal left-to-right. */

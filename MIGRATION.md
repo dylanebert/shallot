@@ -41,6 +41,18 @@ world.add(eid, Camera, { order: 1 });
 
 The entity table returned by `meshInstanceTable(world)` gains `layers` in existing padding, with bit 1 of `flags` indicating that `RenderLayers` is present; without that bit, the effective mask is `1`. Preserve those fields when publishing alpha or bounds directly. `MeshInstanceInput` remains the producer/material schema, with unchanged stride and field offsets; producer-table rows belong to layer 0. If an explicit material binding used `meshInstanceTable(world).typed` against `MeshInstanceInput`, use `meshInstanceTable(world).buffer` instead: the raw buffer binds the unchanged material-field layout without claiming that the entity and producer schemas are identical. Standard supplies this binding automatically.
 
+## Material binding kinds take options
+
+Texture and sampler entries in `materialLayout` and `backgroundLayout` name one kind, `"texture"` or `"sampler"`, and choose the WGSL type through options. Rename each entry; the layouts and shaders they produce are unchanged.
+
+| 0.10 | 0.10.1 |
+|---|---|
+| `{ type: "texture-2d" }` | `{ type: "texture" }` |
+| `{ type: "texture-2d-array" }` | `{ type: "texture", dimension: "2d-array" }` |
+| `{ type: "texture-depth-2d" }` | `{ type: "texture", sampleType: "depth" }` |
+| `{ type: "sampler" }` | `{ type: "sampler" }` |
+| `{ type: "sampler-comparison" }` | `{ type: "sampler", samplerType: "comparison" }` |
+
 ## Material shaders lose the constant colour
 
 `color` is removed from the material vertex input and fragment context; it was always `vec4f(1)`. Write `1`, or read a mesh attribute: declare `{ type: "attribute", element: d.vec4f }` in `materialLayout`, add the stream under the same name in the mesh's `attributes`, and pass `layout.$.<name>[input.vidx]` from the vertex function to the fragment as a varying.

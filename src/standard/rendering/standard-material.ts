@@ -14,9 +14,9 @@ import {
 import { Pbr } from "./shade";
 
 const standardLayout = materialLayout(StandardMaterialInput, {
-    images: { type: "texture-2d-array" },
+    images: { type: "texture", dimension: "2d-array" },
     imageSampler: { type: "sampler" },
-    imageSettings: { type: "texture-2d" },
+    imageSettings: { type: "texture" },
 });
 /** The built-in mesh material type. Its type-local table is the sole source of its PBR parameters. */
 export const Materials = materialType({

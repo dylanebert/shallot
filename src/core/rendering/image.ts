@@ -235,8 +235,9 @@ export function genMipmapsLayer(
 
 /**
  * decode `blobs` to a `texture_2d_array`: one layer per blob, all resized to a common (capped) square
- * size, sRGB-encoded, with a full mip chain. The returned texture binds as a surface's `texture-2d-array`
- * and is sampled `array[layer]`. Async (decode); call from a load path, not a hot frame.
+ * size, sRGB-encoded, with a full mip chain. The returned texture binds as a surface's
+ * `{ type: "texture", dimension: "2d-array" }` and is sampled `array[layer]`. Async (decode); call
+ * from a load path, not a hot frame.
  */
 export async function imageArray(
     world: World,

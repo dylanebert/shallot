@@ -26,7 +26,8 @@ export function rethrowMaterialError(name: string, error: unknown): never {
 type ShaderStage = "vertex" | "fragment";
 const VS_FS: ShaderStage[] = ["vertex", "fragment"];
 
-/** A material-owned resource or mesh attribute made available to its shaders. */
+/** A material-owned resource or mesh attribute made available to its shaders. A texture is a 2d float
+ * texture and a sampler filters unless their options say otherwise. */
 export type MaterialBinding =
     | { type: "uniform"; struct: AnyWgslStruct }
     | { type: "attribute"; element: AnyWgslData }
@@ -36,11 +37,24 @@ export type MaterialBinding =
           access?: "read" | "read_write";
           visibility?: readonly ShaderStage[];
       }
-    | { type: "texture-2d" }
-    | { type: "texture-2d-array" }
-    | { type: "texture-depth-2d" }
-    | { type: "sampler" }
-    | { type: "sampler-comparison" };
+    | { type: "texture"; dimension?: "2d" | "2d-array"; sampleType?: "float" }
+    | { type: "texture"; dimension?: "2d"; sampleType: "depth" }
+    | { type: "sampler"; samplerType?: "filtering" | "comparison" };
+
+type TextureEntry<T> = { texture: T; visibility: ShaderStage[] };
+type TextureEntryFor<B> = B extends { sampleType: "depth" }
+    ? TextureEntry<d.WgslTextureDepth2d>
+    : B extends { dimension: "2d-array" }
+      ? TextureEntry<d.WgslTexture2dArray<d.F32>>
+      : B extends { type: "texture"; dimension?: "2d" }
+        ? TextureEntry<d.WgslTexture2d<d.F32>>
+        : TextureEntry<d.WgslTexture2d<d.F32>> | TextureEntry<d.WgslTexture2dArray<d.F32>>;
+type SamplerEntry<T> = { sampler: T; visibility: ShaderStage[] };
+type SamplerEntryFor<B> = B extends { samplerType: "comparison" }
+    ? SamplerEntry<"comparison">
+    : B extends { type: "sampler"; samplerType?: "filtering" }
+      ? SamplerEntry<"filtering">
+      : SamplerEntry<"filtering"> | SamplerEntry<"comparison">;
 
 /** @internal The TypeGPU layout entry a material or background binding declares. */
 export type EntryFor<B extends MaterialBinding> = B extends { type: "uniform" }
@@ -51,15 +65,9 @@ export type EntryFor<B extends MaterialBinding> = B extends { type: "uniform" }
             access: "mutable" | "readonly";
             visibility: ShaderStage[];
         }
-      : B extends { type: "texture-2d" }
-        ? { texture: d.WgslTexture2d<d.F32>; visibility: ShaderStage[] }
-        : B extends { type: "texture-2d-array" }
-          ? { texture: d.WgslTexture2dArray<d.F32>; visibility: ShaderStage[] }
-          : B extends { type: "texture-depth-2d" }
-            ? { texture: d.WgslTextureDepth2d; visibility: ShaderStage[] }
-            : B extends { type: "sampler" }
-              ? { sampler: "filtering"; visibility: ShaderStage[] }
-              : { sampler: "comparison"; visibility: ShaderStage[] };
+      : B extends { type: "texture" }
+        ? TextureEntryFor<B>
+        : SamplerEntryFor<B>;
 
 /** @internal */
 export function bindingEntry<B extends MaterialBinding>(binding: B): EntryFor<B> {
@@ -82,16 +90,21 @@ export function bindingEntry<B extends MaterialBinding>(binding: B): EntryFor<B>
                       ? ["fragment"]
                       : VS_FS,
             } as EntryFor<B>;
-        case "texture-2d":
-            return { texture: d.texture2d(), visibility: VS_FS } as EntryFor<B>;
-        case "texture-2d-array":
-            return { texture: d.texture2dArray(), visibility: VS_FS } as EntryFor<B>;
-        case "texture-depth-2d":
-            return { texture: d.textureDepth2d(), visibility: VS_FS } as EntryFor<B>;
+        case "texture":
+            return {
+                texture:
+                    binding.sampleType === "depth"
+                        ? d.textureDepth2d()
+                        : binding.dimension === "2d-array"
+                          ? d.texture2dArray()
+                          : d.texture2d(),
+                visibility: VS_FS,
+            } as EntryFor<B>;
         case "sampler":
-            return { sampler: "filtering", visibility: VS_FS } as EntryFor<B>;
-        case "sampler-comparison":
-            return { sampler: "comparison", visibility: VS_FS } as EntryFor<B>;
+            return {
+                sampler: binding.samplerType ?? "filtering",
+                visibility: VS_FS,
+            } as EntryFor<B>;
     }
 }
 
@@ -191,9 +204,7 @@ export function materialLayout<B extends Record<string, MaterialBinding>, P exte
         }
     }
     // Group 0 contributes AO and two prepass textures; group 1 contributes two shadow atlases.
-    const textures = Object.values(bindings).filter((binding) =>
-        binding.type.startsWith("texture-"),
-    ).length;
+    const textures = Object.values(bindings).filter((binding) => binding.type === "texture").length;
     if (textures + 5 > 16) {
         throw new Error(
             `material layout uses ${textures + 5} fragment sampled textures; WebGPU's limit is 16`,
