@@ -1,5 +1,5 @@
 import type { World } from "../ecs";
-import { deviceLost } from "./gpu";
+import { deviceFailure, deviceLost } from "./gpu";
 
 interface Slot {
     buffer: GPUBuffer;
@@ -27,7 +27,8 @@ export interface ReadbackStamp {
 
 /** World-owned one-shot staging pool. No request means no mapping or readback allocation.
  * Staging is reused, but each request allocates mapping promises and independent result bytes.
- * Results carry copy-time stamps; arrival timing is not deterministic simulation input. */
+ * Results carry copy-time stamps; arrival timing is not deterministic simulation input.
+ * Once an observed device has stopped on a GPU error, every later request rejects with that first error. */
 export class ReadbackPool {
     private readonly _slots: Slot[] = [];
     private _disposed = false;
@@ -101,6 +102,8 @@ export class ReadbackPool {
         }
         const frame = this._world.gpu.frame;
         const fixedTick = this._world.time.fixedTick;
+        const failed = deviceFailure(this._device);
+        if (failed) throw new ReadbackError(label, frame, fixedTick, failed);
         let slot = this._slots.find((entry) => !entry.busy && entry.buffer.size === size);
         if (!slot) {
             const descriptor: GPUBufferDescriptor = {

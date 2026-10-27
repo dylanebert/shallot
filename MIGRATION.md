@@ -10,6 +10,10 @@ Code fragments assume an owning `world`, an existing entity `eid`, and the impor
 
 `Capture.identity` from both `captureFrame` and `captureTexture` no longer includes `deviceScale`. Use its `width`, `height`, `surface` and `encoding` to identify the rendered target. For page screenshots, set the viewport and device scale in the browser driver; a target's backing size does not declare the page's device scale.
 
+## Readbacks refuse after a GPU error
+
+`captureTexture`, `probeTexture` and `probeBuffer` now reject once the world's device has stopped on a GPU error, naming that first error, instead of returning contents from before the failed frame. Fix the error the rejection names; a check that provokes a GPU error expects the rejection rather than reading the returned bytes.
+
 ## Effect stack replaces vignette
 
 `@dylanebert/shallot/vignette` and `VignettePlugin` still work as deprecated aliases and are removed in 0.11. Switch imports to `@dylanebert/shallot/effect-stack` and use `EffectStackPlugin` (also in root and extras imports). Both plugin names refer to the same plugin. `Vignette` keeps its fields and defaults. The plugin now also supports camera components `LensDistortion` and `ChromaticAberration`, fused with vignette into one pass before tonemapping.

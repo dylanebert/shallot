@@ -619,6 +619,7 @@ function endArtifactScope(scope: ArtifactScope | undefined): void {
 
 interface DeviceFailure {
     stopped: boolean;
+    first?: GpuError;
     error: Promise<GpuError>;
 }
 const _observedDevices = new WeakMap<GPUDevice, DeviceFailure>();
@@ -725,6 +726,11 @@ export async function validateGpu<T>(
     return value as T;
 }
 
+/** The error that stopped an observed device, read without observing it. @internal */
+export function deviceFailure(device: GPUDevice): GpuError | undefined {
+    return _observedDevices.get(rawDevice(device))?.first;
+}
+
 /** Observe once per native device. Stop immediately; select a verdict 250 ms after the first failure.
  * Queue fences do not order error delivery across host task sources. This fixed window covers the
  * recorded Firefox cascade (out-of-memory at +2 ms, loss at +143 ms), not all possible delivery delays.
@@ -758,6 +764,7 @@ export function observeDevice(device: GPUDevice): DeviceFailure {
             candidate = error;
         if (state.stopped) return;
         state.stopped = true;
+        state.first = error;
         setTimeout(finish, 250);
     };
     void device.lost?.then((info) => {
