@@ -220,7 +220,7 @@ int main( int argc, char** argv )
 	SampleContext context;
 	struct Entry { const char* name; Sample* (*create)(SampleContext*); };
 	const Entry entries[] = {
-		{ "largePyramid", BenchmarkLargePyramid::Create }, { "widePyramid", BenchmarkWidePyramid::Create },
+		{ "largeWorld", BenchmarkLargeWorld::Create }, { "largePyramid", BenchmarkLargePyramid::Create }, { "widePyramid", BenchmarkWidePyramid::Create },
 		{ "manyPyramids", BenchmarkManyPyramids::Create }, { "jointGrid", BenchmarkJointGrid::Create },
 		{ "fallingBoxes", FallingBoxes::Create },
 		{ "rain", BenchmarkRain::Create },

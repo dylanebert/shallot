@@ -18,6 +18,7 @@ test("each picker label selects its scene in its category, exactly once", () => 
                 { id: "jointGrid", name: "Joint Grid" },
                 { id: "junkyard", name: "Junkyard" },
                 { id: "largePyramid", name: "Large Pyramid" },
+                { id: "largeWorld", name: "Large World" },
                 { id: "manyPyramids", name: "Many Pyramids" },
                 { id: "rain", name: "Rain" },
                 { id: "benchmarkSensor", name: "Sensor" },

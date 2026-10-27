@@ -44,6 +44,7 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
             { id: "jointGrid", name: "Joint Grid" },
             { id: "junkyard", name: "Junkyard" },
             { id: "largePyramid", name: "Large Pyramid" },
+            { id: "largeWorld", name: "Large World" },
             { id: "manyPyramids", name: "Many Pyramids" },
             { id: "rain", name: "Rain" },
             { id: "benchmarkSensor", name: "Sensor" },
@@ -723,6 +724,7 @@ export const scenes = {
 
 export function createScene(world: World, scene: Scene): number[] {
     world.resource(PhysicsWorldDefinition).workerCount = 1;
+    world.resource(PhysicsWorldDefinition).maximumMemory = 4 * 1024 ** 3;
     return scenes[scene].construct(world);
 }
 

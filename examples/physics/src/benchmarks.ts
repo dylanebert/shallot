@@ -53,6 +53,30 @@ function body(
 function ground(world: World, extent: number): void {
     body(world, box(world, [extent, 1, extent]), [0, -1, 0], false);
 }
+function largeWorld(world: World): number[] {
+    Object.assign(world.resource(BenchmarkSample), { scene: "largeWorld", step: 0 });
+    world.resource(PhysicsWorldDefinition).capacity = {
+        staticShapeCount: 1_000_000,
+        staticBodyCount: 1_000_000,
+        dynamicShapeCount: 100,
+        dynamicBodyCount: 100,
+        contactCount: 1024,
+    };
+    const geometry = box(world, [5, 0.25, 5]);
+    const bodies: number[] = [];
+    for (let i = 0; i < 1000; i++)
+        for (let j = 0; j < 1000; j++) {
+            const eid = body(
+                world,
+                geometry,
+                [-5000 + (i + 0.5) * 10, 0, -5000 + (j + 0.5) * 10],
+                false,
+            );
+            world.storage(Shape).invokeContactCreation.set(eid, 1);
+            bodies.push(eid);
+        }
+    return bodies;
+}
 function largePyramid(world: World): number[] {
     ground(world, 400);
     const geometry = box(world, [0.5, 0.5, 0.5]);
@@ -229,6 +253,22 @@ const SpawnBenchmark: System = {
     before: [SyncPhysicsConstraintsSystem],
     update(world) {
         const sample = world.resource(BenchmarkSample);
+        if (sample.scene === "largeWorld") {
+            const step = sample.step++;
+            if (step === 0 || step % 5 !== 0 || step > 500) return;
+            const index = step / 5 - 1;
+            const eid = world.create();
+            world.add(eid, Transform, {
+                translation: [
+                    -4000 + ((index % 10) + 0.5) * 800,
+                    1.5,
+                    -4000 + (Math.floor(index / 10) + 0.5) * 800,
+                ],
+            });
+            world.add(eid, Body, { type: BodyType.Dynamic });
+            world.add(eid, Shape, { kind: ShapeKind.Sphere, radius: 0.5 });
+            return;
+        }
         if (sample.scene !== "rain") return;
         if ((sample.step++ & 0x2f) !== 0) return;
         const filling = sample.columnCount < 10;
@@ -611,6 +651,13 @@ function chains(world: World): number[] {
     return bodies;
 }
 export const benchmarkScenes = {
+    largeWorld: {
+        construct: largeWorld,
+        gridExtent: 0,
+        gridSpacing: 10,
+        camera: { yaw: 0, pitch: 10, distance: 250, target: [0, 0, 0] },
+        controls: undefined,
+    },
     ...queryScenes,
     benchmarkSensor: {
         construct: benchmarkSensor,

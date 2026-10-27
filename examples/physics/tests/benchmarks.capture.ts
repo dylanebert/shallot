@@ -6,6 +6,7 @@ test.use(pipelineWarnings);
 for (const name of [
     "Height Field",
     "Hull",
+    "Large World",
     "Large Pyramid",
     "Wide Pyramid",
     "Many Pyramids",

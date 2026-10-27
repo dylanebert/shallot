@@ -5,6 +5,10 @@
 #include <stdio.h>
 #include <time.h>
 
+typedef struct b3World b3World;
+b3World* b3GetWorldFromId( b3WorldId );
+uint64_t b3HashWorldState( b3World* );
+
 static double now( void )
 {
 	struct timespec t;
@@ -34,6 +38,11 @@ int main( void )
 		b3World_Step( world, 1.0f / 60.0f, 4 );
 		report( phases[step], start );
 	}
+	uint64_t hash = 0;
+	start = now();
+	for ( int i = 0; i < 20; ++i ) hash ^= b3HashWorldState( b3GetWorldFromId( world ) );
+	report( "20 hashes", start );
+	printf( "hash sentinel: %llu\n", (unsigned long long)hash );
 	b3DestroyWorld( world );
 	return 0;
 }

@@ -1,5 +1,5 @@
 import { Body, createApp, Hulls, Shape, StandardPhysicsPlugin, Transform, Meshes, MeshInstance, MeshMaterial, Materials, StandardMaterial, shapeMesh, shapeEdges } from "@dylanebert/shallot";
-import { PhysicsWorldDefinition } from "@dylanebert/shallot/standard/physics";
+import { hashPhysics, PhysicsWorldDefinition } from "@dylanebert/shallot/standard/physics";
 import { openGpuApp } from "@dylanebert/shallot/testing/gpu";
 import { Gizmo, GizmoAsset, drawLine, registerGizmo } from "@dylanebert/shallot/extras";
 import { AppPlugin, Viewer } from "../../examples/physics/src/app";
@@ -49,6 +49,11 @@ try {
     const steady = performance.now();
     world.tick();
     report("second tick", steady);
+    let hash = 0n;
+    const hashing = performance.now();
+    for (let i = 0; i < 20; i++) hash ^= hashPhysics(world);
+    report("20 hashes", hashing);
+    console.log(`hash sentinel: ${hash}`);
     if (draw) {
         const view = performance.now();
         if (shared) {

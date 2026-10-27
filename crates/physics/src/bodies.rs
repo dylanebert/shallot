@@ -363,6 +363,37 @@ pub extern "C" fn body_count(id: u32) -> usize {
 pub extern "C" fn body_length(id: u32) -> usize {
     unsafe { world(id as usize).next }
 }
+// Box3D recording.c b3HashWorldState: raw float bits, in live body id order.
+#[export_name = "hashWorldState"]
+pub unsafe extern "C" fn hash_world_state(id: usize, mut hash: u64) -> u64 {
+    for i in 0..world(id).next {
+        let body = record(id, i);
+        if body.id != i as i32 {
+            continue;
+        }
+        let sim = crate::solver_set::body_ptr_world(
+            id,
+            body.set_index as usize,
+            body.local_index as usize,
+            1,
+        );
+        for word in 0..7 {
+            hash = (hash ^ *sim.add(word) as u64).wrapping_mul(1099511628211);
+        }
+        if body.set_index == crate::solver_set::AWAKE_SET {
+            let state = crate::solver_set::body_ptr_world(
+                id,
+                body.set_index as usize,
+                body.local_index as usize,
+                0,
+            );
+            for word in 0..6 {
+                hash = (hash ^ *state.add(word) as u64).wrapping_mul(1099511628211);
+            }
+        }
+    }
+    hash
+}
 pub fn active_generation(world_index: usize, id: u32) -> u32 {
     body_generation(world_index as u32, id)
 }

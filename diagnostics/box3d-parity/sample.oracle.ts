@@ -83,6 +83,7 @@ for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "f
 }
 
 const benchmarkMutations: Record<string, [string, string]> = {
+    largeWorld: ["#define STATIC_FLOOR_DROP_INTERVAL 5", "#define STATIC_FLOOR_DROP_INTERVAL 6"],
     benchmarkSensor: ["float gridSize = 3.0f;", "float gridSize = 3.1f;"],
     chains: ["float linkRadius = 0.125f;", "float linkRadius = 0.126f;"],
     explosion: ["constexpr int n = m_isDebug ? 3 : 16;", "constexpr int n = m_isDebug ? 3 : 15;"],

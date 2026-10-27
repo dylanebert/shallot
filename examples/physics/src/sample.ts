@@ -56,7 +56,8 @@ export function sceneSwitcher(
         const restart = (construct: (world: World) => number[]) => {
             disposeView?.();
             world.restore(empty);
-            bodies.splice(0, bodies.length, ...construct(world));
+            bodies.length = 0;
+            for (const eid of construct(world)) bodies.push(eid);
             disposeView = view?.(world, scene);
         };
         world.resource(SceneRestart).restart = restart;

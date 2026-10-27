@@ -43,6 +43,7 @@ try {
             ["second tick / second step", ms(shallotLines, "second tick"), ms(native, "second step")],
         ];
         pairs.push(["author through second tick / create through second step", pairs.reduce((sum, pair) => sum + pair[1], 0), pairs.reduce((sum, pair) => sum + pair[2], 0)]);
+        pairs.push(["20 hashes / native b3HashWorldState", ms(shallotLines, "20 hashes"), ms(native, "20 hashes")]);
         for (const [phase, shallotMs, nativeMs] of pairs)
             console.log(JSON.stringify({ ratio: phase, shallot: shallotMs, native: nativeMs, value: shallotMs / nativeMs }));
     }

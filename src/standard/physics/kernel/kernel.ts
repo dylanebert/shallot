@@ -235,6 +235,7 @@ export type Kernel = {
     bodyAlive(world: number, id: number): number;
     bodyCount(world: number): number;
     bodyLength(world: number): number;
+    hashWorldState(world: number, seed: bigint): bigint;
     bodyVelocitySet(
         world: number,
         id: number,

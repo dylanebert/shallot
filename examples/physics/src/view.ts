@@ -28,11 +28,13 @@ import {
     internText,
     LinesPlugin,
     Orbit,
+    OrbitPlugin,
     registerGizmo,
     Text,
 } from "@dylanebert/shallot/extras";
 import { Anchor, Billboard, worldToViewport } from "@dylanebert/shallot/rendering";
 import { defaultDebugDraw, drawPhysics } from "@dylanebert/shallot/standard/physics";
+import { drawingBounds, drawSet } from "./draw-set";
 import { EventSample } from "./events";
 import { Grab } from "./grab";
 import {
@@ -217,9 +219,28 @@ function createView(world: World, scene: Scene, camera: number): () => void {
     const labels: number[] = [];
     const drivenSet = new Set<number>();
     function updateShapes(world: World): void {
+        let visible: Set<number> | undefined;
+        if (scene === "largeWorld") {
+            const pose = world.get(camera, Transform)!;
+            const forward = qRotate(...pose.rotation, 0, 0, -1);
+            visible = drawSet(
+                world,
+                drawingBounds(
+                    pose.translation,
+                    forward,
+                    typeof window === "undefined" ? 1 : window.innerWidth / window.innerHeight,
+                    world.storage(Camera).fov.get(camera),
+                ),
+            );
+        }
         for (const [ref, mesh] of views) {
             const eid = world.resolve(ref);
-            if (!eid || !world.has(eid, Shape)) {
+            if (!eid || !world.has(eid, Shape) || (visible && !visible.has(eid))) {
+                if (eid) {
+                    world.remove(eid, MeshInstance);
+                    world.remove(eid, MeshMaterial);
+                    world.remove(eid, Gizmo);
+                }
                 const key = meshKeys.get(mesh)!;
                 const asset = shared.get(key)!;
                 if (--asset.users === 0) {
@@ -234,7 +255,7 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         }
         const sample = world.resource(EventSample);
         const driven = drivenBodies(world, drivenSet);
-        for (const eid of world.query([Shape])) {
+        for (const eid of visible ?? world.query([Shape])) {
             const body = world.storage(Shape).body.get(eid) || eid;
             if (body !== eid) {
                 const pose = world.get(body, Transform);
@@ -330,7 +351,12 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         }
     }
     updateShapes(world);
-    addSystem({ name: "shape-views", group: "simulation", update: updateShapes });
+    addSystem({
+        name: "shape-views",
+        group: "simulation",
+        after: OrbitPlugin.systems,
+        update: updateShapes,
+    });
     if (scene === "joint" || scene === "motor") {
         const draw = defaultDebugDraw();
         draw.drawJoints = true;

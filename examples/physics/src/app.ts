@@ -5,6 +5,7 @@ import {
     OrbitPlugin,
     TextPlugin,
 } from "@dylanebert/shallot/extras";
+import { PhysicsWorldDefinition } from "@dylanebert/shallot/standard/physics";
 import { BenchmarkSamplePlugin } from "./benchmarks";
 import { EventSamplePlugin, SampleInputPlugin } from "./events";
 import { GrabPlugin } from "./grab";
@@ -14,6 +15,9 @@ export const Viewer = { create: createViewer };
 
 export const AppPlugin: Plugin = {
     name: "PhysicsApp",
+    initialize(world) {
+        world.resource(PhysicsWorldDefinition).maximumMemory = 4 * 1024 ** 3;
+    },
     dependencies: [
         StandardPhysicsPlugin,
         EventSamplePlugin,

@@ -146,7 +146,7 @@ export function scenePresentation(
     cache: ShapeGeometryCache = new Map(),
 ) {
     const driven = drivenBodies(world);
-    const shapes = Array.from(world.query([Shape]), (eid) =>
+    const shapes = Array.from(scene === "largeWorld" ? [] : world.query([Shape]), (eid) =>
         shapePresentation(world, eid, cache, driven),
     );
     const { gridExtent: extent, gridSpacing: spacing } = scenes[scene];

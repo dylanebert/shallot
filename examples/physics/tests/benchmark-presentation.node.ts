@@ -9,6 +9,7 @@ import {
     type World,
 } from "@dylanebert/shallot";
 import { DiagnosticsOverlayPlugin, profilerBounds, showProfiler } from "@dylanebert/shallot/extras";
+import { PhysicsWorldDefinition } from "@dylanebert/shallot/standard/physics";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { BenchmarkSamplePlugin } from "../src/benchmarks";
 import { EventSamplePlugin } from "../src/events";
@@ -27,7 +28,13 @@ function constructed(world: World) {
 }
 for (const { id } of benchmarks) {
     test(`${id} switched construction equals a fresh build before its first step`, async () => {
-        const app = await createApp({ defaults: false, plugins });
+        const app = await createApp({
+            defaults: false,
+            plugins,
+            setup(world) {
+                world.resource(PhysicsWorldDefinition).maximumMemory = 4 * 1024 ** 3;
+            },
+        });
         const fresh = await createApp({
             defaults: false,
             plugins,

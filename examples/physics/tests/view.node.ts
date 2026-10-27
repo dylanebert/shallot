@@ -190,6 +190,8 @@ test("a broken joint recolours its body", async () => {
 });
 
 for (const { id, name } of categories.flatMap((category) => category.scenes)) {
+    // Large World presents its per-frame query set, covered by large-world.node.ts.
+    if (id === "largeWorld") continue;
     test(`${name} builds every shape mesh, role material and controls panel without a GPU`, async () => {
         const app = await createApp({
             defaults: false,
