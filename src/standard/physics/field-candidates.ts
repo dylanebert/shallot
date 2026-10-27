@@ -39,10 +39,6 @@ function ensureCandidateCapacity(candidates: FieldCandidates, eid: number): void
     candidates.fieldMarks = fieldMarks;
 }
 
-export function clearFieldCandidate(candidates: FieldCandidates, eid: number): void {
-    candidates.fieldMarks[eid] = 0;
-}
-
 /** Removes a queued candidate and its field marks, leaving a tombstone in its slot. */
 export function dropFieldCandidate(candidates: FieldCandidates, eid: number): void {
     const position = candidates.positions[eid] ?? 0;

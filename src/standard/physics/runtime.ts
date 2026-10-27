@@ -49,7 +49,6 @@ import {
 import {
     captureFieldCandidate,
     captureFieldCandidates,
-    clearFieldCandidate,
     clearFieldCandidates,
     createFieldCandidates,
     dropFieldCandidate,
@@ -1926,9 +1925,14 @@ function visitBody(
     }
     const tb = marshalBody(world, physicsWorld, eid);
     kernel(world).bodySetEntity(tb.world0, tb.index1 - 1, eid);
-    runtime.bodies.set(eid, { ...tb, stamp });
+    runtime.bodies.set(eid, {
+        index1: tb.index1,
+        world0: tb.world0,
+        generation: tb.generation,
+        stamp,
+    });
     claimTransformPose(world, eid);
-    clearFieldCandidate(runtime.bodyCandidates, eid);
+    dropFieldCandidate(runtime.bodyCandidates, eid);
     seedGlobalTransform(world, eid, physicsWorld, tb);
     resetInterpolation(world, eid);
     markBodyDependents(runtime, eid);
@@ -2181,6 +2185,8 @@ const SyncSystem: System = {
         runtime.counters.shapesVisited = 0;
         captureFieldCandidate(world, runtime.bodyCandidates, bodyBinding(world));
         captureFieldCandidate(world, runtime.shapeCandidates, shapeBinding(world));
+        // Latch poses before creation, so a body created from its Transform is not compared at the step.
+        capturePoseCandidates(world, runtime);
         realizeMemberships(world, runtime);
         let ended = false;
         if (runtime.full) {

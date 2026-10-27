@@ -78,6 +78,8 @@ function definition(world: World, eid: number): ShapeDef {
     };
 }
 
+const usableScale = (v: number) => Number.isFinite(v) && v !== 0;
+
 /** Body-frame geometry uses the named body's authored scale, never a separate shape entity's placement. */
 export function shapeBodyScale(world: World, eid: number) {
     const shape = world.storage(ShapeComponent);
@@ -88,7 +90,7 @@ export function shapeBodyScale(world: World, eid: number) {
         y = scale.y.get(body),
         z = scale.z.get(body);
     const kind = shape.kind.get(eid);
-    if (![x, y, z].every((v) => Number.isFinite(v) && v !== 0))
+    if (!usableScale(x) || !usableScale(y) || !usableScale(z))
         throw new Error(`physics: Shape ${eid} refuses zero or non-finite body Transform.scale`);
     if (kind === ShapeKind.HeightField && (x <= 0 || y <= 0 || z <= 0))
         throw new Error(`physics: HeightField Shape ${eid} requires positive body Transform.scale`);
