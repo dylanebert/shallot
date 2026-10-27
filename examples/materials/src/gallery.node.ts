@@ -41,7 +41,9 @@ test("the Banded lighting exhibit uses the quantized standard extension", async 
         const { world } = app;
         const eid = world.resource(Gallery).spheres.at(-1)!;
         const handle = world.get(eid, MeshMaterial)!;
-        expect(handle.type).toBe(world.resource(QuantizedMaterial).add(StandardMaterial()).type);
+        expect(handle.type).toBe(
+            world.resource(QuantizedMaterial).add({ ...StandardMaterial(), steps: 4 }).type,
+        );
         expect(
             world.resource(QuantizedMaterial).get(handle.material)!.perceptualRoughness,
         ).toBeCloseTo(0.8);

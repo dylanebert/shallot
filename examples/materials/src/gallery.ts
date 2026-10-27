@@ -125,9 +125,10 @@ function surfaces(world: World) {
     );
     handles.push(gallery.checker!, gallery.wave!);
     handles.push(
-        world
-            .resource(QuantizedMaterial)
-            .add(StandardMaterial({ baseColor: [0.72, 0.4, 0.05, 1], perceptualRoughness: 0.8 })),
+        world.resource(QuantizedMaterial).add({
+            ...StandardMaterial({ baseColor: [0.72, 0.4, 0.05, 1], perceptualRoughness: 0.8 }),
+            steps: 4,
+        }),
     );
     const geometry = sphere(0.65, 64, 32);
     const ball = world.resource(Meshes).add({ name: "Gallery sphere", ...geometry });

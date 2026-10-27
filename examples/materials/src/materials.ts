@@ -14,12 +14,16 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 
+export const QuantizedParameters = d.struct({ steps: d.u32 });
 export const QuantizedMaterial = extendedMaterial(Materials, {
     name: "QuantizedStandard",
-    fragment: (ctx) => {
+    parameters: QuantizedParameters,
+    defaults: { steps: 4 },
+    fragment: (ctx, extension) => {
         "use gpu";
         const color = applyPbrLighting(pbrInputFromStandardMaterial(ctx));
-        return d.vec4f(std.div(std.floor(std.mul(color.rgb, 4)), 4), color.a);
+        const steps = d.f32(extension.steps);
+        return d.vec4f(std.div(std.floor(std.mul(color.rgb, steps)), steps), color.a);
     },
 });
 export const QuantizedPlugin = MaterialPlugin(QuantizedMaterial);
