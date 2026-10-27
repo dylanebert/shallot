@@ -45,6 +45,15 @@ const ExtendedPixelMaterial = extendedMaterial(Materials, {
         return d.vec4f(ctx.fragCoord.x / 8, ctx.fragCoord.y / 4, 0, 1);
     },
 });
+// cube faces in +X, -X, +Y, -Y, +Z, -Z order
+const FACES = [
+    [255, 0, 0],
+    [0, 255, 0],
+    [0, 0, 255],
+    [255, 255, 0],
+    [255, 0, 255],
+    [0, 255, 255],
+];
 // One owned resource per binding kind, each holding a value only a correct binding reads back.
 const Owned = {
     create: (world: World) => {
@@ -95,7 +104,47 @@ const Owned = {
             { bytesPerRow: 4 },
             [1, 1],
         );
+        const upload = (
+            size: [number, number, number],
+            format: GPUTextureFormat,
+            data: Uint8Array | Uint16Array,
+            dimension: GPUTextureDimension = "2d",
+        ) => {
+            const texture = device.createTexture({ size, format, usage, dimension });
+            const bytesPerRow = (data.byteLength / (size[1] * size[2])) | 0;
+            device.queue.writeTexture(
+                { texture },
+                data,
+                { bytesPerRow, rowsPerImage: size[1] },
+                size,
+            );
+            return texture;
+        };
+        const rgba = (colors: number[][]) => new Uint8Array(colors.flatMap((c) => [...c, 255]));
+        const pairColors = [
+            [255, 0, 0],
+            [0, 255, 0],
+        ];
+        // texel or slice 0 red, 1 green
+        const line = upload([2, 1, 1], "rgba8unorm", rgba(pairColors), "1d");
+        const volume = upload([1, 1, 2], "rgba8unorm", rgba(pairColors), "3d");
+        // face i of cube c holds FACES[(i + c) % 6]
+        const cube = upload([1, 1, 6], "rgba8unorm", rgba(FACES));
+        const cubes = upload(
+            [1, 1, 12],
+            "rgba8unorm",
+            rgba([...FACES, ...FACES.slice(1), FACES[0]]),
+        );
+        const depthLayers = upload([1, 1, 2], "depth16unorm", new Uint16Array([0x4000, 0xc000]));
+        // face i holds (i + 1) / 8 of the depth range
+        const depthCube = upload(
+            [1, 1, 6],
+            "depth16unorm",
+            new Uint16Array(FACES.map((_, i) => (i + 1) * 0x2000)),
+        );
         for (const texture of [pair, layers, depth, scalars, signed, unsigned]) world.own(texture);
+        for (const texture of [line, volume, cube, cubes, depthLayers, depthCube])
+            world.own(texture);
         return {
             pair,
             layers,
@@ -103,6 +152,12 @@ const Owned = {
             scalars,
             signed,
             unsigned,
+            line,
+            volume,
+            cube,
+            cubes,
+            depthLayers,
+            depthCube,
             linear: device.createSampler({ magFilter: "linear", minFilter: "linear" }),
             less: device.createSampler({ compare: "less" }),
             nearest: device.createSampler(),
@@ -129,6 +184,23 @@ const unfilterableLayout = materialLayout(Unused, {
 const signedLayout = materialLayout(Unused, { signed: { type: "texture", sampleType: "sint" } });
 const unsignedLayout = materialLayout(Unused, {
     unsigned: { type: "texture", sampleType: "uint" },
+});
+const lineLayout = materialLayout(Unused, { line: { type: "texture", dimension: "1d" } });
+const volumeLayout = materialLayout(Unused, { volume: { type: "texture", dimension: "3d" } });
+const cubeLayout = materialLayout(Unused, {
+    cube: { type: "texture", dimension: "cube" },
+    linear: { type: "sampler" },
+});
+const cubesLayout = materialLayout(Unused, {
+    cubes: { type: "texture", dimension: "cube-array" },
+    linear: { type: "sampler" },
+});
+const depthLayersLayout = materialLayout(Unused, {
+    depthLayers: { type: "texture", dimension: "2d-array", sampleType: "depth" },
+});
+const depthCubeLayout = materialLayout(Unused, {
+    depthCube: { type: "texture", dimension: "cube", sampleType: "depth" },
+    nearest: { type: "sampler", samplerType: "non-filtering" },
 });
 const bindingKinds: Record<
     string,
@@ -244,6 +316,103 @@ const bindingKinds: Record<
                 "use gpu";
                 const texel = std.textureLoad(unsignedLayout.$.unsigned, d.vec2i(0, 0), 0);
                 return d.vec4f(d.f32(texel.x) / 255, 0, 0, 1);
+            },
+        }),
+    },
+    "1d texture": {
+        expected: [0, 255, 0, 255],
+        type: materialType({
+            name: "OwnedTexture1d",
+            layout: lineLayout,
+            defaults: { unused: 0 },
+            bindings: (world) => world.resource(Owned),
+            fragment: () => {
+                "use gpu";
+                return std.textureLoad(lineLayout.$.line, d.i32(1), 0);
+            },
+        }),
+    },
+    "3d texture": {
+        expected: [0, 255, 0, 255],
+        type: materialType({
+            name: "OwnedTexture3d",
+            layout: volumeLayout,
+            defaults: { unused: 0 },
+            bindings: (world) => world.resource(Owned),
+            fragment: () => {
+                "use gpu";
+                return std.textureLoad(volumeLayout.$.volume, d.vec3i(0, 0, 1), 0);
+            },
+        }),
+    },
+    // +Y selects face 2
+    "cube texture": {
+        expected: [...FACES[2], 255],
+        type: materialType({
+            name: "OwnedTextureCube",
+            layout: cubeLayout,
+            defaults: { unused: 0 },
+            bindings: (world) => world.resource(Owned),
+            fragment: () => {
+                "use gpu";
+                return std.textureSampleLevel(
+                    cubeLayout.$.cube,
+                    cubeLayout.$.linear,
+                    d.vec3f(0, 1, 0),
+                    0,
+                );
+            },
+        }),
+    },
+    "cube-array texture": {
+        expected: [...FACES[3], 255],
+        type: materialType({
+            name: "OwnedTextureCubeArray",
+            layout: cubesLayout,
+            defaults: { unused: 0 },
+            bindings: (world) => world.resource(Owned),
+            fragment: () => {
+                "use gpu";
+                return std.textureSampleLevel(
+                    cubesLayout.$.cubes,
+                    cubesLayout.$.linear,
+                    d.vec3f(0, 1, 0),
+                    1,
+                    0,
+                );
+            },
+        }),
+    },
+    "depth 2d-array texture": {
+        expected: [srgbByte(DEPTH), 0, 0, 255],
+        type: materialType({
+            name: "OwnedTextureDepth2dArray",
+            layout: depthLayersLayout,
+            defaults: { unused: 0 },
+            bindings: (world) => world.resource(Owned),
+            fragment: () => {
+                "use gpu";
+                const depth = std.textureLoad(depthLayersLayout.$.depthLayers, d.vec2i(0, 0), 1, 0);
+                return d.vec4f(depth, 0, 0, 1);
+            },
+        }),
+    },
+    "depth cube texture": {
+        expected: [srgbByte(0x6000 / 0xffff), 0, 0, 255],
+        type: materialType({
+            name: "OwnedTextureDepthCube",
+            layout: depthCubeLayout,
+            defaults: { unused: 0 },
+            bindings: (world) => world.resource(Owned),
+            fragment: () => {
+                "use gpu";
+                const depth = std.textureSampleLevel(
+                    depthCubeLayout.$.depthCube,
+                    depthCubeLayout.$.nearest,
+                    d.vec3f(0, 1, 0),
+                    0,
+                );
+                return d.vec4f(depth, 0, 0, 1);
             },
         }),
     },

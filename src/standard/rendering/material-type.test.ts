@@ -98,18 +98,83 @@ test("texture and sampler options declare their WGSL resource types", () => {
     expect(integers.some((entry) => "sampleType" in entry)).toBe(false);
 });
 
+test("dimension options declare their WGSL texture types", () => {
+    const layout = materialLayout(d.struct({ unused: d.f32 }), {
+        line: { type: "texture", dimension: "1d" },
+        volume: { type: "texture", dimension: "3d" },
+        cube: { type: "texture", dimension: "cube" },
+        cubes: { type: "texture", dimension: "cube-array" },
+        unfilteredVolume: { type: "texture", dimension: "3d", filterable: false },
+        unsignedVolume: { type: "texture", dimension: "3d", sampleType: "uint" },
+        signedCube: { type: "texture", dimension: "cube", sampleType: "sint" },
+        depthLayers: { type: "texture", dimension: "2d-array", sampleType: "depth" },
+        depthCube: { type: "texture", dimension: "cube", sampleType: "depth" },
+        depthCubes: { type: "texture", dimension: "cube-array", sampleType: "depth" },
+    });
+    type Resources = (typeof layout)["$"];
+    expectTypeOf<Resources["line"]>().toEqualTypeOf<d.InferGPU<d.WgslTexture1d<d.F32>>>();
+    expectTypeOf<Resources["volume"]>().toEqualTypeOf<d.InferGPU<d.WgslTexture3d<d.F32>>>();
+    expectTypeOf<Resources["cube"]>().toEqualTypeOf<d.InferGPU<d.WgslTextureCube<d.F32>>>();
+    expectTypeOf<Resources["cubes"]>().toEqualTypeOf<d.InferGPU<d.WgslTextureCubeArray<d.F32>>>();
+    expectTypeOf<Resources["unfilteredVolume"]>().toEqualTypeOf<
+        d.InferGPU<d.WgslTexture3d<d.F32>>
+    >();
+    expectTypeOf<Resources["unsignedVolume"]>().toEqualTypeOf<d.InferGPU<d.WgslTexture3d<d.U32>>>();
+    expectTypeOf<Resources["signedCube"]>().toEqualTypeOf<d.InferGPU<d.WgslTextureCube<d.I32>>>();
+    expectTypeOf<Resources["depthLayers"]>().toEqualTypeOf<d.InferGPU<d.WgslTextureDepth2dArray>>();
+    expectTypeOf<Resources["depthCube"]>().toEqualTypeOf<d.InferGPU<d.WgslTextureDepthCube>>();
+    expectTypeOf<Resources["depthCubes"]>().toEqualTypeOf<
+        d.InferGPU<d.WgslTextureDepthCubeArray>
+    >();
+    const e = layout.entries;
+    expect(
+        [
+            e.line,
+            e.volume,
+            e.cube,
+            e.cubes,
+            e.unfilteredVolume,
+            e.unsignedVolume,
+            e.signedCube,
+            e.depthLayers,
+            e.depthCube,
+            e.depthCubes,
+        ].map(({ texture }) => texture.type),
+    ).toEqual([
+        "texture_1d",
+        "texture_3d",
+        "texture_cube",
+        "texture_cube_array",
+        "texture_3d",
+        "texture_3d",
+        "texture_cube",
+        "texture_depth_2d_array",
+        "texture_depth_cube",
+        "texture_depth_cube_array",
+    ]);
+    expect([
+        e.unsignedVolume.texture.sampleType.type,
+        e.signedCube.texture.sampleType.type,
+    ]).toEqual(["u32", "i32"]);
+    expect(e.unfilteredVolume.sampleType).toBe("unfilterable-float");
+});
+
 test("a union of texture or sampler options declares the union of their WGSL resource types", () => {
     const sampleType = "float" as "float" | "depth";
     const samplerType = "filtering" as "filtering" | "comparison";
     const filterable = false as boolean;
     const nearestOrLess = "non-filtering" as "non-filtering" | "comparison";
     const integer = "uint" as "float" | "sint" | "uint";
+    const dimension = "3d" as "3d" | "cube";
+    const depthDimension = "cube" as "2d-array" | "cube";
     const layout = materialLayout(d.struct({ unused: d.f32 }), {
         either: { type: "texture", sampleType },
         sampler: { type: "sampler", samplerType },
         maybeFiltered: { type: "texture", filterable },
         nearestOrLess: { type: "sampler", samplerType: nearestOrLess },
         integer: { type: "texture", sampleType: integer },
+        volumeOrCube: { type: "texture", dimension },
+        depthLayersOrCube: { type: "texture", dimension: depthDimension, sampleType: "depth" },
     });
     type Resources = (typeof layout)["$"];
     expectTypeOf<Resources["either"]>().toEqualTypeOf<
@@ -135,6 +200,16 @@ test("a union of texture or sampler options declares the union of their WGSL res
         | d.InferGPU<d.WgslTexture2d<d.U32>>
     >();
     expect(layout.entries.integer.texture.sampleType.type).toBe("u32");
+    expectTypeOf<Resources["volumeOrCube"]>().toEqualTypeOf<
+        d.InferGPU<d.WgslTexture3d<d.F32>> | d.InferGPU<d.WgslTextureCube<d.F32>>
+    >();
+    expectTypeOf<Resources["depthLayersOrCube"]>().toEqualTypeOf<
+        d.InferGPU<d.WgslTextureDepth2dArray> | d.InferGPU<d.WgslTextureDepthCube>
+    >();
+    expect([
+        layout.entries.volumeOrCube.texture.type,
+        layout.entries.depthLayersOrCube.texture.type,
+    ]).toEqual(["texture_3d", "texture_depth_cube"]);
 });
 
 test("an optional texture or sampler option also declares its default WGSL resource type", () => {
@@ -143,12 +218,19 @@ test("an optional texture or sampler option also declares its default WGSL resou
     const unfiltered: { type: "texture"; filterable?: false } = { type: "texture" };
     const nearest: { type: "sampler"; samplerType?: "non-filtering" } = { type: "sampler" };
     const unsigned: { type: "texture"; sampleType?: "uint" } = { type: "texture" };
+    const volume: { type: "texture"; dimension?: "3d" } = { type: "texture" };
+    const depthCube: { type: "texture"; dimension?: "cube"; sampleType: "depth" } = {
+        type: "texture",
+        sampleType: "depth",
+    };
     const layout = materialLayout(d.struct({ unused: d.f32 }), {
         layers,
         less,
         unfiltered,
         nearest,
         unsigned,
+        volume,
+        depthCube,
     });
     type Resources = (typeof layout)["$"];
     expectTypeOf<Resources["layers"]>().toEqualTypeOf<
@@ -175,6 +257,16 @@ test("an optional texture or sampler option also declares its default WGSL resou
         d.InferGPU<d.WgslTexture2d<d.F32>> | d.InferGPU<d.WgslTexture2d<d.U32>>
     >();
     expect(layout.entries.unsigned.texture.sampleType.type).toBe("f32");
+    expectTypeOf<Resources["volume"]>().toEqualTypeOf<
+        d.InferGPU<d.WgslTexture2d<d.F32>> | d.InferGPU<d.WgslTexture3d<d.F32>>
+    >();
+    expectTypeOf<Resources["depthCube"]>().toEqualTypeOf<
+        d.InferGPU<d.WgslTextureDepth2d> | d.InferGPU<d.WgslTextureDepthCube>
+    >();
+    expect([layout.entries.volume.texture.type, layout.entries.depthCube.texture.type]).toEqual([
+        "texture_2d",
+        "texture_depth_2d",
+    ]);
 });
 
 test("an option that may be undefined also declares its default WGSL resource type", () => {
@@ -198,12 +290,23 @@ test("an option that may be undefined also declares its default WGSL resource ty
         type: "texture",
         sampleType: undefined,
     };
+    const volume: { type: "texture"; dimension: "3d" | undefined } = {
+        type: "texture",
+        dimension: undefined,
+    };
+    const depthCube: { type: "texture"; dimension: "cube" | undefined; sampleType: "depth" } = {
+        type: "texture",
+        dimension: undefined,
+        sampleType: "depth",
+    };
     const layout = materialLayout(d.struct({ unused: d.f32 }), {
         layers,
         less,
         unfiltered,
         nearest,
         unsigned,
+        volume,
+        depthCube,
     });
     type Resources = (typeof layout)["$"];
     expectTypeOf<Resources["layers"]>().toEqualTypeOf<
@@ -230,4 +333,14 @@ test("an option that may be undefined also declares its default WGSL resource ty
         d.InferGPU<d.WgslTexture2d<d.F32>> | d.InferGPU<d.WgslTexture2d<d.U32>>
     >();
     expect(layout.entries.unsigned.texture.sampleType.type).toBe("f32");
+    expectTypeOf<Resources["volume"]>().toEqualTypeOf<
+        d.InferGPU<d.WgslTexture2d<d.F32>> | d.InferGPU<d.WgslTexture3d<d.F32>>
+    >();
+    expectTypeOf<Resources["depthCube"]>().toEqualTypeOf<
+        d.InferGPU<d.WgslTextureDepth2d> | d.InferGPU<d.WgslTextureDepthCube>
+    >();
+    expect([layout.entries.volume.texture.type, layout.entries.depthCube.texture.type]).toEqual([
+        "texture_2d",
+        "texture_depth_2d",
+    ]);
 });
