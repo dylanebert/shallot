@@ -34,6 +34,35 @@ function replaceGpu(gpu: GPU | undefined): () => void {
 
 const AcquisitionPlugin: Plugin = { name: "AcquisitionProbe", gpu: {} };
 
+for (const gpu of [false, true])
+    test(`${gpu ? "GPU" : "CPU-only"} tick ${gpu ? "keeps" : "clears"} field marks, while a failed tick preserves them`, async () => {
+        live = await createApp({ defaults: false, plugins: gpu ? [AcquisitionPlugin] : [] });
+        const world = live.world;
+        const eid = world.create();
+        world.add(eid, Transform);
+        world.storage(Transform).scale.set(eid, 3, 3, 3);
+        const marked = () =>
+            [...world.storageEntries()].some((entry) =>
+                [...entry.fields.values()].some((field) => field.dirty.some((word) => word !== 0)),
+            );
+        world.tick();
+        expect(marked()).toBe(gpu);
+        world.storage(Transform).scale.set(eid, 2, 2, 2);
+        const failure = {
+            name: "failed-tick",
+            group: "fixed" as const,
+            update() {
+                throw new Error("pending marks");
+            },
+        };
+        world.addSystem(failure);
+        expect(() => world.tick()).toThrow(/pending marks/);
+        expect(marked()).toBe(true);
+        world.removeSystem(failure);
+        world.tick();
+        expect(marked()).toBe(gpu);
+    });
+
 async function refusalMessage(): Promise<string> {
     return createApp({ defaults: false, plugins: [AcquisitionPlugin] }).then(
         (app) => {
