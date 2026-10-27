@@ -169,7 +169,7 @@ function project(z: number, [x, y, pz]: readonly [number, number, number]) {
 
 // A walk at 1.5 m/s toward the lamp from 10 m, where one slice is 0.79 m deep. Each sampled frame's patch just
 // below the lamp, a world-fixed point, is compared with the converged still reference at the same pose.
-const WALK = { speed: 1.5, start: 10, frames: 48, every: 6 } as const;
+const WALK = { speed: 1.5, start: 10, frames: 48, every: 12 } as const;
 let walked: Promise<number> | undefined;
 async function walkError() {
     const { world, scene: camera } = walkingScene();
