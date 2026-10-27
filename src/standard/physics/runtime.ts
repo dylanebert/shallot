@@ -37,6 +37,7 @@ import { PhysicsCreationOrder, recordPhysicsMembership } from "./creation-order"
 const f32 = Math.fround;
 
 import { defaultWorldDef, type QueryFilter, type WorldDef } from "./common/types";
+import { EidColumn } from "./eid-column";
 import {
     clearPhysicsEvents,
     type PhysicsContactEvent,
@@ -181,13 +182,15 @@ interface PhysicsRuntime {
     creationCandidates: FieldCandidates;
     warnedBodyFields: Set<number>;
     shapes: Map<number, EntityId>;
-    shapeBodies: Map<number, number>;
+    /** Each attached shape's body eid. */
+    shapeBodies: EidColumn;
     shapeDependencies: BodyDependencies;
     queryContexts: QueryContext[];
     queryDepth: number;
     queryCastCallback: QueryCallback;
     queryOverlapCallback: QueryCallback;
-    shapeStamps: Map<number, EntityRef>;
+    /** Each attached shape's EntityRef at its first attachment. */
+    shapeStamps: EidColumn;
     shapeRecreationState: ShapeRecreationStates;
     shapeRemovalMass: Map<number, boolean>;
     warnedShapes: Set<number>;
@@ -249,13 +252,13 @@ function newRuntime(): PhysicsRuntime {
         creationCandidates: createFieldCandidates(),
         warnedBodyFields: new Set(),
         shapes: new Map(),
-        shapeBodies: new Map(),
+        shapeBodies: new EidColumn(),
         shapeDependencies: new BodyDependencies(),
         queryContexts: [newQueryContext()],
         queryDepth: 0,
         queryCastCallback: null!,
         queryOverlapCallback: null!,
-        shapeStamps: new Map(),
+        shapeStamps: new EidColumn(),
         shapeRecreationState: createShapeRecreationStates(),
         shapeRemovalMass: new Map(),
         warnedShapes: new Set(),
@@ -1249,8 +1252,8 @@ function captureBindings(world: World, runtime: PhysicsRuntime): Bindings {
             eid,
             shape.index1,
             shape.generation,
-            runtime.shapeBodies.get(eid)!,
-            runtime.shapeStamps.get(eid)!,
+            runtime.shapeBodies.get(eid),
+            runtime.shapeStamps.get(eid),
         );
     const order = world.resource(PhysicsCreationOrder);
     return {
@@ -2019,14 +2022,14 @@ function syncShapes(world: World, runtime: PhysicsRuntime, checkScale = true): v
         }
         if (runtime.shapeRemovalMass.has(eid)) removeShape(runtime, eid);
         const updateBodyMass = binding.storage.updateBodyMass.column[eid] !== 0;
-        const previousStamp = runtime.shapeStamps.get(eid);
-        if (previousStamp !== undefined && !world.resolve(previousStamp)) removeShape(runtime, eid);
+        const previousStamp = runtime.shapeStamps.get(eid) as EntityRef;
+        if (previousStamp !== 0 && !world.resolve(previousStamp)) removeShape(runtime, eid);
 
         const rawBody = (binding.storage.body.column as Float64Array)[eid] as EntityRef;
         const bodyEid = rawBody === 0 ? eid : world.resolve(rawBody);
         runtime.shapeDependencies.set(eid, bodyEid);
-        if (runtime.shapeBodies.has(eid) && runtime.shapeBodies.get(eid) !== bodyEid)
-            removeShape(runtime, eid, updateBodyMass);
+        const boundBody = runtime.shapeBodies.get(eid);
+        if (boundBody !== 0 && boundBody !== bodyEid) removeShape(runtime, eid, updateBodyMass);
         if (!bodyEid) {
             removeShape(runtime, eid, updateBodyMass);
             warnShape(runtime, eid, new Error("body reference is no longer valid"));
@@ -2097,7 +2100,7 @@ function syncShapes(world: World, runtime: PhysicsRuntime, checkScale = true): v
                 shape = marshalShape(world, state, body, eid);
                 runtime.shapes.set(eid, shape);
                 runtime.shapeBodies.set(eid, bodyEid);
-                runtime.shapeStamps.set(eid, runtime.shapeStamps.get(eid) ?? world.ref(eid));
+                runtime.shapeStamps.set(eid, runtime.shapeStamps.get(eid) || world.ref(eid));
                 runtime.warnedShapes.delete(eid);
             } catch (error) {
                 warnShape(runtime, eid, error);
