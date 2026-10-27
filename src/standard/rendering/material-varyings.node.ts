@@ -137,6 +137,44 @@ const Seven = materialType({
         return {
             world: input.world,
             worldNormal: input.worldNormal,
+            a: input.localPos.x + 8,
+            b: input.localPos.x + 9,
+            c: input.localPos.x + 10,
+            e: input.localPos.x + 11,
+            f: input.localPos.x + 12,
+            g: input.localPos.x + 13,
+            h: input.localPos.x + 14,
+        };
+    },
+    fragment: (ctx) => {
+        "use gpu";
+        return d.vec4f(
+            ctx.parameters.color.xyz,
+            std.select(
+                0,
+                1,
+                ctx.a +
+                    ctx.b * 2 +
+                    ctx.c * 3 +
+                    ctx.e * 4 +
+                    ctx.f * 5 +
+                    ctx.g * 6 +
+                    ctx.h * 7 -
+                    336 >
+                    3.5,
+            ),
+        );
+    },
+});
+const Eight = materialType({
+    ...common,
+    name: "EightVaryings",
+    varyings: { a: d.f32, b: d.f32, c: d.f32, e: d.f32, f: d.f32, g: d.f32, h: d.f32, k: d.f32 },
+    vertex: (input) => {
+        "use gpu";
+        return {
+            world: input.world,
+            worldNormal: input.worldNormal,
             a: input.localPos.x,
             b: input.localPos.x,
             c: input.localPos.x,
@@ -144,11 +182,12 @@ const Seven = materialType({
             f: input.localPos.x,
             g: input.localPos.x,
             h: input.localPos.x,
+            k: input.localPos.x,
         };
     },
     fragment: (ctx) => {
         "use gpu";
-        return d.vec4f(ctx.a + ctx.b + ctx.c + ctx.e + ctx.f + ctx.g + ctx.h);
+        return d.vec4f(ctx.a + ctx.b + ctx.c + ctx.e + ctx.f + ctx.g + ctx.h + ctx.k);
     },
 });
 const SIDE = 64;
@@ -195,6 +234,13 @@ const cases = [
         reference: Reference,
         weight: 21,
         mode: AlphaMode.AlphaToCoverage,
+    },
+    {
+        name: "seven-varying Mask at the inter-stage limit",
+        material: Seven,
+        reference: Reference,
+        weight: 28,
+        mode: AlphaMode.Mask(0.5),
     },
     {
         name: "varying alpha row",
@@ -289,7 +335,7 @@ const subjects = compileGpuFile(import.meta.path, async () => {
         apps.push(
             await createTestGpuApp({
                 defaults: false,
-                plugins: [MeshRenderPlugin, StandardRenderingPlugin, MaterialPlugin(Seven)],
+                plugins: [MeshRenderPlugin, StandardRenderingPlugin, MaterialPlugin(Eight)],
             }),
         );
     } catch (error) {
@@ -349,7 +395,7 @@ for (const [index, subject] of cases.entries()) {
     }
 }
 test("a varying Mask fragment reads its row's cutoff and mode in colour", async () => {
-    const scene = subjects().results[3]!;
+    const scene = subjects().results[4]!;
     if (scene instanceof Error) throw scene;
     scene.world.remove(scene.caster, MeshMaterial);
     scene.world.add(scene.caster, MeshMaterial, scene.actual);
@@ -376,8 +422,8 @@ test("a varying Mask fragment reads its row's cutoff and mode in colour", async 
     expect(observed).toEqual(pixel(reference.color));
     expect(actual.color).toEqual(reference.color);
 });
-test("seven varyings with uv and localPos are refused against the granted device limit", () => {
+test("eight varyings with uv and localPos are refused against the granted device limit", () => {
     expect(String(subjects().overflow)).toContain(
-        'standard: material "SevenVaryings" uses 17 inter-stage variables (8 engine, uv, localPos, 7 varyings); device.limits.maxInterStageShaderVariables is 16',
+        'standard: material "EightVaryings" uses 17 inter-stage variables (7 engine, uv, localPos, 8 varyings); device.limits.maxInterStageShaderVariables is 16',
     );
 });

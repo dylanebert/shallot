@@ -80,3 +80,30 @@ test("material registration refuses a prebuilt TypeGPU vertex and names the plai
         'material type "WrappedVertex" vertex shader must be a plain "use gpu" function, not a prebuilt TypeGPU function',
     );
 });
+
+test("a material's vertex input and fragment context carry no colour", () => {
+    const Parameters = d.struct({ tint: d.vec4f });
+    const material = materialType({
+        name: "Colourless",
+        parameters: Parameters,
+        defaults: { tint: d.vec4f(1) },
+        varyings: { shade: d.f32 },
+        vertex: (input) => {
+            "use gpu";
+            expectTypeOf(input).not.toHaveProperty("color");
+            return { world: input.world, worldNormal: input.worldNormal, shade: 1 };
+        },
+        fragment: (ctx) => {
+            "use gpu";
+            expectTypeOf(ctx.shade).toEqualTypeOf<number>();
+            expectTypeOf(ctx).not.toHaveProperty("color");
+            return d.vec4f(ctx.parameters.tint);
+        },
+    });
+    const fields = (fn: unknown) =>
+        Object.keys(
+            (fn as { shell: { argTypes: [{ propTypes: object }] } }).shell.argTypes[0].propTypes,
+        );
+    expect(fields(material.vertex)).not.toContain("color");
+    expect(fields(material.fragment)).not.toContain("color");
+});
