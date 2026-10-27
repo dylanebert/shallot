@@ -1,14 +1,22 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import {
+    Camera,
     createApp,
     DistanceJoint,
     GlobalTransform,
     qRotate,
     RevoluteJoint,
+    resizeViewport,
     SphericalJoint,
 } from "@dylanebert/shallot";
+import { type View, Views, worldToViewport } from "@dylanebert/shallot/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { drawJoints, JOINT_DOT_DIAMETER, JOINT_LINE } from "../src/joint-presentation";
+import {
+    drawJoints,
+    drawJointViews,
+    JOINT_DOT_DIAMETER,
+    JOINT_LINE,
+} from "../src/joint-presentation";
 import { JointSamplePlugin } from "../src/joints";
 import { changeControl, controlValues, createScene } from "../src/scenes";
 
@@ -70,6 +78,73 @@ for (const [scene, kind] of [
         }
     });
 }
+
+test("an anchor inside a body emits a centered four-CSS-pixel mark with draw-on-top ink", async () => {
+    const app = await createApp({ defaults: false, plugins: [JointSamplePlugin] });
+    const world = app.world;
+    try {
+        createScene(world, "spherical");
+        world.tick();
+        const joint = [...world.query([SphericalJoint])][0]!;
+        const body = world.storage(SphericalJoint).b.get(joint);
+        world.storage(SphericalJoint).localAnchorB.set(joint, 0, 0, 0);
+        const anchor = [...world.get(body, GlobalTransform)!.translation] as [
+            number,
+            number,
+            number,
+        ];
+        const camera = world.create();
+        world.add(camera, Camera, { fov: 60, near: 0.01, mode: 0 });
+        world.add(camera, GlobalTransform);
+        world.storage(GlobalTransform).scale.set(camera, 1, 1, 1);
+        world.resource(Views).set(camera, { viewportIndex: 0, camera: world.ref(camera) } as View);
+        for (const [width, height, dpr] of [
+            [1280, 720, 1],
+            [390, 844, 2],
+        ]) {
+            resizeViewport(world, 0, width!, height!, dpr!);
+            for (const distance of [10, 40]) {
+                for (const yaw of [0, Math.PI / 4]) {
+                    const rotation = [0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2)] as const;
+                    const offset = qRotate(...rotation, 0, 0, distance);
+                    const pose = world.storage(GlobalTransform);
+                    pose.translation.set(
+                        camera,
+                        anchor[0] + offset[0],
+                        anchor[1] + offset[1],
+                        anchor[2] + offset[2],
+                    );
+                    pose.rotation.set(camera, ...rotation);
+                    const drawn: {
+                        a: [number, number, number];
+                        b: [number, number, number];
+                        color: number;
+                        options: typeof JOINT_LINE;
+                    }[] = [];
+                    drawJointViews(world, "spherical", camera, (a, b, color, options) =>
+                        drawn.push({ a, b, color, options }),
+                    );
+                    expect(drawn).toHaveLength(3);
+                    for (const { color, options } of drawn) {
+                        expect(color).toBe(0xeee9df);
+                        expect(options.depthBias).toBe(-1);
+                    }
+                    expect(drawn[0]!.options.width).toBe(1);
+                    const mark = drawn[2]!;
+                    expect(mark.options.width).toBe(4);
+                    for (let axis = 0; axis < 3; axis++)
+                        expect((mark.a[axis]! + mark.b[axis]!) / 2).toBeCloseTo(anchor[axis]!, 10);
+                    const a = worldToViewport(world, camera, mark.a)!;
+                    const b = worldToViewport(world, camera, mark.b)!;
+                    expect(Math.hypot(a[0] - b[0], a[1] - b[1])).toBeCloseTo(4, 5);
+                    expect(a[1]).toBeCloseTo(b[1], 8);
+                }
+            }
+        }
+    } finally {
+        app.dispose();
+    }
+});
 
 test("non-Joints scenes draw no joint anchors even when they contain joints", async () => {
     const app = await createApp({ defaults: false, plugins: [JointSamplePlugin] });

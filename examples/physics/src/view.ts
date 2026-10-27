@@ -38,7 +38,7 @@ import { drawingBounds, drawSet } from "./draw-set";
 import { DrivingState } from "./driving";
 import { EventSample } from "./events";
 import { Grab } from "./grab";
-import { drawJoints, JOINT_DOT_DIAMETER, JOINT_LINE } from "./joint-presentation";
+import { drawJointViews } from "./joint-presentation";
 import {
     drivenBodies,
     type ShapeGeometryCache,
@@ -378,33 +378,14 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         after: OrbitPlugin.systems,
         update: updateShapes,
     });
-    const jointDots: number[] = [];
-    const jointMaterial = materials.add(StandardMaterial({ baseColor: [0, 0, 0, 1], unlit: true }));
     addSystem({
         name: "joint-anchors",
         group: "simulation",
         after: OrbitPlugin.systems,
         update(world) {
-            let index = 0;
-            drawJoints(
-                world,
-                scene,
-                (a, b) => drawLine(world, a, b, 0x000000, JOINT_LINE),
-                (point) => {
-                    let dot = jointDots[index];
-                    if (!dot) {
-                        dot = world.create();
-                        jointDots[index] = dot;
-                        world.add(dot, Transform);
-                        world.add(dot, NotShadowCaster);
-                        world.add(dot, MeshInstance, { mesh: markerMesh });
-                        world.add(dot, MeshMaterial, jointMaterial);
-                    }
-                    placeMarker(world, camera, dot, point, JOINT_DOT_DIAMETER);
-                    index++;
-                },
+            drawJointViews(world, scene, camera, (a, b, color, options) =>
+                drawLine(world, a, b, color, options),
             );
-            while (jointDots.length > index) world.destroy(jointDots.pop()!);
         },
     });
     if (scene === "joint") {
@@ -426,8 +407,6 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         if (groundMesh !== undefined) meshes.remove(groundMesh);
         for (const material of stateMaterials.values()) materials.remove(material);
         materials.remove(markerMaterial);
-        materials.remove(jointMaterial);
-        for (const dot of jointDots) world.destroy(dot);
         Object.assign(feedback, GrabFeedback.create());
     };
 }
