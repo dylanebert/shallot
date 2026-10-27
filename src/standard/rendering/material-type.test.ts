@@ -46,3 +46,20 @@ test("texture and sampler options declare their WGSL resource types", () => {
     ]);
     expect([linear.sampler, less.sampler]).toEqual(["filtering", "comparison"]);
 });
+
+test("a union of texture or sampler options declares the union of their WGSL resource types", () => {
+    const sampleType = "float" as "float" | "depth";
+    const samplerType = "filtering" as "filtering" | "comparison";
+    const layout = materialLayout(d.struct({ unused: d.f32 }), {
+        either: { type: "texture", sampleType },
+        sampler: { type: "sampler", samplerType },
+    });
+    type Resources = (typeof layout)["$"];
+    expectTypeOf<Resources["either"]>().toEqualTypeOf<
+        d.InferGPU<d.WgslTexture2d<d.F32>> | d.InferGPU<d.WgslTextureDepth2d>
+    >();
+    expectTypeOf<Resources["sampler"]>().toEqualTypeOf<
+        d.InferGPU<d.WgslSampler> | d.InferGPU<d.WgslComparisonSampler>
+    >();
+    expect(layout.entries.either.texture.type).toBe("texture_2d");
+});
