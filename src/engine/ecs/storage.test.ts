@@ -32,10 +32,15 @@ test("bound four-lane writes grow, mark the correct word and preserve optional p
         column.dirty.fill(0);
         const tick = world.changeClock.tick;
         storage.set(eid, -0, Number.NaN, 3);
-        expect(Array.from(storage.column.slice(eid * 4, eid * 4 + 4))).toEqual([-0, Number.NaN, 3, 0]);
+        expect(Array.from(storage.column.slice(eid * 4, eid * 4 + 4))).toEqual([
+            -0,
+            Number.NaN,
+            3,
+            0,
+        ]);
         expect(Array.from(column.dirty)).toEqual(
             Array.from(column.dirty, (_, word) =>
-                word === (eid >>> 5) ? (1 << (eid & 31)) >>> 0 : 0,
+                word === eid >>> 5 ? (1 << (eid & 31)) >>> 0 : 0,
             ),
         );
         expect(column.changeTicks[eid >>> 5]).toBe(tick);
