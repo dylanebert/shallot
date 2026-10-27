@@ -460,7 +460,7 @@ export const stackingScenes = {
         construct: edgeCrossing,
         gridExtent: 40,
         gridSpacing: 1,
-        camera: { yaw: 40, pitch: 40, distance: 26, target: [0, 0, 0] },
+        camera: { yaw: 15, pitch: 30, distance: 14, target: [0, 0, 0] },
         controls: undefined,
     },
 } as const;
