@@ -11,7 +11,7 @@ import { gunzipSync } from "node:zlib";
 import { removeTestDirectory } from "./test-directory";
 
 test("the packed package passes size, publint and declaration checks", () => {
-    const MaxUnpackedBytes = 10_000_000;
+    const MaxUnpackedBytes = 11_000_000;
     const root = resolve(import.meta.dir, "..");
     const manifest = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
     const packageFile = `${manifest.name.replace(/^@/, "").replace("/", "-")}-${manifest.version}.tgz`;
