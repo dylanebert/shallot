@@ -20,19 +20,8 @@ test("the first frame has no late-pipeline warning", async ({ page }) => {
     );
 });
 
-test("jitter: turning at 144 Hz leaves the stationary view model silhouette fixed", async ({
-    page,
-}) => {
-    await page.goto("http://127.0.0.1:4196/tests/stepped.html");
-    await page.waitForFunction(() => (window as unknown as SteppedWindow).ready);
-    const result = await page.evaluate(() => (window as unknown as SteppedWindow).jitter());
-    console.log("jitter", result);
-    expect(result.occupied).toBeGreaterThan(1000);
-    expect(Math.abs(result.turn)).toBeGreaterThan(0.2);
-    expect(result.maxChanged).toBe(0);
-});
-
-// Each evidence call places the player and restores what it changes, so the claims share one stepped page.
+// Each evidence call places the player and restores what it changes, so the claims share one stepped page;
+// the jitter claim replaces the parts' materials, so it reads the page last.
 test.describe(() => {
     let page: Page;
     const errors: string[] = [];
@@ -91,6 +80,15 @@ test.describe(() => {
             expect(errors).toEqual([]);
         });
     }
+    test("jitter: turning at 144 Hz leaves the stationary view model silhouette fixed", async () => {
+        errors.length = 0;
+        const result = await page.evaluate(() => (window as unknown as SteppedWindow).jitter());
+        console.log("jitter", result);
+        expect(result.occupied).toBeGreaterThan(1000);
+        expect(Math.abs(result.turn)).toBeGreaterThan(0.2);
+        expect(result.maxChanged).toBe(0);
+        expect(errors).toEqual([]);
+    });
 });
 
 test("evidence calls restore each part's own layers, so a hidden part stays hidden", async ({
