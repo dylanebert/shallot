@@ -23,7 +23,7 @@ const pipelineCounts: Record<string, number> = {
     "producer table": 28,
     ScreenSpaceAmbientOcclusion: 30, // two prepass copies, mip reduction, visibility bitmask AO and denoise
     Fog: 34, // single-sample and multisampled column depth, grid lighting and application; filter and integration
-    Outline: 30, // three mask variants, jump flood and composite
+    Outline: 34, // three mask variants, jump flood, composite, reduce, half flood, distance and half composite
     EffectStack: 26,
     Sprite: 30,
 };
