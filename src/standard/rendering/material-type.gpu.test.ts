@@ -73,13 +73,23 @@ const Owned = {
             { bytesPerRow: 2 },
             [1, 1],
         );
-        for (const texture of [pair, layers, depth]) world.own(texture);
+        // r32float is unfilterable without float32-filterable: texel 0 a quarter, texel 1 three quarters
+        const scalars = device.createTexture({ size: [2, 1], format: "r32float", usage });
+        device.queue.writeTexture(
+            { texture: scalars },
+            new Float32Array([0.25, 0.75]),
+            { bytesPerRow: 8 },
+            [2, 1],
+        );
+        for (const texture of [pair, layers, depth, scalars]) world.own(texture);
         return {
             pair,
             layers,
             depth,
+            scalars,
             linear: device.createSampler({ magFilter: "linear", minFilter: "linear" }),
             less: device.createSampler({ compare: "less" }),
+            nearest: device.createSampler(),
         };
     },
 };
@@ -95,6 +105,10 @@ const samplerLayout = materialLayout(Unused, {
 const comparisonLayout = materialLayout(Unused, {
     depth: { type: "texture", sampleType: "depth" },
     less: { type: "sampler", samplerType: "comparison" },
+});
+const unfilterableLayout = materialLayout(Unused, {
+    scalars: { type: "texture", filterable: false },
+    nearest: { type: "sampler", samplerType: "non-filtering" },
 });
 const bindingKinds: Record<
     string,
@@ -181,6 +195,24 @@ const bindingKinds: Record<
                     0.9,
                 );
                 return d.vec4f(below, above, 0, 1);
+            },
+        }),
+    },
+    // the right half of the texture samples texel 1 alone
+    "unfilterable texture and non-filtering sampler": {
+        expected: [srgbByte(0.75), 0, 0, 255],
+        type: materialType({
+            name: "OwnedUnfilterableTexture",
+            layout: unfilterableLayout,
+            defaults: { unused: 0 },
+            bindings: (world) => world.resource(Owned),
+            fragment: () => {
+                "use gpu";
+                return std.textureSample(
+                    unfilterableLayout.$.scalars,
+                    unfilterableLayout.$.nearest,
+                    d.vec2f(0.75, 0.5),
+                );
             },
         }),
     },
