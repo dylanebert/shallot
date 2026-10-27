@@ -54,6 +54,7 @@
     </nav>
 </section>
 {#if scene === "contact"}<span class="ec input-help">WASD to roll</span>{/if}
+{#if scene === "driving"}<span class="ec input-help">WASD to drive</span>{/if}
 {#if scenes[scene].controls}
     {#snippet fields(parent?: string)}
         {#each Object.entries(scenes[scene].controls ?? {}).filter(([, control]) => control.when?.at(-1) === parent) as [name, control]}
@@ -80,7 +81,7 @@
                             <label for={`control-${name}`}>{control.label}</label>
                             <div class="slider">
                                 <input tabindex="-1" onfocus={(event) => event.currentTarget.blur()} id={`control-${name}`} type="range" min={control.min} max={control.max} step={control.step} value={values[name]} oninput={(event) => update(name, Number(event.currentTarget.value))} />
-                                <output for={`control-${name}`}>{formatValue(values[name])}</output>
+                                <output for={`control-${name}`}>{formatValue(values[name], control.decimals)}</output>
                             </div>
                         </div>
                     {/if}

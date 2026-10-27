@@ -12,8 +12,8 @@ for (const scene of Object.keys(scenes) as Scene[]) {
                 expect(control.min!).toBeLessThan(control.max!);
                 for (const value of [control.min!, control.max!, control.value]) {
                     expect(Number.isFinite(value)).toBe(true);
-                    expect(Number(formatValue(value))).toBe(value);
-                    expect(formatValue(value).length).toBeLessThanOrEqual(6);
+                    expect(Number(formatValue(value, control.decimals))).toBe(value);
+                    expect(formatValue(value, control.decimals).length).toBeLessThanOrEqual(6);
                 }
             }
         });

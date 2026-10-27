@@ -35,6 +35,7 @@ import {
 import { Anchor, Billboard, worldToViewport } from "@dylanebert/shallot/rendering";
 import { defaultDebugDraw, drawPhysics } from "@dylanebert/shallot/standard/physics";
 import { drawingBounds, drawSet } from "./draw-set";
+import { DrivingState } from "./driving";
 import { EventSample } from "./events";
 import { Grab } from "./grab";
 import {
@@ -70,6 +71,19 @@ export function createViewer(world: World): (world: World, scene: Scene) => () =
     return (world, scene) => createView(world, scene, camera);
 }
 
+export function setSceneCamera(world: World, scene: Scene, camera: number): void {
+    const view = scenes[scene].camera;
+    const orbit = world.storage(Orbit);
+    orbit.yaw.set(camera, (view.yaw * Math.PI) / 180);
+    orbit.pitch.set(camera, (view.pitch * Math.PI) / 180);
+    orbit.distance.set(camera, view.distance);
+    orbit.target.set(camera, scene === "driving" ? world.resource(DrivingState).chassis : 0);
+    // Sharing the orbit button prevents flythrough from detaching the driving camera.
+    orbit.flyButton.set(camera, scene === "driving" ? orbit.orbitButton.get(camera) : 2);
+    const target = scene === "driving" ? [0, 0, 0] : view.target;
+    orbit.pan.set(camera, target[0]!, target[1]!, target[2]!);
+}
+
 function createView(world: World, scene: Scene, camera: number): () => void {
     const systems: System[] = [];
     function addSystem(system: System): void {
@@ -88,12 +102,7 @@ function createView(world: World, scene: Scene, camera: number): () => void {
                 drawLine(world, [0, 0, 0], [0, 0, 0.4], 0x0000ff);
             },
         });
-    const view = scenes[scene].camera;
-    const orbit = world.storage(Orbit);
-    orbit.yaw.set(camera, (view.yaw * Math.PI) / 180);
-    orbit.pitch.set(camera, (view.pitch * Math.PI) / 180);
-    orbit.distance.set(camera, view.distance);
-    orbit.pan.set(camera, view.target[0]!, view.target[1]!, view.target[2]!);
+    setSceneCamera(world, scene, camera);
     const materials = world.resource(Materials);
     const geometry: ShapeGeometryCache = new Map();
     const presentation = scenePresentation(world, scene, geometry);

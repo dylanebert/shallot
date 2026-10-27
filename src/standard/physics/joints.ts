@@ -922,8 +922,7 @@ function applyJointFields(
                         differs(lower, readJointFloat(state, id, C.WHJ_LOWER_SUSPENSION_LIMIT)) ||
                         differs(upper, readJointFloat(state, id, C.WHJ_UPPER_SUSPENSION_LIMIT))
                     ) {
-                        writeJointFloat(state, id, C.WHJ_LOWER_SUSPENSION_LIMIT, lower);
-                        writeJointFloat(state, id, C.WHJ_UPPER_SUSPENSION_LIMIT, upper);
+                        kernel(state.ecsState).jointSetLimits(state.worldId, id, lower, upper);
                     }
                 } else {
                     rejectFieldEdit(

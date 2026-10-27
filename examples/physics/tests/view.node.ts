@@ -33,6 +33,10 @@ setDefaultTimeout(TIMEOUT.node);
 
 // The accepted critical-set baseline, in eid order; counts compress adjacent equal roles.
 const acceptedRoles = {
+    driving: [
+        ["ground", 1],
+        ["subject", 5],
+    ],
     gearLift: [
         ["ground", 3],
         ["motorized", 35],
@@ -290,6 +294,7 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 expect(ground.mesh.indices.length).toBeGreaterThan(0);
             } else expect(presentation.ground).toBeUndefined();
             const extent = {
+                driving: 200,
                 gearLift: 20,
                 distance: 25,
                 door: 20,

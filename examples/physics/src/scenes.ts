@@ -72,6 +72,7 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
             { id: "bridge", name: "Bridge" },
             { id: "distance", name: "Distance Joint" },
             { id: "door", name: "Door" },
+            { id: "driving", name: "Driving" },
             { id: "filter", name: "Filter" },
             { id: "foldOut", name: "Fold Out" },
             { id: "gearLift", name: "Gear Lift" },
@@ -112,6 +113,7 @@ export interface Control {
     min?: number;
     max?: number;
     step?: number;
+    decimals?: number;
     button?: boolean;
     read?: (world: World) => number | null;
     options?: readonly { label: string; value: number }[];

@@ -30,6 +30,7 @@ import {
     setAwake,
 } from "@dylanebert/shallot/standard/physics";
 import earcut from "earcut";
+import { DrivingPlugin, drivingScene } from "./driving";
 import { MotorizedJoint } from "./roles";
 import type { Controls } from "./scenes";
 
@@ -492,7 +493,7 @@ const AfterDoor: System = {
 };
 export const JointSamplePlugin: Plugin = {
     name: "JointSample",
-    dependencies: [StandardPhysicsPlugin],
+    dependencies: [StandardPhysicsPlugin, DrivingPlugin],
     systems: [BeforeDoor, AfterDoor],
     recovery: recoverResource(DoorState),
 };
@@ -909,6 +910,7 @@ const gearLiftControls = Object.fromEntries(
 );
 
 export const jointScenes = {
+    driving: drivingScene,
     gearLift: {
         construct: gearLift,
         gridExtent: 20,

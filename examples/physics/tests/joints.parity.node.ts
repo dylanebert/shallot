@@ -8,6 +8,7 @@ import {
     StandardPhysicsPlugin,
 } from "@dylanebert/shallot";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { DrivingState } from "../src/driving";
 import { JointSamplePlugin } from "../src/joints";
 import {
     type Controls,
@@ -23,6 +24,7 @@ import { sampleGold } from "./gold";
 setDefaultTimeout(TIMEOUT.node);
 
 for (const scene of [
+    "driving",
     "gearLift",
     "distance",
     "door",
@@ -69,6 +71,12 @@ for (const scene of [
                 for (let step = 0; step < gold.length; step++) {
                     for (const change of sequence)
                         if (change.step === step) {
+                            if (scene === "driving" && ["W", "A", "S", "D"].includes(change.name)) {
+                                app.world.resource(DrivingState).keys[
+                                    change.name as "W" | "A" | "S" | "D"
+                                ] = change.value;
+                                continue;
+                            }
                             const controls: Controls | undefined = scenes[scene].controls;
                             const control = controls?.[change.name];
                             expect(control).toBeDefined();

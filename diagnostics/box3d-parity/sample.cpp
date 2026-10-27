@@ -16,6 +16,7 @@
 struct Change { int step; std::string name; float value; };
 std::vector<Change> changes;
 int currentStep = 0;
+bool drivingControls = false;
 
 extern "C" {
 struct b3World;
@@ -27,11 +28,16 @@ uint64_t b3HashWorldState( b3World* );
 struct Camera
 {
 	// Contact's recording keeps its initial yaw-zero view and reads only the flattened basis.
+	bool m_thirdPerson = false;
+	b3Pos m_pivot = {};
+	void UpdateTransform() {}
 	void SetView( float, float, float, b3Vec3 ) {}
 	b3Vec3 GetForward() const { return { 0, 0, 1 }; }
 	b3Vec3 GetRight() const { return { 1, 0, 0 }; }
 };
-constexpr int KEY_W = 1, KEY_S = 2, KEY_A = 3, KEY_D = 4, KEY_L = 5;
+constexpr int KEY_W = 1, KEY_S = 2, KEY_A = 3, KEY_D = 4, KEY_L = 5, KEY_T = 6;
+constexpr int ACTION_PRESS = 1;
+void sapp_lock_mouse( bool ) {}
 bool IsKeyDown( int key ) {
 	float value = 0;
 	const char* names[] = { "", "W", "S", "A", "D", "L" };
@@ -88,12 +94,18 @@ b3HullData* RecordedClone( const b3HullData* hull, b3Transform transform, b3Vec3
 }
 namespace ImGui
 {
+void Text( const char*, ... ) {}
 void PushItemWidth( float ) {}
 float GetFontSize() { return 14.0f; }
 bool SliderFloat( const char* name, float* value, float, float, const char* = "%.3f" ) {
     std::string label(name);
-    const auto suffix = label.find("##Door");
-    if (suffix != std::string::npos) label.resize(suffix);
+    const auto suffix = label.find("##");
+    if (suffix != std::string::npos) {
+        const auto group = label.substr(suffix + 2);
+        if (group == "Door") label.resize(suffix);
+        else if (drivingControls && (group == "Suspension" || group == "Steering"))
+            label = group + " " + label.substr(0, suffix);
+    }
     name = label.c_str();
     for ( const Change& change : changes )
         if ( change.step == currentStep && change.name == name ) { *value = change.value; return true; }
@@ -179,6 +191,8 @@ public:
 		m_worldId = b3CreateWorld( &def );
 		b3World_SetContactRecycleDistance( m_worldId, m_context->recycleDistance );
 	}
+	virtual void Keyboard( int, int, int ) {}
+	void ToggleThirdPerson() { m_camera->m_thirdPerson = !m_camera->m_thirdPerson; }
 	virtual bool DrawControls() { return false; }
 	virtual void Render() {}
 	void DrawTextLine( const char*, ... ) {}
@@ -268,7 +282,7 @@ int main( int argc, char** argv )
 		{ "arch", Arch::Create }, { "doubleDomino", DoubleDomino::Create },
 		{ "pyramid2D", Pyramid2D::Create }, { "edgeCrossing", EdgeCrossing::Create },
 		{ "box_stack", BoxStack::Create }, { "bridge", Bridge::Create },
-		{ "gearLift", GearLift::Create }, { "door", Door::Create }, { "distance", DistanceJoint::Create }, { "spherical", SphericalJoint::Create }, { "motionLocks", MotionLocks::Create },
+		{ "driving", Driving::Create }, { "gearLift", GearLift::Create }, { "door", Door::Create }, { "distance", DistanceJoint::Create }, { "spherical", SphericalJoint::Create }, { "motionLocks", MotionLocks::Create },
         { "ballAndChain", BallAndChain::Create }, { "foldOut", FoldOut::Create }, { "topDownFriction", TopDownFriction::Create }, { "weld", WeldJoint::Create },
 		{ "revolute", RevoluteJoint::Create }, { "prismatic", PrismaticJoint::Create },
 		{ "wheel", WheelJoint::Create }, { "filter", FilterJoint::Create }, { "parallel", ParallelJoint::Create },
@@ -278,6 +292,8 @@ int main( int argc, char** argv )
 	Sample* sample = nullptr;
 	for ( const Entry& entry : entries ) if ( strcmp( argv[1], entry.name ) == 0 ) sample = entry.create( &context );
 	if ( !sample ) { fprintf( stderr, "unknown sample: %s\n", argv[1] ); return 2; }
+	drivingControls = !strcmp( argv[1], "driving" );
+	if ( drivingControls ) context.camera.m_thirdPerson = true;
 	bool grab = argc == 4 && strcmp( argv[3], "grab" ) == 0;
 	if ( argc == 4 && !grab ) {
 		FILE* file = fopen( argv[3], "r" );

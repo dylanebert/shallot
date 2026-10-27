@@ -1,0 +1,27 @@
+0	W	1
+30	A	1
+60	Suspension Min	-0.5
+70	Suspension Max	0.6
+80	Suspension Hertz	6
+90	Suspension Damping	1.1
+100	Max Torque	25
+110	Speed	45
+120	A	0
+130	D	1
+140	Steering Hertz	5
+150	Steering Damping	1.2
+160	Steering Torque	12
+170	Steering Min Deg	-60
+180	Steering Max Deg	60
+210	W	0
+210	D	0
+220	S	1
+250	A	1
+290	A	0
+310	D	1
+350	D	0
+380	S	0
+400	Suspension Min	1
+410	Suspension Max	-1
+420	Suspension Min	-0.2
+430	Suspension Max	0.2
