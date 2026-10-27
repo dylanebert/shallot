@@ -212,6 +212,35 @@ test("ctx.frontFacing tells front from back fragments in every cull mode", async
     expect((await seen("front")).back).toEqual(GREEN);
 });
 
+test("ctx.frontFacing names a mirrored instance's logical face in every cull mode", async () => {
+    const built = facing();
+    if (built instanceof Error) throw built;
+    const { world, scene } = built;
+    // Mirrored, the quad's front face winds clockwise toward the front camera.
+    world.add(scene.subject, Transform, { scale: [-1, 1, 1] });
+    try {
+        const seen = async (row: "back" | "none" | "front") => {
+            world.add(scene.subject, MeshMaterial, scene.rows[row]);
+            world.step(0);
+            return {
+                front: await pixels(world, scene.front),
+                back: await pixels(world, scene.back),
+            };
+        };
+        const back = await seen("back");
+        expect(back.front.center).toEqual(back.front.clear);
+        expect(back.back.center).toEqual(GREEN);
+        const none = await seen("none");
+        expect(none.front.center).toEqual(RED);
+        expect(none.back.center).toEqual(GREEN);
+        const front = await seen("front");
+        expect(front.front.center).toEqual(RED);
+        expect(front.back.center).toEqual(front.back.clear);
+    } finally {
+        world.add(scene.subject, Transform);
+    }
+});
+
 const lit = gpuScene(import.meta.path, { defaults: false, plugins: cullPlugins }, (world) => {
     const mesh = quad(world, "cull-lit-quad");
     const subject = world.create();
@@ -251,6 +280,29 @@ test("a doubleSided StandardMaterial shades its back face with the flipped norma
         Math.max(...frontLit.map((channel, i) => Math.abs(channel - backLit[i]!))),
     ).toBeLessThanOrEqual(1);
     expect(backUnflipped[0]!).toBeLessThan(backLit[0]! - 20);
+});
+
+test("a mirrored doubleSided StandardMaterial shades each face as the unmirrored one", async () => {
+    const { world, scene } = lit();
+    world.add(scene.subject, MeshMaterial, scene.rows.doubleSided);
+    const capture = async (scale: number, toward: number, eid: number) => {
+        world.add(scene.subject, Transform, { scale: [scale, 1, 1] });
+        world.add(scene.sun, Transform, { rotation: lookAtRotation(0, 0, 0, 0, 0, toward) });
+        world.step(0);
+        return (await pixels(world, eid)).center;
+    };
+    try {
+        for (const [toward, eid] of [
+            [-1, scene.front],
+            [1, scene.back],
+        ] as const) {
+            const unmirrored = await capture(1, toward, eid);
+            const mirrored = await capture(-1, toward, eid);
+            expect({ toward, mirrored }).toEqual({ toward, mirrored: unmirrored });
+        }
+    } finally {
+        world.add(scene.subject, Transform);
+    }
 });
 
 const depthLayout = tgpu.bindGroupLayout({
