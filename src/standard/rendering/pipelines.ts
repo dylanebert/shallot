@@ -2034,6 +2034,20 @@ function compileShadow(
     cascade: TgpuRenderPipeline<any> | null;
 } {
     if (!isInstanced(surface)) return { point: null, cascade: null };
+    const layout =
+        surface.vertex || alphaPipelineKey !== AlphaPipelineKey.Opaque
+            ? surface.layout
+            : surface.layout.depthVariant;
+    validateBindingLimits(`material "${surface.name}" point shadow`, [
+        engineLayout,
+        pointLayout,
+        layout,
+    ]);
+    validateBindingLimits(`material "${surface.name}" cascade shadow`, [
+        engineLayout,
+        cascadeLayout,
+        layout,
+    ]);
     const primitive = materialPrimitive(cullMode);
     const depthStencil: GPUDepthStencilState = {
         format: DEPTH_FORMAT,

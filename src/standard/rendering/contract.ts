@@ -4,8 +4,10 @@ import * as d from "typegpu/data";
 import type { World } from "../../engine";
 import { validateBindingLimits } from "./binding-limits";
 import { backgroundsKey } from "./contract-state";
+import { engineLayout } from "./engine";
 import { bindingEntry, type EntryFor, type MaterialBinding, refuseBindings } from "./material-type";
 import type { BindResource } from "./pipelines";
+import { shadowLayout } from "./shadow-layout";
 
 function ownEntries<B extends Record<string, MaterialBinding>>(
     bindings: B,
@@ -20,13 +22,15 @@ export type BackgroundLayout<B extends Record<string, MaterialBinding>> = TgpuBi
     [K in keyof B]: EntryFor<B[K]>;
 }>;
 
-/** Build a background's resource layout before authoring the shader that closes over it. */
+/** Build a background's resource layout before authoring the shader that closes over it.
+ * Per-stage budgets include the renderer's group-0 and group-1 entries. Exceeding a default WebGPU
+ * binding limit is refused. */
 export function backgroundLayout<B extends Record<string, MaterialBinding>>(
     bindings: B,
 ): BackgroundLayout<B> {
     refuseBindings("background", bindings);
     const layout = tgpu.bindGroupLayout(ownEntries(bindings)).$idx(2);
-    validateBindingLimits("background layout", [layout]);
+    validateBindingLimits("background layout", [engineLayout, shadowLayout, layout]);
     return layout as BackgroundLayout<B>;
 }
 
