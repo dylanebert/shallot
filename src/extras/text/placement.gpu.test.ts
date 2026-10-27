@@ -108,6 +108,7 @@ const subject = compileGpuFile(import.meta.path, async () => {
     new Uint32Array(glyph)[GLYPH_AT.billboard] = Billboard.World;
     new Float32Array(glyph).set([0.5, 0.5], GLYPH_AT.size);
     buffer("glyphs", new Uint8Array(glyph));
+    buffer("glyphIndices", new Uint32Array([0]));
     buffer("maskEids", new Uint32Array([eid]));
     const quant = { posOffset: d.vec4f(0), posScale: d.vec4f(0.5, 0.5, 1, 0), uvScale: d.vec4f(0) };
     buffer("meshQuant", new Float32Array([0, 0, 0, 0, 0.5, 0.5, 1, 0, 0, 0, 0, 0]));

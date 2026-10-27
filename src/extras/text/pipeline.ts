@@ -25,6 +25,7 @@ export const textLayout = tgpu
     .bindGroupLayout({
         vertices: { storage: d.arrayOf(d.vec4u), access: "readonly", visibility: ["vertex"] },
         glyphs: { storage: d.arrayOf(Glyph), access: "readonly", visibility: ["vertex"] },
+        glyphIndices: { storage: d.arrayOf(d.u32), access: "readonly", visibility: ["vertex"] },
         globalTransforms: { storage: d.arrayOf(Xform), access: "readonly", visibility: ["vertex"] },
         globalTransformRows: {
             storage: d.arrayOf(d.u32),
@@ -49,7 +50,7 @@ export const TextVertex = tgpu.vertexFn({
     const packed = textLayout.$.vertices[input.vertex];
     const quant = MeshQuant(viewLayout.$.meshQuant[meshIdOf(packed.y)]);
     const corner = decodePos(packed.x, packed.y, quant).xy;
-    const glyph = Glyph(textLayout.$.glyphs[input.instance]);
+    const glyph = Glyph(textLayout.$.glyphs[textLayout.$.glyphIndices[input.instance]]);
     const row = textLayout.$.globalTransformRows[glyph.eid];
     if (row === 0) {
         return {

@@ -150,6 +150,15 @@ interface TextLabelDraw {
     seen: boolean;
 }
 
+interface TextInstances {
+    buffer: TgpuBuffer<d.WgslArray<d.U32>> & StorageFlag;
+    indices: Uint32Array;
+    starts: Uint32Array;
+    counts: Uint32Array;
+    bindGroups: (GPUBindGroup | null)[];
+    bindKeys: (object[] | null)[];
+}
+
 interface TextState {
     loaded: (Font | null)[];
     atlases: (GlyphAtlas | null)[];
@@ -171,8 +180,7 @@ interface TextState {
         single: import("typegpu").TgpuRenderPipeline | null;
         multisample: import("typegpu").TgpuRenderPipeline | null;
     };
-    bindGroups: (GPUBindGroup | null)[];
-    bindKeys: (object[] | null)[];
+    instances: Map<number, TextInstances>;
     viewGroups: Map<number, { buffer: GPUBuffer; quant: object; group: GPUBindGroup }>;
 }
 
@@ -198,8 +206,7 @@ function createTextState(): TextState {
         lastFontGroup: null,
         transformScratch: new Float32Array(16),
         colorPipelines: { single: null, multisample: null },
-        bindGroups: [],
-        bindKeys: [],
+        instances: new Map(),
         viewGroups: new Map(),
     };
 }
@@ -462,30 +469,37 @@ function ensureTextViewGroup(world: World, view: View, state: TextState): GPUBin
     return viewGroup.group;
 }
 
-function ensureTextFontGroup(world: World, state: TextState, font: number): GPUBindGroup | null {
+function ensureTextFontGroup(
+    world: World,
+    state: TextState,
+    instances: TextInstances,
+    font: number,
+): GPUBindGroup | null {
     if (!state.glyphBuf || !state.quad) return null;
     const mesh = world.resource(Meshes).get(state.quad);
     const atlas = state.atlases[font];
     const table = globalTransformTable(world);
     const rows = table.eidToRowTyped;
     if (!mesh?.quant || !atlas || !rows) return null;
-    let group = state.bindGroups[font];
-    const previous = state.bindKeys[font];
+    let group = instances.bindGroups[font];
+    const previous = instances.bindKeys[font];
     if (
         !group ||
         !previous ||
         previous[0] !== mesh.vertices ||
         previous[1] !== mesh.quant ||
-        previous[2] !== state.glyphBuf ||
+        previous[2] !== instances.buffer ||
         previous[3] !== table.typed ||
         previous[4] !== rows ||
         previous[5] !== atlas.texture ||
-        previous[6] !== state.sampler
+        previous[6] !== state.sampler ||
+        previous[7] !== state.glyphBuf
     ) {
         group = world.gpu.root.unwrap(
             world.gpu.root.createBindGroup(textLayout, {
                 vertices: mesh.vertices,
                 glyphs: state.glyphBuf,
+                glyphIndices: instances.buffer,
                 globalTransforms: table.typed as TgpuBuffer<d.WgslArray<typeof Xform>> &
                     StorageFlag,
                 globalTransformRows: rows as TgpuBuffer<d.WgslArray<d.U32>> & StorageFlag,
@@ -493,15 +507,16 @@ function ensureTextFontGroup(world: World, state: TextState, font: number): GPUB
                 sampler: state.sampler!,
             }),
         );
-        state.bindGroups[font] = group;
-        state.bindKeys[font] = [
+        instances.bindGroups[font] = group;
+        instances.bindKeys[font] = [
             mesh.vertices,
             mesh.quant,
-            state.glyphBuf,
+            instances.buffer,
             table.typed,
             rows,
             atlas.texture,
             state.sampler!,
+            state.glyphBuf,
         ];
     }
     return group;
@@ -525,10 +540,48 @@ function prepareText(
         world.resource(RenderContext).format,
         key === "single" ? 1 : 4,
     );
+    const capacity = Math.max(32, 2 ** Math.ceil(Math.log2(phase.length || 1)));
+    let instances = state.instances.get(view.slot);
+    if (!instances || instances.indices.length < state.cap) {
+        const stale = instances?.buffer;
+        instances = {
+            buffer: world.gpu.root
+                .createBuffer(d.arrayOf(d.u32, state.cap))
+                .$usage("storage")
+                .$name("shallot-text-instances"),
+            indices: new Uint32Array(state.cap),
+            starts: new Uint32Array(capacity),
+            counts: new Uint32Array(capacity),
+            bindGroups: [],
+            bindKeys: [],
+        };
+        state.instances.set(view.slot, instances);
+        if (stale) world.gpu.device.queue.onSubmittedWorkDone().then(() => stale.destroy());
+    }
+    if (instances.starts.length < phase.length) {
+        instances.starts = new Uint32Array(capacity);
+        instances.counts = new Uint32Array(capacity);
+    }
+    // Retained layouts stay untouched; each view orders only their glyph indices.
+    let count = 0;
     for (let i = 0; i < phase.length; i++) {
         const item = phase.item(i);
-        if (item.renderer === renderer) ensureTextFontGroup(world, state, item.batch);
+        if (item.renderer !== renderer) continue;
+        const label = state.labelDraws[item.draw];
+        instances.starts[i] = count;
+        instances.counts[i] = label.count;
+        for (let glyph = label.start; glyph < label.start + label.count; glyph++)
+            instances.indices[count++] = glyph;
+        ensureTextFontGroup(world, state, instances, item.batch);
     }
+    if (count)
+        world.gpu.device.queue.writeBuffer(
+            world.gpu.root.unwrap(instances.buffer),
+            0,
+            instances.indices.buffer,
+            0,
+            count * Uint32Array.BYTES_PER_ELEMENT,
+        );
 }
 
 function drawText(
@@ -558,7 +611,9 @@ function drawText(
         state.lastViewGroup = null;
         state.lastFontGroup = null;
     }
-    const fontGroup = ensureTextFontGroup(world, state, phase.item(start).batch);
+    const instances = state.instances.get(view.slot);
+    if (!instances) return;
+    const fontGroup = ensureTextFontGroup(world, state, instances, phase.item(start).batch);
     if (!fontGroup) return;
     pass.setPipeline(world.gpu.root.unwrap(pipeline));
     pass.setBindGroup(0, viewGroup);
@@ -570,16 +625,16 @@ function drawText(
     state.lastPipeline = pipeline;
     state.lastViewGroup = viewGroup;
     state.lastFontGroup = fontGroup;
-    for (let i = start; i < end; i++) {
-        const label = state.labelDraws[phase.item(i).draw];
-        pass.drawIndexed(6, label.count, mesh.indexBase, 0, label.start);
-        phase.metrics.draws++;
-    }
+    const first = instances.starts[start];
+    const last = end - 1;
+    const count = instances.starts[last] + instances.counts[last] - first;
+    pass.drawIndexed(6, count, mesh.indexBase, 0, first);
+    phase.metrics.draws++;
 }
 
 /**
  * the shallot text producer: the retained {@link Text} component laid out into instanced SDF glyph quads,
- * drawn in core's transparent phase (one draw per label). Each label owns a contiguous glyph range;
+ * drawn in core's transparent phase (one draw per consecutive run of one font). Each label owns a contiguous glyph range;
  * range resizing compacts following bytes without laying out other labels. Storage grows geometrically
  * to the peak live glyph count; unchanged frames allocate and upload nothing for text layout.
  * Register fonts with {@link registerFont} and
@@ -665,8 +720,7 @@ export const TextPlugin: Plugin = {
             return [];
         });
         _textState.viewGroups.clear();
-        _textState.bindGroups.length = _textState.atlases.length;
-        _textState.bindKeys.length = _textState.atlases.length;
+        _textState.instances.clear();
         for (const atlas of _textState.atlases) if (atlas) ensureString(world, atlas, ASCII_CACHE);
     },
 
@@ -682,8 +736,8 @@ export const TextPlugin: Plugin = {
         _textState.count = 0;
         _textState.labels.clear();
         _textState.labelDraws.length = 0;
-        _textState.bindGroups = [];
-        _textState.bindKeys = [];
+        for (const instances of _textState.instances.values()) instances.buffer.destroy();
+        _textState.instances.clear();
         _textState.viewGroups.clear();
         _textState.colorPipelines = { single: null, multisample: null };
     },
