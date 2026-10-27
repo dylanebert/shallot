@@ -367,7 +367,6 @@ export function createBody(world: WorldState, def: BodyDef): number {
         def.angularDamping,
         def.gravityScale,
     );
-    world.bodyStore.refreshViews();
     world.bodyNames[bodyId] = def.name ? def.name.slice(0, BODY_NAME_LENGTH) : "";
     world.bodyUserData[bodyId] = def.userData;
     world.locked = false;

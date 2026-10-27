@@ -42,7 +42,6 @@ export function createShapeSlot(
         def.explosionScale,
         flags,
     );
-    world.shapeStore.refreshViews();
     return id;
 }
 
@@ -114,11 +113,7 @@ export class ShapeStore extends KernelViews {
         materials: SurfaceMaterial[] | SurfaceMaterial,
     ): void {
         const count = Array.isArray(materials) ? materials.length : 1;
-        this.refreshViews();
         const ptr = kernel(world.ecsState).shapeAllocateMaterials(world.worldId, shape, count);
-        world.manifoldStore.refreshViews();
-        world.bodyStore.refreshViews();
-        this.refreshViews();
         for (let i = 0; i < count; ++i) {
             const o = ptr / 4 + i * MATERIAL_STRIDE;
             const m = Array.isArray(materials) ? materials[i] : materials;

@@ -76,6 +76,11 @@ export abstract class KernelViews {
             this.refreshViews();
     }
 
+    /** Derives views at the next read, after a change to what they derive from that the kernel's view epoch does not track. */
+    protected invalidateViews(): void {
+        this._viewKey = -1;
+    }
+
     refreshViews(): void {
         if (this._refreshing) return;
         const k = kernel(this.ecsState);

@@ -19,7 +19,6 @@ export function writeShapeFilterValue(
     filter: Filter,
     invokeContacts = false,
 ): void {
-    world.shapeStore.refreshViews();
     const k = kernel(world.ecsState);
     if (invokeContacts)
         k.shapeSetFilter64(

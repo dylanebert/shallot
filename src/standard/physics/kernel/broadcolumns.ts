@@ -49,6 +49,7 @@ export class BroadStore extends KernelViews {
         const world = this.world;
         if (this.initialization.claimed || world === null) return;
         this.initialization.claimed = true;
+        this.invalidateViews();
     }
 
     /** Select this World for native operations; rebind views only when the shared key changed. */

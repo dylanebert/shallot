@@ -293,33 +293,21 @@ function createShapeInternal(
             break;
         case ShapeType.Hull: {
             const handle = addHullToDatabase(world, geometry as HullData);
-            world.shapeStore.refreshViews();
-            world.bodyStore.refreshViews();
-            world.manifoldStore.refreshViews();
             world.shapeStore.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE] = handle;
             break;
         }
         case ShapeType.Mesh: {
             const pointer = acquireMeshData(world, geometry as MeshData);
-            world.shapeStore.refreshViews();
-            world.bodyStore.refreshViews();
-            world.manifoldStore.refreshViews();
             world.shapeStore.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE] = pointer;
             break;
         }
         case ShapeType.HeightField: {
             const pointer = acquireHeightFieldData(world, geometry as HeightFieldData);
-            world.shapeStore.refreshViews();
-            world.bodyStore.refreshViews();
-            world.manifoldStore.refreshViews();
             world.shapeStore.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE] = pointer;
             break;
         }
         case ShapeType.Compound: {
             const pointer = acquireCompoundData(world, geometry as CompoundData);
-            world.shapeStore.refreshViews();
-            world.bodyStore.refreshViews();
-            world.manifoldStore.refreshViews();
             world.shapeStore.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE] = pointer;
             break;
         }
@@ -349,7 +337,6 @@ function createShapeInternal(
         def.isSensor,
         def.updateBodyMass,
     );
-    world.broadPhase.store.refreshViews();
 
     return shape;
 }
