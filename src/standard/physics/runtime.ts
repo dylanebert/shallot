@@ -72,6 +72,7 @@ import {
     restoreConstraints,
     syncJoints,
 } from "./joints";
+import { readSimTransform } from "./kernel/bodycolumns";
 import { BodyField, bodyField } from "./kernel/bodyrecords";
 import { EventKind, eventCount } from "./kernel/eventbuffers";
 import { readJointEventUserData } from "./kernel/jointcolumns";
@@ -1725,6 +1726,7 @@ export function applyTransformPose(world: World, eid: number): void {
         pose.translation.column,
         pose.rotation.column,
         eid,
+        state.bodyStore.memoryF,
     );
 }
 
@@ -1737,15 +1739,16 @@ function applyPose(
     p: TypedArray,
     q: TypedArray,
     eid: number,
-): void {
+    memory: Float32Array,
+): boolean {
     if (
         ((positions[eid >>> 5] | rotations[eid >>> 5]) & (1 << (eid & 31))) === 0 &&
         !runtime.poseCandidates.fieldMarks[eid]
     )
-        return;
+        return false;
     const body = runtime.bodies.get(eid);
-    if (!body) return;
-    const current = bodyGetTransform(state, body.index1 - 1, spawnTransform);
+    if (!body) return false;
+    const current = readSimTransform(state, -body.index1, spawnTransform, memory);
     const offset = eid * 4;
     if (
         Object.is(p[offset], current.p.x) &&
@@ -1756,7 +1759,7 @@ function applyPose(
         Object.is(q[offset + 2], current.q.v.z) &&
         Object.is(q[offset + 3], current.q.s)
     )
-        return;
+        return false;
     statePos.x = p[offset];
     statePos.y = p[offset + 1];
     statePos.z = p[offset + 2];
@@ -1768,6 +1771,7 @@ function applyPose(
     const global = world.storage(GlobalTransform);
     global.translation.set(eid, statePos.x, statePos.y, statePos.z);
     global.rotation.set(eid, stateQuat.v.x, stateQuat.v.y, stateQuat.v.z, stateQuat.s);
+    return true;
 }
 
 function capturePoseCandidates(world: World, runtime: PhysicsRuntime): void {
@@ -1795,8 +1799,23 @@ function applyTransformPoses(world: World, runtime: PhysicsRuntime): void {
         const pose = world.storage(Transform);
         const p = pose.translation.column;
         const q = pose.rotation.column;
+        // A teleport can allocate, so it ends the held memory view.
+        let memory = state.bodyStore.memoryF;
         for (let i = 0; i < candidates.count; i++)
-            applyPose(world, runtime, state, positions, rotations, p, q, candidates.eids[i]);
+            if (
+                applyPose(
+                    world,
+                    runtime,
+                    state,
+                    positions,
+                    rotations,
+                    p,
+                    q,
+                    candidates.eids[i],
+                    memory,
+                )
+            )
+                memory = state.bodyStore.memoryF;
     }
     clearFieldCandidates(candidates);
 }

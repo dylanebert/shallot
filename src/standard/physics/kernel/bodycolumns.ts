@@ -292,12 +292,13 @@ export function setSimField<K extends keyof BodySim>(
     }
 }
 
+/** `sf` may be a `bodyStore.memoryF` the caller read once, valid until its next kernel call that can allocate. */
 export function readSimTransform(
     world: WorldState,
     ref: number,
     out: WorldTransform,
+    sf: Float32Array = world.bodyStore.memoryF,
 ): WorldTransform {
-    const sf = world.bodyStore.memoryF;
     const so = simOffset(world, ref);
     out.p.x = sf[so];
     out.p.y = sf[so + 1];
