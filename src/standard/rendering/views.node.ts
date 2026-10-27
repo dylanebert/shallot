@@ -125,6 +125,10 @@ function expectSettledPixels(actual: Uint8ClampedArray, reference: Uint8ClampedA
     expect(largestDelta).toBeLessThanOrEqual(1);
 }
 
+// Fog history blends at 6/7 in half floats, so a reset view stops changing once (6/7)^n falls under about
+// 3.5 half-float steps, after 41 frames; 48 rounds up to whole 16-frame jitter cycles.
+const SETTLE = 48;
+
 describe.each([0, 1])("lit fogged outlined views, antialias %i", (antialias) => {
     let app: Awaited<ReturnType<typeof withVisualRendering>>;
     let first: number;
@@ -177,7 +181,7 @@ describe.each([0, 1])("lit fogged outlined views, antialias %i", (antialias) => 
         });
         const world = app.world;
         // Compare the same jitter phase after fog's temporal average has settled.
-        for (let i = 0; i < 96; i++) world.step(0);
+        for (let i = 0; i < SETTLE; i++) world.step(0);
         beforeGrowth = await captureTexture(world, first);
         const draw = [...world.resource(Draws).values()][0]!;
         drawName = draw.name;
@@ -205,7 +209,7 @@ describe.each([0, 1])("lit fogged outlined views, antialias %i", (antialias) => 
             detachView(world, second);
             attachTexture(world, second, { width: 64, height: 64 });
         }
-        for (let i = 0; i < 96; i++) world.step(0);
+        for (let i = 0; i < SETTLE; i++) world.step(0);
         grownFirst = await captureTexture(world, first);
         grownSecond = await captureTexture(world, second);
     }
@@ -258,7 +262,7 @@ describe.each([0, 1])("lit fogged outlined views, antialias %i", (antialias) => 
         await grow();
         const lit = [litCenter(grownFirst.rgba), litCenter(grownSecond.rgba)];
         world.remove(points[0]!, PointLight);
-        for (let i = 0; i < 96; i++) world.step(0);
+        for (let i = 0; i < SETTLE; i++) world.step(0);
         const withoutFirstLight = [
             await captureTexture(world, first),
             await captureTexture(world, second),
@@ -274,7 +278,7 @@ describe.each([0, 1])("lit fogged outlined views, antialias %i", (antialias) => 
         await grow();
         const lit = [litCenter(grownFirst.rgba), litCenter(grownSecond.rgba)];
         world.remove(points[1]!, PointLight);
-        for (let i = 0; i < 96; i++) world.step(0);
+        for (let i = 0; i < SETTLE; i++) world.step(0);
         const withoutSecondLight = [
             await captureTexture(world, first),
             await captureTexture(world, second),
@@ -289,10 +293,10 @@ describe.each([0, 1])("lit fogged outlined views, antialias %i", (antialias) => 
         const { world } = app;
         await grow();
         for (const point of points) world.remove(point, PointLight);
-        for (let i = 0; i < 96; i++) world.step(0);
+        for (let i = 0; i < 16; i++) world.step(0);
         for (let i = 0; i < points.length; i++)
             world.add(points[i]!, PointLight, pointSpecs[i]!.light);
-        for (let i = 0; i < 96; i++) world.step(0);
+        for (let i = 0; i < SETTLE; i++) world.step(0);
         const restored = [await captureTexture(world, first), await captureTexture(world, second)];
         for (let slot = 0; slot < 2; slot++)
             expectSettledPixels(restored[slot]!.rgba, [grownFirst, grownSecond][slot]!.rgba);
