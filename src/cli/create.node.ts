@@ -149,6 +149,12 @@ function assertProject(
         ENGINE.peerDependencies.playwright,
     );
     expect(manifest.devDependencies.vite, `${template}: vite`).toBe(ENGINE.devDependencies.vite);
+    if (template === "physics") {
+        expect(manifest.devDependencies.earcut).toBe("3.0.2");
+        expect(manifest.devDependencies["@types/earcut"]).toBe(
+            ENGINE.devDependencies["@types/earcut"],
+        );
+    }
     const hasComponents = templateFiles.some((file) => file.endsWith(".svelte"));
     expect(manifest.scripts, `${template}: scripts dev/build/preview/typecheck`).toEqual({
         dev: "vite --host 127.0.0.1",
@@ -183,7 +189,7 @@ function assertProject(
             ? ENGINE.peerDependencies.webgpu
             : undefined,
     );
-    for (const dependency of ["svelte", "@sveltejs/vite-plugin-svelte"]) {
+    for (const dependency of ["svelte", "@sveltejs/vite-plugin-svelte", "earcut"]) {
         const imports = [
             ...source.matchAll(
                 /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|\brequire\s*\(\s*)["']([^"'./][^"']*)["']/g,

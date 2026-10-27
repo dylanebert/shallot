@@ -1,0 +1,8 @@
+60	Motor	0
+120	Motor	1
+180	Max Torque	50000
+240	Speed	0.15
+360	Speed	-0.2
+420	Max Torque	20000
+480	Motor	0
+540	Motor	1

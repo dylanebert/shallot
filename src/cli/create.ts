@@ -117,7 +117,12 @@ export function packageManifest(
     // import gate refuses a package the engine does not declare.
     for (const name of new Set([...imports].map(packageName))) {
         const range = engine.peerDependencies[name] ?? engine.devDependencies[name];
-        if (name !== ENGINE && range) devDependencies[name] ??= range;
+        if (name !== ENGINE && range) {
+            devDependencies[name] ??= range;
+            const types = `@types/${name.replace(/^@/, "").replace("/", "__")}`;
+            if (engine.devDependencies[types])
+                devDependencies[types] ??= engine.devDependencies[types];
+        }
     }
     // Bun's typecheck reads no Svelte component; svelte-check is the project's `typecheck`.
     const typecheck = hasComponents(templateDir);

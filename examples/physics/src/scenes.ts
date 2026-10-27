@@ -74,6 +74,7 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
             { id: "door", name: "Door" },
             { id: "filter", name: "Filter" },
             { id: "foldOut", name: "Fold Out" },
+            { id: "gearLift", name: "Gear Lift" },
             { id: "motionLocks", name: "Motion Locks" },
             { id: "motor", name: "Motor Joint" },
             { id: "parallel", name: "Parallel Spring" },

@@ -8,6 +8,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <vector>
+#include <array>
+// SAMPLE_EARCUT
 #include <set>
 #include <string>
 
@@ -266,7 +268,7 @@ int main( int argc, char** argv )
 		{ "arch", Arch::Create }, { "doubleDomino", DoubleDomino::Create },
 		{ "pyramid2D", Pyramid2D::Create }, { "edgeCrossing", EdgeCrossing::Create },
 		{ "box_stack", BoxStack::Create }, { "bridge", Bridge::Create },
-		{ "door", Door::Create }, { "distance", DistanceJoint::Create }, { "spherical", SphericalJoint::Create }, { "motionLocks", MotionLocks::Create },
+		{ "gearLift", GearLift::Create }, { "door", Door::Create }, { "distance", DistanceJoint::Create }, { "spherical", SphericalJoint::Create }, { "motionLocks", MotionLocks::Create },
         { "ballAndChain", BallAndChain::Create }, { "foldOut", FoldOut::Create }, { "topDownFriction", TopDownFriction::Create }, { "weld", WeldJoint::Create },
 		{ "revolute", RevoluteJoint::Create }, { "prismatic", PrismaticJoint::Create },
 		{ "wheel", WheelJoint::Create }, { "filter", FilterJoint::Create }, { "parallel", ParallelJoint::Create },

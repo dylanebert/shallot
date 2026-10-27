@@ -5,6 +5,7 @@ import {
     GlobalTransform,
     Hulls,
     MotorJoint,
+    PhysicsMeshes,
     type Plugin,
     PrismaticJoint,
     RevoluteJoint,
@@ -22,11 +23,14 @@ import {
     computeCosSin,
     explode,
     getJointLinearSeparation,
+    rotationFromAxisAngle,
     StandardPhysicsPlugin,
     StepPhysicsSystem,
     SyncPhysicsConstraintsSystem,
     setAwake,
 } from "@dylanebert/shallot/standard/physics";
+import earcut from "earcut";
+import { MotorizedJoint } from "./roles";
 import type { Controls } from "./scenes";
 
 type V3 = [number, number, number];
@@ -609,7 +613,309 @@ const doorControls: Controls = {
     ),
 };
 
+// Box3D GearLift: extruded stairwell, paired toothed shafts and two gate chains.
+function gearLift(world: World): number[] {
+    const f = Math.fround;
+    const pi = f(Math.PI);
+    ground(world);
+    const anchor = body(world, [0, 0, 0], false);
+    const ring = [
+        [-11.3, -0.2167],
+        [9.3375, -0.2167],
+        [9.3375, 7.1917],
+        [8.8083, 7.1917],
+        [8.8083, 0.3125],
+        [0.3417, 0.3125],
+        [0.3417, 0.8417],
+        [-0.1875, 0.8417],
+        [-0.1875, 1.3708],
+        [-0.7167, 1.3708],
+        [-0.7167, 1.9],
+        [-1.2458, 1.9],
+        [-1.2458, 2.4292],
+        [-1.775, 2.4292],
+        [-1.775, 2.9583],
+        [-2.3042, 2.9583],
+        [-2.3042, 3.4875],
+        [-2.8333, 3.4875],
+        [-2.8333, 4.0167],
+        [-3.3625, 4.0167],
+        [-3.3625, 4.5458],
+        [-3.8917, 4.5458],
+        [-3.8917, 5.075],
+        [-4.4208, 5.075],
+        [-4.4208, 5.6042],
+        [-4.95, 5.6042],
+        [-4.95, 6.1333],
+        [-5.4792, 6.1333],
+        [-5.4792, 6.6625],
+        [-6.0083, 6.6625],
+        [-6.0083, 7.1917],
+        [-11.3, 7.1917],
+    ].map(([x, y]) => [f(x!), f(y!)] as [number, number]);
+    const vertices = ring.flatMap(([x, y]) => [x, y, -2, x, y, 2]);
+    const indices: number[] = [];
+    for (let i = 0; i < 32; i++) {
+        const j = (i + 1) % 32;
+        indices.push(2 * i, 2 * j, 2 * j + 1, 2 * i, 2 * j + 1, 2 * i + 1);
+    }
+    const caps = earcut(ring.flat());
+    for (let k = 0; k < caps.length; k += 3) {
+        const a = caps[k]!,
+            b = caps[k + 1]!,
+            c = caps[k + 2]!;
+        const [ax, ay] = ring[a]!,
+            [bx, by] = ring[b]!,
+            [cx, cy] = ring[c]!;
+        const positive = f(f(f(bx - ax) * f(cy - ay)) - f(f(by - ay) * f(cx - ax))) > 0;
+        indices.push(2 * a + 1, 2 * (positive ? b : c) + 1, 2 * (positive ? c : b) + 1);
+        indices.push(2 * a, 2 * (positive ? c : b), 2 * (positive ? b : c));
+    }
+    const mesh = world.resource(PhysicsMeshes).add({
+        name: "stairwell",
+        vertices: new Float32Array(vertices),
+        indices: new Uint32Array(indices),
+        identifyEdges: true,
+    });
+    world.add(anchor, Shape, { kind: ShapeKind.Mesh, geometry: mesh });
+    const lx = ring[0]![0],
+        ly = ring[0]![1],
+        ux = ring[1]![0],
+        uy = ring[2]![1];
+    box(
+        world,
+        anchor,
+        [f(0.5 * f(ux - lx)), f(0.5 * f(uy - ly)), f(0.05)],
+        [f(0.5 * f(lx + ux)), f(0.5 * f(ly + uy)), f(-2 - f(0.05))],
+    );
+    function hull(name: string, points: number[]): number {
+        return world
+            .resource(Hulls)
+            .add({ name, points: new Float32Array(points), maxVertexCount: points.length / 3 });
+    }
+    function cylinder(radius: number, lo: number, hi: number, sides: number): number {
+        const points: number[] = [];
+        for (let i = 0; i < sides; i++) {
+            const angle = f(f(f(2 * pi) * i) / sides);
+            const x = f(radius * f(Math.cos(angle))),
+                y = f(radius * f(Math.sin(angle)));
+            points.push(x, y, lo, x, y, hi);
+        }
+        return hull("shaft", points);
+    }
+    const near = cylinder(1, -1.625, -1.375, 24),
+        far = cylinder(1, 1.375, 1.625, 24);
+    const axle = cylinder(f(0.2), -1.5, 1.5, 12);
+    function shape(eid: number, geometry: number): number {
+        const sid = world.has(eid, Shape) ? world.create() : eid;
+        world.add(sid, Shape, { geometry, body: sid === eid ? 0 : eid, friction: 0.1 });
+        return sid;
+    }
+    const bodies: number[] = [];
+    function dynamic(position: V3): number {
+        const eid = body(world, position);
+        bodies.push(eid);
+        return eid;
+    }
+    function gear(position: V3, radius: number): number {
+        const eid = dynamic(position);
+        shape(eid, near);
+        shape(eid, far);
+        shape(eid, axle);
+        const delta = f(f(2 * pi) / 16);
+        for (const depth of [-1.5, 1.5])
+            for (let i = 0; i < 16; i++) {
+                const q = rotationFromAxisAngle(world, { x: 0, y: 0, z: 1 }, f(i * delta));
+                const z = q[2],
+                    w = q[3];
+                function rotate(x: number, y: number): [number, number] {
+                    const tx = f(f(-z * y) + f(w * x)),
+                        ty = f(f(z * x) + f(w * y));
+                    return [f(x + f(2 * f(-z * ty))), f(y + f(2 * f(z * tx)))];
+                }
+                const center = rotate(radius, 0);
+                const points: number[] = [];
+                const hx = f(0.11),
+                    base = f(0.09),
+                    tip = f(base - f(0.03));
+                for (const [x, y, z] of [
+                    [-hx, -base, -0.125],
+                    [-hx, base, -0.125],
+                    [-hx, base, 0.125],
+                    [-hx, -base, 0.125],
+                    [hx, -tip, -0.125],
+                    [hx, tip, -0.125],
+                    [hx, tip, 0.125],
+                    [hx, -tip, 0.125],
+                ] as V3[]) {
+                    const p = rotate(x, y);
+                    points.push(f(center[0] + p[0]), f(center[1] + p[1]), f(depth + z));
+                }
+                shape(eid, hull("tooth", points));
+            }
+        return eid;
+    }
+    const driver = gear([-4.25, 9.75, 0], f(1 + f(0.09)));
+    const follower = gear([-2.25, 10.75, 0], f(1 + f(0.11)));
+    const motor = world.create();
+    world.add(motor, RevoluteJoint, {
+        a: anchor,
+        b: driver,
+        localAnchorA: [-4.25, 9.75, 0],
+        enableMotor: 1,
+        maxMotorTorque: 30000,
+        motorSpeed: -0.3,
+    });
+    world.add(motor, MotorizedJoint);
+    world.add(world.create(), RevoluteJoint, {
+        a: anchor,
+        b: follower,
+        localAnchorA: [-2.25, 10.75, 0],
+        localRotationA: rotationFromAxisAngle(world, { x: 0, y: 0, z: 1 }, f(0.25 * pi)),
+        enableMotor: 1,
+        maxMotorTorque: 0.5,
+        enableLimit: 1,
+        lowerAngle: f(f(-0.3) * pi),
+        upperAngle: f(f(0.8) * pi),
+    });
+    const attachX = f(f(f(-2.25 + 1) + f(2 * f(0.11))) + f(0.03));
+    const doorY = f(10.75 - f(f(80 * f(0.07)) + 1.5));
+    const lastLinks: number[] = [];
+    for (const depth of [-1.5, 1.5]) {
+        let previous = follower,
+            y = f(10.75 - f(0.07));
+        for (let i = 0; i < 40; i++) {
+            const eid = dynamic([attachX, y, depth]);
+            world.add(eid, Shape, {
+                kind: ShapeKind.Capsule,
+                capsuleCenter1: [0, -0.07, 0],
+                capsuleCenter2: [0, 0.07, 0],
+                radius: 0.05,
+            });
+            const pivotY = f(y + f(0.07));
+            world.add(world.create(), RevoluteJoint, {
+                a: previous,
+                b: eid,
+                localAnchorA: i
+                    ? [0, f(pivotY - f(y + f(2 * f(0.07)))), 0]
+                    : [f(attachX + 2.25), f(pivotY - 10.75), depth],
+                localAnchorB: [0, f(pivotY - y), 0],
+                enableMotor: 1,
+                maxMotorTorque: 0.05,
+                drawScale: 0.2,
+            });
+            previous = eid;
+            y = f(y - f(2 * f(0.07)));
+        }
+        lastLinks.push(previous);
+    }
+    const door = dynamic([attachX, doorY, 0]);
+    box(world, door, [0.05, 1.5, 1.95]);
+    world.storage(Shape).density.set(door, 500);
+    world.storage(Shape).friction.set(door, 0.1);
+    for (const [i, link] of lastLinks.entries()) {
+        const y = world.storage(Transform).translation.y.get(link);
+        world.add(world.create(), RevoluteJoint, {
+            a: link,
+            b: door,
+            localAnchorA: [0, f(f(doorY + 1.5) - y), 0],
+            localAnchorB: [0, 1.5, i ? 1.5 : -1.5],
+            enableMotor: 1,
+            maxMotorTorque: 50,
+        });
+    }
+    const slide: [number, number, number, number] = [0, 0, f(Math.SQRT1_2), f(Math.SQRT1_2)];
+    world.add(world.create(), PrismaticJoint, {
+        a: anchor,
+        b: door,
+        localAnchorA: [attachX, doorY, 0],
+        localRotationA: slide,
+        localRotationB: slide,
+        maxMotorForce: 200,
+        enableMotor: 1,
+        collideConnected: 1,
+    });
+    const phi = f(f(1 + f(Math.sqrt(5))) / 2);
+    const [dc, ds] = computeCosSin(world, f(f(2 * pi) / phi));
+    let c = 1,
+        s = 0;
+    const points: number[] = [];
+    for (let i = 0; i < 10; i++) {
+        const z = f(1 - f((2 * i + 1) / 10)),
+            r = f(Math.sqrt(f(1 - f(z * z))));
+        points.push(f(f(f(0.3) * r) * c), f(f(f(0.3) * r) * s), f(f(0.3) * z));
+        const previous = c;
+        c = f(f(dc * c) - f(ds * s));
+        s = f(f(ds * previous) + f(dc * s));
+    }
+    const rock = hull("rock", points);
+    let seed = 12345;
+    function randomInt(): number {
+        seed ^= seed << 13;
+        seed ^= seed >>> 17;
+        seed ^= seed << 5;
+        seed >>>= 0;
+        return seed % 32768;
+    }
+    function random(lo: number, hi: number): number {
+        return f(f(f(hi - lo) * f(randomInt() / 32767)) + lo);
+    }
+    let x = -5;
+    for (let i = 0; i < 12; i++) {
+        let y = f(6.5 - f(0.25 * i));
+        for (let j = 0; j < 10; j++) {
+            const z = random(f(-1.65), f(0.35));
+            const u1 = random(0, 1),
+                u2 = random(0, f(2 * pi)),
+                u3 = random(0, f(2 * pi));
+            const a = f(Math.sqrt(f(1 - u1))),
+                b = f(Math.sqrt(u1));
+            const [c2, s2] = computeCosSin(world, u2),
+                [c3, s3] = computeCosSin(world, u3);
+            const eid = dynamic([x, y, z]);
+            world.storage(Transform).rotation.set(eid, f(a * s2), f(a * c2), f(b * s3), f(b * c3));
+            randomInt(); // The sample consumes a random colour for each rock.
+            world.add(eid, Shape, { geometry: rock, rollingResistance: 0.3 });
+            y = f(y + f(0.2));
+        }
+        x = f(x + f(0.3));
+    }
+    return bodies;
+}
+const gearLiftControls = Object.fromEntries(
+    (
+        [
+            ["Motor", "enableMotor", 1],
+            ["Max Torque", "maxMotorTorque", 30000, 0, 100000, 1],
+            ["Speed", "motorSpeed", -0.3, -0.3, 0.3, 0.01],
+        ] as const
+    ).map(([label, field, value, min, max, step]) => [
+        label,
+        {
+            label,
+            value,
+            min,
+            max,
+            step,
+            when: label === "Motor" ? undefined : ["Motor"],
+            set(world, _bodies, value) {
+                const joint = [...world.query([RevoluteJoint, MotorizedJoint])][0]!;
+                const storage = world.storage(RevoluteJoint);
+                storage[field].set(joint, value);
+                setAwake(world, storage.b.get(joint), true);
+            },
+        } satisfies Controls[string],
+    ]),
+);
+
 export const jointScenes = {
+    gearLift: {
+        construct: gearLift,
+        gridExtent: 20,
+        gridSpacing: 1,
+        camera: { yaw: 15, pitch: 15, distance: 26, target: [-1.5, 5, 0] },
+        controls: gearLiftControls,
+    },
     door: {
         construct: door,
         gridExtent: 20,

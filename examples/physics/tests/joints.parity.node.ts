@@ -23,6 +23,7 @@ import { sampleGold } from "./gold";
 setDefaultTimeout(TIMEOUT.node);
 
 for (const scene of [
+    "gearLift",
     "distance",
     "door",
     "spherical",

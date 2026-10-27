@@ -25,7 +25,7 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         section(benchmark, "struct ShapeUserData", "static int benchmarkSensor"),
         section(benchmark, "class CandyCups :", "static int sampleSmallConvexes"),
         ...["BoxStack", "CardHouse", "SphereStack", "CapsuleStack", "JengaStack", "SingleBox", "Cylinder", "CylinderStack", "Dominoes", "Wedge", "Arch", "DoubleDomino", "Pyramid2D", "EdgeCrossing"].map(name => section(stacking, `class ${name} :`, `static int sample${name}`)),
-        ...["DistanceJoint", "SphericalJoint", "MotionLocks", "BallAndChain", "FoldOut", "TopDownFriction", "WeldJoint"].map(name => section(joints, `class ${name} :`, `static int sample${name}`)),
+        ...["DistanceJoint", "SphericalJoint", "MotionLocks", "BallAndChain", "FoldOut", "TopDownFriction", "WeldJoint", "GearLift"].map(name => section(joints, `class ${name} :`, `static int sample${name}`)),
         section(joints, "class Door :", "static int sampleDoor").replace(/\n\tvoid MouseDown\([\s\S]*?(?=\n\tbool DrawControls)/, ""),
         section(joints, "class Bridge :", "static int sampleBridgeIndex"),
         ...["Filter", "Prismatic", "Parallel", "Revolute", "Wheel", "Motor"].map((name) =>
@@ -40,6 +40,7 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         .replace(/\n\t}\s*$/, "");
     const up = section(sample, "void Sample::MouseUp(", "void Sample::MouseMove(");
     const source = readFileSync(join(import.meta.dir, "sample.cpp"), "utf8")
+        .replace("// SAMPLE_EARCUT", readFileSync(join(process.env.BOX3D ?? "", "samples/earcut.h"), "utf8"))
         .replace("// SAMPLE_GRAB", grab)
         .replace("// SAMPLE_UP", up.slice(up.indexOf("{")))
         .replace("// SAMPLE_EVENTS", readFileSync(join(import.meta.dir, "sample-events.h"), "utf8"))
