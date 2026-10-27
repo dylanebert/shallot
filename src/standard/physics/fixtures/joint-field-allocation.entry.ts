@@ -24,9 +24,8 @@ export default async function create(input: string) {
         localRotationB: [0, 0, 0, 1],
         maxMotorTorque: 10,
     });
-    world.tick();
-    // Exact ticks omit the frame upload that normally clears these marks.
-    world.clearChanges();
+    // A whole frame, as a shipped game spawns: the first sync then reads every authored field.
+    world.step(1 / 60);
     if (jointIds(physicsState(world)!).length !== 1)
         throw new Error("allocation subject did not create its revolute joint");
     for (const system of StandardPhysicsPlugin.systems!) world.removeSystem(system);
