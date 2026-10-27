@@ -12,7 +12,7 @@ Code fragments assume an owning `world`, an existing entity `eid`, and the impor
 
 ## Readbacks refuse after a GPU error
 
-`captureTexture`, `probeTexture` and `probeBuffer` now reject once the world's device has stopped on a GPU error, naming that first error, instead of returning contents from before the failed frame. Fix the error the rejection names; a check that provokes a GPU error expects the rejection rather than reading the returned bytes.
+`captureFrame` on a bound canvas, `captureTexture`, `probeTexture` and `probeBuffer` now reject once the world's device has stopped on a GPU error, naming that first error, instead of returning contents from before the failed frame. Fix the error the rejection names; a check that provokes a GPU error expects the rejection rather than reading the returned bytes.
 
 ## Effect stack replaces vignette
 

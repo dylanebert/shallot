@@ -1,5 +1,5 @@
 import type { World } from "../../engine";
-import { probeTexture } from "../../engine/runtime";
+import { deviceFailure, observedDeviceError, probeTexture } from "../../engine/runtime";
 import { cameraView, canvasFrameBinding, type View } from "./view";
 
 interface CaptureIdentity {
@@ -32,6 +32,13 @@ function watchFrameCaptureDevice(view: View, device: GPUDevice): void {
     if (view.frameCaptureLossWatched) return;
     view.frameCaptureLossWatched = true;
     const viewRef = new WeakRef(view);
+    void observedDeviceError(device)?.then(() => {
+        const liveView = viewRef.deref();
+        if (!liveView) return;
+        const error = deviceFailure(device)!;
+        for (const capture of liveView.frameCaptures ?? []) capture.reject(error);
+        liveView.frameCaptures = undefined;
+    });
     void device.lost.then((info) => {
         const liveView = viewRef.deref();
         if (!liveView) return;
@@ -146,6 +153,11 @@ export function encodeFrameCapture(world: World, view: View): void {
 export async function captureFrame(canvas: HTMLCanvasElement): Promise<Capture> {
     const binding = canvasFrameBinding(canvas);
     if (binding) {
+        const failure = deviceFailure(binding.device);
+        if (failure)
+            throw labeledCaptureError(
+                new Error(`captureFrame refused: ${failure.message}`, { cause: failure }),
+            );
         if (binding.view.frameCaptureLost) throw labeledCaptureError(binding.view.frameCaptureLost);
         const width = canvas.width;
         const height = canvas.height;
@@ -170,6 +182,8 @@ export async function captureFrame(canvas: HTMLCanvasElement): Promise<Capture> 
                 watchFrameCaptureDevice(binding.view, binding.device);
             });
             await buffer.mapAsync(GPUMapMode.READ);
+            const failure = deviceFailure(binding.device);
+            if (failure) throw failure;
             const mapped = new Uint8Array(buffer.getMappedRange());
             const rgba = new Uint8ClampedArray(width * height * 4);
             for (let y = 0; y < height; y++) {

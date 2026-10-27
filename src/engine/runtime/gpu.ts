@@ -731,6 +731,11 @@ export function deviceFailure(device: GPUDevice): GpuError | undefined {
     return _observedDevices.get(rawDevice(device))?.first;
 }
 
+/** An already-observed device's classified error, without adding listeners. @internal */
+export function observedDeviceError(device: GPUDevice): Promise<GpuError> | undefined {
+    return _observedDevices.get(rawDevice(device))?.error;
+}
+
 /** Observe once per native device. Stop immediately; select a verdict 250 ms after the first failure.
  * Queue fences do not order error delivery across host task sources. This fixed window covers the
  * recorded Firefox cascade (out-of-memory at +2 ms, loss at +143 ms), not all possible delivery delays.
