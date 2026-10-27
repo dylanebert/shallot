@@ -378,7 +378,7 @@ const producerRow = tgpu.fn(
 });
 
 // Reserve locations after the fixed fragment fields to prevent custom varying collisions.
-const VARYING_BASE = 8;
+const VARYING_BASE = 7;
 
 function fragmentInterstage(surface: AnyMaterialType): Record<string, AnyWgslData> {
     return {
@@ -409,7 +409,6 @@ const MaterialTypeVertex = d
         world: d.vec3f,
         uv: d.vec2f,
         localPos: d.vec3f,
-        color: d.vec4f,
         material: d.u32,
         alphaMode: d.u32,
         alphaCutoff: d.f32,
@@ -458,7 +457,6 @@ function materialVertexFunction(surface: AnyMaterialType) {
                 xform: input.xform,
                 world: input.world,
                 worldNormal: input.worldNormal,
-                color: input.color,
                 material: input.material,
             }),
         );
@@ -492,7 +490,6 @@ function colorVertex(surface: AnyMaterialType, clip: boolean, suffix = clip ? "C
             let eid = d.u32(0);
             let world = d.vec4f(localPos, 1);
             let worldNormal = d.vec3f(localNormal);
-            const color = d.vec4f(1);
             let material = d.u32(0);
             let alphaMode = d.u32(AlphaModeCode.Opaque);
             let alphaCutoff = d.f32(0.5);
@@ -526,7 +523,6 @@ function colorVertex(surface: AnyMaterialType, clip: boolean, suffix = clip ? "C
                         xform,
                         world,
                         worldNormal,
-                        color,
                         material,
                     }),
                 );
@@ -543,7 +539,6 @@ function colorVertex(surface: AnyMaterialType, clip: boolean, suffix = clip ? "C
                 world: world.xyz,
                 uv,
                 localPos,
-                color,
                 material,
                 alphaMode,
                 alphaCutoff,
@@ -562,7 +557,6 @@ function colorVs(surface: AnyMaterialType, clip = false, suffix = clip ? "Clip" 
         eid: d.interpolate("flat", d.u32),
         row: d.interpolate("flat", d.u32),
         world: d.vec3f,
-        color: d.vec4f,
         material: d.interpolate("flat", d.u32),
         alphaMode: d.interpolate("flat", d.u32),
         alphaCutoff: d.interpolate("flat", d.f32),
@@ -582,7 +576,6 @@ function colorVs(surface: AnyMaterialType, clip = false, suffix = clip ? "Clip" 
                     world: v.world,
                     uv: v.uv,
                     localPos: v.localPos,
-                    color: v.color,
                     material: v.material,
                     alphaMode: v.alphaMode,
                     alphaCutoff: v.alphaCutoff,
@@ -602,7 +595,6 @@ function colorVs(surface: AnyMaterialType, clip = false, suffix = clip ? "Clip" 
                     row: v.row,
                     world: v.world,
                     uv: v.uv,
-                    color: v.color,
                     material: v.material,
                     alphaMode: v.alphaMode,
                     alphaCutoff: v.alphaCutoff,
@@ -622,7 +614,6 @@ function colorVs(surface: AnyMaterialType, clip = false, suffix = clip ? "Clip" 
                     row: v.row,
                     world: v.world,
                     localPos: v.localPos,
-                    color: v.color,
                     material: v.material,
                     alphaMode: v.alphaMode,
                     alphaCutoff: v.alphaCutoff,
@@ -640,7 +631,6 @@ function colorVs(surface: AnyMaterialType, clip = false, suffix = clip ? "Clip" 
                 eid: v.eid,
                 row: v.row,
                 world: v.world,
-                color: v.color,
                 material: v.material,
                 alphaMode: v.alphaMode,
                 alphaCutoff: v.alphaCutoff,
@@ -667,7 +657,6 @@ function colorFs(
         eid: d.interpolate("flat", d.u32),
         row: d.interpolate("flat", d.u32),
         world: d.vec3f,
-        color: d.vec4f,
         material: d.interpolate("flat", d.u32),
         alphaMode: d.interpolate("flat", d.u32),
         alphaCutoff: d.interpolate("flat", d.f32),
@@ -717,7 +706,6 @@ function colorFs(
                 worldNormal,
                 uv: needUv ? input.uv : d.vec2f(0),
                 localPos: needLocalPos ? input.localPos : d.vec3f(0),
-                color: input.color,
                 material: input.material,
                 alphaMode: alphaToCoverageFallback ? AlphaModeCode.Opaque : input.alphaMode,
                 alphaCutoff: input.alphaCutoff,
@@ -794,7 +782,6 @@ function clipFs(surface: AnyMaterialType, normals = false, clip = true) {
         eid: d.interpolate("flat", d.u32),
         row: d.interpolate("flat", d.u32),
         world: d.vec3f,
-        color: d.vec4f,
         material: d.interpolate("flat", d.u32),
         alphaMode: d.interpolate("flat", d.u32),
         alphaCutoff: d.interpolate("flat", d.f32),
@@ -810,7 +797,6 @@ function clipFs(surface: AnyMaterialType, normals = false, clip = true) {
                 worldNormal: std.normalize(fin.worldNormal),
                 uv: needUv ? (fin as any).uv : d.vec2f(0),
                 localPos: needLocalPos ? (fin as any).localPos : d.vec3f(0),
-                color: fin.color,
                 material: fin.material,
                 alphaMode: d.u32(0),
                 alphaCutoff: fin.alphaCutoff,
@@ -842,7 +828,6 @@ function varyingClipFs(surface: AnyMaterialType, normals = false, clip = true) {
         eid: d.interpolate("flat", d.u32),
         row: d.interpolate("flat", d.u32),
         world: d.vec3f,
-        color: d.vec4f,
         material: d.interpolate("flat", d.u32),
         alphaCutoff: d.interpolate("flat", d.f32),
         ...fragmentInterstage(surface),
@@ -861,7 +846,6 @@ function varyingClipFs(surface: AnyMaterialType, normals = false, clip = true) {
             ctx.worldNormal = std.normalize(input.worldNormal);
             ctx.uv = needUv ? d.vec2f((input as any).uv) : d.vec2f(0);
             ctx.localPos = needLocalPos ? d.vec3f((input as any).localPos) : d.vec3f(0);
-            ctx.color = d.vec4f(input.color);
             ctx.material = input.material;
             ctx.alphaMode = d.u32(0);
             ctx.alphaCutoff = input.alphaCutoff;
@@ -942,7 +926,6 @@ function varyingVs(surface: AnyMaterialType, clip = false, suffix = clip ? "Clip
                 eid: d.interpolate("flat", d.u32),
                 row: d.interpolate("flat", d.u32),
                 world: d.vec3f,
-                color: d.vec4f,
                 material: d.interpolate("flat", d.u32),
                 alphaMode: d.interpolate("flat", d.u32),
                 alphaCutoff: d.interpolate("flat", d.f32),
@@ -962,7 +945,6 @@ function varyingVs(surface: AnyMaterialType, clip = false, suffix = clip ? "Clip
     var xform = Xform(vec3f(0.0), vec4f(0.0, 0.0, 0.0, 1.0), vec3f(1.0));
     var world = vec4f(localPos, 1.0);
     var worldNormal = vec3f(localNormal);
-    var color = vec4f(1.0);
     var material: u32 = 0u;
     var alphaMode: u32 = 0u;
     var alphaCutoff: f32 = 0.5;
@@ -985,7 +967,7 @@ ${
         : ""
 }${
     hasVs
-        ? `    let patched = vs(MaterialVertexInput(localPos, localNormal, uv, vidx, eid, row, iid, xform, world, worldNormal, color, material));
+        ? `    let patched = vs(MaterialVertexInput(localPos, localNormal, uv, vidx, eid, row, iid, xform, world, worldNormal, material));
     world = patched.world;
     worldNormal = patched.worldNormal;
 `
@@ -997,7 +979,6 @@ ${
     out.eid = eid;
     out.row = row;
     out.world = world.xyz;
-    out.color = color;
     out.material = material;
     out.alphaMode = alphaMode;
     out.alphaCutoff = alphaCutoff;
@@ -1064,7 +1045,6 @@ function varyingFs(
         eid: d.interpolate("flat", d.u32),
         row: d.interpolate("flat", d.u32),
         world: d.vec3f,
-        color: d.vec4f,
         material: d.interpolate("flat", d.u32),
         alphaMode: d.interpolate("flat", d.u32),
         alphaCutoff: d.interpolate("flat", d.f32),
@@ -1083,7 +1063,6 @@ function varyingFs(
             ctx.worldNormal = d.vec3f(worldNormal);
             ctx.uv = needUv ? d.vec2f((input as any).uv) : d.vec2f(0);
             ctx.localPos = needLocalPos ? d.vec3f((input as any).localPos) : d.vec3f(0);
-            ctx.color = d.vec4f(input.color);
             ctx.material = input.material;
             ctx.alphaMode = alphaToCoverageFallback ? AlphaModeCode.Opaque : input.alphaMode;
             ctx.alphaCutoff = input.alphaCutoff;
@@ -1151,7 +1130,7 @@ export function compileMaterial<
     const limit = world.gpu.device.limits.maxInterStageShaderVariables;
     if (interstageCount > limit) {
         const fields = [
-            "8 engine",
+            `${VARYING_BASE} engine`,
             ...(uv ? ["uv"] : []),
             ...(localPos ? ["localPos"] : []),
             `${varyingCount} varyings`,
@@ -1458,7 +1437,6 @@ const ClipShadowVertex = d
         world: d.vec3f,
         uv: d.vec2f,
         localPos: d.vec3f,
-        color: d.vec4f,
         material: d.u32,
         alphaCutoff: d.f32,
     })
@@ -1500,7 +1478,6 @@ function clipShadowVertex(
             const eid = instance.x;
             const row = producerRow(instance);
             const combo = instance.w;
-            const color = d.vec4f(1);
             let material = d.u32(0);
             let alphaCutoff = d.f32(0.5);
             const encodedMeshInstance = instance.z;
@@ -1525,7 +1502,6 @@ function clipShadowVertex(
                         xform,
                         world,
                         worldNormal,
-                        color,
                         material,
                     }),
                 );
@@ -1546,7 +1522,6 @@ function clipShadowVertex(
                 world: world.xyz,
                 uv,
                 localPos,
-                color,
                 material,
                 alphaCutoff,
             });
@@ -1570,7 +1545,6 @@ function clipShadowVs(
         eid: d.interpolate("flat", d.u32),
         row: d.interpolate("flat", d.u32),
         world: d.vec3f,
-        color: d.vec4f,
         material: d.interpolate("flat", d.u32),
         alphaCutoff: d.interpolate("flat", d.f32),
     };
@@ -1590,7 +1564,6 @@ function clipShadowVs(
                     world: v.world,
                     uv: v.uv,
                     localPos: v.localPos,
-                    color: v.color,
                     material: v.material,
                     alphaCutoff: v.alphaCutoff,
                 };
@@ -1610,7 +1583,6 @@ function clipShadowVs(
                     row: v.row,
                     world: v.world,
                     uv: v.uv,
-                    color: v.color,
                     material: v.material,
                     alphaCutoff: v.alphaCutoff,
                 };
@@ -1630,7 +1602,6 @@ function clipShadowVs(
                     row: v.row,
                     world: v.world,
                     localPos: v.localPos,
-                    color: v.color,
                     material: v.material,
                     alphaCutoff: v.alphaCutoff,
                 };
@@ -1648,7 +1619,6 @@ function clipShadowVs(
                 eid: v.eid,
                 row: v.row,
                 world: v.world,
-                color: v.color,
                 material: v.material,
                 alphaCutoff: v.alphaCutoff,
             };
@@ -1685,7 +1655,6 @@ function varyingShadowVs(
             eid: d.u32,
             row: d.u32,
             world: d.vec3f,
-            color: d.vec4f,
             material: d.u32,
             alphaCutoff: d.f32,
             ...fragmentFields,
@@ -1710,7 +1679,6 @@ function varyingShadowVs(
     let row = producerRow(instance);
     let combo = instance.w;
     let encodedMeshInstance = instance.z;
-    var color = vec4f(1.0);
     var material: u32 = 0u;
     var alphaCutoff: f32 = 0.5;
     if (encodedMeshInstance != 0u) {
@@ -1723,7 +1691,7 @@ function varyingShadowVs(
     var worldNormal = vec3f(xformNormal(xform, localNormal));
 ${
     hasVs
-        ? `    let patched = vs(MaterialVertexInput(localPos, localNormal, uv, vidx, eid, row, iid, xform, world, worldNormal, color, material));
+        ? `    let patched = vs(MaterialVertexInput(localPos, localNormal, uv, vidx, eid, row, iid, xform, world, worldNormal, material));
     world = patched.world;
     worldNormal = patched.worldNormal;
 `
@@ -1738,7 +1706,6 @@ ${
     out.eid = eid;
     out.row = row;
     out.world = world.xyz;
-    out.color = color;
     out.material = material;
     out.alphaCutoff = alphaCutoff;
 ${fragmentAssigns}
@@ -1773,7 +1740,6 @@ ${assigns}
         "eid",
         "row",
         "world",
-        "color",
         "material",
         "alphaCutoff",
         ...Object.keys(fragmentFields),
@@ -1792,7 +1758,6 @@ ${assigns}
                 eid: d.interpolate("flat", d.u32),
                 row: d.interpolate("flat", d.u32),
                 world: d.vec3f,
-                color: d.vec4f,
                 material: d.interpolate("flat", d.u32),
                 alphaCutoff: d.interpolate("flat", d.f32),
                 ...fragmentFields,
@@ -1827,7 +1792,6 @@ function varyingShadowFs(surface: AnyMaterialType) {
         eid: d.interpolate("flat", d.u32),
         row: d.interpolate("flat", d.u32),
         world: d.vec3f,
-        color: d.vec4f,
         material: d.interpolate("flat", d.u32),
         alphaCutoff: d.interpolate("flat", d.f32),
         ...fragmentInterstage(surface),
@@ -1852,7 +1816,6 @@ function varyingShadowFs(surface: AnyMaterialType) {
             ctx.worldNormal = std.normalize(input.worldNormal);
             ctx.uv = needUv ? d.vec2f((input as any).uv) : d.vec2f(0);
             ctx.localPos = needLocalPos ? d.vec3f((input as any).localPos) : d.vec3f(0);
-            ctx.color = d.vec4f(input.color);
             ctx.material = input.material;
             ctx.alphaMode = d.u32(0);
             ctx.alphaCutoff = input.alphaCutoff;
@@ -1883,7 +1846,6 @@ function clipShadowFs(surface: AnyMaterialType) {
                 eid: d.interpolate("flat", d.u32),
                 row: d.interpolate("flat", d.u32),
                 world: d.vec3f,
-                color: d.vec4f,
                 material: d.interpolate("flat", d.u32),
                 alphaCutoff: d.interpolate("flat", d.f32),
                 ...fragmentInterstage(surface),
@@ -1904,7 +1866,6 @@ function clipShadowFs(surface: AnyMaterialType) {
                 worldNormal: std.normalize(input.worldNormal),
                 uv: needUv ? (input as any).uv : d.vec2f(0),
                 localPos: needLocalPos ? (input as any).localPos : d.vec3f(0),
-                color: input.color,
                 material: input.material,
                 alphaMode: d.u32(0),
                 alphaCutoff: input.alphaCutoff,

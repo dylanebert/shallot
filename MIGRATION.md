@@ -37,6 +37,10 @@ world.add(eid, Camera, { order: 1 });
 
 The entity table returned by `meshInstanceTable(world)` gains `layers` in existing padding, with bit 1 of `flags` indicating that `RenderLayers` is present; without that bit, the effective mask is `1`. Preserve those fields when publishing alpha or bounds directly. `MeshInstanceInput` remains the producer/material schema, with unchanged stride and field offsets; producer-table rows belong to layer 0. If an explicit material binding used `meshInstanceTable(world).typed` against `MeshInstanceInput`, use `meshInstanceTable(world).buffer` instead: the raw buffer binds the unchanged material-field layout without claiming that the entity and producer schemas are identical. Standard supplies this binding automatically.
 
+## Material shaders lose the constant colour
+
+`color` is removed from the material vertex input and fragment context; it was always `vec4f(1)`. Write `1`, or read a mesh attribute: declare `{ type: "attribute", element: d.vec4f }` in `materialLayout`, add the stream under the same name in the mesh's `attributes`, and pass `layout.$.<name>[input.vidx]` from the vertex function to the fragment as a varying.
+
 ## Adding an attached component replaces its values
 
 In 0.10, `world.add` on an entity that already held the component left its values unchanged and warned. Now it replaces them, as Bevy's `insert` does: supplied fields take their values, omitted fields take the declared defaults, or 0, and every field publishes a change. A call that relied on the old no-op to ensure presence resets the component; guard it with `world.has`, or write single fields through `world.storage`.

@@ -253,7 +253,6 @@ export const MeshVertexInput = d
         xform: Xform,
         world: d.vec4f,
         worldNormal: d.vec3f,
-        color: d.vec4f,
         material: d.u32,
     })
     .$name("MeshVertexInput");
@@ -284,7 +283,6 @@ function materialFragmentContext<
         worldNormal: d.vec3f,
         uv: d.vec2f,
         localPos: d.vec3f,
-        color: d.vec4f,
         material: d.u32,
         alphaMode: d.u32,
         alphaCutoff: d.f32,
@@ -436,7 +434,7 @@ export interface MaterialType<
      * At 4x antialiasing both reads use sample 0. */
     readonly readsPrepass?: { depth?: true; normal?: true };
     readonly fragmentInputs?: { uv?: true; localPos?: true };
-    /** Each varying takes one inter-stage variable after eight engine variables and uv/localPos
+    /** Each varying takes one inter-stage variable after seven engine variables and uv/localPos
      * when declared. Pipelines exceeding the device's maxInterStageShaderVariables are refused
      * when prepared. */
     readonly varyings?: V;
