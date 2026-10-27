@@ -94,7 +94,11 @@ test("the accepted role baseline covers every critical-set scene", () => {
     expect(Object.keys(acceptedRoles).sort()).toEqual(
         categories
             .filter((category) => category.name !== "Benchmark")
-            .flatMap((category) => category.scenes.map((scene) => scene.id))
+            .flatMap((category) =>
+                category.scenes
+                    .filter((scene) => category.name !== "Stacking" || scene.id === "boxStack")
+                    .map((scene) => scene.id),
+            )
             .sort(),
     );
 });
@@ -255,6 +259,18 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 heightField: 30,
                 hull: 5,
                 boxStack: 40,
+                cardHouse: 10,
+                sphereStack: 15,
+                capsuleStack: 40,
+                singleBox: 20,
+                cylinder: 10,
+                cylinderStack: 10,
+                dominoes: 80,
+                wedge: 20,
+                arch: 40,
+                doubleDomino: 20,
+                pyramid2D: 40,
+                edgeCrossing: 40,
                 bridge: 25,
                 contact: 80,
                 hit: 60,

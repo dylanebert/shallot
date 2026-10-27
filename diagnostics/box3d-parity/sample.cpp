@@ -111,7 +111,7 @@ void Separator() {}
 void PopItemWidth() {}
 }
 void SetGroundShape( b3ShapeId ) {}
-struct GuiDraw { bool drawJoints = true; };
+struct GuiDraw { bool drawJoints = true; float forceScale = 1.0f; };
 GuiDraw* GetGuiDraw() { static GuiDraw draw; return &draw; }
 
 struct SampleContext
@@ -235,6 +235,12 @@ int main( int argc, char** argv )
 		{ "destruction", BenchmarkDestruction::Create },
         { "heightField", BenchmarkHeightField::Create },
         { "hull", BenchmarkHull::Create },
+		{ "cardHouse", CardHouse::Create }, { "sphereStack", SphereStack::Create },
+		{ "capsuleStack", CapsuleStack::Create }, { "singleBox", SingleBox::Create },
+		{ "cylinder", Cylinder::Create }, { "cylinderStack", CylinderStack::Create },
+		{ "dominoes", Dominoes::Create }, { "wedge", Wedge::Create },
+		{ "arch", Arch::Create }, { "doubleDomino", DoubleDomino::Create },
+		{ "pyramid2D", Pyramid2D::Create }, { "edgeCrossing", EdgeCrossing::Create },
 		{ "box_stack", BoxStack::Create }, { "bridge", Bridge::Create },
 		{ "revolute", RevoluteJoint::Create }, { "prismatic", PrismaticJoint::Create },
 		{ "wheel", WheelJoint::Create }, { "filter", FilterJoint::Create }, { "parallel", ParallelJoint::Create },

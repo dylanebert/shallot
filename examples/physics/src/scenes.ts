@@ -17,6 +17,7 @@ import { PhysicsWorldDefinition, setAwake } from "@dylanebert/shallot/standard/p
 import { benchmarkScenes } from "./benchmarks";
 import { eventScenes } from "./events";
 import { MotorizedJoint } from "./roles";
+import { StackingImpulses, stackingScenes } from "./stacking";
 
 export type Scene =
     | "boxStack"
@@ -27,7 +28,8 @@ export type Scene =
     | "filter"
     | "parallel"
     | keyof typeof eventScenes
-    | keyof typeof benchmarkScenes;
+    | keyof typeof benchmarkScenes
+    | keyof typeof stackingScenes;
 export const categories: { name: string; scenes: { id: Scene; name: string }[] }[] = [
     {
         name: "Benchmark",
@@ -73,7 +75,24 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
             { id: "wheel", name: "Wheel" },
         ],
     },
-    { name: "Stacking", scenes: [{ id: "boxStack", name: "Box Stack" }] },
+    {
+        name: "Stacking",
+        scenes: [
+            { id: "arch", name: "Arch" },
+            { id: "boxStack", name: "Box Stack" },
+            { id: "capsuleStack", name: "Capsule Stack" },
+            { id: "cardHouse", name: "Card House" },
+            { id: "cylinder", name: "Cylinder" },
+            { id: "cylinderStack", name: "Cylinder Stack" },
+            { id: "dominoes", name: "Dominoes" },
+            { id: "doubleDomino", name: "Double Domino" },
+            { id: "edgeCrossing", name: "Edge Crossing" },
+            { id: "pyramid2D", name: "Pyramid2D" },
+            { id: "singleBox", name: "Single Box" },
+            { id: "sphereStack", name: "Sphere Stack" },
+            { id: "wedge", name: "Wedge" },
+        ],
+    },
 ];
 export interface Control {
     label: string;
@@ -136,6 +155,7 @@ export function changeControl(
 export const scenes = {
     ...eventScenes,
     ...benchmarkScenes,
+    ...stackingScenes,
     boxStack: {
         construct: boxStack,
         gridExtent: 40,
@@ -723,6 +743,7 @@ export const scenes = {
 } as const;
 
 export function createScene(world: World, scene: Scene): number[] {
+    world.resource(StackingImpulses).length = 0;
     world.resource(PhysicsWorldDefinition).workerCount = 1;
     world.resource(PhysicsWorldDefinition).maximumMemory = 4 * 1024 ** 3;
     return scenes[scene].construct(world);

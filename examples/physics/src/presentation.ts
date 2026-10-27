@@ -108,6 +108,7 @@ export function shapePresentation(
         shape.capsuleCenter2,
         shape.hullPosition,
         shape.hullRotation,
+        shape.enableHullTransform,
     ]);
     let geometry = cache?.get(key);
     if (!geometry) {

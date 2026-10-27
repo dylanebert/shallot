@@ -47,7 +47,24 @@ test("each picker label selects its scene in its category, exactly once", () => 
                 { id: "wheel", name: "Wheel" },
             ],
         },
-        { name: "Stacking", scenes: [{ id: "boxStack", name: "Box Stack" }] },
+        {
+            name: "Stacking",
+            scenes: [
+                { id: "arch", name: "Arch" },
+                { id: "boxStack", name: "Box Stack" },
+                { id: "capsuleStack", name: "Capsule Stack" },
+                { id: "cardHouse", name: "Card House" },
+                { id: "cylinder", name: "Cylinder" },
+                { id: "cylinderStack", name: "Cylinder Stack" },
+                { id: "dominoes", name: "Dominoes" },
+                { id: "doubleDomino", name: "Double Domino" },
+                { id: "edgeCrossing", name: "Edge Crossing" },
+                { id: "pyramid2D", name: "Pyramid2D" },
+                { id: "singleBox", name: "Single Box" },
+                { id: "sphereStack", name: "Sphere Stack" },
+                { id: "wedge", name: "Wedge" },
+            ],
+        },
     ]);
     expect(
         categories.flatMap((category) => category.scenes.map((scene): string => scene.id)).sort(),

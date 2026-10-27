@@ -9,6 +9,7 @@ import { PhysicsWorldDefinition } from "@dylanebert/shallot/standard/physics";
 import { BenchmarkSamplePlugin } from "./benchmarks";
 import { EventSamplePlugin, SampleInputPlugin } from "./events";
 import { GrabPlugin } from "./grab";
+import { StackingSamplePlugin } from "./stacking";
 import { createViewer } from "./view";
 
 export const Viewer = { create: createViewer };
@@ -22,6 +23,7 @@ export const AppPlugin: Plugin = {
         StandardPhysicsPlugin,
         EventSamplePlugin,
         BenchmarkSamplePlugin,
+        StackingSamplePlugin,
         SampleInputPlugin,
         TextPlugin,
         OrbitPlugin,

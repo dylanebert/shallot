@@ -37,9 +37,12 @@ export const Shape = component(
          * hullRotation and hullPosition, then cloned again with the body's Transform.scale.
          * Box3D clamps each scale's magnitudes to at least 0.01, keeps the hull's topology and
          * rebuilds its planes and mass. Identity placement builds the hull at both scales with its
-         * own builder. Hull.transform instead bakes a box's placement into the hull itself, before
-         * Shape.scale. Changes recreate at the next fixed sync. */
+         * own builder unless enableHullTransform is set. Hull.transform instead bakes a box's
+         * placement into the hull itself, before Shape.scale. Changes recreate at the next fixed sync. */
         hullPosition: vec3,
+        /** Use b3CreateTransformedHullShape even at identity placement, preserving the source hull's
+         * topology under Shape.scale (including mirrored scale). Changes recreate at the next fixed sync. */
+        enableHullTransform: u32,
         /** Hull-only normalized xyzw rotation, applied after Shape.scale and before hullPosition.
          * Changes recreate at the next fixed sync. */
         hullRotation: vec4,
@@ -100,6 +103,7 @@ export const Shape = component(
             radius: 0.5,
             scale: [1, 1, 1],
             hullPosition: [0, 0, 0],
+            enableHullTransform: 0,
             hullRotation: [0, 0, 0, 1],
             density: 1000,
             explosionScale: 1,

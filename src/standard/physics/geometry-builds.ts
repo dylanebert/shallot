@@ -320,9 +320,9 @@ export function buildHull(world: World, def: Hull, sx = 1, sy = 1, sz = 1): Hull
     return built;
 }
 
-/** At identity placement, the asset builds at shape and body scale together. Otherwise the asset
- * builds at unit scale and clones once with Shape.scale and the placement, as
- * b3CreateTransformedHullShape does, then again with the body scale. */
+/** At identity placement without enableHullTransform, the asset builds at shape and body scale
+ * together. Otherwise it builds at unit scale and clones once with Shape.scale and the placement,
+ * as b3CreateTransformedHullShape does, then again with the body scale. */
 export function buildPlacedHull(
     world: World,
     def: Hull,
@@ -330,6 +330,7 @@ export function buildPlacedHull(
     position: readonly [number, number, number] = [0, 0, 0],
     rotation: readonly [number, number, number, number] = [0, 0, 0, 1],
     bodyScale: readonly [number, number, number] = [1, 1, 1],
+    enableHullTransform = false,
 ): HullData {
     if (
         !position.every(Number.isFinite) ||
@@ -339,7 +340,11 @@ export function buildPlacedHull(
         throw new Error(
             "physics: hull placement requires a finite position and normalized rotation",
         );
-    if (position.every((n) => n === 0) && rotation.every((n, i) => n === (i === 3 ? 1 : 0)))
+    if (
+        !enableHullTransform &&
+        position.every((n) => n === 0) &&
+        rotation.every((n, i) => n === (i === 3 ? 1 : 0))
+    )
         return cachedBuild(
             world,
             hulls,

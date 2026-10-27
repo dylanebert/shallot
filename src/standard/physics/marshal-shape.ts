@@ -127,6 +127,7 @@ export function shapeHullGeometry(world: World, eid: number): HullData {
             shape.hullRotation.w.get(eid),
         ],
         [s.x, s.y, s.z],
+        shape.enableHullTransform.get(eid) !== 0,
     );
 }
 

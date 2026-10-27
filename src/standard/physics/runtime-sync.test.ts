@@ -649,6 +649,30 @@ test("hull placement recreates only on a different value and recovers pending wr
     });
 });
 
+test("explicit identity hull transforms recreate on change and recover pending writes", async () => {
+    await withPhysics((world) => {
+        const geometry = world
+            .resource(Hulls)
+            .add({ name: "cylinder", cylinder: { height: 1, radius: 0.5, yOffset: 0, sides: 15 } });
+        const eid = world.create();
+        world.add(eid, Body, { type: BodyType.Dynamic, gravityScale: 0 });
+        world.add(eid, Shape, { geometry, scale: [-0.75, 1, 1], enableHullTransform: 1 });
+        world.tick();
+        const original = shapeId(world);
+        world.storage(Shape).enableHullTransform.set(eid, 1);
+        world.tick();
+        expect(shapeIsValid(stateFor(world), original)).toBe(true);
+        world.storage(Shape).enableHullTransform.set(eid, 0);
+        const saved = world.snapshot();
+        world.tick();
+        expect(shapeIsValid(stateFor(world), original)).toBe(false);
+        const bounds = computeBodyAABB(world, eid);
+        world.restore(saved);
+        world.tick();
+        expect(computeBodyAABB(world, eid)).toEqual(bounds);
+    });
+});
+
 test("computeCosSin returns caller-owned Box3D float results", async () => {
     await withPhysics((world) => {
         const k = kernel(world);

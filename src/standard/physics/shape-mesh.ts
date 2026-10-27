@@ -78,12 +78,21 @@ function roundMesh(radius: number, a: Point, b: Point) {
 function placedHull(world: World, shape: Parameters<typeof shapeMesh>[1]) {
     const definition = world.resource(Hulls).get(shape.geometry);
     if (!definition) throw new Error(`shapeMesh: missing hull ${shape.geometry}`);
-    return buildPlacedHull(world, definition, shape.scale, shape.hullPosition, shape.hullRotation);
+    return buildPlacedHull(
+        world,
+        definition,
+        shape.scale,
+        shape.hullPosition,
+        shape.hullRotation,
+        undefined,
+        !!shape.enableHullTransform,
+    );
 }
 
 /**
  * Fresh CPU triangle geometry in body-local meters, suitable for Meshes.add. Bakes Shape.scale
- * for hulls and meshes, plus hullPosition/hullRotation for hulls (identity when omitted),
+ * for hulls and meshes, plus hullPosition/hullRotation and enableHullTransform for hulls (identity
+ * placement and no forced transform when omitted),
  * and the centers and radius for spheres and capsules; the body's
  * Transform is not baked. Requires an initialized StandardPhysicsPlugin for geometry builds.
  * Height fields use their definition scale (Shape.scale does not apply), decoded after
@@ -102,7 +111,12 @@ export function shapeMesh(
         | "capsuleCenter1"
         | "capsuleCenter2"
     > &
-        Partial<Pick<ComponentRecord<typeof Shape>, "hullPosition" | "hullRotation">>,
+        Partial<
+            Pick<
+                ComponentRecord<typeof Shape>,
+                "hullPosition" | "hullRotation" | "enableHullTransform"
+            >
+        >,
 ): {
     vertices: Float32Array;
     indices: Uint32Array;

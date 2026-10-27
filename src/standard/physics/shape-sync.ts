@@ -63,6 +63,7 @@ const RECREATION_FIELDS = [
     "enableSpeculativeContact",
     "invokeContactCreation",
     "geometry",
+    "enableHullTransform",
 ] as const;
 const RECREATION_FIELD_INDEX: Map<string, number> = new Map(
     RECREATION_FIELDS.map((field, index) => [field, index]),
@@ -264,6 +265,12 @@ export function shapeNeedsRecreation(
     const record = shape.index1 - 1;
     const kind = scalar(binding, eid, "kind");
     if (kind !== getShapeType(state, record)) return true;
+    if (
+        kind === ShapeKind.Hull &&
+        fieldMarked(binding, mask, "enableHullTransform") &&
+        fieldDiffersFromSnapshot(binding, eid, "enableHullTransform", states)
+    )
+        return true;
     if (kind === ShapeKind.Hull && anyChanged(binding, mask, ["hullPosition", "hullRotation"])) {
         const placement = [
             ...vector(binding, eid, "hullPosition").slice(0, 3),
