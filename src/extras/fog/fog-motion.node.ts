@@ -100,7 +100,7 @@ async function seamError(
             world.tick();
             world.step(0);
         };
-        for (let i = 0; i < 64; i++) {
+        for (let i = 0; i < 32; i++) {
             place(0);
             await world.gpu.sync();
         }

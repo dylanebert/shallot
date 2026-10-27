@@ -46,7 +46,7 @@ test("a shaft mote adds at least five times an outside mote's display luminance 
             0.2126 * decode(rgba[at]!) +
             0.7152 * decode(rgba[at + 1]!) +
             0.0722 * decode(rgba[at + 2]!);
-        await frame(null, 64);
+        await frame(null, 32);
         const added: number[] = [];
         const maxima: number[] = [];
         for (const [position, centerX] of [

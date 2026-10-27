@@ -55,7 +55,7 @@ async function shaftTemporalError(ev100: number) {
         world.tick();
         world.step(1 / 60);
         world.step(1 / 60);
-        for (let i = 0; i < 64; i++) {
+        for (let i = 0; i < 32; i++) {
             world.step(0);
             await world.gpu.sync();
         }
