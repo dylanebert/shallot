@@ -251,10 +251,11 @@ pub unsafe extern "C" fn run_in_world(
             broad::tree_ptr(world, i),
             broad::tree_cap(world, i) * tree::STRIDE,
         );
+        let (root, count) = broad::tree_root(world, i);
         tree::query(
             pool,
-            header[2 * i] as i32,
-            header[2 * i + 1] as usize,
+            root,
+            count,
             lo,
             hi,
             mask_hi,

@@ -52,6 +52,16 @@ pub fn tree_ptr(world_index: usize, i: usize) -> *mut u32 {
 pub fn tree_cap(world_index: usize, i: usize) -> usize {
     unsafe { world(world_index).tree[i] }
 }
+/// Tree `i`'s root and node count; a tree with no pool is empty.
+pub fn tree_root(world_index: usize, i: usize) -> (i32, usize) {
+    if tree_cap(world_index, i) == 0 {
+        return (-1, 0);
+    }
+    unsafe {
+        let state = tree_state(world_index, i);
+        (*state as i32, *state.add(1) as usize)
+    }
+}
 pub unsafe fn rebuild_scratch(
     world_index: usize,
     index: usize,

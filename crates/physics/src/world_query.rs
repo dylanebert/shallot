@@ -7,7 +7,7 @@ use crate::query::{self, PlaneResult, RayCastInput, ShapeCastInput};
 use crate::shapes::*;
 use crate::{broad, query_abi, tree};
 
-// roots/counts, category hi/lo, mask hi/lo, origin xyz, box lower/upper xyz, excluded body + 1.
+// Words 0-5 unused, then category hi/lo, mask hi/lo, origin xyz, box lower/upper xyz, excluded body + 1.
 pub(crate) static mut HEADER: [u32; 20] = [0; 20];
 /// The query filter's category and mask in `HEADER`, each as its high then low word.
 const H_CATEGORY: usize = 6;
@@ -167,18 +167,11 @@ pub(crate) unsafe fn sensor_task(
                 broad::tree_ptr(world_index, i),
                 broad::tree_cap(world_index, i) * tree::STRIDE,
             );
+            let (root, count) = broad::tree_root(world_index, i);
             tree::query(
                 pool,
-                if broad::tree_cap(world_index, i) == 0 {
-                    -1
-                } else {
-                    *broad::tree_state(world_index, i) as i32
-                },
-                if broad::tree_cap(world_index, i) == 0 {
-                    0
-                } else {
-                    *broad::tree_state(world_index, i).add(1) as usize
-                },
+                root,
+                count,
                 [lo.x, lo.y, lo.z],
                 [hi.x, hi.y, hi.z],
                 r.get(n + S_QUERY_MASK),
@@ -283,8 +276,7 @@ pub extern "C" fn run_in_world(world: usize, operation: u32, user_callback: u32)
                 broad::tree_ptr(world, i),
                 broad::tree_cap(world, i) * tree::STRIDE,
             );
-            let root = header[i * 2] as i32;
-            let count = header[i * 2 + 1] as usize;
+            let (root, count) = broad::tree_root(world, i);
             let tree_fraction = fraction;
             let mut visit = |clip: f32, _: i32, shape_id: u32| -> f32 {
                 let id = shape_id as usize;

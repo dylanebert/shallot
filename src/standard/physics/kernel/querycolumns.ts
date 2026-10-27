@@ -51,7 +51,6 @@ export class QueryColumns extends KernelViews {
         world.broadPhase.store.initialize();
         const k = kernel(world.ecsState);
         k.shapeSetActiveWorld(world.worldId);
-        world.broadPhase.store.refreshIfStale();
         const category = filter?.categoryBits ?? DEFAULT_CATEGORY_BITS;
         const mask = filter?.maskBits ?? DEFAULT_MASK_BITS;
         const x = origin.x;
@@ -59,12 +58,6 @@ export class QueryColumns extends KernelViews {
         const z = origin.z;
         const h = this.headerU;
         h[19] = 0;
-        const trees = world.broadPhase.trees;
-        for (let i = 0; i < 3; ++i) {
-            const tree = trees[i].state;
-            h[2 * i] = tree[0];
-            h[2 * i + 1] = tree[1];
-        }
         h[6] =
             category === DEFAULT_CATEGORY_BITS
                 ? 0xffffffff
