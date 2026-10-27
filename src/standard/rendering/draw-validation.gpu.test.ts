@@ -102,43 +102,57 @@ const subject = gpuScene(
     },
 );
 
-let queuedCapture: Promise<unknown>;
-
-test("a capture after a frame whose draw failed validation rejects instead of reading the stale target", async () => {
-    const {
-        world,
-        scene: { camera },
-    } = subject();
-    world.step(0);
-    expect(Array.from((await captureTexture(world, camera)).rgba.subarray(0, 4))).toEqual([
-        0, 255, 0, 255,
-    ]);
-    expectError(
-        /GpuValidationError\]: Comparison sampler .* is incompatible with non-comparison sampler binding/,
+const settle = (promise: Promise<unknown>) =>
+    promise.then(
+        (value) => value,
+        (error) => error,
     );
-    await world.frameFence;
-    subject()
-        .scene.canvas.getContext("webgpu")!
-        .configure({
+
+let failing: Promise<{ valid: unknown; queued: Promise<unknown>; invalid: unknown }> | undefined;
+
+/** Draw one valid frame, then one whose draw fails validation, once per file; the device stays failed. */
+function failedFrame() {
+    failing ??= (async () => {
+        const {
+            world,
+            scene: { camera, canvas },
+        } = subject();
+        world.step(0);
+        const valid = await settle(captureTexture(world, camera));
+        expectError(
+            /GpuValidationError\]: Comparison sampler .* is incompatible with non-comparison sampler binding/,
+        );
+        await world.frameFence;
+        canvas.getContext("webgpu")!.configure({
             device: world.gpu.device,
             format: "bgra8unorm",
             usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
         });
-    queuedCapture = captureFrame(subject().scene.canvas).then(
-        (value) => value,
-        (error) => error,
-    );
-    world.resource(Owned).linear = world.gpu.device.createSampler({ compare: "less" });
-    world.step(0);
-    await expect(captureTexture(world, camera)).rejects.toThrow(
+        const queued = settle(captureFrame(canvas));
+        world.resource(Owned).linear = world.gpu.device.createSampler({ compare: "less" });
+        world.step(0);
+        const invalid = await settle(captureTexture(world, camera));
+        // the device's one classified report, raised after its selection window
+        await observeDevice(world.gpu.device).error;
+        return { valid, queued, invalid };
+    })();
+    return failing;
+}
+
+test("a capture after a frame whose draw failed validation rejects instead of reading the stale target", async () => {
+    const { valid, invalid } = await failedFrame();
+    if (valid instanceof Error) throw valid;
+    expect(Array.from((valid as { rgba: Uint8ClampedArray }).rgba.subarray(0, 4))).toEqual([
+        0, 255, 0, 255,
+    ]);
+    expect(invalid).toBeInstanceOf(Error);
+    expect((invalid as Error).message).toMatch(
         /readback failed: Comparison sampler .* is incompatible with non-comparison sampler binding/,
     );
-    // the device's one classified report, raised after its selection window
-    await observeDevice(world.gpu.device).error;
 });
 
 test("a capture encoded into an invalid frame rejects instead of returning zero bytes", async () => {
-    const result = await queuedCapture;
+    const result = await (await failedFrame()).queued;
     expect(result).toBeInstanceOf(Error);
     expect((result as Error).message).toMatch(
         /canvas frame capture: .*Comparison sampler .* is incompatible/,
@@ -146,6 +160,7 @@ test("a capture encoded into an invalid frame rejects instead of returning zero 
 });
 
 test("a bound canvas capture after a failed frame rejects without another step", async () => {
+    await failedFrame();
     const {
         scene: { canvas },
     } = subject();
@@ -165,7 +180,7 @@ test("a bound canvas capture after a failed frame rejects without another step",
 });
 
 test("a capture after the failed device is lost still names the error that stopped it", async () => {
-    // the device the previous test stopped
+    await failedFrame();
     const {
         world,
         scene: { camera },
