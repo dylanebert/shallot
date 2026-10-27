@@ -491,7 +491,11 @@ function readJointScalar(
     kind: JointBinding["kind"],
     field: string,
 ): number {
-    if (field === "collideConnected") return jointField(state, id, JointField.collideConnected);
+    // Number gives this branch a numeric type even where jointField stays a call. An untyped branch
+    // makes the return tagged, boxing every float read and the edit Object.is compares it with
+    // (joint-allocation.node.ts).
+    if (field === "collideConnected")
+        return Number(jointField(state, id, JointField.collideConnected));
     const flagAccess = JOINT_SCALAR_FLAGS[kind]?.[field];
     if (flagAccess) return Number(readJointFlag(state, id, flagAccess[0], flagAccess[1]));
     const column =
