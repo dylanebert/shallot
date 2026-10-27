@@ -1,8 +1,16 @@
 import { expect, test } from "bun:test";
 import type { ShapeProxy } from "../collision/distance";
 import type { Pos, Transform, WorldTransform } from "../common/records";
+import { BodyType } from "../common/types";
+import { kernel } from "../kernel/kernel";
 import { createSphereShape } from "../shapes/shape";
-import { createTestBody, createTestWorld, destroyTestWorld, testShapeDef } from "../testing";
+import {
+    createTestBody,
+    createTestWorld,
+    destroyTestWorld,
+    stepTestWorld,
+    testShapeDef,
+} from "../testing";
 import { bodyIsValid, destroyBody, makeBodyId } from "./body";
 import {
     bodyCastRay,
@@ -10,7 +18,10 @@ import {
     bodyCollideMover,
     bodyGetClosestPoint,
     bodyOverlapShape,
+    worldCastRayClosest,
+    worldOverlapAABB,
 } from "./query";
+import type { WorldState } from "./world";
 
 const zero: Pos = { x: 0, y: 0, z: 0 };
 const identity: Transform = { p: zero, q: { v: zero, s: 1 } };
@@ -68,3 +79,49 @@ test("body queries reject a retained generation after its slot is reused", () =>
         destroyTestWorld(world);
     }
 });
+
+for (const type of [BodyType.Static, BodyType.Dynamic]) {
+    test(`two worlds in one kernel query their own trees before a step and after the other's edits (body type ${type})`, () => {
+        const ray = { x: 10, y: 0, z: 0 };
+        const sphere = (world: WorldState, x: number) =>
+            createSphereShape(
+                world,
+                createTestBody(world, { type, position: { x, y: 0, z: 0 } }),
+                testShapeDef(),
+                { center: zero, radius: 0.5 },
+            );
+        const overlaps = (world: WorldState) => {
+            let count = 0;
+            worldOverlapAABB(
+                world,
+                { lowerBound: { x: -20, y: -1, z: -1 }, upperBound: { x: 20, y: 1, z: 1 } },
+                () => ++count > 0,
+            );
+            return count;
+        };
+        const a = createTestWorld({ gravity: zero });
+        const b = createTestWorld({ gravity: zero });
+        try {
+            sphere(a, 2);
+            expect(worldCastRayClosest(a, zero, ray).fraction).toBeCloseTo(0.15, 6);
+            sphere(b, 5);
+            expect(worldCastRayClosest(a, zero, ray).fraction).toBeCloseTo(0.15, 6);
+            expect(worldCastRayClosest(b, zero, ray).fraction).toBeCloseTo(0.45, 6);
+            expect([overlaps(a), overlaps(b)]).toEqual([1, 1]);
+            sphere(a, 1);
+            kernel(undefined).memory.grow(4);
+            expect(worldCastRayClosest(b, zero, ray).fraction).toBeCloseTo(0.45, 6);
+            expect(worldCastRayClosest(a, zero, ray).fraction).toBeCloseTo(0.05, 6);
+            for (let i = 0; i < 40; i++) sphere(b, 8 + i * 0.01);
+            expect([overlaps(a), overlaps(b)]).toEqual([2, 41]);
+            stepTestWorld(a, 1 / 60);
+            stepTestWorld(b, 1 / 60);
+            expect(worldCastRayClosest(a, zero, ray).fraction).toBeCloseTo(0.05, 6);
+            expect(worldCastRayClosest(b, zero, ray).fraction).toBeCloseTo(0.45, 6);
+            expect([overlaps(a), overlaps(b)]).toEqual([2, 41]);
+        } finally {
+            destroyTestWorld(b);
+            destroyTestWorld(a);
+        }
+    });
+}
