@@ -26,27 +26,23 @@ for (const scene of [
     "topDownFriction",
     "weld",
 ] satisfies Scene[]) {
-    for (const controlled of [false, true]) {
+    for (const controlled of scenes[scene].controls === undefined ? [false] : [false, true]) {
         test(`${scene} equals every native step ${controlled ? "through all controls" : "by default"}`, async () => {
             const start = performance.now();
             const gold = sampleGold(
                 await Bun.file(
-                    new URL(
-                        `./${scene}${controlled && scenes[scene].controls !== undefined ? ".controls" : ""}.gold.txt`,
-                        import.meta.url,
-                    ),
+                    new URL(`./${scene}${controlled ? ".controls" : ""}.gold.txt`, import.meta.url),
                 ).text(),
             );
-            const sequence =
-                controlled && scenes[scene].controls !== undefined
-                    ? (await Bun.file(new URL(`./${scene}.controls.txt`, import.meta.url)).text())
-                          .trim()
-                          .split("\n")
-                          .map((line) => {
-                              const [step, name, value] = line.split("\t");
-                              return { step: Number(step), name: name!, value: Number(value) };
-                          })
-                    : [];
+            const sequence = controlled
+                ? (await Bun.file(new URL(`./${scene}.controls.txt`, import.meta.url)).text())
+                      .trim()
+                      .split("\n")
+                      .map((line) => {
+                          const [step, name, value] = line.split("\t");
+                          return { step: Number(step), name: name!, value: Number(value) };
+                      })
+                : [];
             const values = controlValues(scene);
             let bodies: number[] = [];
             const app = await createApp({
