@@ -113,6 +113,9 @@ for (const viewport of [
 }
 
 test("each pointer control leaves the bound orbit key working", async ({ page }) => {
+    // Each step queues a full draw, and every pointer action then waits behind the queue. Focus and the
+    // orbit key hold at a quarter of the 1280 px frame, still above the 480 px phone layout.
+    await page.setViewportSize({ width: 640, height: 360 });
     await page.goto("http://127.0.0.1:4276/tests/stepped.html");
     await page.waitForFunction(() => "controlsKey" in window);
     await dragRange(page, page.getByRole("slider").first());
