@@ -31,7 +31,8 @@ type DepthDimension = "2d" | "2d-array" | "cube" | "cube-array";
 /** A material-owned resource or mesh attribute made available to its shaders. A texture is a 2d float
  * texture and a sampler filters unless their options say otherwise; a sint or uint texture is read with
  * textureLoad. A texture binds as one view of its dimension over every mip and layer, so a cube texture
- * has six layers and a cube array a multiple of six. */
+ * has six layers and a cube array a multiple of six. A multisampled texture is 2d, read with textureLoad
+ * by sample index; a float one is never filtered, so it binds `unfilterable-float`. */
 export type MaterialBinding =
     | { type: "uniform"; struct: AnyWgslStruct }
     | { type: "attribute"; element: AnyWgslData }
@@ -47,9 +48,20 @@ export type MaterialBinding =
           sampleType?: "float";
           /** False binds `unfilterable-float`, which formats such as r32float require. */
           filterable?: boolean;
+          multisampled?: boolean;
       }
-    | { type: "texture"; dimension?: Dimension; sampleType: "sint" | "uint" }
-    | { type: "texture"; dimension?: DepthDimension; sampleType: "depth" }
+    | {
+          type: "texture";
+          dimension?: Dimension;
+          sampleType: "sint" | "uint";
+          multisampled?: boolean;
+      }
+    | {
+          type: "texture";
+          dimension?: DepthDimension;
+          sampleType: "depth";
+          multisampled?: boolean;
+      }
     | { type: "sampler"; samplerType?: "filtering" | "non-filtering" | "comparison" };
 
 /** The values a binding's option may take, with undefined where it may be absent. */
@@ -79,11 +91,13 @@ type DepthOf<D> = D extends "2d-array"
       : D extends "cube-array"
         ? d.WgslTextureDepthCubeArray
         : d.WgslTextureDepth2d;
-type TextureEntryOf<S, D> = S extends "depth"
-    ? TextureEntry<DepthOf<D>>
+type TextureEntryOf<S, D, M> = S extends "depth"
+    ? TextureEntry<M extends true ? d.WgslTextureDepthMultisampled2d : DepthOf<D>>
     : S extends "sint" | "uint"
-      ? TextureEntry<SampledOf<D, ChannelOf<S>>>
-      : FloatEntry<SampledOf<D, d.F32>>;
+      ? TextureEntry<
+            M extends true ? d.WgslTextureMultisampled2d<ChannelOf<S>> : SampledOf<D, ChannelOf<S>>
+        >
+      : FloatEntry<M extends true ? d.WgslTextureMultisampled2d<d.F32> : SampledOf<D, d.F32>>;
 type SamplerEntryOf<T> = T extends "comparison"
     ? { sampler: "comparison"; visibility: ShaderStage[] }
     : {
@@ -101,7 +115,11 @@ export type EntryFor<B extends MaterialBinding> = B extends { type: "uniform" }
             visibility: ShaderStage[];
         }
       : B extends { type: "texture" }
-        ? TextureEntryOf<OptionOf<B, "sampleType">, OptionOf<B, "dimension">>
+        ? TextureEntryOf<
+              OptionOf<B, "sampleType">,
+              OptionOf<B, "dimension">,
+              OptionOf<B, "multisampled">
+          >
         : SamplerEntryOf<OptionOf<B, "samplerType">>;
 
 const sampled: Record<Dimension, (channel: d.F32 | d.I32 | d.U32) => d.WgslTexture> = {
@@ -143,7 +161,9 @@ export function bindingEntry<B extends MaterialBinding>(binding: B): EntryFor<B>
         case "texture": {
             if (binding.sampleType === "depth")
                 return {
-                    texture: depth[binding.dimension ?? "2d"](),
+                    texture: binding.multisampled
+                        ? d.textureDepthMultisampled2d()
+                        : depth[binding.dimension ?? "2d"](),
                     visibility: VS_FS,
                 } as EntryFor<B>;
             const channel =
@@ -153,9 +173,14 @@ export function bindingEntry<B extends MaterialBinding>(binding: B): EntryFor<B>
                       ? d.u32
                       : d.f32;
             return {
-                texture: sampled[binding.dimension ?? "2d"](channel),
-                ...("filterable" in binding &&
-                    binding.filterable === false && { sampleType: "unfilterable-float" }),
+                texture: binding.multisampled
+                    ? d.textureMultisampled2d(channel)
+                    : sampled[binding.dimension ?? "2d"](channel),
+                ...(channel === d.f32 &&
+                    (binding.multisampled ||
+                        ("filterable" in binding && binding.filterable === false)) && {
+                        sampleType: "unfilterable-float",
+                    }),
                 visibility: VS_FS,
             } as EntryFor<B>;
         }
