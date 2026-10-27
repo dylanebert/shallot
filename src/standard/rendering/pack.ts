@@ -142,7 +142,7 @@ function pairFactory(materialTypeCount: number) {
             if (
                 materialType >= materialTypeCount ||
                 alphaMode > 6 ||
-                cullMode * 6 >= cullLayout.$.params.keyCount ||
+                cullMode >= d.u32(cullLayout.$.params.keyCount / 6) ||
                 mid >= cullLayout.$.params.meshCount ||
                 cullLayout.$.meshBounds[mid].handle !== instance.mesh ||
                 encodedGlobalTransform === 0

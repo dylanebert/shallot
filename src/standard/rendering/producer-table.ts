@@ -152,7 +152,7 @@ const producerPair = tgpu.fn(
         mid >= params.meshCount ||
         producerCullLayout.$.meshBounds[mid].handle !== instance.mesh ||
         instance.materialType >= d.u32(basePairs / (params.keyCount * params.meshCount)) ||
-        instance.cullMode * ALPHA_PIPELINE_KEY_COUNT >= params.keyCount ||
+        instance.cullMode >= d.u32(params.keyCount / ALPHA_PIPELINE_KEY_COUNT) ||
         (instance.alphaMode !== AlphaModeCode.Opaque &&
             instance.alphaMode !== AlphaModeCode.Mask &&
             instance.alphaMode !== AlphaModeCode.AlphaToCoverage)
