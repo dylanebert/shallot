@@ -95,9 +95,13 @@ test("every ambient occlusion control changes the captured frame and off restore
         ).toBeGreaterThan(0.01);
         await slider.fill(original);
     }
+    const high = await capture(page);
     for (const quality of ["0", "1", "3"]) {
         await page.getByRole("combobox").selectOption(quality);
-        expect(await difference(page, await capture(page), occluded)).toBeGreaterThan(0.001);
+        expect(
+            await difference(page, await capture(page), high),
+            `quality ${quality}`,
+        ).toBeGreaterThan(0.001);
     }
     await page.getByRole("slider").first().fill("2");
     await page.getByRole("slider").last().fill("1");
