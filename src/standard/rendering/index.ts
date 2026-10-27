@@ -98,7 +98,9 @@ export {
 } from "./ssao";
 export {
     applyPbrLighting,
+    type ExtensionLayout,
     extendedMaterial,
+    extensionLayout,
     PbrInput,
     pbrInputFromMaterial,
     pbrInputFromStandardMaterial,

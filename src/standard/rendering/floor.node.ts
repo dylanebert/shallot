@@ -141,11 +141,11 @@ function storageLimitPlugin(bindings: number): Plugin {
 function storageCount(layout: unknown, stage: "vertex" | "fragment" | "compute"): number {
     const entries = (
         layout as {
-            entries: Record<string, { storage?: unknown; visibility?: readonly string[] }>;
+            entries: Record<string, { storage?: unknown; visibility?: readonly string[] } | null>;
         }
     ).entries;
     return Object.values(entries).filter(
-        (entry) => entry.storage && (entry.visibility ?? ["vertex", "fragment"]).includes(stage),
+        (entry) => entry?.storage && (entry.visibility ?? ["vertex", "fragment"]).includes(stage),
     ).length;
 }
 const FLOOR_FONT = `data:font/ttf;base64,${Buffer.from(isolationFont()).toString("base64")}`;

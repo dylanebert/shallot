@@ -2,15 +2,23 @@ import tgpu, { type TgpuFn } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { ImageBindings, sampleImage } from "../../core/rendering";
+import type { World } from "../../engine";
 import { engineLayout, litPbr } from "./engine";
 import { StandardMaterial, StandardMaterialInput } from "./material-data";
 import {
     AlphaModeCode,
     MaterialAssets,
+    type MaterialBinding,
     type MaterialFragmentFn,
+    type MaterialLayout,
+    type MaterialType,
+    type MaterialVertexFn,
     materialLayout,
     materialType,
+    materialVertexInput,
+    materialVertexOutput,
 } from "./material-type";
+import type { BindResource } from "./pipelines";
 import { Pbr } from "./shade";
 
 const standardLayout = materialLayout(StandardMaterialInput, {
@@ -18,6 +26,12 @@ const standardLayout = materialLayout(StandardMaterialInput, {
     imageSampler: { type: "sampler" },
     imageSettings: { type: "texture" },
 });
+const standardImages = tgpu.accessor(d.texture2dArray(d.f32), () => standardLayout.$.images);
+const standardSampler = tgpu.accessor(d.sampler(), () => standardLayout.$.imageSampler);
+const standardImageSettings = tgpu.accessor(
+    d.texture2d(d.f32),
+    () => standardLayout.$.imageSettings,
+);
 /** The built-in mesh material type. Its type-local table is the sole source of its PBR parameters. */
 export const Materials = materialType({
     name: "StandardMaterial",
@@ -88,9 +102,9 @@ export const pbrInputFromStandardMaterial = tgpu.fn(
         baseColor = std.mul(
             baseColor,
             sampleImage(
-                standardLayout.$.images,
-                standardLayout.$.imageSampler,
-                standardLayout.$.imageSettings,
+                standardImages.$,
+                standardSampler.$,
+                standardImageSettings.$,
                 ctx.uv,
                 material.baseColorTexture,
                 uvDx,
@@ -138,30 +152,150 @@ export const applyPbrLighting = tgpu.fn(
     );
 });
 
-/** Define a standard-derived material with independently owned rows. Shares the base's parameter schema,
- * layout, bindings, fragment context identity and depth passes. The fragment returns camera-exposed
- * linear colour before fog. Extension parameters/bindings and vertex/prepass overrides are not supported. */
-export function extendedMaterial(
-    base: typeof Materials,
-    spec: {
-        name: string;
-        fragment: ((context: d.InferGPU<typeof StandardContext>) => d.v4f) & {
-            readonly resourceType?: never;
-        };
-    },
-): typeof Materials {
-    if (!spec.name) throw new Error("material type name must not be empty");
-    if ("resourceType" in spec.fragment) {
-        throw new Error(
-            `material type "${spec.name}" fragment shader must be a plain "use gpu" function, not a prebuilt TypeGPU function`,
-        );
+type StandardParameters = typeof StandardMaterialInput.propTypes;
+type ExtendedParameters<E extends d.AnyWgslStruct> = d.WgslStruct<
+    StandardParameters & E["propTypes"]
+>;
+type StandardBindings = typeof Materials.layout.bindingSpecs;
+export type ExtensionLayout<
+    B extends Record<string, MaterialBinding>,
+    E extends d.AnyWgslStruct,
+> = MaterialLayout<StandardBindings & B, ExtendedParameters<E>> & { readonly extension: E };
+
+/** Extend standard's group 2 with bindings numbered from 100 and parameters folded into its row.
+ * Base binding numbers are preserved in colour and depth layouts. Refuses parameter/binding name
+ * collisions and merged bindings exceeding WebGPU's default budgets: one extension storage/attribute
+ * per stage, nine sampled textures and four fragment-only storage textures. */
+export function extensionLayout<
+    E extends d.AnyWgslStruct,
+    B extends Record<string, MaterialBinding>,
+>(base: typeof Materials, parameters: E, bindings: B): ExtensionLayout<B, E> {
+    for (const name of Object.keys(parameters.propTypes)) {
+        if (name in base.parameters.propTypes)
+            throw new Error(`extension parameter "${name}" collides with a base parameter`);
     }
+    for (const name of Object.keys(bindings)) {
+        if (name in base.layout.entries)
+            throw new Error(`extension binding "${name}" collides with a base or reserved binding`);
+    }
+    const merged = d.struct({ ...base.parameters.propTypes, ...parameters.propTypes });
+    const checked = materialLayout(merged, { ...base.layout.bindingSpecs, ...bindings });
+    const entries = {
+        ...base.layout.entries,
+        materialParameters: checked.entries.materialParameters,
+    };
+    let index = Object.keys(entries).length;
+    const padding: Record<string, null> = {};
+    while (index < 100) {
+        let key = `_extensionPad${index}`;
+        while (key in bindings || key in entries || key in padding) key += "_";
+        padding[key] = null;
+        index++;
+    }
+    const extensionEntries = Object.fromEntries(
+        Object.keys(bindings).map((key) => [key, checked.entries[key]]),
+    );
+    const color = tgpu.bindGroupLayout({ ...entries, ...padding, ...extensionEntries }).$idx(2);
+    const depth = tgpu
+        .bindGroupLayout({
+            ...entries,
+            vertices: checked.depthVariant.entries.vertices,
+            ...padding,
+            ...extensionEntries,
+        })
+        .$idx(2);
+    return Object.assign(color, {
+        parameters: merged,
+        bindingSpecs: checked.bindingSpecs,
+        attributes: checked.attributes,
+        depthVariant: depth,
+        extension: parameters,
+    }) as ExtensionLayout<B, E>;
+}
+
+type StandardVertex =
+    MaterialVertexFn<typeof StandardMaterialInput> extends TgpuFn<infer F> ? F : never;
+type Plain<F> = F & { readonly resourceType?: never };
+type ExtensionSpec<E extends d.AnyWgslStruct> = {
+    name: string;
+    defaults?: d.InferInput<NoInfer<E>>;
+    bindings?: (world: World) => Record<string, BindResource>;
+    vertex?: Plain<
+        (
+            input: d.InferGPU<Parameters<StandardVertex>[0]>,
+            extension: d.InferGPU<E>,
+        ) => d.InferGPU<ReturnType<StandardVertex>>
+    >;
+    fragment: Plain<
+        (context: d.InferGPU<typeof StandardContext>, extension: d.InferGPU<E>) => d.v4f
+    >;
+};
+
+/** Define independently owned standard-material rows with optional extension parameters and resources.
+ * Parameters share the base row; defaults merge with standard's defaults. Layout bindings start at
+ * 100 and live resources supply extension bindings only. Fragment and optional vertex functions receive
+ * the unchanged standard input and extension parameters. Refuses empty names, prebuilt TypeGPU
+ * functions, name collisions and bindings beyond WebGPU's default budgets: one extension
+ * storage/attribute per stage, nine sampled textures and four fragment-only storage textures. */
+export function extendedMaterial<
+    E extends d.AnyWgslStruct = d.WgslStruct<Record<never, never>>,
+    B extends Record<string, MaterialBinding> = Record<never, never>,
+>(
+    base: typeof Materials,
+    spec: ExtensionSpec<E> &
+        (
+            | { layout: ExtensionLayout<B, E>; parameters?: never }
+            | { parameters?: E; layout?: never }
+        ),
+): MaterialType<ExtendedParameters<E>, StandardBindings & B> {
+    if (!spec.name) throw new Error("material type name must not be empty");
+    for (const stage of ["fragment", "vertex"] as const) {
+        if (spec[stage] && "resourceType" in spec[stage])
+            throw new Error(
+                `material type "${spec.name}" ${stage} shader must be a plain "use gpu" function, not a prebuilt TypeGPU function`,
+            );
+    }
+    const extension = spec.layout?.extension ?? spec.parameters;
+    const layout = spec.layout ?? (extension ? extensionLayout(base, extension, {}) : base.layout);
     const Context = (base.fragment as unknown as { shell: { argTypes: [StandardContextSchema] } })
         .shell.argTypes[0];
-    const definition: typeof Materials = {
+    const resources = new WeakMap<World, Record<string, BindResource>>();
+    const definition: MaterialType<ExtendedParameters<E>, StandardBindings & B> = {
         ...base,
         name: spec.name,
-        fragment: tgpu.fn([Context], d.vec4f)(spec.fragment),
+        layout: layout as ExtensionLayout<B, E>,
+        parameters: layout.parameters as ExtendedParameters<E>,
+        extension,
+        defaults: { ...base.defaults, ...spec.defaults } as d.InferInput<ExtendedParameters<E>>,
+        bindings: spec.bindings
+            ? (world) => {
+                  let merged = resources.get(world);
+                  if (!merged) {
+                      merged = {};
+                      resources.set(world, merged);
+                  }
+                  return Object.assign(merged, base.bindings?.(world), spec.bindings!(world));
+              }
+            : base.bindings,
+        slots: [
+            [standardImages, () => layout.$.images],
+            [standardSampler, () => layout.$.imageSampler],
+            [standardImageSettings, () => layout.$.imageSettings],
+        ],
+        fragment: (extension
+            ? tgpu.fn([Context, extension], d.vec4f)(spec.fragment)
+            : tgpu.fn([Context], d.vec4f)(spec.fragment as any)) as any,
+        vertex: spec.vertex
+            ? ((extension
+                  ? tgpu.fn(
+                        [materialVertexInput(StandardMaterialInput), extension],
+                        materialVertexOutput(),
+                    )(spec.vertex as any)
+                  : tgpu.fn(
+                        [materialVertexInput(StandardMaterialInput)],
+                        materialVertexOutput(),
+                    )(spec.vertex as any)) as any)
+            : undefined,
         create: (world) => new MaterialAssets(world, definition),
     };
     return definition;

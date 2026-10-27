@@ -1,4 +1,4 @@
-import type { TgpuBindGroupLayout, TgpuFn } from "typegpu";
+import type { TgpuAccessor, TgpuBindGroupLayout, TgpuFn } from "typegpu";
 import tgpu, { readFromArrayBuffer, writeToArrayBuffer } from "typegpu";
 import type { AnyWgslData, AnyWgslStruct, WgslArray } from "typegpu/data";
 import * as d from "typegpu/data";
@@ -329,6 +329,8 @@ export type MaterialLayout<
     { [K in keyof B]: EntryFor<B[K]> } & MaterialBuiltins & MaterialStreams<P, d.Vec4u>
 > & {
     readonly parameters: P;
+    /** @internal Binding declarations used to check merged layouts. */
+    readonly bindingSpecs: B;
     readonly attributes: Readonly<Record<string, AnyWgslData>>;
     readonly depthVariant: TgpuBindGroupLayout<
         { [K in keyof B]: EntryFor<B[K]> } & MaterialBuiltins & MaterialStreams<P, d.Vec2u>
@@ -431,10 +433,12 @@ export function materialLayout<B extends Record<string, MaterialBinding>, P exte
             .filter(([, binding]) => binding.type === "attribute")
             .map(([name, binding]) => [name, (binding as { element: AnyWgslData }).element]),
     );
-    return Object.assign(color, { parameters, attributes, depthVariant: depth }) as MaterialLayout<
-        B,
-        P
-    >;
+    return Object.assign(color, {
+        parameters,
+        bindingSpecs: bindings,
+        attributes,
+        depthVariant: depth,
+    }) as MaterialLayout<B, P>;
 }
 
 /** Material vertex fields. eid is the entity id, or 0xFFFFFFFF for a producer row.
@@ -456,12 +460,14 @@ export const MeshVertexInput = d
     .$name("MeshVertexInput");
 
 /** Vertex input with this material's typed parameter row. */
-function materialVertexInput<P extends AnyWgslStruct>(parameters: P) {
+/** @internal Standard vertex input schema shared with extended materials. */
+export function materialVertexInput<P extends AnyWgslStruct>(parameters: P) {
     return d.struct({ parameters, ...MeshVertexInput.propTypes });
 }
 
 /** World-space fields a material vertex function may override, plus its declared varyings. */
-function materialVertexOutput<V extends Record<string, AnyWgslData> = Record<never, never>>(
+/** @internal Vertex output schema shared with extended materials. */
+export function materialVertexOutput<V extends Record<string, AnyWgslData> = Record<never, never>>(
     varyings: V = {} as V,
 ) {
     return d.struct({ world: d.vec4f, worldNormal: d.vec3f, ...varyings });
@@ -658,6 +664,10 @@ export interface MaterialType<
     V extends Record<string, AnyWgslData> = Record<never, never>,
 > extends Resource<MaterialAssets<P>> {
     readonly name: string;
+    /** @internal Accessor substitutions applied to every pipeline of this type. */
+    readonly slots?: readonly (readonly [TgpuAccessor<any>, TgpuAccessor.In<any>])[];
+    /** @internal Extension argument reconstructed from the shared parameter row. */
+    readonly extension?: AnyWgslStruct;
     readonly parameters: P;
     readonly layout: MaterialLayout<B, P>;
     /** Omit for MaterialAssets; otherwise the renderer borrows this source. Accessing the type's asset

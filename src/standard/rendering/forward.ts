@@ -282,6 +282,7 @@ export function validateMeshBindingOverrides(
 ): void {
     if (!overrides) return;
     for (const [name, rawEntry] of Object.entries(layout.entries)) {
+        if (!rawEntry) continue;
         const resource = overrides[name];
         if (!resource || !isBuffer(resource)) continue;
         const entry = rawEntry as BufferEntry;
@@ -376,7 +377,7 @@ function layoutResources(
     const names: string[] = [];
     const bindings = materialType?.bindings?.(world);
     for (const [name, entry] of Object.entries(entries)) {
-        if (name === "vertices") continue;
+        if (!entry || name === "vertices") continue;
         const res =
             override?.[name] ??
             (owned ? undefined : materialResource(world, name, materialType, bindings));

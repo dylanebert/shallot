@@ -437,16 +437,36 @@ function materialFragmentFunction(surface: AnyMaterialType) {
     const { parameters: _, ...fields } = Context.propTypes;
     const Input = d.struct(fields);
     const bound = surface.layout.$;
+    const extension = surface.extension;
+    const Parameters = Context.propTypes.parameters;
+    const row = "bound.materialParameters[input.material]";
+    const parameters = extension
+        ? `Parameters(${Object.keys(Parameters.propTypes)
+              .map((key) => `${row}.${key}`)
+              .join(", ")})`
+        : row;
+    const extensionArgument = extension
+        ? `, Extension(${Object.keys(extension.propTypes)
+              .map((key) => `${row}.${key}`)
+              .join(", ")})`
+        : "";
     return tgpu
         .fn(
             [Input],
             d.vec4f,
         )(`(input: Input) -> vec4f {
-        return fragment(Context(bound.materialParameters[input.material], ${Object.keys(fields)
+        return fragment(Context(${parameters}, ${Object.keys(fields)
             .map((key) => `input.${key}`)
-            .join(", ")}));
+            .join(", ")})${extensionArgument});
     }`)
-        .$uses({ Input, Context, fragment, bound });
+        .$uses({
+            Input,
+            Context,
+            fragment,
+            bound,
+            Parameters,
+            ...(extension ? { Extension: extension } : {}),
+        });
 }
 
 function materialVertexFunction(surface: AnyMaterialType) {
@@ -455,6 +475,36 @@ function materialVertexFunction(surface: AnyMaterialType) {
     const shell = (vertex as any).shell;
     const Input = shell.argTypes[0];
     const layout = surface.layout;
+    if (surface.extension) {
+        const Extension = surface.extension;
+        const Parameters = Input.propTypes.parameters;
+        const row = "bound.materialParameters[input.material]";
+        const fields = Object.keys(Input.propTypes).filter((key) => key !== "parameters");
+        return tgpu
+            .fn(
+                [MaterialVertexInput],
+                shell.returnType,
+            )(`(input: MaterialVertexInput) -> Output {
+            return vertex(Input(Parameters(${Object.keys(Parameters.propTypes)
+                .map((key) => `${row}.${key}`)
+                .join(
+                    ", ",
+                )}), ${fields.map((key) => `input.${key}`).join(", ")}), Extension(${Object.keys(
+                Extension.propTypes,
+            )
+                .map((key) => `${row}.${key}`)
+                .join(", ")}));
+        }`)
+            .$uses({
+                MaterialVertexInput,
+                Output: shell.returnType,
+                Input,
+                Parameters,
+                Extension,
+                vertex,
+                bound: layout.$,
+            });
+    }
     return tgpu.fn(
         [MaterialVertexInput],
         shell.returnType,
@@ -1139,6 +1189,7 @@ function varyingFs(
 
 function materialRoot(world: World, surface: AnyMaterialType) {
     let root = world.gpu.root.with(indirectLightSlot, indirectLightSources(world));
+    for (const [accessor, value] of surface.slots ?? []) root = root.with(accessor, value);
     if (surface.readsPrepass?.depth) root = root.with(prepassDepthSlot, prepassDepthRead);
     if (surface.readsPrepass?.normal) root = root.with(prepassNormalSlot, prepassNormalRead);
     return root;
