@@ -1,6 +1,6 @@
 import { expect, expectTypeOf, test } from "bun:test";
 import * as d from "typegpu/data";
-import { materialLayout, materialType } from "./material-type";
+import { type MaterialBinding, materialLayout, materialType } from "./material-type";
 
 test("a material without owned bindings needs only its parameter schema", () => {
     const Parameters = d.struct({ tint: d.vec4f, scale: d.f32 });
@@ -200,6 +200,78 @@ test("multisampled options declare multisampled WGSL texture types", () => {
     ).toBe(false);
 });
 
+test("storage texture options declare their WGSL storage texture types", () => {
+    const layout = materialLayout(d.struct({ unused: d.f32 }), {
+        read: { type: "storage-texture", format: "r32uint", access: "read" },
+        write: { type: "storage-texture", format: "rgba8unorm", access: "write" },
+        readWrite: {
+            type: "storage-texture",
+            format: "r32float",
+            access: "read_write",
+            dimension: "2d-array",
+        },
+        line: { type: "storage-texture", format: "r32sint", access: "write", dimension: "1d" },
+    });
+    const volumeLayout = materialLayout(d.struct({ unused: d.f32 }), {
+        volume: { type: "storage-texture", format: "rgba16float", access: "read", dimension: "3d" },
+    });
+    type Resources = (typeof layout)["$"];
+    expectTypeOf<Resources["read"]>().toEqualTypeOf<
+        d.InferGPU<d.WgslStorageTexture2d<"r32uint", "read-only">>
+    >();
+    expectTypeOf<Resources["write"]>().toEqualTypeOf<
+        d.InferGPU<d.WgslStorageTexture2d<"rgba8unorm", "write-only">>
+    >();
+    expectTypeOf<Resources["readWrite"]>().toEqualTypeOf<
+        d.InferGPU<d.WgslStorageTexture2dArray<"r32float", "read-write">>
+    >();
+    expectTypeOf<Resources["line"]>().toEqualTypeOf<
+        d.InferGPU<d.WgslStorageTexture1d<"r32sint", "write-only">>
+    >();
+    expectTypeOf<(typeof volumeLayout)["$"]["volume"]>().toEqualTypeOf<
+        d.InferGPU<d.WgslStorageTexture3d<"rgba16float", "read-only">>
+    >();
+    const entries = [
+        ...Object.values(layout.entries),
+        ...Object.values(volumeLayout.entries),
+    ].filter((entry) => "storageTexture" in entry);
+    expect(
+        entries.map(({ storageTexture: { type, format, access } }) => [type, format, access]),
+    ).toEqual([
+        ["texture_storage_2d", "r32uint", "read-only"],
+        ["texture_storage_2d", "rgba8unorm", "write-only"],
+        ["texture_storage_2d_array", "r32float", "read-write"],
+        ["texture_storage_1d", "r32sint", "write-only"],
+        ["texture_storage_3d", "rgba16float", "read-only"],
+    ]);
+    expect(entries.every(({ visibility }) => visibility.join() === "fragment")).toBe(true);
+});
+
+test("a storage texture binding with vertex visibility is refused", () => {
+    const binding = {
+        type: "storage-texture",
+        format: "r32uint",
+        access: "read",
+        visibility: ["vertex", "fragment"],
+    } as MaterialBinding;
+    expect(() => materialLayout(d.struct({ unused: d.f32 }), { counts: binding })).toThrow(
+        'material binding "counts" is a storage texture, which binds to the fragment stage only',
+    );
+});
+
+test("a fifth fragment storage texture is refused", () => {
+    const binding: MaterialBinding = {
+        type: "storage-texture",
+        format: "r32uint",
+        access: "write",
+    };
+    const four = { a: binding, b: binding, c: binding, d: binding };
+    expect(() => materialLayout(d.struct({ unused: d.f32 }), four)).not.toThrow();
+    expect(() => materialLayout(d.struct({ unused: d.f32 }), { ...four, e: binding })).toThrow(
+        "material layout uses 5 fragment storage textures; WebGPU's maxStorageTexturesInFragmentStage is 4",
+    );
+});
+
 test("a union of texture or sampler options declares the union of their WGSL resource types", () => {
     const sampleType = "float" as "float" | "depth";
     const samplerType = "filtering" as "filtering" | "comparison";
@@ -209,6 +281,8 @@ test("a union of texture or sampler options declares the union of their WGSL res
     const dimension = "3d" as "3d" | "cube";
     const depthDimension = "cube" as "2d-array" | "cube";
     const multisampled = true as boolean;
+    const access = "read" as "read" | "write";
+    const storageDimension = "3d" as "2d-array" | "3d";
     const layout = materialLayout(d.struct({ unused: d.f32 }), {
         either: { type: "texture", sampleType },
         sampler: { type: "sampler", samplerType },
@@ -219,6 +293,13 @@ test("a union of texture or sampler options declares the union of their WGSL res
         depthLayersOrCube: { type: "texture", dimension: depthDimension, sampleType: "depth" },
         maybeSamples: { type: "texture", multisampled },
         maybeDepthSamples: { type: "texture", sampleType: "depth", multisampled },
+        readOrWrite: { type: "storage-texture", format: "r32uint", access },
+        layersOrVolume: {
+            type: "storage-texture",
+            format: "r32uint",
+            access: "write",
+            dimension: storageDimension,
+        },
     });
     type Resources = (typeof layout)["$"];
     expectTypeOf<Resources["either"]>().toEqualTypeOf<
@@ -264,6 +345,18 @@ test("a union of texture or sampler options declares the union of their WGSL res
         layout.entries.maybeSamples.texture.type,
         layout.entries.maybeDepthSamples.texture.type,
     ]).toEqual(["texture_multisampled_2d", "texture_depth_multisampled_2d"]);
+    expectTypeOf<Resources["readOrWrite"]>().toEqualTypeOf<
+        | d.InferGPU<d.WgslStorageTexture2d<"r32uint", "read-only">>
+        | d.InferGPU<d.WgslStorageTexture2d<"r32uint", "write-only">>
+    >();
+    expectTypeOf<Resources["layersOrVolume"]>().toEqualTypeOf<
+        | d.InferGPU<d.WgslStorageTexture2dArray<"r32uint", "write-only">>
+        | d.InferGPU<d.WgslStorageTexture3d<"r32uint", "write-only">>
+    >();
+    expect([
+        layout.entries.readOrWrite.storageTexture.access,
+        layout.entries.layersOrVolume.storageTexture.type,
+    ]).toEqual(["read-only", "texture_storage_3d"]);
 });
 
 test("an optional texture or sampler option also declares its default WGSL resource type", () => {
@@ -274,6 +367,12 @@ test("an optional texture or sampler option also declares its default WGSL resou
     const unsigned: { type: "texture"; sampleType?: "uint" } = { type: "texture" };
     const volume: { type: "texture"; dimension?: "3d" } = { type: "texture" };
     const samples: { type: "texture"; multisampled?: true } = { type: "texture" };
+    const storageVolume: {
+        type: "storage-texture";
+        format: "r32uint";
+        access: "write";
+        dimension?: "3d";
+    } = { type: "storage-texture", format: "r32uint", access: "write" };
     const depthCube: { type: "texture"; dimension?: "cube"; sampleType: "depth" } = {
         type: "texture",
         sampleType: "depth",
@@ -287,6 +386,7 @@ test("an optional texture or sampler option also declares its default WGSL resou
         volume,
         depthCube,
         samples,
+        storageVolume,
     });
     type Resources = (typeof layout)["$"];
     expectTypeOf<Resources["layers"]>().toEqualTypeOf<
@@ -327,6 +427,11 @@ test("an optional texture or sampler option also declares its default WGSL resou
         d.InferGPU<d.WgslTexture2d<d.F32>> | d.InferGPU<d.WgslTextureMultisampled2d<d.F32>>
     >();
     expect(layout.entries.samples.texture.type).toBe("texture_2d");
+    expectTypeOf<Resources["storageVolume"]>().toEqualTypeOf<
+        | d.InferGPU<d.WgslStorageTexture2d<"r32uint", "write-only">>
+        | d.InferGPU<d.WgslStorageTexture3d<"r32uint", "write-only">>
+    >();
+    expect(layout.entries.storageVolume.storageTexture.type).toBe("texture_storage_2d");
 });
 
 test("an option that may be undefined also declares its default WGSL resource type", () => {
@@ -358,6 +463,12 @@ test("an option that may be undefined also declares its default WGSL resource ty
         type: "texture",
         multisampled: undefined,
     };
+    const storageVolume: {
+        type: "storage-texture";
+        format: "r32uint";
+        access: "write";
+        dimension: "3d" | undefined;
+    } = { type: "storage-texture", format: "r32uint", access: "write", dimension: undefined };
     const depthCube: { type: "texture"; dimension: "cube" | undefined; sampleType: "depth" } = {
         type: "texture",
         dimension: undefined,
@@ -372,6 +483,7 @@ test("an option that may be undefined also declares its default WGSL resource ty
         volume,
         depthCube,
         samples,
+        storageVolume,
     });
     type Resources = (typeof layout)["$"];
     expectTypeOf<Resources["layers"]>().toEqualTypeOf<
@@ -412,4 +524,9 @@ test("an option that may be undefined also declares its default WGSL resource ty
         d.InferGPU<d.WgslTexture2d<d.F32>> | d.InferGPU<d.WgslTextureMultisampled2d<d.F32>>
     >();
     expect(layout.entries.samples.texture.type).toBe("texture_2d");
+    expectTypeOf<Resources["storageVolume"]>().toEqualTypeOf<
+        | d.InferGPU<d.WgslStorageTexture2d<"r32uint", "write-only">>
+        | d.InferGPU<d.WgslStorageTexture3d<"r32uint", "write-only">>
+    >();
+    expect(layout.entries.storageVolume.storageTexture.type).toBe("texture_storage_2d");
 });

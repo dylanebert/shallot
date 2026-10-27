@@ -12,7 +12,7 @@ import {
     TonemappingMethod,
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
-import type { Plugin, World } from "../../engine";
+import { type Plugin, probeTexture, type World } from "../../engine";
 import {
     extendedMaterial,
     type MaterialBinding,
@@ -145,6 +145,25 @@ const Owned = {
         for (const texture of [pair, layers, depth, scalars, signed, unsigned]) world.own(texture);
         for (const texture of [line, volume, cube, cubes, depthLayers, depthCube])
             world.own(texture);
+        const storage = (texels: number[], mipLevelCount = 1) => {
+            const texture = device.createTexture({
+                size: [texels.length, 1],
+                mipLevelCount,
+                format: "r32uint",
+                usage:
+                    GPUTextureUsage.STORAGE_BINDING |
+                    GPUTextureUsage.COPY_SRC |
+                    GPUTextureUsage.COPY_DST,
+            });
+            device.queue.writeTexture(
+                { texture },
+                new Uint32Array(texels),
+                { bytesPerRow: 4 * texels.length },
+                [texels.length, 1],
+            );
+            world.own(texture);
+            return texture;
+        };
         // cleared red, then sample 2 alone drawn green
         const samples = device.createTexture({
             size: [1, 1],
@@ -195,6 +214,11 @@ const Owned = {
             depthLayers,
             depthCube,
             samples,
+            readable: storage([7]),
+            // a storage binding takes one mip, so a second one shows which is bound
+            written: storage([0, 0], 2),
+            // texel 1 is written from texel 0
+            updated: storage([3, 0]),
             linear: device.createSampler({ magFilter: "linear", minFilter: "linear" }),
             less: device.createSampler({ compare: "less" }),
             nearest: device.createSampler(),
@@ -241,6 +265,15 @@ const depthCubeLayout = materialLayout(Unused, {
 });
 const samplesLayout = materialLayout(Unused, {
     samples: { type: "texture", multisampled: true },
+});
+const readableLayout = materialLayout(Unused, {
+    readable: { type: "storage-texture", format: "r32uint", access: "read" },
+});
+const writtenLayout = materialLayout(Unused, {
+    written: { type: "storage-texture", format: "r32uint", access: "write" },
+});
+const updatedLayout = materialLayout(Unused, {
+    updated: { type: "storage-texture", format: "r32uint", access: "read_write" },
 });
 const bindingKinds: Record<
     string,
@@ -456,6 +489,20 @@ const bindingKinds: Record<
             },
         }),
     },
+    "read storage texture": {
+        expected: [srgbByte(7 / 255), 0, 0, 255],
+        type: materialType({
+            name: "OwnedStorageTextureRead",
+            layout: readableLayout,
+            defaults: { unused: 0 },
+            bindings: (world) => world.resource(Owned),
+            fragment: () => {
+                "use gpu";
+                const texel = std.textureLoad(readableLayout.$.readable, d.vec2i(0, 0));
+                return d.vec4f(d.f32(texel.x) / 255, 0, 0, 1);
+            },
+        }),
+    },
     // red from sample 0, green from sample 2
     "multisampled texture": {
         expected: [255, 255, 0, 255],
@@ -499,6 +546,51 @@ const OwnedPlugin: Plugin = {
         world.resource(Owned);
     },
 };
+// Each material writes its storage texture; the texels after a frame show the write.
+const storageWrites: Record<
+    string,
+    {
+        texture: "written" | "updated";
+        texels: number[];
+        type: MaterialType<typeof Unused, Record<string, MaterialBinding>>;
+    }
+> = {
+    "write storage texture": {
+        texture: "written",
+        texels: [7, 0],
+        type: materialType({
+            name: "OwnedStorageTextureWrite",
+            layout: writtenLayout,
+            defaults: { unused: 0 },
+            bindings: (world) => world.resource(Owned),
+            fragment: () => {
+                "use gpu";
+                std.textureStore(writtenLayout.$.written, d.vec2i(0, 0), d.vec4u(7, 0, 0, 0));
+                return d.vec4f(0, 0, 0, 1);
+            },
+        }),
+    },
+    "read_write storage texture": {
+        texture: "updated",
+        texels: [3, 7],
+        type: materialType({
+            name: "OwnedStorageTextureReadWrite",
+            layout: updatedLayout,
+            defaults: { unused: 0 },
+            bindings: (world) => world.resource(Owned),
+            fragment: () => {
+                "use gpu";
+                const texel = std.textureLoad(updatedLayout.$.updated, d.vec2i(0, 0));
+                std.textureStore(
+                    updatedLayout.$.updated,
+                    d.vec2i(1, 0),
+                    std.add(texel, d.vec4u(4)),
+                );
+                return d.vec4f(0, 0, 0, 1);
+            },
+        }),
+    },
+};
 const subjects = gpuApps(import.meta.path, [
     {
         defaults: false,
@@ -509,6 +601,7 @@ const subjects = gpuApps(import.meta.path, [
             MaterialPlugin(PixelMaterial),
             MaterialPlugin(ExtendedPixelMaterial),
             ...Object.values(bindingKinds).map(({ type }) => MaterialPlugin(type)),
+            ...Object.values(storageWrites).map(({ type }) => MaterialPlugin(type)),
         ],
     },
 ]);
@@ -570,5 +663,17 @@ for (const [kind, { type, expected }] of Object.entries(bindingKinds)) {
         const center = (2 * 8 + 4) * 4;
         const read = Array.from(rgba.subarray(center, center + 4));
         for (let i = 0; i < 4; i++) expect(Math.abs(read[i] - expected[i])).toBeLessThanOrEqual(1);
+    });
+}
+
+for (const [kind, { type, texture, texels }] of Object.entries(storageWrites)) {
+    test(`custom material writes its owned ${kind} binding`, async () => {
+        const { world } = subjects()[0];
+        world.remove(mesh, MeshMaterial);
+        world.add(mesh, MeshMaterial, world.resource(type).add({ unused: 0 }));
+        world.step(0);
+        world.step(0);
+        const { bytes } = await probeTexture(world, world.resource(Owned)[texture]);
+        expect(Array.from(new Uint32Array(bytes, 0, texels.length))).toEqual(texels);
     });
 }
