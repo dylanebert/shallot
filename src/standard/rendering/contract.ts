@@ -2,6 +2,7 @@ import type { TgpuBindGroupLayout, TgpuFn } from "typegpu";
 import tgpu, { isTgpuFn } from "typegpu";
 import * as d from "typegpu/data";
 import type { World } from "../../engine";
+import { validateBindingLimits } from "./binding-limits";
 import { backgroundsKey } from "./contract-state";
 import { bindingEntry, type EntryFor, type MaterialBinding, refuseBindings } from "./material-type";
 import type { BindResource } from "./pipelines";
@@ -24,7 +25,9 @@ export function backgroundLayout<B extends Record<string, MaterialBinding>>(
     bindings: B,
 ): BackgroundLayout<B> {
     refuseBindings("background", bindings);
-    return tgpu.bindGroupLayout(ownEntries(bindings)).$idx(2) as BackgroundLayout<B>;
+    const layout = tgpu.bindGroupLayout(ownEntries(bindings)).$idx(2);
+    validateBindingLimits("background layout", [layout]);
+    return layout as BackgroundLayout<B>;
 }
 
 /** A background shader's reconstructed normalized world-space view ray. */

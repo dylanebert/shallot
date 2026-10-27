@@ -269,7 +269,7 @@ test("a fifth fragment storage texture is refused", () => {
     const four = { a: binding, b: binding, c: binding, d: binding };
     expect(() => materialLayout(d.struct({ unused: d.f32 }), four)).not.toThrow();
     expect(() => materialLayout(d.struct({ unused: d.f32 }), { ...four, e: binding })).toThrow(
-        "material layout uses 5 fragment storage textures; WebGPU's maxStorageTexturesInFragmentStage is 4",
+        "material layout uses 5 fragment storage textures; WebGPU's limit is 4",
     );
 });
 
@@ -579,6 +579,6 @@ test("a background's fifth fragment storage texture is refused", () => {
     const four = { a: binding, b: binding, c: binding, d: binding };
     expect(() => backgroundLayout(four)).not.toThrow();
     expect(() => backgroundLayout({ ...four, e: binding })).toThrow(
-        "background layout uses 5 fragment storage textures; WebGPU's maxStorageTexturesInFragmentStage is 4",
+        "background layout uses 5 fragment storage textures; WebGPU's limit is 4",
     );
 });

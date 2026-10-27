@@ -164,8 +164,9 @@ export type ExtensionLayout<
 
 /** Extend standard's group 2 with bindings numbered from 100 and parameters folded into its row.
  * Base binding numbers are preserved in colour and depth layouts. Refuses parameter/binding name
- * collisions and merged bindings exceeding WebGPU's default budgets: one extension storage/attribute
- * per stage, nine sampled textures and four fragment-only storage textures. */
+ * collisions and per-stage bindings exceeding WebGPU's default budgets, including the renderer's
+ * group-0 and group-1 entries. Transparent pipelines also count registered fog's group-3 entries at
+ * preparation. Storage textures are fragment-only. */
 export function extensionLayout<
     E extends d.AnyWgslStruct,
     B extends Record<string, MaterialBinding>,
@@ -235,8 +236,9 @@ type ExtensionSpec<E extends d.AnyWgslStruct> = {
  * Parameters share the base row; defaults merge with standard's defaults. Layout bindings start at
  * 100 and live resources supply extension bindings only. Fragment and optional vertex functions receive
  * the unchanged standard input and extension parameters. Refuses empty names, prebuilt TypeGPU
- * functions, name collisions and bindings beyond WebGPU's default budgets: one extension
- * storage/attribute per stage, nine sampled textures and four fragment-only storage textures. */
+ * functions, name collisions and per-stage bindings beyond WebGPU's default budgets. Budgets include
+ * renderer groups 0 and 1; transparent pipelines also count registered fog's group 3 at preparation.
+ * Storage textures are fragment-only. */
 export function extendedMaterial<
     E extends d.AnyWgslStruct = d.WgslStruct<Record<never, never>>,
     B extends Record<string, MaterialBinding> = Record<never, never>,

@@ -7,7 +7,10 @@ import { Xform } from "../../core/rendering";
 import { GlobalTransform } from "../../core/transform";
 import type { GpuTable, Plugin, Resource, World } from "../../engine";
 import { type ComponentStorage, type LaneFormat, laneLayout, writeLane } from "../../engine/ecs";
+import { validateBindingLimits } from "./binding-limits";
+import { engineLayout } from "./engine";
 import { MeshInstanceInput, MeshMaterial } from "./material-data";
+import { shadowLayout } from "./shadow-layout";
 
 /** Add the material contract to TypeGPU's unfilled-slot error at a pipeline resolution boundary. @internal */
 export function rethrowMaterialError(name: string, error: unknown): never {
@@ -181,18 +184,16 @@ const storage: Record<
     "3d": d.textureStorage3d,
 };
 
-/** @internal Refuse texture options WebGPU cannot bind and storage textures past its fragment limit. */
+/** @internal Refuse texture options WebGPU cannot bind, including vertex-visible storage textures. */
 export function refuseBindings(
     owner: "material" | "background",
     bindings: Record<string, MaterialBinding>,
 ): void {
-    let storageTextures = 0;
     for (const [name, binding] of Object.entries(bindings)) {
         const refuse = (reason: string) => {
             throw new Error(`${owner} binding "${name}" ${reason}`);
         };
         if (binding.type === "storage-texture") {
-            storageTextures++;
             if ((binding as { visibility?: readonly ShaderStage[] }).visibility?.includes("vertex"))
                 refuse("is a storage texture, which binds to the fragment stage only");
         }
@@ -217,11 +218,6 @@ export function refuseBindings(
             refuse("sets filterable, which only a float texture takes");
         if (multisampled && filterable)
             refuse("is multisampled, which a filtering sampler cannot read");
-    }
-    if (storageTextures > 4) {
-        throw new Error(
-            `${owner} layout uses ${storageTextures} fragment storage textures; WebGPU's maxStorageTexturesInFragmentStage is 4`,
-        );
     }
 }
 
@@ -353,7 +349,9 @@ const depthVerticesEntry = {
     visibility: VS_FS,
 };
 
-/** Declare owned bindings before shader functions so they can close over the layout's typed resources. */
+/** Declare owned bindings before shader functions so they can close over the layout's typed resources.
+ * Per-stage budgets include the renderer's group-0 and group-1 entries. A transparent pipeline also
+ * counts registered fog's group-3 entries at preparation. Exceeding a default WebGPU limit is refused. */
 export function materialLayout<B extends Record<string, MaterialBinding>, P extends AnyWgslStruct>(
     parameters: P,
     bindings: B,
@@ -368,33 +366,6 @@ export function materialLayout<B extends Record<string, MaterialBinding>, P exte
     for (const name of reserved) {
         if (name in bindings)
             throw new Error(`material binding "${name}" is reserved by the mesh renderer`);
-    }
-    // Five built-in group-2 storage bindings (eids, transforms, parameters, instances, vertices), plus
-    // at most one owned binding and the two group-0 storage slots, stay within WebGPU's eight per stage.
-    for (const stage of ["vertex", "fragment"] as const) {
-        const count =
-            5 +
-            Object.values(bindings).filter(
-                (binding) =>
-                    binding.type === "attribute" ||
-                    (binding.type === "storage" &&
-                        (
-                            binding.visibility ??
-                            (binding.access === "read_write" ? ["fragment"] : VS_FS)
-                        ).includes(stage)),
-            ).length;
-        if (count + 2 > 8) {
-            throw new Error(
-                `material layout uses ${count + 2} ${stage} storage buffers; WebGPU's limit is 8`,
-            );
-        }
-    }
-    // Group 0 contributes AO and two prepass textures; group 1 contributes two shadow atlases.
-    const textures = Object.values(bindings).filter((binding) => binding.type === "texture").length;
-    if (textures + 5 > 16) {
-        throw new Error(
-            `material layout uses ${textures + 5} fragment sampled textures; WebGPU's limit is 16`,
-        );
     }
     refuseBindings("material", bindings);
     const builtins = {
@@ -420,6 +391,7 @@ export function materialLayout<B extends Record<string, MaterialBinding>, P exte
             vertices: colorVerticesEntry,
         })
         .$idx(2);
+    validateBindingLimits("material layout", [engineLayout, shadowLayout, color]);
     const depth = tgpu
         .bindGroupLayout({
             ...own,

@@ -27,6 +27,7 @@ import {
 import { precompile, precompileScope, type World } from "../../engine";
 import { octDecodeNormal } from "../../engine/utils";
 import { cascadeLayout, pointLayout, shadowLayout } from "./atlas";
+import { validateBindingLimits } from "./binding-limits";
 import { LightCull } from "./cluster";
 import type { Background, BackgroundLayout } from "./contract";
 import { BackgroundContext, Backgrounds } from "./contract";
@@ -1187,8 +1188,18 @@ function varyingFs(
         .$name(name);
 }
 
-function materialRoot(world: World, surface: AnyMaterialType) {
+function materialRoot(world: World, surface: AnyMaterialType, fogged = false) {
     let root = world.gpu.root.with(indirectLightSlot, indirectLightSources(world));
+    const fog = fogged ? fogSource(world) : null;
+    if (fog) {
+        validateBindingLimits(`material "${surface.name}"`, [
+            engineLayout,
+            shadowLayout,
+            surface.layout,
+            fog.layout,
+        ]);
+        root = root.with(fogSlot, fog.source);
+    }
     for (const [accessor, value] of surface.slots ?? []) root = root.with(accessor, value);
     if (surface.readsPrepass?.depth) root = root.with(prepassDepthSlot, prepassDepthRead);
     if (surface.readsPrepass?.normal) root = root.with(prepassNormalSlot, prepassNormalRead);
@@ -1292,9 +1303,7 @@ export function compileMaterial<
         depthWriteEnabled: !transparent,
         depthCompare: transparent ? "greater-equal" : "greater",
     };
-    let root = materialRoot(world, surface);
-    const fog = fogSource(world);
-    if (fogged && fog) root = root.with(fogSlot, fog.source);
+    const root = materialRoot(world, surface, fogged);
     const pipeline = root
         .createRenderPipeline({
             vertex,
@@ -1367,9 +1376,7 @@ export function ensureSingle(world: World, t: CompiledMaterial): void {
               : alphaPipelineKey === AlphaPipelineKey.Multiply
                 ? MULTIPLY_BLEND
                 : undefined;
-    let root = materialRoot(world, t.owner);
-    const fog = fogSource(world);
-    if (transparent && fog) root = root.with(fogSlot, fog.source);
+    const root = materialRoot(world, t.owner, transparent);
     const pipeline = root
         .createRenderPipeline({
             vertex,

@@ -29,6 +29,7 @@ import {
     SunShadow,
     tileRectsSchema,
 } from "./shade";
+import { shadowLayout } from "./shadow-layout";
 import {
     cascadeAtlasSize,
     cascadeComboEids,
@@ -55,6 +56,8 @@ import {
     sunResolution,
     sunTowardLight,
 } from "./shadows";
+
+export { shadowLayout } from "./shadow-layout";
 
 interface AtlasState {
     sunCasting: boolean;
@@ -270,29 +273,6 @@ export function shadowReady(world: World): boolean {
 // Per-vertex litPbr statically reaches the point receiver even when pointScale is zero at runtime,
 // so its sampler/point bindings need vertex visibility. The sun receiver is scaffold-called only
 // from fragments, so sun bindings remain fragment-only.
-// Each schema factory call creates a distinct struct object. Reuse these instances within a resolve;
-// resolving a second same-named PointCasters/TileRects instance would suffix its WGSL name and break
-// free-name references. Fog resolves separately; consumers combined in one module must share instances.
-const _shadowCasters = pointCastersSchema();
-const _shadowRects = tileRectsSchema(MAX_POINT_CASTERS * 6);
-
-/**
- * the group-1 shadow layout a color pipeline references to force `shadowMap` / `shadowSamp` /
- * `sunShadow` / `pointAtlas` / `pointShadows` / `tileRects` into scope (the forcing-touch law — the free
- * names inside `sampleSunShadow`/`pointShadowOf`'s WGSL bodies are invisible to `tgpu.resolve`'s call-graph
- * walk otherwise). The runtime bind group is {@link shadowGroup}.
- */
-export const shadowLayout = tgpu
-    .bindGroupLayout({
-        shadowMap: { texture: d.textureDepth2d(), visibility: ["fragment"] },
-        shadowSamp: { sampler: "comparison", visibility: ["vertex", "fragment"] },
-        sunShadow: { uniform: SunShadow, visibility: ["fragment"] },
-        pointAtlas: { texture: d.textureDepth2d(), visibility: ["vertex", "fragment"] },
-        pointShadows: { uniform: _shadowCasters, visibility: ["vertex", "fragment"] },
-        tileRects: { uniform: _shadowRects, visibility: ["vertex", "fragment"] },
-    })
-    .$idx(1);
-
 // A schema's slot count is fixed at first resolve: point arrays hold 6*MAX_POINT_CASTERS entries,
 // cascade arrays MAX_CASCADES. One layout cannot serve both sizes. Keep the two schema sets in
 // separate pipeline resolves as well, or their shared FaceVPs/ComboMeta/TileRects names collide.
