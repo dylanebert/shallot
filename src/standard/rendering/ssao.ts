@@ -8,6 +8,7 @@ import {
     NormalPrepassRequests,
     PrepassSystem,
     RenderContext,
+    VIEW_STRIDE,
     type View,
     Views,
 } from "../../core/rendering";
@@ -305,7 +306,7 @@ const SsaoSystem: System = {
             camera.staging[16] = radius;
             camera.staging[17] = thickness;
             const staging = world.resource(RenderContext).viewStaging;
-            const at = view.slot * 64;
+            const at = (view.slot * VIEW_STRIDE) / 4;
             const x = staging[at]!;
             const y = staging[at + 4]!;
             const z = staging[at + 8]!;

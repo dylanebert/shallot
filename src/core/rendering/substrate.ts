@@ -654,6 +654,7 @@ export {
     MAX_VIEWS,
     sceneTransform,
     sizeView,
+    VIEW_STRIDE,
     type View,
     Views,
     ViewUniforms,

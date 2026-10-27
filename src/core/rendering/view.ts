@@ -33,8 +33,8 @@ export const ViewUniforms = d
     .$name("ViewUniforms");
 
 /**
- * dynamic-offset uniform stride. WebGPU `minUniformBufferOffsetAlignment` ≥ 256
- * forces this even though only the leading bytes carry data
+ * @internal Byte spacing of shading slots in RenderContext.viewStaging, at least VIEW_BYTES. Staging only:
+ * each slot uploads its leading VIEW_BYTES into its own buffer at offset 0.
  */
 export const VIEW_STRIDE = 256;
 
