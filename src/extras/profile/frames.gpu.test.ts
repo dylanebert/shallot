@@ -12,8 +12,18 @@ const apps = gpuApps(import.meta.path, [
 
 test("nonempty frames beyond timestamp capacity are unsampled, counted, and never relabeled or zero-filled", async () => {
     const world = apps()[1].world;
-    if (!world.gpu.device.features.has("timestamp-query"))
-        throw new Error("requires timestamp-query");
+    if (!world.gpu.device.features.has("timestamp-query")) {
+        world.step(1 / 120);
+        for (let frame = 1; frame <= 6; frame++) {
+            expect(world.gpu.span!(frame <= 4 ? "capacity" : "unsampled")).toBeUndefined();
+            world.step(1 / 120);
+        }
+        // Unavailable timing is not readback saturation, even beyond the ring's capacity.
+        expect(world.resource(DiagnosticsStore).get("render/gpu_unsampled_frames")?.value()).toBe(
+            0,
+        );
+        return;
+    }
     const pool = world.readback;
     const request = pool.request;
     const complete: ((result: { bytes: ArrayBuffer; frame: number; fixedTick: number }) => void)[] =
@@ -57,8 +67,19 @@ test("nonempty frames beyond timestamp capacity are unsampled, counted, and neve
 
 test("GPU frames sum repeated passes and idle frames cannot overtake a delayed timestamp result", async () => {
     const world = apps()[0].world;
-    if (!world.gpu.device.features.has("timestamp-query"))
-        throw new Error("requires timestamp-query");
+    if (!world.gpu.device.features.has("timestamp-query")) {
+        world.step(1 / 120);
+        expect(world.gpu.span!("retired")).toBeUndefined();
+        expect(world.gpu.span!("retired")).toBeUndefined();
+        world.step(1 / 120);
+        const store = world.resource(DiagnosticsStore);
+        // Idle frames cannot turn unavailable repeated-pass timings into zero samples.
+        for (let i = 0; i < 131; i++) {
+            world.step(1 / 120);
+            expect(store.get("render/retired/elapsed_gpu")).toBeUndefined();
+        }
+        return;
+    }
     const pool = world.readback;
     const request = pool.request;
     let complete!: (result: { bytes: ArrayBuffer; frame: number; fixedTick: number }) => void;
