@@ -1,5 +1,6 @@
 import { expect, expectTypeOf, test } from "bun:test";
 import * as d from "typegpu/data";
+import { backgroundLayout } from "./contract";
 import { type MaterialBinding, materialLayout, materialType } from "./material-type";
 
 test("a material without owned bindings needs only its parameter schema", () => {
@@ -529,4 +530,55 @@ test("an option that may be undefined also declares its default WGSL resource ty
         | d.InferGPU<d.WgslStorageTexture3d<"r32uint", "write-only">>
     >();
     expect(layout.entries.storageVolume.storageTexture.type).toBe("texture_storage_2d");
+});
+
+const invalidBindings: Record<string, { binding: unknown; refusal: string }> = {
+    "a depth texture with dimension 3d": {
+        binding: { type: "texture", sampleType: "depth", dimension: "3d" },
+        refusal:
+            'material binding "x" is a depth texture, which takes dimension 2d, 2d-array, cube or cube-array, not 3d',
+    },
+    "a depth texture with dimension 1d": {
+        binding: { type: "texture", sampleType: "depth", dimension: "1d" },
+        refusal:
+            'material binding "x" is a depth texture, which takes dimension 2d, 2d-array, cube or cube-array, not 1d',
+    },
+    "a multisampled texture with dimension 2d-array": {
+        binding: { type: "texture", multisampled: true, dimension: "2d-array" },
+        refusal: 'material binding "x" is multisampled, which takes dimension 2d, not 2d-array',
+    },
+    "a filterable sint texture": {
+        binding: { type: "texture", sampleType: "sint", filterable: false },
+        refusal: 'material binding "x" sets filterable, which only a float texture takes',
+    },
+    "a filterable depth texture": {
+        binding: { type: "texture", sampleType: "depth", filterable: true },
+        refusal: 'material binding "x" sets filterable, which only a float texture takes',
+    },
+    "a filterable multisampled texture": {
+        binding: { type: "texture", multisampled: true, filterable: true },
+        refusal: 'material binding "x" is multisampled, which a filtering sampler cannot read',
+    },
+};
+for (const [name, { binding, refusal }] of Object.entries(invalidBindings)) {
+    test(`${name} is refused`, () => {
+        const bindings = { x: binding as MaterialBinding };
+        expect(() => materialLayout(d.struct({ unused: d.f32 }), bindings)).toThrow(refusal);
+        expect(() => backgroundLayout(bindings)).toThrow(
+            refusal.replace("material binding", "background binding"),
+        );
+    });
+}
+
+test("a background's fifth fragment storage texture is refused", () => {
+    const binding: MaterialBinding = {
+        type: "storage-texture",
+        format: "r32uint",
+        access: "write",
+    };
+    const four = { a: binding, b: binding, c: binding, d: binding };
+    expect(() => backgroundLayout(four)).not.toThrow();
+    expect(() => backgroundLayout({ ...four, e: binding })).toThrow(
+        "background layout uses 5 fragment storage textures; WebGPU's maxStorageTexturesInFragmentStage is 4",
+    );
 });
