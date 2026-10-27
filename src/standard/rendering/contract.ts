@@ -1,64 +1,10 @@
 import type { TgpuBindGroupLayout, TgpuFn } from "typegpu";
 import tgpu, { isTgpuFn } from "typegpu";
-import type { WgslArray } from "typegpu/data";
 import * as d from "typegpu/data";
 import type { World } from "../../engine";
 import { backgroundsKey } from "./contract-state";
-import type { MaterialBinding } from "./material-type";
+import { bindingEntry, type EntryFor, type MaterialBinding } from "./material-type";
 import type { BindResource } from "./pipelines";
-
-type EntryFor<B extends MaterialBinding> = B extends { type: "uniform" }
-    ? { uniform: B["struct"]; visibility: ("vertex" | "fragment")[] }
-    : B extends { type: "storage" | "attribute" }
-      ? {
-            storage: (count: number) => WgslArray<B["element"]>;
-            access: "mutable" | "readonly";
-            visibility: ("vertex" | "fragment")[];
-        }
-      : B extends { type: "texture-2d" }
-        ? { texture: d.WgslTexture2d<d.F32>; visibility: ("vertex" | "fragment")[] }
-        : B extends { type: "texture-2d-array" }
-          ? { texture: d.WgslTexture2dArray<d.F32>; visibility: ("vertex" | "fragment")[] }
-          : B extends { type: "texture-depth-2d" }
-            ? { texture: d.WgslTextureDepth2d; visibility: ("vertex" | "fragment")[] }
-            : B extends { type: "sampler" }
-              ? { sampler: "filtering"; visibility: ("vertex" | "fragment")[] }
-              : { sampler: "comparison"; visibility: ("vertex" | "fragment")[] };
-
-const VISIBILITY: ("vertex" | "fragment")[] = ["vertex", "fragment"];
-
-function bindingEntry<B extends MaterialBinding>(binding: B): EntryFor<B> {
-    switch (binding.type) {
-        case "uniform":
-            return { uniform: binding.struct, visibility: VISIBILITY } as EntryFor<B>;
-        case "attribute":
-            return {
-                storage: d.arrayOf(binding.element),
-                access: "readonly",
-                visibility: VISIBILITY,
-            } as EntryFor<B>;
-        case "storage":
-            return {
-                storage: d.arrayOf(binding.element),
-                access: binding.access === "read_write" ? "mutable" : "readonly",
-                visibility: binding.visibility
-                    ? [...binding.visibility]
-                    : binding.access === "read_write"
-                      ? ["fragment"]
-                      : VISIBILITY,
-            } as EntryFor<B>;
-        case "texture-2d":
-            return { texture: d.texture2d(), visibility: VISIBILITY } as EntryFor<B>;
-        case "texture-2d-array":
-            return { texture: d.texture2dArray(), visibility: VISIBILITY } as EntryFor<B>;
-        case "texture-depth-2d":
-            return { texture: d.textureDepth2d(), visibility: VISIBILITY } as EntryFor<B>;
-        case "sampler":
-            return { sampler: "filtering", visibility: VISIBILITY } as EntryFor<B>;
-        case "sampler-comparison":
-            return { sampler: "comparison", visibility: VISIBILITY } as EntryFor<B>;
-    }
-}
 
 function ownEntries<B extends Record<string, MaterialBinding>>(
     bindings: B,

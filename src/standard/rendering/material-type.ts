@@ -42,7 +42,8 @@ export type MaterialBinding =
     | { type: "sampler" }
     | { type: "sampler-comparison" };
 
-type EntryFor<B extends MaterialBinding> = B extends { type: "uniform" }
+/** @internal The TypeGPU layout entry a material or background binding declares. */
+export type EntryFor<B extends MaterialBinding> = B extends { type: "uniform" }
     ? { uniform: B["struct"]; visibility: ShaderStage[] }
     : B extends { type: "storage" | "attribute" }
       ? {
@@ -60,7 +61,8 @@ type EntryFor<B extends MaterialBinding> = B extends { type: "uniform" }
               ? { sampler: "filtering"; visibility: ShaderStage[] }
               : { sampler: "comparison"; visibility: ShaderStage[] };
 
-function bindingEntry<B extends MaterialBinding>(binding: B): EntryFor<B> {
+/** @internal */
+export function bindingEntry<B extends MaterialBinding>(binding: B): EntryFor<B> {
     switch (binding.type) {
         case "uniform":
             return { uniform: binding.struct, visibility: VS_FS } as EntryFor<B>;
