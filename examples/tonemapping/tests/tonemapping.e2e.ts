@@ -108,7 +108,9 @@ for (const viewport of [
     { width: 1280, height: 720 },
     { width: 390, height: 844 },
 ]) {
-    test(`captures at ${viewport.width}px`, async ({ page }) => {
+    test(`the panel fits at ${viewport.width}px; captures when SHALLOT_CAPTURE_DIR is set`, async ({
+        page,
+    }) => {
         await page.setViewportSize(viewport);
         await page.goto("http://127.0.0.1:4297/tests/stepped.html");
         await page.waitForFunction(() => "captureScene" in window);
@@ -121,17 +123,17 @@ for (const viewport of [
         expect(bounds.x).toBeGreaterThanOrEqual(0);
         expect(bounds.x + bounds.width).toBeLessThanOrEqual(viewport.width);
         expect(bounds.y + bounds.height).toBeLessThanOrEqual(viewport.height);
+        const dir = process.env.SHALLOT_CAPTURE_DIR;
+        if (!dir) return;
+        await mkdir(dir, { recursive: true });
         for (const scene of ["basic", "pattern"])
             for (const method of ["0", "5"]) {
                 await page.locator("#scene").selectOption(scene);
                 await page.locator("#method").selectOption(method);
                 await capture(page);
-                if (process.env.SHALLOT_CAPTURE_DIR) {
-                    await mkdir(process.env.SHALLOT_CAPTURE_DIR, { recursive: true });
-                    await page.screenshot({
-                        path: `${process.env.SHALLOT_CAPTURE_DIR}/${scene}-${method === "0" ? "TonyMcMapface" : "AgX"}-${viewport.width}.png`,
-                    });
-                }
+                await page.screenshot({
+                    path: `${dir}/${scene}-${method === "0" ? "TonyMcMapface" : "AgX"}-${viewport.width}.png`,
+                });
             }
     });
 }
