@@ -246,16 +246,15 @@ jobs:
           node -e "import('webgpu').then(({ create, globals }) => { Object.assign(globalThis, globals); return create([]).requestAdapter(); }).then(async (adapter) => { if (!adapter) throw new Error('WebGPU adapter unavailable'); const info = adapter.info; const identity = [info.vendor, info.architecture, info.device, info.description].join(' '); if (process.platform === 'win32' && !/warp|basic render/i.test(identity)) throw new Error('Expected WARP, got ' + identity); (await adapter.requestDevice()).destroy(); console.info('WebGPU adapter:', identity); })"
       - name: Node tier
         if: matrix.os != 'windows-latest'
-        run: /usr/bin/time -p bun test --reporter=junit --reporter-outfile=node-junit.xml --shard=${{ matrix.shard }} $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print | sort) 2>&1 | tee node-test.log
+        run: /usr/bin/time -p bun test --reporter=junit --reporter-outfile=node-junit.xml --shard=${{ matrix.shard }} $(bun scripts/test-hosts.ts $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print | sort)) 2>&1 | tee node-test.log
       - name: Node tier on WARP
         if: matrix.os == 'windows-latest'
         run: |
           # packed-install alone fills a Windows shard, so it runs as its own job.
-          # The POSIX desktop opener shim runs in the Linux and macOS Node tiers.
           if [[ '${{ matrix.shard }}' == packed ]]; then
             files=(./scripts/packed-install.node.ts)
           else
-            files=(--shard=${{ matrix.shard }} $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' ! -path ./scripts/packed-install.node.ts ! -path ./scripts/publish-browser-session.node.ts -print | sort))
+            files=(--shard=${{ matrix.shard }} $(bun scripts/test-hosts.ts $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' ! -path ./scripts/packed-install.node.ts -print | sort)))
           fi
           # Bun named node.exe drops the first argument after -e, so the list travels in the environment.
           export SHALLOT_TEST_ARGS="$(printf '%s\n' "${files[@]}")"
@@ -335,7 +334,7 @@ jobs:
         run: |
           node -e "import('webgpu').then(({ create, globals }) => { Object.assign(globalThis, globals); return create([]).requestAdapter(); }).then(async (adapter) => { if (!adapter) throw new Error('WebGPU adapter unavailable'); const info = adapter.info; const identity = [info.vendor, info.architecture, info.device, info.description].join(' '); if (process.platform === 'win32' && !/warp|basic render/i.test(identity)) throw new Error('Expected WARP, got ' + identity); (await adapter.requestDevice()).destroy(); console.info('WebGPU adapter:', identity); })"
       - name: Node tier
-        run: /usr/bin/time -p bun test --reporter=junit --reporter-outfile=checked-node-junit.xml --shard=${{ matrix.shard }} $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' ! -path './scripts/check-package.node.ts' -print | sort) 2>&1 | tee checked-node-test.log
+        run: /usr/bin/time -p bun test --reporter=junit --reporter-outfile=checked-node-junit.xml --shard=${{ matrix.shard }} $(bun scripts/test-hosts.ts $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' ! -path './scripts/check-package.node.ts' -print | sort)) 2>&1 | tee checked-node-test.log
       - name: report slow Node tests
         if: always()
         env:

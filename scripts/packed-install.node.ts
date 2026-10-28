@@ -17,6 +17,7 @@ import {
     removeExample,
     run,
 } from "./packed-install-fixture";
+import { runsOn } from "./test-hosts";
 
 setDefaultTimeout(TIMEOUT.node);
 
@@ -223,7 +224,7 @@ for (const name of examples) {
                         .sort(),
                 ).toEqual(nodeSubjects);
             });
-        for (const subject of nodeSubjects) {
+        for (const subject of nodeSubjects.filter((path) => runsOn(join("examples", name, path)))) {
             const cases =
                 name === "particles"
                     ? nodeTestNames(join(ROOT, "examples", name, subject))
