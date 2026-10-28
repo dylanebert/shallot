@@ -1,9 +1,28 @@
-//! Instance-local authoring scratch; images remain valid until the next nonconvex build.
+//! Instance-local authoring scratch. A build image lives until the next build unless retained;
+//! a retained image lives until its explicit destruction.
 use crate::math::Vec3;
 use crate::nonconvex_build::Image;
 use crate::{height_build, mesh_build};
 static mut INPUT: Vec<u32> = Vec::new();
 static mut OUTPUT: Option<Image> = None;
+/// Transfer the last build out of scratch so subsequent builds cannot release it.
+#[export_name = "nonconvexRetain"]
+pub unsafe extern "C" fn retain() -> *mut Image {
+    (&mut *(&raw mut OUTPUT))
+        .take()
+        .map_or(core::ptr::null_mut(), |image| {
+            Box::into_raw(Box::new(image))
+        })
+}
+
+/// Release an image returned by nonconvexRetain exactly once.
+#[export_name = "nonconvexDestroy"]
+pub unsafe extern "C" fn destroy(image: *mut Image) {
+    if !image.is_null() {
+        drop(Box::from_raw(image));
+    }
+}
+
 #[export_name = "nonconvexBuildInputPtr"]
 pub unsafe extern "C" fn input_ptr(words: usize) -> *mut u32 {
     let input = &mut *(&raw mut INPUT);

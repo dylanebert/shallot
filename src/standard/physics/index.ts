@@ -20,6 +20,12 @@ export type {
     PhysicsSensorEvent,
 } from "./events";
 export { PhysicsEvents } from "./events";
+export {
+    createPhysicsMesh,
+    destroyPhysicsMesh,
+    type PhysicsMeshData,
+    type PhysicsMeshNode,
+} from "./mesh";
 export { computeCosSin, rotationFromAxisAngle } from "./rotation";
 export {
     applyAngularImpulse,

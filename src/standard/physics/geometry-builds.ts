@@ -129,7 +129,7 @@ function restore<Def extends { name: string }, Built extends object>(
     }
 }
 
-function buildMesh(world: World, def: PhysicsMesh): MeshData {
+export function buildMesh(world: World, def: PhysicsMesh): MeshData {
     if ("grid" in def) {
         const a = def.grid;
         return createGridMesh(
