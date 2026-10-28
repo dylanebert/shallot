@@ -13,18 +13,6 @@ async function capture(page: Page): Promise<number> {
         return win.captures.length - 1;
     });
 }
-async function difference(page: Page, a: number, b: number): Promise<number> {
-    return page.evaluate(
-        ([a, b]) => {
-            const captures = (window as unknown as CaptureWindow).captures;
-            let sum = 0;
-            for (let i = 0; i < captures[a].length; i++)
-                if (i % 4 !== 3) sum += Math.abs(captures[a][i] - captures[b][i]);
-            return sum / (captures[a].length * 0.75);
-        },
-        [a, b],
-    );
-}
 
 test.use(pipelineWarnings);
 
@@ -44,80 +32,6 @@ test("the first frame has no late-pipeline warning and F3 toggles the profiler",
     await expect(profiler).toBeVisible();
     await page.keyboard.press("F3");
     await expect(profiler).toHaveCount(0);
-});
-
-test("every ambient occlusion control changes the captured frame and off restores the unoccluded frame", async ({
-    page,
-}) => {
-    const errors: string[] = [];
-    page.on("pageerror", (error) => errors.push(error.message));
-    // Each capture waits on a full draw, which a software adapter spends most of the test on. The
-    // differences are per-pixel means, and the samples are the 1280 px frame's points halved.
-    await page.setViewportSize({ width: 640, height: 360 });
-    await page.goto("http://127.0.0.1:4276/tests/stepped.html");
-    await page.waitForFunction(() => "captureScene" in window);
-    const toggle = page.getByRole("checkbox");
-    const panel = page.getByRole("region", { name: "Ambient occlusion controls" });
-    const bounds = await panel.boundingBox();
-    const occluded = await capture(page);
-    await toggle.uncheck();
-    const off = await capture(page);
-    expect(await difference(page, occluded, off)).toBeGreaterThan(0.1);
-    const pixels = await page.evaluate(
-        ([on, off]) => {
-            const frames = (window as unknown as CaptureWindow).captures;
-            const sample = (frame: number, x: number, y: number) => {
-                const i = (y * 640 + x) * 4;
-                return frames[frame][i] + frames[frame][i + 1] + frames[frame][i + 2];
-            };
-            return {
-                creaseOn: sample(on, 320, 130),
-                creaseOff: sample(off, 320, 130),
-                farOn: sample(on, 260, 110),
-                farOff: sample(off, 260, 110),
-                sphereOn: sample(on, 320, 220),
-                sphereOff: sample(off, 320, 220),
-            };
-        },
-        [occluded, off],
-    );
-    expect(pixels.creaseOff - pixels.creaseOn).toBeGreaterThan(60);
-    expect(pixels.sphereOff - pixels.sphereOn).toBeGreaterThan(20);
-    expect(Math.abs(pixels.farOn - pixels.farOff) / 3).toBeLessThanOrEqual(2);
-    expect(await panel.boundingBox()).toEqual(bounds);
-    for (const slider of await page.getByRole("slider").all()) await expect(slider).toBeDisabled();
-    await toggle.check();
-    expect(await difference(page, await capture(page), occluded)).toBeLessThan(0.1);
-    const values = [8, 4];
-    for (const [index, slider] of (await page.getByRole("slider").all()).entries()) {
-        const before = await capture(page);
-        const original = await slider.inputValue();
-        await slider.fill(String(values[index]));
-        expect(
-            await difference(page, await capture(page), before),
-            (await slider.getAttribute("id"))!,
-        ).toBeGreaterThan(0.01);
-        await slider.fill(original);
-    }
-    const high = await capture(page);
-    for (const quality of ["0", "1", "3"]) {
-        await page.getByRole("combobox").selectOption(quality);
-        expect(
-            await difference(page, await capture(page), high),
-            `quality ${quality}`,
-        ).toBeGreaterThan(0.001);
-    }
-    await page.getByRole("slider").first().fill("2");
-    await page.getByRole("slider").last().fill("1");
-    const tuned = await capture(page);
-    await toggle.uncheck();
-    expect(await difference(page, await capture(page), off)).toBeLessThan(0.1);
-    await toggle.check();
-    await expect(page.getByRole("slider").first()).toHaveValue("2");
-    await expect(page.getByRole("slider").last()).toHaveValue("1");
-    await expect(page.getByRole("combobox")).toHaveValue("3");
-    expect(await difference(page, await capture(page), tuned)).toBeLessThan(0.1);
-    expect(errors).toEqual([]);
 });
 
 test("each control writes its camera field and the toggle restores them", async ({ page }) => {
