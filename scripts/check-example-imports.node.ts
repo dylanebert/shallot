@@ -49,6 +49,15 @@ for (const name of [
     });
 }
 
+test("isometric carries city's building layout with only its population changed", () => {
+    const layout = (name: string) =>
+        readFileSync(resolve(EXAMPLES, name, "src/layout.ts"), "utf8").replace(
+            /export const POPULATION = \d+;/,
+            "export const POPULATION = 0;",
+        );
+    expect(layout("isometric")).toBe(layout("city"));
+});
+
 function moduleScripts(source: string): string[] {
     const scripts = source.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi);
     return [...scripts]

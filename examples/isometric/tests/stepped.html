@@ -1,0 +1,31 @@
+<!doctype html><html lang="en"><head><meta charset="UTF-8"/><title>Isometric, stepped</title><link rel="icon" href="/icon.svg"/><style>body{margin:0;background:#191816}canvas{display:block}</style></head><body><canvas width="1280" height="720"></canvas>
+<script type="module">
+import { createApp, Camera, DirectionalLight } from '@dylanebert/shallot';
+import { attachTexture, captureTexture, captureFrame } from '@dylanebert/shallot/rendering';
+import { DirectionalLightShadowMap } from '@dylanebert/shallot/standard/rendering';
+import { Isometric, isometricPlugin } from '../src/isometric';
+import { SEED } from '../src/layout';
+const captures=new URLSearchParams(location.search).has('captures');
+const isometric=isometricPlugin(SEED);
+const app=await createApp({plugins:[isometric,{
+ name:'IsometricTestView',dependencies:[isometric],
+ initialize(world){if(!captures){
+  const camera=world.resource(Isometric).camera;
+  attachTexture(world,camera,{width:640,height:360});
+  world.storage(Camera).antialias.set(camera,0);
+  world.resource(DirectionalLightShadowMap).size=512;
+  for(const sun of world.query([DirectionalLight]))world.storage(DirectionalLight).numCascades.set(sun,1);
+ }},
+}]});
+const world=app.world, canvas=document.querySelector('canvas');
+world.step(1/60);world.step(1/60);
+window.isometric={
+ async capture() {
+  const pending=captures?captureFrame(canvas):undefined;world.step(0);
+  const image=await (pending??captureTexture(world,world.resource(Isometric).camera));
+  const c=document.createElement('canvas');c.width=image.width;c.height=image.height;
+  c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(image.rgba),image.width,image.height),0,0);
+  return {png:c.toDataURL('image/png'),rgba:Array.from(image.rgba),width:image.width,height:image.height};
+ }
+};
+</script></body></html>

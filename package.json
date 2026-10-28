@@ -89,6 +89,7 @@
         "examples/volumetric-fog",
         "examples/physics",
         "examples/city",
+        "examples/isometric",
         "examples/voxel",
         "examples/lit-interior",
         "examples/sound",
