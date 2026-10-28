@@ -53,7 +53,7 @@ export const ONLY: Readonly<Record<string, readonly NodeJS.Platform[]>> = {
 const HOSTED = process.env.GITHUB_ACTIONS === "true";
 
 /** Whether the path, relative to the repository root, runs on `platform`; `hosted` applies {@link ONLY}. */
-export function runsOn(
+function runsOn(
     path: string,
     platform: NodeJS.Platform = process.platform,
     hosted = HOSTED,

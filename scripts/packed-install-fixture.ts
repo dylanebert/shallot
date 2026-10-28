@@ -198,40 +198,16 @@ export function assertCreatedExample(name: string): void {
     expect(installOutput).not.toContain("build-tooling: generated dist/");
 }
 
-export const manualParticleCases = [
-    [
-        "./src/motes.node.ts",
-        "the example compiles its compute and draw pipelines and counts its storage and uniform bytes",
-    ],
-    [
-        "./src/motes.node.ts",
-        "the profiler buffer total includes exactly the motes storage and frame uniform allocations",
-    ],
-    [
-        "./src/motes.node.ts",
-        "motes near a moving player's fixed path end farther from the path than with the player still",
-    ],
-] as const;
-
-export function assertCopiedNodeCase(
-    project: string,
-    name: string,
-    subject: string,
-    caseName?: string,
-): void {
+/** Runs `subject` in the copy and returns its output once it reports no failure. */
+export function assertCopiedNodeCase(project: string, name: string, subject: string): string {
     // This process's own Bun: on Windows CI it is the copy named node.exe that Dawn requires, and
     // argv0 keeps that copy in Bun's mode rather than Node's, as CI's Node tier spawns it.
     const output = run(
-        [
-            process.execPath,
-            "test",
-            subject,
-            ...(caseName ? ["-t", `^${caseName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`] : []),
-        ],
+        [process.execPath, "test", subject],
         project,
         `bun test ${name} ${subject}`,
         "bun",
     );
     expect(output).toContain("0 fail");
-    if (caseName) expect(output).toContain("1 pass");
+    return output;
 }

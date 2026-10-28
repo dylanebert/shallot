@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { parse } from "@babel/parser";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { normalizePath } from "../src/project/paths";
 import {
@@ -10,16 +9,42 @@ import {
     createExample,
     example,
     examples,
-    manualParticleCases,
     packedInstall,
     projectFiles,
     ROOT,
     removeExample,
     run,
 } from "./packed-install-fixture";
-import { runsOn } from "./test-hosts";
 
 setDefaultTimeout(TIMEOUT.node);
+
+// One copied example Node file proves a created project's Node tier: the default renderer, physics kernel and
+// GPU opener run from the installed package under the copy's preload. Every example's Node files run in place.
+const COPIED_NODE_SUBJECT = { name: "first-person", subject: "./tests/ascent.node.ts" };
+
+// Each exported plugin's initialize and warm, which no example composition runs together, from the installed
+// package under the same copy's preload.
+const PACKED_PLUGINS_SUBJECT = "./tests/packed-plugins.node.ts";
+const PACKED_PLUGINS_SOURCE = `import { expect, setDefaultTimeout, test } from "bun:test";
+import * as Shallot from "@dylanebert/shallot";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { openGpuApp } from "@dylanebert/shallot/testing/gpu";
+
+setDefaultTimeout(TIMEOUT.node);
+
+test("every exported plugin initializes, warms and steps from the installed package", async () => {
+    const plugins = Object.entries(Shallot)
+        .filter(([name, value]) => name.endsWith("Plugin") && typeof value === "object" && value !== null)
+        .map(([, value]) => value as Shallot.Plugin);
+    expect(plugins.map((plugin) => plugin.name)).toContain("Fog");
+    const app = await openGpuApp({ plugins });
+    try {
+        app.world.step(Shallot.Time.FIXED_DT);
+    } finally {
+        app.dispose();
+    }
+});
+`;
 
 test("the packed CLI exposes the public package and its installed examples", () => {
     const { scratch, cliProject, rootPackage, installedPackage, cliInstall } = packedInstall();
@@ -129,47 +154,6 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
     expect(existsSync(join(scratch, "package.json"))).toBe(false);
 });
 
-function nodeTestNames(path: string): string[] {
-    const ast = parse(readFileSync(path, "utf8"), {
-        sourceType: "module",
-        plugins: ["typescript"],
-    });
-    const topLevel = new Set(
-        ast.program.body.flatMap((node) =>
-            node.type === "ExpressionStatement" ? [node.expression] : [],
-        ),
-    );
-    const names: string[] = [];
-    const visit = (node: any) => {
-        if (!node || typeof node !== "object") return;
-        if (node.type === "CallExpression") {
-            let callee = node.callee;
-            while (callee.type === "MemberExpression" || callee.type === "CallExpression")
-                callee = callee.object ?? callee.callee;
-            if (callee.type === "Identifier" && ["test", "it", "describe"].includes(callee.name)) {
-                if (
-                    node.callee !== callee ||
-                    callee.name !== "test" ||
-                    !topLevel.has(node) ||
-                    node.arguments[0]?.type !== "StringLiteral"
-                )
-                    throw new Error(
-                        `${path}: per-case packed checks require top-level test calls with literal names`,
-                    );
-                names.push(node.arguments[0].value);
-            }
-        }
-        for (const value of Object.values(node)) {
-            if (Array.isArray(value)) for (const child of value) visit(child);
-            else visit(value);
-        }
-    };
-    visit(ast.program);
-    if (!names.length || new Set(names).size !== names.length)
-        throw new Error(`${path}: per-case packed checks require nonempty, unique test names`);
-    return names;
-}
-
 // Each example owns its setup so a selected subject never depends on an earlier test.
 for (const name of examples) {
     describe(name, () => {
@@ -224,24 +208,17 @@ for (const name of examples) {
                         .sort(),
                 ).toEqual(nodeSubjects);
             });
-        for (const subject of nodeSubjects.filter((path) => runsOn(join("examples", name, path)))) {
-            const cases =
-                name === "particles"
-                    ? nodeTestNames(join(ROOT, "examples", name, subject))
-                    : [undefined];
-            for (const caseName of cases) {
-                if (
-                    name === "particles" &&
-                    manualParticleCases.some(
-                        ([file, claim]) => file === subject && claim === caseName,
-                    )
-                )
-                    continue;
-                test(`${name} passes ${subject}${caseName ? `: ${caseName}` : ""} in its copy`, () => {
-                    const { project } = example(name);
-                    assertCopiedNodeCase(project, name, subject, caseName);
-                });
-            }
+        if (name === COPIED_NODE_SUBJECT.name) {
+            test(`${name} passes ${COPIED_NODE_SUBJECT.subject} in its copy`, () => {
+                assertCopiedNodeCase(example(name).project, name, COPIED_NODE_SUBJECT.subject);
+            });
+            test(`${name}'s copy initializes and warms every exported plugin`, () => {
+                const { project } = example(name);
+                writeFileSync(join(project, PACKED_PLUGINS_SUBJECT), PACKED_PLUGINS_SOURCE);
+                expect(assertCopiedNodeCase(project, name, PACKED_PLUGINS_SUBJECT)).toContain(
+                    "1 pass",
+                );
+            });
         }
 
         test(`${name} refuses its tests without the TGSL preload`, () => {
