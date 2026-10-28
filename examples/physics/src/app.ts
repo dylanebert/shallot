@@ -10,6 +10,7 @@ import { BenchmarkSamplePlugin } from "./benchmarks";
 import { BodySamplePlugin } from "./bodies";
 import { CharacterSamplePlugin } from "./character";
 import { EventSamplePlugin, SampleInputPlugin } from "./events";
+import { GeometricMoverPlugin } from "./geometric-mover";
 import { GrabPlugin } from "./grab";
 import { JointSamplePlugin } from "./joints";
 import { ShapesSamplePlugin } from "./shapes";
@@ -32,6 +33,7 @@ export const AppPlugin: Plugin = {
         JointSamplePlugin,
         BodySamplePlugin,
         CharacterSamplePlugin,
+        GeometricMoverPlugin,
         SampleInputPlugin,
         TextPlugin,
         OrbitPlugin,

@@ -76,7 +76,7 @@ import {
     restoreConstraints,
     syncJoints,
 } from "./joints";
-import { readSimTransform } from "./kernel/bodycolumns";
+import { readSimInvInertiaWorld, readSimInvMass, readSimTransform } from "./kernel/bodycolumns";
 import { BodyField, bodyField } from "./kernel/bodyrecords";
 import { EventKind, eventCount } from "./kernel/eventbuffers";
 import { readJointEventUserData } from "./kernel/jointcolumns";
@@ -199,10 +199,13 @@ interface PhysicsRuntime {
     queryDepth: number;
     queryCastCallback: QueryCallback;
     queryOverlapCallback: QueryCallback;
+    queryMoverFilterCallback: QueryCallback;
     queryBodyPlaneCallback: QueryCallback;
     queryPlaneCallback: QueryCallback;
     bodyPlanes: { records: PhysicsBodyPlaneHit[]; count: number };
     bodyTOI: PhysicsBodyTOI;
+    moverCast: { fraction: number };
+    inverseMass: { inverseMass: number };
     planes: { records: PhysicsBodyPlaneHit[]; count: number };
     planeCapacity: number;
     /** Each attached shape's EntityRef at its first attachment. */
@@ -277,9 +280,12 @@ function newRuntime(): PhysicsRuntime {
         queryDepth: 0,
         queryCastCallback: null!,
         queryOverlapCallback: null!,
+        queryMoverFilterCallback: null!,
         queryBodyPlaneCallback: null!,
         queryPlaneCallback: null!,
         bodyPlanes: { records: [], count: 0 },
+        moverCast: { fraction: 1 },
+        inverseMass: { inverseMass: 0 },
         bodyTOI: {
             shape: 0,
             body: 0,
@@ -307,6 +313,7 @@ function newRuntime(): PhysicsRuntime {
     };
     runtime.queryCastCallback = castQueryCallback.bind(runtime);
     runtime.queryOverlapCallback = overlapQueryCallback.bind(runtime);
+    runtime.queryMoverFilterCallback = moverFilterQueryCallback.bind(runtime);
     runtime.queryBodyPlaneCallback = bodyPlaneQueryCallback.bind(runtime);
     runtime.queryPlaneCallback = planeQueryCallback.bind(runtime);
     return runtime;
@@ -373,6 +380,12 @@ function overlapQueryCallback(this: PhysicsRuntime, _kind: number, shapeId: numb
     const context = this.queryContexts[this.queryDepth - 1];
     if (!queryShapeEntities(context.world!, this, shapeId, context)) return 1;
     return Number(context.overlap!(context.shapeEid, context.bodyEid));
+}
+
+function moverFilterQueryCallback(this: PhysicsRuntime, _kind: number, shapeId: number): number {
+    const context = this.queryContexts[this.queryDepth - 1];
+    if (!queryShapeEntities(context.world!, this, shapeId, context)) return 0;
+    return Number(context.overlap?.(context.shapeEid, context.bodyEid) ?? true);
 }
 
 function queryShapeEntities(
@@ -1006,6 +1019,44 @@ export function collideMover(
 }
 
 /**
+ * Sweep a capsule through last-fixed-sync shapes, returning the fraction it can advance (one on
+ * a miss). origin is world-space meters; capsule centers are world-axis offsets from origin and
+ * translation is in meters. Initial touching can advance; initial overlaps do not block the cast.
+ * accept filters live Shape and Body entities before testing geometry. Its return does not stop
+ * traversal. The returned record belongs to this World and is valid until its next castMover
+ * call; copy its fraction to retain it. Warmed calls allocate nothing.
+ */
+export function castMover(
+    world: World,
+    origin: Pos,
+    mover: Capsule,
+    translation: Vec3,
+    filter?: QueryFilter,
+    accept?: PhysicsOverlapCallback,
+): { fraction: number } {
+    const runtime = runtimeFor(world);
+    const out = runtime.moverCast;
+    out.fraction = 1;
+    const state = runtime.physicsWorld;
+    if (!state) return out;
+    const q = queryColumns(state);
+    const k = q.prepare(origin, filter);
+    q.mover(mover.center1, mover.center2, mover.radius);
+    q.translation(translation);
+    beginQuery(runtime, world, origin, null, accept ?? null, null);
+    const previous = setQueryCallback(state.ecsState, runtime.queryMoverFilterCallback);
+    try {
+        k.worldQuery(state.worldId, 6, 1);
+        rethrowQueryError(state.ecsState);
+        out.fraction = q.resultF[3];
+        return out;
+    } finally {
+        setQueryCallback(state.ecsState, previous);
+        endQuery(runtime);
+    }
+}
+
+/**
  * Cast a ray through the ECS World's Box3D shapes, reporting each hit's Shape and Body entities.
  * Return the new maximum fraction, usually `hit.fraction` to stop at the closest hit, or `-1` to skip.
  * The callback's hit record and nested vectors are reused and valid only until it returns.
@@ -1559,6 +1610,31 @@ export function getAngularVelocity(world: World, eid: number): Vec3 | null {
     const body = boundBody(world, runtime, eid);
     return runtime.physicsWorld && body
         ? bodyGetAngularVelocity(runtime.physicsWorld, body.index1 - 1, { x: 0, y: 0, z: 0 })
+        : null;
+}
+
+/** Current solver inverse mass in 1/kg; null for an unbound body.
+ * The returned record belongs to this World and is valid until its next getInverseMass call;
+ * copy its inverseMass to retain it. Warmed calls allocate nothing. */
+export function getInverseMass(world: World, eid: number): { inverseMass: number } | null {
+    const runtime = runtimeFor(world);
+    const body = boundBody(world, runtime, eid);
+    if (!runtime.physicsWorld || !body) return null;
+    runtime.inverseMass.inverseMass = readSimInvMass(runtime.physicsWorld, -body.index1);
+    return runtime.inverseMass;
+}
+
+/** Current world-space inverse rotational inertia in 1/(kg·m²); null for an unbound body.
+ * Writes into caller-owned out when supplied; otherwise returns a fresh matrix. */
+export function getWorldInverseRotationalInertia(
+    world: World,
+    eid: number,
+    out = { cx: { x: 0, y: 0, z: 0 }, cy: { x: 0, y: 0, z: 0 }, cz: { x: 0, y: 0, z: 0 } },
+) {
+    const runtime = runtimeFor(world);
+    const body = boundBody(world, runtime, eid);
+    return runtime.physicsWorld && body
+        ? readSimInvInertiaWorld(runtime.physicsWorld, -body.index1, out)
         : null;
 }
 

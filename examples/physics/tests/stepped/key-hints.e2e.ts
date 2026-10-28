@@ -14,7 +14,7 @@ for (const view of [
             viewport: { width: view.width, height: view.height },
             hasTouch: view.hasTouch,
         });
-        for (const scene of ["Contact", "Driving"]) {
+        for (const scene of ["Contact", "Driving", "Geometric Mover"]) {
             test(`${scene} earns a key hint only on a desktop fine pointer`, async ({ page }) => {
                 await page.goto("/tests/controls.html");
                 await page.waitForFunction(() => "controlsKey" in window);

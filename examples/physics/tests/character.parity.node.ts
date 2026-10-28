@@ -3,11 +3,98 @@ import { createApp, hashPhysics, StandardPhysicsPlugin } from "@dylanebert/shall
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { CharacterSample, CharacterSamplePlugin, characterDrag } from "../src/character";
 import { characterDrawing } from "../src/character-presentation";
+import { GeometricMoverPlugin, GeometricMoverState } from "../src/geometric-mover";
 import { changeControl, controlValues, createScene } from "../src/scenes";
 import { drawingDigest } from "./digest";
 import { sampleGold } from "./gold";
 
 setDefaultTimeout(TIMEOUT.node);
+for (const controlled of [false, true])
+    test(`geometricMover equals all 600 native hashes and mover states${controlled ? " through keys and Clip Velocity" : ""}`, async () => {
+        const stem = `geometricMover${controlled ? ".controls" : ""}`;
+        const gold = sampleGold(
+            await Bun.file(new URL(`./${stem}.gold.txt`, import.meta.url)).text(),
+        );
+        const states = (await Bun.file(new URL(`./${stem}.mover.gold.txt`, import.meta.url)).text())
+            .trimEnd()
+            .split("\n")
+            .map((line) => (JSON.parse(line) as number[]).map(Math.fround));
+        const sequence = controlled
+            ? (await Bun.file(new URL("./geometricMover.controls.txt", import.meta.url)).text())
+                  .trimEnd()
+                  .split("\n")
+                  .map((row) => {
+                      const [step, name, value] = row.split("\t");
+                      return { step: Number(step), name: name!, value: Number(value) };
+                  })
+            : [];
+        const app = await createApp({ defaults: false, plugins: [GeometricMoverPlugin] });
+        const start = performance.now();
+        try {
+            const bodies = createScene(app.world, "geometricMover");
+            const values = controlValues("geometricMover");
+            const s = app.world.resource(GeometricMoverState);
+            expect(gold).toHaveLength(600);
+            expect(states).toHaveLength(600);
+            for (let i = 0; i < 600; i++) {
+                for (const change of sequence)
+                    if (change.step === i) {
+                        if (Object.hasOwn(s.keys, change.name))
+                            s.keys[change.name as keyof typeof s.keys] = change.value;
+                        else
+                            changeControl(
+                                app.world,
+                                "geometricMover",
+                                bodies,
+                                values,
+                                change.name,
+                                change.value,
+                            );
+                    }
+                app.world.tick();
+                expect(hashPhysics(app.world), `${stem} step ${i} hash`).toBe(gold[i]!.hash);
+                const m = s.mover;
+                expect(
+                    [
+                        m.position.x,
+                        m.position.y,
+                        m.position.z,
+                        m.velocity.x,
+                        m.velocity.y,
+                        m.velocity.z,
+                        m.pogoVelocity,
+                        +m.onGround,
+                        +m.sprint,
+                        m.planes.length,
+                        m.totalIterations,
+                        s.treeTimer,
+                        s.respawnTimer,
+                        ...[s.boxImpact, s.treeImpact].flatMap((impact) => [
+                            impact.point.x,
+                            impact.point.y,
+                            impact.point.z,
+                            impact.normal.x,
+                            impact.normal.y,
+                            impact.normal.z,
+                            impact.speed,
+                            +impact.valid,
+                        ]),
+                        s.impactTransform.p.x,
+                        s.impactTransform.p.y,
+                        s.impactTransform.p.z,
+                        s.impactTransform.q.v.x,
+                        s.impactTransform.q.v.y,
+                        s.impactTransform.q.v.z,
+                        s.impactTransform.q.s,
+                    ].map(Math.fround),
+                    `${stem} step ${i} mover`,
+                ).toEqual(states[i]);
+            }
+        } finally {
+            app.dispose();
+        }
+        console.log(`${stem}: ${(performance.now() - start).toFixed(0)} ms`);
+    });
 for (const scene of ["capsulePlane", "moverOverlap"] as const)
     for (const controlled of [false, true]) {
         test(`${scene} equals all 600 native hashes and drawing records${controlled ? " through dragging and controls" : ""}`, async () => {

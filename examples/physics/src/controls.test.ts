@@ -2,7 +2,15 @@ import { expect, test } from "bun:test";
 import { formatValue } from "./control-format";
 import { type Controls, controlValues, enabledControls, type Scene, scenes } from "./scenes";
 
-test("Character rows retain Solve and two integer read-only overlap counts", () => {
+test("Character rows retain Solve, Clip Velocity and two integer read-only overlap counts", () => {
+    expect(Object.keys(scenes.geometricMover.controls)).toEqual(["Clip Velocity"]);
+    expect(scenes.geometricMover.controls["Clip Velocity"]).toMatchObject({
+        label: "Clip Velocity",
+        value: 1,
+    });
+    const moverControls: Controls = scenes.geometricMover.controls;
+    expect(moverControls["Clip Velocity"]!.min).toBeUndefined();
+    expect(moverControls["Clip Velocity"]!.button).toBeUndefined();
     expect(Object.keys(scenes.capsulePlane.controls)).toEqual(["Solve"]);
     expect(scenes.capsulePlane.controls.Solve.button).toBe(true);
     expect(Object.keys(scenes.moverOverlap.controls)).toEqual(["Planes", "Degenerate"]);

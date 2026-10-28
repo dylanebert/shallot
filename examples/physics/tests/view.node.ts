@@ -18,6 +18,7 @@ import {
 } from "@dylanebert/shallot/standard/physics";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { EventSample, EventSamplePlugin } from "../src/events";
+import { GeometricMoverState } from "../src/geometric-mover";
 import { scenePresentation, shapeMaterial } from "../src/presentation";
 import { MotorizedJoint } from "../src/roles";
 import {
@@ -322,17 +323,29 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
             }
             for (const { eid, body, role, mesh } of presentation.shapes) {
                 expect(mesh.vertices.length).toBeGreaterThan(0);
-                const expected = world.resource(SensorSample).sensors.get(world.ref(eid))?.active
-                    ? "ground"
-                    : world.get(eid, Shape)!.isSensor
-                      ? "sensor"
-                      : world.get(body, Body)!.type === BodyType.Static
+                const mover = world.resource(GeometricMoverState);
+                const characterRole =
+                    mover.active &&
+                    (eid === mover.ignore || mover.policies.get(eid)?.clipVelocity === false)
+                        ? "motorized"
+                        : mover.active &&
+                            world.get(body, Body)!.type === BodyType.Static &&
+                            mover.policies.has(eid)
+                          ? "sensor"
+                          : null;
+                const expected =
+                    characterRole ??
+                    (world.resource(SensorSample).sensors.get(world.ref(eid))?.active
                         ? "ground"
-                        : world.get(body, Body)!.type === BodyType.Kinematic ||
-                            driven.has(body) ||
-                            body === world.resource(EventSample).player
-                          ? "motorized"
-                          : "subject";
+                        : world.get(eid, Shape)!.isSensor
+                          ? "sensor"
+                          : world.get(body, Body)!.type === BodyType.Static
+                            ? "ground"
+                            : world.get(body, Body)!.type === BodyType.Kinematic ||
+                                driven.has(body) ||
+                                body === world.resource(EventSample).player
+                              ? "motorized"
+                              : "subject");
                 expect(role).toBe(expected);
                 expect(presentation.materials[role]).toBeDefined();
                 const material = shapeMaterial(world, role, eid);
@@ -361,6 +374,7 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 expect(ground.mesh.indices.length).toBeGreaterThan(0);
             } else expect(presentation.ground).toBeUndefined();
             const extent = {
+                geometricMover: 80,
                 capsulePlane: 10,
                 moverOverlap: 12,
                 cast: 10,

@@ -14,6 +14,7 @@ import {
     NotShadowCaster,
     qRotate,
     Shape,
+    ShapeKind,
     StandardMaterial,
     StandardRenderer,
     type System,
@@ -33,12 +34,18 @@ import {
     Text,
 } from "@dylanebert/shallot/extras";
 import { Anchor, Billboard, worldToViewport } from "@dylanebert/shallot/rendering";
-import { defaultDebugDraw, drawPhysics } from "@dylanebert/shallot/standard/physics";
+import {
+    defaultDebugDraw,
+    drawPhysics,
+    shapeEdges,
+    shapeMesh,
+} from "@dylanebert/shallot/standard/physics";
 import { drawCastView } from "./cast-presentation";
 import { drawCharacterView } from "./character-presentation";
 import { drawingBounds, drawSet } from "./draw-set";
 import { DrivingState } from "./driving";
 import { EventSample } from "./events";
+import { GeometricMoverState } from "./geometric-mover";
 import { Grab } from "./grab";
 import { drawJointViews } from "./joint-presentation";
 import {
@@ -119,10 +126,18 @@ export function setSceneCamera(world: World, scene: Scene, camera: number): void
         camera,
         phone && "phoneDistance" in view ? view.phoneDistance : view.distance,
     );
-    orbit.target.set(camera, scene === "driving" ? world.resource(DrivingState).chassis : 0);
-    // Sharing the orbit button prevents flythrough from detaching the driving camera.
-    orbit.flyButton.set(camera, scene === "driving" ? orbit.orbitButton.get(camera) : 2);
-    const target = scene === "driving" ? [0, 0, 0] : view.target;
+    const follow = scene === "driving" || scene === "geometricMover";
+    orbit.target.set(
+        camera,
+        scene === "driving"
+            ? world.resource(DrivingState).chassis
+            : scene === "geometricMover"
+              ? world.resource(GeometricMoverState).entity
+              : 0,
+    );
+    // Sharing the orbit button prevents flythrough from detaching a follow camera.
+    orbit.flyButton.set(camera, follow ? orbit.orbitButton.get(camera) : 2);
+    const target = follow ? [0, 0, 0] : view.target;
     orbit.pan.set(camera, target[0]!, target[1]!, target[2]!);
 }
 
@@ -148,13 +163,37 @@ function createView(world: World, scene: Scene, camera: number): () => void {
     const materials = world.resource(Materials);
     const geometry: ShapeGeometryCache = new Map();
     const presentation = scenePresentation(world, scene, geometry);
-    const initial = new Map(presentation.shapes.map((shape) => [world.ref(shape.eid), shape]));
     const roles = {
         ground: materials.add(presentation.materials.ground),
         subject: materials.add(presentation.materials.subject),
         motorized: materials.add(presentation.materials.motorized),
         sensor: materials.add(presentation.materials.sensor),
     };
+    let moverMesh: MeshHandle | undefined;
+    if (scene === "geometricMover") {
+        const mover = world.resource(GeometricMoverState);
+        const shape = {
+            ...world.get(presentation.shapes[0]!.eid, Shape)!,
+            kind: ShapeKind.Capsule,
+            radius: mover.mover.capsule.radius,
+            capsuleCenter1: [0, -0.5, 0] as [number, number, number],
+            capsuleCenter2: [0, 0.5, 0] as [number, number, number],
+            scale: [1, 1, 1] as [number, number, number],
+        };
+        const geometry = shapeMesh(world, shape)!;
+        moverMesh = world.resource(Meshes).add({ name: "Mover", ...geometry });
+        world.add(mover.entity, MeshInstance, { mesh: moverMesh });
+        world.add(mover.entity, MeshMaterial, roles.motorized);
+        const edges = new GizmoAsset();
+        for (const [a, b] of shapeEdges(world, shape)) drawLine(edges, a, b, 0x000000);
+        world.add(mover.entity, Gizmo, {
+            handle: registerGizmo(world, edges),
+            width: 1,
+            opacity: 0.45,
+            depthBias: -0.0001,
+        });
+    }
+    const initial = new Map(presentation.shapes.map((shape) => [world.ref(shape.eid), shape]));
     const stateMaterials = new Map(
         Object.entries(roles).map(([role, handle]) => [
             presentation.materials[role as keyof typeof roles],
@@ -422,6 +461,7 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         for (const system of systems) world.removeSystem(system);
         for (const asset of shared.values()) meshes.remove(asset.mesh);
         meshes.remove(markerMesh);
+        if (moverMesh !== undefined) meshes.remove(moverMesh);
         if (groundMesh !== undefined) meshes.remove(groundMesh);
         for (const material of stateMaterials.values()) materials.remove(material);
         materials.remove(markerMaterial);

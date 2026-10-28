@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: MIT
+#define NDEBUG
 #include "box3d/box3d.h"
+#undef NDEBUG
 #include "utils.h"
 #include "benchmarks.h"
 #include <cassert>
+#include <cfloat>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -39,19 +42,25 @@ struct Camera
 	void SetView( float, float, float, b3Vec3 ) {}
 	b3Vec3 GetForward() const { return { 0, 0, 1 }; }
 	b3Vec3 GetRight() const { return { 1, 0, 0 }; }
+    b3Pos DrawOrigin() const { return {}; }
 };
 constexpr int KEY_W = 1, KEY_S = 2, KEY_A = 3, KEY_D = 4, KEY_L = 5, KEY_T = 6, KEY_B = 7;
+constexpr int KEY_SPACE = 8, KEY_LEFT_SHIFT = 9;
 constexpr int ACTION_PRESS = 1, MOD_SHIFT = 1, MOD_ALT = 2;
 void sapp_lock_mouse( bool ) {}
 bool IsKeyDown( int key ) {
 	float value = 0;
-	const char* names[] = { "", "W", "S", "A", "D", "L" };
+	const char* names[] = { "", "W", "S", "A", "D", "L", "T", "B", "Space", "Shift" };
 	for ( const Change& change : changes )
 		if ( change.step <= currentStep && change.name == names[key] ) value = change.value;
 	return value != 0;
 }
 void DrawGroundGrid( int ) {}
+void SetDrawOrigin( b3Pos ) {}
+void DrawCube( b3WorldTransform, b3Vec3, int ) {}
 template<class T> void DrawAxes( T, float ) {}
+void DrawAxes( b3WorldTransform, float ) {}
+using Vec4 = int;
 int MakeColor( int color ) { return color; }
 FILE* contactDrawing = nullptr;
 struct ContactMark { b3Pos point; b3Pos end; std::string label; };
@@ -257,6 +266,7 @@ public:
 	virtual void Render() {}
 	void DrawTextLine( const char*, ... ) {}
 
+    b3Vec2 m_mouseDelta = {};
 	b3BodyId m_mouseBodyId = {};
 	b3JointId m_mouseJointId = {};
 	b3Pos m_mousePoint = {};
@@ -329,7 +339,7 @@ int main( int argc, char** argv )
         { "slideTwist", SlideTwist::Create }, { "conveyorBelt", ConveyorBelt::Create },
         { "restitution", Restitution::Create }, { "staticInvoke", StaticInvoke::Create }, { "wind", Wind::Create },
         { "conveyorMesh", ConveyorMesh::Create }, { "windDrop", WindDrop::Create }, { "windFlap", WindFlap::Create },
-        { "capsulePlane", CapsulePlane::Create }, { "moverOverlap", MoverOverlap::Create },
+        { "geometricMover", GeometricMover::Create }, { "capsulePlane", CapsulePlane::Create }, { "moverOverlap", MoverOverlap::Create },
         { "classRing", ClassRing::Create }, { "cast", BodyCast::Create },
         { "bodyType", BodyType::Create }, { "weeble", Weeble::Create }, { "disable", DisableBody::Create },
         { "gyroscopicPrecession", GyroscopicPrecession::Create },
@@ -372,7 +382,7 @@ int main( int argc, char** argv )
 	for ( const Entry& entry : entries ) if ( strcmp( argv[1], entry.name ) == 0 ) sample = entry.create( &context );
 	if ( !sample ) { fprintf( stderr, "unknown sample: %s\n", argv[1] ); return 2; }
 	drivingControls = !strcmp( argv[1], "driving" );
-	if ( drivingControls ) context.camera.m_thirdPerson = true;
+	if ( drivingControls || !strcmp(argv[1], "geometricMover") ) context.camera.m_thirdPerson = true;
 	bool grab = argc == 4 && strcmp( argv[3], "grab" ) == 0;
 	if ( argc == 4 && !grab ) {
 		FILE* file = fopen( argv[3], "r" );
@@ -385,6 +395,8 @@ int main( int argc, char** argv )
 		fclose( file );
 	}
     characterDrawing = getenv("CHARACTER_DRAWING") ? fopen(getenv("CHARACTER_DRAWING"), "w") : nullptr;
+    FILE* moverReadouts = getenv("MOVER_READOUTS") ? fopen(getenv("MOVER_READOUTS"), "w") : nullptr;
+    if (getenv("MOVER_READOUTS")) assert(moverReadouts && !strcmp(argv[1], "geometricMover"));
     FILE* sensorReadouts = getenv("SENSOR_READOUTS") ? fopen(getenv("SENSOR_READOUTS"), "w") : nullptr;
     if (getenv("SENSOR_READOUTS")) assert(sensorReadouts && !strcmp(argv[1], "sensorHits"));
     bodyQueries = getenv("BODY_QUERIES") ? fopen(getenv("BODY_QUERIES"), "w") : nullptr;
@@ -435,6 +447,15 @@ int main( int argc, char** argv )
             }
             fprintf(contactDrawing, "]\n");
         }
+        if (moverReadouts) {
+            auto* scene = static_cast<GeometricMover*>(sample);
+            auto& m = scene->m_mover;
+            fprintf(moverReadouts, "[%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%d,%d,%d,%d,%.9g,%.9g", m.m_transform.p.x,m.m_transform.p.y,m.m_transform.p.z,m.m_velocity.x,m.m_velocity.y,m.m_velocity.z,m.m_pogoVelocity,m.m_onGround,m.m_sprint,m.m_planeCount,m.m_totalIterations,scene->m_treeTimer,scene->m_respawnTimer);
+            for (const auto* impact : {&scene->m_boxImpact, &scene->m_treeImpact})
+                fprintf(moverReadouts, ",%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%d", impact->point.x,impact->point.y,impact->point.z,impact->normal.x,impact->normal.y,impact->normal.z,impact->speed,impact->valid);
+            const auto& t = scene->m_impactTransform;
+            fprintf(moverReadouts, ",%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g]\n", t.p.x,t.p.y,t.p.z,t.q.v.x,t.q.v.y,t.q.v.z,t.q.s);
+        }
         if (sensorReadouts) {
             auto* sensor = static_cast<SensorHits*>(sample);
             fprintf(sensorReadouts, "[%d,%d,[", sensor->m_beginCount, sensor->m_endCount);
@@ -464,6 +485,7 @@ int main( int argc, char** argv )
     if (characterDrawing) fclose(characterDrawing);
     if (bodyQueries) fclose(bodyQueries);
     if (readouts) fclose(readouts);
+    if (moverReadouts) fclose(moverReadouts);
     if (sensorReadouts) fclose(sensorReadouts);
     if (contactDrawing) fclose(contactDrawing);
 	delete sample;

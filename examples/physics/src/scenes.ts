@@ -19,6 +19,7 @@ import { BodySampleState, bodyScenes } from "./bodies";
 import { CastState } from "./cast";
 import { CharacterSample, characterScenes } from "./character";
 import { eventScenes } from "./events";
+import { GeometricMoverState, geometricMoverScene } from "./geometric-mover";
 import { jointScenes } from "./joints";
 import { PrecessionState } from "./precession";
 import { MotorizedJoint } from "./roles";
@@ -26,6 +27,7 @@ import { ShapeControlsState, shapeScenes, WindState } from "./shapes";
 import { StackingImpulses, stackingScenes } from "./stacking";
 
 export type Scene =
+    | "geometricMover"
     | "boxStack"
     | "bridge"
     | "revolute"
@@ -85,6 +87,7 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
         name: "Character",
         scenes: [
             { id: "capsulePlane", name: "CapsulePlane" },
+            { id: "geometricMover", name: "Geometric Mover" },
             { id: "moverOverlap", name: "MoverOverlap" },
         ],
     },
@@ -229,6 +232,7 @@ export function changeControl(
     selected.set(world, bodies, value, values);
 }
 export const scenes = {
+    geometricMover: geometricMoverScene,
     ...shapeScenes,
     ...bodyScenes,
     ...eventScenes,
@@ -830,6 +834,7 @@ export function createScene(world: World, scene: Scene): number[] {
     Object.assign(world.resource(PrecessionState), PrecessionState.create());
     Object.assign(world.resource(CastState), CastState.create());
     Object.assign(world.resource(CharacterSample), CharacterSample.create());
+    Object.assign(world.resource(GeometricMoverState), GeometricMoverState.create());
     world.resource(PhysicsWorldDefinition).enableAutomaticStep = true;
     world.resource(PhysicsWorldDefinition).workerCount = 1;
     world.resource(PhysicsWorldDefinition).maximumMemory = 4 * 1024 ** 3;

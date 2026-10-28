@@ -13,13 +13,16 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
     const sample = readFileSync(join(samples, "sample.cpp"), "utf8");
     const events = readFileSync(join(samples, "sample_events.cpp"), "utf8");
     const benchmark = readFileSync(join(samples, "sample_benchmark.cpp"), "utf8");
-    function section(source: string, start: string, end: string): string {
+    function section(source: string, start: string, end?: string): string {
         const first = source.indexOf(start);
-        const last = source.indexOf(end, first);
+        const last = end === undefined ? source.length : source.indexOf(end, first);
         if (first < 0 || last < 0) throw new Error(`missing sample source boundary: ${start} / ${end}`);
         return source.slice(first, last);
     }
     const sources = [
+        section(readFileSync(join(samples, "mover.h"), "utf8"), "class Sample;"),
+        section(readFileSync(join(samples, "mover.cpp"), "utf8"), "static bool MoverFilterCallback"),
+        section(character, "struct MoverImpact", "static int sampleMover"),
         ...["CapsulePlane", "MoverOverlap"].map(name => section(character, `class ${name} :`, `static int sample${name}`)),
         section(sample, "b3BodyId Sample::AddGroundBox(", "struct RowDef"),
         ...["InclinedPlane", "RollingResistance", "HighResistance", "IsotropicFriction", "SlideTwist", "Restitution", "StaticInvoke", "Wind", "ConveyorBelt", "ConveyorMesh", "WindDrop", "WindFlap"].map(name => section(shapes, `class ${name} :`, `static int sample${name}`)),

@@ -357,6 +357,10 @@ export function bodySimSet(ref: number): number {
     return ref < 4294967296 ? SetType.Awake : Math.floor(ref / 4294967296) - 1;
 }
 
+export function readSimInvMass(world: WorldState, ref: number): number {
+    return world.bodyStore.memoryF[simOffset(world, ref) + 26];
+}
+
 export function readSimInvInertiaLocal(world: WorldState, ref: number, out: Mat3): Mat3 {
     return readSimMatrix(world, ref, 27, out);
 }

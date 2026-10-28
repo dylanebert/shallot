@@ -15,6 +15,7 @@ import {
 } from "@dylanebert/shallot";
 import { isAwake } from "@dylanebert/shallot/standard/physics";
 import { EventSample } from "./events";
+import { GeometricMoverState } from "./geometric-mover";
 import { MotorizedJoint } from "./roles";
 import { controlValues, enabledControls, type Scene, scenes } from "./scenes";
 import { SensorSample } from "./sensor";
@@ -87,7 +88,11 @@ export function shapeRole(
     const type = world.storage(Body).type.get(body);
     if (world.resource(SensorSample).sensors.get(world.ref(eid))?.active) return "ground";
     if (shape.isSensor.get(eid)) return "sensor";
-    if (type === BodyType.Static) return "ground";
+    const mover = world.resource(GeometricMoverState);
+    if (mover.active && (eid === mover.ignore || mover.policies.get(eid)?.clipVelocity === false))
+        return "motorized";
+    if (type === BodyType.Static)
+        return mover.active && mover.policies.has(eid) ? "sensor" : "ground";
     if (
         type === BodyType.Kinematic ||
         body === world.resource(EventSample).player ||

@@ -2,9 +2,12 @@ import { Body, BodyType, createApp, Shape, ShapeKind } from "@dylanebert/shallot
 import {
     castBodyRay,
     castBodyShape,
+    castMover,
     collideBodyMover,
     collideMover,
     emptyQueryHit,
+    getInverseMass,
+    getWorldInverseRotationalInertia,
     overlapBodyShape,
     PhysicsWorldDefinition,
     StandardPhysicsPlugin,
@@ -22,7 +25,7 @@ export default async function create(input: string) {
     const world = app.world;
     world.resource(PhysicsWorldDefinition).enableAutomaticStep = false;
     const body = world.create();
-    world.add(body, Body, { type: BodyType.Kinematic });
+    world.add(body, Body, { type: BodyType.Dynamic });
     for (let i = 0; i < 3; i++) {
         const shape = world.create();
         world.add(shape, Shape, {
@@ -48,6 +51,13 @@ export default async function create(input: string) {
     const hit = emptyQueryHit();
     const filter = { categoryBits: 1n, maskBits: 1n };
     const emptyFilter = { categoryBits: 0n, maskBits: 0n };
+    const accept = () => true,
+        reject = () => false;
+    const inverse = {
+        cx: { x: 0, y: 0, z: 0 },
+        cy: { x: 0, y: 0, z: 0 },
+        cz: { x: 0, y: 0, z: 0 },
+    };
     return {
         step() {
             if (
@@ -118,6 +128,17 @@ export default async function create(input: string) {
                 ).shape !== 0
             )
                 throw new Error("TOI ignored filter");
+            if (castMover(world, origin, mover, translation, filter, accept).fraction === 1)
+                throw new Error("cast mover missed");
+            if (castMover(world, origin, mover, translation, filter, reject).fraction !== 1)
+                throw new Error("cast mover ignored callback");
+            if (castMover(world, origin, mover, translation, emptyFilter).fraction !== 1)
+                throw new Error("cast mover ignored filter");
+            if (
+                getInverseMass(world, body)!.inverseMass <= 0 ||
+                getWorldInverseRotationalInertia(world, body, inverse) !== inverse
+            )
+                throw new Error("inverse read failed");
             if (input === "leak") leaked = { ...hit };
         },
         dispose() {
