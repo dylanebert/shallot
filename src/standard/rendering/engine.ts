@@ -165,7 +165,7 @@ export const clusterOf = tgpu.fn(
     const far = engineLayout.$.view.projection.y;
     let viewZ = 1 / fragCoord.$.w;
     if (engineLayout.$.view.projection.z < 0.5) {
-        viewZ = near + fragCoord.$.z * (far - near);
+        viewZ = far - fragCoord.$.z * (far - near);
     }
     return clusterCell(
         fragCoord.$.x / engineLayout.$.view.resolution.x,
@@ -173,6 +173,7 @@ export const clusterOf = tgpu.fn(
         viewZ,
         near,
         far,
+        engineLayout.$.view.projection.z > 0.5,
         d.u32(engineLayout.$.view.projection.w),
     );
 });

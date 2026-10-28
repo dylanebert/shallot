@@ -245,14 +245,14 @@ export const PackSpotAttenuationSystem: System = {
     },
 };
 
-// Logarithmic depth slices distribute near-camera lights across clusters.
+// Perspective depth slices are logarithmic; orthographic slices divide near to far evenly.
 // View-space AABBs depend only on projection, so camera motion alone needs no rebuild.
 
 /** cluster grid: horizontal screen-space tiles */
 export const CLUSTER_X = 16;
 /** cluster grid: vertical screen-space tiles */
 export const CLUSTER_Y = 9;
-/** cluster grid: logarithmic depth slices (DOOM 2016 / Olsson log-Z) */
+/** cluster grid: depth slices */
 export const CLUSTER_Z = 24;
 export const CLUSTER_COUNT = CLUSTER_X * CLUSTER_Y * CLUSTER_Z;
 
@@ -304,29 +304,30 @@ export function clusterCoord(index: number): { x: number; y: number; z: number }
 }
 
 /**
- * the log-slice boundary depth: positive view-space depth where slice `z`
- * begins: `near · (far/near)^(z/Z)`, so slice 0 starts at `near` and slice
- * `CLUSTER_Z` (one past the last) lands exactly on `far`
+ * View depth where slice `z` begins, linear for orthographic and logarithmic for perspective.
+ * Slice 0 starts at `near`; slice `CLUSTER_Z` lands on `far`.
  */
 export function sliceDepth(view: ClusterView, z: number): number {
-    return view.near * (view.far / view.near) ** (z / CLUSTER_Z);
+    return view.perspective
+        ? view.near * (view.far / view.near) ** (z / CLUSTER_Z)
+        : view.near + ((view.far - view.near) * z) / CLUSTER_Z;
 }
 
 /**
- * Slot-major froxel index for normalized pixel coordinates [0,1] (y down) and positive view depth.
+ * Slot-major froxel index for normalized pixel coordinates [0,1] (y down) and view depth.
  * Tile (0,0) is NDC (-1,-1), so screen y is flipped.
  */
 export const clusterCell = tgpu.fn(
-    [d.f32, d.f32, d.f32, d.f32, d.f32, d.u32],
+    [d.f32, d.f32, d.f32, d.f32, d.f32, d.bool, d.u32],
     d.u32,
-)((fx, fy, viewZ, near, far, slot) => {
+)((fx, fy, viewZ, near, far, perspective, slot) => {
     "use gpu";
     // clamp in float space, then truncate once: a pre-clamp log ratio goes negative for a viewZ just
     // inside near, but the clamp's 0 floor dominates before the truncation ever sees it, so the u32
     // conversion needs no signed intermediate.
-    const zs = d.u32(
-        std.clamp((std.log(viewZ / near) / std.log(far / near)) * CLUSTER_Z, 0, CLUSTER_Z - 1),
-    );
+    let depth = (viewZ - near) / (far - near);
+    if (perspective) depth = std.log(viewZ / near) / std.log(far / near);
+    const zs = d.u32(std.clamp(depth * CLUSTER_Z, 0, CLUSTER_Z - 1));
     const tx = std.min(d.u32(fx * CLUSTER_X), d.u32(CLUSTER_X - 1));
     const tyTop = std.min(d.u32(fy * CLUSTER_Y), d.u32(CLUSTER_Y - 1));
     const ty = d.u32(CLUSTER_Y - 1) - tyTop;
@@ -470,8 +471,12 @@ const gridKernel = tgpu.computeFn({
 
     const near = p.z;
     const far = p.w;
-    const dNear = near * std.pow(far / near, d.f32(z) / CLUSTER_Z);
-    const dFar = near * std.pow(far / near, d.f32(z + 1) / CLUSTER_Z);
+    let dNear = near + ((far - near) * d.f32(z)) / CLUSTER_Z;
+    let dFar = near + ((far - near) * d.f32(z + 1)) / CLUSTER_Z;
+    if (perspective) {
+        dNear = near * std.pow(far / near, d.f32(z) / CLUSTER_Z);
+        dFar = near * std.pow(far / near, d.f32(z + 1) / CLUSTER_Z);
+    }
 
     const half = d.vec2f(p.x, p.y);
     const lo = std.mul(
@@ -762,11 +767,17 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (farthest < view.z || nearest > view.w) { return; }
     let nearDepth = max(nearest, view.z);
     let farDepth = min(farthest, view.w);
-    let scale = log(view.w / view.z);
+    var firstDepth = (nearDepth - view.z) / (view.w - view.z);
+    var lastDepth = (farDepth - view.z) / (view.w - view.z);
+    if (clusterViews[gid.y * 2u + 1u].x > 0.5) {
+        let scale = log(view.w / view.z);
+        firstDepth = log(nearDepth / view.z) / scale;
+        lastDepth = log(farDepth / view.z) / scale;
+    }
     // Include the preceding slice when the sphere is tangent to a boundary. The fine sphere/AABB test
     // removes the harmless extra candidates; rounding down alone drops the touching froxel.
-    let firstZ = u32(clamp(floor(log(nearDepth / view.z) / scale * ${CLUSTER_Z}.0) - 1.0, 0.0, ${CLUSTER_Z - 1}.0));
-    let lastZ = u32(clamp(floor(log(farDepth / view.z) / scale * ${CLUSTER_Z}.0), 0.0, ${CLUSTER_Z - 1}.0));
+    let firstZ = u32(clamp(floor(firstDepth * ${CLUSTER_Z}.0) - 1.0, 0.0, ${CLUSTER_Z - 1}.0));
+    let lastZ = u32(clamp(floor(lastDepth * ${CLUSTER_Z}.0), 0.0, ${CLUSTER_Z - 1}.0));
     for (var z = firstZ; z <= lastZ; z += 1u) {
         let at = gid.y * ${Z_SLICE_CAPACITY}u + atomicAdd(&rasterArgs[gid.y].instanceCount, 1u);
         zSlices[at] = ZSlice(gid.x, z);
@@ -884,17 +895,18 @@ fn ndcCluster(position: f32, dimension: u32) -> u32 {
     return min(u32(floor(clamp((position + 1.0) * 0.5, 0.0, 1.0) * f32(dimension))), dimension - 1u);
 }
 
-fn sliceBoundary(view: vec4f, z: u32) -> f32 {
+fn sliceBoundary(view: vec4f, z: u32, perspective: bool) -> f32 {
+    if (!perspective) { return view.z + (view.w - view.z) * f32(z) / ${CLUSTER_Z}.0; }
     return view.z * pow(view.w / view.z, f32(z) / ${CLUSTER_Z}.0);
 }
 
-// A cluster AABB spans its whole log slice, so project the sphere's XY bounds at the slice ends too.
+// A cluster AABB spans its whole depth slice, so project the sphere's XY bounds at the slice ends too.
 // Using only the sphere's own Z extent misses AABB overlaps where a far slice widens toward its far plane.
 fn rasterBounds(center: vec3f, radius: f32, view: vec4f, perspective: bool, slice: u32) -> vec4u {
     let viewMin = center - vec3f(radius);
     let viewMax = center + vec3f(radius);
-    let sliceNear = sliceBoundary(view, slice);
-    let sliceFar = sliceBoundary(view, slice + 1u);
+    let sliceNear = sliceBoundary(view, slice, perspective);
+    let sliceFar = sliceBoundary(view, slice + 1u, perspective);
     let zMin = min(viewMin.z, -sliceFar);
     let zMax = max(viewMax.z, -sliceNear);
     let nearZ = min(zMin, -1e-5);

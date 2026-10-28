@@ -528,7 +528,15 @@ function createGridKernel(multisampled: boolean) {
                 const viewZ = std.max(std.dot(std.sub(p, camView.eye.xyz), forward), near);
                 const entry =
                     fogLayout1.$.pointLights.grid[
-                        clusterCell(rayUv.x, rayUv.y, viewZ, near, far, slot)
+                        clusterCell(
+                            rayUv.x,
+                            rayUv.y,
+                            viewZ,
+                            near,
+                            far,
+                            camView.projection.z > 0.5,
+                            slot,
+                        )
                     ];
                 const ambient = indirectLight(
                     IndirectLightInput({

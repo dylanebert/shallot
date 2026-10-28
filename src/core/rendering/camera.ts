@@ -49,7 +49,7 @@ export const Camera = component(
         mode: u32,
         /** field of view in degrees (perspective mode) */
         fov: f32,
-        /** Near-plane distance in world units. */
+        /** Near-plane distance in world units; may be negative for an orthographic camera. */
         near: f32,
         /** perspective frustum cull bound and clustered-light range; does not limit perspective depth precision */
         far: f32,

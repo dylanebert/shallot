@@ -3,18 +3,23 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { expectWarning } from "../../../scripts/test-console";
+import { MeshInstance } from "../../core/mesh";
 import {
+    AmbientLight,
     attachCanvas,
+    attachTexture,
     Camera,
     CameraMode,
+    captureTexture,
     computeClipFromWorld,
     DirectionalLight,
+    Exposure,
     PointLight,
     RenderContext,
     Views,
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
-import { invertMat4, type World } from "../../engine";
+import { invertMat4, lookAtRotation, type World } from "../../engine";
 import { CanvasContext } from "../../engine/app/canvas.fixture";
 import { probeBuffer } from "../../engine/runtime";
 import {
@@ -34,7 +39,14 @@ import {
     sliceDepth,
     UpdateLightClustersSystem,
 } from "./cluster";
-import { StandardRenderingPlugin } from "./index";
+import {
+    Materials,
+    MeshMaterial,
+    MeshRenderPlugin,
+    StandardMaterial,
+    StandardRenderer,
+    StandardRenderingPlugin,
+} from "./index";
 import { MAX_POINT_LIGHTS, PointLightGpu } from "./lighting";
 
 setDefaultTimeout(TIMEOUT.node);
@@ -46,7 +58,68 @@ const subjects = gpuApps(import.meta.path, [
     { defaults: false, plugins: [StandardRenderingPlugin] },
     { defaults: false, plugins: [StandardRenderingPlugin] },
     { defaults: false, plugins: [StandardRenderingPlugin] },
+    { defaults: false, plugins: [StandardRenderingPlugin, MeshRenderPlugin] },
 ]);
+
+test("orthographic slice boundaries are finite and evenly spaced including nonpositive near", () => {
+    for (const near of [-1000, 0, 0.1]) {
+        const view = { perspective: false, halfW: 8, halfH: 8, near, far: 1000 };
+        for (let z = 0; z <= CLUSTER_Z; z++) {
+            const depth = sliceDepth(view, z);
+            expect(Number.isFinite(depth)).toBe(true);
+            expect(depth).toBeCloseTo(near + ((1000 - near) * z) / CLUSTER_Z, 10);
+        }
+    }
+});
+
+test("negative-near orthographic lights illuminate floors in front of the target and behind the camera", async () => {
+    const world = subjects()[3]!.world;
+    const camera = world.create();
+    world.add(camera, Transform, {
+        translation: [0, 5, 0, 0],
+        rotation: lookAtRotation(0, 5, 0, 0, 0, -0.001),
+    });
+    world.add(camera, Camera, { mode: CameraMode.Orthographic, near: -1000, far: 1000, size: 8 });
+    world.add(camera, StandardRenderer);
+    world.add(camera, Exposure, { ev100: 9.7 });
+    world.add(camera, AmbientLight, { brightness: 0 });
+    attachTexture(world, camera, { width: 64, height: 64 });
+    const material = world
+        .resource(Materials)
+        .add(StandardMaterial({ baseColor: [1, 1, 1, 1], metallic: 0, perceptualRoughness: 1 }));
+    const lights: number[] = [];
+    for (const [x, y] of [
+        [-3, -4],
+        [3, 10],
+    ]) {
+        const floor = world.create();
+        world.add(floor, Transform, { translation: [x!, y!, 0, 0], scale: [3, 0.1, 3] });
+        world.add(floor, MeshInstance);
+        world.add(floor, MeshMaterial, material);
+        const light = world.create();
+        world.add(light, Transform, { translation: [x!, y! + 2, 0, 0] });
+        world.add(light, PointLight, { range: 4, intensity: 0 });
+        lights.push(light);
+    }
+    world.step(1 / 60);
+    const bounds = await probeBuffer(world, world.resource(Clusters).aabbs!, {
+        size: CLUSTER_COUNT * 32,
+    });
+    const aabbs = new Float32Array(bounds.bytes);
+    expect(aabbs.every(Number.isFinite)).toBe(true);
+    for (let z = 0; z < CLUSTER_Z; z++) {
+        expect(aabbs[z * 8 + 2]!).toBeCloseTo(1000 - (2000 * (z + 1)) / CLUSTER_Z, 3);
+        expect(aabbs[z * 8 + 6]!).toBeCloseTo(1000 - (2000 * z) / CLUSTER_Z, 3);
+    }
+    const dark = (await captureTexture(world, camera)).rgba;
+    for (const light of lights) world.storage(PointLight).intensity.set(light, 1_000_000);
+    world.step(1 / 60);
+    const lit = (await captureTexture(world, camera)).rgba;
+    for (const x of [20, 44]) {
+        const at = (32 * 64 + x) * 4;
+        expect(lit[at]!).toBeGreaterThan(dark[at]! + 30);
+    }
+});
 
 interface LightInput {
     position: [number, number, number];
