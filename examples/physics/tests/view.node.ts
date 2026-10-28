@@ -282,7 +282,7 @@ test("sleep changes a body's color without changing its role", async () => {
     }
 });
 
-test("a broken joint recolours its body", async () => {
+test("a broken joint recolors its body", async () => {
     const app = await createApp({ defaults: false, plugins: [EventSamplePlugin] });
     try {
         const bodies = createScene(app.world, "joint");
