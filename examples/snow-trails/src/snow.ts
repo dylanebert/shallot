@@ -15,10 +15,22 @@ const layout = materialLayout(d.struct({ sweep: d.vec3f }), {
     image: { type: "texture", filterable: false },
     ground: { type: "texture", filterable: false },
 });
-/** The trail's press at a world position, bilinear between texel centers. */
+/** Bilinear interpolation between corners (00, 10, 01, 11) at `f`, with its gradient: (value, d/du, d/dv). */
+const bilinear = tgpu.fn(
+    [d.vec4f, d.vec2f],
+    d.vec3f,
+)((c, f) => {
+    "use gpu";
+    return d.vec3f(
+        std.mix(std.mix(c.x, c.y, f.x), std.mix(c.z, c.w, f.x), f.y),
+        std.mix(c.y - c.x, c.w - c.z, f.y),
+        std.mix(c.z - c.x, c.w - c.y, f.x),
+    );
+});
+/** The trail's press at a world position, bilinear between texel centers, with its gradient over x and z. */
 const pressAt = tgpu.fn(
     [d.vec3f],
-    d.f32,
+    d.vec3f,
 )((world) => {
     "use gpu";
     const uv = std.clamp(
@@ -27,24 +39,21 @@ const pressAt = tgpu.fn(
         d.vec2f(RESOLUTION - 1.001),
     );
     const xy = d.vec2i(uv);
-    const f = std.fract(uv);
-    return std.mix(
-        std.mix(
+    const press = bilinear(
+        d.vec4f(
             std.textureLoad(layout.$.image, xy, 0).r,
             std.textureLoad(layout.$.image, xy.add(d.vec2i(1, 0)), 0).r,
-            f.x,
-        ),
-        std.mix(
             std.textureLoad(layout.$.image, xy.add(d.vec2i(0, 1)), 0).r,
             std.textureLoad(layout.$.image, xy.add(d.vec2i(1, 1)), 0).r,
-            f.x,
         ),
-        f.y,
+        std.fract(uv),
     );
+    return d.vec3f(press.x, (press.y * RESOLUTION) / FIELD, (-press.z * RESOLUTION) / FIELD);
 });
+/** The ground's height at a world position, bilinear in the hills table, with its gradient over x and z. */
 const ground = tgpu.fn(
     [d.vec3f],
-    d.f32,
+    d.vec3f,
 )((world) => {
     "use gpu";
     const uv = std.clamp(
@@ -57,20 +66,16 @@ const ground = tgpu.fn(
         d.vec2f(HILL_SIZE - 1.001),
     );
     const xy = d.vec2i(uv);
-    const f = std.fract(uv);
-    return std.mix(
-        std.mix(
+    const height = bilinear(
+        d.vec4f(
             std.textureLoad(layout.$.ground, xy, 0).r,
             std.textureLoad(layout.$.ground, xy.add(d.vec2i(1, 0)), 0).r,
-            f.x,
-        ),
-        std.mix(
             std.textureLoad(layout.$.ground, xy.add(d.vec2i(0, 1)), 0).r,
             std.textureLoad(layout.$.ground, xy.add(d.vec2i(1, 1)), 0).r,
-            f.x,
         ),
-        f.y,
+        std.fract(uv),
     );
+    return d.vec3f(height.x, height.yz.mul((HILL_SIZE - 1) / FIELD));
 });
 const bindings = (world: import("@dylanebert/shallot").World) => ({
     image: world.resource(Trail).image!,
@@ -84,27 +89,16 @@ export const SnowMaterial = materialType({
     vertex: (input) => {
         "use gpu";
         const p = input.world.xyz;
-        const h = FIELD / RESOLUTION;
-        const dx = (pressAt(p.add(d.vec3f(h, 0, 0))) - pressAt(p.sub(d.vec3f(h, 0, 0)))) / (2 * h);
-        const dz = (pressAt(p.add(d.vec3f(0, 0, h))) - pressAt(p.sub(d.vec3f(0, 0, h)))) / (2 * h);
+        const press = pressAt(p);
+        const g = ground(p);
         return {
-            world: d.vec4f(p.x, ground(p) + DEPTH - pressAt(p) * DEPTH, p.z, 1),
-            worldNormal: std.normalize(
-                d.vec3f(
-                    dx * DEPTH -
-                        (ground(p.add(d.vec3f(0.05, 0, 0))) - ground(p.sub(d.vec3f(0.05, 0, 0)))) /
-                            0.1,
-                    1,
-                    dz * DEPTH -
-                        (ground(p.add(d.vec3f(0, 0, 0.05))) - ground(p.sub(d.vec3f(0, 0, 0.05)))) /
-                            0.1,
-                ),
-            ),
+            world: d.vec4f(p.x, g.x + DEPTH - press.x * DEPTH, p.z, 1),
+            worldNormal: std.normalize(d.vec3f(press.y * DEPTH - g.y, 1, press.z * DEPTH - g.z)),
         };
     },
     fragment: (ctx) => {
         "use gpu";
-        const press = pressAt(ctx.world);
+        const press = pressAt(ctx.world).x;
         const color = std.mix(d.vec3f(0.78, 0.8, 0.79), d.vec3f(0.29, 0.36, 0.39), press);
         return d.vec4f(lit(color, ctx.worldNormal), 1);
     },
@@ -126,7 +120,7 @@ export const StampMaterial = materialType({
     },
     fragment: (ctx) => {
         "use gpu";
-        const press = std.clamp((ground(ctx.world) + DEPTH - ctx.world.y) / DEPTH, 0, 1);
+        const press = std.clamp((ground(ctx.world).x + DEPTH - ctx.world.y) / DEPTH, 0, 1);
         return d.vec4f(d.vec3f(press), 1);
     },
 });
