@@ -1,6 +1,37 @@
 import { expect, test } from "bun:test";
 import { formatReadout, formatValue } from "./control-format";
+import { manifoldNames, manifoldPointLimits } from "./manifold";
 import { type Controls, controlValues, enabledControls, type Scene, scenes } from "./scenes";
+
+test("Manifold retains the cache toggle, feature choices, native separation formats and reserved contact rows", () => {
+    for (const [index, scene] of manifoldNames.entries()) {
+        const controls = scenes[scene].controls;
+        expect(Object.keys(controls)).toEqual([
+            "Use cache",
+            "feature",
+            "count",
+            ...Array.from({ length: manifoldPointLimits[index]! }, (_, i) => `separation${i}`),
+        ]);
+        expect(controls["Use cache"]).toMatchObject({ label: "Use cache", value: 0 });
+        expect(controls.feature).toMatchObject({
+            select: true,
+            value: 0,
+            when: ["Use cache"],
+            options: [
+                { label: "auto", value: 0 },
+                { label: "faceA", value: 1 },
+                { label: "faceB", value: 2 },
+                { label: "edgePair", value: 3 },
+            ],
+        });
+        expect(controls.count).toMatchObject({ label: "Point count", decimals: 0 });
+        for (let i = 0; i < manifoldPointLimits[index]!; i++)
+            expect(controls[`separation${i}`]).toMatchObject({
+                label: `Separation ${i + 1}, ${scene.startsWith("triangle") ? "cm" : "m"}`,
+                decimals: scene.startsWith("triangle") ? 2 : 3,
+            });
+    }
+});
 
 test("Geometry retains native bounds, formats, choices, Refresh and result rows", () => {
     expect(scenes.geometryHull.controls).toBeUndefined();

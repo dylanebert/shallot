@@ -26,6 +26,7 @@ import { eventScenes } from "./events";
 import { GeometricMoverState, geometricMoverScene } from "./geometric-mover";
 import { Geometry, geometryScenes } from "./geometry";
 import { jointScenes } from "./joints";
+import { ManifoldSample, manifoldScenes } from "./manifold";
 import { meshScenes } from "./mesh";
 import { HeightFieldState } from "./mesh-height-field";
 import { MeshCreationState, MeshInspectorState } from "./mesh-inspector";
@@ -50,6 +51,7 @@ export type Scene =
     | "village"
     | keyof typeof collisionScenes
     | keyof typeof debugScenes
+    | keyof typeof manifoldScenes
     | keyof typeof geometryScenes
     | keyof typeof ragdollScenes
     | keyof typeof meshScenes
@@ -164,6 +166,20 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
             { id: "persistentContact", name: "Persistent Contact" },
             { id: "sensorHits", name: "Sensor Hits" },
             { id: "sensor", name: "Sensor Visit" },
+        ],
+    },
+    {
+        name: "Manifold",
+        scenes: [
+            { id: "capsuleVsCapsule", name: "Capsule vs Capsule" },
+            { id: "capsuleVsHull", name: "Capsule vs Hull" },
+            { id: "capsuleVsSphere", name: "Capsule vs Sphere" },
+            { id: "hullVsHull", name: "Hull vs Hull" },
+            { id: "hullVsSphere", name: "Hull vs Sphere" },
+            { id: "sphereVsSphere", name: "Sphere vs Sphere" },
+            { id: "triangleVsCapsule", name: "Triangle vs Capsule" },
+            { id: "triangleVsHull", name: "Triangle vs Hull" },
+            { id: "triangleVsSphere", name: "Triangle vs Sphere" },
         ],
     },
     {
@@ -336,6 +352,7 @@ export const scenes = {
     ...collisionScenes,
     ...debugScenes,
     ...geometryScenes,
+    ...manifoldScenes,
     ...ragdollScenes,
     ...shapeScenes,
     ...compoundScenes,
@@ -948,6 +965,7 @@ export function createScene(world: World, scene: Scene): number[] {
     Object.assign(world.resource(CollisionState), CollisionState.create());
     Object.assign(world.resource(CollisionDebug), CollisionDebug.create());
     Object.assign(world.resource(Geometry), Geometry.create());
+    Object.assign(world.resource(ManifoldSample), ManifoldSample.create());
     Object.assign(world.resource(CharacterSample), CharacterSample.create());
     Object.assign(world.resource(GeometricMoverState), GeometricMoverState.create());
     Object.assign(world.resource(VillageState), VillageState.create());

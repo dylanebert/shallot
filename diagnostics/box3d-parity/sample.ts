@@ -5,6 +5,7 @@ import { nativeBinary } from "./native";
 
 /** Compile the selected upstream classes verbatim, without the samples app's graphics dependencies. */
 export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples")): string {
+    const manifold = readFileSync(join(samples, "sample_manifold.cpp"), "utf8");
     const geometry = readFileSync(join(samples, "sample_geometry.cpp"), "utf8");
     const shapes = readFileSync(join(samples, "sample_shapes.cpp"), "utf8");
     const bodies = readFileSync(join(samples, "sample_bodies.cpp"), "utf8");
@@ -26,6 +27,11 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         return source.slice(first, last);
     }
     const sources = [
+        "namespace ManifoldSamples {",
+        section(manifold, "class Manifold :", "class SphereAndSphere :"),
+        ...[["SphereAndSphere","sampleCollideSpheres"],["CapsuleAndSphere","sampleSphereAndCapsule"],["HullAndSphere","sampleSphereAndHull"],["TriangleAndSphere","sampleSphereAndTriangle"],["CapsuleAndCapsule","sampleCapsuleAndCapsule"],["CapsuleAndHull","sampleCapsuleAndHull"],["TriangleAndCapsule","sampleCapsuleAndTriangle"],["HullAndHull","sampleCollideHulls"],["TriangleAndHull","sampleHullAndTriangle"]].map(([name,end])=>section(manifold,`class ${name} :`,`static int ${end}`)),
+        "}",
+        readFileSync(join(import.meta.dir,"sample-manifold.h"),"utf8"),
         "namespace Geometry {\n#define b3ComputeHullMass RecordedHullMass\n#define b3ComputeCapsuleMass RecordedCapsuleMass",
         ...["BoxHull", "Hull", "HullReduction", "HullTransform", "CapsuleMass"].map(name => section(geometry, `class ${name} :`, `static int sample${name}`)),
         "#undef b3ComputeHullMass\n#undef b3ComputeCapsuleMass\n}",

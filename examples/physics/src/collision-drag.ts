@@ -4,7 +4,7 @@ import { CollisionState } from "./collision";
 type Vec = { x: number; y: number; z: number };
 const sub = (a: Vec, b: Vec): Vec => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
 const dot = (a: Vec, b: Vec) => a.x * b.x + a.y * b.y + a.z * b.z;
-function sphere(origin: Vec, direction: Vec, center: Vec, radius: number): boolean {
+export function rayHitsSphere(origin: Vec, direction: Vec, center: Vec, radius: number): boolean {
     const p = sub(origin, center),
         a = dot(direction, direction),
         b = dot(p, direction),
@@ -15,8 +15,15 @@ function sphere(origin: Vec, direction: Vec, center: Vec, radius: number): boole
     const t = (-b - Math.sqrt(d)) / a;
     return t >= 0 && t <= 1;
 }
-function capsule(origin: Vec, direction: Vec, a: Vec, b: Vec, radius: number): boolean {
-    if (sphere(origin, direction, a, radius) || sphere(origin, direction, b, radius)) return true;
+export function rayHitsCapsule(
+    origin: Vec,
+    direction: Vec,
+    a: Vec,
+    b: Vec,
+    radius: number,
+): boolean {
+    if (rayHitsSphere(origin, direction, a, radius) || rayHitsSphere(origin, direction, b, radius))
+        return true;
     const axis = sub(b, a),
         p = sub(origin, a),
         aa = dot(axis, axis),
@@ -93,8 +100,8 @@ export function collisionDrag(
             q.points.length === 8
                 ? hull(origin, translation, q.points)
                 : q.points.length === 1
-                  ? sphere(origin, translation, q.points[0]!, q.radius)
-                  : capsule(origin, translation, q.points[0]!, q.points[1]!, q.radius),
+                  ? rayHitsSphere(origin, translation, q.points[0]!, q.radius)
+                  : rayHitsCapsule(origin, translation, q.points[0]!, q.points[1]!, q.radius),
         );
         if (s.tracking) {
             Object.assign(s.dragOrigin, at);

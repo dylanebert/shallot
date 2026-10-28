@@ -21,13 +21,15 @@
     });
     import type { World } from "@dylanebert/shallot";
     import { formatReadout, formatValue } from "./control-format";
+    import { manifoldScenes } from "./manifold";
     import { categories, controlValues, scenes, enabledControls, type Scene } from "./scenes";
     let { world, scene, select, change }: { world: World; scene: Scene; select: (scene: Scene) => void; change: (name: string, value: number, values: Record<string, number>) => void } = $props();
     let values = $state(controlValues(scene));
     const controls = $derived(Object.fromEntries(Object.entries(enabledControls(scene, values)).filter(([name]) => liveControls[name] !== false)));
-    const sectionTitle = $derived(scene === "boxHull" || scene === "hullReduction" || scene === "hullTransform" || scene === "capsuleMass" ? "Geometry" : scene === "meshViewer" ? "Mesh settings" : scene === "meshCreation" ? "Build cost" : scene === "gyroscopicPrecession" ? "Precession, rad/s" : scene === "moverOverlap" ? "Planes and normals" : "Simulation");
-    const separateReadouts = $derived(scene === "hullReduction" || scene === "hullTransform" || scene === "capsuleMass" || scene === "sensorHits" || scene === "meshViewer" || scene === "castWorld" || scene === "longRayCast" || scene === "shapeDistance" || scene === "distanceDebug" || scene === "timeOfImpact");
-    const readoutTitle = $derived(scene === "capsuleMass" ? "Mass and inertia" : scene === "hullReduction" ? "Reduced hull" : scene === "hullTransform" ? "Hull geometry" : scene === "shapeDistance" || scene === "distanceDebug" ? "Distance and vertex identity" : scene === "timeOfImpact" ? "Time of impact" : scene === "meshViewer" ? "Mesh statistics" : scene === "castWorld" ? "Cast results" : scene === "longRayCast" ? "Ray accuracy" : "Touch counts");
+    const isManifold = $derived(scene in manifoldScenes);
+    const sectionTitle = $derived(isManifold ? "Manifold" : scene === "boxHull" || scene === "hullReduction" || scene === "hullTransform" || scene === "capsuleMass" ? "Geometry" : scene === "meshViewer" ? "Mesh settings" : scene === "meshCreation" ? "Build cost" : scene === "gyroscopicPrecession" ? "Precession, rad/s" : scene === "moverOverlap" ? "Planes and normals" : "Simulation");
+    const separateReadouts = $derived(isManifold || scene === "hullReduction" || scene === "hullTransform" || scene === "capsuleMass" || scene === "sensorHits" || scene === "meshViewer" || scene === "castWorld" || scene === "longRayCast" || scene === "shapeDistance" || scene === "distanceDebug" || scene === "timeOfImpact");
+    const readoutTitle = $derived(isManifold ? "Contact points" : scene === "capsuleMass" ? "Mass and inertia" : scene === "hullReduction" ? "Reduced hull" : scene === "hullTransform" ? "Hull geometry" : scene === "shapeDistance" || scene === "distanceDebug" ? "Distance and vertex identity" : scene === "timeOfImpact" ? "Time of impact" : scene === "meshViewer" ? "Mesh statistics" : scene === "castWorld" ? "Cast results" : scene === "longRayCast" ? "Ray accuracy" : "Touch counts");
     function update(name: string, value: number) { change(name, value, values); }
     let open = $state(false);
     let picker: HTMLElement;
@@ -70,7 +72,7 @@
         {#each Object.entries(scenes[scene].controls ?? {}).filter(([, control]) => control.when?.at(-1) === parent && (!separateReadouts || Boolean(control.read) === readOnly)) as [name, control]}
                 <fieldset class="section" disabled={!(name in controls)}>
                     {#if control.read}
-                        {#if outputs[name] != null || scene === "castWorld" || scene === "longRayCast" || scene === "shapeDistance" || scene === "timeOfImpact"}
+                        {#if outputs[name] != null || isManifold || scene === "castWorld" || scene === "longRayCast" || scene === "shapeDistance" || scene === "timeOfImpact"}
                             <div class="row"><span>{control.label}</span><output aria-label={control.label}>{outputs[name] == null ? "—" : formatReadout(outputs[name]!, control.decimals, control.precision)}</output></div>
                         {/if}
                     {:else if control.button}

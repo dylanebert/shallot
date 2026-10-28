@@ -1,0 +1,20 @@
+0	dragX	0
+0	dragY	0
+0	dragZ	10
+0	drag	1
+20	dragX	0.25
+40	dragY	-0.24
+60	dragY	-0.26
+80	dragZ	10.01
+100	dragX	5
+120	dragX	0
+140	Use cache	1
+160	faceA	1
+180	faceB	1
+200	edgePair	1
+220	auto	1
+240	Use cache	0
+260	drag	0
+300	drag	1
+320	dragX	1
+340	drag	0

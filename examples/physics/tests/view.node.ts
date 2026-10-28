@@ -18,6 +18,7 @@ import {
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { EventSample, EventSamplePlugin } from "../src/events";
 import { GeometricMoverState } from "../src/geometric-mover";
+import { manifoldNames } from "../src/manifold";
 import { scenePresentation, shapeMaterial } from "../src/presentation";
 import { RigidBodyState } from "../src/rigid-body";
 import { MotorizedJoint } from "../src/roles";
@@ -202,6 +203,7 @@ test("the accepted role baseline covers every critical-set scene", () => {
                         "Compound",
                         "Continuous",
                         "Geometry",
+                        "Manifold",
                         "Mesh",
                         "Ragdoll",
                         "Shapes",
@@ -334,7 +336,8 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 id === "geometryHull" ||
                 id === "hullReduction" ||
                 id === "hullTransform" ||
-                id === "capsuleMass"
+                id === "capsuleMass" ||
+                (manifoldNames as readonly string[]).includes(id)
             )
                 expect(presentation.shapes).toHaveLength(0);
             else expect(presentation.shapes.length).toBeGreaterThan(0);
@@ -398,6 +401,15 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 expect(ground.mesh.indices.length).toBeGreaterThan(0);
             } else expect(presentation.ground).toBeUndefined();
             const extent = {
+                sphereVsSphere: 12,
+                capsuleVsSphere: 12,
+                hullVsSphere: 12,
+                triangleVsSphere: 12,
+                capsuleVsCapsule: 12,
+                capsuleVsHull: 12,
+                triangleVsCapsule: 12,
+                hullVsHull: 12,
+                triangleVsHull: 12,
                 boxHull: 10,
                 geometryHull: 2,
                 hullReduction: 10,

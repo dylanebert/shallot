@@ -96,11 +96,12 @@ FILE* contactDrawing = nullptr;
 struct ContactMark { b3Pos point; b3Pos end; std::string label; };
 std::vector<ContactMark> contactMarks;
 FILE* characterDrawing = nullptr;
+bool manifoldRecording = false;
 std::vector<std::vector<double>> characterMarks;
-void DrawPoint( b3Pos p, float size, int ) { if (characterDrawing) characterMarks.push_back({0,p.x,p.y,p.z,size}); }
+void DrawPoint( b3Pos p, float size, int ) { if (characterDrawing || manifoldRecording) characterMarks.push_back({0,p.x,p.y,p.z,size}); }
 void DrawLine( b3Pos a, b3Pos b, int ) {
     if (contactDrawing) contactMarks.push_back({a,b,{}});
-    if (characterDrawing) characterMarks.push_back({1,a.x,a.y,a.z,b.x,b.y,b.z});
+    if (characterDrawing || manifoldRecording) characterMarks.push_back({1,a.x,a.y,a.z,b.x,b.y,b.z});
 }
 void DrawArrow( b3Pos a, b3Pos b, int ) { if (characterDrawing) characterMarks.push_back({2,a.x,a.y,a.z,b.x,b.y,b.z}); }
 void DrawWireSphere( b3WorldTransform, const b3Sphere*, int, int ) {}
@@ -407,6 +408,15 @@ int main( int argc, char** argv )
     if (getenv("SAMPLE_DISABLE_SLEEP")) context.enableSleep = false;
 	struct Entry { const char* name; Sample* (*create)(SampleContext*); };
 	const Entry entries[] = {
+        { "sphereVsSphere", ManifoldSamples::SphereAndSphere::Create },
+        { "capsuleVsSphere", ManifoldSamples::CapsuleAndSphere::Create },
+        { "hullVsSphere", ManifoldSamples::HullAndSphere::Create },
+        { "triangleVsSphere", ManifoldSamples::TriangleAndSphere::Create },
+        { "capsuleVsCapsule", ManifoldSamples::CapsuleAndCapsule::Create },
+        { "capsuleVsHull", ManifoldSamples::CapsuleAndHull::Create },
+        { "triangleVsCapsule", ManifoldSamples::TriangleAndCapsule::Create },
+        { "hullVsHull", ManifoldSamples::HullAndHull::Create },
+        { "triangleVsHull", ManifoldSamples::TriangleAndHull::Create },
         { "boxHull", Geometry::BoxHull::Create }, { "geometryHull", Geometry::Hull::Create },
         { "hullReduction", Geometry::HullReduction::Create }, { "hullTransform", Geometry::HullTransform::Create },
         { "capsuleMass", Geometry::CapsuleMass::Create },
@@ -491,6 +501,9 @@ int main( int argc, char** argv )
 		}
 		fclose( file );
 	}
+    manifoldRecords = getenv("MANIFOLD_RECORDS") ? fopen(getenv("MANIFOLD_RECORDS"), "w") : nullptr;
+    manifoldRecording = manifoldRecords != nullptr;
+    const bool manifoldScene = dynamic_cast<ManifoldSamples::Manifold*>(sample) || dynamic_cast<ManifoldSamples::TriangleManifold*>(sample);
     geometryRecords = getenv("GEOMETRY_RECORDS") ? fopen(getenv("GEOMETRY_RECORDS"), "w") : nullptr;
     const bool geometryScene = !strcmp(argv[1],"boxHull") || !strcmp(argv[1],"geometryHull") || !strcmp(argv[1],"hullReduction") || !strcmp(argv[1],"hullTransform") || !strcmp(argv[1],"capsuleMass");
     Collision::queries = getenv("COLLISION_QUERIES") ? fopen(getenv("COLLISION_QUERIES"), "w") : nullptr;
@@ -566,6 +579,11 @@ int main( int argc, char** argv )
                 fprintf(geometryRecords,"]\n");
             }
         } else sample->Step();
+        if (manifoldScene) {
+            printf("%016llx\n", (unsigned long long)b3HashWorldState(b3GetWorldFromId(sample->m_worldId)));
+            if (manifoldRecords || characterDrawing) sample->Render();
+            if (manifoldRecords) RecordManifold(sample);
+        }
         if (!strcmp(argv[1],"rayCurtain") || !strcmp(argv[1],"capsuleCastRay") || !strcmp(argv[1],"shapeCastDebug")) sample->Render();
         if (!strcmp(argv[1],"meshScale") || !strcmp(argv[1],"distanceDebug") || !strcmp(argv[1],"shapeDistance") || !strcmp(argv[1],"timeOfImpact")) printf("%016llx\n", (unsigned long long)b3HashWorldState(b3GetWorldFromId(sample->m_worldId)));
         if (Collision::queries) fprintf(Collision::queries,"step\n");
@@ -640,6 +658,7 @@ int main( int argc, char** argv )
         }
         if ( recordQueriesAndBuilds ) sample->Render();
 	}
+    if (manifoldRecords) fclose(manifoldRecords);
     if (geometryRecords) fclose(geometryRecords);
     if (characterDrawing) fclose(characterDrawing);
     if (bodyQueries) fclose(bodyQueries);

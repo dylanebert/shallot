@@ -17,6 +17,7 @@ import { GeometricMoverPlugin } from "./geometric-mover";
 import { GeometryPlugin } from "./geometry";
 import { GrabPlugin } from "./grab";
 import { JointSamplePlugin } from "./joints";
+import { ManifoldPlugin } from "./manifold";
 import { MeshSamplePlugin } from "./mesh";
 import { RagdollPlugin } from "./ragdoll";
 import { RigidBodyPlugin } from "./rigid-body";
@@ -41,6 +42,7 @@ export const AppPlugin: Plugin = {
         CollisionPlugin,
         CollisionDebugPlugin,
         GeometryPlugin,
+        ManifoldPlugin,
         MeshSamplePlugin,
         ShapesSamplePlugin,
         JointSamplePlugin,

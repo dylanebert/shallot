@@ -107,6 +107,20 @@ test("each picker label selects its scene in its category, exactly once", () => 
             ],
         },
         {
+            name: "Manifold",
+            scenes: [
+                { id: "capsuleVsCapsule", name: "Capsule vs Capsule" },
+                { id: "capsuleVsHull", name: "Capsule vs Hull" },
+                { id: "capsuleVsSphere", name: "Capsule vs Sphere" },
+                { id: "hullVsHull", name: "Hull vs Hull" },
+                { id: "hullVsSphere", name: "Hull vs Sphere" },
+                { id: "sphereVsSphere", name: "Sphere vs Sphere" },
+                { id: "triangleVsCapsule", name: "Triangle vs Capsule" },
+                { id: "triangleVsHull", name: "Triangle vs Hull" },
+                { id: "triangleVsSphere", name: "Triangle vs Sphere" },
+            ],
+        },
+        {
             name: "Geometry",
             scenes: [
                 { id: "boxHull", name: "Box Hull" },

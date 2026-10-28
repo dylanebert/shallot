@@ -28,6 +28,45 @@ function equalSampleSteps(actual: string, expected: string, label: string): void
 }
 
 for (const [scene, name, before, after] of [
+    ["sphereVsSphere", "SphereAndSphere", "2.0f };", "2.1f };"],
+    ["capsuleVsSphere", "CapsuleAndSphere", "2.0f };", "2.1f };"],
+    ["hullVsSphere", "HullAndSphere", "1.0f };", "1.1f };"],
+    ["triangleVsSphere", "TriangleAndSphere", "0.25f };", "0.26f };"],
+    ["capsuleVsCapsule", "CapsuleAndCapsule", "1.0f };", "1.1f };"],
+    ["capsuleVsHull", "CapsuleAndHull", "0.15f };", "0.16f };"],
+    ["triangleVsCapsule", "TriangleAndCapsule", "0.05f };", "0.06f };"],
+    ["hullVsHull", "HullAndHull", "0.5f, 1.0f, 1.0f, transform", "0.6f, 1.0f, 1.0f, transform"],
+    ["triangleVsHull", "TriangleAndHull", "0.304800004f;", "0.314800004f;"],
+] as const) {
+    test(`${scene}: native manifolds repeat, controls use DrawControls, and a source mutation fails parity`, () => {
+        const start=performance.now(), binary=sampleBinary();
+        const directory=mkdtempSync(join(tmpdir(),"box3d-manifold-")),records=join(directory,"manifold.jsonl"),base=new URL("../../examples/physics/tests/",import.meta.url);
+        const digests=()=>readFileSync(records,"utf8").trimEnd().split("\n").map(line=>drawingDigest(JSON.parse(line))).join("\n")+"\n";
+        try {
+            for(const controlled of [false,true]) {
+                const stem=scene+(controlled?".controls":""),args=[binary,scene,"600",...(controlled?[fileURLToPath(new URL(`${scene}.controls.txt`,base))]:[])];
+                const hashes=run(args,{MANIFOLD_RECORDS:records}),manifold=digests();
+                equalSampleSteps(hashes,readFileSync(new URL(`${stem}.gold.txt`,base),"utf8"),stem);
+                expect(manifold).toBe(readFileSync(new URL(`${stem}.manifold.gold.txt`,base),"utf8"));
+                expect(manifold.trimEnd().split("\n")).toHaveLength(600);
+                equalSampleSteps(run(args,{MANIFOLD_RECORDS:records}),hashes,`${stem} repeat`);
+                expect(digests()).toBe(manifold);
+            }
+            const samples=join(directory,"samples");mkdirSync(samples);mkdirSync(join(directory,"shared"));
+            for(const file of readdirSync(join(process.env.BOX3D!,"samples")))
+                if(file.endsWith(".cpp")||file.endsWith(".h"))copyFileSync(join(process.env.BOX3D!,"samples",file),join(samples,file));
+            copyFileSync(join(process.env.BOX3D!,"shared/benchmarks.c"),join(directory,"shared/benchmarks.c"));
+            const path=join(samples,"sample_manifold.cpp"),source=readFileSync(path,"utf8"),offset=source.indexOf(`class ${name} :`);
+            expect(offset).toBeGreaterThan(0);expect(source.slice(offset)).toContain(before);
+            writeFileSync(path,source.slice(0,offset)+source.slice(offset).replace(before,after));
+            run([sampleBinary(samples),scene,"600"],{MANIFOLD_RECORDS:records});
+            expect(digests()).not.toBe(readFileSync(new URL(`${scene}.manifold.gold.txt`,base),"utf8"));
+            console.log(`${scene} native parity, repeats, controls and mutation: ${(performance.now()-start).toFixed(0)} ms`);
+        } finally {rmSync(directory,{recursive:true,force:true});}
+    });
+}
+
+for (const [scene, name, before, after] of [
     ["boxHull", "BoxHull", "1.0f, 0.5f, 0.25f", "1.1f, 0.5f, 0.25f"],
     ["geometryHull", "Hull", "0.01f * points[i]", "0.011f * points[i]"],
     ["hullReduction", "HullReduction", "m_count = 16;", "m_count = 15;"],
@@ -142,7 +181,7 @@ for (const [scene, name, before, after] of [
         try {
             mkdirSync(join(copy,"samples")); mkdirSync(join(copy,"shared"));
             copyFileSync(join(process.env.BOX3D!,"shared/benchmarks.c"),join(copy,"shared/benchmarks.c"));
-            for (const file of ["sample_geometry.cpp", "sample_collision.cpp", "sample_ragdoll.cpp", "sample_mesh.cpp", "sample_compound.cpp", "sample_continuous.cpp", "sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp", "sample_bodies.cpp", "sample_shapes.cpp", "sample_character.cpp", "mover.h", "mover.cpp"])
+            for (const file of ["sample_manifold.cpp", "sample_geometry.cpp", "sample_collision.cpp", "sample_ragdoll.cpp", "sample_mesh.cpp", "sample_compound.cpp", "sample_continuous.cpp", "sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp", "sample_bodies.cpp", "sample_shapes.cpp", "sample_character.cpp", "mover.h", "mover.cpp"])
                 copyFileSync(join(process.env.BOX3D!,"samples",file),join(copy,"samples",file));
             const path = join(copy,"samples/sample_ragdoll.cpp"), source = readFileSync(path,"utf8");
             const offset = source.indexOf(`class ${name} :`);
@@ -201,6 +240,7 @@ test("rigidBody: native hashes and character state repeat through held keys and 
         copyFileSync(join(process.env.BOX3D!, "samples/sample_ragdoll.cpp"), join(copy, "samples/sample_ragdoll.cpp"));
         copyFileSync(join(process.env.BOX3D!, "samples/sample_collision.cpp"), join(copy, "samples/sample_collision.cpp"));
         copyFileSync(join(process.env.BOX3D!, "samples/sample_geometry.cpp"), join(copy, "samples/sample_geometry.cpp"));
+        copyFileSync(join(process.env.BOX3D!, "samples/sample_manifold.cpp"), join(copy, "samples/sample_manifold.cpp"));
         const path = join(copy, "samples/sample_character.cpp"); const source = readFileSync(path, "utf8");
         expect(source.includes("m_walkSpeed = 230.0f * SRC;")).toBe(true);
         writeFileSync(path, source.replace("m_walkSpeed = 230.0f * SRC;", "m_walkSpeed = 231.0f * SRC;"));
@@ -238,6 +278,7 @@ test("geometricMover: native hashes and mover state repeat through keys and Draw
         copyFileSync(join(process.env.BOX3D!, "samples/sample_ragdoll.cpp"), join(copy, "samples/sample_ragdoll.cpp"));
         copyFileSync(join(process.env.BOX3D!, "samples/sample_collision.cpp"), join(copy, "samples/sample_collision.cpp"));
         copyFileSync(join(process.env.BOX3D!, "samples/sample_geometry.cpp"), join(copy, "samples/sample_geometry.cpp"));
+        copyFileSync(join(process.env.BOX3D!, "samples/sample_manifold.cpp"), join(copy, "samples/sample_manifold.cpp"));
         const path = join(copy, "samples/mover.h");
         const source = readFileSync(path, "utf8");
         expect(source.includes("m_maxSpeed = 6.0f;")).toBe(true);
@@ -277,6 +318,7 @@ for (const scene of ["capsulePlane", "moverOverlap"]) {
             copyFileSync(join(process.env.BOX3D!, "samples/sample_ragdoll.cpp"), join(copy, "samples/sample_ragdoll.cpp"));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_collision.cpp"), join(copy, "samples/sample_collision.cpp"));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_geometry.cpp"), join(copy, "samples/sample_geometry.cpp"));
+            copyFileSync(join(process.env.BOX3D!, "samples/sample_manifold.cpp"), join(copy, "samples/sample_manifold.cpp"));
             const path = join(copy, "samples/sample_character.cpp");
             const source = readFileSync(path, "utf8");
             const before = scene === "capsulePlane" ? "0.25f };" : "0.35f };";
@@ -326,6 +368,7 @@ for (const [scene,[name,before,after]] of Object.entries(meshMutations)) {
             copyFileSync(join(process.env.BOX3D!, "samples/sample_ragdoll.cpp"), join(copy, "samples/sample_ragdoll.cpp"));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_collision.cpp"), join(copy, "samples/sample_collision.cpp"));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_geometry.cpp"), join(copy, "samples/sample_geometry.cpp"));
+            copyFileSync(join(process.env.BOX3D!, "samples/sample_manifold.cpp"), join(copy, "samples/sample_manifold.cpp"));
             const path=join(copy,"samples/sample_mesh.cpp");const source=readFileSync(path,"utf8");
             const offset=source.indexOf(`class ${name} :`);expect(offset).toBeGreaterThan(0);
             expect(source.slice(offset).includes(before)).toBe(true);
@@ -371,6 +414,7 @@ for (const [scene, name, before, after] of [
             copyFileSync(join(process.env.BOX3D!, "samples/sample_ragdoll.cpp"), join(copy, "samples/sample_ragdoll.cpp"));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_collision.cpp"), join(copy, "samples/sample_collision.cpp"));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_geometry.cpp"), join(copy, "samples/sample_geometry.cpp"));
+            copyFileSync(join(process.env.BOX3D!, "samples/sample_manifold.cpp"), join(copy, "samples/sample_manifold.cpp"));
             const path=join(copy,"samples/sample_mesh.cpp"),source=readFileSync(path,"utf8");
             const offset=source.indexOf(`class ${name} :`);expect(offset).toBeGreaterThan(0);
             expect(source.slice(offset)).toContain(before!);
@@ -419,6 +463,7 @@ for (const [scene, name, before, after] of [
             copyFileSync(join(process.env.BOX3D!, "samples/sample_ragdoll.cpp"), join(copy, "samples/sample_ragdoll.cpp"));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_collision.cpp"), join(copy, "samples/sample_collision.cpp"));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_geometry.cpp"), join(copy, "samples/sample_geometry.cpp"));
+            copyFileSync(join(process.env.BOX3D!, "samples/sample_manifold.cpp"), join(copy, "samples/sample_manifold.cpp"));
             const path = join(copy, "samples/sample_mesh.cpp"), source = readFileSync(path, "utf8");
             const offset = source.indexOf(`class ${name} :`);
             expect(offset).toBeGreaterThan(0);
@@ -484,6 +529,7 @@ for (const [scene, [name, before, after]] of Object.entries(compoundMutations)) 
             copyFileSync(join(process.env.BOX3D!, "samples/sample_ragdoll.cpp"), join(copy, "samples/sample_ragdoll.cpp"));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_collision.cpp"), join(copy, "samples/sample_collision.cpp"));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_geometry.cpp"), join(copy, "samples/sample_geometry.cpp"));
+            copyFileSync(join(process.env.BOX3D!, "samples/sample_manifold.cpp"), join(copy, "samples/sample_manifold.cpp"));
             const path = join(copy, "samples/sample_compound.cpp");
             const source = readFileSync(path, "utf8");
             const offset = source.indexOf(`class ${name} :`);
@@ -553,6 +599,7 @@ for (const [scene, [name, before, after]] of Object.entries(continuousMutations)
             copyFileSync(join(process.env.BOX3D!, "samples/sample_ragdoll.cpp"), join(copy, "samples/sample_ragdoll.cpp"));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_collision.cpp"), join(copy, "samples/sample_collision.cpp"));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_geometry.cpp"), join(copy, "samples/sample_geometry.cpp"));
+            copyFileSync(join(process.env.BOX3D!, "samples/sample_manifold.cpp"), join(copy, "samples/sample_manifold.cpp"));
             const path = join(copy, "samples/sample_continuous.cpp");
             const source = readFileSync(path, "utf8");
             const offset = source.indexOf(`class ${name} :`);
@@ -663,6 +710,7 @@ for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "f
             copyFileSync(join(process.env.BOX3D!, "samples/sample_ragdoll.cpp"), join(copy, "samples/sample_ragdoll.cpp"));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_collision.cpp"), join(copy, "samples/sample_collision.cpp"));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_geometry.cpp"), join(copy, "samples/sample_geometry.cpp"));
+            copyFileSync(join(process.env.BOX3D!, "samples/sample_manifold.cpp"), join(copy, "samples/sample_manifold.cpp"));
             const path = join(copy, "samples", scene in shapeMutations ? "sample_shapes.cpp" : scene in bodyMutations ? "sample_bodies.cpp" : scene === "box_stack" || scene in stackingMutations ? "sample_stacking.cpp" : ["joint", "sensor", "contact", "hit", "move", "persistentContact", "sensorHits"].includes(scene) ? "sample_events.cpp" : "sample_joint.cpp");
             const source = readFileSync(path, "utf8");
             const classes: Record<string, string> = { box_stack: "BoxStack", bridge: "Bridge", revolute: "RevoluteJoint", prismatic: "PrismaticJoint", wheel: "WheelJoint", filter: "FilterJoint", parallel: "ParallelJoint", motor: "MotorJoint", joint: "JointEvent", sensor: "SensorVisit", contact: "ContactEvent", hit: "HitEvent", move: "MoveEvent", persistentContact: "PersistentContact", sensorHits: "SensorHits" };
@@ -755,6 +803,7 @@ for (const [scene, [before, after]] of Object.entries(benchmarkMutations)) {
             copyFileSync(join(process.env.BOX3D!, "samples/sample_ragdoll.cpp"), join(copy, "samples/sample_ragdoll.cpp"));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_collision.cpp"), join(copy, "samples/sample_collision.cpp"));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_geometry.cpp"), join(copy, "samples/sample_geometry.cpp"));
+            copyFileSync(join(process.env.BOX3D!, "samples/sample_manifold.cpp"), join(copy, "samples/sample_manifold.cpp"));
             const path = join(copy, ["benchmarkSensor", "chains", "fallingBoxes", "candyCups", "explosion", "destruction"].includes(scene) ? "samples/sample_benchmark.cpp" : "shared/benchmarks.c");
             const source = readFileSync(path, "utf8");
             const start = scene === "fallingBoxes" ? source.indexOf("class FallingBoxes :") : scene === "candyCups" ? source.indexOf("class CandyCups :") : 0;

@@ -54,6 +54,8 @@ import { drawGeometry } from "./geometry-presentation";
 import { Grab } from "./grab";
 import { drawHeightFieldView } from "./height-field-presentation";
 import { drawJointViews } from "./joint-presentation";
+import { ManifoldSample } from "./manifold";
+import { drawManifold, manifoldGeometry } from "./manifold-presentation";
 import { drawMeshViewerView } from "./mesh-inspector-presentation";
 import {
     drivenBodies,
@@ -190,6 +192,41 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         motorized: materials.add(presentation.materials.motorized),
         sensor: materials.add(presentation.materials.sensor),
     };
+    const manifoldViews = manifoldGeometry(world).map((geometry, index) => {
+        const eid = world.create();
+        const mesh = world
+            .resource(Meshes)
+            .add({ name: `Manifold shape ${index}`, ...geometry.mesh });
+        const t = geometry.pose;
+        world.add(eid, Transform, {
+            translation: [t.p.x, t.p.y, t.p.z],
+            rotation: [t.q.v.x, t.q.v.y, t.q.v.z, t.q.s],
+        });
+        world.add(eid, MeshInstance, { mesh });
+        world.add(eid, MeshMaterial, roles[geometry.role]);
+        const edges = new GizmoAsset();
+        for (const [a, b] of geometry.edges) drawLine(edges, a, b, 0x000000);
+        world.add(eid, Gizmo, {
+            handle: registerGizmo(world, edges),
+            width: 1,
+            opacity: 0.45,
+            depthBias: -0.0001,
+        });
+        return { eid, mesh };
+    });
+    if (manifoldViews.length)
+        addSystem({
+            name: "manifold-shape-views",
+            group: "simulation",
+            update(w) {
+                const s = w.resource(ManifoldSample);
+                for (const [i, view] of manifoldViews.entries()) {
+                    const t = i === 0 ? s.a : s.b;
+                    w.storage(Transform).translation.set(view.eid, t.p.x, t.p.y, t.p.z);
+                    w.storage(Transform).rotation.set(view.eid, t.q.v.x, t.q.v.y, t.q.v.z, t.q.s);
+                }
+            },
+        });
     let moverMesh: MeshHandle | undefined;
     if (scene === "geometricMover" || scene === "village") {
         const mover =
@@ -530,6 +567,9 @@ function createView(world: World, scene: Scene, camera: number): () => void {
                 drawMeshViewerView(world, (a, b, color, options) =>
                     drawLine(world, a, b, color, options),
                 );
+            drawManifold(world, camera, (a, b, color, options) =>
+                drawLine(world, a, b, color, options),
+            );
             drawGeometry(world, (a, b, color, options) => drawLine(world, a, b, color, options));
             drawCollisionDebug(world, camera, (a, b, color, options) =>
                 drawLine(world, a, b, color, options),
@@ -565,6 +605,10 @@ function createView(world: World, scene: Scene, camera: number): () => void {
             if (view.entity && world.exists(view.entity)) world.destroy(view.entity);
         for (const asset of childAssets.values()) meshes.remove(asset.mesh);
         for (const asset of shared.values()) meshes.remove(asset.mesh);
+        for (const view of manifoldViews) {
+            if (world.exists(view.eid)) world.destroy(view.eid);
+            meshes.remove(view.mesh);
+        }
         meshes.remove(markerMesh);
         if (moverMesh !== undefined) meshes.remove(moverMesh);
         if (groundMesh !== undefined) meshes.remove(groundMesh);

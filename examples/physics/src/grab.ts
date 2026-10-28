@@ -31,6 +31,8 @@ import { CharacterSample, characterDrag } from "./character";
 import { CollisionState } from "./collision";
 import { CollisionDebug, debugDrag } from "./collision-debug";
 import { collisionDrag } from "./collision-drag";
+import { ManifoldSample } from "./manifold";
+import { manifoldDrag } from "./manifold-drag";
 
 export const Grab = {
     create: () => ({
@@ -140,17 +142,20 @@ const SampleGrab: System = {
             const collision = world.resource(CollisionState).scene;
             const debug = world.resource(CollisionDebug).scene === "shapeDistance";
             if (
+                world.resource(ManifoldSample).scene ||
                 world.resource(CharacterSample).scene ||
                 collision === "shapeCast" ||
                 collision === "overlapWorld" ||
                 debug
             ) {
                 const tracking = (
-                    debug
-                        ? debugDrag
-                        : collision === "shapeCast" || collision === "overlapWorld"
-                          ? collisionDrag
-                          : characterDrag
+                    world.resource(ManifoldSample).scene
+                        ? manifoldDrag
+                        : debug
+                          ? debugDrag
+                          : collision === "shapeCast" || collision === "overlapWorld"
+                            ? collisionDrag
+                            : characterDrag
                 )(world, grab.origin, grab.translation, grab.pending, grab.held);
                 grab.pending = false;
                 if (tracking && !grab.camera && world.has(camera, Orbit)) {
@@ -197,6 +202,7 @@ const UpdateGrab: System = {
         const grab = world.resource(Grab);
         const collision = world.resource(CollisionState).scene;
         if (
+            world.resource(ManifoldSample).scene ||
             world.resource(CharacterSample).scene ||
             collision === "shapeCast" ||
             collision === "overlapWorld"
