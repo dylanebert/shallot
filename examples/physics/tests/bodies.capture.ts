@@ -8,7 +8,7 @@ for (const width of [1280, 390]) {
             await page.goto(`/?scene=${id}`);
             await page.getByRole("button", { name: "Scene", exact: true }).waitFor();
             if (id === "gyroscopicPrecession")
-                await page.getByLabel("Expected rate", { exact: true }).waitFor();
+                await page.getByLabel("Expected average", { exact: true }).waitFor();
             else await page.waitForTimeout(1000);
             await capture(page, `${id}-${width}-default`);
             if (id === "bodyType") {

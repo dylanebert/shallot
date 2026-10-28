@@ -22,7 +22,10 @@ test("Precession's read-only rows equal the native sample's averaged rates each 
     try {
         expect(gold).toHaveLength(600);
         const rows = Object.entries(scenes.gyroscopicPrecession.controls);
-        expect(rows.map(([, control]) => control.label)).toEqual(["Expected rate", "Actual rate"]);
+        expect(rows.map(([, control]) => control.label)).toEqual([
+            "Expected average",
+            "Actual average",
+        ]);
         const values = controlValues("gyroscopicPrecession");
         for (let step = 0; step < 600; step++) {
             app.world.tick();

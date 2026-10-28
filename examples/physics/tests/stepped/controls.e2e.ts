@@ -15,6 +15,42 @@ const beforeWheel = samples[samples.findIndex((sample) => sample.id === "wheel")
 test.use(pipelineWarnings);
 
 for (const width of [1280, 390]) {
+    test(`Precession's averaged rates fit the label column at ${width}`, async ({ page }) => {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 720 });
+        await page.goto("/tests/controls.html");
+        await page.waitForFunction(() => "controlsKey" in window);
+        await pointerControl(page, page.getByRole("button", { name: "Scene", exact: true }));
+        await pointerControl(
+            page,
+            page.getByRole("button", { name: "Gyroscopic Precession", exact: true }),
+        );
+        await page.evaluate(() => {
+            const step = (window as unknown as { controlsKey(): number }).controlsKey;
+            for (let i = 0; i < 80; i++) step();
+        });
+        const section = page.getByRole("region", { name: "Precession, rad/s", exact: true });
+        await expect(
+            section.getByRole("heading", { name: "Precession, rad/s", exact: true }),
+        ).toBeVisible();
+        await expect(page.getByRole("heading", { name: "Simulation", exact: true })).toHaveCount(0);
+        for (const label of ["Expected average", "Actual average"]) {
+            await expect(section.getByLabel(label, { exact: true })).toBeVisible();
+            const dimensions = await section
+                .getByText(label, { exact: true })
+                .evaluate((element) => ({
+                    width: element.getBoundingClientRect().width,
+                    fits: element.scrollWidth <= element.clientWidth,
+                }));
+            expect(dimensions.width).toBe(144);
+            expect(dimensions.fits).toBe(true);
+        }
+        expect(
+            await page
+                .locator(".controls")
+                .evaluate((element) => element.scrollWidth <= element.clientWidth),
+        ).toBe(true);
+    });
+
     test(`Body Type's native choice fits its field at ${width} and returns keys to the game`, async ({
         page,
     }) => {

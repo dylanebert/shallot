@@ -19,6 +19,7 @@
     let { world, scene, select, change }: { world: World; scene: Scene; select: (scene: Scene) => void; change: (name: string, value: number, values: Record<string, number>) => void } = $props();
     let values = $state(controlValues(scene));
     const controls = $derived(enabledControls(scene, values));
+    const sectionTitle = $derived(scene === "gyroscopicPrecession" ? "Precession, rad/s" : "Simulation");
     function update(name: string, value: number) { change(name, value, values); }
     let open = $state(false);
     let picker: HTMLElement;
@@ -103,8 +104,8 @@
     <details onmousedown={(event) => { if (!(event.target instanceof HTMLInputElement && event.target.type === "range")) event.preventDefault(); }} open class="ec controls" aria-label={`${samples.find(sample => sample.id === scene)!.name} controls`}>
         <summary tabindex="-1" onfocus={(event) => event.currentTarget.blur()} class="panel-title">Physics</summary>
         <div class="fields">
-            <section class="section" aria-label="Simulation">
-                <h2 class="section-title">Simulation</h2>
+            <section class="section" aria-label={sectionTitle}>
+                <h2 class="section-title">{sectionTitle}</h2>
                 {@render fields()}
             </section>
         </div>

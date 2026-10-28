@@ -176,8 +176,8 @@ function construct(world: World): number[] {
 }
 const controls: Controls = Object.fromEntries(
     [
-        ["Expected rate", "expectedAngle"],
-        ["Actual rate", "actualAngle"],
+        ["Expected average", "expectedAngle"],
+        ["Actual average", "actualAngle"],
     ].map(([label, field]) => [
         label!,
         {
