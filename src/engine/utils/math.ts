@@ -424,7 +424,10 @@ export function invertMat4(m: Float32Array, out?: Float32Array): Float32Array {
     const col0 = Math.sqrt(a00 * a00 + a01 * a01 + a02 * a02 + a03 * a03);
     const col1 = Math.sqrt(a10 * a10 + a11 * a11 + a12 * a12 + a13 * a13);
     const col2 = Math.sqrt(a20 * a20 + a21 * a21 + a22 * a22 + a23 * a23);
-    const col3 = Math.sqrt(a30 * a30 + a31 * a31 + a32 * a32 + a33 * a33);
+    // An affine matrix's determinant is its 3x3 basis determinant: translation does not
+    // affect invertibility, so its Hadamard bound must not grow with distance from the origin.
+    const affine = a03 === 0 && a13 === 0 && a23 === 0 && a33 === 1;
+    const col3 = affine ? 1 : Math.sqrt(a30 * a30 + a31 * a31 + a32 * a32 + a33 * a33);
     const hadamard = col0 * col1 * col2 * col3;
     if (hadamard === 0 || Math.abs(det) < 4 * 2 ** -23 * hadamard) {
         out.fill(0);

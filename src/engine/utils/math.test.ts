@@ -37,6 +37,22 @@ function viewFromAim(
     return invertMat4(world);
 }
 
+test("affine inversion remains valid far from the origin and still rejects a singular basis", () => {
+    for (const q of [[0, 0, 0, 1], eulerToQuat(0.3, 0.5, 0.1)]) {
+        const matrix = composeMat4(10_000_000, 8, 16, q[0]!, q[1]!, q[2]!, q[3]!, 1, 2, 3);
+        const inverse = invertMat4(matrix);
+        expect(inverse[15]).toBe(1);
+        const product = multiplyMat4(matrix, inverse);
+        for (let i = 0; i < 16; i++) {
+            if (i >= 12 && i < 15) expect(Math.abs(product[i]!)).toBeLessThan(1);
+            else expect(product[i]).toBeCloseTo(i % 5 === 0 ? 1 : 0, 5);
+        }
+    }
+    expect(Array.from(invertMat4(composeMat4(10_000_000, 8, 16, 0, 0, 0, 1, 1, 0, 1)))).toEqual(
+        Array(16).fill(0),
+    );
+});
+
 test("infinite reverse-Z perspective keeps depth precision beyond the culling far plane", () => {
     const projection = perspective(60, 1, 0.1);
     const depthAt = (distance: number) =>
