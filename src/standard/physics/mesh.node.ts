@@ -43,6 +43,33 @@ test("mesh release refuses foreign and released builds and invalid definitions",
     }
 });
 
+test("a released mesh report remains readable in full", async () => {
+    const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
+    try {
+        const report = createPhysicsMesh(app.world, definition);
+        const expected = structuredClone(report);
+        destroyPhysicsMesh(app.world, report);
+        expect(report).toEqual(expected);
+    } finally {
+        await app.dispose();
+    }
+});
+
+test("building after release returns a fresh report with equal data", async () => {
+    const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
+    try {
+        const first = createPhysicsMesh(app.world, definition);
+        const expected = structuredClone(first);
+        destroyPhysicsMesh(app.world, first);
+        const rebuilt = createPhysicsMesh(app.world, definition);
+        expect(rebuilt).not.toBe(first);
+        expect(rebuilt).toEqual(expected);
+        destroyPhysicsMesh(app.world, rebuilt);
+    } finally {
+        await app.dispose();
+    }
+});
+
 test("explicit builds leave the registry's cached shape build unchanged", async () => {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     try {
