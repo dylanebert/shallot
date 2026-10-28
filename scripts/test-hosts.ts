@@ -31,6 +31,7 @@ export const ONLY: Readonly<Record<string, readonly NodeJS.Platform[]>> = {
     "examples/interact": ["darwin"],
     "examples/tonemapping": ["darwin"],
     "examples/view-model": ["darwin"],
+    "examples/minimap": ["darwin"],
     "examples/volumetric-fog": ["darwin"],
     "src/project/browser": ["darwin"],
     // Its cost is DOM-bound, so SwiftShader's runners run it no slower than the other hosts.

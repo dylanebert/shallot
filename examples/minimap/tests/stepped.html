@@ -1,0 +1,43 @@
+<!doctype html><html lang="en"><head><meta charset="UTF-8"><title>Minimap stepped</title><style>body{margin:0}canvas{display:block}</style></head><body><canvas width="640" height="360"></canvas><script type="module">
+import { createApp, Camera, Transform, setTransform, resizeViewport } from '@dylanebert/shallot';
+import { attachTexture, captureTexture, CameraViewport, RenderLayers } from '@dylanebert/shallot/rendering';
+import { PhysicsWorldDefinition } from '@dylanebert/shallot/standard/physics';
+import { Scene, ScenePlugin } from '../src/scene';
+const app=await createApp({plugins:[{name:'Stepped',dependencies:[ScenePlugin],initialize(w){
+ w.resource(PhysicsWorldDefinition).workerCount=1;
+ const s=w.resource(Scene),target=attachTexture(w,s.camera,{width:640,height:360});attachTexture(w,s.minimap,target);
+ resizeViewport(w,0,640,360,1);
+ for(const e of [s.camera,s.minimap])w.storage(Camera).antialias.set(e,0);
+}}]});
+const w=app.world,s=w.resource(Scene),canvas=document.querySelector('canvas');
+async function image(){w.step(0);return (await captureTexture(w,s.camera)).rgba;}
+function rect(){const v=w.storage(CameraViewport),e=s.minimap;return {x:v.x.get(e),y:v.y.get(e),size:v.width.get(e)};}
+function pixel(x,z){const r=rect();return [Math.floor(r.x+(x/22+0.5)*r.size),Math.floor(r.y+(z/22+0.5)*r.size)];}
+function difference(a,b,inside=true){const r=rect();let n=0;for(let y=0;y<360;y++)for(let x=0;x<640;x++){
+ const within=x>=r.x&&x<r.x+r.size&&y>=r.y&&y<r.y+r.size;if(within!==inside)continue;
+ const i=(y*640+x)*4;for(let c=0;c<4;c++)if(a[i+c]!==b[i+c]){n++;break;}
+}return n;}
+window.evidence=async(claim)=>{
+ w.step(1/60);w.step(1/60);
+ const before=await image();
+ if(claim==='marker'){
+  setTransform(w,s.player,[2,0.9,7],[0,0,0,1]);w.step(1/60);w.step(1/60);const after=await image();
+  // White marker pixels must move between the two known player positions, not merely change anywhere.
+  let n=0;for(const [x,z,sign] of [[0,7,1],[2,7,-1]]){const [px,py]=pixel(x,z);for(let y=py-2;y<=py+2;y++)for(let x=px-2;x<=px+2;x++){
+   const i=(y*640+x)*4;const white=a=>a[i]>180&&a[i+1]>180&&a[i+2]>180;
+   if(sign===1?white(before)&&!white(after):!white(before)&&white(after))n++;
+  }}return n;
+ }
+ if(claim==='cube'){
+  // The named orange cube's top occupies this world-space patch in the overhead view.
+  const [px,py]=pixel(-4,-3);let n=0;
+  for(let y=py-3;y<=py+3;y++)for(let x=px-3;x<=px+3;x++){
+   const i=(y*640+x)*4;if(before[i]>before[i+1]*1.15&&before[i+1]>before[i+2]*1.1)n++;
+  }
+  return n;
+ }
+ w.remove(s.minimap,Camera);const without=await image();return difference(before,without,false);
+};
+window.frame=async()=>{const rgba=await image();canvas.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(rgba),640,360),0,0);};
+window.adapter=w.gpu.adapter;window.ready=true;
+</script></body></html>

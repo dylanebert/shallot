@@ -1,0 +1,6 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Walk a cube arena with a top-down minimap and a player marker in a corner camera viewport."><title>Minimap</title><link rel="icon" type="image/svg+xml" href="/icon.svg"><style>body{margin:0;background:#141210}canvas{display:block;width:100vw;height:100vh}</style><link rel="stylesheet" href="./src/touch.css"/></head><body><canvas></canvas><script type="module">
+import { runApp } from '@dylanebert/shallot';
+import { AppPlugin } from './src/app';
+await runApp({plugins:[AppPlugin]});
+</script></body></html>

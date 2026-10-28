@@ -1,0 +1,31 @@
+<!doctype html><html><head><link rel="stylesheet" href="../src/touch.css"><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{margin:0;background:#141210}canvas{display:block;width:100vw;height:100vh}</style></head><body><canvas></canvas><script type="module">
+import { createApp, Transform, Devices, Character, GroundState } from '@dylanebert/shallot';
+import { PhysicsWorldDefinition } from '@dylanebert/shallot/standard/physics';
+import { Player, PlayerInput } from '../src/player';
+import { CameraViewport } from '@dylanebert/shallot/rendering';
+import { Scene, ScenePlugin } from '../src/scene';
+
+// A stepped game keeps touch input, layout and captures on the same frame.
+const start = async () => {
+ const app = await createApp({plugins:[ScenePlugin], pixelRatio:1, setup(world){
+  world.resource(PhysicsWorldDefinition).workerCount=1;
+
+ }});
+ // Bind canvas input before the first touch.
+ app.world.step(1/60);
+ return app;
+};
+let app;
+window.corner=()=>{const w=app.world,e=w.resource(Scene).minimap,v=w.storage(CameraViewport);return {x:v.x.get(e),y:v.y.get(e),width:v.width.get(e),height:v.height.get(e)};};
+window.reset = async () => { app?.dispose(); app = await start(); };
+// Steps sample input and draw; ticks advance only fixed simulation, from the last sampled input.
+window.sample = (steps = 0, ticks = 0) => {
+ const world = app.world;
+ for (let i = 0; i < steps; i++) world.step(1 / 60);
+ for (let i = 0; i < ticks; i++) world.tick();
+ const eid = [...world.query([Player])][0];
+ const t = world.storage(Transform).translation.column;
+ const input = world.storage(PlayerInput);
+ return {grounded: world.storage(Character).groundState.get(eid) === GroundState.OnGround, position: Array.from(t.slice(eid*4,eid*4+3)), yaw:input.yaw.get(eid), jumps:input.jumpPresses.get(eid), use:world.resource(Devices).keys.held.has('KeyE')};
+};
+</script></body></html>

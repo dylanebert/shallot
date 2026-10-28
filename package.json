@@ -73,6 +73,7 @@
         "examples/minimal",
         "examples/first-person",
         "examples/view-model",
+        "examples/minimap",
         "examples/loading-screen",
         "examples/embedded-scene",
         "examples/day-night-cycle",

@@ -38,6 +38,7 @@ for (const name of [
     "sound",
     "particles",
     "view-model",
+    "minimap",
     "volumetric-fog",
 ]) {
     test(`${name} carries unchanged copies of first-person's controller over published imports`, () => {
