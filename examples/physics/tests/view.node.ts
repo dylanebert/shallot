@@ -381,6 +381,8 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 expect(ground.mesh.indices.length).toBeGreaterThan(0);
             } else expect(presentation.ground).toBeUndefined();
             const extent = {
+                meshReflection: 20,
+                meshHeightField: 9,
                 voxel: 40,
                 hollowBox: 10,
                 gridMesh: 20,

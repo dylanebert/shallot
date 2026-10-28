@@ -94,7 +94,7 @@
                         <div class="row">
                             <label for={`control-${name}`}>{control.label}</label>
                             <div class="slider">
-                                <input tabindex="-1" onfocus={(event) => event.currentTarget.blur()} id={`control-${name}`} type="range" min={control.min} max={control.max} step={control.step} value={values[name]} oninput={(event) => update(name, Number(event.currentTarget.value))} />
+                                <input tabindex="-1" onfocus={(event) => event.currentTarget.blur()} id={`control-${name}`} type="range" min={control.bounds?.(values)[0] ?? control.min} max={control.bounds?.(values)[1] ?? control.max} step={control.step} value={values[name]} oninput={(event) => update(name, Number(event.currentTarget.value))} />
                                 <output for={`control-${name}`}>{formatValue(values[name], control.decimals)}</output>
                             </div>
                         </div>

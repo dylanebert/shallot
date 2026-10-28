@@ -7,6 +7,7 @@ import { run } from "./native";
 import { sampleBinary } from "./sample";
 import { nativeCompoundRecords } from "./compound-records";
 import { nativeMeshRecords } from "./mesh-records";
+import { nativeMeshFrames } from "./mesh-frames";
 import { sampleGold } from "../../examples/physics/tests/gold";
 import { digestMismatch, drawingDigest, eventDigests, querySteps, recordDigest } from "../../examples/physics/tests/digest";
 
@@ -193,6 +194,47 @@ for (const [scene,[name,before,after]] of Object.entries(meshMutations)) {
             expect(nativeMeshRecords(readFileSync(records,"utf8"))).not.toEqual(geometry);
         } finally {rmSync(copy,{recursive:true,force:true});}
         console.log(`${scene} native parity, repeat, controls and mutation: ${(performance.now()-start).toFixed(0)} ms`);
+    });
+}
+
+for (const [scene, name, before, after] of [
+    ["meshReflection", "MeshReflection", "20, 20, 2.0f, 2, true", "20, 20, 2.1f, 2, true"],
+    ["meshHeightField", "HeightField", "m_amplitude = 0.75f;", "m_amplitude = 0.8f;"],
+]) {
+    test(`${scene}: Mesh sample repeats hashes, geometry and drawings, drives controls and rejects a source mutation`, () => {
+        const start = performance.now();
+        const copy = mkdtempSync(join(tmpdir(), "box3d-mesh-frame-mutation-"));
+        const frames = join(copy, "frames.txt"), drawing = join(copy, "drawing.txt");
+        const base = new URL("../../examples/physics/tests/", import.meta.url);
+        try {
+            const binary = sampleBinary();
+            const observe = (binary: string, controlled: boolean) => {
+                rmSync(frames, {force:true});
+                const args = [binary, scene!, "600", ...(controlled ? [fileURLToPath(new URL(`${scene}.controls.txt`, base))] : [])];
+                const hashes = run(args, {MESH_FRAMES:frames, CHARACTER_DRAWING:drawing});
+                return {hashes, geometry:nativeMeshFrames(readFileSync(frames,"utf8")), drawings:readFileSync(drawing,"utf8").trim().split("\n").map(line=>drawingDigest(JSON.parse(line)))};
+            };
+            for (const controlled of [false,true]) {
+                const stem = `${scene}${controlled?".controls":""}`;
+                const a = observe(binary,controlled), b = observe(binary,controlled);
+                expect(a).toEqual(b);
+                equalSampleSteps(a.hashes,readFileSync(new URL(`${stem}.gold.txt`,base),"utf8"),stem);
+                expect(a.geometry).toHaveLength(600);
+                expect(a.geometry).toEqual(readFileSync(new URL(`${stem}.geometry.gold.txt`,base),"utf8").trim().split("\n"));
+                if(scene==="meshHeightField") expect(a.drawings).toEqual(readFileSync(new URL(`${stem}.drawing.gold.txt`,base),"utf8").trim().split("\n"));
+            }
+            mkdirSync(join(copy,"samples"));mkdirSync(join(copy,"shared"));
+            copyFileSync(join(process.env.BOX3D!,"shared/benchmarks.c"),join(copy,"shared/benchmarks.c"));
+            for (const file of ["sample_mesh.cpp","sample_compound.cpp","sample_continuous.cpp","sample.cpp","sample_stacking.cpp","sample_joint.cpp","sample_events.cpp","sample_benchmark.cpp","sample_bodies.cpp","sample_shapes.cpp","sample_character.cpp","mover.h","mover.cpp"])
+                copyFileSync(join(process.env.BOX3D!,"samples",file),join(copy,"samples",file));
+            const path=join(copy,"samples/sample_mesh.cpp"),source=readFileSync(path,"utf8");
+            const offset=source.indexOf(`class ${name} :`);expect(offset).toBeGreaterThan(0);
+            expect(source.slice(offset)).toContain(before!);
+            writeFileSync(path,source.slice(0,offset)+source.slice(offset).replace(before!,after!));
+            const changed=observe(sampleBinary(join(copy,"samples")),false);
+            expect(changed.geometry).not.toEqual(readFileSync(new URL(`${scene}.geometry.gold.txt`,base),"utf8").trim().split("\n"));
+        } finally { rmSync(copy,{recursive:true,force:true}); }
+        console.log(`${scene} native hashes, geometry, drawings, controls, repeats and mutation: ${(performance.now()-start).toFixed(0)} ms`);
     });
 }
 

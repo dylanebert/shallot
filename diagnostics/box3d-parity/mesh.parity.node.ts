@@ -3,11 +3,10 @@ import { readFileSync } from "node:fs";
 import { createApp, PhysicsMeshes, Shape, ShapeKind } from "../../src";
 import { StandardPhysicsPlugin } from "../../src/standard/physics";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { meshScenes } from "../../examples/physics/src/mesh";
 import { createScene } from "../../examples/physics/src/scenes";
 import { meshRecords } from "./mesh-records";
 setDefaultTimeout(TIMEOUT.node);
-for (const scene of Object.keys(meshScenes) as (keyof typeof meshScenes)[]) {
+for (const scene of ["voxel", "hollowBox", "gridMesh", "bigBoxMesh", "boxMesh"] as const) {
     test(`${scene} static mesh geometry equals native records`,async()=>{
         const expected = readFileSync(new URL(`../../examples/physics/tests/${scene}.mesh.gold.txt`,import.meta.url),"utf8").trimEnd().split("\n");
         const app = await createApp({defaults:false,plugins:[StandardPhysicsPlugin],setup(world){createScene(world,scene);}});

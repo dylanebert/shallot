@@ -15,6 +15,63 @@ const beforeWheel = samples[samples.findIndex((sample) => sample.id === "wheel")
 test.use(pipelineWarnings);
 
 for (const width of [1280, 390]) {
+    test(`Mesh signs and terrain bounds fit their fields at ${width}`, async ({ page }) => {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 720 });
+        await page.goto("/tests/controls.html");
+        await page.waitForFunction(() => "controlsKey" in window);
+        await pointerControl(page, page.getByRole("button", { name: "Scene", exact: true }));
+        await pointerControl(page, page.getByRole("button", { name: "Reflection", exact: true }));
+        const panel = page.locator(".controls");
+        for (const axis of ["X", "Y", "Z"]) {
+            const select = panel.getByLabel(`Scale ${axis}`, { exact: true });
+            expect(await select.locator("option").allTextContents()).toEqual(["Neg", "Pos"]);
+            for (const value of ["-1", "1"]) {
+                await select.selectOption(value);
+                await expect(select).toHaveValue(value);
+                await bodyHasFocus(page);
+            }
+        }
+        await pointerControl(page, page.getByRole("button", { name: "Scene", exact: true }));
+        const terrain = page
+            .getByRole("region", { name: "Mesh", exact: true })
+            .getByRole("button", { name: "Height Field", exact: true });
+        await pointerControl(page, terrain);
+        const columns = panel.getByLabel("columns", { exact: true });
+        await columns.scrollIntoViewIfNeeded();
+        const columnBox = (await columns.boundingBox())!;
+        await page.mouse.move(
+            columnBox.x + columnBox.width / 2,
+            columnBox.y + columnBox.height / 2,
+        );
+        await page.mouse.down();
+        await page.mouse.move(columnBox.x, columnBox.y + columnBox.height / 2, { steps: 8 });
+        await page.mouse.up();
+        await expect(columns).toHaveValue("1");
+        await bodyHasFocus(page);
+        const ray = panel.getByLabel("ray x", { exact: true });
+        await expect(ray).toHaveAttribute("min", "-0.4");
+        await expect(ray).toHaveAttribute("max", "0.4");
+        const radius = panel.getByLabel("radius", { exact: true });
+        await radius.scrollIntoViewIfNeeded();
+        const radiusBox = (await radius.boundingBox())!;
+        await page.mouse.move(
+            radiusBox.x + radiusBox.width / 2,
+            radiusBox.y + radiusBox.height / 2,
+        );
+        await page.mouse.down();
+        await page.mouse.move(radiusBox.x + radiusBox.width, radiusBox.y + radiusBox.height / 2, {
+            steps: 8,
+        });
+        await page.mouse.up();
+        await expect(radius).toHaveValue("1");
+        await bodyHasFocus(page);
+        await expect(ray).toHaveAttribute("min", "-2");
+        await expect(ray).toHaveAttribute("max", "2");
+        expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+            true,
+        );
+    });
+
     test(`Shapes choices fit their fixed fields at ${width}`, async ({ page }) => {
         await page.setViewportSize({ width, height: width === 390 ? 844 : 720 });
         await page.goto("/tests/controls.html");

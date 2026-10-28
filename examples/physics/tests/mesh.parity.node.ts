@@ -38,8 +38,15 @@ for (const scene of Object.keys(meshScenes) as (keyof typeof meshScenes)[]) {
                 for (const [step, expected] of gold.entries()) {
                     for (const change of sequence.filter((c) => c.step === step)) {
                         const type = ["Sphere", "Capsule", "Box", "Cylinder"].indexOf(change.name);
-                        const name = type < 0 ? change.name : "Shape";
-                        const value = type < 0 ? change.value : type;
+                        const sign = /^(Neg|Pos) ([XYZ])$/.exec(change.name);
+                        const name = sign ? `Scale ${sign[2]}` : type < 0 ? change.name : "Shape";
+                        const value = sign
+                            ? sign[1] === "Neg"
+                                ? -1
+                                : 1
+                            : type < 0
+                              ? change.value
+                              : type;
                         values[name] = value;
                         (meshScenes[scene].controls as Controls)[name]!.set!(
                             app.world,

@@ -14,6 +14,8 @@ import {
 import { rotationFromAxisAngle, StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
 import voxelData from "./collision_mesh_01.json" with { type: "json" };
 import { decodeMesh } from "./mesh-data";
+import { HeightFieldSamplePlugin, heightFieldScene } from "./mesh-height-field";
+import { ReflectionPlugin, reflectionScene } from "./mesh-reflection";
 import type { Controls } from "./scenes";
 
 const f = Math.fround;
@@ -26,7 +28,7 @@ export const MeshSampleState = {
 };
 export const MeshSamplePlugin: Plugin = {
     name: "MeshSample",
-    dependencies: [StandardPhysicsPlugin],
+    dependencies: [StandardPhysicsPlugin, ReflectionPlugin, HeightFieldSamplePlugin],
     recovery: recoverResource(MeshSampleState),
 };
 function boxMesh(world: World, center: V3, extent: V3, hollow = false): number {
@@ -314,6 +316,8 @@ function voxel(world: World): number[] {
     return [body];
 }
 export const meshScenes = {
+    meshReflection: reflectionScene,
+    meshHeightField: heightFieldScene,
     voxel: {
         construct: voxel,
         gridExtent: 40,

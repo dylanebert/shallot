@@ -24,6 +24,7 @@ import { eventScenes } from "./events";
 import { GeometricMoverState, geometricMoverScene } from "./geometric-mover";
 import { jointScenes } from "./joints";
 import { meshScenes } from "./mesh";
+import { HeightFieldState } from "./mesh-height-field";
 import { PrecessionState } from "./precession";
 import { RigidBodyState, rigidBodyScene } from "./rigid-body";
 import { MotorizedJoint } from "./roles";
@@ -167,7 +168,9 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
             { id: "bigBoxMesh", name: "Big Box" },
             { id: "boxMesh", name: "Box" },
             { id: "gridMesh", name: "Grid" },
+            { id: "meshHeightField", name: "Height Field" },
             { id: "hollowBox", name: "Hollow Box" },
+            { id: "meshReflection", name: "Reflection" },
             { id: "voxel", name: "Voxel" },
         ],
     },
@@ -213,6 +216,7 @@ export interface Control {
     value: number;
     min?: number;
     max?: number;
+    bounds?: (values: Record<string, number>) => [number, number];
     step?: number;
     decimals?: number;
     button?: boolean;
@@ -878,6 +882,7 @@ export const scenes = {
 } as const;
 
 export function createScene(world: World, scene: Scene): number[] {
+    Object.assign(world.resource(HeightFieldState), HeightFieldState.create());
     Object.assign(world.resource(ShapeControlsState), ShapeControlsState.create());
     Object.assign(world.resource(WindState), { shapes: [], joints: [], lift: 0, time: 0 });
     world.resource(StackingImpulses).length = 0;

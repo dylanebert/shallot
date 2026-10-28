@@ -3,7 +3,15 @@ import { test } from "playwright/test";
 import { capture } from "./capture";
 
 test.use(pipelineWarnings);
-for (const scene of ["voxel", "hollowBox", "gridMesh", "bigBoxMesh", "boxMesh"]) {
+for (const scene of [
+    "voxel",
+    "hollowBox",
+    "gridMesh",
+    "bigBoxMesh",
+    "boxMesh",
+    "meshReflection",
+    "meshHeightField",
+]) {
     test(`${scene} Mesh-stage look review`, async ({ page }) => {
         page.on("pageerror", (error) => {
             throw error;
@@ -18,9 +26,18 @@ for (const scene of ["voxel", "hollowBox", "gridMesh", "bigBoxMesh", "boxMesh"])
             await page.waitForTimeout(1500);
             await capture(page, `${scene}-${size}-default`);
             const shape = page.getByRole("combobox", { name: "Shape", exact: true });
-            if (await shape.count()) {
+            const hasShape = (await shape.count()) > 0;
+            if (hasShape) {
                 await shape.selectOption("0");
                 await page.getByRole("slider", { name: "Scale X", exact: true }).fill("-1.5");
+            } else if (scene === "meshReflection") {
+                await page
+                    .getByRole("combobox", { name: "Scale Y", exact: true })
+                    .selectOption("-1");
+            } else if (scene === "meshHeightField") {
+                await page.getByRole("slider", { name: "radius", exact: true }).fill("0");
+            }
+            if (hasShape || scene === "meshReflection" || scene === "meshHeightField") {
                 await page.waitForTimeout(500);
                 await capture(page, `${scene}-${size}-controls`);
                 await page.getByText("Physics", { exact: true }).click();

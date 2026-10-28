@@ -48,6 +48,7 @@ import { DrivingState } from "./driving";
 import { EventSample } from "./events";
 import { GeometricMoverState } from "./geometric-mover";
 import { Grab } from "./grab";
+import { drawHeightFieldView } from "./height-field-presentation";
 import { drawJointViews } from "./joint-presentation";
 import {
     drivenBodies,
@@ -495,6 +496,10 @@ function createView(world: World, scene: Scene, camera: number): () => void {
                 );
             if (scene === "village")
                 drawVillageView(world, camera, (a, b, color, options) =>
+                    drawLine(world, a, b, color, options),
+                );
+            if (scene === "meshHeightField")
+                drawHeightFieldView(world, camera, (a, b, color, options) =>
                     drawLine(world, a, b, color, options),
                 );
             if (scene === "cast")

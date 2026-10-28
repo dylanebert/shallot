@@ -25,6 +25,108 @@ test("Mesh rows retain the four shape choices and native scale bounds without te
     }
 });
 
+test("Reflection exposes three sign choices, Neg before Pos, without sample-app telemetry", () => {
+    const controls = scenes.meshReflection.controls;
+    expect(Object.keys(controls)).toEqual(["Scale X", "Scale Y", "Scale Z"]);
+    for (const [axis, value] of [
+        ["X", -1],
+        ["Y", 1],
+        ["Z", 1],
+    ] as const) {
+        expect(controls[`Scale ${axis}`]).toMatchObject({
+            label: `Scale ${axis}`,
+            value,
+            select: true,
+            options: [
+                { label: "Neg", value: -1 },
+                { label: "Pos", value: 1 },
+            ],
+        });
+    }
+});
+
+test("Height Field retains native controls, formats and geometry-dependent ray bounds", () => {
+    const controls = scenes.meshHeightField.controls;
+    expect(Object.keys(controls)).toEqual([
+        "columns",
+        "rows",
+        "amplitude",
+        "holes",
+        "ray x",
+        "ray z",
+        "delta x",
+        "delta z",
+        "radius",
+    ]);
+    for (const label of ["columns", "rows"])
+        expect(controls[label]).toMatchObject({
+            value: 10,
+            min: 1,
+            max: 500,
+            step: 1,
+            decimals: 0,
+        });
+    expect(controls.amplitude).toMatchObject({
+        value: 0.75,
+        min: 0,
+        max: 2,
+        step: 0.001,
+        decimals: 3,
+    });
+    expect(controls.radius).toMatchObject({ value: 0.2, min: 0, max: 1, step: 0.001, decimals: 3 });
+    expect(controls.holes!.min).toBeUndefined();
+    for (const label of ["ray x", "ray z"])
+        expect(controls[label]).toMatchObject({ step: 0.1, decimals: 1 });
+    for (const label of ["delta x", "delta z"])
+        expect(controls[label]).toMatchObject({ step: 1, decimals: 0 });
+    expect(controls["ray z"]!.value).toBe(1.01);
+    expect(formatValue(controls["ray z"]!.value, controls["ray z"]!.decimals)).toBe("1.0");
+    for (const [columns, rows, radius] of [
+        [10, 10, 0.2],
+        [1, 1, 0],
+        [500, 500, 1],
+        [12, 15, 0.5],
+    ]) {
+        const values = {
+            ...controlValues("meshHeightField"),
+            columns: columns!,
+            rows: rows!,
+            radius: radius!,
+        };
+        expect(controls["ray x"]!.bounds!(values)).toEqual([
+            -(columns! - 1 + 2 * radius!),
+            columns! - 1 + 2 * radius!,
+        ]);
+        expect(controls["ray z"]!.bounds!(values)).toEqual([
+            -(rows! - 1 + 2 * radius!),
+            rows! - 1 + 2 * radius!,
+        ]);
+        expect(controls["delta x"]!.bounds!(values)).toEqual([
+            -4 * (columns! - 1),
+            4 * (columns! - 1),
+        ]);
+        expect(controls["delta z"]!.bounds!(values)).toEqual([-4 * (rows! - 1), 4 * (rows! - 1)]);
+    }
+});
+
+test("Height Field's reachable ray values fit the fixed numeric column", () => {
+    const controls = scenes.meshHeightField.controls;
+    for (const radius of [0, 0.001, 0.2, 1]) {
+        const values = { ...controlValues("meshHeightField"), columns: 500, rows: 500, radius };
+        for (const label of ["ray x", "ray z", "delta x", "delta z"]) {
+            const control = controls[label]!;
+            const [min, max] = control.bounds!(values);
+            const steps = Math.ceil((max - min) / control.step!);
+            for (let index = 0; index <= steps; index++) {
+                const value = Math.min(max, min + index * control.step!);
+                const text = formatValue(value, control.decimals);
+                expect(text.length, `${label}: ${value}`).toBeLessThanOrEqual(6);
+                expect(text).not.toContain("e");
+            }
+        }
+    }
+});
+
 test("Village carries neither a Surface row nor sample-app statistics", () => {
     expect(scenes.village.controls).toBeUndefined();
     expect(controlValues("village")).toEqual({});
@@ -164,12 +266,17 @@ for (const scene of Object.keys(scenes) as Scene[]) {
         (control) => control.min !== undefined,
     );
     if (sliders.length > 0)
-        test(`${scene} slider endpoints and defaults format without loss in the value allocation`, () => {
+        test(`${scene} slider endpoints and defaults format to their declared precision in the value allocation`, () => {
             for (const control of sliders) {
                 expect(control.min!).toBeLessThan(control.max!);
                 for (const value of [control.min!, control.max!, control.value]) {
                     expect(Number.isFinite(value)).toBe(true);
-                    expect(Number(formatValue(value, control.decimals))).toBe(value);
+                    const displayed = Number(formatValue(value, control.decimals));
+                    expect(displayed).toBe(
+                        control.decimals === undefined
+                            ? value
+                            : Number(value.toFixed(control.decimals)),
+                    );
                     expect(formatValue(value, control.decimals).length).toBeLessThanOrEqual(6);
                 }
             }

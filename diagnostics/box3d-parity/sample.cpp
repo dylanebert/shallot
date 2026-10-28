@@ -31,8 +31,10 @@ b3World* b3GetWorldFromId( b3WorldId );
 uint64_t b3HashWorldState( b3World* );
 }
 
+void RecordGeometryFrame(b3WorldId world);
 void RecordedStep(b3WorldId world, float dt, int substeps) {
     b3World_Step(world, dt, substeps);
+    RecordGeometryFrame(world);
     if (meshDropRecording) printf("%016llx\n", (unsigned long long)b3HashWorldState(b3GetWorldFromId(world)));
 }
 
@@ -170,6 +172,7 @@ b3HullData* RecordedClone( const b3HullData* hull, b3Transform transform, b3Vec3
 namespace ImGui
 {
 void Text( const char*, ... ) {}
+void SameLine() {}
 void PushItemWidth( float ) {}
 float GetFontSize() { return 14.0f; }
 bool SliderFloat( const char* name, float* value, float, float, const char* = "%.3f" ) {
@@ -337,7 +340,7 @@ public:
 #define b3Body_CollideMover RecordedBodyMover
 #define b3GetTicks SampleTicks
 #define b3World_Step RecordedStep
-struct Human {};
+#include "human.h"
 // SAMPLE_SOURCES
 
 int main( int argc, char** argv )
@@ -355,6 +358,7 @@ int main( int argc, char** argv )
     if (getenv("SAMPLE_DISABLE_SLEEP")) context.enableSleep = false;
 	struct Entry { const char* name; Sample* (*create)(SampleContext*); };
 	const Entry entries[] = {
+        { "meshReflection", MeshReflection::Create }, { "meshHeightField", HeightField::Create },
         { "voxel", VoxelMesh::Create }, { "hollowBox", HollowBox::Create },
         { "gridMesh", GridMesh::Create }, { "bigBoxMesh", BigBoxMesh::Create }, { "boxMesh", BoxMesh::Create },
         { "simpleCompound", SimpleCompound::Create }, { "compoundSpheres", CompoundSpheres::Create },

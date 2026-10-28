@@ -1,0 +1,23 @@
+0	columns	12
+30	rows	15
+60	amplitude	0
+90	holes	1
+120	ray x	0
+120	ray z	0
+150	delta x	8
+180	delta z	-8
+210	radius	0
+240	amplitude	2
+270	radius	1
+300	columns	1
+330	rows	1
+360	radius	0
+390	rows	10
+420	columns	10
+450	holes	0
+480	amplitude	0.75
+510	ray x	5.5
+510	ray z	1.0
+540	delta x	0
+540	delta z	0
+570	radius	0.2
