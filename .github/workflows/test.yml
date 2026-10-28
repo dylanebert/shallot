@@ -187,7 +187,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.tier == 'node' && inputs.os == 'windows-latest' && '[{"os":"windows-latest","shard":"1/3"},{"os":"windows-latest","shard":"2/3"},{"os":"windows-latest","shard":"3/3"},{"os":"windows-latest","shard":"packed"}]' || github.event_name == 'workflow_dispatch' && inputs.tier == 'node' && format('[{{"os":"{0}","shard":"1/2"}},{{"os":"{0}","shard":"2/2"}}]', inputs.os) || '[{"os":"macos-15","shard":"1/2"},{"os":"macos-15","shard":"2/2"},{"os":"ubuntu-latest","shard":"1/2"},{"os":"ubuntu-latest","shard":"2/2"},{"os":"windows-latest","shard":"1/3"},{"os":"windows-latest","shard":"2/3"},{"os":"windows-latest","shard":"3/3"},{"os":"windows-latest","shard":"packed"}]') }}
+        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.tier == 'node' && inputs.os == 'windows-latest' && '[{"os":"windows-latest","shard":"1/3"},{"os":"windows-latest","shard":"2/3"},{"os":"windows-latest","shard":"3/3"},{"os":"windows-latest","shard":"packed"}]' || github.event_name == 'workflow_dispatch' && inputs.tier == 'node' && format('[{{"os":"{0}","shard":"1/3"}},{{"os":"{0}","shard":"2/3"}},{{"os":"{0}","shard":"3/3"}}]', inputs.os) || '[{"os":"macos-15","shard":"1/3"},{"os":"macos-15","shard":"2/3"},{"os":"macos-15","shard":"3/3"},{"os":"ubuntu-latest","shard":"1/3"},{"os":"ubuntu-latest","shard":"2/3"},{"os":"ubuntu-latest","shard":"3/3"},{"os":"windows-latest","shard":"1/3"},{"os":"windows-latest","shard":"2/3"},{"os":"windows-latest","shard":"3/3"},{"os":"windows-latest","shard":"packed"}]') }}
     steps:
       - uses: actions/checkout@v7
       - name: capture runner image
@@ -265,7 +265,7 @@ jobs:
           RUNNER_OS: ${{ runner.os }}
         run: bun scripts/report-slow-tests.ts node-junit.xml node-test.log
       - name: compile time oracle
-        if: matrix.shard == '1/2'
+        if: matrix.shard == '1/3'
         run: bun test ./scripts/compile.oracle.ts
 
   checked-kernel:
