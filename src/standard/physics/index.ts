@@ -8,6 +8,23 @@ export {
     type PlaneSolverResult,
     solvePlanes,
 } from "./collision/mover";
+export {
+    type DistanceInput,
+    type DistanceOutput,
+    getSweepTransform,
+    type ShapeCastOutput,
+    type ShapeCastPairInput,
+    type Simplex,
+    type SimplexCache,
+    type SimplexVertex,
+    type Sweep,
+    shapeCast,
+    shapeDistance,
+    type TOIInput,
+    type TOIOutput,
+    TOIState,
+    timeOfImpact,
+} from "./collision/queries";
 export type { QueryFilter } from "./common/types";
 export type { PhysicsContactData, PhysicsManifold, PhysicsManifoldPoint } from "./contact";
 export type {

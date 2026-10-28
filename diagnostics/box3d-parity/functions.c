@@ -68,23 +68,36 @@ int main(void) {
                 word(index);
                 break;
             }
-            case 3: case 4: case 5: {
+            case 3: case 4: case 5: case 7: {
                 b3Vec3 pa[128], pb[128];
                 if (r[0] > 128 || r[2] > 128) return 6;
                 for (unsigned i=0; i<r[0]; i++) pa[i]=vec(r,32+3*i);
                 for (unsigned i=0; i<r[2]; i++) pb[i]=vec(r,416+3*i);
                 b3ShapeProxy a={pa,(int)r[0],value(r[1])}, b={pb,(int)r[2],value(r[3])};
                 b3Transform transform={vec(r,4),quat(r,7)};
-                if (operation == 3) {
+                if (operation == 3 || operation == 7) {
                     b3SimplexCache cache={0};
                     cache.metric=value(r[16]); cache.count=(uint16_t)r[17];
                     for(int i=0;i<4;i++) { cache.indexA[i]=(uint8_t)r[18+i]; cache.indexB[i]=(uint8_t)r[22+i]; }
                     b3DistanceInput input={a,b,transform,r[11]!=0};
-                    b3DistanceOutput d=b3ShapeDistance(&input,&cache,NULL,0);
+                    b3Simplex simplexes[32];
+                    b3DistanceOutput d=b3ShapeDistance(&input,&cache,operation == 7 ? simplexes : NULL,operation == 7 ? (int)r[26] : 0);
                     vector(d.pointA); vector(d.pointB); vector(d.normal); emit(d.distance); word(d.iterations);
                     emit(cache.metric); word(cache.count);
                     for(int i=0;i<4;i++) word(cache.indexA[i]);
                     for(int i=0;i<4;i++) word(cache.indexB[i]);
+                    if(operation == 7) {
+                        word(d.simplexCount);
+                        for(int i=0;i<d.simplexCount;i++) {
+                            b3Simplex* s=simplexes+i;
+                            word(s->count);
+                            for(int j=0;j<s->count;j++) {
+                                b3SimplexVertex* v=s->vertices+j;
+                                vector(v->wA); vector(v->wB); vector(v->w);
+                                emit(v->a); word(v->indexA); word(v->indexB);
+                            }
+                        }
+                    }
                 } else if(operation == 4) {
                     b3ShapeCastPairInput input={a,b,transform,vec(r,12),value(r[15]),r[11]!=0};
                     b3CastOutput c=b3ShapeCast(&input);
