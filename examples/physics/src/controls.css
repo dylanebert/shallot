@@ -75,8 +75,8 @@
 .ec nav { display: flex; justify-content: center; gap: var(--s1); }
 .ec .name { width: 296px; flex: none; white-space: nowrap; }
 .ec .scenes { position: absolute; bottom: calc(var(--full) + var(--s2)); left: var(--half); transform: translateX(calc(var(--zero) - var(--half))); width: max-content; max-width: var(--full); max-height: calc(var(--view) - var(--s5) - var(--s5) - var(--reserve)); overflow-y: auto; padding: var(--s4); background: var(--bg2); border: var(--hair) solid var(--line); border-radius: var(--radius); }
-.ec .categories { display: flex; gap: var(--s4); }
-.ec .categories section { display: grid; align-content: start; gap: var(--s1); }
+.ec .categories { display: flex; flex-wrap: wrap; gap: var(--s4); }
+.ec .categories section { display: grid; flex: none; align-content: start; gap: var(--s1); }
 .ec .categories h2 { margin: var(--zero); padding: var(--zero) var(--s2); font: var(--regular) var(--small)/var(--leading) var(--mono); letter-spacing: var(--tracking); text-transform: uppercase; color: var(--muted); }
 .ec .scenes button { width: var(--full); text-align: left; }
 .ec.input-help { position: absolute; top: calc(var(--s5) + env(safe-area-inset-top)); left: calc(var(--s5) + env(safe-area-inset-left)); pointer-events: none; }
