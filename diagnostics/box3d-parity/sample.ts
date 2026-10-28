@@ -5,6 +5,7 @@ import { nativeBinary } from "./native";
 
 /** Compile the selected upstream classes verbatim, without the samples app's graphics dependencies. */
 export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples")): string {
+    const bodies = readFileSync(join(samples, "sample_bodies.cpp"), "utf8");
     const stacking = readFileSync(join(samples, "sample_stacking.cpp"), "utf8");
     const joints = readFileSync(join(samples, "sample_joint.cpp"), "utf8");
     const sample = readFileSync(join(samples, "sample.cpp"), "utf8");
@@ -18,6 +19,7 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
     }
     const sources = [
         section(sample, "b3BodyId Sample::AddGroundBox(", "struct RowDef"),
+        ...[["SpinningBooks", "sampleBook"], ["GyroscopicTorque", "sampleGyroscopicTorque"], ["Kinematic", "sampleKinematic"], ["LockMixing", "sampleLockMixing"], ["FixedRotation", "sampleFixedRotation"], ["OffsetKinematic", "sampleOffsetKinematic"]].map(([name, end]) => section(bodies, `class ${name} :`, `static int ${end}`)),
         section(benchmark.slice(benchmark.lastIndexOf("class BenchmarkLargeWorld :")), "class BenchmarkLargeWorld :", "static int sampleLargeWorld"),
         ...["BenchmarkLargePyramid", "BenchmarkWidePyramid", "BenchmarkManyPyramids", "BenchmarkJointGrid", "FallingBoxes", "BenchmarkRain", "BenchmarkJunkyard", "BenchmarkWasher", "BenchmarkConvexPile", "BenchmarkFallingTrees", "BenchmarkExplosion", "BenchmarkDestruction", "BenchmarkChains", "BenchmarkHeightField", "BenchmarkHull"].map(name =>
             section(benchmark, `class ${name} :`, name === "BenchmarkHull" ? "static int sampleBenchmarkHull" : name === "BenchmarkHeightField" ? "static int sampleHeightFieldBenchmark" : name === "BenchmarkChains" ? "static int sampleBenchmarkChains" : name === "BenchmarkWasher" ? "static int benchmarkWasher" : `static int sample${name.replace("Benchmark", "")}`)),

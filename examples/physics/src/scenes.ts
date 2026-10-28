@@ -15,6 +15,7 @@ import {
 
 import { PhysicsWorldDefinition, setAwake } from "@dylanebert/shallot/standard/physics";
 import { benchmarkScenes } from "./benchmarks";
+import { BodySampleState, bodyScenes } from "./bodies";
 import { eventScenes } from "./events";
 import { jointScenes } from "./joints";
 import { MotorizedJoint } from "./roles";
@@ -31,7 +32,8 @@ export type Scene =
     | keyof typeof eventScenes
     | keyof typeof benchmarkScenes
     | keyof typeof stackingScenes
-    | keyof typeof jointScenes;
+    | keyof typeof jointScenes
+    | keyof typeof bodyScenes;
 export const categories: { name: string; scenes: { id: Scene; name: string }[] }[] = [
     {
         name: "Benchmark",
@@ -54,6 +56,17 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
             { id: "benchmarkSensor", name: "Sensor" },
             { id: "washer", name: "Washer" },
             { id: "widePyramid", name: "Wide Pyramid" },
+        ],
+    },
+    {
+        name: "Bodies",
+        scenes: [
+            { id: "fixedRotation", name: "Fixed Rotation" },
+            { id: "gyroscopicTorque", name: "Gyroscopic Torque" },
+            { id: "kinematic", name: "Kinematic" },
+            { id: "lockMixing", name: "Lock Mixing" },
+            { id: "offsetKinematic", name: "Offset Kinematic" },
+            { id: "spinningBook", name: "Spinning Book" },
         ],
     },
     {
@@ -168,6 +181,7 @@ export function changeControl(
     selected.set(world, bodies, value, values);
 }
 export const scenes = {
+    ...bodyScenes,
     ...eventScenes,
     ...benchmarkScenes,
     ...stackingScenes,
@@ -760,6 +774,7 @@ export const scenes = {
 
 export function createScene(world: World, scene: Scene): number[] {
     world.resource(StackingImpulses).length = 0;
+    Object.assign(world.resource(BodySampleState), BodySampleState.create());
     world.resource(PhysicsWorldDefinition).workerCount = 1;
     world.resource(PhysicsWorldDefinition).maximumMemory = 4 * 1024 ** 3;
     return scenes[scene].construct(world);

@@ -129,6 +129,7 @@ import {
     bodySetAngularVelocity,
     bodySetAwake,
     bodySetLinearVelocity,
+    setMassData as bodySetMassData,
     bodySetTargetTransform,
     bodySetTransform,
     destroyBody,
@@ -1154,6 +1155,23 @@ export function getMassData(world: World, eid: number) {
     return runtime.physicsWorld && body
         ? bodyGetMassData(runtime.physicsWorld, body.index1 - 1)
         : null;
+}
+
+/** Immediately sets mass in kg, center in local meters and inertia in kg·m² about that center.
+ * Adjusts and publishes linear velocity to preserve the origin's velocity when the center moves.
+ * Ignored while the solver is locked or before the body's first fixed sync. Later shape mass
+ * updates replace this override. Mass must be finite and nonnegative; center and inertia must
+ * be finite and inertia must have a nonnegative determinant. */
+export function setMassData(
+    world: World,
+    eid: number,
+    data: NonNullable<ReturnType<typeof getMassData>>,
+): void {
+    const runtime = runtimeFor(world);
+    const body = boundBody(world, runtime, eid);
+    if (!runtime.physicsWorld || !body || runtime.physicsWorld.locked) return;
+    bodySetMassData(runtime.physicsWorld, body.index1 - 1, data);
+    publishBodyVelocity(world, eid, runtime.physicsWorld, body);
 }
 
 /** Union of the body's current shape bounds in world meters, including Box3D's speculative margin.

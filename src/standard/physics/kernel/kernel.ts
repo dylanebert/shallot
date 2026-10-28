@@ -278,6 +278,23 @@ export type Kernel = {
     bodySetAwake(world: number, id: number, awake: boolean): void;
     bodyDisable(world: number, id: number): void;
     bodyEnable(world: number, id: number): void;
+    bodySetMassData(
+        world: number,
+        id: number,
+        mass: number,
+        cx: number,
+        cy: number,
+        cz: number,
+        xx: number,
+        xy: number,
+        xz: number,
+        yx: number,
+        yy: number,
+        yz: number,
+        zx: number,
+        zy: number,
+        zz: number,
+    ): void;
     bodyUpdateMass(world: number, id: number): void;
     bodyColumnPtr(world: number, id: number, column: number): number;
     simColumnPtr(world: number, set: number, index: number, column: number): number;

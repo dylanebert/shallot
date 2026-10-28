@@ -27,6 +27,17 @@ test("each picker label selects its scene in its category, exactly once", () => 
             ],
         },
         {
+            name: "Bodies",
+            scenes: [
+                { id: "fixedRotation", name: "Fixed Rotation" },
+                { id: "gyroscopicTorque", name: "Gyroscopic Torque" },
+                { id: "kinematic", name: "Kinematic" },
+                { id: "lockMixing", name: "Lock Mixing" },
+                { id: "offsetKinematic", name: "Offset Kinematic" },
+                { id: "spinningBook", name: "Spinning Book" },
+            ],
+        },
+        {
             name: "Events",
             scenes: [
                 { id: "contact", name: "Contact" },

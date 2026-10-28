@@ -131,7 +131,7 @@ const acceptedColors = {
 test("the accepted role baseline covers every critical-set scene", () => {
     expect(Object.keys(acceptedRoles).sort()).toEqual(
         categories
-            .filter((category) => category.name !== "Benchmark")
+            .filter((category) => category.name !== "Benchmark" && category.name !== "Bodies")
             .flatMap((category) =>
                 category.scenes
                     .filter((scene) => category.name !== "Stacking" || scene.id === "boxStack")
@@ -294,6 +294,12 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 expect(ground.mesh.indices.length).toBeGreaterThan(0);
             } else expect(presentation.ground).toBeUndefined();
             const extent = {
+                spinningBook: 10,
+                gyroscopicTorque: 20,
+                kinematic: 20,
+                lockMixing: 20,
+                fixedRotation: 20,
+                offsetKinematic: 20,
                 driving: 200,
                 gearLift: 20,
                 distance: 20,

@@ -778,6 +778,95 @@ pub(crate) mod runtime {
         }
     }
 
+    #[export_name = "bodySetMassData"]
+    pub unsafe extern "C" fn set_mass_data(
+        world: usize,
+        id: usize,
+        mass: f32,
+        cx: f32,
+        cy: f32,
+        cz: f32,
+        xx: f32,
+        xy: f32,
+        xz: f32,
+        yx: f32,
+        yy: f32,
+        yz: f32,
+        zx: f32,
+        zy: f32,
+        zz: f32,
+    ) {
+        use crate::math::Vec3;
+        let center = Vec3::new(cx, cy, cz);
+        let inertia = Mat3 {
+            cx: Vec3::new(xx, xy, xz),
+            cy: Vec3::new(yx, yy, yz),
+            cz: Vec3::new(zx, zy, zz),
+        };
+        let record = bodies::record_mut(world, id);
+        record.mass = mass;
+        record.inertia = inertia;
+        let sim = bodies::column(world, id, 1, body::SIM_STRIDE);
+        let (pose, fin, _) = bodies::geometry(world, id);
+        let next_center = pose.point(center);
+        for (lane, value) in [cx, cy, cz].into_iter().enumerate() {
+            sim.set(body::LOCAL_CENTER + lane, value);
+        }
+        body::write_sim_center(sim, 0, next_center);
+        for (lane, value) in [next_center.x, next_center.y, next_center.z]
+            .into_iter()
+            .enumerate()
+        {
+            sim.set(body::CENTER0 + lane, value);
+        }
+        sim.set(body::INV_MASS, if mass > 0.0 { 1.0 / mass } else { 0.0 });
+        if record.set_index == AWAKE_SET {
+            let state = bodies::column(world, id, 0, body::STATE_STRIDE);
+            let velocity = Vec3::new(state.get(0), state.get(1), state.get(2));
+            let angular = Vec3::new(state.get(3), state.get(4), state.get(5));
+            let next = velocity.add(angular.cross(next_center.sub(fin.center)));
+            for (lane, value) in [next.x, next.y, next.z].into_iter().enumerate() {
+                state.set(lane, value);
+            }
+        }
+        let inverse = if inertia.det() > 0.0 && record.flags & 0x38 != 0x38 {
+            inertia.invert().transpose()
+        } else {
+            Mat3::ZERO
+        };
+        if record.flags & 0x38 == 0x38 {
+            record.inertia = Mat3::ZERO;
+        }
+        for (lane, value) in [
+            inverse.cx.x,
+            inverse.cx.y,
+            inverse.cx.z,
+            inverse.cy.x,
+            inverse.cy.y,
+            inverse.cy.z,
+            inverse.cz.x,
+            inverse.cz.y,
+            inverse.cz.z,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            sim.set(body::INV_INERTIA_LOCAL + lane, value);
+        }
+        let rotation = Mat3::from_quat(pose.q);
+        body::write_sim_inv_inertia_world(sim, 0, rotation.mul(inverse).mul(rotation.transpose()));
+        sim.set(body::MIN_EXTENT, 1.0e5);
+        for lane in 0..3 {
+            sim.set(body::MAX_EXTENT + lane, 0.0);
+        }
+        let mut shape = record.head_shape_id;
+        while shape != -1 {
+            let (minimum, maximum) = crate::shape_geometry::extent(world, shape as usize, center);
+            mass_extent(world, id, minimum, maximum.x, maximum.y, maximum.z);
+            shape = next_shape(world, shape as usize);
+        }
+    }
+
     #[export_name = "bodyUpdateMass"]
     pub unsafe extern "C" fn update_mass(world: usize, id: usize) {
         unsafe { update_mass_in_world(world, id) }

@@ -7,6 +7,7 @@ import {
 } from "@dylanebert/shallot/extras";
 import { PhysicsWorldDefinition } from "@dylanebert/shallot/standard/physics";
 import { BenchmarkSamplePlugin } from "./benchmarks";
+import { BodySamplePlugin } from "./bodies";
 import { EventSamplePlugin, SampleInputPlugin } from "./events";
 import { GrabPlugin } from "./grab";
 import { JointSamplePlugin } from "./joints";
@@ -26,6 +27,7 @@ export const AppPlugin: Plugin = {
         BenchmarkSamplePlugin,
         StackingSamplePlugin,
         JointSamplePlugin,
+        BodySamplePlugin,
         SampleInputPlugin,
         TextPlugin,
         OrbitPlugin,

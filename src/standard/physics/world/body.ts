@@ -421,6 +421,31 @@ export function bodyEnable(world: WorldState, body: number): void {
 export function updateBodyMassData(world: WorldState, body: number): void {
     kernel(world.ecsState).bodyUpdateMass(world.worldId, body);
 }
+export function setMassData(world: WorldState, body: number, data: MassData): void {
+    if (world.locked) return;
+    const {
+        mass,
+        center: c,
+        inertia: { cx: x, cy: y, cz: z },
+    } = data;
+    kernel(world.ecsState).bodySetMassData(
+        world.worldId,
+        body,
+        mass,
+        c.x,
+        c.y,
+        c.z,
+        x.x,
+        x.y,
+        x.z,
+        y.x,
+        y.y,
+        y.z,
+        z.x,
+        z.y,
+        z.z,
+    );
+}
 export function getMassData(world: WorldState, body: number): MassData {
     return {
         mass: bodyField(world, body, BodyField.mass),

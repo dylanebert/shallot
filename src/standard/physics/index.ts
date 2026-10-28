@@ -54,6 +54,7 @@ export {
     setAngularVelocity,
     setAwake,
     setLinearVelocity,
+    setMassData,
     setTargetTransform,
     setTransform,
 } from "./runtime";
