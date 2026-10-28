@@ -18,6 +18,7 @@ import { benchmarkScenes } from "./benchmarks";
 import { BodySampleState, bodyScenes } from "./bodies";
 import { CastState } from "./cast";
 import { CharacterSample, characterScenes } from "./character";
+import { continuousScenes } from "./continuous";
 import { eventScenes } from "./events";
 import { GeometricMoverState, geometricMoverScene } from "./geometric-mover";
 import { jointScenes } from "./joints";
@@ -37,6 +38,7 @@ export type Scene =
     | "wheel"
     | "filter"
     | "parallel"
+    | keyof typeof continuousScenes
     | keyof typeof eventScenes
     | keyof typeof benchmarkScenes
     | keyof typeof stackingScenes
@@ -92,6 +94,18 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
             { id: "geometricMover", name: "Geometric Mover" },
             { id: "moverOverlap", name: "MoverOverlap" },
             { id: "rigidBody", name: "Rigid Body" },
+        ],
+    },
+    {
+        name: "Continuous",
+        scenes: [
+            { id: "bounceHouse", name: "Bounce House" },
+            { id: "humpMesh", name: "Hump Mesh" },
+            { id: "isFast", name: "Is Fast" },
+            { id: "needleMesh", name: "Needle Mesh" },
+            { id: "spinningStick", name: "Spinning Stick" },
+            { id: "stall", name: "Stall" },
+            { id: "thinWall", name: "Thin Wall" },
         ],
     },
     {
@@ -238,6 +252,7 @@ export const scenes = {
     geometricMover: geometricMoverScene,
     rigidBody: rigidBodyScene,
     ...shapeScenes,
+    ...continuousScenes,
     ...bodyScenes,
     ...eventScenes,
     ...benchmarkScenes,

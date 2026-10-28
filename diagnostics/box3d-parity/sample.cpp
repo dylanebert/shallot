@@ -336,6 +336,9 @@ int main( int argc, char** argv )
 	SampleContext context;
 	struct Entry { const char* name; Sample* (*create)(SampleContext*); };
 	const Entry entries[] = {
+        { "thinWall", ThinWall::Create }, { "bounceHouse", BounceHouse::Create },
+        { "spinningStick", SpinningStick::Create }, { "needleMesh", NeedleMesh::Create },
+        { "humpMesh", HumpMesh::Create }, { "isFast", IsFast::Create }, { "stall", Stall::Create },
         { "inclinedPlane", InclinedPlane::Create }, { "rollingResistance", RollingResistance::Create },
         { "highResistance", HighResistance::Create }, { "isotropicFriction", IsotropicFriction::Create },
         { "slideTwist", SlideTwist::Create }, { "conveyorBelt", ConveyorBelt::Create },

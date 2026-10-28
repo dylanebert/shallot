@@ -21,6 +21,20 @@ test("Character rows retain Solve, Clip Velocity and two integer read-only overl
     }
 });
 
+test("Continuous has only Stall's Launch action", () => {
+    for (const scene of [
+        "thinWall",
+        "bounceHouse",
+        "spinningStick",
+        "needleMesh",
+        "humpMesh",
+        "isFast",
+    ] as const)
+        expect(scenes[scene].controls).toBeUndefined();
+    expect(Object.keys(scenes.stall.controls)).toEqual(["Launch"]);
+    expect(scenes.stall.controls.Launch).toMatchObject({ label: "Launch", value: 0, button: true });
+});
+
 test("Sensor Hits retains Bullet and Launch with two integer read-only touch counts", () => {
     const controls: Controls = scenes.sensorHits.controls;
     expect(Object.keys(controls)).toEqual(["Bullet", "Launch", "Begin touch", "End touch"]);

@@ -9,6 +9,7 @@ import { PhysicsWorldDefinition } from "@dylanebert/shallot/standard/physics";
 import { BenchmarkSamplePlugin } from "./benchmarks";
 import { BodySamplePlugin } from "./bodies";
 import { CharacterSamplePlugin } from "./character";
+import { ContinuousSamplePlugin } from "./continuous";
 import { EventSamplePlugin, SampleInputPlugin } from "./events";
 import { GeometricMoverPlugin } from "./geometric-mover";
 import { GrabPlugin } from "./grab";
@@ -34,6 +35,7 @@ export const AppPlugin: Plugin = {
         JointSamplePlugin,
         BodySamplePlugin,
         CharacterSamplePlugin,
+        ContinuousSamplePlugin,
         GeometricMoverPlugin,
         RigidBodyPlugin,
         SampleInputPlugin,

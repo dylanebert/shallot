@@ -195,7 +195,9 @@ test("the accepted role baseline covers every critical-set scene", () => {
         categories
             .filter(
                 (category) =>
-                    !["Benchmark", "Bodies", "Character", "Shapes"].includes(category.name),
+                    !["Benchmark", "Bodies", "Character", "Continuous", "Shapes"].includes(
+                        category.name,
+                    ),
             )
             .flatMap((category) =>
                 category.scenes
@@ -376,6 +378,13 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 expect(ground.mesh.indices.length).toBeGreaterThan(0);
             } else expect(presentation.ground).toBeUndefined();
             const extent = {
+                thinWall: 40,
+                bounceHouse: 10,
+                spinningStick: 10,
+                needleMesh: 10,
+                humpMesh: 20,
+                isFast: 40,
+                stall: 500,
                 geometricMover: 80,
                 rigidBody: 3300,
                 capsulePlane: 10,

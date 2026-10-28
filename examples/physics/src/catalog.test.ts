@@ -53,6 +53,18 @@ test("each picker label selects its scene in its category, exactly once", () => 
             ],
         },
         {
+            name: "Continuous",
+            scenes: [
+                { id: "bounceHouse", name: "Bounce House" },
+                { id: "humpMesh", name: "Hump Mesh" },
+                { id: "isFast", name: "Is Fast" },
+                { id: "needleMesh", name: "Needle Mesh" },
+                { id: "spinningStick", name: "Spinning Stick" },
+                { id: "stall", name: "Stall" },
+                { id: "thinWall", name: "Thin Wall" },
+            ],
+        },
+        {
             name: "Events",
             scenes: [
                 { id: "contact", name: "Contact" },
