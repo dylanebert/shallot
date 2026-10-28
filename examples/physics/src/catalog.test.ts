@@ -53,6 +53,16 @@ test("each picker label selects its scene in its category, exactly once", () => 
             ],
         },
         {
+            name: "Compound",
+            scenes: [
+                { id: "compoundHulls", name: "Hulls" },
+                { id: "meshTile", name: "Mesh Tile" },
+                { id: "simpleCompound", name: "Simple" },
+                { id: "compoundSpheres", name: "Spheres" },
+                { id: "tileFloor", name: "Tile Floor" },
+            ],
+        },
+        {
             name: "Continuous",
             scenes: [
                 { id: "bounceHouse", name: "Bounce House" },

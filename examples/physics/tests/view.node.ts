@@ -195,9 +195,14 @@ test("the accepted role baseline covers every critical-set scene", () => {
         categories
             .filter(
                 (category) =>
-                    !["Benchmark", "Bodies", "Character", "Continuous", "Shapes"].includes(
-                        category.name,
-                    ),
+                    ![
+                        "Benchmark",
+                        "Bodies",
+                        "Character",
+                        "Compound",
+                        "Continuous",
+                        "Shapes",
+                    ].includes(category.name),
             )
             .flatMap((category) =>
                 category.scenes
@@ -378,6 +383,11 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 expect(ground.mesh.indices.length).toBeGreaterThan(0);
             } else expect(presentation.ground).toBeUndefined();
             const extent = {
+                simpleCompound: 8,
+                compoundSpheres: 12,
+                compoundHulls: 12,
+                tileFloor: 208,
+                meshTile: 12,
                 bulletVersusStack: 50,
                 meshDrop: 20,
                 thinWall: 40,
@@ -491,16 +501,17 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
             expect(grid).toBeDefined();
             expect(grid.width).toBe(1);
             expect(grid.opacity).toBeLessThan(0.45);
+            const height = id === "simpleCompound" ? -0.995 : 0.005;
             for (let offset = -extent; offset <= extent; offset += spacing) {
                 const color = offset === 0 ? 0x797369 : 0x49453f;
                 expect(grid.lines).toContainEqual({
-                    a: [-extent, 0.005, offset],
-                    b: [extent, 0.005, offset],
+                    a: [-extent, height, offset],
+                    b: [extent, height, offset],
                     color,
                 });
                 expect(grid.lines).toContainEqual({
-                    a: [offset, 0.005, -extent],
-                    b: [offset, 0.005, extent],
+                    a: [offset, height, -extent],
+                    b: [offset, height, extent],
                     color,
                 });
             }

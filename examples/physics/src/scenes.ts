@@ -18,6 +18,7 @@ import { benchmarkScenes } from "./benchmarks";
 import { BodySampleState, bodyScenes } from "./bodies";
 import { CastState } from "./cast";
 import { CharacterSample, characterScenes } from "./character";
+import { compoundScenes } from "./compound";
 import { continuousScenes } from "./continuous";
 import { eventScenes } from "./events";
 import { GeometricMoverState, geometricMoverScene } from "./geometric-mover";
@@ -38,6 +39,7 @@ export type Scene =
     | "wheel"
     | "filter"
     | "parallel"
+    | keyof typeof compoundScenes
     | keyof typeof continuousScenes
     | keyof typeof eventScenes
     | keyof typeof benchmarkScenes
@@ -94,6 +96,16 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
             { id: "geometricMover", name: "Geometric Mover" },
             { id: "moverOverlap", name: "MoverOverlap" },
             { id: "rigidBody", name: "Rigid Body" },
+        ],
+    },
+    {
+        name: "Compound",
+        scenes: [
+            { id: "compoundHulls", name: "Hulls" },
+            { id: "meshTile", name: "Mesh Tile" },
+            { id: "simpleCompound", name: "Simple" },
+            { id: "compoundSpheres", name: "Spheres" },
+            { id: "tileFloor", name: "Tile Floor" },
         ],
     },
     {
@@ -254,6 +266,7 @@ export const scenes = {
     geometricMover: geometricMoverScene,
     rigidBody: rigidBodyScene,
     ...shapeScenes,
+    ...compoundScenes,
     ...continuousScenes,
     ...bodyScenes,
     ...eventScenes,

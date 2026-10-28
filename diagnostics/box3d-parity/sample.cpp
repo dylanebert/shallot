@@ -247,6 +247,7 @@ struct SampleContext
 class Sample
 {
 public:
+    float m_launchSpeedScale = 1.0f;
 	explicit Sample( SampleContext* context ) : m_context( context ), m_camera( &context->camera )
 	{
 		b3WorldDef worldDef = b3DefaultWorldDef();
@@ -349,6 +350,8 @@ int main( int argc, char** argv )
     if (getenv("SAMPLE_DISABLE_SLEEP")) context.enableSleep = false;
 	struct Entry { const char* name; Sample* (*create)(SampleContext*); };
 	const Entry entries[] = {
+        { "simpleCompound", SimpleCompound::Create }, { "compoundSpheres", CompoundSpheres::Create },
+        { "compoundHulls", CompoundHulls::Create }, { "tileFloor", TileFloor::Create }, { "meshTile", MeshTile::Create },
         { "bulletVersusStack", BulletVersusStack::Create }, { "meshDrop", MeshDrop::Create },
         { "thinWall", ThinWall::Create }, { "bounceHouse", BounceHouse::Create },
         { "spinningStick", SpinningStick::Create }, { "needleMesh", NeedleMesh::Create },
