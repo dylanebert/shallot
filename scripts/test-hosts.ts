@@ -36,6 +36,12 @@ export const ONLY: Readonly<Record<string, readonly NodeJS.Platform[]>> = {
     "src/project/browser": ["darwin"],
     // Its cost is DOM-bound, so SwiftShader's runners run it no slower than the other hosts.
     "examples/color-grading": ["linux"],
+    // Its one host-sensitive claim is label fit, from text width; it bundles its fonts, which Chromium shapes with
+    // HarfBuzz on every host, so Ubuntu and Windows hold it, and the other macOS panels hold the shared kit's fit.
+    // On macOS's single browser shard it took 5.0 of 17.1 min (run 40757815928). A macOS-only label overflow
+    // reopens it as a macOS label-fit subject, not the whole example.
+    "examples/physics": ["linux", "win32"],
+    "examples/physics/tests/stepped": ["linux", "win32"],
     // Its packaging classes are Windows paths and Linux case; macOS adds none, and there, on runners GitHub caps at
     // five, it is the costliest file (8 min). The packed CLI on macOS stays held by mac-native, packed-gpu and
     // icons-packed.
