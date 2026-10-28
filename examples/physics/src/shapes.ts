@@ -532,7 +532,7 @@ export const shapeScenes = {
         construct: restitution,
         gridExtent: 50,
         gridSpacing: 5,
-        camera: { yaw: 5, pitch: 20, distance: 160, target: [0, 20, 0] },
+        camera: { yaw: 0, pitch: 10, distance: 90, target: [0, 15, 0] },
         controls: restitutionControls,
     },
     staticInvoke: {
@@ -574,7 +574,7 @@ export const shapeScenes = {
         construct: isotropicFriction,
         gridExtent: 100,
         gridSpacing: 5,
-        camera: { yaw: 40, pitch: 55, distance: 120, target: [0, 0, 0] },
+        camera: { yaw: 40, pitch: 50, distance: 170, target: [0, 0, 0] },
         controls: undefined,
     },
     slideTwist: {
