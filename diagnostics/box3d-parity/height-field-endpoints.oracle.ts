@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { Body, HeightFields, Shape, ShapeKind, createApp } from "../../src";
-import { castRayClosest, emptyQueryHit, hashPhysics, StandardPhysicsPlugin } from "../../src/standard/physics";
+import { Body, BodyType, GlobalTransform, HeightFields, Shape, ShapeKind, Transform, createApp } from "../../src";
+import { castRayClosest, emptyQueryHit, hashPhysics, isAwake, StandardPhysicsPlugin } from "../../src/standard/physics";
 import { physicsState } from "../../src/standard/physics/runtime";
 import { worldCounters } from "../../src/standard/physics/world/world";
 import { nativeBinary, run } from "./native";
@@ -24,10 +24,11 @@ test("assert-enabled native height-field construction holds the height-count and
     }
 });
 
-test("height-field sample endpoints create, step and ray-cast exactly as native", async () => {
+test("height-field endpoint bodies rest on surfaces or fall through cell-free fields exactly as native for 600 steps", async () => {
     const native = run([nativeBinary("height-field-endpoints.c")]).trim().split("\n");
     const actual: string[] = [];
     for (const [index, [rows, columns]] of [[10, 10], [4, 1], [1, 4], [2, 2]].entries()) {
+        let dynamic = 0;
         const app = await createApp({
             defaults: false,
             plugins: [StandardPhysicsPlugin],
@@ -46,19 +47,37 @@ test("height-field sample endpoints create, step and ray-cast exactly as native"
                         globalMaximumHeight: 256,
                     }),
                 });
+                dynamic = world.create();
+                world.add(dynamic, Transform, {translation: [columns! - 1, 2, rows! - 1]});
+                world.add(dynamic, Body, {type: BodyType.Dynamic});
+                world.add(dynamic, Shape, {kind: ShapeKind.Sphere, radius: 0.5, filterCategoryLow: 2, filterCategoryHigh: 0});
             },
         });
         try {
-            for (let step = 0; step < 3; step++) {
+            for (let step = 0; step < 600; step++) {
                 app.world.tick();
                 const out = emptyQueryHit();
-                const hit = castRayClosest(app.world, { x: 0, y: 4, z: 0 }, { x: 0, y: -8, z: 0 }, out);
+                const hit = castRayClosest(app.world, { x: columns! - 1, y: 4, z: rows! - 1 }, { x: 0, y: -8, z: 0 }, out, {categoryBits: 0xffffffffffffffffn, maskBits: 1n});
                 const ray = hit
                     ? [1, ...[out.point.x, out.point.y, out.point.z, out.normal.x, out.normal.y, out.normal.z, out.fraction].map(bits)]
                     : [0];
                 const hash = hashPhysics(app.world).toString(16).padStart(16, "0");
                 const count = worldCounters(physicsState(app.world)!).shapeCount;
                 actual.push(`${hash} ${count} ${JSON.stringify(ray)}`);
+            }
+            const pose = app.world.get(dynamic, GlobalTransform)!;
+            const y = pose.translation[1];
+            const velocity = pose.linearVelocity[1];
+            const awake = isAwake(app.world, dynamic);
+            actual.push(`sphere ${bits(y)} ${bits(velocity)} ${Number(awake)}`);
+            if (columns === 1 || rows === 1) {
+                expect(y).toBeLessThan(-100);
+                expect(awake).toBe(true);
+            } else {
+                expect(y).toBeGreaterThan(0.4);
+                expect(y).toBeLessThan(0.6);
+                expect(velocity).toBe(0);
+                expect(awake).toBe(false);
             }
         } finally {
             app.dispose();

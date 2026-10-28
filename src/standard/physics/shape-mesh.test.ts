@@ -427,6 +427,49 @@ test("height fields draw decoded surface vertices, omit holes and keep collision
     }
 });
 
+test("endpoint height-field meshes contain exactly their nondegenerate field triangles, with no triangles on one-point axes", () => {
+    for (const [countX, countZ, verticalScale] of [
+        [10, 10, 0],
+        [1, 4, 1.5],
+        [4, 1, 1.5],
+        [2, 2, 1.5],
+    ]) {
+        const geometry = world.resource(HeightFields).add({
+            name: "endpoint",
+            countX: countX!,
+            countZ: countZ!,
+            heights: new Float32Array(countX! * countZ!),
+            scale: [2, verticalScale!, 2],
+            globalMinimumHeight: -256,
+            globalMaximumHeight: 256,
+        });
+        const field = heightFieldBuild(world, geometry)!;
+        const drawn = shapeMesh(world, definition({ kind: ShapeKind.HeightField, geometry }));
+        const triangles = 2 * (countX! - 1) * (countZ! - 1);
+        expect(field.flags).toHaveLength(triangles);
+        expect(drawn.indices).toHaveLength(3 * triangles);
+        if (triangles === 0) expect(drawn.vertices).toHaveLength(0);
+        for (let index = 0; index < triangles; index++) {
+            const points = Array.from(drawn.indices.subarray(3 * index, 3 * index + 3), (vertex) =>
+                Array.from(drawn.vertices.subarray(8 * vertex, 8 * vertex + 3)),
+            );
+            const expected = getHeightFieldTriangle(field, index).vertices.map((p) =>
+                [p.x, p.y, p.z].map(Math.fround),
+            );
+            expect(points).toEqual(expected);
+            const [a, b, c] = points;
+            const ab = b!.map((v, axis) => v - a![axis]!);
+            const ac = c!.map((v, axis) => v - a![axis]!);
+            const cross = [
+                ab[1]! * ac[2]! - ab[2]! * ac[1]!,
+                ab[2]! * ac[0]! - ab[0]! * ac[2]!,
+                ab[0]! * ac[1]! - ab[1]! * ac[0]!,
+            ];
+            expect(Math.hypot(...cross)).toBeGreaterThan(0);
+        }
+    }
+});
+
 test("the collision-surface assertion rejects raw heights and stretching to the input bounds", () => {
     const heights = new Float32Array([
         0.123, 0.456, 0.789, -0.321, 0.654, -0.987, 0.234, -0.567, 0.891,
