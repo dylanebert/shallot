@@ -1,14 +1,25 @@
-import { expect, setDefaultTimeout, test } from "bun:test";
+import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { createApp, hashPhysics } from "@dylanebert/shallot";
-import { StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
+import * as physics from "@dylanebert/shallot/standard/physics";
+import {
+    PhysicsWorldDefinition,
+    StandardPhysicsPlugin,
+} from "@dylanebert/shallot/standard/physics";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { MeshSamplePlugin, meshScenes } from "../src/mesh";
+import { MeshInspectorState } from "../src/mesh-inspector";
+import { meshViewerBounds } from "../src/mesh-inspector-presentation";
 import { type Controls, controlValues, createScene } from "../src/scenes";
+import { drawingDigest } from "./digest";
 import { sampleGold } from "./gold";
+import { meshControl } from "./mesh-controls";
 
 setDefaultTimeout(TIMEOUT.node);
 for (const scene of Object.keys(meshScenes) as (keyof typeof meshScenes)[]) {
-    for (const controlled of meshScenes[scene].controls ? [false, true] : [false]) {
+    const controls = meshScenes[scene].controls as Controls | undefined;
+    for (const controlled of controls && Object.values(controls).some((control) => !control.read)
+        ? [false, true]
+        : [false]) {
         test(`${scene}${controlled ? " controls" : ""} equals every native step`, async () => {
             const gold = sampleGold(
                 await Bun.file(
@@ -16,6 +27,21 @@ for (const scene of Object.keys(meshScenes) as (keyof typeof meshScenes)[]) {
                 ).text(),
             );
             expect(gold).toHaveLength(600);
+            const inspector = scene === "meshViewer" || scene === "meshCreation";
+            const stem = `${scene}${controlled ? ".controls" : ""}`;
+            const readouts = inspector
+                ? (await Bun.file(new URL(`./${stem}.readouts.gold.txt`, import.meta.url)).text())
+                      .trim()
+                      .split("\n")
+                : [];
+            const bounds =
+                scene === "meshViewer"
+                    ? (await Bun.file(new URL(`./${stem}.bounds.gold.txt`, import.meta.url)).text())
+                          .trim()
+                          .split("\n")
+                    : [];
+            if (inspector) expect(readouts).toHaveLength(600);
+            if (scene === "meshViewer") expect(bounds).toHaveLength(600);
             const sequence = controlled
                 ? (await Bun.file(new URL(`./${scene}.controls.txt`, import.meta.url)).text())
                       .trim()
@@ -34,19 +60,16 @@ for (const scene of Object.keys(meshScenes) as (keyof typeof meshScenes)[]) {
                 },
             });
             const values = controlValues(scene);
+            const builds =
+                scene === "meshCreation" ? spyOn(physics, "createPhysicsMesh") : undefined;
+            const releases =
+                scene === "meshCreation" ? spyOn(physics, "destroyPhysicsMesh") : undefined;
+            if (scene === "meshCreation")
+                expect(app.world.resource(PhysicsWorldDefinition).enableAutomaticStep).toBe(false);
             try {
                 for (const [step, expected] of gold.entries()) {
                     for (const change of sequence.filter((c) => c.step === step)) {
-                        const type = ["Sphere", "Capsule", "Box", "Cylinder"].indexOf(change.name);
-                        const sign = /^(Neg|Pos) ([XYZ])$/.exec(change.name);
-                        const name = sign ? `Scale ${sign[2]}` : type < 0 ? change.name : "Shape";
-                        const value = sign
-                            ? sign[1] === "Neg"
-                                ? -1
-                                : 1
-                            : type < 0
-                              ? change.value
-                              : type;
+                        const { name, value } = meshControl(change.name, change.value);
                         values[name] = value;
                         (meshScenes[scene].controls as Controls)[name]!.set!(
                             app.world,
@@ -57,8 +80,37 @@ for (const scene of Object.keys(meshScenes) as (keyof typeof meshScenes)[]) {
                     }
                     app.world.tick();
                     expect(hashPhysics(app.world), `step ${step}`).toBe(expected.hash);
+                    if (inspector) {
+                        const names =
+                            scene === "meshViewer"
+                                ? [
+                                      "triangle count",
+                                      "vertex count",
+                                      "degenerate count",
+                                      "node area",
+                                      "height",
+                                  ]
+                                : ["triangle count"];
+                        const row = names.map((name) => controls![name]!.read!(app.world)!);
+                        if (scene === "meshViewer")
+                            row.push(app.world.resource(MeshInspectorState).values["draw level"]);
+                        if (builds && releases) {
+                            row.push(builds.mock.calls.length);
+                            expect(releases.mock.calls).toHaveLength(builds.mock.calls.length);
+                            builds.mockClear();
+                            releases.mockClear();
+                        }
+                        expect(drawingDigest([row]), `readouts step ${step}`).toBe(readouts[step]!);
+                    }
+                    if (scene === "meshViewer")
+                        expect(
+                            drawingDigest(meshViewerBounds(app.world)),
+                            `node bounds step ${step}`,
+                        ).toBe(bounds[step]!);
                 }
             } finally {
+                builds?.mockRestore();
+                releases?.mockRestore();
                 app.dispose();
             }
             console.log(

@@ -116,10 +116,12 @@ test("each picker label selects its scene in its category, exactly once", () => 
             scenes: [
                 { id: "bigBoxMesh", name: "Big Box" },
                 { id: "boxMesh", name: "Box" },
+                { id: "meshCreation", name: "Creation Benchmark" },
                 { id: "gridMesh", name: "Grid" },
                 { id: "meshHeightField", name: "Height Field" },
                 { id: "hollowBox", name: "Hollow Box" },
                 { id: "meshReflection", name: "Reflection" },
+                { id: "meshViewer", name: "Viewer" },
                 { id: "voxel", name: "Voxel" },
             ],
         },

@@ -16,6 +16,8 @@
 // SAMPLE_EARCUT
 // SAMPLE_MESH_LOADER
 #include <set>
+#include <queue>
+#include <utility>
 #include <string>
 
 struct Change { int step; std::string name; float value; };
@@ -74,6 +76,18 @@ template<class T> void DrawAxes( T, float ) {}
 void DrawAxes( b3WorldTransform, float ) {}
 using Vec4 = int;
 int MakeColor( int color ) { return color; }
+FILE* meshReadouts = nullptr;
+FILE* meshBoundsFile = nullptr;
+int meshTriangleCount = 0;
+int meshBuildCount = 0;
+b3MeshData* CountedMeshBuild(const b3MeshDef* def, int* degenerates, int capacity) {
+    ++meshBuildCount;
+    return b3CreateMesh(def, degenerates, capacity);
+}
+std::vector<std::array<float, 6>> meshBounds;
+void DrawBounds(b3AABB box, float, int) {
+    meshBounds.push_back({box.lowerBound.x, box.lowerBound.y, box.lowerBound.z, box.upperBound.x, box.upperBound.y, box.upperBound.z});
+}
 FILE* contactDrawing = nullptr;
 struct ContactMark { b3Pos point; b3Pos end; std::string label; };
 std::vector<ContactMark> contactMarks;
@@ -282,7 +296,11 @@ public:
 	void ToggleThirdPerson() { m_camera->m_thirdPerson = !m_camera->m_thirdPerson; }
 	virtual bool DrawControls() { return false; }
 	virtual void Render() {}
-	void DrawTextLine( const char*, ... ) {}
+	void DrawTextLine( const char* format, ... ) {
+        if (meshReadouts && strcmp(format, "triangle count = %d, area = %g") == 0) {
+            va_list args; va_start(args, format); meshTriangleCount = va_arg(args, int); va_end(args);
+        }
+    }
 
     b3Vec2 m_mouseDelta = {};
 	b3BodyId m_mouseBodyId = {};
@@ -339,6 +357,7 @@ public:
 #define b3Body_OverlapShape RecordedBodyOverlap
 #define b3Body_CollideMover RecordedBodyMover
 #define b3GetTicks SampleTicks
+#define b3CreateMesh CountedMeshBuild
 #define b3World_Step RecordedStep
 #include "human.h"
 // SAMPLE_SOURCES
@@ -359,6 +378,7 @@ int main( int argc, char** argv )
 	struct Entry { const char* name; Sample* (*create)(SampleContext*); };
 	const Entry entries[] = {
         { "meshReflection", MeshReflection::Create }, { "meshHeightField", HeightField::Create },
+        { "meshViewer", MeshViewer::Create }, { "meshCreation", MeshCreationBenchmark::Create },
         { "voxel", VoxelMesh::Create }, { "hollowBox", HollowBox::Create },
         { "gridMesh", GridMesh::Create }, { "bigBoxMesh", BigBoxMesh::Create }, { "boxMesh", BoxMesh::Create },
         { "simpleCompound", SimpleCompound::Create }, { "compoundSpheres", CompoundSpheres::Create },
@@ -442,6 +462,10 @@ int main( int argc, char** argv )
     if (getenv("SENSOR_READOUTS")) assert(sensorReadouts && !strcmp(argv[1], "sensorHits"));
     bodyQueries = getenv("BODY_QUERIES") ? fopen(getenv("BODY_QUERIES"), "w") : nullptr;
     if (getenv("BODY_QUERIES")) assert(bodyQueries && !strcmp(argv[1], "cast"));
+    meshReadouts = getenv("MESH_READOUTS") ? fopen(getenv("MESH_READOUTS"), "w") : nullptr;
+    meshBoundsFile = getenv("MESH_BOUNDS") ? fopen(getenv("MESH_BOUNDS"), "w") : nullptr;
+    if (getenv("MESH_READOUTS")) assert(meshReadouts && (!strcmp(argv[1], "meshViewer") || !strcmp(argv[1], "meshCreation")));
+    if (getenv("MESH_BOUNDS")) assert(meshBoundsFile && !strcmp(argv[1], "meshViewer"));
     FILE* readouts = getenv("PRECESSION_READOUTS") ? fopen(getenv("PRECESSION_READOUTS"), "w") : nullptr;
     if (getenv("PRECESSION_READOUTS")) assert(readouts && !strcmp(argv[1], "gyroscopicPrecession"));
     if (getenv("CONTACT_DRAWING")) {
@@ -478,7 +502,26 @@ int main( int argc, char** argv )
 		sample->DrawControls();
         contactMarks.clear();
         characterMarks.clear();
+        meshBuildCount = 0;
 		sample->Step();
+        if (!strcmp(argv[1], "meshCreation")) printf("%016llx\n", (unsigned long long)b3HashWorldState(b3GetWorldFromId(sample->m_worldId)));
+        if (meshReadouts) {
+            if (!strcmp(argv[1], "meshViewer")) {
+                auto* viewer = static_cast<MeshViewer*>(sample);
+                fprintf(meshReadouts, "[[%d,%d,%d,%.9g,%d,%d]]\n", viewer->m_mesh->triangleCount, viewer->m_mesh->vertexCount, viewer->m_mesh->degenerateCount, viewer->m_area, viewer->m_height, viewer->m_drawLevel);
+            } else fprintf(meshReadouts, "[[%d,%d]]\n", meshTriangleCount, meshBuildCount);
+        }
+        if (meshBoundsFile) {
+            meshBounds.clear();
+            static_cast<MeshViewer*>(sample)->DrawNodes();
+            fprintf(meshBoundsFile, "[");
+            for (size_t j = 0; j < meshBounds.size(); j++) {
+                fprintf(meshBoundsFile, "%s[", j ? "," : "");
+                for (int k = 0; k < 6; k++) fprintf(meshBoundsFile, "%s%.9g", k ? "," : "", meshBounds[j][k]);
+                fprintf(meshBoundsFile, "]");
+            }
+            fprintf(meshBoundsFile, "]\n");
+        }
         if (contactDrawing) {
             fprintf(contactDrawing, "[");
             for (size_t j = 0; j < contactMarks.size(); ++j) {
@@ -540,5 +583,7 @@ int main( int argc, char** argv )
     if (villageReadouts) fclose(villageReadouts);
     if (sensorReadouts) fclose(sensorReadouts);
     if (contactDrawing) fclose(contactDrawing);
+    if (meshReadouts) fclose(meshReadouts);
+    if (meshBoundsFile) fclose(meshBoundsFile);
 	delete sample;
 }

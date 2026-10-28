@@ -320,7 +320,8 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
             expect(presentation.shapes.map((shape) => shape.eid).sort()).toEqual(
                 [...world.query([Shape])].sort(),
             );
-            expect(presentation.shapes.length).toBeGreaterThan(0);
+            if (id === "meshCreation") expect(presentation.shapes).toHaveLength(0);
+            else expect(presentation.shapes.length).toBeGreaterThan(0);
             const driven = new Set<number>();
             for (const joint of [DistanceJoint, PrismaticJoint, RevoluteJoint, WheelJoint]) {
                 const storage = world.storage(joint);
@@ -383,6 +384,8 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
             const extent = {
                 meshReflection: 20,
                 meshHeightField: 9,
+                meshViewer: 20,
+                meshCreation: 10,
                 voxel: 40,
                 hollowBox: 10,
                 gridMesh: 20,

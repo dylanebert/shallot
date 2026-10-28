@@ -26,6 +26,8 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         section(mesh, "enum class ShapeType", "class GridMesh"),
         section(mesh, "class MeshReflection :", "static int sampleMeshReflection"),
         section(mesh, "struct CastContext", "static int sampleHeightField"),
+        section(mesh, "static float ComputeInternalSurfaceArea", "static int sampleMeshViewer"),
+        section(mesh, "class MeshCreationBenchmark :", "static int sampleMeshCreationBenchmark"),
         ...[["GridMesh", "sampleGridMesh"], ["BigBoxMesh", "sampleBigBoxMesh"], ["BoxMesh", "sampleBoxMesh"], ["VoxelMesh", "sampleVoxelMesh"], ["HollowBox", "sampleHollowBox"]].map(([name,end]) => section(mesh, `class ${name} :`, `static int ${end}`)),
         ...[["SimpleCompound", "sampleSimple"], ["CompoundSpheres", "sampleCompoundSpheres"], ["CompoundHulls", "sampleCompoundHulls"], ["TileFloor", "sampleTileFloor"], ["MeshTile", "sampleCompoundMesh"]].map(([name, end]) => section(compound, `class ${name} :`, `static int ${end}`)),
         section(readFileSync(join(samples, "mover.h"), "utf8"), "class Sample;"),

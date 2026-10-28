@@ -6,8 +6,8 @@ import gold from "../../examples/physics/tests/level-mesh.gold.json";
 import { drawMeshData } from "../../src/standard/physics/shapes/readgeometry";
 import { levelMeshBinary } from "./level-mesh";
 
-for (const name of Object.keys(gold) as (keyof typeof gold)[]) {
-    test(`${name} encoded arrays and build gold equal native mesh loader`, () => {
+for (const name of [...Object.keys(gold), "voxel_mesh_03", "voxel_mesh_04"]) {
+    test(`${name} encoded arrays equal native mesh loader`, () => {
         const binary = levelMeshBinary();
         const path = join(process.env.BOX3D ?? "", "data/meshes", `${name}.obj`);
         const input = Bun.spawnSync([binary, path, "input"]);
@@ -21,10 +21,11 @@ for (const name of Object.keys(gold) as (keyof typeof gold)[]) {
             indices: bytes.subarray(verticesEnd, indicesEnd).toString("base64"),
             materialIndices: bytes.subarray(indicesEnd).toString("base64"),
         });
+        if (!Object.hasOwn(gold, name)) return;
         const result = Bun.spawnSync([binary, path, "build"]);
         expect(result.exitCode).toBe(0);
         const out = result.stdout;
         const mesh = drawMeshData(new DataView(out.buffer, out.byteOffset, out.byteLength), 0);
-        expect(createHash("sha256").update(JSON.stringify(mesh)).digest("hex")).toBe(gold[name]);
+        expect(createHash("sha256").update(JSON.stringify(mesh)).digest("hex")).toBe(gold[name as keyof typeof gold]);
     });
 }

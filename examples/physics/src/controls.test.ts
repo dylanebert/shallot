@@ -1,6 +1,69 @@
 import { expect, test } from "bun:test";
-import { formatValue } from "./control-format";
+import { formatReadout, formatValue } from "./control-format";
 import { type Controls, controlValues, enabledControls, type Scene, scenes } from "./scenes";
+
+test("read-only values keep native precision without the slider's numeric-width fallback", () => {
+    expect(formatReadout(34418.23828125, undefined, 6)).toBe("34418.2");
+    expect(formatReadout(12.3456, 4)).toBe("12.3456");
+    expect(formatReadout(0.1, 4)).toBe("0.1000");
+    expect(formatReadout(0.000012345, undefined, 6)).toBe("1.2345e-5");
+    expect(formatReadout(0, undefined, 6)).toBe("0");
+});
+
+test("Viewer retains native mesh choices and slider formats; inspector and benchmark outputs are read-only", () => {
+    const controls = scenes.meshViewer.controls;
+    expect(Object.keys(controls)).toEqual([
+        "index",
+        "Split",
+        "concave edges",
+        "weld vertices",
+        "tolerance",
+        "draw level",
+        "triangle count",
+        "vertex count",
+        "degenerate count",
+        "node area",
+        "height",
+    ]);
+    expect(controls.index).toMatchObject({ value: 0, min: 0, max: 3, step: 1, decimals: 0 });
+    expect(controls.Split).toMatchObject({
+        value: 1,
+        select: true,
+        options: [
+            { label: "median split", value: 1 },
+            { label: "sah binning", value: 0 },
+        ],
+    });
+    expect(controls["concave edges"]).toMatchObject({ value: 1 });
+    expect(controls["weld vertices"]).toMatchObject({ value: 1 });
+    expect(controls.tolerance).toMatchObject({
+        value: 1.5,
+        min: 0,
+        max: 10,
+        step: 0.1,
+        decimals: 1,
+    });
+    expect(formatValue(1.5, controls.tolerance!.decimals)).toBe("1.5");
+    expect(controls["draw level"]).toMatchObject({ value: -1, min: -1, step: 1, decimals: 0 });
+    for (const name of [
+        "triangle count",
+        "vertex count",
+        "degenerate count",
+        "node area",
+        "height",
+    ])
+        expect(controls[name]!.read).toBeFunction();
+    expect(controls["node area"]!.precision).toBe(6);
+    expect(Object.keys(scenes.meshCreation.controls)).toEqual([
+        "triangle count",
+        "total time",
+        "time per mesh",
+    ]);
+    for (const control of Object.values(scenes.meshCreation.controls))
+        expect(control.read).toBeFunction();
+    expect(scenes.meshCreation.controls["total time"].decimals).toBe(4);
+    expect(scenes.meshCreation.controls["time per mesh"].decimals).toBe(4);
+});
 
 test("Mesh rows retain the four shape choices and native scale bounds without telemetry", () => {
     expect(scenes.voxel.controls).toBeUndefined();

@@ -1,0 +1,20 @@
+0	draw level	0
+20	draw level	2
+50	index	1
+70	draw level	14
+100	sah binning	1
+110	draw level	2
+150	concave edges	0
+200	weld vertices	0
+240	tolerance	0
+280	index	2
+310	weld vertices	1
+350	median split	1
+390	tolerance	10
+420	draw level	-1
+450	index	3
+480	draw level	3
+510	concave edges	1
+540	tolerance	1.5
+570	index	0
+580	draw level	1

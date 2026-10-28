@@ -3,26 +3,30 @@
     import { onMount } from "svelte";
     let outputs = $state<Record<string, number | null>>({});
     let liveControls = $state<Record<string, boolean>>({});
+    let liveBounds = $state<Record<string, [number, number]>>({});
     onMount(() => {
         const rows = Object.entries(scenes[scene].controls ?? {}).filter(([, control]) => control.read);
         const live = Object.entries(scenes[scene].controls ?? {}).filter(([, control]) => control.enabled);
-        if (!rows.length && !live.length) return;
+        const bounded = Object.entries(scenes[scene].controls ?? {}).filter(([, control]) => control.bounds);
+        if (!rows.length && !live.length && !bounded.length) return;
         let frame: number;
         function read() {
             outputs = Object.fromEntries(rows.map(([name, control]) => [name, control.read!(world)]));
             liveControls = Object.fromEntries(live.map(([name, control]) => [name, control.enabled!(world)]));
+            liveBounds = Object.fromEntries(bounded.map(([name, control]) => [name, control.bounds!(values, world)]));
             frame = requestAnimationFrame(read);
         }
         read();
         return () => cancelAnimationFrame(frame);
     });
     import type { World } from "@dylanebert/shallot";
-    import { formatValue } from "./control-format";
+    import { formatReadout, formatValue } from "./control-format";
     import { categories, controlValues, scenes, enabledControls, type Scene } from "./scenes";
     let { world, scene, select, change }: { world: World; scene: Scene; select: (scene: Scene) => void; change: (name: string, value: number, values: Record<string, number>) => void } = $props();
     let values = $state(controlValues(scene));
     const controls = $derived(Object.fromEntries(Object.entries(enabledControls(scene, values)).filter(([name]) => liveControls[name] !== false)));
-    const sectionTitle = $derived(scene === "gyroscopicPrecession" ? "Precession, rad/s" : scene === "moverOverlap" ? "Planes and normals" : "Simulation");
+    const sectionTitle = $derived(scene === "meshViewer" ? "Mesh settings" : scene === "meshCreation" ? "Build cost" : scene === "gyroscopicPrecession" ? "Precession, rad/s" : scene === "moverOverlap" ? "Planes and normals" : "Simulation");
+    const separateReadouts = $derived(scene === "sensorHits" || scene === "meshViewer");
     function update(name: string, value: number) { change(name, value, values); }
     let open = $state(false);
     let picker: HTMLElement;
@@ -62,11 +66,11 @@
 {#if scene === "geometricMover" || scene === "rigidBody" || scene === "village"}<span class="ec input-help">WASD to move · Space to jump · Shift to sprint</span>{/if}
 {#if scenes[scene].controls}
     {#snippet fields(parent?: string, readOnly = false)}
-        {#each Object.entries(scenes[scene].controls ?? {}).filter(([, control]) => control.when?.at(-1) === parent && (scene !== "sensorHits" || Boolean(control.read) === readOnly)) as [name, control]}
+        {#each Object.entries(scenes[scene].controls ?? {}).filter(([, control]) => control.when?.at(-1) === parent && (!separateReadouts || Boolean(control.read) === readOnly)) as [name, control]}
                 <fieldset class="section" disabled={!(name in controls)}>
                     {#if control.read}
                         {#if outputs[name] != null}
-                            <div class="row"><span>{control.label}</span><output aria-label={control.label}>{formatValue(control.decimals === undefined ? Number(outputs[name]!.toPrecision(3)) : outputs[name]!, control.decimals)}</output></div>
+                            <div class="row"><span>{control.label}</span><output aria-label={control.label}>{formatReadout(outputs[name]!, control.decimals, control.precision)}</output></div>
                         {/if}
                     {:else if control.button}
                         <button tabindex="-1" onfocus={(event) => event.currentTarget.blur()} onclick={() => update(name, 1)}>{control.label}</button>
@@ -94,7 +98,7 @@
                         <div class="row">
                             <label for={`control-${name}`}>{control.label}</label>
                             <div class="slider">
-                                <input tabindex="-1" onfocus={(event) => event.currentTarget.blur()} id={`control-${name}`} type="range" min={control.bounds?.(values)[0] ?? control.min} max={control.bounds?.(values)[1] ?? control.max} step={control.step} value={values[name]} oninput={(event) => update(name, Number(event.currentTarget.value))} />
+                                <input tabindex="-1" onfocus={(event) => event.currentTarget.blur()} id={`control-${name}`} type="range" min={liveBounds[name]?.[0] ?? control.bounds?.(values, world)[0] ?? control.min} max={liveBounds[name]?.[1] ?? control.bounds?.(values, world)[1] ?? control.max} step={control.step} value={values[name]} oninput={(event) => update(name, Number(event.currentTarget.value))} />
                                 <output for={`control-${name}`}>{formatValue(values[name], control.decimals)}</output>
                             </div>
                         </div>
@@ -112,9 +116,9 @@
                 <h2 class="section-title">{sectionTitle}</h2>
                 {@render fields()}
             </section>
-            {#if scene === "sensorHits"}
-                <section class="section" aria-label="Touch counts">
-                    <h2 class="section-title">Touch counts</h2>
+            {#if separateReadouts}
+                <section class="section" aria-label={scene === "meshViewer" ? "Mesh statistics" : "Touch counts"}>
+                    <h2 class="section-title">{scene === "meshViewer" ? "Mesh statistics" : "Touch counts"}</h2>
                     {@render fields(undefined, true)}
                 </section>
             {/if}

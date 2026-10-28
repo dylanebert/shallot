@@ -238,6 +238,53 @@ for (const [scene, name, before, after] of [
     });
 }
 
+for (const [scene, name, before, after] of [
+    ["meshViewer", "MeshViewer", "m_meshIndex = 0;", "m_meshIndex = 1;"],
+    ["meshCreation", "MeshCreationBenchmark", "int iterations = m_isDebug ? 1 : 10;", "int iterations = m_isDebug ? 1 : 9;"],
+]) {
+    test(`${scene}: native readouts and node bounds repeat, drive controls and reject a source mutation`, () => {
+        const start = performance.now();
+        const copy = mkdtempSync(join(tmpdir(), "box3d-mesh-inspector-"));
+        const readouts = join(copy, "readouts.txt"), bounds = join(copy, "bounds.txt");
+        const base = new URL("../../examples/physics/tests/", import.meta.url);
+        const observe = (binary: string, controlled: boolean) => {
+            const hashes = run([binary, scene!, "600", ...(controlled ? [fileURLToPath(new URL(`${scene}.controls.txt`, base))] : [])], {
+                MESH_READOUTS: readouts, ...(scene === "meshViewer" ? { MESH_BOUNDS: bounds } : {}),
+            });
+            const digest = (path: string) => readFileSync(path, "utf8").trim().split("\n").map((line) => drawingDigest(JSON.parse(line)));
+            return { hashes, readouts: digest(readouts), bounds: scene === "meshViewer" ? digest(bounds) : [] };
+        };
+        try {
+            const binary = sampleBinary();
+            for (const controlled of scene === "meshViewer" ? [false, true] : [false]) {
+                const stem = `${scene}${controlled ? ".controls" : ""}`;
+                const a = observe(binary, controlled), b = observe(binary, controlled);
+                expect(a).toEqual(b);
+                equalSampleSteps(a.hashes, readFileSync(new URL(`${stem}.gold.txt`, base), "utf8"), stem);
+                expect(a.readouts).toHaveLength(600);
+                expect(a.readouts).toEqual(readFileSync(new URL(`${stem}.readouts.gold.txt`, base), "utf8").trim().split("\n"));
+                if (scene === "meshViewer") {
+                    expect(a.bounds).toHaveLength(600);
+                    expect(a.bounds).toEqual(readFileSync(new URL(`${stem}.bounds.gold.txt`, base), "utf8").trim().split("\n"));
+                }
+            }
+            mkdirSync(join(copy, "samples")); mkdirSync(join(copy, "shared"));
+            copyFileSync(join(process.env.BOX3D!, "shared/benchmarks.c"), join(copy, "shared/benchmarks.c"));
+            for (const file of ["sample_mesh.cpp", "sample_compound.cpp", "sample_continuous.cpp", "sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp", "sample_bodies.cpp", "sample_shapes.cpp", "sample_character.cpp", "mover.h", "mover.cpp"])
+                copyFileSync(join(process.env.BOX3D!, "samples", file), join(copy, "samples", file));
+            const path = join(copy, "samples/sample_mesh.cpp"), source = readFileSync(path, "utf8");
+            const offset = source.indexOf(`class ${name} :`);
+            expect(offset).toBeGreaterThan(0);
+            expect(source.slice(offset)).toContain(before!);
+            writeFileSync(path, source.slice(0, offset) + source.slice(offset).replace(before!, after!));
+            expect(observe(sampleBinary(join(copy, "samples")), false).readouts).not.toEqual(
+                readFileSync(new URL(`${scene}.readouts.gold.txt`, base), "utf8").trim().split("\n"),
+            );
+        } finally { rmSync(copy, { recursive: true, force: true }); }
+        console.log(`${scene} native hashes, readouts, node bounds, repeats and mutation: ${(performance.now() - start).toFixed(0)} ms`);
+    });
+}
+
 const compoundMutations: Record<string, [string, string, string]> = {
     simpleCompound: ["SimpleCompound", "float a = 4.0f;", "float a = 4.1f;"],
     compoundSpheres: ["CompoundSpheres", "float h = 10.0f;", "float h = 10.1f;"],

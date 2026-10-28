@@ -11,6 +11,8 @@ for (const scene of [
     "boxMesh",
     "meshReflection",
     "meshHeightField",
+    "meshViewer",
+    "meshCreation",
 ]) {
     test(`${scene} Mesh-stage look review`, async ({ page }) => {
         page.on("pageerror", (error) => {
@@ -36,8 +38,16 @@ for (const scene of [
                     .selectOption("-1");
             } else if (scene === "meshHeightField") {
                 await page.getByRole("slider", { name: "radius", exact: true }).fill("0");
+            } else if (scene === "meshViewer") {
+                await page.getByRole("slider", { name: "index", exact: true }).fill("2");
+                await page.getByRole("slider", { name: "draw level", exact: true }).fill("2");
             }
-            if (hasShape || scene === "meshReflection" || scene === "meshHeightField") {
+            if (
+                hasShape ||
+                scene === "meshReflection" ||
+                scene === "meshHeightField" ||
+                scene === "meshViewer"
+            ) {
                 await page.waitForTimeout(500);
                 await capture(page, `${scene}-${size}-controls`);
                 await page.getByText("Physics", { exact: true }).click();

@@ -162,6 +162,46 @@ for (const width of [1280, 390]) {
         await gameKeyMovesCamera(page);
     });
 
+    test(`Mesh inspection separates readouts and updates live bounds; build costs stay read-only at ${width}`, async ({
+        page,
+    }) => {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 720 });
+        await page.goto("/tests/controls.html");
+        await page.waitForFunction(() => "controlsKey" in window);
+        await pointerControl(page, page.getByRole("button", { name: "Scene", exact: true }));
+        await pointerControl(page, page.getByRole("button", { name: "Viewer", exact: true }));
+        const panel = page.locator(".controls");
+        const bounds = await panel.boundingBox();
+        const settings = panel.getByRole("region", { name: "Mesh settings", exact: true });
+        const statistics = panel.getByRole("region", { name: "Mesh statistics", exact: true });
+        await expect(settings.locator("output[aria-label]")).toHaveCount(0);
+        await expect(statistics.locator("output")).toHaveCount(5);
+        await expect(statistics.locator("input, select, button")).toHaveCount(0);
+        const level = settings.getByRole("slider", { name: "draw level", exact: true });
+        await expect(level).toHaveAttribute("max", "12");
+        await settings.getByRole("slider", { name: "index", exact: true }).fill("1");
+        await expect(level).toHaveAttribute("max", "14");
+        expect(await panel.boundingBox()).toEqual(bounds);
+        expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+            true,
+        );
+        await pointerControl(page, page.getByRole("button", { name: "Scene", exact: true }));
+        await pointerControl(
+            page,
+            page.getByRole("button", { name: "Creation Benchmark", exact: true }),
+        );
+        await page.evaluate(() => (window as unknown as { controlsKey(): number }).controlsKey());
+        const costs = panel.getByRole("region", { name: "Build cost", exact: true });
+        await expect(costs.locator("output")).toHaveCount(3);
+        await expect(costs.locator("input, select, button")).toHaveCount(0);
+        for (const label of ["triangle count", "total time, ms", "time per mesh, ms"])
+            await expect(costs.getByLabel(label, { exact: true })).toBeVisible();
+        expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+            true,
+        );
+        await gameKeyMovesCamera(page);
+    });
+
     test(`Precession's averaged rates fit the label column at ${width}`, async ({ page }) => {
         await page.setViewportSize({ width, height: width === 390 ? 844 : 720 });
         await page.goto("/tests/controls.html");

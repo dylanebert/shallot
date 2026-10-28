@@ -11,10 +11,12 @@ export function testCategorySwitches(name: string): void {
             category.scenes
                 .map((scene) => scene.id)
                 // Bridge and Dominoes have separate files; manual scenes switch in their oracle.
+                // Creation Benchmark's unstepped build frame is held by mesh-inspector.node.ts.
                 .filter(
                     (scene) =>
                         scene !== "bridge" &&
                         scene !== "dominoes" &&
+                        scene !== "meshCreation" &&
                         !manualParityScenes.has(scene),
                 ),
         ));

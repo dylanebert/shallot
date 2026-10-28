@@ -25,6 +25,7 @@ import { GeometricMoverState, geometricMoverScene } from "./geometric-mover";
 import { jointScenes } from "./joints";
 import { meshScenes } from "./mesh";
 import { HeightFieldState } from "./mesh-height-field";
+import { MeshCreationState, MeshInspectorState } from "./mesh-inspector";
 import { PrecessionState } from "./precession";
 import { RigidBodyState, rigidBodyScene } from "./rigid-body";
 import { MotorizedJoint } from "./roles";
@@ -167,10 +168,12 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
         scenes: [
             { id: "bigBoxMesh", name: "Big Box" },
             { id: "boxMesh", name: "Box" },
+            { id: "meshCreation", name: "Creation Benchmark" },
             { id: "gridMesh", name: "Grid" },
             { id: "meshHeightField", name: "Height Field" },
             { id: "hollowBox", name: "Hollow Box" },
             { id: "meshReflection", name: "Reflection" },
+            { id: "meshViewer", name: "Viewer" },
             { id: "voxel", name: "Voxel" },
         ],
     },
@@ -216,9 +219,10 @@ export interface Control {
     value: number;
     min?: number;
     max?: number;
-    bounds?: (values: Record<string, number>) => [number, number];
+    bounds?: (values: Record<string, number>, world?: World) => [number, number];
     step?: number;
     decimals?: number;
+    precision?: number;
     button?: boolean;
     read?: (world: World) => number | null;
     enabled?: (world: World) => boolean;
@@ -883,6 +887,8 @@ export const scenes = {
 
 export function createScene(world: World, scene: Scene): number[] {
     Object.assign(world.resource(HeightFieldState), HeightFieldState.create());
+    Object.assign(world.resource(MeshInspectorState), MeshInspectorState.create());
+    Object.assign(world.resource(MeshCreationState), MeshCreationState.create());
     Object.assign(world.resource(ShapeControlsState), ShapeControlsState.create());
     Object.assign(world.resource(WindState), { shapes: [], joints: [], lift: 0, time: 0 });
     world.resource(StackingImpulses).length = 0;
