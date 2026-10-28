@@ -25,7 +25,7 @@ import {
     worldToViewport,
 } from "@dylanebert/shallot/rendering";
 import { setLinearVelocity, setTransform } from "@dylanebert/shallot/standard/physics";
-import { CEILING, TIMEOUT } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { openGpuApp } from "@dylanebert/shallot/testing/gpu";
 import { DemoPlugin, RADIUS, SnowTrails } from "./demo";
 import { Grab, pick } from "./grab";
@@ -112,7 +112,7 @@ beforeAll(async () => {
     if (!adapter) throw new Error("Snow trails needs a WebGPU adapter");
     device = await adapter.requestDevice({ requiredFeatures: ["indirect-first-instance"] });
     for (let i = 0; i < 5; i++) subjects.push(await openGpuApp({ ...config, device, adapter }));
-}, CEILING.startup);
+}, TIMEOUT.startup);
 afterAll(() => {
     for (const app of subjects) app.dispose();
     device?.destroy();
