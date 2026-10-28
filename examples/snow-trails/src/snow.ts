@@ -15,25 +15,32 @@ const layout = materialLayout(d.struct({ sweep: d.vec3f }), {
     image: { type: "texture", filterable: false },
     ground: { type: "texture", filterable: false },
 });
-const cell = tgpu.fn(
+/** The trail's press at a world position, bilinear between texel centers. */
+const pressAt = tgpu.fn(
     [d.vec3f],
-    d.vec2i,
+    d.f32,
 )((world) => {
     "use gpu";
-    return d.vec2i(
-        std.clamp(
-            d.vec2f(world.x, -world.z).div(FIELD).add(d.vec2f(0.5)).mul(RESOLUTION),
-            d.vec2f(1),
-            d.vec2f(RESOLUTION - 2),
-        ),
+    const uv = std.clamp(
+        d.vec2f(world.x, -world.z).div(FIELD).add(d.vec2f(0.5)).mul(RESOLUTION).sub(d.vec2f(0.5)),
+        d.vec2f(0),
+        d.vec2f(RESOLUTION - 1.001),
     );
-});
-const depthAt = tgpu.fn(
-    [d.vec2i],
-    d.f32,
-)((xy) => {
-    "use gpu";
-    return std.textureLoad(layout.$.image, xy, 0).r;
+    const xy = d.vec2i(uv);
+    const f = std.fract(uv);
+    return std.mix(
+        std.mix(
+            std.textureLoad(layout.$.image, xy, 0).r,
+            std.textureLoad(layout.$.image, xy.add(d.vec2i(1, 0)), 0).r,
+            f.x,
+        ),
+        std.mix(
+            std.textureLoad(layout.$.image, xy.add(d.vec2i(0, 1)), 0).r,
+            std.textureLoad(layout.$.image, xy.add(d.vec2i(1, 1)), 0).r,
+            f.x,
+        ),
+        f.y,
+    );
 });
 const ground = tgpu.fn(
     [d.vec3f],
@@ -76,35 +83,20 @@ export const SnowMaterial = materialType({
     bindings,
     vertex: (input) => {
         "use gpu";
-        const xy = cell(input.world.xyz);
-        const depth = depthAt(xy);
-        const dx =
-            ((depthAt(xy.add(d.vec2i(1, 0))) - depthAt(xy.sub(d.vec2i(1, 0)))) *
-                DEPTH *
-                RESOLUTION) /
-            (2 * FIELD);
-        const dz =
-            ((depthAt(xy.add(d.vec2i(0, 1))) - depthAt(xy.sub(d.vec2i(0, 1)))) *
-                DEPTH *
-                RESOLUTION) /
-            (2 * FIELD);
+        const p = input.world.xyz;
+        const h = FIELD / RESOLUTION;
+        const dx = (pressAt(p.add(d.vec3f(h, 0, 0))) - pressAt(p.sub(d.vec3f(h, 0, 0)))) / (2 * h);
+        const dz = (pressAt(p.add(d.vec3f(0, 0, h))) - pressAt(p.sub(d.vec3f(0, 0, h)))) / (2 * h);
         return {
-            world: d.vec4f(
-                input.world.x,
-                ground(input.world.xyz) + DEPTH - depth * DEPTH,
-                input.world.z,
-                1,
-            ),
+            world: d.vec4f(p.x, ground(p) + DEPTH - pressAt(p) * DEPTH, p.z, 1),
             worldNormal: std.normalize(
                 d.vec3f(
-                    dx -
-                        (ground(input.world.xyz.add(d.vec3f(0.05, 0, 0))) -
-                            ground(input.world.xyz.sub(d.vec3f(0.05, 0, 0)))) /
+                    dx * DEPTH -
+                        (ground(p.add(d.vec3f(0.05, 0, 0))) - ground(p.sub(d.vec3f(0.05, 0, 0)))) /
                             0.1,
                     1,
-                    -dz -
-                        (ground(input.world.xyz.add(d.vec3f(0, 0, 0.05))) -
-                            ground(input.world.xyz.sub(d.vec3f(0, 0, 0.05)))) /
+                    dz * DEPTH -
+                        (ground(p.add(d.vec3f(0, 0, 0.05))) - ground(p.sub(d.vec3f(0, 0, 0.05)))) /
                             0.1,
                 ),
             ),
@@ -112,7 +104,7 @@ export const SnowMaterial = materialType({
     },
     fragment: (ctx) => {
         "use gpu";
-        const press = depthAt(cell(ctx.world));
+        const press = pressAt(ctx.world);
         const color = std.mix(d.vec3f(0.78, 0.8, 0.79), d.vec3f(0.29, 0.36, 0.39), press);
         return d.vec4f(lit(color, ctx.worldNormal), 1);
     },

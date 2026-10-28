@@ -415,7 +415,7 @@ function along(path: [number, number][], spacing: number) {
     }
     return out;
 }
-test("the opening groove's floor varies along its center line by under 4.9 mm", async () => {
+test("the opening groove's floor varies along its center line by under 3.75 mm", async () => {
     const world = apps()[8].world;
     const path = opening(world);
     world.step(0);
@@ -432,5 +432,5 @@ test("the opening groove's floor varies along its center line by under 4.9 mm", 
         const near = tops.slice(Math.max(0, i - window), i + window + 1);
         return Math.abs(top - near.reduce((a, b) => a + b) / near.length);
     });
-    expect(Math.max(...deviation)).toBeLessThan(0.0049);
+    expect(Math.max(...deviation)).toBeLessThan(0.00375);
 });
