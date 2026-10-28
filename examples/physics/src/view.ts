@@ -70,6 +70,7 @@ import { RigidBodyState } from "./rigid-body";
 import { type Scene, scenes } from "./scenes";
 import { VillageState } from "./village";
 import { drawVillageView } from "./village-presentation";
+import { WorldSampleState } from "./world";
 
 function placeMarker(
     world: World,
@@ -161,7 +162,12 @@ export function setSceneCamera(world: World, scene: Scene, camera: number): void
         : phone && "phoneTarget" in view
           ? view.phoneTarget
           : view.target;
-    orbit.pan.set(camera, target[0]!, target[1]!, target[2]!);
+    orbit.pan.set(
+        camera,
+        scene === "farStack" ? world.resource(WorldSampleState).offset * 1000 : target[0]!,
+        target[1]!,
+        target[2]!,
+    );
 }
 
 function createView(world: World, scene: Scene, camera: number): () => void {

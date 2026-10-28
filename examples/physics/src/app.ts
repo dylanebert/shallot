@@ -26,6 +26,7 @@ import { ShapesSamplePlugin } from "./shapes";
 import { StackingSamplePlugin } from "./stacking";
 import { createViewer } from "./view";
 import { VillagePlugin } from "./village";
+import { WorldSamplePlugin } from "./world";
 
 export const Viewer = { create: createViewer };
 
@@ -54,6 +55,7 @@ export const AppPlugin: Plugin = {
         VillagePlugin,
         RigidBodyPlugin,
         RobustnessSamplePlugin,
+        WorldSamplePlugin,
         SampleInputPlugin,
         TextPlugin,
         OrbitPlugin,

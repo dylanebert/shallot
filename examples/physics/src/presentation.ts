@@ -20,6 +20,7 @@ import { RigidBodyState } from "./rigid-body";
 import { MotorizedJoint } from "./roles";
 import { controlValues, enabledControls, type Scene, scenes } from "./scenes";
 import { SensorSample } from "./sensor";
+import { WorldSampleState } from "./world";
 
 const materials = {
     ground: StandardMaterial({ baseColor: [0.085, 0.08, 0.072, 1], perceptualRoughness: 0.82 }),
@@ -165,7 +166,12 @@ export function scenePresentation(
     const definition = scenes[scene];
     const { gridExtent: extent, gridSpacing: spacing } = definition;
     const height = ("gridHeight" in definition ? definition.gridHeight : 0) + 0.005;
-    const [cx, cz] = "gridCenter" in definition ? definition.gridCenter : [0, 0];
+    const [cx, cz] =
+        scene === "farStack"
+            ? [world.resource(WorldSampleState).offset * 1000, 0]
+            : "gridCenter" in definition
+              ? definition.gridCenter
+              : [0, 0];
     const lines: { a: [number, number, number]; b: [number, number, number]; color: number }[] = [];
     for (let offset = -extent; offset <= extent; offset += spacing) {
         const color = offset === 0 ? 0x797369 : 0x49453f;

@@ -416,6 +416,8 @@ int main( int argc, char** argv )
     if (getenv("SAMPLE_DISABLE_SLEEP")) context.enableSleep = false;
 	struct Entry { const char* name; Sample* (*create)(SampleContext*); };
 	const Entry entries[] = {
+        { "farStack", FarStack::Create }, { "farPyramid", FarPyramid::Create },
+        { "farRagdolls", FarRagdolls::Create }, { "farMeshDrop", FarMeshDrop::Create },
         { "sphereVsSphere", ManifoldSamples::SphereAndSphere::Create },
         { "capsuleVsSphere", ManifoldSamples::CapsuleAndSphere::Create },
         { "hullVsSphere", ManifoldSamples::HullAndSphere::Create },
@@ -537,6 +539,8 @@ int main( int argc, char** argv )
         robustnessReadouts = fopen(getenv("ROBUSTNESS_READOUTS"), "w");
         assert(robustnessReadouts);
     }
+    FILE* worldReadouts = getenv("WORLD_READOUTS") ? fopen(getenv("WORLD_READOUTS"), "w") : nullptr;
+    if (getenv("WORLD_READOUTS")) assert(worldReadouts);
     FILE* readouts = getenv("PRECESSION_READOUTS") ? fopen(getenv("PRECESSION_READOUTS"), "w") : nullptr;
     if (getenv("PRECESSION_READOUTS")) assert(readouts && !strcmp(argv[1], "gyroscopicPrecession"));
     if (getenv("CONTACT_DRAWING")) {
@@ -594,6 +598,11 @@ int main( int argc, char** argv )
                 fprintf(geometryRecords,"]\n");
             }
         } else sample->Step();
+        if (worldReadouts) {
+            if (!strcmp(argv[1], "farStack")) { auto* s = static_cast<FarStack*>(sample); fprintf(worldReadouts, "%.1f %.4f\n", s->m_offsetKilometers, b3SubPos(b3Body_GetWorldCenter(s->m_topBodyId), s->m_base).y); }
+            else if (!strcmp(argv[1], "farMeshDrop")) fprintf(worldReadouts, "1000 %d\n", static_cast<FarMeshDrop*>(sample)->m_failed);
+            else fprintf(worldReadouts, "%d\n", !strcmp(argv[1], "farPyramid") ? 10000 : 1000);
+        }
         if (manifoldScene) {
             printf("%016llx\n", (unsigned long long)b3HashWorldState(b3GetWorldFromId(sample->m_worldId)));
             if (manifoldRecords || characterDrawing) sample->Render();
@@ -687,5 +696,6 @@ int main( int argc, char** argv )
     if (meshReadouts) fclose(meshReadouts);
     if (meshBoundsFile) fclose(meshBoundsFile);
     if (robustnessReadouts) fclose(robustnessReadouts);
+    if (worldReadouts) fclose(worldReadouts);
 	delete sample;
 }

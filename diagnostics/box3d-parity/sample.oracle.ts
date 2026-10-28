@@ -14,7 +14,7 @@ import { digestMismatch, drawingDigest, eventDigests, querySteps, recordDigest }
 setDefaultTimeout(0);
 
 function copyRobustnessSources(directory: string): void {
-    for (const file of ["samples/sample_robustness.cpp", "shared/overflow_color.c"])
+    for (const file of ["samples/sample_world.cpp", "samples/sample_robustness.cpp", "shared/overflow_color.c"])
         copyFileSync(join(process.env.BOX3D!, file), join(directory, file));
 }
 
@@ -30,6 +30,51 @@ function equalSampleSteps(actual: string, expected: string, label: string): void
         }
         expect(actualLines[step], `${label} step ${step} encoding`).toBe(expectedLines[step]);
     }
+}
+
+for (const [scene, name, before, after] of [
+    ["farStack", "FarStack", "m_columnCount = 6;", "m_columnCount = 7;"],
+    ["farPyramid", "FarPyramid", "int baseCount = 40;", "int baseCount = 39;"],
+    ["farRagdolls", "FarRagdolls", "m_count = 20;", "m_count = 19;"],
+    ["farMeshDrop", "FarMeshDrop", "m_offsetKilometers = 1000.0f;", "m_offsetKilometers = 1001.0f;"],
+] as const) {
+    test(`${scene}: native steps and readouts repeat, controls use DrawControls, and a source mutation fails parity`, () => {
+        const start = performance.now(), binary = sampleBinary();
+        const directory = mkdtempSync(join(tmpdir(), "box3d-world-"));
+        const base = new URL("../../examples/physics/tests/", import.meta.url);
+        const readouts = join(directory, "readouts.txt");
+        try {
+            const hashes = run([binary, scene, "600"], { WORLD_READOUTS: readouts });
+            const rows = readFileSync(readouts, "utf8");
+            equalSampleSteps(hashes, readFileSync(new URL(`${scene}.gold.txt`, base), "utf8"), scene);
+            equalSampleSteps(run([binary, scene, "600"], { WORLD_READOUTS: readouts }), hashes, `${scene} repeat`);
+            expect(readFileSync(readouts, "utf8")).toBe(rows);
+            expect(rows).toBe(readFileSync(new URL(`${scene}.readouts.gold.txt`, base), "utf8"));
+            expect(sampleGold(hashes)).toHaveLength(600);
+            if (scene === "farStack") {
+                const args = [binary, scene, "600", fileURLToPath(new URL(`${scene}.controls.txt`, base))];
+                const controlled = run(args, { WORLD_READOUTS: readouts });
+                const controlledRows = readFileSync(readouts, "utf8");
+                equalSampleSteps(controlled, readFileSync(new URL(`${scene}.controls.gold.txt`, base), "utf8"), `${scene} controls`);
+                equalSampleSteps(run(args, { WORLD_READOUTS: readouts }), controlled, `${scene} controls repeat`);
+                expect(readFileSync(readouts, "utf8")).toBe(controlledRows);
+                expect(controlledRows).toBe(readFileSync(new URL(`${scene}.controls.readouts.gold.txt`, base), "utf8"));
+                expect(controlled).not.toBe(hashes);
+            }
+            const samples = join(directory, "samples"); mkdirSync(samples); mkdirSync(join(directory, "shared"));
+            for (const file of readdirSync(join(process.env.BOX3D!, "samples")))
+                if (file.endsWith(".cpp") || file.endsWith(".h")) copyFileSync(join(process.env.BOX3D!, "samples", file), join(samples, file));
+            copyFileSync(join(process.env.BOX3D!, "shared/benchmarks.c"), join(directory, "shared/benchmarks.c"));
+            copyRobustnessSources(directory);
+            const path = join(samples, "sample_world.cpp"), source = readFileSync(path, "utf8"), offset = source.indexOf(`class ${name} :`);
+            expect(offset).toBeGreaterThanOrEqual(0);
+            expect(source.slice(offset)).toContain(before);
+            writeFileSync(path, source.slice(0, offset) + source.slice(offset).replace(before, after));
+            const mutated = run([sampleBinary(samples), scene, "600"]);
+            expect(sampleGold(mutated).map(step => step.hash)).not.toEqual(sampleGold(hashes).map(step => step.hash));
+            console.log(`${scene} native parity, readouts, repeats, controls and mutation: ${(performance.now() - start).toFixed(0)} ms`);
+        } finally { rmSync(directory, { recursive: true, force: true }); }
+    });
 }
 
 for (const [scene, name, before, after] of [

@@ -38,6 +38,7 @@ import { MotorizedJoint } from "./roles";
 import { ShapeControlsState, shapeScenes, WindState } from "./shapes";
 import { StackingImpulses, stackingScenes } from "./stacking";
 import { VillageState, villageScene } from "./village";
+import { WorldSampleState, worldScenes } from "./world";
 
 export type Scene =
     | "geometricMover"
@@ -65,7 +66,8 @@ export type Scene =
     | keyof typeof bodyScenes
     | keyof typeof shapeScenes
     | keyof typeof characterScenes
-    | keyof typeof robustnessScenes;
+    | keyof typeof robustnessScenes
+    | keyof typeof worldScenes;
 export const categories: { name: string; scenes: { id: Scene; name: string }[] }[] = [
     {
         name: "Benchmark",
@@ -284,6 +286,15 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
             { id: "wedge", name: "Wedge" },
         ],
     },
+    {
+        name: "World",
+        scenes: [
+            { id: "farMeshDrop", name: "Far Mesh Drop" },
+            { id: "farPyramid", name: "Far Pyramid" },
+            { id: "farRagdolls", name: "Far Ragdolls" },
+            { id: "farStack", name: "Far Stack" },
+        ],
+    },
 ];
 export interface Control {
     label: string;
@@ -377,6 +388,7 @@ export const scenes = {
     ...jointScenes,
     ...characterScenes,
     ...robustnessScenes,
+    ...worldScenes,
     boxStack: {
         construct: boxStack,
         gridExtent: 40,
@@ -965,6 +977,7 @@ export const scenes = {
 
 export function createScene(world: World, scene: Scene): number[] {
     Object.assign(world.resource(RobustnessState), RobustnessState.create());
+    Object.assign(world.resource(WorldSampleState), WorldSampleState.create());
     Object.assign(world.resource(HeightFieldState), HeightFieldState.create());
     Object.assign(world.resource(MeshInspectorState), MeshInspectorState.create());
     Object.assign(world.resource(MeshCreationState), MeshCreationState.create());

@@ -16,6 +16,7 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
     const ragdoll = readFileSync(join(samples, "sample_ragdoll.cpp"), "utf8");
     const mesh = readFileSync(join(samples, "sample_mesh.cpp"), "utf8");
     const stacking = readFileSync(join(samples, "sample_stacking.cpp"), "utf8");
+    const world = readFileSync(join(samples, "sample_world.cpp"), "utf8");
     const robustness = readFileSync(join(samples, "sample_robustness.cpp"), "utf8");
     const joints = readFileSync(join(samples, "sample_joint.cpp"), "utf8");
     const sample = readFileSync(join(samples, "sample.cpp"), "utf8");
@@ -67,6 +68,8 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         section(benchmark, "struct ShapeUserData", "static int benchmarkSensor"),
         section(benchmark, "class CandyCups :", "static int sampleSmallConvexes"),
         readFileSync(join(samples, "../shared/overflow_color.c"), "utf8"),
+        '#include "stability.h"',
+        ...[["FarStack", "sampleLargeWorld"], ["FarPyramid", "sampleFarPyramid"], ["FarRagdolls", "sampleFarRagdolls"], ["FarMeshDrop", "sampleFarMeshDrop"]].map(([name, end]) => section(world, `class ${name} :`, `static int ${end}`)),
         ...["HighMassRatio1", "TinyPyramid", "OverlapRecovery", "OverflowColorPile"].map(name => section(robustness, `class ${name} :`, `static int sample${name}`)),
         ...["BoxStack", "CardHouse", "SphereStack", "CapsuleStack", "JengaStack", "SingleBox", "Cylinder", "CylinderStack", "Dominoes", "Wedge", "Arch", "DoubleDomino", "Pyramid2D", "EdgeCrossing"].map(name => section(stacking, `class ${name} :`, `static int sample${name}`)),
         ...["DistanceJoint", "SphericalJoint", "MotionLocks", "BallAndChain", "FoldOut", "TopDownFriction", "WeldJoint", "GearLift", "Driving"].map(name => section(joints, `class ${name} :`, `static int sample${name}`)),

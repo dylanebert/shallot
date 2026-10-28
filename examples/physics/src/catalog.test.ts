@@ -220,6 +220,15 @@ test("each picker label selects its scene in its category, exactly once", () => 
                 { id: "wedge", name: "Wedge" },
             ],
         },
+        {
+            name: "World",
+            scenes: [
+                { id: "farMeshDrop", name: "Far Mesh Drop" },
+                { id: "farPyramid", name: "Far Pyramid" },
+                { id: "farRagdolls", name: "Far Ragdolls" },
+                { id: "farStack", name: "Far Stack" },
+            ],
+        },
     ]);
     expect(
         categories.flatMap((category) => category.scenes.map((scene): string => scene.id)).sort(),

@@ -402,6 +402,10 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 expect(ground.mesh.indices.length).toBeGreaterThan(0);
             } else expect(presentation.ground).toBeUndefined();
             const extent = {
+                farStack: 12,
+                farPyramid: 400,
+                farRagdolls: 10,
+                farMeshDrop: 20,
                 highMassRatio1: 50,
                 tinyPyramid: 20,
                 overlapRecovery: 20,

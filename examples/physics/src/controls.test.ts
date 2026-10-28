@@ -3,6 +3,31 @@ import { formatReadout, formatValue } from "./control-format";
 import { manifoldNames, manifoldPointLimits } from "./manifold";
 import { type Controls, controlValues, enabledControls, type Scene, scenes } from "./scenes";
 
+test("World retains offset presets and read-only position rows without build facts", () => {
+    const stack = scenes.farStack.controls;
+    expect(Object.keys(stack)).toEqual([
+        "origin",
+        "10km",
+        "100km",
+        "1000km",
+        "10000km",
+        "Offset",
+        "Height",
+    ]);
+    for (const name of ["origin", "10km", "100km", "1000km", "10000km"])
+        expect((stack as Controls)[name]).toMatchObject({ label: name, button: true });
+    expect(stack.Offset).toMatchObject({ label: "Offset, km", decimals: 1 });
+    expect(stack.Height).toMatchObject({ label: "Top height, m", decimals: 4 });
+    for (const scene of ["farPyramid", "farRagdolls", "farMeshDrop"] as const) {
+        const controls = scenes[scene].controls;
+        expect(controls.Offset).toMatchObject({ label: "Offset, km", decimals: 0 });
+        for (const row of Object.values(controls)) expect(row.read).toBeFunction();
+    }
+    expect(Object.keys(scenes.farPyramid.controls)).toEqual(["Offset"]);
+    expect(Object.keys(scenes.farRagdolls.controls)).toEqual(["Offset"]);
+    expect(Object.keys(scenes.farMeshDrop.controls)).toEqual(["Offset", "Failure"]);
+});
+
 test("Robustness retains native recovery controls and only the overflow pile's claim readouts", () => {
     expect(scenes.highMassRatio1.controls).toBeUndefined();
     expect(scenes.tinyPyramid.controls).toBeUndefined();
