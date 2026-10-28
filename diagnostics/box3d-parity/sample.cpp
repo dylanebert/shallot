@@ -33,14 +33,15 @@ struct Camera
 	// Contact's recording keeps its initial yaw-zero view and reads only the flattened basis.
 	bool m_thirdPerson = false;
 	b3Pos m_pivot = {};
-	PickRay BuildPickRay( float, float ) { return {}; }
+    PickRay pickRay = {};
+	PickRay BuildPickRay( float, float ) { return pickRay; }
 	void UpdateTransform() {}
 	void SetView( float, float, float, b3Vec3 ) {}
 	b3Vec3 GetForward() const { return { 0, 0, 1 }; }
 	b3Vec3 GetRight() const { return { 1, 0, 0 }; }
 };
 constexpr int KEY_W = 1, KEY_S = 2, KEY_A = 3, KEY_D = 4, KEY_L = 5, KEY_T = 6, KEY_B = 7;
-constexpr int ACTION_PRESS = 1, MOD_SHIFT = 1;
+constexpr int ACTION_PRESS = 1, MOD_SHIFT = 1, MOD_ALT = 2;
 void sapp_lock_mouse( bool ) {}
 bool IsKeyDown( int key ) {
 	float value = 0;
@@ -55,9 +56,14 @@ int MakeColor( int color ) { return color; }
 FILE* contactDrawing = nullptr;
 struct ContactMark { b3Pos point; b3Pos end; std::string label; };
 std::vector<ContactMark> contactMarks;
-void DrawPoint( b3Pos, float, int ) {}
-void DrawLine( b3Pos a, b3Pos b, int ) { if (contactDrawing) contactMarks.push_back({a,b,{}}); }
-void DrawArrow( b3Pos, b3Pos, int ) {}
+FILE* characterDrawing = nullptr;
+std::vector<std::vector<double>> characterMarks;
+void DrawPoint( b3Pos p, float size, int ) { if (characterDrawing) characterMarks.push_back({0,p.x,p.y,p.z,size}); }
+void DrawLine( b3Pos a, b3Pos b, int ) {
+    if (contactDrawing) contactMarks.push_back({a,b,{}});
+    if (characterDrawing) characterMarks.push_back({1,a.x,a.y,a.z,b.x,b.y,b.z});
+}
+void DrawArrow( b3Pos a, b3Pos b, int ) { if (characterDrawing) characterMarks.push_back({2,a.x,a.y,a.z,b.x,b.y,b.z}); }
 void DrawWireSphere( b3WorldTransform, const b3Sphere*, int, int ) {}
 void DrawString3D( b3Pos, int, const char* format, ... ) {
     if (!contactDrawing) return;
@@ -69,7 +75,9 @@ constexpr int TRANSPARENT_SHADOW_NONE = 0;
 void DrawSolidSphere( b3WorldTransform, b3Sphere, int ) {}
 void DrawSphereEx( b3WorldTransform, float, int, float, float, int ) {}
 void DrawHull( b3WorldTransform, const b3HullData*, int ) {}
-void DrawSolidCapsule( b3WorldTransform, b3Capsule, int ) {}
+void DrawSolidCapsule( b3WorldTransform t, b3Capsule c, int ) {
+    if (characterDrawing) characterMarks.push_back({3,t.p.x,t.p.y,t.p.z,t.q.v.x,t.q.v.y,t.q.v.z,t.q.s,c.center1.x,c.center1.y,c.center1.z,c.center2.x,c.center2.y,c.center2.z,c.radius});
+}
 void DrawPlane( b3Vec3, b3Pos, int ) {}
 FILE* bodyQueries = nullptr;
 void BodyQueryFloat(float value) { unsigned bits; memcpy(&bits, &value, 4); fprintf(bodyQueries, " %08x", bits); }
@@ -321,6 +329,7 @@ int main( int argc, char** argv )
         { "slideTwist", SlideTwist::Create }, { "conveyorBelt", ConveyorBelt::Create },
         { "restitution", Restitution::Create }, { "staticInvoke", StaticInvoke::Create }, { "wind", Wind::Create },
         { "conveyorMesh", ConveyorMesh::Create }, { "windDrop", WindDrop::Create }, { "windFlap", WindFlap::Create },
+        { "capsulePlane", CapsulePlane::Create }, { "moverOverlap", MoverOverlap::Create },
         { "classRing", ClassRing::Create }, { "cast", BodyCast::Create },
         { "bodyType", BodyType::Create }, { "weeble", Weeble::Create }, { "disable", DisableBody::Create },
         { "gyroscopicPrecession", GyroscopicPrecession::Create },
@@ -375,6 +384,7 @@ int main( int argc, char** argv )
 		}
 		fclose( file );
 	}
+    characterDrawing = getenv("CHARACTER_DRAWING") ? fopen(getenv("CHARACTER_DRAWING"), "w") : nullptr;
     FILE* sensorReadouts = getenv("SENSOR_READOUTS") ? fopen(getenv("SENSOR_READOUTS"), "w") : nullptr;
     if (getenv("SENSOR_READOUTS")) assert(sensorReadouts && !strcmp(argv[1], "sensorHits"));
     bodyQueries = getenv("BODY_QUERIES") ? fopen(getenv("BODY_QUERIES"), "w") : nullptr;
@@ -400,12 +410,21 @@ int main( int argc, char** argv )
 				assert( tag > 0 && tag <= (int)recordedBodies.size() );
 				b3Pos p = b3Body_GetPosition( recordedBodies[tag - 1] );
 				sample->Grab( { { p.x, p.y, p.z + 10 }, { 0, 0, -20 } } );
-			} else if ( change.name == "grabY" ) sample->m_mousePoint.y = change.value;
+            } else if ( change.name == "dragX" ) context.camera.pickRay.origin.x = change.value;
+            else if ( change.name == "dragY" ) context.camera.pickRay.origin.y = change.value;
+            else if ( change.name == "dragZ" ) context.camera.pickRay.origin.z = change.value;
+            else if ( change.name == "drag" ) {
+                context.camera.pickRay.translation = {0,0,-20};
+                if (change.value != 0) sample->MouseDown({}, 0, 0);
+                else sample->MouseUp({}, 0);
+            } else if ( change.name == "grabY" ) sample->m_mousePoint.y = change.value;
 			else if ( change.name == "release" ) sample->Release();
 		}
+        sample->MouseMove({});
 		currentStep = i;
 		sample->DrawControls();
         contactMarks.clear();
+        characterMarks.clear();
 		sample->Step();
         if (contactDrawing) {
             fprintf(contactDrawing, "[");
@@ -425,7 +444,17 @@ int main( int argc, char** argv )
             }
             fprintf(sensorReadouts, "]]\n");
         }
-        if (!strcmp(argv[1], "cast")) printf("%016llx\n", (unsigned long long)b3HashWorldState(b3GetWorldFromId(sample->m_worldId)));
+        if (characterDrawing) {
+            sample->Render();
+            fprintf(characterDrawing, "[");
+            for (size_t j = 0; j < characterMarks.size(); ++j) {
+                fprintf(characterDrawing, "%s[", j ? "," : "");
+                for (size_t k = 0; k < characterMarks[j].size(); ++k) fprintf(characterDrawing, "%s%.9g", k ? "," : "", characterMarks[j][k]);
+                fprintf(characterDrawing, "]");
+            }
+            fprintf(characterDrawing, "]\n");
+        }
+        if (!strcmp(argv[1], "cast") || !strcmp(argv[1], "capsulePlane") || !strcmp(argv[1], "moverOverlap")) printf("%016llx\n", (unsigned long long)b3HashWorldState(b3GetWorldFromId(sample->m_worldId)));
         if (readouts) {
             auto* top = static_cast<GyroscopicPrecession*>(sample);
             if (top->m_elapsed > 0) fprintf(readouts, "%.9g %.9g\n", top->m_expectedAngle / top->m_elapsed, top->m_actualAngle / top->m_elapsed);
@@ -433,6 +462,7 @@ int main( int argc, char** argv )
         }
         if ( recordQueriesAndBuilds ) sample->Render();
 	}
+    if (characterDrawing) fclose(characterDrawing);
     if (bodyQueries) fclose(bodyQueries);
     if (readouts) fclose(readouts);
     if (sensorReadouts) fclose(sensorReadouts);

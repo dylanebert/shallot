@@ -28,6 +28,8 @@ import {
     setTargetTransform,
 } from "@dylanebert/shallot/standard/physics";
 
+import { CharacterSample, characterDrag } from "./character";
+
 export const Grab = {
     create: () => ({
         outlined: 0,
@@ -133,6 +135,22 @@ const SampleGrab: System = {
             grab.translation.x = ray.dir[0] * reach;
             grab.translation.y = ray.dir[1] * reach;
             grab.translation.z = ray.dir[2] * reach;
+            if (world.resource(CharacterSample).scene) {
+                const tracking = characterDrag(
+                    world,
+                    grab.origin,
+                    grab.translation,
+                    grab.pending,
+                    grab.held,
+                );
+                grab.pending = false;
+                if (tracking && !grab.camera && world.has(camera, Orbit)) {
+                    grab.camera = camera;
+                    grab.orbitMode = world.storage(Orbit).mode.get(camera);
+                    world.storage(Orbit).mode.set(camera, OrbitMode.Locked);
+                } else if (!tracking) release(world);
+                break;
+            }
             const hit =
                 devices.enabled &&
                 (devices.pointer.hover || grab.pending) &&
@@ -168,6 +186,7 @@ const UpdateGrab: System = {
     before: StandardPhysicsPlugin.systems?.filter((system) => system.group === "fixed"),
     update(world) {
         const grab = world.resource(Grab);
+        if (world.resource(CharacterSample).scene) return;
         if (!grab.held) {
             release(world);
             return;

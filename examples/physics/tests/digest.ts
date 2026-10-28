@@ -12,6 +12,20 @@ export function recordDigest(records: string): string {
     return hash.toString(16).padStart(16, "0");
 }
 
+/** One native drawing callback per row, with every numeric field encoded as its exact f32 bits. */
+export function drawingDigest(records: readonly (readonly number[])[]): string {
+    return recordDigest(
+        records
+            .map((row) => {
+                const floats = new Float32Array(row);
+                return Array.from(new Uint32Array(floats.buffer), (bits) =>
+                    bits.toString(16).padStart(8, "0"),
+                ).join(" ");
+            })
+            .join("\n") + "\n",
+    );
+}
+
 export function eventRecord(hash: bigint, events: (number | string)[][][]): string {
     return `${hash.toString(16).padStart(16, "0")} ${JSON.stringify(events)}\n`;
 }

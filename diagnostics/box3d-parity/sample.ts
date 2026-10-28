@@ -7,6 +7,7 @@ import { nativeBinary } from "./native";
 export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples")): string {
     const shapes = readFileSync(join(samples, "sample_shapes.cpp"), "utf8");
     const bodies = readFileSync(join(samples, "sample_bodies.cpp"), "utf8");
+    const character = readFileSync(join(samples, "sample_character.cpp"), "utf8");
     const stacking = readFileSync(join(samples, "sample_stacking.cpp"), "utf8");
     const joints = readFileSync(join(samples, "sample_joint.cpp"), "utf8");
     const sample = readFileSync(join(samples, "sample.cpp"), "utf8");
@@ -19,6 +20,7 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         return source.slice(first, last);
     }
     const sources = [
+        ...["CapsulePlane", "MoverOverlap"].map(name => section(character, `class ${name} :`, `static int sample${name}`)),
         section(sample, "b3BodyId Sample::AddGroundBox(", "struct RowDef"),
         ...["InclinedPlane", "RollingResistance", "HighResistance", "IsotropicFriction", "SlideTwist", "Restitution", "StaticInvoke", "Wind", "ConveyorBelt", "ConveyorMesh", "WindDrop", "WindFlap"].map(name => section(shapes, `class ${name} :`, `static int sample${name}`)),
         ...[["ClassRing", "sampleClassRing"], ["BodyCast", "sampleBodyCast"], ["GyroscopicPrecession", "sampleGyroscopicPrecession"], ["BodyType", "sampleBodyType"], ["Weeble", "sampleWeeble"], ["DisableBody", "sampleDisable"], ["SpinningBooks", "sampleBook"], ["GyroscopicTorque", "sampleGyroscopicTorque"], ["Kinematic", "sampleKinematic"], ["LockMixing", "sampleLockMixing"], ["FixedRotation", "sampleFixedRotation"], ["OffsetKinematic", "sampleOffsetKinematic"]].map(([name, end]) => section(bodies, `class ${name} :`, `static int ${end}`)),

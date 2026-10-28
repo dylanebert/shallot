@@ -10,6 +10,8 @@ export function drawInkPoint(
     camera: number,
     point: Point,
     line: (a: Point, b: Point, color: number, options: typeof INK_DOT) => void,
+    color = INK,
+    diameter = INK_DOT.width,
 ): void {
     const q = world.storage(GlobalTransform).rotation;
     const right = qRotate(
@@ -28,11 +30,11 @@ export function drawInkPoint(
         point[2] + right[2],
     ]);
     if (!center || !unit) return;
-    const half = INK_DOT.width / Math.hypot(unit[0] - center[0], unit[1] - center[1]) / 2;
+    const half = diameter / Math.hypot(unit[0] - center[0], unit[1] - center[1]) / 2;
     line(
         [point[0] - right[0] * half, point[1] - right[1] * half, point[2] - right[2] * half],
         [point[0] + right[0] * half, point[1] + right[1] * half, point[2] + right[2] * half],
-        INK,
-        INK_DOT,
+        color,
+        { ...INK_DOT, width: diameter },
     );
 }

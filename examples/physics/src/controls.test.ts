@@ -2,6 +2,16 @@ import { expect, test } from "bun:test";
 import { formatValue } from "./control-format";
 import { type Controls, controlValues, enabledControls, type Scene, scenes } from "./scenes";
 
+test("Character rows retain Solve and two integer read-only overlap counts", () => {
+    expect(Object.keys(scenes.capsulePlane.controls)).toEqual(["Solve"]);
+    expect(scenes.capsulePlane.controls.Solve.button).toBe(true);
+    expect(Object.keys(scenes.moverOverlap.controls)).toEqual(["Planes", "Degenerate"]);
+    for (const row of Object.values(scenes.moverOverlap.controls)) {
+        expect(row.decimals).toBe(0);
+        expect(typeof row.read).toBe("function");
+    }
+});
+
 test("Sensor Hits retains Bullet and Launch with two integer read-only touch counts", () => {
     const controls: Controls = scenes.sensorHits.controls;
     expect(Object.keys(controls)).toEqual(["Bullet", "Launch", "Begin touch", "End touch"]);

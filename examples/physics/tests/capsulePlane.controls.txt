@@ -1,0 +1,15 @@
+1	dragX	0
+1	dragY	1
+1	dragZ	10.4
+1	drag	1
+30	dragZ	10.7
+60	dragX	0.2
+90	drag	0
+100	Solve	1
+150	dragX	0.2
+150	dragY	1
+150	dragZ	10.7
+150	drag	1
+180	dragY	1.4
+210	drag	0
+220	Solve	1

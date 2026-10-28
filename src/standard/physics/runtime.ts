@@ -200,7 +200,10 @@ interface PhysicsRuntime {
     queryCastCallback: QueryCallback;
     queryOverlapCallback: QueryCallback;
     queryBodyPlaneCallback: QueryCallback;
+    queryPlaneCallback: QueryCallback;
     bodyPlanes: { records: PhysicsBodyPlaneHit[]; count: number };
+    planes: { records: PhysicsBodyPlaneHit[]; count: number };
+    planeCapacity: number;
     /** Each attached shape's EntityRef at its first attachment. */
     shapeStamps: EidColumn;
     shapeRecreationState: ShapeRecreationStates;
@@ -274,7 +277,10 @@ function newRuntime(): PhysicsRuntime {
         queryCastCallback: null!,
         queryOverlapCallback: null!,
         queryBodyPlaneCallback: null!,
+        queryPlaneCallback: null!,
         bodyPlanes: { records: [], count: 0 },
+        planes: { records: [], count: 0 },
+        planeCapacity: 0,
         shapeStamps: new EidColumn(),
         shapeRecreationState: createShapeRecreationStates(),
         shapeRemovalMass: new Map(),
@@ -294,6 +300,7 @@ function newRuntime(): PhysicsRuntime {
     runtime.queryCastCallback = castQueryCallback.bind(runtime);
     runtime.queryOverlapCallback = overlapQueryCallback.bind(runtime);
     runtime.queryBodyPlaneCallback = bodyPlaneQueryCallback.bind(runtime);
+    runtime.queryPlaneCallback = planeQueryCallback.bind(runtime);
     return runtime;
 }
 
@@ -676,8 +683,33 @@ function bodyPlaneQueryCallback(
 ): number {
     const context = this.queryContexts[this.queryDepth - 1];
     if (!queryShapeEntities(context.world!, this, shape, context)) return 1;
-    const index = this.bodyPlanes.count++;
-    const hit = (this.bodyPlanes.records[index] ??= {
+    appendPlane(this, this.bodyPlanes, context, data);
+    return 1;
+}
+
+function planeQueryCallback(
+    this: PhysicsRuntime,
+    _kind: number,
+    shape: number,
+    data: number,
+    count: number,
+): number {
+    const context = this.queryContexts[this.queryDepth - 1];
+    if (!queryShapeEntities(context.world!, this, shape, context)) return 1;
+    for (let i = 0; i < count && this.planes.count < this.planeCapacity; i++) {
+        appendPlane(this, this.planes, context, data + i * 40);
+    }
+    return this.planes.count < this.planeCapacity ? 1 : 0;
+}
+
+function appendPlane(
+    runtime: PhysicsRuntime,
+    planes: { records: PhysicsBodyPlaneHit[]; count: number },
+    context: QueryContext,
+    data: number,
+): void {
+    const index = planes.count++;
+    const hit = (planes.records[index] ??= {
         shape: 0,
         body: 0,
         plane: {
@@ -688,7 +720,7 @@ function bodyPlaneQueryCallback(
             materialIndex: 0,
         },
     });
-    const f = this.physicsWorld!.shapeStore.materialF;
+    const f = runtime.physicsWorld!.shapeStore.materialF;
     const n = data >>> 2;
     hit.shape = context.shapeEid;
     hit.body = context.bodyEid;
@@ -700,10 +732,10 @@ function bodyPlaneQueryCallback(
     p.point.x = f[n + 4];
     p.point.y = f[n + 5];
     p.point.z = f[n + 6];
-    p.triangleIndex = f[n + 7];
-    p.childIndex = f[n + 8];
-    p.materialIndex = f[n + 9];
-    return 1;
+    const u = runtime.physicsWorld!.shapeStore.materialU;
+    p.triangleIndex = u[n + 7] | 0;
+    p.childIndex = u[n + 8] | 0;
+    p.materialIndex = u[n + 9] | 0;
 }
 
 /**
@@ -806,13 +838,18 @@ export function overlapBodyShape(
     return q.resultU[0] !== 0xffffffff;
 }
 
-export type PhysicsBodyPlaneHit = { shape: number; body: number; plane: PlaneResult };
+/** A capsule contact plane with its live Shape and Body entities. */
+export type PhysicsPlaneHit = { shape: number; body: number; plane: PlaneResult };
 
-/** Only records[0..count) are current; storage past count belongs to the World's high-water cache. */
-export interface PhysicsBodyPlanes {
-    readonly records: readonly PhysicsBodyPlaneHit[];
+export type PhysicsBodyPlaneHit = PhysicsPlaneHit;
+
+/** Only records[0..count) are current; the World owns the high-water storage. */
+export interface PhysicsPlanes {
+    readonly records: readonly PhysicsPlaneHit[];
     readonly count: number;
 }
+
+export type PhysicsBodyPlanes = PhysicsPlanes;
 
 /**
  * Return up to capacity capsule contact planes against a body's last-fixed-sync shapes at placement,
@@ -854,6 +891,41 @@ export function collideBodyMover(
         );
         rethrowQueryError(state.ecsState);
         return runtime.bodyPlanes;
+    } finally {
+        setQueryCallback(state.ecsState, previous);
+        endQuery(runtime);
+    }
+}
+
+/**
+ * Return up to capacity capsule contact planes against last-fixed-sync shapes in traversal order.
+ * origin is world-space meters; mover centers and returned plane points are world-axis offsets
+ * from origin in meters. Normals are world-space unit vectors; plane offsets are signed meters:
+ * a displacement delta satisfies a contact when normal·delta >= offset.
+ * The World owns the result and records, valid until its next collideMover call. Copy to retain.
+ * Storage grows only for a new high-water plane count; only records[0..count) are current.
+ */
+export function collideMover(
+    world: World,
+    origin: Pos,
+    mover: Capsule,
+    capacity = 32,
+    filter?: QueryFilter,
+): PhysicsPlanes {
+    const runtime = runtimeFor(world);
+    runtime.planes.count = 0;
+    runtime.planeCapacity = Math.max(0, Math.trunc(capacity));
+    const state = runtime.physicsWorld;
+    if (!state || runtime.planeCapacity === 0) return runtime.planes;
+    const q = queryColumns(state);
+    const k = q.prepare(origin, filter);
+    q.mover(mover.center1, mover.center2, mover.radius);
+    beginQuery(runtime, world, origin, null, null, null);
+    const previous = setQueryCallback(state.ecsState, runtime.queryPlaneCallback);
+    try {
+        k.worldQuery(state.worldId, 5, 1);
+        rethrowQueryError(state.ecsState);
+        return runtime.planes;
     } finally {
         setQueryCallback(state.ecsState, previous);
         endQuery(runtime);

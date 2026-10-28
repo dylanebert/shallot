@@ -54,6 +54,7 @@ test("standard physics exports consumed world operations and profiling without s
         "clipVector",
         "cloneAndTransformHull",
         "collideBodyMover",
+        "collideMover",
         "computeBodyAABB",
         "computeCosSin",
         "createHull",

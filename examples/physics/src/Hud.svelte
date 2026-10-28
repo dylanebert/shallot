@@ -22,7 +22,7 @@
     let { world, scene, select, change }: { world: World; scene: Scene; select: (scene: Scene) => void; change: (name: string, value: number, values: Record<string, number>) => void } = $props();
     let values = $state(controlValues(scene));
     const controls = $derived(Object.fromEntries(Object.entries(enabledControls(scene, values)).filter(([name]) => liveControls[name] !== false)));
-    const sectionTitle = $derived(scene === "gyroscopicPrecession" ? "Precession, rad/s" : "Simulation");
+    const sectionTitle = $derived(scene === "gyroscopicPrecession" ? "Precession, rad/s" : scene === "moverOverlap" ? "Planes and normals" : "Simulation");
     function update(name: string, value: number) { change(name, value, values); }
     let open = $state(false);
     let picker: HTMLElement;

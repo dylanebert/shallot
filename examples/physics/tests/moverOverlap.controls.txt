@@ -1,0 +1,17 @@
+1	dragX	0
+1	dragY	3.5
+1	dragZ	10
+1	drag	1
+30	dragY	1
+60	dragX	-3
+90	dragX	-2.8
+120	dragY	1.2
+150	dragX	0
+180	dragZ	10.2
+210	dragX	3
+240	dragY	1
+270	dragZ	10
+300	dragX	3.2
+330	dragX	0
+360	dragY	3.5
+390	drag	0

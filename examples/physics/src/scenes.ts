@@ -17,6 +17,7 @@ import { PhysicsWorldDefinition, setAwake } from "@dylanebert/shallot/standard/p
 import { benchmarkScenes } from "./benchmarks";
 import { BodySampleState, bodyScenes } from "./bodies";
 import { CastState } from "./cast";
+import { CharacterSample, characterScenes } from "./character";
 import { eventScenes } from "./events";
 import { jointScenes } from "./joints";
 import { PrecessionState } from "./precession";
@@ -37,7 +38,8 @@ export type Scene =
     | keyof typeof stackingScenes
     | keyof typeof jointScenes
     | keyof typeof bodyScenes
-    | keyof typeof shapeScenes;
+    | keyof typeof shapeScenes
+    | keyof typeof characterScenes;
 export const categories: { name: string; scenes: { id: Scene; name: string }[] }[] = [
     {
         name: "Benchmark",
@@ -77,6 +79,13 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
             { id: "offsetKinematic", name: "Offset Kinematic" },
             { id: "spinningBook", name: "Spinning Book" },
             { id: "weeble", name: "Weeble" },
+        ],
+    },
+    {
+        name: "Character",
+        scenes: [
+            { id: "capsulePlane", name: "CapsulePlane" },
+            { id: "moverOverlap", name: "MoverOverlap" },
         ],
     },
     {
@@ -226,6 +235,7 @@ export const scenes = {
     ...benchmarkScenes,
     ...stackingScenes,
     ...jointScenes,
+    ...characterScenes,
     boxStack: {
         construct: boxStack,
         gridExtent: 40,
@@ -819,6 +829,7 @@ export function createScene(world: World, scene: Scene): number[] {
     Object.assign(world.resource(BodySampleState), BodySampleState.create());
     Object.assign(world.resource(PrecessionState), PrecessionState.create());
     Object.assign(world.resource(CastState), CastState.create());
+    Object.assign(world.resource(CharacterSample), CharacterSample.create());
     world.resource(PhysicsWorldDefinition).enableAutomaticStep = true;
     world.resource(PhysicsWorldDefinition).workerCount = 1;
     world.resource(PhysicsWorldDefinition).maximumMemory = 4 * 1024 ** 3;

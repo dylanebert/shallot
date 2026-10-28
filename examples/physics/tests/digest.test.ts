@@ -1,10 +1,26 @@
 import { expect, test } from "bun:test";
 import { readdirSync, statSync } from "node:fs";
-import { digestMismatch, eventDigests, querySteps, recordDigest } from "./digest";
+import { digestMismatch, drawingDigest, eventDigests, querySteps, recordDigest } from "./digest";
 
 test("record digests use FNV-1a u64 UTF-8 bytes", () => {
     expect(recordDigest("")).toBe("cbf29ce484222325");
     expect(recordDigest("hello")).toBe("a430d84680aabd0b");
+});
+
+test("drawing digests hold every callback field, row boundary and signed zero", () => {
+    const records = [
+        [3, 0, 1, 2, 0, 0, 0, 1, 0, -0.5, 0, 0, 0.5, 0, 0.35],
+        [0, 0, 1, 2, 6],
+    ];
+    const original = drawingDigest(records);
+    for (let row = 0; row < records.length; row++)
+        for (let field = 0; field < records[row]!.length; field++) {
+            const changed = structuredClone(records);
+            changed[row]![field]! += 0.125;
+            expect(drawingDigest(changed)).not.toBe(original);
+        }
+    expect(drawingDigest([[0]])).not.toBe(drawingDigest([[-0]]));
+    expect(drawingDigest([[1, 2], [3]])).not.toBe(drawingDigest([[1], [2, 3]]));
 });
 
 test("one event field changes only its step digest", () => {

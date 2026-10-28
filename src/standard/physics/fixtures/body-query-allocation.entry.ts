@@ -3,6 +3,7 @@ import {
     castBodyRay,
     castBodyShape,
     collideBodyMover,
+    collideMover,
     emptyQueryHit,
     overlapBodyShape,
     PhysicsWorldDefinition,
@@ -75,6 +76,13 @@ export default async function create(input: string) {
                 throw new Error("filtered overlap missed");
             if (collideBodyMover(world, body, zero, mover, placement, 4, filter).count !== 3)
                 throw new Error("filtered mover lost planes");
+            if (collideMover(world, zero, mover, 4).count !== 3)
+                throw new Error("world mover lost planes");
+            if (collideMover(world, zero, mover, 1).count !== 1)
+                throw new Error("world mover exceeded capacity");
+            if (collideMover(world, miss.p, mover).count !== 0) throw new Error("world mover hit");
+            if (collideMover(world, zero, mover, 4, filter).count !== 3)
+                throw new Error("filtered world mover lost planes");
             if (input === "leak") leaked = { ...hit };
         },
         dispose() {
