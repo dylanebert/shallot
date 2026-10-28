@@ -58,6 +58,14 @@ test("isometric carries city's building layout with only its population changed"
     expect(layout("isometric")).toBe(layout("city"));
 });
 
+test("snow-trails copies physics' grab creation and release", () => {
+    const grab = (name: string) =>
+        readFileSync(resolve(EXAMPLES, name, "src/grab.ts"), "utf8")
+            .split("export const Grab =")[1]!
+            .split("const SampleGrab:")[0];
+    expect(grab("snow-trails")).toBe(grab("physics"));
+});
+
 function moduleScripts(source: string): string[] {
     const scripts = source.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi);
     return [...scripts]

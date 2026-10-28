@@ -90,6 +90,7 @@
         "examples/physics",
         "examples/city",
         "examples/isometric",
+        "examples/snow-trails",
         "examples/voxel",
         "examples/lit-interior",
         "examples/sound",

@@ -1,0 +1,16 @@
+<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Snow trails, stepped</title><style>html,body,canvas{margin:0;width:100%;height:100%;display:block;background:#191816;touch-action:none}</style></head><body><canvas></canvas><script type="module">
+import { createApp, GlobalTransform, resizeViewport } from '@dylanebert/shallot';
+import { captureFrame, worldToViewport } from '@dylanebert/shallot/rendering';
+import { DemoPlugin, SnowTrails } from '../src/demo';
+const app=await createApp({plugins:[DemoPlugin]});
+const world=app.world, canvas=document.querySelector('canvas');
+resizeViewport(world,0,innerWidth,innerHeight,1);
+for(let i=0;i<120;i++)world.step(1/60);
+const state=world.resource(SnowTrails);
+window.snow={
+ step(n=1){for(let i=0;i<n;i++)world.step(1/60)},
+ position(){const p=world.storage(GlobalTransform).translation;return [p.x.get(state.boulder),p.y.get(state.boulder),p.z.get(state.boulder)]},
+ point(){return worldToViewport(world,state.camera,this.position())},
+ async capture(){const pending=captureFrame(canvas);world.step(0);const image=await pending;const c=document.createElement('canvas');c.width=image.width;c.height=image.height;c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(image.rgba),image.width,image.height),0,0);return {png:c.toDataURL('image/png'),rgba:Array.from(image.rgba),width:image.width,height:image.height}}
+};
+</script></body></html>
