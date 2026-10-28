@@ -15,6 +15,7 @@ import {
     StandardRenderingPlugin,
     Transform,
     touchPoint,
+    type World,
 } from "@dylanebert/shallot";
 import { Orbit, OrbitMode } from "@dylanebert/shallot/extras";
 import {
@@ -42,7 +43,8 @@ const DepthProbe = {
         points: null as GPUBuffer | null,
     }),
 };
-const config: Parameters<typeof openGpuApp>[0] = {
+const POINTS = 1024;
+const config = (width = 320, height = 240): Parameters<typeof openGpuApp>[0] => ({
     plugins: [
         StandardRenderingPlugin,
         DemoPlugin,
@@ -52,26 +54,26 @@ const config: Parameters<typeof openGpuApp>[0] = {
             initialize(world) {
                 const camera = world.resource(SnowTrails).camera;
                 world.storage(Camera).antialias.set(camera, 0);
-                attachTexture(world, camera, { width: 320, height: 240 });
+                attachTexture(world, camera, { width, height });
                 world.add(camera, DepthPrepass);
                 const s = world.resource(DepthProbe),
                     device = world.gpu.device;
                 s.output = device.createBuffer({
-                    size: 8,
+                    size: POINTS * 4,
                     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
                 });
                 s.points = device.createBuffer({
-                    size: 16,
-                    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+                    size: POINTS * 8,
+                    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
                 });
                 world.own(s.output);
                 world.own(s.points);
                 const module = device.createShaderModule({
                     code: `
             @group(0) @binding(0) var depth: texture_depth_2d;
-            @group(0) @binding(1) var<uniform> points: vec4i;
+            @group(0) @binding(1) var<storage,read> points: array<vec2i>;
             @group(0) @binding(2) var<storage,read_write> result: array<f32>;
-            @compute @workgroup_size(1) fn main(){result[0]=textureLoad(depth,points.xy,0);result[1]=textureLoad(depth,points.zw,0);}
+            @compute @workgroup_size(64) fn main(@builtin(global_invocation_id) id: vec3u){result[id.x]=textureLoad(depth,points[id.x],0);}
         `,
                 });
                 s.pipeline = device.createComputePipeline({
@@ -88,7 +90,7 @@ const config: Parameters<typeof openGpuApp>[0] = {
                                     {
                                         binding: 1,
                                         visibility: GPUShaderStage.COMPUTE,
-                                        buffer: { type: "uniform" },
+                                        buffer: { type: "read-only-storage" },
                                     },
                                     {
                                         binding: 2,
@@ -105,14 +107,15 @@ const config: Parameters<typeof openGpuApp>[0] = {
             },
         },
     ],
-};
+});
 const subjects: Awaited<ReturnType<typeof openGpuApp>>[] = [];
 let device: GPUDevice;
 beforeAll(async () => {
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error("Snow trails needs a WebGPU adapter");
     device = await adapter.requestDevice({ requiredFeatures: ["indirect-first-instance"] });
-    for (let i = 0; i < 8; i++) subjects.push(await openGpuApp({ ...config, device, adapter }));
+    for (let i = 0; i < 8; i++) subjects.push(await openGpuApp({ ...config(), device, adapter }));
+    subjects.push(await openGpuApp({ ...config(1024, 512), device, adapter }));
 }, TIMEOUT.startup);
 afterAll(() => {
     for (const app of subjects) app.dispose();
@@ -310,36 +313,31 @@ for (const touch of [false, true])
         world.step(0);
     });
 
-test("the stepped snow frame is lower and differently shaded on the trail than beside it", async () => {
-    const world = apps()[4].world;
-    const rock = world.resource(SnowTrails).boulder;
-    world.tick();
-    setTransform(world, rock, [-4, groundAt(-4, 0) + RADIUS, 0], [0, 0, 0, 1]);
-    setLinearVelocity(world, rock, { x: 0, y: 0, z: 0 });
-    for (let i = 0; i < 3; i++) world.step(1 / 60);
-    world.step(0);
-    world.step(0);
+/** Looks straight down from 20 m over (x, z), orthographic with half-height `size`, with the boulder parked aside. */
+function lookDown(world: World, x: number, z: number, size: number) {
     const { camera, boulder } = world.resource(SnowTrails);
-    setTransform(world, boulder, [8, RADIUS, 8], [0, 0, 0, 1]);
+    setTransform(world, boulder, [8, groundAt(8, 8) + RADIUS, 8], [0, 0, 0, 1]);
+    setLinearVelocity(world, boulder, { x: 0, y: 0, z: 0 });
     world.remove(camera, Orbit);
     world.storage(Camera).mode.set(camera, CameraMode.Orthographic);
-    world.storage(Camera).size.set(camera, 12);
+    world.storage(Camera).size.set(camera, size);
     world.storage(Camera).near.set(camera, 0);
     world.storage(Camera).far.set(camera, 30);
-    world.storage(Transform).translation.set(camera, 0, 20, 0);
-    world.storage(Transform).rotation.set(camera, ...lookAtRotation(0, 20, 0, 0, 0, 0, 0, 0, -1));
+    world.storage(Transform).translation.set(camera, x, 20, z);
+    world.storage(Transform).rotation.set(camera, ...lookAtRotation(x, 20, z, x, 0, z, 0, 0, -1));
     world.tick();
     resetInterpolation(world, camera);
     resetInterpolation(world, boulder);
     world.step(0);
-    const on = worldToViewport(world, camera, [-4, 0, 0])!;
-    const off = worldToViewport(world, camera, [-4, DEPTH, 2])!;
+}
+/** World heights of the drawn surface under world points, from the top-down camera's depth. */
+async function heightsAt(world: World, points: [number, number][]) {
+    const { camera } = world.resource(SnowTrails);
     const s = world.resource(DepthProbe);
-    world.gpu.device.queue.writeBuffer(
-        s.points!,
-        0,
-        new Int32Array([...on.map(Math.floor), ...off.map(Math.floor)]),
-    );
+    const pixels = new Int32Array(POINTS * 2);
+    for (const [i, [x, z]] of points.entries())
+        pixels.set(worldToViewport(world, camera, [x, 0, z])!.map(Math.floor), i * 2);
+    world.gpu.device.queue.writeBuffer(s.points!, 0, pixels);
     const group = world.gpu.device.createBindGroup({
         layout: s.pipeline!.getBindGroupLayout(0),
         entries: [
@@ -355,24 +353,84 @@ test("the stepped snow frame is lower and differently shaded on the trail than b
                     const pass = encoder.beginComputePass();
                     pass.setPipeline(s.pipeline!);
                     pass.setBindGroup(0, group);
-                    pass.dispatchWorkgroups(1);
+                    pass.dispatchWorkgroups(POINTS / 64);
                     pass.end();
                 },
             })
         ).bytes,
     );
-    expect(20 - (1 - depth[1]) * 30).toBeCloseTo(groundAt(-4, 2) + DEPTH, 1);
-    expect((depth[1] - depth[0]) * 30 + groundAt(-4, 0) - groundAt(-4, 2)).toBeGreaterThan(
-        DEPTH * 0.8,
-    );
+    return points.map((_, i) => 20 - (1 - depth[i]) * 30);
+}
+test("the stepped snow frame is lower and differently shaded on the trail than beside it", async () => {
+    const world = apps()[4].world;
+    const rock = world.resource(SnowTrails).boulder;
+    world.tick();
+    setTransform(world, rock, [-4, groundAt(-4, 0) + RADIUS, 0], [0, 0, 0, 1]);
+    setLinearVelocity(world, rock, { x: 0, y: 0, z: 0 });
+    for (let i = 0; i < 3; i++) world.step(1 / 60);
+    world.step(0);
+    world.step(0);
+    lookDown(world, 0, 0, 12);
+    const [on, off] = await heightsAt(world, [
+        [-4, 0],
+        [-4, 2],
+    ]);
+    expect(off).toBeCloseTo(groundAt(-4, 2) + DEPTH, 1);
+    expect(off - on + groundAt(-4, 0) - groundAt(-4, 2)).toBeGreaterThan(DEPTH * 0.8);
+    const { camera } = world.resource(SnowTrails);
     const frame = await captureTexture(world, camera);
-    const color = (p: number[]) => {
-        const i = (Math.floor(p[1]) * frame.width + Math.floor(p[0])) * 4;
+    const color = ([x, z]: number[]) => {
+        const [u, v] = worldToViewport(world, camera, [x, 0, z])!;
+        const i = (Math.floor(v) * frame.width + Math.floor(u)) * 4;
         return frame.rgba.slice(i, i + 3);
     };
-    const a = color(on),
-        b = color(off);
+    const a = color([-4, 0]),
+        b = color([-4, 2]);
     expect(Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2])).toBeGreaterThan(
         40,
     );
+});
+/** The stepped page's opening: 48 rendered steps of 1/20 s, returning the boulder's moving positions. */
+function opening(world: World) {
+    const { boulder } = world.resource(SnowTrails);
+    const p = world.storage(GlobalTransform).translation;
+    const path: [number, number][] = [];
+    for (let i = 0; i < 48; i++) {
+        world.step(1 / 20);
+        const [x, z] = [p.x.get(boulder), p.z.get(boulder)];
+        const last = path.at(-1);
+        if (!last || Math.hypot(x - last[0], z - last[1]) > 0.01) path.push([x, z]);
+    }
+    return path;
+}
+/** Points every `spacing` meters along a polyline. */
+function along(path: [number, number][], spacing: number) {
+    const out: [number, number][] = [];
+    for (let i = 1; i < path.length; i++) {
+        const [x0, z0] = path[i - 1],
+            [x1, z1] = path[i];
+        const length = Math.hypot(x1 - x0, z1 - z0);
+        for (let s = 0; s < length; s += spacing)
+            out.push([x0 + ((x1 - x0) * s) / length, z0 + ((z1 - z0) * s) / length]);
+    }
+    return out;
+}
+test("the opening groove's floor varies along its center line by under 4.9 mm", async () => {
+    const world = apps()[8].world;
+    const path = opening(world);
+    world.step(0);
+    const xs = path.map(([x]) => x),
+        zs = path.map(([, z]) => z);
+    const [x0, x1, z0, z1] = [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)];
+    lookDown(world, (x0 + x1) / 2, (z0 + z1) / 2, Math.max(z1 - z0, (x1 - x0) / 2) / 2 + 1.5);
+    // From one radius past the landing to one radius short of the last frame, every centimeter.
+    const line = along(path, 0.01).slice(RADIUS * 100, -RADIUS * 100);
+    const tops = (await heightsAt(world, line)).map((y, i) => y - groundAt(...line[i]!));
+    // Against the mean over 30 cm either side, which follows the boulder's own rise and fall.
+    const window = 30;
+    const deviation = tops.map((top, i) => {
+        const near = tops.slice(Math.max(0, i - window), i + window + 1);
+        return Math.abs(top - near.reduce((a, b) => a + b) / near.length);
+    });
+    expect(Math.max(...deviation)).toBeLessThan(0.0049);
 });

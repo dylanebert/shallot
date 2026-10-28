@@ -29,6 +29,7 @@ import {
     TonemappingMethod,
 } from "@dylanebert/shallot/rendering";
 import { StandardPhysicsPlugin, StepPhysicsSystem } from "@dylanebert/shallot/standard/physics";
+import type { MaterialHandle } from "@dylanebert/shallot/standard/rendering";
 import { GrabPlugin, UNGRABBABLE } from "./grab";
 import { groundAt, HIGH, HILL_SIZE, heights, LOW } from "./hills";
 import { SnowMaterial, SnowPlugin, StampMaterial, snowPlane } from "./snow";
@@ -36,7 +37,16 @@ import { DEPTH, FIELD, RESOLUTION, Trail } from "./trail";
 
 export const RADIUS = DEPTH * 2;
 export const SnowTrails = {
-    create: () => ({ camera: 0, capture: 0, boulder: 0, stamp: 0, snow: 0 }),
+    create: () => ({
+        camera: 0,
+        capture: 0,
+        boulder: 0,
+        stamp: 0,
+        stampMaterial: null as MaterialHandle | null,
+        /** The boulder's travel since the capture last drew the stamp, in meters. */
+        sweep: [0, 0, 0] as [number, number, number],
+        snow: 0,
+    }),
 };
 export const DemoPlugin: Plugin = {
     name: "SnowTrails",
@@ -60,7 +70,8 @@ export const DemoPlugin: Plugin = {
         state.stamp = stamp;
         world.add(stamp, Transform, { translation: [-7, groundAt(-7, 2) + RADIUS + 2, 2] });
         world.add(stamp, MeshInstance, { mesh: rockMesh });
-        world.add(stamp, MeshMaterial, world.resource(StampMaterial).add({ unused: 0 }));
+        state.stampMaterial = world.resource(StampMaterial).add({ sweep: [0, 0, 0] });
+        world.add(stamp, MeshMaterial, state.stampMaterial);
         world.add(stamp, RenderLayers, { mask: 2 });
         const snow = world.create();
         state.snow = snow;
@@ -69,7 +80,7 @@ export const DemoPlugin: Plugin = {
         world.add(snow, MeshInstance, {
             mesh: world.resource(Meshes).add({ name: "snowfield", ...snowPlane() }),
         });
-        world.add(snow, MeshMaterial, world.resource(SnowMaterial).add({ unused: 0 }));
+        world.add(snow, MeshMaterial, world.resource(SnowMaterial).add({ sweep: [0, 0, 0] }));
         const ground = world.create();
         world.add(ground, Transform, { translation: [-FIELD / 2, 0, -FIELD / 2] });
         world.add(ground, Body, { type: BodyType.Static });
@@ -152,8 +163,13 @@ export const DemoPlugin: Plugin = {
             group: "fixed",
             after: [StepPhysicsSystem],
             update(world) {
-                const { boulder, stamp } = world.resource(SnowTrails);
+                const { boulder, stamp, sweep } = world.resource(SnowTrails);
                 const pose = world.storage(GlobalTransform);
+                const v = pose.linearVelocity;
+                const dt = world.time.deltaTime;
+                sweep[0] += v.x.get(boulder) * dt;
+                sweep[1] += v.y.get(boulder) * dt;
+                sweep[2] += v.z.get(boulder) * dt;
                 world
                     .storage(Transform)
                     .translation.set(
@@ -171,6 +187,16 @@ export const DemoPlugin: Plugin = {
                         pose.rotation.z.get(boulder),
                         pose.rotation.w.get(boulder),
                     );
+            },
+        },
+        {
+            // The capture draws the stamp once a frame; sweeping it back over the ticks' travel since
+            // the last frame leaves no gap between frames.
+            name: "stamp-sweep",
+            update(world) {
+                const { stampMaterial, sweep } = world.resource(SnowTrails);
+                world.resource(StampMaterial).update(stampMaterial!, { sweep });
+                sweep.fill(0);
             },
         },
     ],

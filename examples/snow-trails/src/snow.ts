@@ -11,7 +11,7 @@ import * as std from "typegpu/std";
 import { HILL_SIZE, Hills, HillsPlugin } from "./hills";
 import { DEPTH, FIELD, RESOLUTION, Trail, TrailPlugin } from "./trail";
 
-const layout = materialLayout(d.struct({ unused: d.f32 }), {
+const layout = materialLayout(d.struct({ sweep: d.vec3f }), {
     image: { type: "texture", filterable: false },
     ground: { type: "texture", filterable: false },
 });
@@ -72,7 +72,7 @@ const bindings = (world: import("@dylanebert/shallot").World) => ({
 export const SnowMaterial = materialType({
     name: "Snow",
     layout,
-    defaults: { unused: 0 },
+    defaults: { sweep: d.vec3f() },
     bindings,
     vertex: (input) => {
         "use gpu";
@@ -121,7 +121,17 @@ export const StampMaterial = materialType({
     name: "PressDepth",
     layout,
     bindings,
-    defaults: { unused: 0 },
+    defaults: { sweep: d.vec3f() },
+    // The half facing back along `sweep` trails by it, so one draw presses the capsule the stamp swept.
+    vertex: (input) => {
+        "use gpu";
+        const back = std.select(
+            d.vec3f(0),
+            input.parameters.sweep,
+            std.dot(input.worldNormal, input.parameters.sweep) < 0,
+        );
+        return { world: d.vec4f(input.world.xyz.sub(back), 1), worldNormal: input.worldNormal };
+    },
     fragment: (ctx) => {
         "use gpu";
         const press = std.clamp((ground(ctx.world) + DEPTH - ctx.world.y) / DEPTH, 0, 1);
