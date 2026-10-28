@@ -1,16 +1,16 @@
 import { beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { init } from "../../../src/standard/physics/kernel/kernel";
-import { createMesh } from "../../../src/standard/physics/shapes/build-nonconvex";
-import building from "../src/building.json" with { type: "json" };
-import conveyor from "../src/conveyor.json" with { type: "json" };
-import { decodeMesh } from "../src/mesh-data";
-import stairs from "../src/stairs.json" with { type: "json" };
-import testMap from "../src/test_map01.json" with { type: "json" };
-import voxel01 from "../src/voxel_mesh_01.json" with { type: "json" };
-import voxel02 from "../src/voxel_mesh_02.json" with { type: "json" };
-import gold from "./level-mesh.gold.json" with { type: "json" };
+import { init } from "../../src/standard/physics/kernel/kernel";
+import { createMesh } from "../../src/standard/physics/shapes/build-nonconvex";
+import building from "../../examples/physics/src/building.json" with { type: "json" };
+import conveyor from "../../examples/physics/src/conveyor.json" with { type: "json" };
+import { decodeMesh } from "../../examples/physics/src/mesh-data";
+import stairs from "../../examples/physics/src/stairs.json" with { type: "json" };
+import testMap from "../../examples/physics/src/test_map01.json" with { type: "json" };
+import voxel01 from "../../examples/physics/src/voxel_mesh_01.json" with { type: "json" };
+import voxel02 from "../../examples/physics/src/voxel_mesh_02.json" with { type: "json" };
+import gold from "../../examples/physics/tests/level-mesh.gold.json" with { type: "json" };
 
 setDefaultTimeout(TIMEOUT.node);
 beforeAll(() => init(undefined, { threads: 0 }));
