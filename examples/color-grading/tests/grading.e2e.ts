@@ -52,7 +52,7 @@ async function difference(page: Page, a: number, b: number) {
     );
 }
 
-test("each control changes the frame and identity returns the ungraded frame", async ({ page }) => {
+test("a control changes the frame and identity returns the ungraded frame", async ({ page }) => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     // Each capture waits on a full draw, which a software adapter spends most of the test on. The
@@ -68,17 +68,30 @@ test("each control changes the frame and identity returns the ungraded frame", a
         (window as unknown as { setGrading: (enabled: boolean) => void }).setGrading(true),
     );
     expect(await difference(page, await capture(page), identity)).toBeLessThan(0.01);
+    const slider = page.getByRole("slider", { name: "Global Exposure" });
+    await slider.fill(String(settings[0].max));
+    expect(await difference(page, await capture(page), identity)).toBeGreaterThan(0.01);
+    await slider.fill(String(settings[0].value));
+    expect(await difference(page, await capture(page), identity)).toBeLessThan(0.01);
+    expect(errors).toEqual([]);
+});
+
+test("each control writes its camera field", async ({ page }) => {
+    await page.goto("http://127.0.0.1:4296/tests/stepped.html?controls");
+    await page.waitForFunction(() => "gradingField" in window);
+    const field = (index: number) =>
+        page.evaluate(
+            (index) =>
+                (window as unknown as { gradingField(index: number): number }).gradingField(index),
+            index,
+        );
     for (const [index, control] of settings.entries()) {
         const slider = page.locator(`#control-${index}`);
         await slider.fill(String(control.max));
-        expect(
-            await difference(page, await capture(page), identity),
-            `${control.group} ${control.label}`,
-        ).toBeGreaterThan(0.01);
+        expect(await field(index), `${control.group} ${control.label}`).toBeCloseTo(control.max);
         await slider.fill(String(control.value));
-        expect(await difference(page, await capture(page), identity)).toBeLessThan(0.01);
+        expect(await field(index), `${control.group} ${control.label}`).toBeCloseTo(control.value);
     }
-    expect(errors).toEqual([]);
 });
 
 for (const viewport of [

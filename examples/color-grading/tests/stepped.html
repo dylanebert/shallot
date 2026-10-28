@@ -30,6 +30,13 @@
                 app.world.step(1 / 60);
                 return app.world.storage(Orbit).yaw.get(app.world.resource(Scene).camera);
             };
+            const { settings } = await import("../src/settings");
+            window.gradingField = (index) => {
+                const { field, axis } = settings[index];
+                const column = app.world.storage(ColorGrading)[field];
+                const camera = app.world.resource(Scene).camera;
+                return axis ? column[axis].get(camera) : column.get(camera);
+            };
             hud(mountOverlay(canvas, app.world), app.world);
             flushSync();
             app.world.step(0);
