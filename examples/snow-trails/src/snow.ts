@@ -80,7 +80,7 @@ export const SnowPlugin: Plugin = {
 };
 
 export function snowPlane() {
-    const n = RESOLUTION;
+    const n = RESOLUTION / 2;
     const vertices = new Float32Array((n + 1) * (n + 1) * 8);
     const indices = new Uint32Array(n * n * 6);
     for (let z = 0; z <= n; z++)
