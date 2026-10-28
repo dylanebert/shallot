@@ -25,6 +25,12 @@ export class QueryColumns extends KernelViews {
     resultU = new Uint32Array(0);
     resultF = new Float32Array(0);
     cast = new Float32Array(0);
+    private _category = DEFAULT_CATEGORY_BITS;
+    private _mask = DEFAULT_MASK_BITS;
+    private _categoryHigh = 0xffffffff;
+    private _categoryLow = 0xffffffff;
+    private _maskHigh = 0xffffffff;
+    private _maskLow = 0xffffffff;
 
     constructor(world: WorldState) {
         super(world.ecsState);
@@ -58,13 +64,20 @@ export class QueryColumns extends KernelViews {
         const z = origin.z;
         const h = this.headerU;
         h[19] = 0;
-        h[6] =
-            category === DEFAULT_CATEGORY_BITS
-                ? 0xffffffff
-                : Number((category >> 32n) & 0xffffffffn);
-        h[7] = category === DEFAULT_CATEGORY_BITS ? 0xffffffff : Number(category & 0xffffffffn);
-        h[8] = mask === DEFAULT_MASK_BITS ? 0xffffffff : Number((mask >> 32n) & 0xffffffffn);
-        h[9] = mask === DEFAULT_MASK_BITS ? 0xffffffff : Number(mask & 0xffffffffn);
+        if (category !== DEFAULT_CATEGORY_BITS && category !== this._category) {
+            this._category = category;
+            this._categoryHigh = Number((category >> 32n) & 0xffffffffn);
+            this._categoryLow = Number(category & 0xffffffffn);
+        }
+        if (mask !== DEFAULT_MASK_BITS && mask !== this._mask) {
+            this._mask = mask;
+            this._maskHigh = Number((mask >> 32n) & 0xffffffffn);
+            this._maskLow = Number(mask & 0xffffffffn);
+        }
+        h[6] = category === DEFAULT_CATEGORY_BITS ? 0xffffffff : this._categoryHigh;
+        h[7] = category === DEFAULT_CATEGORY_BITS ? 0xffffffff : this._categoryLow;
+        h[8] = mask === DEFAULT_MASK_BITS ? 0xffffffff : this._maskHigh;
+        h[9] = mask === DEFAULT_MASK_BITS ? 0xffffffff : this._maskLow;
         const f = this.headerF;
         f[10] = x;
         f[11] = y;

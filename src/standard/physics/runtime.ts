@@ -143,13 +143,6 @@ import { type DebugDraw, worldDraw } from "./world/draw";
 import { hashWorldState } from "./world/hash";
 import { PROFILE_FIELDS, readStepProfile } from "./world/profile";
 import {
-    type BodyCastHit,
-    bodyCastRay,
-    bodyCastShape,
-    bodyCollideMover,
-    bodyOverlapShape,
-} from "./world/query";
-import {
     bindShapeEntity,
     clearShapeEntities,
     liveShapeEntity,
@@ -206,6 +199,8 @@ interface PhysicsRuntime {
     queryDepth: number;
     queryCastCallback: QueryCallback;
     queryOverlapCallback: QueryCallback;
+    queryBodyPlaneCallback: QueryCallback;
+    bodyPlanes: { records: PhysicsBodyPlaneHit[]; count: number };
     /** Each attached shape's EntityRef at its first attachment. */
     shapeStamps: EidColumn;
     shapeRecreationState: ShapeRecreationStates;
@@ -278,6 +273,8 @@ function newRuntime(): PhysicsRuntime {
         queryDepth: 0,
         queryCastCallback: null!,
         queryOverlapCallback: null!,
+        queryBodyPlaneCallback: null!,
+        bodyPlanes: { records: [], count: 0 },
         shapeStamps: new EidColumn(),
         shapeRecreationState: createShapeRecreationStates(),
         shapeRemovalMass: new Map(),
@@ -296,6 +293,7 @@ function newRuntime(): PhysicsRuntime {
     };
     runtime.queryCastCallback = castQueryCallback.bind(runtime);
     runtime.queryOverlapCallback = overlapQueryCallback.bind(runtime);
+    runtime.queryBodyPlaneCallback = bodyPlaneQueryCallback.bind(runtime);
     return runtime;
 }
 
@@ -640,30 +638,80 @@ const queryZeroOrigin: Pos = { x: 0, y: 0, z: 0 };
 function publishBodyCast(
     world: World,
     runtime: PhysicsRuntime,
-    hit: BodyCastHit,
+    origin: Pos,
     out: PhysicsQueryHit,
 ): boolean {
+    const state = runtime.physicsWorld!;
+    const q = queryColumns(state);
+    const shape = q.resultU[0];
     clearQueryHit(out);
-    if (!hit.hit || hit.shape === null) return false;
-    const context = beginQuery(runtime, world, queryZeroOrigin, null, null, null);
+    if (shape === 0xffffffff) return false;
+    const context = beginQuery(runtime, world, origin, null, null, null);
     try {
-        if (!queryShapeEntities(world, runtime, hit.shape, context)) return false;
-        copyQueryHit(out, {
-            ...hit,
-            shape: context.shapeEid,
-            body: context.bodyEid,
-            childIndex: 0,
-        });
+        if (!queryShapeEntities(world, runtime, shape, context)) return false;
+        fillQueryHit(
+            out,
+            state,
+            shape,
+            context.shapeEid,
+            context.bodyEid,
+            q.resultF,
+            4,
+            origin.x,
+            origin.y,
+            origin.z,
+        );
+        out.childIndex = 0;
         return true;
     } finally {
         endQuery(runtime);
     }
 }
 
+function bodyPlaneQueryCallback(
+    this: PhysicsRuntime,
+    _kind: number,
+    shape: number,
+    data: number,
+): number {
+    const context = this.queryContexts[this.queryDepth - 1];
+    if (!queryShapeEntities(context.world!, this, shape, context)) return 1;
+    const index = this.bodyPlanes.count++;
+    const hit = (this.bodyPlanes.records[index] ??= {
+        shape: 0,
+        body: 0,
+        plane: {
+            plane: { normal: { x: 0, y: 0, z: 0 }, offset: 0 },
+            point: { x: 0, y: 0, z: 0 },
+            triangleIndex: 0,
+            childIndex: 0,
+            materialIndex: 0,
+        },
+    });
+    const f = this.physicsWorld!.shapeStore.materialF;
+    const n = data >>> 2;
+    hit.shape = context.shapeEid;
+    hit.body = context.bodyEid;
+    const p = hit.plane;
+    p.plane.normal.x = f[n];
+    p.plane.normal.y = f[n + 1];
+    p.plane.normal.z = f[n + 2];
+    p.plane.offset = f[n + 3];
+    p.point.x = f[n + 4];
+    p.point.y = f[n + 5];
+    p.point.z = f[n + 6];
+    p.triangleIndex = f[n + 7];
+    p.childIndex = f[n + 8];
+    p.materialIndex = f[n + 9];
+    return 1;
+}
+
 /**
- * Cast against one body's shapes at an explicit world-space placement, not its simulated pose.
- * Writes the closest hit into caller-owned storage, cleared on a miss or an unbound body.
- * Reads shapes from the last fixed sync; maxFraction bounds the translation fraction.
+ * Cast against one body's last-fixed-sync shapes at placement, overriding its simulated pose.
+ * placement.p and origin are world-space meters; placement.q rotates body-local axes into world axes.
+ * translation is a world-space displacement in meters, bounded by dimensionless maxFraction.
+ * Writes the closest hit into caller-owned out: point in world-space meters, normal a world-space
+ * unit vector, fraction dimensionless along translation. A miss or unbound body clears out.
  * Body casts do not report a child index; out.childIndex is zero.
  */
 export function castBodyRay(
@@ -682,18 +730,24 @@ export function castBodyRay(
         clearQueryHit(out);
         return false;
     }
-    return publishBodyCast(
-        world,
-        runtime,
-        bodyCastRay(runtime.physicsWorld, id, origin, translation, placement, filter, maxFraction),
-        out,
-    );
+    const state = runtime.physicsWorld;
+    const q = queryColumns(state);
+    const k = q.prepare(origin, filter);
+    q.placement(placement, origin);
+    q.translation(translation);
+    q.input[12] = maxFraction;
+    k.bodyQuery(state.worldId, 0, bodyField(state, id.index1 - 1, BodyField.headShapeId), 0);
+    return publishBodyCast(world, runtime, origin, out);
 }
 
 /**
- * Sweep a convex proxy against one body's last-synced shapes at an explicit world-space placement.
- * Writes the closest hit into caller-owned storage, cleared on a miss or an unbound body.
- * maxFraction bounds the translation fraction; canEncroach permits initial touching to advance.
+ * Sweep a convex proxy against one body's last-fixed-sync shapes at placement, overriding its pose.
+ * placement.p and origin are world-space meters; placement.q rotates body-local axes into world axes.
+ * proxy.points are world-axis offsets from origin in meters; proxy.radius is meters.
+ * translation is a world-space displacement in meters, bounded by dimensionless maxFraction;
+ * canEncroach permits initial touching to advance.
+ * Writes the closest hit into caller-owned out: point in world-space meters, normal a world-space
+ * unit vector, fraction dimensionless along translation. A miss or unbound body clears out.
  * Body casts do not report a child index; out.childIndex is zero.
  */
 export function castBodyShape(
@@ -714,25 +768,24 @@ export function castBodyShape(
         clearQueryHit(out);
         return false;
     }
-    return publishBodyCast(
-        world,
-        runtime,
-        bodyCastShape(
-            runtime.physicsWorld,
-            id,
-            origin,
-            proxy,
-            translation,
-            placement,
-            filter,
-            maxFraction,
-            canEncroach,
-        ),
-        out,
-    );
+    const state = runtime.physicsWorld;
+    const q = queryColumns(state);
+    const k = q.prepare(origin, filter);
+    q.placement(placement, origin);
+    q.proxy(proxy);
+    q.translation(translation);
+    q.input[12] = maxFraction;
+    q.input[13] = Number(canEncroach);
+    k.bodyQuery(state.worldId, 1, bodyField(state, id.index1 - 1, BodyField.headShapeId), 0);
+    return publishBodyCast(world, runtime, origin, out);
 }
 
-/** Test a convex proxy against a body's last-synced shapes at an explicit world-space placement. An unbound body returns false. */
+/**
+ * Test a convex proxy against a body's last-fixed-sync shapes at placement, overriding its pose.
+ * placement.p and origin are world-space meters; placement.q rotates body-local axes into world axes.
+ * proxy.points are world-axis offsets from origin in meters; proxy.radius is meters.
+ * Returns whether any shape overlaps; an unbound body returns false.
+ */
 export function overlapBodyShape(
     world: World,
     body: number,
@@ -743,18 +796,34 @@ export function overlapBodyShape(
 ): boolean {
     const runtime = runtimeFor(world);
     const id = boundBody(world, runtime, body);
-    return (
-        !!id &&
-        !!runtime.physicsWorld &&
-        bodyOverlapShape(runtime.physicsWorld, id, origin, proxy, placement, filter)
-    );
+    if (!id || !runtime.physicsWorld) return false;
+    const state = runtime.physicsWorld;
+    const q = queryColumns(state);
+    const k = q.prepare(origin, filter);
+    q.placement(placement, origin);
+    q.proxy(proxy);
+    k.bodyQuery(state.worldId, 2, bodyField(state, id.index1 - 1, BodyField.headShapeId), 0);
+    return q.resultU[0] !== 0xffffffff;
 }
 
 export type PhysicsBodyPlaneHit = { shape: number; body: number; plane: PlaneResult };
 
+/** Only records[0..count) are current; storage past count belongs to the World's high-water cache. */
+export interface PhysicsBodyPlanes {
+    readonly records: readonly PhysicsBodyPlaneHit[];
+    readonly count: number;
+}
+
 /**
- * Return up to capacity new capsule contact planes against a body's last-synced shapes at an
- * explicit world-space placement. Plane points are relative to origin. An unbound body returns [].
+ * Return up to capacity capsule contact planes against a body's last-fixed-sync shapes at placement,
+ * overriding its pose. placement.p and origin are world-space meters; placement.q rotates body-local
+ * axes into world axes. mover centers are world-axis offsets from origin in meters; radius is meters.
+ * Returned plane points are world-axis offsets from origin in meters; normals are world-space unit
+ * vectors. Plane offset is signed penetration in meters: a world-space mover displacement delta
+ * satisfies the contact when normal·delta >= offset (negative offset means separation).
+ * The World owns the result and its records, valid until its next collideBodyMover call. Copy to retain.
+ * Only records[0..count) are current. Storage grows only for a new high-water plane count.
+ * An unbound body returns the borrowed result with count zero.
  */
 export function collideBodyMover(
     world: World,
@@ -764,27 +833,29 @@ export function collideBodyMover(
     placement: WorldTransform,
     capacity = 4,
     filter?: QueryFilter,
-): PhysicsBodyPlaneHit[] {
+): PhysicsBodyPlanes {
     const runtime = runtimeFor(world);
     const id = boundBody(world, runtime, body);
-    if (!id || !runtime.physicsWorld) return [];
-    const hits = bodyCollideMover(
-        runtime.physicsWorld,
-        id,
-        origin,
-        mover,
-        placement,
-        capacity,
-        filter,
-    );
-    const context = beginQuery(runtime, world, origin, null, null, null);
+    runtime.bodyPlanes.count = 0;
+    if (!id || !runtime.physicsWorld) return runtime.bodyPlanes;
+    const state = runtime.physicsWorld;
+    const q = queryColumns(state);
+    const k = q.prepare(origin, filter);
+    q.placement(placement, origin);
+    q.mover(mover.center1, mover.center2, mover.radius);
+    beginQuery(runtime, world, origin, null, null, null);
+    const previous = setQueryCallback(state.ecsState, runtime.queryBodyPlaneCallback);
     try {
-        return hits.flatMap((hit) =>
-            queryShapeEntities(world, runtime, hit.shape, context)
-                ? [{ shape: context.shapeEid, body: context.bodyEid, plane: hit.plane }]
-                : [],
+        k.bodyQuery(
+            state.worldId,
+            4,
+            bodyField(state, id.index1 - 1, BodyField.headShapeId),
+            Math.max(0, capacity),
         );
+        rethrowQueryError(state.ecsState);
+        return runtime.bodyPlanes;
     } finally {
+        setQueryCallback(state.ecsState, previous);
         endQuery(runtime);
     }
 }

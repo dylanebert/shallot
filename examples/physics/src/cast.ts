@@ -14,7 +14,7 @@ import {
     collideBodyMover,
     emptyQueryHit,
     overlapBodyShape,
-    type PhysicsBodyPlaneHit,
+    type PhysicsBodyPlanes,
     PhysicsWorldDefinition,
     rotationFromAxisAngle,
     StandardPhysicsPlugin,
@@ -30,7 +30,7 @@ export const CastState = {
         rayHit: false,
         sphereHit: false,
         overlap: false,
-        planes: [] as PhysicsBodyPlaneHit[],
+        planes: { records: [], count: 0 } as PhysicsBodyPlanes,
     }),
 };
 export const rayOrigin = { x: -9.75, y: 3, z: -4 };

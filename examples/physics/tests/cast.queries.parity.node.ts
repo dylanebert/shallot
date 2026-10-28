@@ -38,8 +38,9 @@ test("Cast holds every native query invocation and draws its unstepped results",
                     `cast ${Number(hit)} ${[r.point.x, r.point.y, r.point.z, r.normal.x, r.normal.y, r.normal.z, r.fraction].map(bits).join(" ")} ${r.triangleIndex} ${r.childIndex} ${r.userMaterialId}`,
                 );
             }
-            lines.push(`overlap ${Number(s.overlap)}`, `mover ${s.planes.length}`);
-            for (const { plane: p, shape, body } of s.planes) {
+            lines.push(`overlap ${Number(s.overlap)}`, `mover ${s.planes.count}`);
+            for (let i = 0; i < s.planes.count; i++) {
+                const { plane: p, shape, body } = s.planes.records[i]!;
                 expect(shape).toBe(s.body);
                 expect(body).toBe(s.body);
                 lines.push(
@@ -57,11 +58,13 @@ test("Cast holds every native query invocation and draws its unstepped results",
                 color: JOINT_INK,
             });
             expect(drawing.marks).toEqual(
-                s.planes.map(({ plane }) => [
-                    moverOrigin.x + plane.point.x,
-                    moverOrigin.y + plane.point.y,
-                    moverOrigin.z + plane.point.z,
-                ]),
+                s.planes.records
+                    .slice(0, s.planes.count)
+                    .map(({ plane }) => [
+                        moverOrigin.x + plane.point.x,
+                        moverOrigin.y + plane.point.y,
+                        moverOrigin.z + plane.point.z,
+                    ]),
             );
             expect(drawing.segments.every((s) => s.color === JOINT_INK)).toBe(true);
         }

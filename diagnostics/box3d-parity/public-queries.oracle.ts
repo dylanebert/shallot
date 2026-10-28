@@ -658,8 +658,9 @@ async function runEntityQuery(input: Input): Promise<string[]> {
             } else if (input.operation === 11) {
                 const mover = { center1: { x: 0, y: -values[7], z: 0 }, center2: { x: 0, y: values[7], z: 0 }, radius: values[8] };
                 const planes = collideBodyMover(world, body, origin, mover, placement, 8, filter);
-                out.push(planes.length);
-                for (const hit of planes) {
+                out.push(planes.count);
+                for (let i = 0; i < planes.count; i++) {
+                    const hit = planes.records[i]!;
                     expect([hit.shape, hit.body]).toEqual([shape, body]);
                     out.push(input.kind + 1);
                     pushPlane(out, hit.plane);

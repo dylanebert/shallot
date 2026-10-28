@@ -77,7 +77,8 @@ export function castDrawing(world: World) {
         s.overlap ? JOINT_INK : 0x797369,
     );
     capsule(moverOrigin, mover.center1, mover.center2, mover.radius, JOINT_INK);
-    for (const { plane } of s.planes) {
+    for (let i = 0; i < s.planes.count; i++) {
+        const { plane } = s.planes.records[i]!;
         const p = offset(moverOrigin, plane.point);
         marks.push(p);
         line(p, [

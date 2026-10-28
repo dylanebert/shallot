@@ -54,6 +54,7 @@ export {
     overlapBodyShape,
     overlapShape,
     type PhysicsBodyPlaneHit,
+    type PhysicsBodyPlanes,
     type PhysicsCastCallback,
     type PhysicsOverlapCallback,
     type PhysicsQueryHit,
