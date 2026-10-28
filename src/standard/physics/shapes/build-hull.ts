@@ -77,6 +77,12 @@ export function createHull(points: Vec3[], maxVertexCount: number, world?: World
     return result(k, 0, points.length, maxVertexCount);
 }
 
+/**
+ * Owned cylinder hull along +Y, from yOffset to yOffset + height, in meters.
+ * Dimensions and side count must produce a nondegenerate hull within Box3D's topology limits.
+ * Requires an initialized StandardPhysicsPlugin; the optional World selects its kernel.
+ * Each construction-time call allocates independent hull data.
+ */
 export function createCylinder(
     height: number,
     radius: number,
@@ -110,6 +116,11 @@ export function createRock(radius: number, world?: World): HullData {
     input[0] = radius;
     return result(k, 3) as HullData;
 }
+/**
+ * Owned axis-aligned box hull centered at the origin, with positive half-widths in meters.
+ * Requires an initialized StandardPhysicsPlugin; the optional World selects its kernel.
+ * Each construction-time call allocates independent hull data.
+ */
 export function makeBoxHull(hx: number, hy: number, hz: number, world?: World): HullData {
     const [k, input] = prepare(world);
     input[0] = hx;
@@ -138,6 +149,35 @@ export function makeOffsetBoxHull(
     input[5] = offset.z;
     return result(k, 6) as HullData;
 }
+/**
+ * Owned box hull in meters. Applies placement then post-scale using Box3D's box
+ * approximation, clamping half-widths to 0.02 m; negative scales reflect placement.
+ * Requires an initialized StandardPhysicsPlugin; the optional World selects its kernel.
+ * Inputs are not retained; each construction-time call allocates independent hull data.
+ */
+export function makeScaledBoxHull(
+    halfWidths: Vec3,
+    transform: Transform,
+    postScale: Vec3,
+    world?: World,
+): HullData {
+    const [k, input] = prepare(world, 1);
+    input[0] = halfWidths.x;
+    input[1] = halfWidths.y;
+    input[2] = halfWidths.z;
+    input[3] = transform.p.x;
+    input[4] = transform.p.y;
+    input[5] = transform.p.z;
+    input[6] = transform.q.v.x;
+    input[7] = transform.q.v.y;
+    input[8] = transform.q.v.z;
+    input[9] = transform.q.s;
+    input[10] = postScale.x;
+    input[11] = postScale.y;
+    input[12] = postScale.z;
+    return result(k, 9) as HullData;
+}
+
 export function makeTransformedBoxHull(
     hx: number,
     hy: number,

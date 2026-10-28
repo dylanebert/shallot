@@ -1212,6 +1212,37 @@ pub fn create_rock(radius: f32) -> Option<HullImage> {
     }
     create_hull(&points, 10)
 }
+/// Box3D b3ScaleBox followed by b3MakeTransformedBoxHull.
+pub fn make_scaled_box(h: Vec3, mut xf: Transform, scale: Vec3) -> HullImage {
+    use crate::math::{make_quat_from_matrix, maxf, minf, Mat3};
+    let mul = |a: Vec3, b: Vec3| Vec3::new(a.x * b.x, a.y * b.y, a.z * b.z);
+    let mut q = xf.q;
+    if scale.x < 0.0 || scale.y < 0.0 || scale.z < 0.0 {
+        let mut m = Mat3::from_quat(q);
+        m.cx = mul(m.cx, scale).normalize();
+        m.cy = mul(m.cy, scale).normalize();
+        m.cz = mul(m.cz, scale).normalize();
+        if scale.x < 0.0 {
+            m.cx = m.cx.neg();
+        }
+        if scale.y < 0.0 {
+            m.cy = m.cy.neg();
+        }
+        if scale.z < 0.0 {
+            m.cz = m.cz.neg();
+        }
+        q = make_quat_from_matrix(&m);
+    }
+    let p1 = q.inv_rotate(mul(scale.abs(), q.rotate(h.neg())));
+    let p2 = q.inv_rotate(mul(scale.abs(), q.rotate(h)));
+    let lower = Vec3::new(minf(p1.x, p2.x), minf(p1.y, p2.y), minf(p1.z, p2.z));
+    let upper = Vec3::new(maxf(p1.x, p2.x), maxf(p1.y, p2.y), maxf(p1.z, p2.z));
+    let h = upper.sub(lower).scale(0.5);
+    xf.p = mul(scale, xf.p);
+    xf.q = q;
+    make_transformed_box(maxf(h.x, 0.02), maxf(h.y, 0.02), maxf(h.z, 0.02), xf)
+}
+
 /// b3MakeTransformedBoxHull; the other box constructors supply identity rotation/translation.
 pub fn make_transformed_box(hx: f32, hy: f32, hz: f32, xf: Transform) -> HullImage {
     let minimum = 0.2 * 0.005;

@@ -9,6 +9,42 @@ pub unsafe extern "C" fn input_ptr(count: usize) -> *mut f32 {
     input.resize(10 + 3 * count, 0.0);
     input.as_mut_ptr()
 }
+/// Mass output overwrites the input scratch; no geometry or result is retained.
+#[export_name = "geometryMass"]
+pub unsafe extern "C" fn mass(operation: u32) {
+    let r = &mut *(&raw mut INPUT);
+    let v = |i: usize| Vec3::new(r[i], r[i + 1], r[i + 2]);
+    let mass = if operation == 0 {
+        crate::shape_geometry::capsule_mass(v(0), v(3), r[6], r[7])
+    } else {
+        crate::shape_geometry::hull_mass(
+            r[1],
+            v(2),
+            crate::math::Mat3 {
+                cx: v(5),
+                cy: v(8),
+                cz: v(11),
+            },
+            r[0],
+        )
+    };
+    let i = mass.inertia;
+    r[..13].copy_from_slice(&[
+        mass.mass,
+        mass.center.x,
+        mass.center.y,
+        mass.center.z,
+        i.cx.x,
+        i.cx.y,
+        i.cx.z,
+        i.cy.x,
+        i.cy.y,
+        i.cy.z,
+        i.cz.x,
+        i.cz.y,
+        i.cz.z,
+    ]);
+}
 #[export_name = "hullBuild"]
 pub unsafe extern "C" fn build(operation: u32, count: usize, budget: i32) -> *const u64 {
     let r = &*(&raw const INPUT);
@@ -50,6 +86,14 @@ pub unsafe extern "C" fn build(operation: u32, count: usize, budget: i32) -> *co
                 p: v(3),
                 q: Quat { v: v(6), s: r[9] },
             },
+        )),
+        9 => Some(hull_build::make_scaled_box(
+            v(0),
+            Transform {
+                p: v(3),
+                q: Quat { v: v(6), s: r[9] },
+            },
+            v(10),
         )),
         8 => {
             let bytes = core::slice::from_raw_parts(r.as_ptr().add(16).cast::<u8>(), count);

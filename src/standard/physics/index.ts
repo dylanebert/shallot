@@ -103,9 +103,16 @@ export {
     timeOfImpactBodyMover,
 } from "./runtime";
 export { shapeEdges, shapeMesh } from "./shape-mesh";
-export { cloneAndTransformHull, createHull } from "./shapes/build-hull";
-export type { Capsule } from "./shapes/geometry";
+export {
+    cloneAndTransformHull,
+    createCylinder,
+    createHull,
+    makeBoxHull,
+    makeScaledBoxHull,
+} from "./shapes/build-hull";
+export type { Capsule, MassData } from "./shapes/geometry";
 export type { HullData } from "./shapes/hull";
+export { computeCapsuleMass, computeHullMass } from "./shapes/mass";
 export type { StepProfile } from "./world/profile";
 export {
     PhysicsWorldDefinition,

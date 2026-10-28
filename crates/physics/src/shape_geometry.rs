@@ -14,6 +14,17 @@ impl MassData {
         inertia: Mat3::ZERO,
     };
 }
+pub(crate) fn hull_mass(volume: f32, center: Vec3, inertia: Mat3, density: f32) -> MassData {
+    MassData {
+        mass: density * volume,
+        center,
+        inertia: Mat3 {
+            cx: inertia.cx.scale(density),
+            cy: inertia.cy.scale(density),
+            cz: inertia.cz.scale(density),
+        },
+    }
+}
 fn sphere_mass(center: Vec3, r: f32, density: f32) -> MassData {
     let volume = (((4.0f32 / 3.0) * core::f32::consts::PI * r) * r) * r;
     let mass = volume * density;
@@ -28,7 +39,7 @@ fn sphere_mass(center: Vec3, r: f32, density: f32) -> MassData {
         },
     }
 }
-fn capsule_mass(a: Vec3, b: Vec3, r: f32, density: f32) -> MassData {
+pub(crate) fn capsule_mass(a: Vec3, b: Vec3, r: f32, density: f32) -> MassData {
     let h = a.distance(b);
     let cm = (((core::f32::consts::PI * r) * r) * h) * density;
     let sm = sphere_mass(Vec3::ZERO, r, density);
@@ -90,15 +101,7 @@ mod wasm {
             TY_SPHERE => sphere_mass(vector(world_index, id, 48), f.get(o + 51), density),
             TY_HULL => {
                 let h = geo::hull_record(reference(world_index, id));
-                MassData {
-                    mass: density * h.volume,
-                    center: h.center,
-                    inertia: Mat3 {
-                        cx: h.central_inertia.cx.scale(density),
-                        cy: h.central_inertia.cy.scale(density),
-                        cz: h.central_inertia.cz.scale(density),
-                    },
-                }
+                hull_mass(h.volume, h.center, h.central_inertia, density)
             }
             _ => MassData::ZERO,
         }

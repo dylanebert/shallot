@@ -14,6 +14,7 @@ import { createPool, maxWorkers, type Pool, solverPause } from "./pool";
 /** Physics kernel ABI. */
 export type Kernel = {
     memory: WebAssembly.Memory;
+    geometryMass(operation: number): void;
     hullBuildInputPtr(count: number): number;
     hullBuild(operation: number, count: number, budget: number): number;
     nonconvexBuildInputPtr(words: number): number;

@@ -36,6 +36,7 @@ export {
     makeBoxHull,
     makeCubeHull,
     makeOffsetBoxHull,
+    makeScaledBoxHull,
     makeTransformedBoxHull,
 } from "../shapes/build-hull";
 export {
@@ -57,6 +58,7 @@ export {
     type HeightFieldDef,
 } from "../shapes/heightfield";
 export type { HullData } from "../shapes/hull";
+export { computeCapsuleMass, computeHullMass } from "../shapes/mass";
 export {
     createBoxMesh,
     createGridMesh,
