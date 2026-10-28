@@ -38,12 +38,16 @@ for (const scene of ["capsulePlane", "moverOverlap"] as const)
             );
             expect(drawing.colors[0]).toBe(0xeee9df);
             if (scene === "moverOverlap") expect(drawing.colors.at(-1)).toBe(0x38afc0);
-            else
-                expect(drawing.records.slice(-3)).toEqual([
-                    [1, 0, 0, 0, 2, 0, 0],
-                    [1, 0, 0, 0, 0, 2, 0],
-                    [1, 0, 0, 0, 0, 0, 2],
-                ]);
+            else {
+                expect(drawing.records).toHaveLength(1 + 2 * s.planes.count);
+                for (const axis of [
+                    [2, 0, 0],
+                    [0, 2, 0],
+                    [0, 0, 2],
+                ])
+                    expect(drawing.records).not.toContainEqual([1, 0, 0, 0, ...axis]);
+                expect(drawing.colors.every((color) => color === 0xeee9df)).toBe(true);
+            }
             for (const [width, height, dpr] of [
                 [1280, 720, 1],
                 [390, 844, 2],

@@ -62,11 +62,6 @@ export function characterDrawing(world: World): { records: number[][]; colors: n
         );
     }
     if (s.scene === "moverOverlap") capsule(s.pushed, CYAN);
-    else {
-        add([1, 0, 0, 0, 2, 0, 0], 0xff0000);
-        add([1, 0, 0, 0, 0, 2, 0], 0x00ff00);
-        add([1, 0, 0, 0, 0, 0, 2], 0x0000ff);
-    }
     return { records, colors };
 }
 export function drawCharacterView(

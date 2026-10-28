@@ -445,7 +445,6 @@ int main( int argc, char** argv )
             fprintf(sensorReadouts, "]]\n");
         }
         if (characterDrawing) {
-            sample->Render();
             fprintf(characterDrawing, "[");
             for (size_t j = 0; j < characterMarks.size(); ++j) {
                 fprintf(characterDrawing, "%s[", j ? "," : "");
