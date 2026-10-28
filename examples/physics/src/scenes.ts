@@ -61,12 +61,15 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
     {
         name: "Bodies",
         scenes: [
+            { id: "bodyType", name: "Body Type" },
+            { id: "disable", name: "Disable" },
             { id: "fixedRotation", name: "Fixed Rotation" },
             { id: "gyroscopicTorque", name: "Gyroscopic Torque" },
             { id: "kinematic", name: "Kinematic" },
             { id: "lockMixing", name: "Lock Mixing" },
             { id: "offsetKinematic", name: "Offset Kinematic" },
             { id: "spinningBook", name: "Spinning Book" },
+            { id: "weeble", name: "Weeble" },
         ],
     },
     {
@@ -130,6 +133,7 @@ export interface Control {
     button?: boolean;
     read?: (world: World) => number | null;
     options?: readonly { label: string; value: number }[];
+    select?: boolean;
     when?: readonly string[];
     set(
         world: World,

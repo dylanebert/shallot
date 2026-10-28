@@ -2,29 +2,53 @@ import {
     Body,
     BodyMotionLock,
     BodyType,
+    GlobalTransform,
     Hulls,
     type Plugin,
+    PrismaticJoint,
+    RevoluteJoint,
     recoverResource,
     Shape,
     ShapeKind,
     Transform,
+    WeldJoint,
     type World,
 } from "@dylanebert/shallot";
 import {
+    applyLinearImpulseToCenter,
+    explode,
     getMassData,
     rotationFromAxisAngle,
     StandardPhysicsPlugin,
     StepPhysicsSystem,
     SyncPhysicsConstraintsSystem,
     setAngularVelocity,
+    setAwake,
+    setBodyType,
+    setLinearVelocity,
     setMassData,
     setTargetTransform,
+    setTransform,
 } from "@dylanebert/shallot/standard/physics";
+
+import type { Controls } from "./scenes";
 
 type V3 = [number, number, number];
 const f = Math.fround;
 export const BodySampleState = {
-    create: () => ({ target: 0, offset: 0, spin: 0, time: 0, initialized: false }),
+    create: () => ({
+        target: 0,
+        offset: 0,
+        spin: 0,
+        weeble: 0,
+        link: 0,
+        platform: 0,
+        type: BodyType.Dynamic as number,
+        magnitude: 20000,
+        actions: [] as string[],
+        time: 0,
+        initialized: false,
+    }),
 };
 export const BodySamplePlugin: Plugin = {
     name: "BodySample",
@@ -38,6 +62,52 @@ export const BodySamplePlugin: Plugin = {
             before: [StepPhysicsSystem],
             update(world) {
                 const state = world.resource(BodySampleState);
+                if (state.weeble && !state.initialized) {
+                    const mass = getMassData(world, state.weeble)!;
+                    const shift = f(mass.mass * f(1.5 * 1.5));
+                    mass.inertia.cx.x = f(mass.inertia.cx.x + shift);
+                    mass.inertia.cz.z = f(mass.inertia.cz.z + shift);
+                    mass.center = { x: 0, y: -1.5, z: 0 };
+                    setMassData(world, state.weeble, mass);
+                    state.initialized = true;
+                }
+                for (const action of state.actions) {
+                    if (action === "Teleport") {
+                        setTransform(
+                            world,
+                            state.weeble,
+                            [0, 5, 0],
+                            rotationFromAxisAngle(
+                                world,
+                                { x: 0, y: 0, z: 1 },
+                                f(f(0.95) * f(Math.PI)),
+                            ),
+                        );
+                        setAwake(world, state.weeble, true);
+                    } else if (action === "Explode") {
+                        explode(world, {
+                            position: { x: 0, y: -0.1, z: 0 },
+                            radius: 8,
+                            falloff: 0.1,
+                            maskBits: 0xffffffffffffffffn,
+                            impulsePerArea: state.magnitude,
+                        });
+                    }
+                }
+                state.actions.length = 0;
+                if (state.link)
+                    applyLinearImpulseToCenter(world, state.link, { x: 0, y: 0.1, z: 0 });
+                if (state.platform && state.type === BodyType.Kinematic) {
+                    const global = world.storage(GlobalTransform);
+                    const x = global.translation.x.get(state.platform);
+                    const v = [
+                        global.linearVelocity.x.get(state.platform),
+                        global.linearVelocity.y.get(state.platform),
+                        global.linearVelocity.z.get(state.platform),
+                    ];
+                    if ((x < -14 && v[0]! < 0) || (x > 6 && v[0]! > 0))
+                        setLinearVelocity(world, state.platform, { x: -v[0]!, y: v[1]!, z: v[2]! });
+                }
                 if (state.spin && !state.initialized) {
                     setAngularVelocity(world, state.spin, { x: 0.01, y: 0.01, z: 10 });
                     state.initialized = true;
@@ -170,7 +240,219 @@ function offsetKinematic(world: World): number[] {
     world.resource(BodySampleState).offset = eid;
     return [eid];
 }
+function bodyType(world: World): number[] {
+    ground(world);
+    const groundId = [...world.query([Body])][0]!;
+    const attachment = body(world, [-2, 3, 0]);
+    box(world, attachment, [0.5, 2, 0.5]);
+    world.storage(Shape).density.set(attachment, 1);
+    const second = body(world, [3, 3, 0]);
+    box(world, second, [0.5, 2, 0.5]);
+    world.storage(Shape).density.set(second, 1);
+    const platform = body(world, [-4, 5, 0]);
+    const shape = world.resource(Hulls).add({
+        name: "box",
+        halfExtents: [0.5, 4, 0.5],
+        transform: {
+            position: [4, 0, 0],
+            rotation: rotationFromAxisAngle(world, { x: 0, y: 0, z: 1 }, f(0.5 * f(Math.PI))),
+        },
+    });
+    world.add(platform, Shape, { geometry: shape, density: 2 });
+    for (const [a, localAnchorB] of [
+        [attachment, [2, 0, 0]],
+        [second, [7, 0, 0]],
+    ] as [number, V3][]) {
+        world.add(world.create(), RevoluteJoint, {
+            a,
+            b: platform,
+            localAnchorA: [0, 2, 0],
+            localAnchorB,
+            maxMotorTorque: 50,
+            enableMotor: 1,
+        });
+    }
+    world.add(world.create(), PrismaticJoint, {
+        a: groundId,
+        b: platform,
+        localAnchorA: [0, 6, 0],
+        localAnchorB: [4, 0, 0],
+        maxMotorForce: 1000,
+        enableMotor: 1,
+        lowerTranslation: -10,
+        upperTranslation: 10,
+        enableLimit: 1,
+    });
+    const payload = body(world, [-3, 8, 0]);
+    box(world, payload, [0.75, 0.75, 0.75]);
+    world.storage(Shape).density.set(payload, 2);
+    const secondPayload = body(world, [2, 8, 0]);
+    box(world, secondPayload, [0.75, 0.75, 0.75]);
+    world.storage(Shape).density.set(secondPayload, 2);
+    const debris = body(world, [8, 0.2, 0]);
+    world.add(debris, Shape, {
+        kind: ShapeKind.Capsule,
+        capsuleCenter1: [0, 0, 0],
+        capsuleCenter2: [1, 0, 0],
+        radius: 0.25,
+        density: 2,
+    });
+    const floater = body(world, [-8, 12, 0]);
+    world.storage(Body).gravityScale.set(floater, 0);
+    world.add(floater, Shape, {
+        kind: ShapeKind.Sphere,
+        sphereCenter: [0, 0.5, 0],
+        radius: 0.25,
+        density: 2,
+    });
+    Object.assign(world.resource(BodySampleState), { platform });
+    return [attachment, second, platform, payload, secondPayload, debris, floater];
+}
+const bodyTypeControls = {
+    Type: {
+        label: "Type",
+        value: BodyType.Dynamic,
+        select: true,
+        options: [
+            { label: "Static", value: BodyType.Static },
+            { label: "Kinematic", value: BodyType.Kinematic },
+            { label: "Dynamic", value: BodyType.Dynamic },
+        ],
+        set(world, bodies, value) {
+            setBodyType(world, bodies[2]!, value);
+            if (value === BodyType.Kinematic) {
+                setLinearVelocity(world, bodies[2]!, { x: -3, y: 0, z: 0 });
+                setAngularVelocity(world, bodies[2]!, { x: 0, y: 0, z: 0 });
+            }
+            setBodyType(world, bodies[1]!, value);
+            if (value === BodyType.Kinematic) {
+                setLinearVelocity(world, bodies[1]!, { x: 0, y: 0, z: 0 });
+                setAngularVelocity(world, bodies[1]!, { x: 0, y: 0, z: 0 });
+            }
+            for (const i of [4, 5, 6]) setBodyType(world, bodies[i]!, value);
+            world.resource(BodySampleState).type = value;
+        },
+    },
+    Enable: {
+        label: "Enable",
+        value: 1,
+        set(world, bodies, value) {
+            for (const i of [0, 4, 6]) world.storage(Body).isEnabled.set(bodies[i]!, value);
+        },
+    },
+} satisfies Controls;
+function weeble(world: World): number[] {
+    ground(world, 30);
+    const eid = body(world, [0, 3, 0]);
+    world.add(eid, Shape, {
+        kind: ShapeKind.Capsule,
+        capsuleCenter1: [0, -1, 0],
+        capsuleCenter2: [0, 1, 0],
+        radius: 1,
+        rollingResistance: 0.1,
+    });
+    world.resource(BodySampleState).weeble = eid;
+    return [eid];
+}
+const weebleControls = {
+    Teleport: {
+        label: "Teleport",
+        value: 0,
+        button: true,
+        set(world) {
+            world.resource(BodySampleState).actions.push("Teleport");
+        },
+    },
+    Explode: {
+        label: "Explode",
+        value: 0,
+        button: true,
+        set(world) {
+            world.resource(BodySampleState).actions.push("Explode");
+        },
+    },
+    Magnitude: {
+        label: "Magnitude",
+        value: 20000,
+        min: -100000,
+        max: 100000,
+        step: 1,
+        decimals: 0,
+        set(world, _bodies, value) {
+            world.resource(BodySampleState).magnitude = value;
+        },
+    },
+} satisfies Controls;
+function disable(world: World): number[] {
+    ground(world);
+    const bodies: number[] = [];
+    for (let i = 0; i < 4; i++) {
+        const eid = body(
+            world,
+            [0, f(f(4 - i) * 0.5 + 1), 0],
+            i ? BodyType.Dynamic : BodyType.Kinematic,
+        );
+        world.add(eid, Shape, {
+            kind: ShapeKind.Capsule,
+            capsuleCenter1: [0, 0, 0],
+            capsuleCenter2: [0, -0.5, 0],
+            radius: 0.1,
+        });
+        if (i)
+            world.add(world.create(), WeldJoint, {
+                a: bodies[i - 1]!,
+                b: eid,
+                localAnchorA: [0, -0.5, 0],
+                angularHertz: 10,
+                angularDampingRatio: 1,
+            });
+        bodies.push(eid);
+    }
+    const ball = body(world, [3, 3, 0]);
+    world.add(ball, Shape, { kind: ShapeKind.Sphere, radius: 0.5 });
+    bodies.push(ball);
+    world.resource(BodySampleState).link = bodies[2]!;
+    return bodies;
+}
+const disableControls: Controls = Object.fromEntries(
+    (
+        [
+            ["Enable Link", 2],
+            ["Enable Ball", 4],
+        ] as const
+    ).map(([label, index]) => [
+        label,
+        {
+            label,
+            value: 1,
+            set(world: World, bodies: readonly number[], value: number) {
+                world.storage(Body).isEnabled.set(bodies[index]!, value);
+            },
+        },
+    ]),
+);
 export const bodyScenes = {
+    bodyType: {
+        construct: bodyType,
+        gridExtent: 20,
+        gridSpacing: 1,
+        camera: { yaw: 15, pitch: 20, distance: 24, phoneDistance: 60, target: [0, 5, 0] },
+        controls: bodyTypeControls,
+    },
+    weeble: {
+        construct: weeble,
+        gridExtent: 30,
+        gridSpacing: 1,
+        camera: { yaw: 35, pitch: 25, distance: 23, target: [0, 2, 0] },
+        controls: weebleControls,
+    },
+    disable: {
+        construct: disable,
+        gridExtent: 20,
+        gridSpacing: 1,
+        camera: { yaw: 25, pitch: 20, distance: 8, target: [1.5, 1.5, 0] },
+        controls: disableControls,
+    },
     spinningBook: {
         construct: spinningBook,
         gridExtent: 10,

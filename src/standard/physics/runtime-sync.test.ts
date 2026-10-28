@@ -25,6 +25,7 @@ import {
     StepPhysicsSystem,
     SyncPhysicsConstraintsSystem,
     setAwake,
+    setBodyType,
     setLinearVelocity,
     setTransform,
 } from "@dylanebert/shallot/standard/physics";
@@ -995,6 +996,39 @@ test("unchanged Body definition writes call no Box3D body setter", async () => {
             }
         } finally {
             for (const [, setter] of setters) setter.mockRestore();
+        }
+    });
+});
+
+test("setBodyType writes through immediately, survives recovery and is not reapplied by sync", async () => {
+    await withPhysics((world) => {
+        const eid = world.create();
+        world.add(eid, Body);
+        world.add(eid, Shape);
+        setBodyType(world, eid, BodyType.Kinematic);
+        expect(world.storage(Body).type.get(eid)).toBe(BodyType.Kinematic);
+        world.tick();
+        const type = () => bodyGetType(stateFor(world), bodyIndex(world, eid));
+        expect(type()).toBe(BodyType.Kinematic);
+        const setter = spyOn(kernel(world), "bodySetType");
+        try {
+            setBodyType(world, eid, BodyType.Dynamic);
+            expect(type()).toBe(BodyType.Dynamic);
+            expect(world.storage(Body).type.get(eid)).toBe(BodyType.Dynamic);
+            expect(setter).toHaveBeenCalledTimes(1);
+            const saved = world.snapshot();
+            setter.mockClear();
+            world.tick();
+            expect(setter).not.toHaveBeenCalled();
+            setBodyType(world, eid, BodyType.Static);
+            world.restore(saved);
+            expect(type()).toBe(BodyType.Dynamic);
+            expect(world.storage(Body).type.get(eid)).toBe(BodyType.Dynamic);
+            setter.mockClear();
+            world.tick();
+            expect(setter).not.toHaveBeenCalled();
+        } finally {
+            setter.mockRestore();
         }
     });
 });

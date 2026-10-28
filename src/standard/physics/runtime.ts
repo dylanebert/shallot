@@ -132,6 +132,7 @@ import {
     setMassData as bodySetMassData,
     bodySetTargetTransform,
     bodySetTransform,
+    bodySetType,
     destroyBody,
 } from "./world/body";
 import { type DebugDraw, worldDraw } from "./world/draw";
@@ -906,6 +907,25 @@ export function setTransform(
     pose.translation.set(eid, position[0], position[1], position[2]);
     pose.rotation.set(eid, rotation[0], rotation[1], rotation[2], rotation[3]);
     resetInterpolation(world, eid);
+}
+
+/** Immediately changes a bound body's type in call order and writes Body.type to match.
+ * The next fixed sync does not reapply the change. A body added since the last fixed sync
+ * spawns with this Body.type. Rejects values outside BodyType. Ignored while the solver is
+ * locked or for an entity without Body. */
+export function setBodyType(world: World, eid: number, type: number): void {
+    if (!world.has(eid, Body)) return;
+    if (type !== BodyType.Static && type !== BodyType.Kinematic && type !== BodyType.Dynamic)
+        throw new Error("physics: body type must be Static, Kinematic or Dynamic");
+    const runtime = runtimeFor(world);
+    const state = runtime.physicsWorld;
+    if (state?.locked) return;
+    const body = boundBody(world, runtime, eid);
+    if (state && body) {
+        bodySetType(state, body.index1 - 1, type);
+        publishBodyVelocity(world, eid, state, body);
+    }
+    world.storage(Body).type.set(eid, type);
 }
 
 /** Sets center-of-mass velocity in meters per second; nonzero values wake the body. Box3D ignores static bodies; a body added since the last fixed sync ignores it and spawns with `Body.linearVelocity`. */

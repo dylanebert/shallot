@@ -46,6 +46,9 @@ const stackingMutations: Record<string, [string, string, string]> = {
     edgeCrossing: ["EdgeCrossing", "{ 0.2f, 0.02f, 0.04f }", "{ 0.21f, 0.02f, 0.04f }"],
 };
 const bodyMutations: Record<string, [string, string, string]> = {
+    bodyType: ["BodyType", "{ -2.0f, 3.0f, 0.0f }", "{ -2.1f, 3.0f, 0.0f }"],
+    weeble: ["Weeble", "offset = { 0.0f, -1.5f, 0.0f }", "offset = { 0.0f, -1.4f, 0.0f }"],
+    disable: ["DisableBody", "float linkRadius = 0.1f;", "float linkRadius = 0.11f;"],
     spinningBook: ["SpinningBooks", "b3MakeBoxHull( 0.35f, 0.08f, 0.5f )", "b3MakeBoxHull( 0.36f, 0.08f, 0.5f )"],
     gyroscopicTorque: ["GyroscopicTorque", "0.6f, 0.15f, 0.0f, 32", "0.61f, 0.15f, 0.0f, 32"],
     kinematic: ["Kinematic", "m_amplitude = 2.0f;", "m_amplitude = 2.1f;"],
@@ -72,7 +75,7 @@ for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "f
         const hashes = run([binary, scene, String(steps)]);
         equalSampleSteps(run([binary, scene, String(steps)]), hashes, `${scene} repeat`);
         equalSampleSteps(hashes, readFileSync(new URL(`../../examples/physics/tests/${scene === "box_stack" ? "boxStack" : scene}.gold.txt`, import.meta.url), "utf8"), scene);
-        if (["revolute", "prismatic", "wheel", "parallel", "motor", "joint", "contact", "jenga", "weld", "topDownFriction", "distance", "spherical", "motionLocks", "door", "gearLift", "driving"].includes(scene)) {
+        if (["bodyType", "weeble", "disable", "revolute", "prismatic", "wheel", "parallel", "motor", "joint", "contact", "jenga", "weld", "topDownFriction", "distance", "spherical", "motionLocks", "door", "gearLift", "driving"].includes(scene)) {
             const sequence = fileURLToPath(new URL(`../../examples/physics/tests/${scene}.controls.txt`, import.meta.url));
             const controlledSteps = scene === "contact" ? 1204 : steps;
             const controlled = run([binary, scene, String(controlledSteps), sequence]);

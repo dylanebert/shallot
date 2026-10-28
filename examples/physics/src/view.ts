@@ -109,7 +109,11 @@ export function setSceneCamera(world: World, scene: Scene, camera: number): void
     const orbit = world.storage(Orbit);
     orbit.yaw.set(camera, (view.yaw * Math.PI) / 180);
     orbit.pitch.set(camera, (view.pitch * Math.PI) / 180);
-    orbit.distance.set(camera, view.distance);
+    const phone = typeof window !== "undefined" && window.innerWidth <= 480;
+    orbit.distance.set(
+        camera,
+        phone && "phoneDistance" in view ? view.phoneDistance : view.distance,
+    );
     orbit.target.set(camera, scene === "driving" ? world.resource(DrivingState).chassis : 0);
     // Sharing the orbit button prevents flythrough from detaching the driving camera.
     orbit.flyButton.set(camera, scene === "driving" ? orbit.orbitButton.get(camera) : 2);

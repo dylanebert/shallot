@@ -1,0 +1,7 @@
+30	Teleport	1
+120	Explode	1
+200	Magnitude	-40000
+240	Explode	1
+350	Magnitude	60000
+400	Teleport	1
+450	Explode	1

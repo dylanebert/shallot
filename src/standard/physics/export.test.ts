@@ -69,6 +69,7 @@ test("standard physics exports consumed world operations and profiling without s
         "rotationFromAxisAngle",
         "setAngularVelocity",
         "setAwake",
+        "setBodyType",
         "setLinearVelocity",
         "setMassData",
         "setTargetTransform",

@@ -65,6 +65,15 @@
                         {/if}
                     {:else if control.button}
                         <button tabindex="-1" onfocus={(event) => event.currentTarget.blur()} onclick={() => update(name, 1)}>{control.label}</button>
+                    {:else if control.options && control.select}
+                        <div class="row">
+                            <label for={`control-${name}`}>{control.label}</label>
+                            <select tabindex="-1" onfocus={(event) => event.currentTarget.blur()} id={`control-${name}`} value={values[name]} onchange={(event) => { update(name, Number(event.currentTarget.value)); event.currentTarget.blur(); }}>
+                                {#each control.options as option}
+                                    <option value={option.value}>{option.label}</option>
+                                {/each}
+                            </select>
+                        </div>
                     {:else if control.options}
                         <div class="row" role="radiogroup" aria-label={control.label}>
                             <span>{control.label}</span>

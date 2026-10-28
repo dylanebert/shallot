@@ -1,0 +1,4 @@
+30	Enable Link	0
+90	Enable Ball	0
+180	Enable Link	1
+240	Enable Ball	1

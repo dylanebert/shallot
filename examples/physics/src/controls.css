@@ -30,6 +30,7 @@
 .ec label { cursor: default; }
 .ec input { margin: var(--zero); font: inherit; }
 .ec .options { display: flex; gap: var(--s2); }
+.ec select { width: var(--full); min-width: var(--zero); outline: none; }
 .ec button[role='radio'][aria-checked='true'] { border-color: var(--gold); }
 .ec input[type='checkbox'] { appearance: none; flex-shrink: var(--none); width: var(--check); height: var(--check); border: var(--hair) solid var(--muted); border-radius: var(--radius); background: var(--raised); display: grid; place-content: center; cursor: default; }
 .ec input[type='checkbox']:checked { background: var(--dim); border-color: var(--muted); }
@@ -61,13 +62,13 @@
  .ec input[type='range'] { height: var(--touch); }
 }
 
-.ec button { min-height: var(--row); padding: var(--s1) var(--s2); color: var(--ink); background: var(--raised); border: var(--hair) solid var(--line); border-radius: var(--radius); font: var(--regular) var(--body)/var(--leading) var(--sans); cursor: default; }
-.ec button:disabled { background: var(--bg2); }
-.ec button:hover:not(:disabled) { border-color: var(--muted); }
-.ec button:active:not(:disabled) { background: var(--line); }
+.ec button, .ec select { min-height: var(--row); padding: var(--s1) var(--s2); color: var(--ink); background: var(--raised); border: var(--hair) solid var(--line); border-radius: var(--radius); font: var(--regular) var(--body)/var(--leading) var(--sans); cursor: default; }
+.ec button:disabled, .ec select:disabled { background: var(--bg2); }
+.ec button:hover:not(:disabled), .ec select:hover:not(:disabled) { border-color: var(--muted); }
+.ec button:active:not(:disabled), .ec select:active:not(:disabled) { background: var(--line); }
 .ec button[aria-current='true'] { border-color: var(--gold); }
 .ec .toggle { min-height: var(--row); cursor: default; }
-.ec input:enabled, .ec button:enabled { cursor: pointer; }
+.ec input:enabled, .ec button:enabled, .ec select:enabled { cursor: pointer; }
 
 .ec .dependents .dependents .row { grid-template-columns: calc(var(--label) - var(--s2) - var(--hair) - var(--s2) - var(--hair)) minmax(var(--zero), 1fr); }
 .ec.picker { position: absolute; z-index: var(--layer); bottom: calc(var(--s5) + env(safe-area-inset-bottom)); left: calc(var(--s5) + env(safe-area-inset-left)); right: calc(var(--s5) + env(safe-area-inset-right)); }
@@ -79,9 +80,9 @@
 .ec .categories h2 { margin: var(--zero); padding: var(--zero) var(--s2); font: var(--regular) var(--small)/var(--leading) var(--mono); letter-spacing: var(--tracking); text-transform: uppercase; color: var(--muted); }
 .ec .scenes button { width: var(--full); text-align: left; }
 .ec.input-help { position: absolute; top: calc(var(--s5) + env(safe-area-inset-top)); left: calc(var(--s5) + env(safe-area-inset-left)); pointer-events: none; }
-@media (pointer: coarse) { .ec button, .ec .toggle { min-height: var(--touch); } .ec nav button { min-width: var(--touch); } }
+@media (pointer: coarse) { .ec button, .ec select, .ec .toggle { min-height: var(--touch); } .ec nav button { min-width: var(--touch); } }
 @media (max-width: 480px) {
- .ec button, .ec .toggle { min-height: var(--touch); }
+ .ec button, .ec select, .ec .toggle { min-height: var(--touch); }
  .ec nav button { min-width: var(--touch); }
  .ec .name { width: min(280px, calc(var(--full) - var(--touch) - var(--touch) - var(--s1) - var(--s1))); }
  .ec.picker { bottom: calc(var(--s4) + env(safe-area-inset-bottom)); left: calc(var(--s4) + env(safe-area-inset-left)); right: calc(var(--s4) + env(safe-area-inset-right)); }

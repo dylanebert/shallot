@@ -259,6 +259,7 @@ int main( int argc, char** argv )
 	SampleContext context;
 	struct Entry { const char* name; Sample* (*create)(SampleContext*); };
 	const Entry entries[] = {
+        { "bodyType", BodyType::Create }, { "weeble", Weeble::Create }, { "disable", DisableBody::Create },
         { "spinningBook", SpinningBooks::Create }, { "gyroscopicTorque", GyroscopicTorque::Create },
         { "kinematic", Kinematic::Create }, { "lockMixing", LockMixing::Create },
         { "fixedRotation", FixedRotation::Create }, { "offsetKinematic", OffsetKinematic::Create },

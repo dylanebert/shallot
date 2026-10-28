@@ -21,6 +21,7 @@ import { scenePresentation, shapeMaterial } from "../src/presentation";
 import { MotorizedJoint } from "../src/roles";
 import {
     categories,
+    changeControl,
     controlValues,
     createScene,
     enabledControls,
@@ -30,6 +31,51 @@ import {
 import { SensorSample } from "../src/sensor";
 
 setDefaultTimeout(TIMEOUT.node);
+
+test("Body Type follows its selected type's role and Weeble draws only its explosion rings", async () => {
+    const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
+    try {
+        const world = app.world;
+        const bodies = createScene(world, "bodyType");
+        world.tick();
+        const values = controlValues("bodyType");
+        for (const type of [BodyType.Static, BodyType.Kinematic, BodyType.Dynamic]) {
+            changeControl(world, "bodyType", bodies, values, "Type", type);
+            const presentation = scenePresentation(world, "bodyType");
+            for (const index of [1, 2, 4, 5, 6])
+                expect(
+                    presentation.shapes.find((shape) => shape.body === bodies[index])!.role,
+                ).toBe(
+                    type === BodyType.Static
+                        ? "ground"
+                        : type === BodyType.Kinematic
+                          ? "motorized"
+                          : "subject",
+                );
+            expect(presentation.explosion).toEqual([]);
+        }
+    } finally {
+        app.dispose();
+    }
+    const weeble = await createApp({
+        defaults: false,
+        plugins: [StandardPhysicsPlugin],
+        setup(world) {
+            createScene(world, "weeble");
+        },
+    });
+    try {
+        const rings = scenePresentation(weeble.world, "weeble").explosion;
+        expect(rings).toHaveLength(72);
+        for (const line of rings) {
+            expect(line.color).toBe(0x00ffff);
+            for (const point of [line.a, line.b])
+                expect(Math.hypot(point[0], point[1] + 0.1, point[2])).toBeCloseTo(8, 10);
+        }
+    } finally {
+        weeble.dispose();
+    }
+});
 
 // The accepted critical-set baseline, in eid order; counts compress adjacent equal roles.
 const acceptedRoles = {
@@ -294,6 +340,9 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 expect(ground.mesh.indices.length).toBeGreaterThan(0);
             } else expect(presentation.ground).toBeUndefined();
             const extent = {
+                bodyType: 20,
+                weeble: 30,
+                disable: 20,
                 spinningBook: 10,
                 gyroscopicTorque: 20,
                 kinematic: 20,

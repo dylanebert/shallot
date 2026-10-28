@@ -1,12 +1,46 @@
 import { pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, test } from "playwright/test";
 import { categories } from "../../src/scenes";
-import { dragRange, gameKeyMovesCamera, pointerControl, tabSkipsChrome } from "../pointer";
+import {
+    bodyHasFocus,
+    dragRange,
+    gameKeyMovesCamera,
+    pointerControl,
+    tabSkipsChrome,
+} from "../pointer";
 
 const samples = categories.flatMap((category) => category.scenes);
 const beforeWheel = samples[samples.findIndex((sample) => sample.id === "wheel") - 1]!.name;
 
 test.use(pipelineWarnings);
+
+for (const width of [1280, 390]) {
+    test(`Body Type's native choice fits its field at ${width} and returns keys to the game`, async ({
+        page,
+    }) => {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 720 });
+        await page.goto("/tests/controls.html");
+        await page.waitForFunction(() => "controlsKey" in window);
+        await pointerControl(page, page.getByRole("button", { name: "Scene", exact: true }));
+        await pointerControl(page, page.getByRole("button", { name: "Body Type", exact: true }));
+        const type = page.getByRole("combobox", { name: "Type", exact: true });
+        const panel = page.locator(".controls");
+        const box = (await type.boundingBox())!;
+        const bounds = (await panel.boundingBox())!;
+        expect(box.x + box.width).toBeLessThanOrEqual(bounds.x + bounds.width - 16);
+        expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+            true,
+        );
+        await type.click();
+        await page.keyboard.press("Escape");
+        await bodyHasFocus(page);
+        await type.selectOption("1");
+        await expect(type).toHaveValue("1");
+        await bodyHasFocus(page);
+        await gameKeyMovesCamera(page);
+        await tabSkipsChrome(page);
+    });
+}
 
 test("pointer controls retain disabled nested settings and disclose the root without focus", async ({
     page,

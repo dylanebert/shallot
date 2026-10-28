@@ -121,16 +121,16 @@ export function shapePresentation(
     return { eid, body, role, ...geometry };
 }
 
-function destructionRings() {
+function explosionRings(
+    center: [number, number, number],
+    rings: readonly (readonly [number, number])[],
+) {
     const lines: { a: [number, number, number]; b: [number, number, number]; color: number }[] = [];
-    for (const [radius, color] of [
-        [2.5, 0x00ffff],
-        [3.75, 0xfff8dc],
-    ] as const)
+    for (const [radius, color] of rings)
         for (let axis = 0; axis < 3; axis++)
             for (let i = 0; i < 24; i++) {
                 const point = (index: number): [number, number, number] => {
-                    const p: [number, number, number] = [0, 5, 0];
+                    const p: [number, number, number] = [...center];
                     const angle = (index * 2 * Math.PI) / 24;
                     p[(axis + 1) % 3]! += radius * Math.cos(angle);
                     p[(axis + 2) % 3]! += radius * Math.sin(angle);
@@ -162,7 +162,18 @@ export function scenePresentation(
     return {
         shapes,
         grid: { lines, width: 1, opacity: 0.3 },
-        explosion: scene === "destruction" ? destructionRings() : [],
+        explosion:
+            scene === "destruction"
+                ? explosionRings(
+                      [0, 5, 0],
+                      [
+                          [2.5, 0x00ffff],
+                          [3.75, 0xfff8dc],
+                      ],
+                  )
+                : scene === "weeble"
+                  ? explosionRings([0, -0.1, 0], [[8, 0x00ffff]])
+                  : [],
         ground:
             scene === "sensor"
                 ? {

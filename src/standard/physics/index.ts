@@ -53,6 +53,7 @@ export {
     SyncPhysicsConstraintsSystem,
     setAngularVelocity,
     setAwake,
+    setBodyType,
     setLinearVelocity,
     setMassData,
     setTargetTransform,
