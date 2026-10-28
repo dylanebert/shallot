@@ -10,6 +10,7 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
     const character = readFileSync(join(samples, "sample_character.cpp"), "utf8");
     const continuous = readFileSync(join(samples, "sample_continuous.cpp"), "utf8");
     const compound = readFileSync(join(samples, "sample_compound.cpp"), "utf8");
+    const ragdoll = readFileSync(join(samples, "sample_ragdoll.cpp"), "utf8");
     const mesh = readFileSync(join(samples, "sample_mesh.cpp"), "utf8");
     const stacking = readFileSync(join(samples, "sample_stacking.cpp"), "utf8");
     const joints = readFileSync(join(samples, "sample_joint.cpp"), "utf8");
@@ -23,6 +24,7 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         return source.slice(first, last);
     }
     const sources = [
+        ...[["RagdollOnBox", "sampleRagdollOnBox"], ["RagdollOnMesh", "sampleRagdollMesh"], ["RagdollPile", "sampleRagdollPile"], ["RagdollIncline", "sampleRagdollIncline"]].map(([name,end]) => section(ragdoll, `class ${name} :`, `static int ${end}`)),
         section(mesh, "enum class ShapeType", "class GridMesh"),
         section(mesh, "class MeshReflection :", "static int sampleMeshReflection"),
         section(mesh, "struct CastContext", "static int sampleHeightField"),

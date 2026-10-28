@@ -27,6 +27,7 @@ import { meshScenes } from "./mesh";
 import { HeightFieldState } from "./mesh-height-field";
 import { MeshCreationState, MeshInspectorState } from "./mesh-inspector";
 import { PrecessionState } from "./precession";
+import { RagdollState, ragdollScenes } from "./ragdoll";
 import { RigidBodyState, rigidBodyScene } from "./rigid-body";
 import { MotorizedJoint } from "./roles";
 import { ShapeControlsState, shapeScenes, WindState } from "./shapes";
@@ -44,6 +45,7 @@ export type Scene =
     | "filter"
     | "parallel"
     | "village"
+    | keyof typeof ragdollScenes
     | keyof typeof meshScenes
     | keyof typeof compoundScenes
     | keyof typeof continuousScenes
@@ -178,6 +180,15 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
         ],
     },
     {
+        name: "Ragdoll",
+        scenes: [
+            { id: "ragdollBox", name: "Box" },
+            { id: "ragdollIncline", name: "Incline" },
+            { id: "ragdollMesh", name: "Mesh" },
+            { id: "ragdollPile", name: "Pile" },
+        ],
+    },
+    {
         name: "Shapes",
         scenes: [
             { id: "conveyorBelt", name: "Conveyor Belt" },
@@ -288,6 +299,7 @@ export function changeControl(
 export const scenes = {
     geometricMover: geometricMoverScene,
     rigidBody: rigidBodyScene,
+    ...ragdollScenes,
     ...shapeScenes,
     ...compoundScenes,
     ...meshScenes,
@@ -892,6 +904,7 @@ export function createScene(world: World, scene: Scene): number[] {
     Object.assign(world.resource(ShapeControlsState), ShapeControlsState.create());
     Object.assign(world.resource(WindState), { shapes: [], joints: [], lift: 0, time: 0 });
     world.resource(StackingImpulses).length = 0;
+    Object.assign(world.resource(RagdollState), RagdollState.create());
     Object.assign(world.resource(BodySampleState), BodySampleState.create());
     Object.assign(world.resource(PrecessionState), PrecessionState.create());
     Object.assign(world.resource(CastState), CastState.create());

@@ -18,9 +18,42 @@ import {
     JOINT_LINE,
 } from "../src/joint-presentation";
 import { JointSamplePlugin } from "../src/joints";
+import { RagdollPlugin } from "../src/ragdoll";
 import { changeControl, controlValues, createScene } from "../src/scenes";
 
 setDefaultTimeout(TIMEOUT.node);
+for (const [scene, count] of [
+    ["ragdollBox", 14],
+    ["ragdollMesh", 28],
+    ["ragdollPile", 280],
+    ["ragdollIncline", 14],
+] as const) {
+    test(`${scene}: every bone joint and anchor draws one segment and two dots`, async () => {
+        const app = await createApp({
+            defaults: false,
+            plugins: [RagdollPlugin],
+            setup(world) {
+                createScene(world, scene);
+            },
+        });
+        try {
+            app.world.tick();
+            const segments: number[][][] = [],
+                dots: number[][] = [];
+            drawJoints(
+                app.world,
+                scene,
+                (a, b) => segments.push([a, b]),
+                (point) => dots.push(point),
+            );
+            expect(segments).toHaveLength(count);
+            expect(dots).toEqual(segments.flat());
+            expect(dots.flat().every(Number.isFinite)).toBe(true);
+        } finally {
+            app.dispose();
+        }
+    });
+}
 
 for (const [scene, kind] of [
     ["distance", DistanceJoint],

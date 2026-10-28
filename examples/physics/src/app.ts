@@ -15,6 +15,7 @@ import { GeometricMoverPlugin } from "./geometric-mover";
 import { GrabPlugin } from "./grab";
 import { JointSamplePlugin } from "./joints";
 import { MeshSamplePlugin } from "./mesh";
+import { RagdollPlugin } from "./ragdoll";
 import { RigidBodyPlugin } from "./rigid-body";
 import { ShapesSamplePlugin } from "./shapes";
 import { StackingSamplePlugin } from "./stacking";
@@ -33,6 +34,7 @@ export const AppPlugin: Plugin = {
         EventSamplePlugin,
         BenchmarkSamplePlugin,
         StackingSamplePlugin,
+        RagdollPlugin,
         MeshSamplePlugin,
         ShapesSamplePlugin,
         JointSamplePlugin,

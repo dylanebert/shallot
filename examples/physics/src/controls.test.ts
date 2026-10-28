@@ -2,6 +2,40 @@ import { expect, test } from "bun:test";
 import { formatReadout, formatValue } from "./control-format";
 import { type Controls, controlValues, enabledControls, type Scene, scenes } from "./scenes";
 
+test("Ragdoll retains only the native tuning rows and Respawn with step-based formats", () => {
+    for (const [scene, hertz] of [
+        ["ragdollBox", 1],
+        ["ragdollMesh", 2],
+    ] as const) {
+        const controls = scenes[scene].controls;
+        expect(Object.keys(controls)).toEqual(["Joint Friction", "Hertz", "Damping", "Respawn"]);
+        expect(controls["Joint Friction"]).toMatchObject({
+            value: 5,
+            min: 0,
+            max: 20,
+            step: 1,
+            decimals: 0,
+        });
+        expect(controls.Hertz).toMatchObject({
+            value: hertz,
+            min: 0,
+            max: 20,
+            step: 0.1,
+            decimals: 1,
+        });
+        expect(controls.Damping).toMatchObject({
+            value: 0.7,
+            min: 0,
+            max: 4,
+            step: 0.1,
+            decimals: 1,
+        });
+        expect(controls.Respawn).toMatchObject({ button: true });
+    }
+    expect(scenes.ragdollPile.controls).toBeUndefined();
+    expect(scenes.ragdollIncline.controls).toBeUndefined();
+});
+
 test("read-only values keep native precision without the slider's numeric-width fallback", () => {
     expect(formatReadout(34418.23828125, undefined, 6)).toBe("34418.2");
     expect(formatReadout(12.3456, 4)).toBe("12.3456");

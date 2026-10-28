@@ -25,6 +25,9 @@ export function human(
     world: World,
     position: [number, number, number],
     group: number,
+    torque = 5,
+    hertz = 1,
+    dampingRatio = 0.7,
 ): { bodies: number[]; joints: number[] } {
     const bodies = bones.map((bone) => {
         const eid = world.create();
@@ -59,10 +62,10 @@ export function human(
             localRotationA: normalized(bone.lfaQ!),
             localRotationB: normalized(bone.lfbQ!),
             enableSpring: 1,
-            hertz: 1,
-            dampingRatio: 0.7,
+            hertz,
+            dampingRatio,
             enableMotor: 1,
-            maxMotorTorque: f(f(bone.friction) * 5),
+            maxMotorTorque: f(f(bone.friction) * f(torque)),
         };
         const lower = f(f(bone.twistDeg![0]!) * degrees),
             upper = f(f(bone.twistDeg![1]!) * degrees);

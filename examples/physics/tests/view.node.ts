@@ -201,6 +201,7 @@ test("the accepted role baseline covers every critical-set scene", () => {
                         "Compound",
                         "Continuous",
                         "Mesh",
+                        "Ragdoll",
                         "Shapes",
                     ].includes(category.name),
             )
@@ -382,6 +383,10 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 expect(ground.mesh.indices.length).toBeGreaterThan(0);
             } else expect(presentation.ground).toBeUndefined();
             const extent = {
+                ragdollBox: 20,
+                ragdollMesh: 20,
+                ragdollPile: 10,
+                ragdollIncline: 16,
                 meshReflection: 20,
                 meshHeightField: 9,
                 meshViewer: 20,

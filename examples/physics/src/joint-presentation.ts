@@ -30,7 +30,9 @@ const kinds = [
     WheelJoint,
 ] as const;
 const scenes = new Set(
-    categories.find((category) => category.name === "Joints")!.scenes.map(({ id }) => id),
+    categories
+        .filter((category) => category.name === "Joints" || category.name === "Ragdoll")
+        .flatMap((category) => category.scenes.map(({ id }) => id)),
 );
 export const JOINT_DOT_DIAMETER = JOINT_DOT.width;
 export const JOINT_LINE = { width: 1, depthBias: -1 };

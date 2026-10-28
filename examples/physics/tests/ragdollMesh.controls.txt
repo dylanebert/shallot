@@ -1,0 +1,8 @@
+30	Joint Friction	12
+90	Hertz	3.5
+150	Damping	1.2
+210	Respawn	1
+300	Joint Friction	0
+360	Hertz	0
+420	Damping	0
+480	Respawn	1

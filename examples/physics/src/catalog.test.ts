@@ -126,6 +126,15 @@ test("each picker label selects its scene in its category, exactly once", () => 
             ],
         },
         {
+            name: "Ragdoll",
+            scenes: [
+                { id: "ragdollBox", name: "Box" },
+                { id: "ragdollIncline", name: "Incline" },
+                { id: "ragdollMesh", name: "Mesh" },
+                { id: "ragdollPile", name: "Pile" },
+            ],
+        },
+        {
             name: "Shapes",
             scenes: [
                 { id: "conveyorBelt", name: "Conveyor Belt" },

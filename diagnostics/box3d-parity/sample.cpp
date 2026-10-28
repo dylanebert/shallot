@@ -421,6 +421,7 @@ int main( int argc, char** argv )
 		{ "dominoes", Dominoes::Create }, { "wedge", Wedge::Create },
 		{ "arch", Arch::Create }, { "doubleDomino", DoubleDomino::Create },
 		{ "pyramid2D", Pyramid2D::Create }, { "edgeCrossing", EdgeCrossing::Create },
+        { "ragdollBox", RagdollOnBox::Create }, { "ragdollMesh", RagdollOnMesh::Create }, { "ragdollPile", RagdollPile::Create }, { "ragdollIncline", RagdollIncline::Create },
 		{ "box_stack", BoxStack::Create }, { "bridge", Bridge::Create },
 		{ "driving", Driving::Create }, { "gearLift", GearLift::Create }, { "door", Door::Create }, { "distance", DistanceJoint::Create }, { "spherical", SphericalJoint::Create }, { "motionLocks", MotionLocks::Create },
         { "ballAndChain", BallAndChain::Create }, { "foldOut", FoldOut::Create }, { "topDownFriction", TopDownFriction::Create }, { "weld", WeldJoint::Create },
