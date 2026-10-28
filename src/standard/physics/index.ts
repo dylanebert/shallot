@@ -2,6 +2,22 @@ export type { DebugDraw, ShapeProxy } from "./api";
 export { defaultDebugDraw } from "./api";
 export { Character, CharacterPlugin, GroundState } from "./character";
 export {
+    collideCapsuleAndSphere,
+    collideCapsules,
+    collideHullAndCapsule,
+    collideHullAndSphere,
+    collideHulls,
+    collideSpheres,
+    collideTriangleAndCapsule,
+    collideTriangleAndHull,
+    collideTriangleAndSphere,
+    type FeaturePair,
+    type LocalManifold,
+    type LocalManifoldPoint,
+    type SATCache,
+    SeparatingFeature,
+} from "./collision/manifold";
+export {
     type CollisionPlane,
     clipVector,
     type PlaneResult,

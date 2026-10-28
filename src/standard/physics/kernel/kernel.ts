@@ -49,6 +49,9 @@ export type Kernel = {
     collisionInputPtr(): number;
     collisionOutputPtr(): number;
     collisionQuery(operation: number): void;
+    manifoldInputPtr(): number;
+    manifoldOutputPtr(): number;
+    manifoldQuery(operation: number): void;
     shapeQueryInputPtr(): number;
     shapeQueryOutputPtr(): number;
     shapeQueryRay(world: number, shape: number, local: number): void;

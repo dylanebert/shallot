@@ -175,6 +175,8 @@ mod shapes;
 #[cfg(target_arch = "wasm32")]
 mod solve;
 #[cfg(target_arch = "wasm32")]
+mod standalone_manifold;
+#[cfg(target_arch = "wasm32")]
 mod treework;
 #[cfg(target_arch = "wasm32")]
 mod wind;
