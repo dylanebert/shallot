@@ -34,6 +34,7 @@ import {
 } from "@dylanebert/shallot/extras";
 import { Anchor, Billboard, worldToViewport } from "@dylanebert/shallot/rendering";
 import { defaultDebugDraw, drawPhysics } from "@dylanebert/shallot/standard/physics";
+import { drawCastView } from "./cast-presentation";
 import { drawingBounds, drawSet } from "./draw-set";
 import { DrivingState } from "./driving";
 import { EventSample } from "./events";
@@ -391,6 +392,10 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         group: "simulation",
         after: OrbitPlugin.systems,
         update(world) {
+            if (scene === "cast")
+                drawCastView(world, camera, (a, b, color, options) =>
+                    drawLine(world, a, b, color, options),
+                );
             drawJointViews(world, scene, camera, (a, b, color, options) =>
                 drawLine(world, a, b, color, options),
             );

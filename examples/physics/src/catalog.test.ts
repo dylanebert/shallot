@@ -30,6 +30,8 @@ test("each picker label selects its scene in its category, exactly once", () => 
             name: "Bodies",
             scenes: [
                 { id: "bodyType", name: "Body Type" },
+                { id: "cast", name: "Cast" },
+                { id: "classRing", name: "Class Ring" },
                 { id: "disable", name: "Disable" },
                 { id: "fixedRotation", name: "Fixed Rotation" },
                 { id: "gyroscopicPrecession", name: "Gyroscopic Precession" },

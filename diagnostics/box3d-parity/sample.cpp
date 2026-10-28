@@ -27,18 +27,20 @@ uint64_t b3HashWorldState( b3World* );
 }
 
 // The selected sample classes and AddGroundBox compile verbatim; drawing callbacks below are inert.
+struct PickRay { b3Pos origin; b3Vec3 translation; };
 struct Camera
 {
 	// Contact's recording keeps its initial yaw-zero view and reads only the flattened basis.
 	bool m_thirdPerson = false;
 	b3Pos m_pivot = {};
+	PickRay BuildPickRay( float, float ) { return {}; }
 	void UpdateTransform() {}
 	void SetView( float, float, float, b3Vec3 ) {}
 	b3Vec3 GetForward() const { return { 0, 0, 1 }; }
 	b3Vec3 GetRight() const { return { 1, 0, 0 }; }
 };
 constexpr int KEY_W = 1, KEY_S = 2, KEY_A = 3, KEY_D = 4, KEY_L = 5, KEY_T = 6, KEY_B = 7;
-constexpr int ACTION_PRESS = 1;
+constexpr int ACTION_PRESS = 1, MOD_SHIFT = 1;
 void sapp_lock_mouse( bool ) {}
 bool IsKeyDown( int key ) {
 	float value = 0;
@@ -67,6 +69,39 @@ constexpr int TRANSPARENT_SHADOW_NONE = 0;
 void DrawSolidSphere( b3WorldTransform, b3Sphere, int ) {}
 void DrawSphereEx( b3WorldTransform, float, int, float, float, int ) {}
 void DrawHull( b3WorldTransform, const b3HullData*, int ) {}
+void DrawSolidCapsule( b3WorldTransform, b3Capsule, int ) {}
+void DrawPlane( b3Vec3, b3Pos, int ) {}
+FILE* bodyQueries = nullptr;
+void BodyQueryFloat(float value) { unsigned bits; memcpy(&bits, &value, 4); fprintf(bodyQueries, " %08x", bits); }
+void BodyQueryCast(const b3BodyCastResult& r) {
+    if (!bodyQueries) return;
+    fprintf(bodyQueries, "cast %d", r.hit);
+    for (float v : {float(r.point.x), float(r.point.y), float(r.point.z), r.normal.x, r.normal.y, r.normal.z, r.fraction}) BodyQueryFloat(v);
+    fprintf(bodyQueries, " %d %d %llu\n", r.triangleIndex, 0, (unsigned long long)r.userMaterialId);
+}
+b3BodyCastResult RecordedBodyRay(b3BodyId body, b3Pos origin, b3Vec3 translation, b3QueryFilter filter, float fraction, b3WorldTransform transform) {
+    auto r = b3Body_CastRay(body, origin, translation, filter, fraction, transform); BodyQueryCast(r); return r;
+}
+b3BodyCastResult RecordedBodyShape(b3BodyId body, b3Pos origin, const b3ShapeProxy* proxy, b3Vec3 translation, b3QueryFilter filter, float fraction, bool encroach, b3WorldTransform transform) {
+    auto r = b3Body_CastShape(body, origin, proxy, translation, filter, fraction, encroach, transform); BodyQueryCast(r); return r;
+}
+bool RecordedBodyOverlap(b3BodyId body, b3Pos origin, const b3ShapeProxy* proxy, b3QueryFilter filter, b3WorldTransform transform) {
+    bool r = b3Body_OverlapShape(body, origin, proxy, filter, transform);
+    if (bodyQueries) fprintf(bodyQueries, "overlap %d\n", r); return r;
+}
+int RecordedBodyMover(b3BodyId body, b3BodyPlaneResult* planes, int capacity, b3Pos origin, const b3Capsule* capsule, b3QueryFilter filter, b3WorldTransform transform) {
+    int count = b3Body_CollideMover(body, planes, capacity, origin, capsule, filter, transform);
+    if (bodyQueries) {
+        fprintf(bodyQueries, "mover %d\n", count);
+        for (int i = 0; i < count; ++i) {
+            const auto& p = planes[i].result;
+            fprintf(bodyQueries, "plane");
+            for (float v : {p.plane.normal.x, p.plane.normal.y, p.plane.normal.z, p.plane.offset, p.point.x, p.point.y, p.point.z}) BodyQueryFloat(v);
+            fprintf(bodyQueries, " %d %d %d\n", p.triangleIndex, p.childIndex, p.materialIndex);
+        }
+    }
+    return count;
+}
 bool recordQueriesAndBuilds = false;
 void PrintFloat( float value ) { unsigned bits; memcpy( &bits, &value, 4 ); printf( " %08x", bits ); }
 void PrintCast( const b3RayResult& r ) {
@@ -205,12 +240,15 @@ public:
 		m_worldId = b3CreateWorld( &def );
 		b3World_SetContactRecycleDistance( m_worldId, m_context->recycleDistance );
 	}
+	virtual void MouseDown( b3Vec2, int, int ) {}
+	virtual void MouseUp( b3Vec2, int ) {}
+	virtual void MouseMove( b3Vec2 ) {}
 	virtual void Keyboard( int, int, int ) {}
 	void ToggleThirdPerson() { m_camera->m_thirdPerson = !m_camera->m_thirdPerson; }
 	virtual bool DrawControls() { return false; }
 	virtual void Render() {}
 	void DrawTextLine( const char*, ... ) {}
-	struct PickRay { b3Pos origin; b3Vec3 translation; };
+
 	b3BodyId m_mouseBodyId = {};
 	b3JointId m_mouseJointId = {};
 	b3Pos m_mousePoint = {};
@@ -259,6 +297,10 @@ public:
 #define b3World_CastShape RecordedShapeCast
 #define b3CreateHull RecordedHull
 #define b3CloneAndTransformHull RecordedClone
+#define b3Body_CastRay RecordedBodyRay
+#define b3Body_CastShape RecordedBodyShape
+#define b3Body_OverlapShape RecordedBodyOverlap
+#define b3Body_CollideMover RecordedBodyMover
 // SAMPLE_SOURCES
 
 int main( int argc, char** argv )
@@ -279,6 +321,7 @@ int main( int argc, char** argv )
         { "slideTwist", SlideTwist::Create }, { "conveyorBelt", ConveyorBelt::Create },
         { "restitution", Restitution::Create }, { "staticInvoke", StaticInvoke::Create }, { "wind", Wind::Create },
         { "conveyorMesh", ConveyorMesh::Create }, { "windDrop", WindDrop::Create }, { "windFlap", WindFlap::Create },
+        { "classRing", ClassRing::Create }, { "cast", BodyCast::Create },
         { "bodyType", BodyType::Create }, { "weeble", Weeble::Create }, { "disable", DisableBody::Create },
         { "gyroscopicPrecession", GyroscopicPrecession::Create },
         { "spinningBook", SpinningBooks::Create }, { "gyroscopicTorque", GyroscopicTorque::Create },
@@ -334,6 +377,8 @@ int main( int argc, char** argv )
 	}
     FILE* sensorReadouts = getenv("SENSOR_READOUTS") ? fopen(getenv("SENSOR_READOUTS"), "w") : nullptr;
     if (getenv("SENSOR_READOUTS")) assert(sensorReadouts && !strcmp(argv[1], "sensorHits"));
+    bodyQueries = getenv("BODY_QUERIES") ? fopen(getenv("BODY_QUERIES"), "w") : nullptr;
+    if (getenv("BODY_QUERIES")) assert(bodyQueries && !strcmp(argv[1], "cast"));
     FILE* readouts = getenv("PRECESSION_READOUTS") ? fopen(getenv("PRECESSION_READOUTS"), "w") : nullptr;
     if (getenv("PRECESSION_READOUTS")) assert(readouts && !strcmp(argv[1], "gyroscopicPrecession"));
     if (getenv("CONTACT_DRAWING")) {
@@ -380,6 +425,7 @@ int main( int argc, char** argv )
             }
             fprintf(sensorReadouts, "]]\n");
         }
+        if (!strcmp(argv[1], "cast")) printf("%016llx\n", (unsigned long long)b3HashWorldState(b3GetWorldFromId(sample->m_worldId)));
         if (readouts) {
             auto* top = static_cast<GyroscopicPrecession*>(sample);
             if (top->m_elapsed > 0) fprintf(readouts, "%.9g %.9g\n", top->m_expectedAngle / top->m_elapsed, top->m_actualAngle / top->m_elapsed);
@@ -387,6 +433,7 @@ int main( int argc, char** argv )
         }
         if ( recordQueriesAndBuilds ) sample->Render();
 	}
+    if (bodyQueries) fclose(bodyQueries);
     if (readouts) fclose(readouts);
     if (sensorReadouts) fclose(sensorReadouts);
     if (contactDrawing) fclose(contactDrawing);

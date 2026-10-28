@@ -16,8 +16,10 @@ import {
 } from "@dylanebert/shallot";
 import {
     applyLinearImpulseToCenter,
+    computeCosSin,
     explode,
     getMassData,
+    PhysicsWorldDefinition,
     rotationFromAxisAngle,
     StandardPhysicsPlugin,
     StepPhysicsSystem,
@@ -29,7 +31,9 @@ import {
     setMassData,
     setTargetTransform,
     setTransform,
+    stepPhysics,
 } from "@dylanebert/shallot/standard/physics";
+import { CastPlugin, castScene } from "./cast";
 import { gyroscopicPrecession, PrecessionPlugin } from "./precession";
 import type { Controls } from "./scenes";
 
@@ -37,6 +41,8 @@ type V3 = [number, number, number];
 const f = Math.fround;
 export const BodySampleState = {
     create: () => ({
+        ring: 0,
+        ringVelocity: [0, 0, 0] as V3,
         target: 0,
         offset: 0,
         spin: 0,
@@ -52,9 +58,18 @@ export const BodySampleState = {
 };
 export const BodySamplePlugin: Plugin = {
     name: "BodySample",
-    dependencies: [StandardPhysicsPlugin, PrecessionPlugin],
+    dependencies: [StandardPhysicsPlugin, PrecessionPlugin, CastPlugin],
     recovery: recoverResource(BodySampleState),
     systems: [
+        {
+            name: "class-ring-step",
+            group: "fixed",
+            after: [StepPhysicsSystem],
+            update(world) {
+                if (world.resource(BodySampleState).ring)
+                    for (let i = 0; i < 16; i++) stepPhysics(world, 1 / 960, 8);
+            },
+        },
         {
             name: "body-sample-before-step",
             group: "fixed",
@@ -62,6 +77,11 @@ export const BodySamplePlugin: Plugin = {
             before: [StepPhysicsSystem],
             update(world) {
                 const state = world.resource(BodySampleState);
+                if (state.ring && !state.initialized) {
+                    const [x, y, z] = state.ringVelocity;
+                    setAngularVelocity(world, state.ring, { x, y, z });
+                    state.initialized = true;
+                }
                 if (state.weeble && !state.initialized) {
                     const mass = getMassData(world, state.weeble)!;
                     const shift = f(mass.mass * f(1.5 * 1.5));
@@ -232,6 +252,56 @@ function fixedRotation(world: World): number[] {
         });
         return eid;
     });
+}
+function classRing(world: World): number[] {
+    world.resource(PhysicsWorldDefinition).enableAutomaticStep = false;
+    ground(world, 100);
+    const eid = body(world, [0, 1, 0]);
+    const rotation = rotationFromAxisAngle(
+        world,
+        { x: 1, y: 0, z: 0 },
+        f(f(13 * f(Math.PI)) / 180),
+    );
+    world.storage(Transform).rotation.set(eid, ...rotation);
+    world.storage(Body).allowFastRotation.set(eid, 1);
+    world.storage(Body).enableContactRecycling.set(eid, 0);
+    const [cosine, sine] = computeCosSin(world, f(f(2 * f(Math.PI)) / 24));
+    const vertices: V3[] = [];
+    let x = f(1 - f(0.1)),
+        y = 0;
+    for (let i = 0; i < 24; i++) {
+        vertices.push([x, y, 0]);
+        const nextX = f(f(cosine * x) - f(sine * y));
+        y = f(f(sine * x) + f(cosine * y));
+        x = nextX;
+    }
+    for (let i = 0; i < 24; i++) {
+        const shape = i === 0 ? eid : world.create();
+        world.add(shape, Shape, {
+            body: i === 0 ? 0 : eid,
+            kind: ShapeKind.Capsule,
+            capsuleCenter1: vertices[i]!,
+            capsuleCenter2: vertices[(i + 1) % 24]!,
+            radius: 0.1,
+            density: 1,
+        });
+    }
+    world.add(world.create(), Shape, {
+        body: eid,
+        kind: ShapeKind.Sphere,
+        sphereCenter: [0, -0.65, 0],
+        radius: 0.3,
+        density: 2,
+    });
+    const tx = f(rotation[0] * 100),
+        ty = f(rotation[3] * 100);
+    world.resource(BodySampleState).ringVelocity = [
+        0,
+        f(100 + f(2 * f(-f(rotation[0] * tx)))),
+        f(2 * f(rotation[0] * ty)),
+    ];
+    world.resource(BodySampleState).ring = eid;
+    return [eid];
 }
 function offsetKinematic(world: World): number[] {
     ground(world);
@@ -432,6 +502,14 @@ const disableControls: Controls = Object.fromEntries(
     ]),
 );
 export const bodyScenes = {
+    cast: castScene,
+    classRing: {
+        construct: classRing,
+        gridExtent: 100,
+        gridSpacing: 1,
+        camera: { yaw: 35, pitch: 25, distance: 6, target: [0, 1, 0] },
+        controls: undefined,
+    },
     gyroscopicPrecession,
     bodyType: {
         construct: bodyType,

@@ -2,7 +2,14 @@ import { test } from "playwright/test";
 import { capture } from "./capture";
 
 for (const width of [1280, 390]) {
-    for (const id of ["bodyType", "weeble", "disable", "gyroscopicPrecession"]) {
+    for (const id of [
+        "bodyType",
+        "weeble",
+        "disable",
+        "gyroscopicPrecession",
+        "classRing",
+        "cast",
+    ]) {
         test(`${id} Bodies look review at ${width}`, async ({ page }) => {
             await page.setViewportSize({ width, height: width === 390 ? 844 : 720 });
             await page.goto(`/?scene=${id}`);

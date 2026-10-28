@@ -16,6 +16,7 @@ import {
 import { PhysicsWorldDefinition, setAwake } from "@dylanebert/shallot/standard/physics";
 import { benchmarkScenes } from "./benchmarks";
 import { BodySampleState, bodyScenes } from "./bodies";
+import { CastState } from "./cast";
 import { eventScenes } from "./events";
 import { jointScenes } from "./joints";
 import { PrecessionState } from "./precession";
@@ -65,6 +66,8 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
         name: "Bodies",
         scenes: [
             { id: "bodyType", name: "Body Type" },
+            { id: "cast", name: "Cast" },
+            { id: "classRing", name: "Class Ring" },
             { id: "disable", name: "Disable" },
             { id: "fixedRotation", name: "Fixed Rotation" },
             { id: "gyroscopicPrecession", name: "Gyroscopic Precession" },
@@ -815,6 +818,8 @@ export function createScene(world: World, scene: Scene): number[] {
     world.resource(StackingImpulses).length = 0;
     Object.assign(world.resource(BodySampleState), BodySampleState.create());
     Object.assign(world.resource(PrecessionState), PrecessionState.create());
+    Object.assign(world.resource(CastState), CastState.create());
+    world.resource(PhysicsWorldDefinition).enableAutomaticStep = true;
     world.resource(PhysicsWorldDefinition).workerCount = 1;
     world.resource(PhysicsWorldDefinition).maximumMemory = 4 * 1024 ** 3;
     return scenes[scene].construct(world);

@@ -57,6 +57,8 @@ const stackingMutations: Record<string, [string, string, string]> = {
     edgeCrossing: ["EdgeCrossing", "{ 0.2f, 0.02f, 0.04f }", "{ 0.21f, 0.02f, 0.04f }"],
 };
 const bodyMutations: Record<string, [string, string, string]> = {
+    classRing: ["ClassRing", "constexpr float r = 1.0f;", "constexpr float r = 1.01f;"],
+    cast: ["BodyCast", "b3CreateCylinder( 2.0f, 0.5f, 0.0f, 16 )", "b3CreateCylinder( 2.0f, 0.6f, 0.0f, 16 )"],
     bodyType: ["BodyType", "{ -2.0f, 3.0f, 0.0f }", "{ -2.1f, 3.0f, 0.0f }"],
     weeble: ["Weeble", "offset = { 0.0f, -1.5f, 0.0f }", "offset = { 0.0f, -1.4f, 0.0f }"],
     disable: ["DisableBody", "float linkRadius = 0.1f;", "float linkRadius = 0.11f;"],
@@ -96,7 +98,7 @@ const shapeMutations: Record<string, [string, string, string]> = {
 };
 const steps = 600;
 for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "filter", "parallel", "motor", "joint", "sensor", "contact", "hit", "move", "persistentContact", "sensorHits", ...Object.keys(stackingMutations), ...Object.keys(jointMutations), ...Object.keys(bodyMutations), ...Object.keys(shapeMutations)]) {
-    test(`${scene}: upstream sample hashes repeat and a source constant changes them`, () => {
+    test(`${scene}: upstream sample records repeat and reject a source mutation`, () => {
         const binary = sampleBinary();
         const hashes = run([binary, scene, String(steps)]);
         equalSampleSteps(run([binary, scene, String(steps)]), hashes, `${scene} repeat`);
@@ -152,8 +154,18 @@ for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "f
             const after = shapeMutations[scene]?.[2] ?? bodyMutations[scene]?.[2] ?? jointMutations[scene]?.[2] ?? stackingMutations[scene]?.[2] ?? eventConstants[scene]?.[1] ?? (scene === "wheel" ? "bodyDef.position = { 0.0f, 2.1f, 0.0f };" : scene === "filter" ? "bodyDef.position = { 2.1f, 4.0f, 0.0f };" : replacement!);
             expect(selected.includes(before)).toBe(true);
             writeFileSync(path, prefix + selected.replace(before, after));
-            const mutated = run([sampleBinary(join(copy, "samples")), scene, String(steps)]);
-            expect(sampleGold(mutated).map(step => step.hash)).not.toEqual(sampleGold(hashes).map(step => step.hash));
+            const queryPath = join(copy, "queries.txt");
+            if (scene === "cast") {
+                run([binary, scene, String(steps)], { BODY_QUERIES: queryPath });
+                const queries = readFileSync(queryPath, "utf8");
+                expect(queries).toBe(readFileSync(new URL("../../examples/physics/tests/cast.queries.gold.txt", import.meta.url), "utf8"));
+                run([binary, scene, String(steps)], { BODY_QUERIES: queryPath });
+                expect(readFileSync(queryPath, "utf8")).toBe(queries);
+            }
+            const mutated = run([sampleBinary(join(copy, "samples")), scene, String(steps)], scene === "cast" ? { BODY_QUERIES: queryPath } : {});
+            if (scene === "cast") expect(readFileSync(queryPath, "utf8")).not.toBe(readFileSync(new URL("../../examples/physics/tests/cast.queries.gold.txt", import.meta.url), "utf8"));
+            if (scene === "cast") equalSampleSteps(mutated, hashes, "cast unstepped mutation");
+            else expect(sampleGold(mutated).map(step => step.hash)).not.toEqual(sampleGold(hashes).map(step => step.hash));
             expect(hashes.trim().split("\n")).toHaveLength(steps);
             console.log(`${scene}: ${hashes.split("\n")[0]} … ${hashes.trim().split("\n").at(-1)}`);
             console.log(`${scene} mutation: ${mutated.split("\n")[0]} … ${mutated.trim().split("\n").at(-1)}`);

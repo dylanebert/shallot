@@ -38,6 +38,7 @@ import { jointIsValid, getJointLinearSeparation as jointLinearSeparation } from 
 
 const f32 = Math.fround;
 
+import type { PlaneResult } from "./collision/mover";
 import { defaultWorldDef, type QueryFilter, type WorldDef } from "./common/types";
 import { EidColumn } from "./eid-column";
 import {
@@ -112,6 +113,7 @@ import {
     shapeRecreationState,
     syncShapeFields,
 } from "./shape-sync";
+import type { Capsule } from "./shapes/geometry";
 import { destroyShape, shapeIsValid } from "./shapes/shape";
 import { step as stepWorld } from "./solver/step";
 import {
@@ -140,6 +142,13 @@ import {
 import { type DebugDraw, worldDraw } from "./world/draw";
 import { hashWorldState } from "./world/hash";
 import { PROFILE_FIELDS, readStepProfile } from "./world/profile";
+import {
+    type BodyCastHit,
+    bodyCastRay,
+    bodyCastShape,
+    bodyCollideMover,
+    bodyOverlapShape,
+} from "./world/query";
 import {
     bindShapeEntity,
     clearShapeEntities,
@@ -627,6 +636,158 @@ export function physicsBodyIndex(world: World, eid: number): number {
 }
 
 const queryZeroOrigin: Pos = { x: 0, y: 0, z: 0 };
+
+function publishBodyCast(
+    world: World,
+    runtime: PhysicsRuntime,
+    hit: BodyCastHit,
+    out: PhysicsQueryHit,
+): boolean {
+    clearQueryHit(out);
+    if (!hit.hit || hit.shape === null) return false;
+    const context = beginQuery(runtime, world, queryZeroOrigin, null, null, null);
+    try {
+        if (!queryShapeEntities(world, runtime, hit.shape, context)) return false;
+        copyQueryHit(out, {
+            ...hit,
+            shape: context.shapeEid,
+            body: context.bodyEid,
+            childIndex: 0,
+        });
+        return true;
+    } finally {
+        endQuery(runtime);
+    }
+}
+
+/**
+ * Cast against one body's shapes at an explicit world-space placement, not its simulated pose.
+ * Writes the closest hit into caller-owned storage, cleared on a miss or an unbound body.
+ * Reads shapes from the last fixed sync; maxFraction bounds the translation fraction.
+ * Body casts do not report a child index; out.childIndex is zero.
+ */
+export function castBodyRay(
+    world: World,
+    body: number,
+    origin: Pos,
+    translation: Vec3,
+    placement: WorldTransform,
+    out: PhysicsQueryHit,
+    filter?: QueryFilter,
+    maxFraction = 1,
+): boolean {
+    const runtime = runtimeFor(world);
+    const id = boundBody(world, runtime, body);
+    if (!id || !runtime.physicsWorld) {
+        clearQueryHit(out);
+        return false;
+    }
+    return publishBodyCast(
+        world,
+        runtime,
+        bodyCastRay(runtime.physicsWorld, id, origin, translation, placement, filter, maxFraction),
+        out,
+    );
+}
+
+/**
+ * Sweep a convex proxy against one body's last-synced shapes at an explicit world-space placement.
+ * Writes the closest hit into caller-owned storage, cleared on a miss or an unbound body.
+ * maxFraction bounds the translation fraction; canEncroach permits initial touching to advance.
+ * Body casts do not report a child index; out.childIndex is zero.
+ */
+export function castBodyShape(
+    world: World,
+    body: number,
+    origin: Pos,
+    proxy: ShapeProxy,
+    translation: Vec3,
+    placement: WorldTransform,
+    out: PhysicsQueryHit,
+    filter?: QueryFilter,
+    maxFraction = 1,
+    canEncroach = false,
+): boolean {
+    const runtime = runtimeFor(world);
+    const id = boundBody(world, runtime, body);
+    if (!id || !runtime.physicsWorld) {
+        clearQueryHit(out);
+        return false;
+    }
+    return publishBodyCast(
+        world,
+        runtime,
+        bodyCastShape(
+            runtime.physicsWorld,
+            id,
+            origin,
+            proxy,
+            translation,
+            placement,
+            filter,
+            maxFraction,
+            canEncroach,
+        ),
+        out,
+    );
+}
+
+/** Test a convex proxy against a body's last-synced shapes at an explicit world-space placement. An unbound body returns false. */
+export function overlapBodyShape(
+    world: World,
+    body: number,
+    origin: Pos,
+    proxy: ShapeProxy,
+    placement: WorldTransform,
+    filter?: QueryFilter,
+): boolean {
+    const runtime = runtimeFor(world);
+    const id = boundBody(world, runtime, body);
+    return (
+        !!id &&
+        !!runtime.physicsWorld &&
+        bodyOverlapShape(runtime.physicsWorld, id, origin, proxy, placement, filter)
+    );
+}
+
+export type PhysicsBodyPlaneHit = { shape: number; body: number; plane: PlaneResult };
+
+/**
+ * Return up to capacity new capsule contact planes against a body's last-synced shapes at an
+ * explicit world-space placement. Plane points are relative to origin. An unbound body returns [].
+ */
+export function collideBodyMover(
+    world: World,
+    body: number,
+    origin: Pos,
+    mover: Capsule,
+    placement: WorldTransform,
+    capacity = 4,
+    filter?: QueryFilter,
+): PhysicsBodyPlaneHit[] {
+    const runtime = runtimeFor(world);
+    const id = boundBody(world, runtime, body);
+    if (!id || !runtime.physicsWorld) return [];
+    const hits = bodyCollideMover(
+        runtime.physicsWorld,
+        id,
+        origin,
+        mover,
+        placement,
+        capacity,
+        filter,
+    );
+    const context = beginQuery(runtime, world, origin, null, null, null);
+    try {
+        return hits.flatMap((hit) =>
+            queryShapeEntities(world, runtime, hit.shape, context)
+                ? [{ shape: context.shapeEid, body: context.bodyEid, plane: hit.plane }]
+                : [],
+        );
+    } finally {
+        endQuery(runtime);
+    }
+}
 
 /**
  * Cast a ray through the ECS World's Box3D shapes, reporting each hit's Shape and Body entities.

@@ -53,6 +53,10 @@ import {
     type WorldCastHit,
 } from "../../src/standard/physics/world/query";
 import {
+    castBodyRay,
+    castBodyShape,
+    overlapBodyShape,
+    collideBodyMover,
     castRay,
     castRayClosest,
     castShape,
@@ -641,7 +645,26 @@ async function runEntityQuery(input: Input): Promise<string[]> {
             }, filter);
             out.push(count);
         } else {
-            throw new Error(`entity query does not cover operation ${input.operation}`);
+            const placement = { p: { x: values[11], y: values[12], z: values[13] }, q: { v: { x: values[14], y: values[15], z: values[16] }, s: values[17] } };
+            if (input.operation === 7 || input.operation === 8) {
+                const hit = emptyQueryHit();
+                const didHit = input.operation === 7
+                    ? castBodyRay(world, body, origin, translation, placement, hit, filter, Math.abs(values[10]))
+                    : castBodyShape(world, body, origin, proxy, translation, placement, hit, filter, Math.abs(values[10]));
+                if (didHit) expect([hit.shape, hit.body]).toEqual([shape, body]);
+                pushCast(out, { ...hit, hit: didHit, userData: input.kind + 1 }, false);
+            } else if (input.operation === 9) {
+                out.push(Number(overlapBodyShape(world, body, origin, proxy, placement, filter)));
+            } else if (input.operation === 11) {
+                const mover = { center1: { x: 0, y: -values[7], z: 0 }, center2: { x: 0, y: values[7], z: 0 }, radius: values[8] };
+                const planes = collideBodyMover(world, body, origin, mover, placement, 8, filter);
+                out.push(planes.length);
+                for (const hit of planes) {
+                    expect([hit.shape, hit.body]).toEqual([shape, body]);
+                    out.push(input.kind + 1);
+                    pushPlane(out, hit.plane);
+                }
+            } else throw new Error(`entity query does not cover operation ${input.operation}`);
         }
         return out.map((value) => (value === undefined ? "unrepresented" : hex(value)));
     } finally {
@@ -941,6 +964,15 @@ test("ECS World queries equal native Box3D for all six geometry kinds", async ()
         if (input.operation > 4 || input.label !== "deterministic hit") continue;
         const actual = await runEntityQuery(input);
         expect(actual).toEqual(nativeRows[i].slice(0, -2));
+    }
+});
+
+test("ECS body queries equal native Box3D for all six geometry kinds", async () => {
+    for (let i = 0; i < inputs.length; i++) {
+        const input = inputs[i];
+        if (![7, 8, 9, 11].includes(input.operation)) continue;
+        const actual = await runEntityQuery(input);
+        expect(actual, JSON.stringify(input)).toEqual(nativeRows[i]);
     }
 });
 

@@ -1,0 +1,75 @@
+import { expect, setDefaultTimeout, test } from "bun:test";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { Body, BodyType, Shape, ShapeKind } from "../../core/physics";
+import { Transform } from "../../core/transform";
+import { createApp } from "../../engine";
+import {
+    castBodyRay,
+    castBodyShape,
+    collideBodyMover,
+    emptyQueryHit,
+    hashPhysics,
+    overlapBodyShape,
+    PhysicsWorldDefinition,
+    StandardPhysicsPlugin,
+} from ".";
+
+setDefaultTimeout(TIMEOUT.node);
+test("body queries use explicit placement and live entities without stepping or changing the world", async () => {
+    const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
+    const world = app.world;
+    try {
+        world.resource(PhysicsWorldDefinition).enableAutomaticStep = false;
+        const body = world.create();
+        world.add(body, Transform, { translation: [100, 0, 0] });
+        world.add(body, Body, { type: BodyType.Kinematic });
+        const shape = world.create();
+        world.add(shape, Shape, { body, kind: ShapeKind.Sphere, radius: 1, userMaterialIdLow: 7 });
+        const origin = { x: -4, y: 0, z: 0 },
+            translation = { x: 8, y: 0, z: 0 };
+        const placement = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+        const out = emptyQueryHit();
+        const proxy = { points: [{ x: 0, y: 0, z: 0 }], count: 1, radius: 0.25 };
+        expect(castBodyRay(world, body, origin, translation, placement, out)).toBe(false);
+        world.tick();
+        const hash = hashPhysics(world);
+        expect(castBodyRay(world, body, origin, translation, placement, out)).toBe(true);
+        expect(out).toMatchObject({
+            body,
+            shape,
+            fraction: 0.375,
+            userMaterialId: 7n,
+            point: { x: -1, y: 0, z: 0 },
+            normal: { x: -1, y: 0, z: 0 },
+        });
+        expect(castBodyRay(world, body, origin, translation, placement, out, undefined, 0.2)).toBe(
+            false,
+        );
+        expect(out).toEqual(emptyQueryHit());
+        expect(castBodyShape(world, body, origin, proxy, translation, placement, out)).toBe(true);
+        expect([out.body, out.shape]).toEqual([body, shape]);
+        expect(overlapBodyShape(world, body, placement.p, proxy, placement)).toBe(true);
+        const mover = {
+            center1: { x: 0.9, y: -0.2, z: 0 },
+            center2: { x: 0.9, y: 0.2, z: 0 },
+            radius: 0.25,
+        };
+        expect(collideBodyMover(world, body, placement.p, mover, placement)).toHaveLength(1);
+        expect(collideBodyMover(world, body, placement.p, mover, placement, 0)).toEqual([]);
+        const filter = { categoryBits: 0n, maskBits: 0n };
+        expect(castBodyRay(world, body, origin, translation, placement, out, filter)).toBe(false);
+        expect(castBodyShape(world, body, origin, proxy, translation, placement, out, filter)).toBe(
+            false,
+        );
+        expect(overlapBodyShape(world, body, placement.p, proxy, placement, filter)).toBe(false);
+        expect(collideBodyMover(world, body, placement.p, mover, placement, 4, filter)).toEqual([]);
+        expect(hashPhysics(world)).toBe(hash);
+        world.destroy(body);
+        expect(castBodyRay(world, body, origin, translation, placement, out)).toBe(false);
+        expect(castBodyShape(world, body, origin, proxy, translation, placement, out)).toBe(false);
+        expect(overlapBodyShape(world, body, placement.p, proxy, placement)).toBe(false);
+        expect(collideBodyMover(world, body, placement.p, mover, placement)).toEqual([]);
+    } finally {
+        app.dispose();
+    }
+});
