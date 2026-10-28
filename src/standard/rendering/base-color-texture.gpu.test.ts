@@ -36,7 +36,7 @@ const subjects = gpuApps(import.meta.path, [
             StandardRenderingPlugin,
             MeshRenderPlugin,
             {
-                name: "TwoColourImage",
+                name: "TwoColorImage",
                 dependencies: [StandardRenderingPlugin, MeshRenderPlugin],
                 initialize(world) {
                     const png =
@@ -48,7 +48,7 @@ const subjects = gpuApps(import.meta.path, [
                         }),
                     );
                     const mesh = world.resource(Meshes).add({
-                        name: "two-colour-quad",
+                        name: "two-color-quad",
                         vertices: new Float32Array([
                             -2, -2, 0, 0, 0, 0, 1, 0, 2, -2, 0, 1, 0, 0, 1, 0, 2, 2, 0, 1, 0, 0, 1,
                             1, -2, 2, 0, 0, 0, 0, 1, 1,

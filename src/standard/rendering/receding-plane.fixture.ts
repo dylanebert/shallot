@@ -46,8 +46,8 @@ export function diagnosticPixels(size = IMAGE_SIZE): Uint8Array {
     return pixels;
 }
 
-/** Per-level solid colours, so a capture shows which mip level each pixel selected. */
-export const LEVEL_COLOURS = [
+/** Per-level solid colors, so a capture shows which mip level each pixel selected. */
+export const LEVEL_COLORS = [
     [255, 0, 0],
     [255, 160, 0],
     [230, 230, 0],
@@ -106,13 +106,13 @@ export function diagnosticChain(): readonly Uint8Array[] {
 /**
  * Replaces the world's image array with `layers` copies of the diagnostic texture and its box-filtered
  * mip chain; `generate` instead fills each layer's chain from its base level. Layers listed in
- * `levelColoured` instead hold LEVEL_COLOURS per level.
+ * `levelColored` instead hold LEVEL_COLORS per level.
  */
 export function uploadDiagnosticImages(
     world: World,
     layers: number,
     options: {
-        levelColoured?: readonly number[];
+        levelColored?: readonly number[];
         generate?: (texture: GPUTexture, layer: number) => void;
     } = {},
 ): GPUTexture {
@@ -144,11 +144,11 @@ export function uploadDiagnosticImages(
         }
         options.generate?.(texture, layer);
     }
-    for (const layer of options.levelColoured ?? []) {
+    for (const layer of options.levelColored ?? []) {
         for (let level = 0; level < levels; level++) {
             const size = IMAGE_SIZE >> level;
             const pixels = new Uint8Array(size * size * 4);
-            const [r, g, b] = LEVEL_COLOURS[level % LEVEL_COLOURS.length];
+            const [r, g, b] = LEVEL_COLORS[level % LEVEL_COLORS.length];
             for (let i = 0; i < size * size; i++) pixels.set([r, g, b, 255], i * 4);
             device.queue.writeTexture(
                 { texture, mipLevel: level, origin: [0, 0, layer] },
@@ -282,7 +282,7 @@ export function planeUv(
     return uv[0] < 0 || uv[0] > 1 || uv[1] < 0 || uv[1] > 1 ? undefined : uv;
 }
 
-/** Isotropic level of detail at a pixel's centre: log2 of its larger footprint axis in base texels. */
+/** Isotropic level of detail at a pixel's center: log2 of its larger footprint axis in base texels. */
 export function planeLod(
     width: number,
     height: number,
@@ -345,7 +345,7 @@ export function trilinearReference(width: number, height: number): Readback {
 
 /**
  * The largest difference between a capture's row contrast and its reference's, over plane
- * rows whose centre level of detail lies in [low, high], and the row where it occurs.
+ * rows whose center level of detail lies in [low, high], and the row where it occurs.
  */
 export function referenceError(
     capture: Readback,
@@ -393,7 +393,7 @@ export function rowContrast({ rgba, width }: Readback, y: number): number {
 
 /**
  * The detail boundary along the receding direction: the steepest contrast change per unit of level
- * of detail between adjacent plane rows whose centre level of detail lies in [low, high]. Filtering
+ * of detail between adjacent plane rows whose center level of detail lies in [low, high]. Filtering
  * between levels changes contrast at a bounded rate; selecting one level steps it within a row or two.
  */
 export function detailBoundary(capture: Readback, low: number, high: number) {

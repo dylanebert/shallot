@@ -87,7 +87,7 @@ export const brdf = tgpu.fn(
 
 /**
  * Sphere-source BRDF using Karis's representative point (Real Shading in UE4) for specular.
- * Diffuse uses the normalized direction Lc to the light centre. The closest sphere point to the mirror
+ * Diffuse uses the normalized direction Lc to the light center. The closest sphere point to the mirror
  * ray softens the highlight; the sphere's solid angle widens roughness to aPrime and (a/aPrime)^2
  * renormalizes the peak so spreading the lobe does not brighten it. Radius zero reduces exactly to brdf.
  * dist and radius use the same world units.

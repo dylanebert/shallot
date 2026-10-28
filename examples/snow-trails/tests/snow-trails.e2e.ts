@@ -27,7 +27,7 @@ for (const phone of [false, true]) {
                     .some((e) => e.name.endsWith(":first-update")),
             );
         });
-        test("the stepped snow covers the centre and the boulder can be dragged", async ({
+        test("the stepped snow covers the center and the boulder can be dragged", async ({
             page,
         }) => {
             await page.goto("/tests/stepped.html");

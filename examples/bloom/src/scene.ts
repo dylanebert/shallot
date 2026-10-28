@@ -67,7 +67,7 @@ function makeScene(world: World): void {
     }
     for (let x = -5; x < 5; x++) {
         for (let z = -5; z < 5; z++) {
-            // A coordinate hash keeps the six-way colour distribution repeatable.
+            // A coordinate hash keeps the six-way color distribution repeatable.
             const hash = (Math.imul(x + 5, 73856093) ^ Math.imul(z + 5, 19349663)) >>> 0;
             world.resource(Scene).spheres.push(spawn({ x, z, kind: Math.min(hash % 6, 3) }));
         }

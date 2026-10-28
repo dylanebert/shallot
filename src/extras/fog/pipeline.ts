@@ -359,9 +359,9 @@ function createGridKernel(multisampled: boolean) {
             const dim = std.textureDimensions(layout.$.feedback);
             if (input.gid.x >= dim.x || input.gid.y >= dim.y) return;
             const px = d.vec2i(input.gid.xy);
-            // Decorrelate neighbouring columns without changing their shared ray offset. Godot's volumetric fog
+            // Decorrelate neighboring columns without changing their shared ray offset. Godot's volumetric fog
             // gives every cell one Halton phase per frame; HDRP hashes only the depth variate per pixel. Each column
-            // here starts the sequence at its own phase, so the spatial filter below averages neighbours that sample
+            // here starts the sequence at its own phase, so the spatial filter below averages neighbors that sample
             // different offsets within one frame. Under a shared phase every column moves together each frame, and
             // the filter would leave the frame-to-frame swing that stage 6 measured it removing.
             const seed = (input.gid.x + input.gid.y * dim.x) * 747796405 + 2891336453;
@@ -418,7 +418,7 @@ function createGridKernel(multisampled: boolean) {
             const slot = d.u32(camView.projection.w);
 
             const rayScale = 1 / std.max(std.dot(dir, forward), 1e-6);
-            // Centre depth keeps the spatial-filter mask independent of temporal jitter.
+            // Center depth keeps the spatial-filter mask independent of temporal jitter.
             const centerDepth = loadDepth(uv, camView.resolution);
             let centerSurface = d.f32(extent);
             if (centerDepth > 0) {
@@ -487,8 +487,8 @@ function createGridKernel(multisampled: boolean) {
                 // the pixels reading them see: repeating near-side light through them lit the far haze beside a
                 // silhouette. HDRP lights them where they are on the voxel's own ray, up to its dilated maximum
                 // depth (the MaxZ mask), accepting "a temporally stable light leak". Beside a grazing wall that ray
-                // runs through the lit air outside the room: a hall's ceiling and side walls, ending metres short
-                // of the far wall their neighbours see, lit its seams' haze as a comb of columns. Here they are lit
+                // runs through the lit air outside the room: a hall's ceiling and side walls, ending meters short
+                // of the far wall their neighbors see, lit its seams' haze as a comb of columns. Here they are lit
                 // on the ray of the pixel that sees that depth, clear up to it by that pixel's depth, local lights
                 // included. Past that depth, which no pixel reading the column sees, HDRP zeroes cells; here
                 // they take the light there, so a column whose sample hits one wall of a corner cannot light air
@@ -519,8 +519,8 @@ function createGridKernel(multisampled: boolean) {
                     ),
                 );
                 let dens = fogDensity(p, density, base, falloff);
-                // Local lights sample the centre ray, bounded where the jittered sample is, until the cell lies past
-                // the surface. The centre's own depth repeated near-side light past a silhouette: a band above a
+                // Local lights sample the center ray, bounded where the jittered sample is, until the cell lies past
+                // the surface. The center's own depth repeated near-side light past a silhouette: a band above a
                 // pillar rose 14% (stage 10).
                 const lightStart = std.min(start, limit) * lightStep;
                 const lightEnd = std.min(end, limit) * lightStep;
@@ -566,17 +566,17 @@ function createGridKernel(multisampled: boolean) {
                     // HDRP raises a light's radius to the froxel's size at the segment's entry, so a ray through
                     // the lamp cannot sample its singular core; it compares a squared radius with a length, so
                     // this takes the intent, the froxel's width, and keeps the glow's brightness (stage 10).
-                    // Local lights take the column's centre ray, or past the surface the deepest pixel's, as HDRP takes the voxel centre for anisotropy to
+                    // Local lights take the column's center ray, or past the surface the deepest pixel's, as HDRP takes the voxel center for anisotropy to
                     // keep it out of the jitter: a ray jittered above or below a spot's apex inside one column
                     // flips the lamp's cell between dark and lit. Two depth strata settle the cone's penumbra
                     // along the segment. A lamp swings 0.0160 with neither, 0.0098 or 0.0088 with one, 0.0011 with both.
                     // As in HDRP, the light's shadow and cone are read at its own samples while density, ambient
                     // and the sun keep the jittered one; the light list is the jittered sample's cluster, and
                     // the falloff is HDRP's 1 / (d² + r²) rather than standard's 1 / max(d², r²).
-                    // Unlike HDRP, the phase is read at each sample too. HDRP takes anisotropy at the voxel centre
+                    // Unlike HDRP, the phase is read at each sample too. HDRP takes anisotropy at the voxel center
                     // because it reprojects phase-free radiance; here history holds complete lighting, so the
-                    // cell's estimate must weight each sample by its own phase. Taken at the centre, a lamp
-                    // inside the cell scatters wholly forward or backward as the centre passes it: walking at
+                    // cell's estimate must weight each sample by its own phase. Taken at the center, a lamp
+                    // inside the cell scatters wholly forward or backward as the center passes it: walking at
                     // 1.5 m/s toward a lamp swung a patch just below it between 0.015 and 0.095 each slice (stage 11).
                     const froxelWidth = froxelArc * lightStart;
                     let stratum = d.u32(0);
@@ -654,7 +654,7 @@ function createGridKernel(multisampled: boolean) {
                 const prevUv = std.add(std.mul(std.div(clip.xy, clip.w), d.vec2f(0.5, -0.5)), 0.5);
                 const depth = std.dot(std.sub(center, prev.eye.xyz), prev.forward.xyz);
                 const sliceDepth = (depth - prev.range.x) / prev.range.y;
-                // Centres lie at (i²+i+0.5)/N²; invert that, not the slice boundaries.
+                // Centers lie at (i²+i+0.5)/N²; invert that, not the slice boundaries.
                 const z = fogCellCoordinate(depth, prev.range.x, prev.range.y);
                 if (
                     prev.jitter.w > 0 &&
@@ -667,7 +667,7 @@ function createGridKernel(multisampled: boolean) {
                     sliceDepth < 1
                 ) {
                     // Trilinear history from only the cells on the same side of their column's surface as this
-                    // one, by the jitter-free centre depth, so a still camera's history is its own cell's.
+                    // one, by the jitter-free center depth, so a still camera's history is its own cell's.
                     // Wronski (2014) finds a frustum grid's history valid behind geometry only without
                     // depth-based culling, and HDRP, which clips cells at the surface, reprojects every cell and
                     // accepts the leak. Here a cell past a surface is lit beyond the wall, on another ray: blended
@@ -699,7 +699,7 @@ function createGridKernel(multisampled: boolean) {
                         (sameSide(zLow, zHigh, range, columns.x, beyond) << 2) |
                         (sameSide(zLow, zHigh, range, columns.y, beyond) << 3);
                     // Where some disagree, sample the face of the footprint on this side that the trilinear
-                    // weights favour, else its heaviest corner: the sampler then weights only those cells.
+                    // weights favor, else its heaviest corner: the sampler then weights only those cells.
                     let target = d.vec3f(fraction);
                     let best = d.f32(-1);
                     if (same !== 255) {
@@ -751,7 +751,7 @@ function createGridKernel(multisampled: boolean) {
                             }
                         }
                     }
-                    // A cell with no such neighbour takes the current sample alone, as out of the frustum.
+                    // A cell with no such neighbor takes the current sample alone, as out of the frustum.
                     if (same === 255 || best >= 0) {
                         const old = std.textureSampleLevel(
                             layout.$.history,
@@ -784,7 +784,7 @@ function createGridKernel(multisampled: boolean) {
 export const fogGridKernel = createGridKernel(false);
 export const fogGridKernelMultisampled = createGridKernel(true);
 
-// A sampled Gaussian of σ = 1.6 cells, its ±3 tails at 17% of the centre. Godot's weights
+// A sampled Gaussian of σ = 1.6 cells, its ±3 tails at 17% of the center. Godot's weights
 // (0.071303 … 0.214607) fit σ ≈ 2.0 cut at ±3, about 1.5σ: nearly a box, whose separable product draws a hot
 // cell as a square (stage 10). σ = 1.6 is the narrowest that keeps stage 6's shaft-edge claims with margin
 // natively and on lavapipe, where 1.5 reached 0.00499 of their 0.005.
@@ -795,7 +795,7 @@ const GAUSSIAN = tgpu.const(
 
 /**
  * Blur extinction-weighted light (σt·L, σt) along x, as Godot blurs σs·L with σt; the integration kernel blurs
- * along y and divides by σt. Blurring L and σt apart would light dense shadowed air with its thin lit neighbour.
+ * along y and divides by σt. Blurring L and σt apart would light dense shadowed air with its thin lit neighbor.
  * Both passes skip taps past their own column's surface and renormalize the rest.
  */
 export const fogFilterKernel = tgpu
@@ -818,7 +818,7 @@ export const fogFilterKernel = tgpu
         const weight = std.clamp((surface - extent * a * a) / (extent * (b * b - a * a)), 0, 1);
         const own = std.textureLoad(fogFilterLayout.$.lighting, cell, 0);
         // Neither HDRP's 3×3 nor Godot's 7-tap fog filter is depth-aware; blend continuously at the surface.
-        // A tap past its own column's surface holds air beside it that some neighbour sees, not this column's,
+        // A tap past its own column's surface holds air beside it that some neighbor sees, not this column's,
         // and is left out: lit from a ray up to a column and a half away, it would carry that offset three
         // columns, and the haze above a pillar's edge rose 0.0007 against silhouette.node.ts's 0.0005.
         if (weight <= 0) {
@@ -856,7 +856,7 @@ export const fogFilterKernel = tgpu
 
 /**
  * Filter along y and integrate one frustum column per invocation. As in Godot and HDRP, reprojected lighting is
- * blurred across columns before integration while history keeps it unfiltered: neighbours sample different
+ * blurred across columns before integration while history keeps it unfiltered: neighbors sample different
  * jitter phases, so a shadow edge that one column's depth sample flips across averages within the frame.
  */
 export const fogIntegrateKernel = tgpu

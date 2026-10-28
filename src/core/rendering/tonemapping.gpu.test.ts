@@ -105,7 +105,7 @@ test("default tonemapping equals explicit TonyMcMapface", async () => {
     world.destroy(eid);
 });
 
-test("flat mid-grey debanding varies codes by at most one and can be disabled per camera", async () => {
+test("flat mid-gray debanding varies codes by at most one and can be disabled per camera", async () => {
     const { world, eid } = camera(16, 16);
     const phases = world.resource(RenderPhases);
     const saved = phases.splice(0);

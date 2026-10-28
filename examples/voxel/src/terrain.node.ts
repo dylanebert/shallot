@@ -37,7 +37,7 @@ beforeAll(async () => {
 });
 afterAll(() => app?.dispose());
 
-test("orbit opens around the terrain centre and stays put while terrain scrolls", () => {
+test("orbit opens around the terrain center and stays put while terrain scrolls", () => {
     const world = app.world;
     const camera = world.resource(Terrain).camera;
     const span = (config.viewDistance * 2 + 1) * config.chunkSize;

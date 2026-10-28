@@ -76,10 +76,7 @@ function initAttributeMeshes(world: ReturnType<typeof subjects>[number]["world"]
     });
 }
 
-function rebuild(
-    world: ReturnType<typeof subjects>[number]["world"],
-    colour: number[],
-): MeshHandle {
+function rebuild(world: ReturnType<typeof subjects>[number]["world"], color: number[]): MeshHandle {
     initAttributeMeshes(world);
     const quad = world.resource(Meshes).add({
         name: "quad",
@@ -88,7 +85,7 @@ function rebuild(
         attributes: {
             tint: {
                 element: d.vec4f,
-                data: new Float32Array(Array.from({ length: 4 }, () => colour).flat()),
+                data: new Float32Array(Array.from({ length: 4 }, () => color).flat()),
             },
         },
     });

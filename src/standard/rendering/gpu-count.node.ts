@@ -188,7 +188,7 @@ test("a producer compute pass sizes this frame's triangles and changes the next 
     expect(await draw(3)).toBe(3);
     expect(await draw(9)).toBe(9);
 });
-test("transparent draws honour the GPU count and its next-frame change", async () => {
+test("transparent draws honor the GPU count and its next-frame change", async () => {
     scene = await setup(1);
     expect(await draw(3)).toBe(3);
     expect(await draw(9)).toBe(9);

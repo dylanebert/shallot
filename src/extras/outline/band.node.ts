@@ -44,7 +44,7 @@ const pixel = (rgba: Uint8ClampedArray, x: number, y: number) => {
 
 const same = (a: number[], b: number[]) => a.every((value, i) => Math.abs(value - b[i]!) <= 1);
 
-/** Pixels that show the clear colour without the outline and the band colour with it. */
+/** Pixels that show the clear color without the outline and the band color with it. */
 function bandPixels(without: Uint8ClampedArray, withOutline: Uint8ClampedArray): number {
     const clear = pixel(without, 0, 0);
     let count = 0;
@@ -59,15 +59,15 @@ function bandPixels(without: Uint8ClampedArray, withOutline: Uint8ClampedArray):
 }
 
 function expectSceneKept(without: Uint8ClampedArray, withOutline: Uint8ClampedArray) {
-    const centre = SIZE / 2;
-    expect(same(pixel(withOutline, centre, centre), pixel(without, centre, centre))).toBe(true);
+    const center = SIZE / 2;
+    expect(same(pixel(withOutline, center, center), pixel(without, center, center))).toBe(true);
     expect(same(pixel(withOutline, 0, 0), pixel(without, 0, 0))).toBe(true);
     expect(same(pixel(withOutline, SIZE - 1, SIZE - 1), pixel(without, SIZE - 1, SIZE - 1))).toBe(
         true,
     );
 }
 
-test("an outlined mesh shows its band colour just outside its silhouette and keeps the scene elsewhere", async () => {
+test("an outlined mesh shows its band color just outside its silhouette and keeps the scene elsewhere", async () => {
     const { world } = subjects()[0]!;
     const { camera, outlined } = scene(world);
     const without = await frame(world, camera);
@@ -105,9 +105,9 @@ test("an occlusion-aware outline shows its band while visible and none behind an
 
     world.storage(Outline).occlude.set(outlined, 0);
     const onTop = await frame(world, camera);
-    const centre = SIZE / 2;
-    const [r, g, b] = pixel(onTop, centre, centre);
-    expect(same([r!, g!, b!], pixel(hidden, centre, centre))).toBe(true);
+    const center = SIZE / 2;
+    const [r, g, b] = pixel(onTop, center, center);
+    expect(same([r!, g!, b!], pixel(hidden, center, center))).toBe(true);
     let band = 0;
     for (let i = 0; i < hidden.length; i += 4) {
         const [hr, hg, hb] = [onTop[i]!, onTop[i + 1]!, onTop[i + 2]!];

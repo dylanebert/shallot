@@ -22,7 +22,7 @@ export const TerrainMaterial = materialType({
     vertex: (input) => {
         "use gpu";
         // A face corner cannot identify its voxel on the tangent axes. The producer's
-        // packed centre and face also give depth/shadow passes their real normal.
+        // packed center and face also give depth/shadow passes their real normal.
         const voxel = layout.$.voxel[input.vidx];
         const localCenter = d.vec3f(
             d.f32(voxel & 255) + 0.5,

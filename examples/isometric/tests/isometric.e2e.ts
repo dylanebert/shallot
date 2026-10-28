@@ -20,7 +20,7 @@ test("the first frame has no late-pipeline warning", async ({ page }) => {
     );
 });
 
-test("the stepped isometric buildings fill the centre of the view", async ({ page }) => {
+test("the stepped isometric buildings fill the center of the view", async ({ page }) => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     page.on("console", (message) => {

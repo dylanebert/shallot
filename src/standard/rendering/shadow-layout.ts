@@ -9,7 +9,7 @@ import { MAX_POINT_CASTERS } from "./shadows";
 const _shadowCasters = pointCastersSchema();
 const _shadowRects = tileRectsSchema(MAX_POINT_CASTERS * 6);
 
-/** Group-1 shadow resources. Colour shaders touch these bindings because free WGSL shadow
+/** Group-1 shadow resources. Color shaders touch these bindings because free WGSL shadow
  * references are invisible to TypeGPU's call-graph walk. */
 export const shadowLayout = tgpu
     .bindGroupLayout({

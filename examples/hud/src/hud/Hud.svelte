@@ -43,7 +43,7 @@
 
 <section onmousedown={(event) => { if (!(event.target instanceof HTMLInputElement && event.target.type === "range")) event.preventDefault(); }} class="ec controls hud" aria-label="Cube controls">
   <div class="fields">
-    <div class="swatches" aria-label="Cube colour">
+    <div class="swatches" aria-label="Cube color">
         {#each swatches as swatch, index}
             <button tabindex="-1" onfocus={(event) => event.currentTarget.blur()} aria-label={swatch.name} aria-pressed={selected === index}
                 onclick={() => recolor(index)}><span class="swatch" style:background={srgb(swatch.color)}></span></button>

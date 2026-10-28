@@ -2,8 +2,8 @@ import { component, vec2 } from "../../engine";
 
 /**
  * Normalized pivot of a sprite or text block relative to its Transform.
- * Coordinates run from −0.5 (left/bottom) to 0.5 (right/top); zero is the centre.
- * Without Anchor, sprites are centred and text uses its bottom-left corner.
+ * Coordinates run from −0.5 (left/bottom) to 0.5 (right/top); zero is the center.
+ * Without Anchor, sprites are centered and text uses its bottom-left corner.
  */
 export const Anchor = Object.assign(
     component("Anchor", { offset: vec2 }, { defaults: () => ({ offset: [0, 0] }) }),

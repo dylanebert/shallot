@@ -43,7 +43,7 @@ const subjects = gpuApps(import.meta.path, [
     },
 ]);
 
-test("lit equals StandardMaterial at metallic 0 within a centimetre of a point light", async () => {
+test("lit equals StandardMaterial at metallic 0 within a centimeter of a point light", async () => {
     const { world } = subjects()[0];
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });
@@ -51,9 +51,9 @@ test("lit equals StandardMaterial at metallic 0 within a centimetre of a point l
     world.add(camera, AmbientLight, { brightness: 0 });
     world.add(camera, StandardRenderer);
     world.add(camera, Tonemapping, { method: TonemappingMethod.None });
-    // An odd size puts the centre pixel's ray on the axis, through the face point under the light.
+    // An odd size puts the center pixel's ray on the axis, through the face point under the light.
     attachTexture(world, camera, { width: 63, height: 31 });
-    // The box's front face is at z = 0.25, so the light is 5 mm in front of the centre pixel's fragment.
+    // The box's front face is at z = 0.25, so the light is 5 mm in front of the center pixel's fragment.
     const light = world.create();
     world.add(light, Transform, { translation: [0, 0, 0.255, 0] });
     world.add(light, PointLight, { intensity: 0.3 });
@@ -61,19 +61,19 @@ test("lit equals StandardMaterial at metallic 0 within a centimetre of a point l
     world.add(box, Transform, { scale: [0.5, 0.5, 0.5, 0] });
     world.add(box, MeshInstance);
     world.add(box, MeshMaterial, world.resource(LitMaterial).add({ unused: 0 }));
-    const centre = async () => {
+    const center = async () => {
         world.step(0);
         world.step(0);
         const { rgba } = await captureTexture(world, camera);
         return Array.from(rgba.subarray((15 * 63 + 31) * 4, (15 * 63 + 31) * 4 + 4));
     };
-    const litPixel = await centre();
+    const litPixel = await center();
     const standard = world
         .resource(Materials)
         .add(StandardMaterial({ baseColor: [1, 1, 1, 1], perceptualRoughness: 1 }));
     world.storage(MeshMaterial).type.set(box, standard.type);
     world.storage(MeshMaterial).material.set(box, standard.material);
-    const standardPixel = await centre();
+    const standardPixel = await center();
     expect(standardPixel[0]).toBeGreaterThan(64);
     expect(standardPixel[0]).toBeLessThan(250);
     expect(litPixel).toEqual(standardPixel);

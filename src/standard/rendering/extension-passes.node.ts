@@ -195,7 +195,7 @@ const BindingState = {
         return { ...observations, ...s, type };
     },
 };
-test("extension binding 100 is present in resolved colour and clipped depth shaders and the GPU layout", async () => {
+test("extension binding 100 is present in resolved color and clipped depth shaders and the GPU layout", async () => {
     const { world, scene: s } = binding();
     world.step(0);
     world.step(0);

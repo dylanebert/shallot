@@ -3,7 +3,7 @@
 // so without the boot-time `unref` (engine/pool.ts) the process hangs here; with it, it exits cleanly.
 // The consumer also prints the resolved thread count so a silent single-thread fallback (which would exit
 // trivially and prove nothing) fails the gate. Run under both bun and node, since the worker-ref
-// behaviour is runtime-specific.
+// behavior is runtime-specific.
 //
 //   bun run crates/physics/scripts/exit-test.ts   (from the repo root)
 

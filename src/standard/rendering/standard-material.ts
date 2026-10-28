@@ -129,7 +129,7 @@ export const pbrInputFromStandardMaterial = tgpu.fn(
     return input;
 });
 
-/** Return camera-exposed linear lit colour, including emissive, before fog and presentation.
+/** Return camera-exposed linear lit color, including emissive, before fog and presentation.
  * Unlit input returns baseColor unchanged. Alpha is preserved. In every depth pass, lit input
  * returns emissive alone, and the normal prepass writes its worldNormal as the fragment's prepass
  * normal; see `lit`. */
@@ -163,7 +163,7 @@ export type ExtensionLayout<
 > = MaterialLayout<StandardBindings & B, ExtendedParameters<E>> & { readonly extension: E };
 
 /** Extend standard's group 2 with bindings numbered from 100 and parameters folded into its row.
- * Base binding numbers are preserved in colour and depth layouts. Refuses parameter/binding name
+ * Base binding numbers are preserved in color and depth layouts. Refuses parameter/binding name
  * collisions and per-stage bindings exceeding WebGPU's default budgets, including the renderer's
  * group-0 and group-1 entries. Transparent pipelines also count registered fog's group-3 entries at
  * preparation. Storage textures are fragment-only. */
@@ -307,7 +307,7 @@ const vertexVaryings = { litColor: d.vec4f };
 /**
  * Built-in Gouraud material: standard lighting is evaluated once per vertex and interpolated.
  * Does not light point or spot lights or receive sun shadows (litPbr's vertex-stage limit).
- * Ignores baseColorTexture and doubleSided; its interpolated colour uses baseColor alone.
+ * Ignores baseColorTexture and doubleSided; its interpolated color uses baseColor alone.
  */
 export const VertexMaterialType = materialType({
     name: "VertexMaterial",

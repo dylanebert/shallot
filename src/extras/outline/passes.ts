@@ -157,7 +157,7 @@ export const compositeLayout = tgpu.bindGroupLayout({
 });
 
 /**
- * Skip neighbours off the texture: an out-of-bounds `textureLoad` returns 0, which would read as a seed
+ * Skip neighbors off the texture: an out-of-bounds `textureLoad` returns 0, which would read as a seed
  * at the corner. Offsets are `i32` because they go negative; the output is a `vec4<u32>` because typegpu types a
  * fragment target as a 4-component vector — the `rg16uint` attachment consumes `xy` and drops the rest.
  * @internal

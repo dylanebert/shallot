@@ -129,7 +129,7 @@ test.describe("one interaction room", () => {
         expect(errors).toEqual([]);
     });
 
-    test("HUD hint stays visible at near, far and oblique views with its hold ring centred on the key", async () => {
+    test("HUD hint stays visible at near, far and oblique views with its hold ring centered on the key", async () => {
         for (const [distance, yaw, pitch] of [
             [1.2, 0, 0],
             [1.8, -0.45, 0.25],
@@ -155,7 +155,7 @@ test.describe("one interaction room", () => {
             expect(
                 Math.abs(key!.y + key!.height / 2 - ring!.y - ring!.height / 2),
             ).toBeLessThanOrEqual(1);
-            console.log("ring/key centres", {
+            console.log("ring/key centers", {
                 x: key!.x + key!.width / 2 - ring!.x - ring!.width / 2,
                 y: key!.y + key!.height / 2 - ring!.y - ring!.height / 2,
             });
@@ -170,16 +170,16 @@ test.describe("one interaction room", () => {
                 window.advance();
             });
         }
-        await test.step("a completed hold changes the block colour without moving it", async () => {
+        await test.step("a completed hold changes the block color without moving it", async () => {
             const evidence = await page.evaluate(() => window.holdEvidence());
-            console.log("hold colour", evidence);
+            console.log("hold color", evidence);
             await capture(page, "hold-complete");
             expect(evidence.afterPosition).toEqual(evidence.beforePosition);
             expect(evidence.changed).toBeGreaterThan(0.9);
         });
     });
 
-    test("reticle fills only on focus and the hint begins 96px below its centre", async () => {
+    test("reticle fills only on focus and the hint begins 96px below its center", async () => {
         // The stepped fixture mounts the game's HUD; also check the shipped shell for stray UI.
         const shell = await (await page.request.get("http://127.0.0.1:4186/")).text();
         const stray = await page.evaluate((html) => {
@@ -198,23 +198,23 @@ test.describe("one interaction room", () => {
             const dot = page.locator(".reticle-dot");
             await expect(dot).toBeVisible();
             await expect(reticle).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-            const centre = await reticle.boundingBox();
+            const center = await reticle.boundingBox();
             const inner = await dot.boundingBox();
             expect(
-                Math.abs(inner!.x + inner!.width / 2 - centre!.x - centre!.width / 2),
+                Math.abs(inner!.x + inner!.width / 2 - center!.x - center!.width / 2),
             ).toBeLessThanOrEqual(1);
             expect(
-                Math.abs(inner!.y + inner!.height / 2 - centre!.y - centre!.height / 2),
+                Math.abs(inner!.y + inner!.height / 2 - center!.y - center!.height / 2),
             ).toBeLessThanOrEqual(1);
             const hint = await page.locator(".hint").boundingBox();
             const bounds = await page.locator(".interact-hud").boundingBox();
             expect(
-                Math.abs(centre!.x + centre!.width / 2 - bounds!.x - bounds!.width / 2),
+                Math.abs(center!.x + center!.width / 2 - bounds!.x - bounds!.width / 2),
             ).toBeLessThanOrEqual(1);
             expect(
-                Math.abs(centre!.y + centre!.height / 2 - bounds!.y - bounds!.height / 2),
+                Math.abs(center!.y + center!.height / 2 - bounds!.y - bounds!.height / 2),
             ).toBeLessThanOrEqual(1);
-            expect(Math.abs(hint!.y - centre!.y - centre!.height / 2 - 96)).toBeLessThanOrEqual(1);
+            expect(Math.abs(hint!.y - center!.y - center!.height / 2 - 96)).toBeLessThanOrEqual(1);
             await capture(page, `${name}-focused`);
             await page.evaluate((i) => window.aim(i, 6), index);
             await expect(dot).toBeHidden();

@@ -206,7 +206,7 @@ test("the actual first-person scene gives the player a pogo-rest spawn, a contai
             throw new Error("first-person LocalPlayer overrides default sensitivity");
         const eyeHeight = tuning.eyeHeight.get(defaults);
         app.world.destroy(defaults);
-        // The eye is authored where Player would pose it at spawn: the capsule centre raised by
+        // The eye is authored where Player would pose it at spawn: the capsule center raised by
         // the default eye height, since the player entity authors no tuning of its own.
         const eyeTransform = app.world.storage(Transform).translation;
         const eyeEid = entity(app, "eye");

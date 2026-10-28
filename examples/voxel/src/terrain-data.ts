@@ -17,7 +17,7 @@ export function capacity(config: TerrainConfig, allFaces = false): number {
     // Fade's derivative is <= 15/8, so each noise derivative is <= 1 + 2*15/8.
     // Ceil bounds the difference of floored heights across one voxel.
     const slope = Math.ceil((4.75 * config.relief) / 32);
-    // The transition reaches one voxel below the lowest neighbouring top.
+    // The transition reaches one voxel below the lowest neighboring top.
     return config.chunkSize ** 2 * (allFaces ? 6 * (slope + 2) : 2 + 4 * slope);
 }
 

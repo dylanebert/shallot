@@ -223,11 +223,11 @@ test("every quality runs with and without MSAA, including Custom", async () => {
 test("a 1-wide view occludes as a 2-wide one does, and a view without SSAO is unoccluded", async () => {
     const { world } = subjects()[0];
     world.step(1 / 60);
-    async function colour(eid: number) {
+    async function color(eid: number) {
         const result = await probeTexture(world, offscreenTexture(world, eid)!);
         return new Float16Array(result.bytes);
     }
-    const [one, two, plainOne, plainTwo] = await Promise.all(narrow.map(colour));
+    const [one, two, plainOne, plainTwo] = await Promise.all(narrow.map(color));
     const luminance = (rgba: Float16Array, at: number) =>
         rgba[at]! * 0.2126 + rgba[at + 1]! * 0.7152 + rgba[at + 2]! * 0.0722;
     /** each row's least luminance ratio of `lit` to `plain` over its columns, and how many
@@ -261,7 +261,7 @@ test("a 1-wide view occludes as a 2-wide one does, and a view without SSAO is un
     world.remove(narrow[0]!, ScreenSpaceAmbientOcclusion);
     world.remove(narrow[1]!, ScreenSpaceAmbientOcclusion);
     world.step(1 / 60);
-    const [stubOne, stubTwo, againOne, againTwo] = await Promise.all(narrow.map(colour));
+    const [stubOne, stubTwo, againOne, againTwo] = await Promise.all(narrow.map(color));
     expect(stubOne).toEqual(againOne!);
     expect(stubTwo).toEqual(againTwo!);
     expect(againOne).toEqual(plainOne!);

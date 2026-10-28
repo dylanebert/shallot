@@ -118,7 +118,7 @@ test("a camera drawing to an attached texture converts both ways in that texture
             expect.closeTo(32, 4),
             expect.closeTo(16, 4),
         ]);
-        // fov 90 at depth 6: the half-height is 6, so a point 3 up sits a quarter-height above centre.
+        // fov 90 at depth 6: the half-height is 6, so a point 3 up sits a quarter-height above center.
         expect(worldToViewport(world, eid, [0, 3, 0])).toEqual([
             expect.closeTo(32, 4),
             expect.closeTo(8, 4),

@@ -32,7 +32,7 @@ export const hardwarePlanePipeline = {
     },
 };
 
-/** Direct hardware filtering at independently intersected pixel centres and quad gradients. */
+/** Direct hardware filtering at independently intersected pixel centers and quad gradients. */
 export async function hardwarePlaneReference(
     world: World,
     images: GPUTexture,

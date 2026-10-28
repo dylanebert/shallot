@@ -131,7 +131,7 @@ test("the car stops in front of the building while the icon animates", async () 
     }
 });
 
-test("the icon exits in 0.35 seconds with Penner easeInBack, overshooting without moving its centre", async () => {
+test("the icon exits in 0.35 seconds with Penner easeInBack, overshooting without moving its center", async () => {
     const app = await check();
     try {
         const world = app.world,

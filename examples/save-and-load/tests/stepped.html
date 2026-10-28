@@ -28,11 +28,11 @@ window.capture=async()=>{
  return out.toDataURL('image/png');
 };
 window.adapter=world.gpu.adapter;
-const centre=()=>({x:canvas.clientWidth/2,y:canvas.clientHeight/2});
+const center=()=>({x:canvas.clientWidth/2,y:canvas.clientHeight/2});
 await advance(3);
 window.saveAndLoad={state,advance,
- hover:()=>{pointerMove(world,{...centre(),hover:true});world.step(0);},
- click:()=>{pointerMove(world,{...centre(),hover:true});pressButton(world,'left');releaseButton(world,'left');world.step(0);},
+ hover:()=>{pointerMove(world,{...center(),hover:true});world.step(0);},
+ click:()=>{pointerMove(world,{...center(),hover:true});pressButton(world,'left');releaseButton(world,'left');world.step(0);},
  key:(code)=>{pressKey(world,code);world.step(0);releaseKey(world,code);world.step(0);}
 };
 </script></body></html>

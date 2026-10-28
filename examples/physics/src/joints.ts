@@ -875,7 +875,7 @@ function gearLift(world: World): number[] {
                 [c3, s3] = computeCosSin(world, u3);
             const eid = dynamic([x, y, z]);
             world.storage(Transform).rotation.set(eid, f(a * s2), f(a * c2), f(b * s3), f(b * c3));
-            randomInt(); // The sample consumes a random colour for each rock.
+            randomInt(); // The sample consumes a random color for each rock.
             world.add(eid, Shape, { geometry: rock, rollingResistance: 0.3 });
             y = f(y + f(0.2));
         }

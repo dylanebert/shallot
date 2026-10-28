@@ -40,7 +40,7 @@ test.describe("stepped hall", () => {
     });
     test.afterAll(() => page.close());
     test("the far wall's top seam takes no sunlight from the air above the hall", async () => {
-        // Ceiling columns at the seam end metres short of the far wall their neighbours see, and the cells between
+        // Ceiling columns at the seam end meters short of the far wall their neighbors see, and the cells between
         // lie in the sunlit air above the hall. Lit there, they streaked the seam's haze column by column: the
         // brightest pixel column took 1.6 of sunlight at b8718d34.
         const seam = await page.evaluate(() => window.hall.sunColumns([150, 208, 60, 68]));

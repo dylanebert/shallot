@@ -32,7 +32,7 @@ test("seeded Perlin is continuous at integer lattice seams and preserves fractio
     expect(high - low).toBeGreaterThan(8);
 });
 
-test("the face oracle agrees with six-neighbour voxel enumeration, including chunk seams", () => {
+test("the face oracle agrees with six-neighbor voxel enumeration, including chunk seams", () => {
     const config: TerrainConfig = { chunkSize: 4, height: 16, relief: 4, viewDistance: 1 };
     for (const chunk of chunks(config)) {
         let count = 0;

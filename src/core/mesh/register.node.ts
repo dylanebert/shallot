@@ -38,7 +38,7 @@ const register = (world: World) => world.resource(Meshes).add({ name: "slab", ve
 function handleForLabel(world: World, label: string): MeshHandle {
     for (const [handle, mesh] of world.resource(Meshes).entries())
         if (mesh.name === label) return handle;
-    throw new Error(`no mesh labelled "${label}"`);
+    throw new Error(`no mesh labeled "${label}"`);
 }
 // four draw systems, each after the last, ending before the pack, as a producer writing its instances does
 function chainedDrawSystems(): System[] {

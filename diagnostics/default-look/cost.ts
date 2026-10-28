@@ -16,7 +16,7 @@ const median = (values: number[]) => values.sort((a, b) => a - b)[Math.floor(val
 const rows: CostRow[] = [];
 const query = new URLSearchParams(location.search);
 const qualification = query.has("qualify");
-const selectedScene = query.get("scene") ?? "primitives-greybox";
+const selectedScene = query.get("scene") ?? "primitives-graybox";
 const selectedQuality = query.get("quality") ?? "High";
 
 function sceneApp(scene: SceneDefinition, quality: string) {

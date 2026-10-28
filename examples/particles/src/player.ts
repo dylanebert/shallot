@@ -55,9 +55,9 @@ export const Player = component(
         acceleration: f32,
         /** Horizontal damping coefficient in inverse seconds. */
         friction: f32,
-        /** Downward acceleration in metres per second squared. */
+        /** Downward acceleration in meters per second squared. */
         gravity: f32,
-        /** Launch speed relative to the ground in metres per second. */
+        /** Launch speed relative to the ground in meters per second. */
         jumpSpeed: f32,
         /** Grace period after leaving walkable ground, in seconds. */
         coyoteTime: f32,
@@ -65,9 +65,9 @@ export const Player = component(
         jumpBuffer: f32,
         /** sprint multiplier applied while Shift is held */
         sprint: f32,
-        /** Height the capsule floats above walkable ground, in metres. Player writes it to `Character.pogoRest` and turns on `Character.steepWalls`, so walking climbs a step only about as tall as the capsule's walkable rounding below `maxSlope`. */
+        /** Height the capsule floats above walkable ground, in meters. Player writes it to `Character.pogoRest` and turns on `Character.steepWalls`, so walking climbs a step only about as tall as the capsule's walkable rounding below `maxSlope`. */
         hover: f32,
-        /** camera height above the capsule centre (the eye offset) */
+        /** camera height above the capsule center (the eye offset) */
         eyeHeight: f32,
         /** camera pull-back from the eye: 0 = first-person, > 0 = third-person */
         distance: f32,

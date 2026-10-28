@@ -628,7 +628,7 @@ function srgbByte(linear: number) {
 }
 
 for (const extended of [false, true]) {
-    test(`${extended ? "extended" : "custom"} material reads top-left framebuffer pixel centres at target resolution`, async () => {
+    test(`${extended ? "extended" : "custom"} material reads top-left framebuffer pixel centers at target resolution`, async () => {
         const { world } = subjects()[0];
         world.remove(mesh, MeshMaterial);
         world.add(

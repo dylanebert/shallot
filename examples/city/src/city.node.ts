@@ -35,7 +35,7 @@ test("doubling a small population preserves kit sizes and exact per-mesh group c
     }
 });
 
-test("a fixed camera draws the default population's buildings across the centre", async () => {
+test("a fixed camera draws the default population's buildings across the center", async () => {
     const app = await openGpuApp({
         plugins: [
             {

@@ -312,7 +312,7 @@ const depthLayout = tgpu.bindGroupLayout({
     out: { storage: d.arrayOf(d.f32), access: "mutable" },
 });
 // TypeGPU's textureDimensions overloads do not include depth textures. out holds both view
-// centres, then the count of sun-atlas texels with any depth.
+// centers, then the count of sun-atlas texels with any depth.
 const depthSample = tgpu
     .computeFn({ in: { gid: d.builtin.globalInvocationId }, workgroupSize: [1] })(/* wgsl */ `{
     bound.out[0] = textureLoad(bound.front, vec2i(${SIDE / 2}, ${SIDE / 2}), 0);

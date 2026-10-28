@@ -47,7 +47,7 @@ function styleSources(path: string, source: string): string[] {
 }
 
 const COLOR_FUNCTIONS = /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix)\(([^)]*)\)?/gi;
-// A literal colour in hex, three, four, six or eight digits; any other length is not a colour.
+// A literal color in hex, three, four, six or eight digits; any other length is not a color.
 const HEX = /#[0-9a-f]+\b/gi;
 const KEYWORDS = new Set(["transparent", "currentcolor", "inherit", "none"]);
 // A computed part of a cssText template or Svelte style attribute; it is not read.
@@ -57,7 +57,7 @@ const COMPUTED = `${COMPUTED_NAME}()`;
 /**
  * The CSS a source writes, as stylelint reads it: a stylesheet, a page's `<style>` text and style
  * attributes, and cssText strings. Scripts are never read; Svelte `style:` directives and DOM
- * `.style` properties set colours from script and are outside this check.
+ * `.style` properties set colors from script and are outside this check.
  */
 type Css = { sheets: string[]; lists: string[] };
 
@@ -1023,7 +1023,7 @@ async function exampleControls(root: string, light = false): Promise<string[]> {
 
 const controlFixture = await readFile("scripts/fixtures/example-controls/controls.css", "utf8");
 
-test("example-controls candidate holds colour, type, spacing, rows, states and geometry roles", () => {
+test("example-controls candidate holds color, type, spacing, rows, states and geometry roles", () => {
     expect(controlViolations({ sheets: [controlFixture], lists: [] })).toEqual([]);
 });
 
@@ -1235,10 +1235,10 @@ const controlMutations: [string, string, string][] = [
     ["9: independent scaling", "box-sizing: border-box", "scale: 2; box-sizing: border-box"],
     ["3: negative desktop inset", "top: var(--s5)", "top: -24px"],
     ["1: off-site chrome", "--bg: #141210", "--bg: #191816"],
-    ["1: scene colour is not chrome", "--ink: #f0e6d6", "--ink: #ddaa3f"],
+    ["1: scene color is not chrome", "--ink: #f0e6d6", "--ink: #ddaa3f"],
     ["1: alpha surface", "--bg: #141210", "--bg: #141210cc"],
-    ["1: escaped named colour", "--ink: #f0e6d6", "--ink: r\\65 d"],
-    ["1: colour function", "--bg: #141210", "--bg: rgb(20 18 16)"],
+    ["1: escaped named color", "--ink: #f0e6d6", "--ink: r\\65 d"],
+    ["1: color function", "--bg: #141210", "--bg: rgb(20 18 16)"],
     ["1: open headings", "--header-surface: var(--bg2)", "--header-surface: var(--bg)"],
     [
         "2: body size",
@@ -1407,7 +1407,7 @@ test("variables may alias site tokens and inline labels retain the body type rol
     ).toBeGreaterThan(0);
 });
 
-test("scene backgrounds keep the stepped-page and voxel exceptions, not an overlay colour escape", () => {
+test("scene backgrounds keep the stepped-page and voxel exceptions, not an overlay color escape", () => {
     const css = { sheets: ["body { background: #89b6e9; } .help { color: #f0e6d6; }"], lists: [] };
     expect(controlViolations(sceneBackgrounds(css, { example: "voxel" }))).toEqual([]);
     expect(controlViolations(sceneBackgrounds(css, { stepped: true }))).toEqual([]);
@@ -1424,7 +1424,7 @@ test("scene backgrounds keep the stepped-page and voxel exceptions, not an overl
     ).toBeGreaterThan(0);
 });
 
-test("gameplay geometry stays outside the panel kit without exempting its type or colours", () => {
+test("gameplay geometry stays outside the panel kit without exempting its type or colors", () => {
     const css =
         ".reticle { width: 12px; height: 12px; border-radius: 50%; border: 1px solid #f0e6d6; } .key-slot kbd { min-width: 28px; height: 28px; } .progress { stroke: #f0e6d6; } gameplay { width: 140px; height: 140px; border-radius: 50%; } canvas { width: 640px; height: 360px; }";
     expect(controlViolations({ sheets: [css], lists: [] })).toEqual([]);
@@ -1444,7 +1444,7 @@ test("gameplay geometry stays outside the panel kit without exempting its type o
         expect(controlViolations({ sheets: [css + extra], lists: [] }).length).toBeGreaterThan(0);
 });
 
-test("gameplay stick alone accepts translucent site colours, including its authored knob", () => {
+test("gameplay stick alone accepts translucent site colors, including its authored knob", () => {
     const sheet =
         "[data-touch-stick] { background: #141210cc; } [data-touch-stick] > div { background: #f0e6d680; }";
     expect(controlViolations({ sheets: [sheet], lists: [] })).toEqual([]);
@@ -1474,7 +1474,7 @@ test("gameplay stick alone accepts translucent site colours, including its autho
     ).not.toEqual([]);
 });
 
-test("passive page geometry does not excuse off-site colours, type, opacity or 24px panel text", () => {
+test("passive page geometry does not excuse off-site colors, type, opacity or 24px panel text", () => {
     const sheet =
         "body { background: #141210; font: 400 13px/20px 'IBM Plex Sans', system-ui, sans-serif; } h1 { font: 400 24px/20px 'JetBrains Mono', ui-monospace, monospace; } .lockup { width: min(80%, 420px); }";
     expect(controlViolations({ sheets: [sheet], lists: [] })).toEqual([]);

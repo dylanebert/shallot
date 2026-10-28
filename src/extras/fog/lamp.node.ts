@@ -45,12 +45,12 @@ function patch(rgba: Uint8ClampedArray, [cx, cy]: readonly [number, number]) {
     }
     return sum / 25;
 }
-// Patch centre just below the lamp, for the camera below.
+// Patch center just below the lamp, for the camera below.
 const LAMP = [320, 118] as const;
 
 // A warm shadowed downward spot in dense forward-scattering fog at 360p, where one froxel covers 4×4 pixels and
 // the 0.75 m slice holding the lamp sees its inverse-square core. Uniform jitter along that slice made the lamp's
-// cell swing with the sample's depth; equiangular sampling toward the light (HDRP), on the column's centre ray in
+// cell swing with the sample's depth; equiangular sampling toward the light (HDRP), on the column's center ray in
 // two depth strata, holds it to the haze's limit.
 let measured: Promise<{ swing: number; error: number }> | undefined;
 function measure() {
@@ -59,7 +59,7 @@ function measure() {
 }
 function scene(world: World) {
     world.resource(GlobalAmbientLight).brightness = 0;
-    const grey = world.resource(Materials).add(StandardMaterial({ baseColor: [0.4, 0.4, 0.4, 1] }));
+    const gray = world.resource(Materials).add(StandardMaterial({ baseColor: [0.4, 0.4, 0.4, 1] }));
     for (const [translation, scale] of [
         [
             [0, -0.25, 0],
@@ -73,7 +73,7 @@ function scene(world: World) {
         const block = world.create();
         world.add(block, Transform, { translation, scale });
         world.add(block, MeshInstance);
-        world.add(block, MeshMaterial, grey);
+        world.add(block, MeshMaterial, gray);
     }
     const lamp = world.create();
     world.add(lamp, Transform, {
@@ -157,7 +157,7 @@ async function lampTemporalError() {
     return { swing, error };
 }
 
-/** Pixel centre of a world point for {@link cameraAt}'s camera at depth z. */
+/** Pixel center of a world point for {@link cameraAt}'s camera at depth z. */
 function project(z: number, [x, y, pz]: readonly [number, number, number]) {
     const tangent = Math.tan((55 * Math.PI) / 360);
     const distance = z - pz;

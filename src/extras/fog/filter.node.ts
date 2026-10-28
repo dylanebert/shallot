@@ -95,6 +95,6 @@ test("a dolly across a floor slice boundary keeps the shaft-edge step near the u
         previous = image;
     }
     console.log("floor shaft-edge dolly", { largest, largestAt });
-    // The unmasked grid's 1 cm dolly peaks at 0.005662 over the full metre; allow display quantization.
+    // The unmasked grid's 1 cm dolly peaks at 0.005662 over the full meter; allow display quantization.
     expect(largest).toBeLessThan(0.007);
 });

@@ -168,7 +168,7 @@ function moteImages(world: typeof untimed.world) {
         return (await captureTexture(world, camera)).rgba;
     };
 }
-test("a mote just in front of the camera adds no light while a mote two metres away still does", async () => {
+test("a mote just in front of the camera adds no light while a mote two meters away still does", async () => {
     const image = moteImages(untimed.world);
     const background = await image(0.2, false);
     const near = await image(0.2, true);
@@ -178,7 +178,7 @@ test("a mote just in front of the camera adds no light while a mote two metres a
     for (let i = 0; i < far.length; i += 4) increase += Math.max(0, far[i]! - background[i]!);
     expect(increase).toBeGreaterThan(0);
 });
-test("a one-metre mote covers no more pixels than at the two-metre size cap and a four-metre mote keeps its original footprint", async () => {
+test("a one-meter mote covers no more pixels than at the two-meter size cap and a four-meter mote keeps its original footprint", async () => {
     const image = moteImages(untimed.world);
     const background = await image(1, false);
     const coverage = async (depth: number) => {
@@ -195,7 +195,7 @@ test("a one-metre mote covers no more pixels than at the two-metre size cap and 
     console.log("mote pixel coverage", { near, cap, far });
     expect(cap).toBeGreaterThan(0);
     expect(near).toBeLessThanOrEqual(cap);
-    // At four metres the original 0.006 clip-space half-width is 1.536 pixels.
+    // At four meters the original 0.006 clip-space half-width is 1.536 pixels.
     expect(far).toBe(4);
 });
 test("the profiler buffer total includes exactly the motes storage and frame uniform allocations", () => {

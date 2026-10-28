@@ -28,7 +28,7 @@ type Variant = (typeof VARIANTS)[number];
 const DEPTH_PASSES = ["prepasses", "shadow maps"] as const;
 type DepthPass = (typeof DEPTH_PASSES)[number];
 // Per variant: columns written by fragCoord.x, and the two pass texels of a material drawn in the
-// colour pass and one kind of depth pass.
+// color pass and one kind of depth pass.
 const Written = {
     create: (world: World) => {
         const storage = (width: number) => {
@@ -56,7 +56,7 @@ const columnsLayout = materialLayout(Unused, {
 const passesLayout = materialLayout(Unused, {
     passes: { type: "storage-texture", format: "r32uint", access: "write" },
 });
-// A varying routes a material through the varying colour, prepass and shadow fragments.
+// A varying routes a material through the varying color, prepass and shadow fragments.
 const varying = {
     varyings: { tint: d.vec4f },
     vertex: (input: { world: d.v4f; worldNormal: d.v3f }) => {
@@ -64,7 +64,7 @@ const varying = {
         return { world: input.world, worldNormal: input.worldNormal, tint: d.vec4f(1) };
     },
 };
-// Marks the column of each fragment that writes, guarded to the colour pass.
+// Marks the column of each fragment that writes, guarded to the color pass.
 const guardedWrite = (variant: Variant) =>
     materialType({
         name: `GuardedStorageWrite_${variant}`,
@@ -81,7 +81,7 @@ const guardedWrite = (variant: Variant) =>
             return d.vec4f(1);
         },
     });
-// Texel 0 marks a colour-pass run, texel 1 a prepass or shadow run.
+// Texel 0 marks a color-pass run, texel 1 a prepass or shadow run.
 const passFlag = (variant: Variant, pass: DepthPass) =>
     materialType({
         name: `PrepassFlag_${variant}_${pass === "prepasses" ? "prepass" : "shadow"}`,
@@ -149,7 +149,7 @@ beforeAll(() => {
 }, TIMEOUT.startup);
 
 for (const variant of VARIANTS) {
-    test(`a ${variant} material's storage write under !ctx.prepass lands only from the colour pass`, async () => {
+    test(`a ${variant} material's storage write under !ctx.prepass lands only from the color pass`, async () => {
         const { world } = subjects()[0];
         const { bytes } = await probeTexture(world, world.resource(Written).columns[variant]);
         const columns = new Uint32Array(bytes, 0, WIDE);
@@ -158,7 +158,7 @@ for (const variant of VARIANTS) {
     });
 
     for (const pass of DEPTH_PASSES) {
-        test(`a ${variant} material's ctx.prepass is false in the colour pass and true in ${pass}`, async () => {
+        test(`a ${variant} material's ctx.prepass is false in the color pass and true in ${pass}`, async () => {
             const { world } = subjects()[0];
             const texture = world.resource(Written).passes[variant][pass];
             const { bytes } = await probeTexture(world, texture);

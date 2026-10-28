@@ -157,14 +157,14 @@ test("a grab holding the bottom halfway into snow records half the snow depth", 
     world.step(0);
     const grab = world.resource(Grab);
     expect(grab.body).toBe(boulder);
-    // Hold at its centre so the spring does not swing an off-centre anchor beneath the rock.
+    // Hold at its center so the spring does not swing an off-center anchor beneath the rock.
     const p0 = world.storage(GlobalTransform).translation;
-    const centre = { x: p0.x.get(boulder), y: p0.y.get(boulder), z: p0.z.get(boulder) };
+    const center = { x: p0.x.get(boulder), y: p0.y.get(boulder), z: p0.z.get(boulder) };
     const t = grab.translation,
         o = grab.origin;
-    grab.hit.point = centre;
+    grab.hit.point = center;
     grab.hit.fraction =
-        ((centre.x - o.x) * t.x + (centre.y - o.y) * t.y + (centre.z - o.z) * t.z) /
+        ((center.x - o.x) * t.x + (center.y - o.y) * t.y + (center.z - o.z) * t.z) /
         (t.x * t.x + t.y * t.y + t.z * t.z);
     grab.hit.body = boulder;
     pick(world, true);

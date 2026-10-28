@@ -39,7 +39,7 @@ const linear = (value: number) => {
 
 // volumetric-fog's first hall: 0.4 m walls around an 8.6 × 5 × 23.6 m interior, a 4 × 3 m window in the far
 // wall and a high sun behind it, seen from the hall's other end. The ceiling and side walls meet the far wall
-// at a grazing angle, so a column there sees its own wall metres short of the far wall its neighbours see, and
+// at a grazing angle, so a column there sees its own wall meters short of the far wall its neighbors see, and
 // the cells between lie in the sunlit air outside the hall.
 test("haze along the far wall's seams stays dark while the sun lights air outside them", async () => {
     const { world } = subjects()[0]!;

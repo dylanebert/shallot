@@ -51,7 +51,7 @@ test("newlines break lines, including empty lines", () => {
     expect(result.height).toBe(8);
 });
 
-test("line justification aligns left edges, centres or right edges", () => {
+test("line justification aligns left edges, centers or right edges", () => {
     for (const [justify, positions] of [
         [Justify.Left, [0, 1, 0]],
         [Justify.Center, [1, 2, 1.5]],

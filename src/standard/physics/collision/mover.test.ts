@@ -48,7 +48,7 @@ test("mover-versus-sphere returns a normalized upward plane at the overlap depth
     expect(absf(r.plane.offset - 0.1)).toBeLessThan(1e-5);
 });
 
-test("mover-versus-sphere gives a mover whose axis runs through the sphere centre a normalized normal perpendicular to that axis at the combined radius", () => {
+test("mover-versus-sphere gives a mover whose axis runs through the sphere center a normalized normal perpendicular to that axis at the combined radius", () => {
     const shape: Sphere = { center: v(0, 0, 0), radius: 0.5 };
     const mover: Capsule = { center1: v(-1, 0, 0), center2: v(1, 0, 0), radius: 0.2 };
     const r = kernelMover(ShapeType.Sphere, shape, mover)[0] ?? null;

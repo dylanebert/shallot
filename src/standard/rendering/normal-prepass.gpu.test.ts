@@ -41,16 +41,16 @@ function scene(world: World) {
     }
     for (let i = 0; i < normals.length; i++) {
         const n = normals[i]!;
-        const centre: [number, number, number] = i === 6 ? [6, -0.95, 0] : [0, 0, 0];
+        const center: [number, number, number] = i === 6 ? [6, -0.95, 0] : [0, 0, 0];
         const eye: [number, number, number] = [
-            centre[0] + n[0] * 4,
-            centre[1] + n[1] * 4,
-            centre[2] + n[2] * 4,
+            center[0] + n[0] * 4,
+            center[1] + n[1] * 4,
+            center[2] + n[2] * 4,
         ];
         const camera = world.create();
         world.add(camera, Transform, {
             translation: [...eye, 0],
-            rotation: lookAtRotation(...eye, ...centre, 0, n[1] ? 0 : 1, n[1] ? 1 : 0),
+            rotation: lookAtRotation(...eye, ...center, 0, n[1] ? 0 : 1, n[1] ? 1 : 0),
         });
         world.add(camera, Camera, { antialias: 0 });
         world.add(camera, StandardRenderer);
@@ -85,7 +85,7 @@ const subjects = gpuApps(import.meta.path, [
         ],
     },
 ]);
-test("NormalPrepass writes each box face and the ground's world normal at its centre", async () => {
+test("NormalPrepass writes each box face and the ground's world normal at its center", async () => {
     const { world } = subjects()[0];
     world.step(1 / 60);
     for (let i = 0; i < cameras.length; i++) {

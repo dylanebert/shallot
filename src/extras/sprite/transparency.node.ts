@@ -100,7 +100,7 @@ const rotated = gpuScene(import.meta.path, config, (world) => {
     );
     return { world, view, atlas, pane, sprite };
 });
-test("a rotated Blend sprite sorts at its origin-centred sphere and composites over the farther pane", async () => {
+test("a rotated Blend sprite sorts at its origin-centered sphere and composites over the farther pane", async () => {
     const {
         scene: { world, view, atlas, pane, sprite },
     } = rotated();

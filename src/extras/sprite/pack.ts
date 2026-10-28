@@ -26,7 +26,7 @@ export const SpriteFill = {
     Horizontal: 3,
 } as const;
 
-/** A textured world-space quad centred on its Transform unless it has an Anchor. Remove Sprite to hide it; add it again to show it. */
+/** A textured world-space quad centered on its Transform unless it has an Anchor. Remove Sprite to hide it; add it again to show it. */
 export const Sprite = component(
     "Sprite",
     {

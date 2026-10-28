@@ -84,7 +84,7 @@ export function internText(world: World, content: string): number {
  * a world-space text label anchored to an entity's {@link Transform}. Register the string with
  * {@link internText} and, optionally, a face with {@link registerFont}; the glyphs lay out once and ride the entity's
  * transform. Each label retains its packed glyph layout; marked content, font, size, width,
- * justification, colour, opacity or Anchor changes lay out only that label before draw. A loaded
+ * justification, color, opacity or Anchor changes lay out only that label before draw. A loaded
  * font replaces its fallback on the next draw. Placement and billboard changes do not lay out text.
  * The block's bottom-left corner is at the
  * Transform unless the entity has an Anchor. Remove Text to hide it; add it again to show it.

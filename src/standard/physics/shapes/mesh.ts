@@ -18,7 +18,7 @@ export const MeshEdgeFlags = {
     InverseConcaveEdge1: 0x10,
     InverseConcaveEdge2: 0x20,
     InverseConcaveEdge3: 0x40,
-    // A flat edge is both concave-from-front and concave-from-back (coplanar neighbours).
+    // A flat edge is both concave-from-front and concave-from-back (coplanar neighbors).
     FlatEdge1: 0x11,
     FlatEdge2: 0x22,
     FlatEdge3: 0x44,

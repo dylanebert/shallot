@@ -319,7 +319,7 @@ for (const effect of [LensDistortion, ChromaticAberration]) {
 const RADIUS = 0.6;
 const SMOOTHNESS = 2;
 
-/** Bevy's vignette on a square view with default roundness, centre and edge compensation. */
+/** Bevy's vignette on a square view with default roundness, center and edge compensation. */
 function vignetted(scene: number, x: number, y: number): number {
     const u = (x + 0.5) / SIZE - 0.5;
     const v = (y + 0.5) / SIZE - 0.5;

@@ -172,7 +172,7 @@ export function aoKernel() {
             const samples = d.f32(aoLayout.$.settings.samples);
             const size = aoLayout.$.view.resolution;
             const uv = s.div(s.add(d.vec2f(px), 0.5), size);
-            const centre = depthAt(px, 0);
+            const center = depthAt(px, 0);
             let edges = s.sub(
                 d.vec4f(
                     depthAt(s.add(px, d.vec2i(-1, 0)), 0),
@@ -180,14 +180,14 @@ export function aoKernel() {
                     depthAt(s.add(px, d.vec2i(0, -1)), 0),
                     depthAt(s.add(px, d.vec2i(0, 1)), 0),
                 ),
-                centre,
+                center,
             );
             const lr = (edges.y - edges.x) * 0.5;
             const tb = (edges.w - edges.z) * 0.5;
             edges = s.min(s.abs(edges), s.abs(s.add(edges, d.vec4f(lr, -lr, tb, -tb))));
-            edges = s.saturate(s.sub(1.25, s.div(edges, centre * 0.011)));
+            edges = s.saturate(s.sub(1.25, s.div(edges, center * 0.011)));
             s.textureStore(aoLayout.$.edges, px, d.vec4u(s.pack4x8unorm(edges), 0, 0, 0));
-            const p = position(centre + 0.00001, uv);
+            const p = position(center + 0.00001, uv);
             const worldNormal = s.sub(s.mul(s.textureLoad(aoLayout.$.normals, px, 0).xyz, 2), 1);
             const normal = s.mul(aoLayout.$.view.viewFromWorld, d.vec4f(worldNormal, 0)).xyz;
             const view = s.normalize(s.neg(p));

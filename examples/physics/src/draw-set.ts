@@ -3,7 +3,7 @@ import { overlapAABB } from "@dylanebert/shallot/standard/physics";
 
 type AABB = Parameters<typeof overlapAABB>[1];
 
-/** Box3D camera.h DrawBounds and sample.cpp's shadow-caster union, in metres. */
+/** Box3D camera.h DrawBounds and sample.cpp's shadow-caster union, in meters. */
 export function drawingBounds(
     eye: readonly number[],
     forward: readonly number[],

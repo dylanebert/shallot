@@ -377,7 +377,7 @@ export function attachCanvas(world: World, eid: number, canvas: HTMLCanvasElemen
 /**
  * Backing dimensions in device pixels from CSS display dimensions. Zero resW/resH leaves an axis unset:
  * both unset use display×ratio; a set axis is exact and one unset follows display aspect.
- * pixelated marks backing below display size, including ratio < 1, for nearest-neighbour upscaling.
+ * pixelated marks backing below display size, including ratio < 1, for nearest-neighbor upscaling.
  */
 export function backingSize(
     resW: number,
@@ -409,7 +409,7 @@ const _sizeInputs = new WeakMap<View, Float64Array>();
 
 /**
  * Refreshes canvas display geometry and resolves backing size from Resolution or world pixelRatio.
- * Called after binding each frame; sets nearest-neighbour upscaling when undersized. Resolution edits
+ * Called after binding each frame; sets nearest-neighbor upscaling when undersized. Resolution edits
  * apply without waiting for a resize event. Reads Resolution only when the entity carries it, so stale
  * storage from a recycled eid cannot act as a pin. Only the bottom camera on a canvas sizes the canvas;
  * one above it takes its own Resolution or the canvas size. No-op without a canvas; offscreen owners size

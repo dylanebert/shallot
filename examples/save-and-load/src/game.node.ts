@@ -147,7 +147,7 @@ test("no two coins overlap and every coin lies on the platform in a migrated rec
     loadGame(app.world);
     checkScatter();
 });
-test("a ray from each coin's centre toward the sun misses the cube", () => {
+test("a ray from each coin's center toward the sun misses the cube", () => {
     // Slab intersection with the cube [-0.5, 0.5]^3; sun direction is (-1, 2, 0.35).
     for (let i = 0; i < COIN_CAP; i++) {
         const p = placement(i),

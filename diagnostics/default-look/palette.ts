@@ -6,11 +6,11 @@ export interface LookPalette {
         blue: Rgba;
         blueGround: Rgba;
         orange: Rgba;
-        greyboxGround: Rgba;
-        greyboxStep: Rgba;
-        greyboxLift: Rgba;
-        greyboxTower: Rgba;
-        greyboxPerch: Rgba;
+        grayboxGround: Rgba;
+        grayboxStep: Rgba;
+        grayboxLift: Rgba;
+        grayboxTower: Rgba;
+        grayboxPerch: Rgba;
         embedded: Rgba;
         trim?: Rgba;
         routeGround?: Rgba;
@@ -87,11 +87,11 @@ const current = {
             blue: [0.27, 0.58, 0.94, 1],
             blueGround: [0.19, 0.23, 0.3, 1],
             orange: [0.94, 0.58, 0.27, 1],
-            greyboxGround: [0.15, 0.19, 0.2, 1],
-            greyboxStep: [0.28, 0.34, 0.34, 1],
-            greyboxLift: [0.83, 0.53, 0.24, 1],
-            greyboxTower: [0.34, 0.4, 0.39, 1],
-            greyboxPerch: [0.39, 0.45, 0.43, 1],
+            grayboxGround: [0.15, 0.19, 0.2, 1],
+            grayboxStep: [0.28, 0.34, 0.34, 1],
+            grayboxLift: [0.83, 0.53, 0.24, 1],
+            grayboxTower: [0.34, 0.4, 0.39, 1],
+            grayboxPerch: [0.39, 0.45, 0.43, 1],
             embedded: [0.85, 0.55, 0.35, 0.72],
         },
         textColor: 0xffffff,
@@ -143,11 +143,11 @@ export const MATERIAL_ROLES = {
     blue: "accent",
     blueGround: "foreground",
     orange: "accent",
-    greyboxGround: "foreground",
-    greyboxStep: "foreground",
-    greyboxLift: "accent",
-    greyboxTower: "background",
-    greyboxPerch: "foreground",
+    grayboxGround: "foreground",
+    grayboxStep: "foreground",
+    grayboxLift: "accent",
+    grayboxTower: "background",
+    grayboxPerch: "foreground",
     embedded: "accent",
     trim: "background",
     routeGround: "foreground",
@@ -187,11 +187,11 @@ function candidate(hues: (typeof CANDIDATES)[keyof typeof CANDIDATES]): LookPale
             blue: linearFromOklch(colors.primary),
             blueGround: ground,
             orange: linearFromOklch(colors.secondary),
-            greyboxGround: ground,
-            greyboxStep: ground,
-            greyboxLift: linearFromOklch(colors.lift),
-            greyboxTower: dark,
-            greyboxPerch: ground,
+            grayboxGround: ground,
+            grayboxStep: ground,
+            grayboxLift: linearFromOklch(colors.lift),
+            grayboxTower: dark,
+            grayboxPerch: ground,
             embedded: [r, g, b, 0.72],
             routeGround: linearFromOklch(colors.routeGround),
             routeTower: linearFromOklch(colors.routeTower),
@@ -253,11 +253,11 @@ function devOrangeNeutral(): LookPalette {
         materials: {
             ...orange.materials,
             blueGround: neutral(baseline.materials.blueGround),
-            greyboxGround: neutral(baseline.materials.greyboxGround),
-            greyboxStep: neutral(baseline.materials.greyboxStep),
-            greyboxTower: neutral(baseline.materials.greyboxTower),
-            greyboxPerch: neutral(baseline.materials.greyboxPerch),
-            trim: orange.materials.greyboxTower,
+            grayboxGround: neutral(baseline.materials.grayboxGround),
+            grayboxStep: neutral(baseline.materials.grayboxStep),
+            grayboxTower: neutral(baseline.materials.grayboxTower),
+            grayboxPerch: neutral(baseline.materials.grayboxPerch),
+            trim: orange.materials.grayboxTower,
         },
     };
 }
@@ -271,11 +271,11 @@ export const PALETTES = {
             blue: [0.72, 0.4, 0.05, 1],
             blueGround: [0.085, 0.08, 0.072, 1],
             orange: [0.04, 0.43, 0.53, 1],
-            greyboxGround: [0.085, 0.08, 0.072, 1],
-            greyboxStep: [0.15, 0.14, 0.125, 1],
-            greyboxLift: [0.658, 0.301, 0.117, 1],
-            greyboxTower: [0.06, 0.057, 0.052, 1],
-            greyboxPerch: [0.11, 0.105, 0.095, 1],
+            grayboxGround: [0.085, 0.08, 0.072, 1],
+            grayboxStep: [0.15, 0.14, 0.125, 1],
+            grayboxLift: [0.658, 0.301, 0.117, 1],
+            grayboxTower: [0.06, 0.057, 0.052, 1],
+            grayboxPerch: [0.11, 0.105, 0.095, 1],
             embedded: [0.72, 0.4, 0.05, 0.72],
             trim: [0.042, 0.039, 0.035, 1],
             routeGround: [0.085, 0.08, 0.072, 1],

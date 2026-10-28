@@ -14,7 +14,7 @@ const app=await createApp({plugins:[{name:'SteppedScene',dependencies:[GalleryPl
  if(!full){canvas.width=new URLSearchParams(location.search).has('names')?640:320;canvas.height=canvas.width*9/16;attachTexture(world,gallery.camera,{width:canvas.width,height:canvas.height});world.storage(Camera).antialias.set(gallery.camera,0);world.resource(DirectionalLightShadowMap).size=256;for(const sun of world.query([DirectionalLight]))world.storage(DirectionalLight).numCascades.set(sun,1);}
 }}]});
 const world=app.world, gallery=world.resource(Gallery);
-// A missing registered background must not pass as the camera's similarly coloured clear.
+// A missing registered background must not pass as the camera's similarly colored clear.
 world.storage(Camera).clearColor.set(gallery.camera,0xff0000);
 window.resize=(width)=>{canvas.width=width;canvas.height=width*9/16;detachView(world,gallery.camera);attachTexture(world,gallery.camera,{width:canvas.width,height:canvas.height});};
 const orbit=world.storage(Orbit);

@@ -25,7 +25,7 @@ const subjects = gpuApps(import.meta.path, [
     },
 ]);
 
-test("a wrapped centred label covers two separated rows in a captured frame", async () => {
+test("a wrapped centered label covers two separated rows in a captured frame", async () => {
     const { world } = subjects()[0];
     attachTexture(world, camera, { width: 64, height: 64 });
     world.step(1 / 60);

@@ -63,7 +63,7 @@ test.describe("one stepped gallery", () => {
         }
     });
 
-    test("stepped draws show blended glass, repeating wood, animated and row-coloured checker pixels, wave silhouette and registered background", async () => {
+    test("stepped draws show blended glass, repeating wood, animated and row-colored checker pixels, wave silhouette and registered background", async () => {
         await page.evaluate(() => (window as any).resize(320));
         console.log("materials adapter", await page.evaluate(() => (window as any).adapter));
         const aim = (index: number) => page.evaluate((i) => (window as any).aim(i), index);

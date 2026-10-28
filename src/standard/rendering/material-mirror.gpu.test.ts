@@ -50,7 +50,7 @@ const Tag = d.struct({ tag: d.u32 });
 const seenLayout = materialLayout(Tag, {
     seen: { type: "storage-texture", format: "r32uint", access: "write" },
 });
-// A varying routes a material through the varying colour, prepass and shadow stages.
+// A varying routes a material through the varying color, prepass and shadow stages.
 const varying = {
     varyings: { tint: d.vec4f },
     vertex: (input: { world: d.v4f; worldNormal: d.v3f }) => {
@@ -150,7 +150,7 @@ beforeAll(() => {
 const TRUE = 2;
 VARIANTS.forEach((variant, v) => {
     DEPTH_PASSES.forEach((pass, p) => {
-        test(`a ${variant} material on a mirrored instance reads its row and logical front face in the colour pass and ${pass}`, async () => {
+        test(`a ${variant} material on a mirrored instance reads its row and logical front face in the color pass and ${pass}`, async () => {
             const { world } = subjects()[0];
             const { bytes } = await probeTexture(world, world.resource(Seen)[variant][pass]);
             const seen = Array.from(new Uint32Array(bytes, 0, WIDTH));

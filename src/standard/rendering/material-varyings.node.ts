@@ -371,7 +371,7 @@ async function observe(scene: Exclude<ReturnType<typeof subjects>["results"][num
     return { depths, color };
 }
 for (const [index, subject] of cases.entries()) {
-    for (const [pass, label] of ["colour", "prepass depth", "sun depth", "point depth"].entries()) {
+    for (const [pass, label] of ["color", "prepass depth", "sun depth", "point depth"].entries()) {
         test(`${subject.name} matches its localPos reference in ${label}`, async () => {
             const scene = subjects().results[index]!;
             if (scene instanceof Error) throw scene;
@@ -394,7 +394,7 @@ for (const [index, subject] of cases.entries()) {
         });
     }
 }
-test("a varying Mask fragment reads its row's cutoff and mode in colour", async () => {
+test("a varying Mask fragment reads its row's cutoff and mode in color", async () => {
     const scene = subjects().results[4]!;
     if (scene instanceof Error) throw scene;
     scene.world.remove(scene.caster, MeshMaterial);

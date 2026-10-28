@@ -135,7 +135,7 @@ export const surfaceOcclusion = tgpu.fn(
         ),
     });
 });
-/** this colour fragment's SSAO visibility, 1 elsewhere. Bevy specializes its view layout on SSAO
+/** this color fragment's SSAO visibility, 1 elsewhere. Bevy specializes its view layout on SSAO
  *  (`MeshPipelineViewLayoutKey::SCREEN_SPACE_AMBIENT_OCCLUSION`); standard pipelines serve every
  *  view, so a view without SSAO binds a 1x1 stub holding 1, read at the clamped coordinate. */
 const ambientVisibility = tgpu.fn(
@@ -293,12 +293,12 @@ export const litPbr = tgpu.fn(
     return lightingSlot.$(s, normal, world, V);
 });
 
-/** Camera-exposed linear colour of a diffuse surface under ambient, sun and clustered point/spot lights,
+/** Camera-exposed linear color of a diffuse surface under ambient, sun and clustered point/spot lights,
  *  before fog: StandardMaterial's response at metallic 0, which has no specular. Use it in a custom
- *  material's fragment to light its own base colour; for metallic, roughness, occlusion or emissive,
+ *  material's fragment to light its own base color; for metallic, roughness, occlusion or emissive,
  *  use `applyPbrLighting` over `pbrInputFromMaterial`. `normal` is world-space and unit length.
  *  In every depth pass (the depth and normal prepasses and the shadow atlases) `lit` returns zero, and
- *  `applyPbrLighting` emissive alone, so a cutoff on alpha derived from lit colour sees that value
+ *  `applyPbrLighting` emissive alone, so a cutoff on alpha derived from lit color sees that value
  *  there. The normal prepass writes the normal of the fragment's last `lit` or `applyPbrLighting`
  *  call, or the interpolated normal without one. */
 export const lit = tgpu.fn(

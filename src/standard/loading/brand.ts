@@ -127,7 +127,7 @@ function landing(grid: Grid): Map<Point, number> {
     const rnd = lcg(5);
     const jitter = new Map(pixels.map((p) => [p, rnd()]));
     const key = (p: Point) => (BAYER[p.y % 4] as readonly number[])[p.x % 4] as number;
-    // Centre-first ordering makes sparse early beats read as one growing cluster.
+    // Center-first ordering makes sparse early beats read as one growing cluster.
     const cx = pixels.reduce((a, p) => a + p.x, 0) / pixels.length;
     const cy = pixels.reduce((a, p) => a + p.y, 0) / pixels.length;
     const radius = (p: Point) => (p.x - cx) ** 2 + (p.y - cy) ** 2;

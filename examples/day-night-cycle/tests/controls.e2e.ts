@@ -27,7 +27,7 @@ test.describe(() => {
     test.afterAll(() => page.close());
 
     test.describe("the built game's overlay", () => {
-        test("the only control floats centred at the canvas's bottom", async () => {
+        test("the only control floats centered at the canvas's bottom", async () => {
             const slider = page.getByRole("slider", { name: "Hour" });
             await slider.waitFor();
             const canvas = await page.locator("canvas").boundingBox();

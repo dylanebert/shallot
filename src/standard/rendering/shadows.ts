@@ -238,9 +238,9 @@ export function cascadeFit(
     const nearH = mode === CameraMode.Orthographic ? size : nearSplit * tanH;
     const nearW = nearH * aspect;
     // Bevy's `calculate_cascade`: the box side is the slice's longest chord, the larger of its body and
-    // far-plane diagonals, so it stays constant as the camera rotates; the box centres on the corners'
+    // far-plane diagonals, so it stays constant as the camera rotates; the box centers on the corners'
     // light-space bounds, which that side always spans. The midpoint of the longest chord is no such
-    // centre: it leaves other corners outside the box, where the receiver reads lit.
+    // center: it leaves other corners outside the box, where the receiver reads lit.
     const body = Math.hypot(farW + nearW, farH + nearH, farSplit - nearSplit);
     const farDiagonal = 2 * Math.hypot(farW, farH);
     const b = lightBasis(dir, _basis);
@@ -765,7 +765,7 @@ export function updateCascades(world: World, main: number): void {
 
 // A 2D depth atlas avoids requiring cube-array support. Equal tiles keep texel size stable as the camera moves.
 // Per-face culling limits rasterization; gathering faces per mesh limits indirect draws.
-// Widened frusta and tile-clamped PCF taps prevent seams and sampling neighbouring tiles.
+// Widened frusta and tile-clamped PCF taps prevent seams and sampling neighboring tiles.
 
 /** the shadowed-caster ceiling: the per-frame caster array + the combo buffers size to it; the combo
  * view-slot budget (each caster claims up to 6 depth slots) is {@link MAX_COMBO_SLOTS} below */
@@ -1243,7 +1243,7 @@ export function packCasters(
  * Selects enabled point/spot shadow casters after the frame's placement derivation, before BeginFrameSystem
  * packs their cameras.
  * Writes/grows the caller's reusable frames pool and returns its live prefix length. Highest importance
- * wins (ties by lower eid); hysteresis favours the last submitted caster set. Importance is
+ * wins (ties by lower eid); hysteresis favors the last submitted caster set. Importance is
  * intensity*range^2/dist^2 at main, with dist^2 floored at one (or one when no main camera exists).
  * Excess, unpackable or cull-slot-overflow casters are dropped from the lowest rank, warning once per
  * episode. Atlas overflow retries packing after each drop; dropped lights still illuminate unshadowed.

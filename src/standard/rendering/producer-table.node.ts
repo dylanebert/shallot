@@ -273,7 +273,7 @@ async function producerArgs(world: World) {
     );
     return { args, packed };
 }
-test("compute-written producer placements draw exactly the entity colour and sun-shadow pixels", async () => {
+test("compute-written producer placements draw exactly the entity color and sun-shadow pixels", async () => {
     const entity = apps()[0].world;
     const producer = apps()[1].world;
     const ec = [...entity.query([Camera])][0]!;
@@ -360,15 +360,15 @@ test("different producer meshes and material types have their own indirect draw 
     }
     s.other.write(d.vec3u(s.mesh, s.red.type, s.red.material));
 });
-test("NotShadowCaster producer rows remain in colour and leave every sun-shadow slot", async () => {
+test("NotShadowCaster producer rows remain in color and leave every sun-shadow slot", async () => {
     const world = apps()[1].world;
     const s = world.resource(state);
     world.step(0);
-    const colour = (await captureTexture(world, s.camera)).rgba;
+    const color = (await captureTexture(world, s.camera)).rgba;
     expect((await shadow(world)).some((v) => v > 0)).toBe(true);
     s.flags.write(1);
     world.step(0);
-    expect((await captureTexture(world, s.camera)).rgba).toEqual(colour);
+    expect((await captureTexture(world, s.camera)).rgba).toEqual(color);
     expect((await shadow(world)).every((v) => v === 0)).toBe(true);
     s.flags.write(0);
 });

@@ -416,7 +416,7 @@ export function squaredDistance(seeds: Uint16Array, x: number, y: number): numbe
     return (x - seeds[at]!) ** 2 + (y - seeds[at + 1]!) ** 2;
 }
 
-/** CPU nine-neighbour flood, including its non-nearest results.
+/** CPU nine-neighbor flood, including its non-nearest results.
  * The independent ladder has Golus's ceil(log2(width + 1)) levels, ending at 1.
  * The current seed wins ties; otherwise the first in y-then-x order wins.
  */

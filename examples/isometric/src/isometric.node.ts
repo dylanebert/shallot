@@ -38,7 +38,7 @@ async function frame() {
     return captureTexture(app.world, app.world.resource(Isometric).camera);
 }
 
-test("the default isometric frame draws buildings and an accent across its centre", async () => {
+test("the default isometric frame draws buildings and an accent across its center", async () => {
     expect([...app.world.query([MeshInstance])]).toHaveLength(POPULATION);
     const image = await frame();
     let covered = 0,

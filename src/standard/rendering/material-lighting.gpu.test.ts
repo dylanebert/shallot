@@ -80,7 +80,7 @@ beforeAll(async () => {
     await capture();
 }, TIMEOUT.startup);
 
-test("StandardMaterial unlit preserves base colour under lighting that dims a lit material", async () => {
+test("StandardMaterial unlit preserves base color under lighting that dims a lit material", async () => {
     const { world } = subjects()[0];
     const { add, capture } = makeScene(world);
     const baseBlue = StandardMaterial({ baseColor: [0, 0, 1, 1], unlit: true });
@@ -94,7 +94,7 @@ test("StandardMaterial unlit preserves base colour under lighting that dims a li
     expect(pixel(36)).not.toEqual(pixel(28));
 });
 
-test("VertexMaterialType applies the independently computed ambient light to its base colour", async () => {
+test("VertexMaterialType applies the independently computed ambient light to its base color", async () => {
     const { world } = subjects()[1];
     const { add, capture } = makeScene(world);
     const material = world.resource(VertexMaterialType).add(
@@ -109,9 +109,9 @@ test("VertexMaterialType applies the independently computed ambient light to its
 
     const litPixel = (await capture())(28);
     const expectedLit = expectedPixel(0, LIGHTED, 0);
-    const baseColour = expectedPixel(0, 1, 0);
+    const baseColor = expectedPixel(0, 1, 0);
     expect(litPixel).toEqual(expectedLit);
-    expect(litPixel).not.toEqual(baseColour);
+    expect(litPixel).not.toEqual(baseColor);
 });
 
 test("camera EV100 changes ambient exposure by one stop", async () => {

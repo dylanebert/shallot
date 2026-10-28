@@ -10,7 +10,7 @@ function sample(position: d.v3f, time: number) {
     return { position: Array.from(surface.position), normal: Array.from(surface.normal) };
 }
 
-test("the travelling ripple keeps the sphere within 0.03 of its radius", () => {
+test("the traveling ripple keeps the sphere within 0.03 of its radius", () => {
     for (let time = 0; time < 2; time += 0.1)
         for (let y = -0.6; y <= 0.6; y += 0.1) {
             const position = d.vec3f(Math.sqrt(radius * radius - y * y), y, 0);

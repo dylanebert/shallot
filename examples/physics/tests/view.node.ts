@@ -215,7 +215,7 @@ test("the accepted role baseline covers every critical-set scene", () => {
     );
 });
 for (const [id, runs] of Object.entries(acceptedRoles)) {
-    test(`${id}: default roles and colours retain the accepted critical-set baseline`, async () => {
+    test(`${id}: default roles and colors retain the accepted critical-set baseline`, async () => {
         const app = await createApp({
             defaults: false,
             plugins: [StandardPhysicsPlugin, EventSamplePlugin],
@@ -240,7 +240,7 @@ for (const [id, runs] of Object.entries(acceptedRoles)) {
     });
 }
 
-test("sleep changes a body's colour without changing its role", async () => {
+test("sleep changes a body's color without changing its role", async () => {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     try {
         const [body] = createScene(app.world, "boxStack");

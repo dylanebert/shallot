@@ -16,7 +16,7 @@ const layout = tgpu.bindGroupLayout({
 });
 export function mesher(config: TerrainConfig) {
     if (config.chunkSize > 256 || config.height > 256)
-        throw new Error("voxel packed centres require chunkSize and height at most 256");
+        throw new Error("voxel packed centers require chunkSize and height at most 256");
     const Chunk = config.chunkSize;
     const Capacity = capacity(config);
     const fullCapacity = capacity(config, true);

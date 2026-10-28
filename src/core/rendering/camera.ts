@@ -83,7 +83,7 @@ export const Camera = component(
  * as wide as the canvas shape needs; set both for an exact (possibly aspect-distorting) target. Per camera,
  * so each canvas in a multi-view scene pins its own. On a shared canvas the bottom camera's Resolution
  * sizes the canvas; a camera above it renders at its own Resolution, or at the canvas size without one,
- * and is scaled nearest-neighbour onto the canvas. A texture target keeps its size for every camera.
+ * and is scaled nearest-neighbor onto the canvas. A texture target keeps its size for every camera.
  * Pairs with {@link Camera} `antialias` off.
  */
 export const Resolution = component(

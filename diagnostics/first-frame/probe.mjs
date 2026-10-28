@@ -114,7 +114,7 @@ function installHandoffProbe(timing) {
         };
     };
     /** @param {any[]} args @returns {[string]} */
-    const labelled = (args) => [args[0]?.label || "<unlabelled>"];
+    const labeled = (args) => [args[0]?.label || "<unlabelled>"];
     /** @param {any} size */
     const extent = (size) =>
         Array.isArray(size)
@@ -124,7 +124,7 @@ function installHandoffProbe(timing) {
     for (const key of [
         "createRenderPipeline", "createComputePipeline", "createRenderPipelineAsync",
         "createComputePipelineAsync", "createShaderModule",
-    ]) wrap(device, key, "pipeline", labelled);
+    ]) wrap(device, key, "pipeline", labeled);
     wrap(device, "createBuffer", "allocation", (args) => [args[0]?.label || "<unlabelled buffer>", args[0]?.size ?? 0]);
     wrap(device, "createTexture", "allocation", (args) => [args[0]?.label || "<unlabelled texture>", extent(args[0]?.size)]);
     const queue = globalThis.GPUQueue?.prototype;

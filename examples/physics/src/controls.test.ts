@@ -322,7 +322,7 @@ test("Character rows retain Solve, Clip Velocity and two integer read-only overl
     }
 });
 
-test("Continuous carries only the samples' labelled controls", () => {
+test("Continuous carries only the samples' labeled controls", () => {
     for (const scene of [
         "thinWall",
         "bounceHouse",

@@ -27,7 +27,7 @@ test.describe(() => {
     test.afterAll(() => page.close());
 
     test.describe("the built game's overlay", () => {
-        test("the controls float centred along the canvas's bottom edge", async () => {
+        test("the controls float centered along the canvas's bottom edge", async () => {
             const controls = page.getByRole("region", { name: "Cube controls" });
             await controls.waitFor();
             const canvas = await page.locator("canvas").boundingBox();

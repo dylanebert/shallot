@@ -81,10 +81,10 @@ test("material registration refuses a prebuilt TypeGPU vertex and names the plai
     );
 });
 
-test("a material's vertex input and fragment context carry no colour", () => {
+test("a material's vertex input and fragment context carry no color", () => {
     const Parameters = d.struct({ tint: d.vec4f });
     const material = materialType({
-        name: "Colourless",
+        name: "Colorless",
         parameters: Parameters,
         defaults: { tint: d.vec4f(1) },
         varyings: { shade: d.f32 },

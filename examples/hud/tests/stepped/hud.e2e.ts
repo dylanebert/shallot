@@ -60,7 +60,7 @@ test.describe(() => {
         expect(errors).toEqual([]);
     });
 
-    test("DOM controls change stepped speed, material colour and the cube centre hue", async () => {
+    test("DOM controls change stepped speed, material color and the cube center hue", async () => {
         const before = await step(page, 1);
         const amber = await page.evaluate(() => (window as SteppedWindow).captureHud!());
         await page.locator("#speed").fill("2.4");

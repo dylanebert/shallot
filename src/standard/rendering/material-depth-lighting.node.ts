@@ -33,7 +33,7 @@ const common = {
     fragmentInputs: { localPos: true },
     depthPass: { prepass: true, shadows: true },
 } as const;
-// Cuts the cube's -x half; any lit colour lifts alpha past the cutoff.
+// Cuts the cube's -x half; any lit color lifts alpha past the cutoff.
 const LitCut = materialType({
     ...common,
     name: "LitCut",
@@ -127,7 +127,7 @@ const subject = gpuScene(import.meta.path, { defaults: false, plugins: [ProofPlu
     return { cameras, caster, unlitCut, out };
 });
 
-test("a Mask material whose alpha derives from lit colour cuts as unlit in every depth pass", async () => {
+test("a Mask material whose alpha derives from lit color cuts as unlit in every depth pass", async () => {
     const {
         world,
         scene: { cameras, caster, unlitCut, out },

@@ -19,10 +19,10 @@ test("orthographic pixels shift ray origins by size and aspect while keeping par
     resizeViewport(world, 0, 800, 400, 1);
     world.resource(Views).set(camera, { viewportIndex: 0, camera: world.ref(camera) } as View);
     try {
-        const centre = viewportToWorld(world, camera, 400, 200)!;
+        const center = viewportToWorld(world, camera, 400, 200)!;
         const offset = viewportToWorld(world, camera, 600, 100)!;
         // Size 4 is the rendered half-height: local (4, 2, -0.5) turns to (-0.5, 2, -4).
-        expect(centre.origin).toEqual([
+        expect(center.origin).toEqual([
             expect.closeTo(2.5, 6),
             expect.closeTo(2, 6),
             expect.closeTo(5, 6),
@@ -32,7 +32,7 @@ test("orthographic pixels shift ray origins by size and aspect while keeping par
             expect.closeTo(4, 6),
             expect.closeTo(1, 6),
         ]);
-        expect(centre.dir).toEqual([
+        expect(center.dir).toEqual([
             expect.closeTo(-1, 6),
             expect.closeTo(0, 6),
             expect.closeTo(0, 6),

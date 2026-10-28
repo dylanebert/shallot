@@ -70,7 +70,7 @@ function builder(world: World, palette: LookPalette): SceneBuilder {
         if (handle === undefined) {
             handle = materials.add(
                 StandardMaterial({
-                    baseColor: palette.materials[role] ?? palette.materials.greyboxTower,
+                    baseColor: palette.materials[role] ?? palette.materials.grayboxTower,
                     perceptualRoughness: roughness,
                 }),
             );
@@ -147,7 +147,7 @@ function exampleLighting(
     if (sunDisk) world.add(sun, SunDisk);
 }
 
-function primitivesAndGreybox(world: World, palette: LookPalette): void {
+function primitivesAndGraybox(world: World, palette: LookPalette): void {
     exampleLighting(world, true);
     camera(world, palette, [5, 4.5, 7.5], [0, 0.7, 0]);
     const scene = builder(world, palette);
@@ -158,22 +158,22 @@ function primitivesAndGreybox(world: World, palette: LookPalette): void {
         ...capsule(0.42, 1),
     });
 
-    scene.box("greyboxGround", [0, -0.38, 0], [7, 0.25, 7]);
+    scene.box("grayboxGround", [0, -0.38, 0], [7, 0.25, 7]);
     for (let index = 0; index < 4; index++) {
         const x = -4.3 + index * 0.9;
         const height = 0.3 + index * 0.42;
-        scene.box(index === 3 ? "greyboxLift" : "greyboxStep", [x, height, -2.5], [0.8, 0.25, 0.8]);
+        scene.box(index === 3 ? "grayboxLift" : "grayboxStep", [x, height, -2.5], [0.8, 0.25, 0.8]);
     }
-    scene.box("greyboxTower", [2.5, 0.65, -2.2], [0.75, 0.9, 0.8]);
+    scene.box("grayboxTower", [2.5, 0.65, -2.2], [0.75, 0.9, 0.8]);
     scene.box("trim", [2.5, 1.65, -2.2], [0.75, 0.1, 0.8]);
-    scene.box("greyboxPerch", [2.5, 2.25, -2.2], [0.55, 0.5, 0.55]);
+    scene.box("grayboxPerch", [2.5, 2.25, -2.2], [0.55, 0.5, 0.55]);
 
-    scene.box("greyboxStep", [-3, 0.12, 2.6], [0.95, 0.18, 0.95]);
-    scene.box("greyboxStep", [0, 0.12, 2.6], [0.95, 0.18, 0.95]);
-    scene.box("greyboxStep", [3, 0.12, 2.6], [0.95, 0.18, 0.95]);
+    scene.box("grayboxStep", [-3, 0.12, 2.6], [0.95, 0.18, 0.95]);
+    scene.box("grayboxStep", [0, 0.12, 2.6], [0.95, 0.18, 0.95]);
+    scene.box("grayboxStep", [3, 0.12, 2.6], [0.95, 0.18, 0.95]);
     scene.primitive("blue", cubeMesh, [-3, 0.95, 2.6], [1, 1, 1]);
     scene.primitive("orange", sphereMesh, [0, 0.95, 2.6], [1.05, 1.05, 1.05]);
-    scene.primitive("greyboxLift", capsuleMesh, [3, 1.05, 2.6], [1, 1.25, 1]);
+    scene.primitive("grayboxLift", capsuleMesh, [3, 1.05, 2.6], [1, 1.25, 1]);
 }
 
 function sunlitExterior(world: World, palette: LookPalette): void {
@@ -194,13 +194,13 @@ function sunlitExterior(world: World, palette: LookPalette): void {
         .add({ name: "default-look/exterior-sphere", ...sphere() });
 
     scene.box("blueGround", [0, -0.35, 0], [8, 0.3, 8]);
-    scene.primitive("greyboxPerch", sphereMesh, [-4, 0.15, -3], [3, 1.8, 2.4]);
-    scene.primitive("greyboxTower", sphereMesh, [3.8, 0.1, -3.2], [3.4, 2.2, 2.5]);
+    scene.primitive("grayboxPerch", sphereMesh, [-4, 0.15, -3], [3, 1.8, 2.4]);
+    scene.primitive("grayboxTower", sphereMesh, [3.8, 0.1, -3.2], [3.4, 2.2, 2.5]);
     scene.box("trim", [-2.8, 0.65, 1.2], [0.35, 1.1, 0.35]);
     scene.primitive("orange", sphereMesh, [-2.8, 2.1, 1.2], [1.4, 1.4, 1.4]);
     scene.box("trim", [2.6, 0.65, -0.7], [0.35, 1.1, 0.35]);
     scene.primitive("blue", sphereMesh, [2.6, 2.1, -0.7], [1.5, 1.5, 1.5]);
-    scene.box("greyboxLift", [0, 0.3, 2.3], [1.2, 0.28, 0.8]);
+    scene.box("grayboxLift", [0, 0.3, 2.3], [1.2, 0.28, 0.8]);
     scene.box("orange", [0, 0.84, 2.3], [0.42, 0.28, 0.42]);
 }
 
@@ -210,16 +210,16 @@ function pointLitInterior(world: World, palette: LookPalette): void {
     ambient.brightness = 40;
     camera(world, palette, [0, 1.6, 3.4], [0, 0.3, -0.7], 54);
     const scene = builder(world, palette);
-    scene.box("greyboxGround", [0, -1.1, 0], [6.6, 0.2, 7]);
-    scene.box("greyboxTower", [0, 1.1, -3.3], [6.6, 4.2, 0.2]);
-    scene.box("greyboxPerch", [-3.2, 1.1, 0], [0.2, 4.2, 6.6]);
-    scene.box("greyboxPerch", [3.2, 1.1, 0], [0.2, 4.2, 6.6]);
-    scene.box("greyboxTower", [0, 1.1, 3.3], [6.6, 4.2, 0.2]);
-    scene.box("greyboxTower", [0, 3.3, 0], [6.6, 0.2, 6.6]);
+    scene.box("grayboxGround", [0, -1.1, 0], [6.6, 0.2, 7]);
+    scene.box("grayboxTower", [0, 1.1, -3.3], [6.6, 4.2, 0.2]);
+    scene.box("grayboxPerch", [-3.2, 1.1, 0], [0.2, 4.2, 6.6]);
+    scene.box("grayboxPerch", [3.2, 1.1, 0], [0.2, 4.2, 6.6]);
+    scene.box("grayboxTower", [0, 1.1, 3.3], [6.6, 4.2, 0.2]);
+    scene.box("grayboxTower", [0, 3.3, 0], [6.6, 0.2, 6.6]);
 
     scene.box("blueGround", [-1.8, -0.55, -1.3], [0.7, 0.9, 0.7]);
-    scene.box("greyboxLift", [0, -0.5, -1.45], [0.9, 1, 0.8], 0.48);
-    scene.box("greyboxStep", [1.25, -0.55, -0.9], [0.65, 0.9, 0.7], 0.58);
+    scene.box("grayboxLift", [0, -0.5, -1.45], [0.9, 1, 0.8], 0.48);
+    scene.box("grayboxStep", [1.25, -0.55, -0.9], [0.65, 0.9, 0.7], 0.58);
 
     const pointPosition = [-1.4, 1.8, 0.3] as const;
     const point = world.create();
@@ -254,9 +254,9 @@ function textAndUi(world: World, palette: LookPalette): void {
     camera(world, palette, [0, 1.25, 6.5], [0, 1.25, 0], 43);
     const scene = builder(world, palette);
     scene.box("blueGround", [0, -0.95, -0.4], [5.8, 0.28, 3.2]);
-    scene.box("greyboxTower", [0, 1.25, -1.4], [5.1, 1.7, 0.22]);
+    scene.box("grayboxTower", [0, 1.25, -1.4], [5.1, 1.7, 0.22]);
     scene.box("orange", [-2.2, 0.65, 0.1], [0.8, 0.52, 0.8], 0.44);
-    scene.box("greyboxStep", [0, 0.65, 0.1], [0.8, 0.52, 0.8], 0.66);
+    scene.box("grayboxStep", [0, 0.65, 0.1], [0.8, 0.52, 0.8], 0.66);
     scene.box("blue", [2.2, 0.65, 0.1], [0.8, 0.52, 0.8], 0.38);
 
     const title = world.create();
@@ -277,10 +277,10 @@ function textAndUi(world: World, palette: LookPalette): void {
 
 export const SCENES: readonly SceneDefinition[] = [
     {
-        id: "primitives-greybox",
-        title: "Primitives and greybox",
+        id: "primitives-graybox",
+        title: "Primitives and graybox",
         description: "Built-in shapes, a small blockout, and a warm directional light.",
-        build: primitivesAndGreybox,
+        build: primitivesAndGraybox,
     },
     {
         id: "sunlit-exterior",

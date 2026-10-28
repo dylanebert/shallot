@@ -14,7 +14,7 @@ import {
     detailBoundary,
     HALF,
     IMAGE_SIZE,
-    LEVEL_COLOURS,
+    LEVEL_COLORS,
     NEAR,
     PLANE_INDICES,
     planeLod,
@@ -132,7 +132,7 @@ function generatedGltf() {
 function nearestLevel(rgba: Uint8ClampedArray, i: number): number {
     let best = 0;
     let distance = Number.POSITIVE_INFINITY;
-    LEVEL_COLOURS.forEach(([r, g, b], level) => {
+    LEVEL_COLORS.forEach(([r, g, b], level) => {
         const d = (rgba[i] - r) ** 2 + (rgba[i + 1] - g) ** 2 + (rgba[i + 2] - b) ** 2;
         if (d < distance) [best, distance] = [level, d];
     });
@@ -197,7 +197,7 @@ const adapter = world.gpu.adapter;
 const layers = Object.keys(ids).length;
 // Shallot's own generator fills each chain, as registration does; boxLevel is the reference.
 const texture = uploadDiagnosticImages(world, layers, {
-    levelColoured: [ids.hardwareLevels, ids.manualLevels],
+    levelColored: [ids.hardwareLevels, ids.manualLevels],
     generate: (target, layer) =>
         genMipmapsLayer(world, world.gpu.device, target, layer, target.mipLevelCount, target.format),
 });

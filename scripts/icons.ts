@@ -9,7 +9,7 @@ const ROOT = resolve(import.meta.dir, "..");
 // Every default icon a shallot project ships is a render of the one bitmap mark, so the shape
 // can't drift between the boot splash, a scaffolded project's favicon and the native window.
 const NATIVE_ICON = "assets/icon-1024.png";
-// The native icon is opaque and square: the 12×14 mark centred in a 16×16 field on the dark ground,
+// The native icon is opaque and square: the 12×14 mark centered in a 16×16 field on the dark ground,
 // 64 device pixels a cell. A window manager scales it down; the frame keeps the mark off the edge.
 const FRAME = 16;
 const NATIVE_SCALE = 64;

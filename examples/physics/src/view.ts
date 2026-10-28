@@ -77,7 +77,7 @@ function placeMarker(
     const transform = world.storage(Transform);
     transform.translation.set(marker, ...point);
     const q = world.storage(GlobalTransform).rotation;
-    // Project a camera-up metre at the attachment depth to keep the diameter in CSS pixels.
+    // Project a camera-up meter at the attachment depth to keep the diameter in CSS pixels.
     const cameraUp = qRotate(
         q.x.get(camera),
         q.y.get(camera),

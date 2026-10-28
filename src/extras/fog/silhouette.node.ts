@@ -32,7 +32,7 @@ const linear = (value: number) => {
     return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
 };
 
-// lamp.node.ts's spot scene. The pillar's top edge crosses froxel columns whose centre depth lands on the pillar
+// lamp.node.ts's spot scene. The pillar's top edge crosses froxel columns whose center depth lands on the pillar
 // while the far floor shows above it. Light repeated from in front of the pillar through every cell behind it lit
 // the haze above the edge up to 0.0034 brighter than the same air without the pillar.
 const subject = gpuScene(
@@ -51,17 +51,17 @@ const subject = gpuScene(
         world.add(camera, AmbientLight, { brightness: 0 });
         world.add(camera, DebandDither, { enabled: 0 });
         attachTexture(world, camera, { width: WIDTH, height: HEIGHT });
-        const grey = world
+        const gray = world
             .resource(Materials)
             .add(StandardMaterial({ baseColor: [0.4, 0.4, 0.4, 1] }));
         const floor = world.create();
         world.add(floor, Transform, { translation: [0, -0.25, 0], scale: [20, 0.5, 40] });
         world.add(floor, MeshInstance);
-        world.add(floor, MeshMaterial, grey);
+        world.add(floor, MeshMaterial, gray);
         const pillar = world.create();
         world.add(pillar, Transform, { translation: [1, 0.8, 0], scale: [0.35, 1.6, 0.35] });
         world.add(pillar, MeshInstance);
-        world.add(pillar, MeshMaterial, grey);
+        world.add(pillar, MeshMaterial, gray);
         const lamp = world.create();
         world.add(lamp, Transform, {
             translation: [0, 3.35, 0, 0],

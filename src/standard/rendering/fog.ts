@@ -5,9 +5,9 @@ import type { View } from "../../core/rendering";
 import type { World } from "../../engine";
 import { AlphaModeCode } from "./material-type";
 
-/** The shaded fragment's world-space position, in metres. */
+/** The shaded fragment's world-space position, in meters. */
 export const FogInput = d.struct({ worldPosition: d.vec3f }).$name("FogInput");
-/** RGB is added radiance in standard's exposed colour space; alpha is transmittance to the point. */
+/** RGB is added radiance in standard's exposed color space; alpha is transmittance to the point. */
 export type FogSource = TgpuFn<(input: typeof FogInput) => d.Vec4f>;
 const identityFog = tgpu.fn(
     [FogInput],
@@ -30,8 +30,8 @@ const registryKey = {
 
 /**
  * Register one fog source during plugin initialization, before standard warms. Receives the fragment's
- * world position in metres and returns added RGB radiance (already camera-exposed, like shaded colour)
- * and alpha transmittance. Standard applies it only to Blend, Premultiplied, Add and Multiply colour
+ * world position in meters and returns added RGB radiance (already camera-exposed, like shaded color)
+ * and alpha transmittance. Standard applies it only to Blend, Premultiplied, Add and Multiply color
  * pipelines; opaque, masked and alpha-to-coverage surfaces do not read it. Group 3 is reserved for the
  * supplied layout, which must have .$idx(3). Before each transparent draw, bindGroup is called with its
  * camera entity and view; it must return a valid group for every standard camera, including opted-out

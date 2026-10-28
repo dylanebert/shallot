@@ -468,12 +468,12 @@ function materialFragmentContext<
          * it culls back faces and back where it culls front faces, and read from `@builtin(front_facing)`
          * only where it culls none, which counts one inter-stage variable. */
         frontFacing: d.bool,
-        /** Framebuffer pixel centres in the view's render target at its Resolution, origin top-left.
+        /** Framebuffer pixel centers in the view's render target at its Resolution, origin top-left.
          * z and w retain WGSL @builtin(position) semantics: depth and interpolated reciprocal clip w.
          * Depth and shadow passes use their own render target's coordinates. */
         fragCoord: d.vec4f,
         /** True where the fragment runs in a depth prepass, normal prepass or shadow map, which shade
-         * with lighting stubbed and their own fragCoord; false in the colour pass. Side effects such as
+         * with lighting stubbed and their own fragCoord; false in the color pass. Side effects such as
          * storage writes belong under `!ctx.prepass`, as Bevy's `PREPASS_PIPELINE` guards prepass code. */
         prepass: d.bool,
         ...varyings,

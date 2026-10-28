@@ -101,7 +101,7 @@ test.describe("stepped delivery", () => {
             ).toBeLessThanOrEqual(1);
         expect(spawn.name).toBeGreaterThan(30);
     });
-    test("the car's cyan horizontal fill shows progress without colouring the empty track", () => {
+    test("the car's cyan horizontal fill shows progress without coloring the empty track", () => {
         expect(spawn.fill).toBe(0);
         for (const sample of spawn.barFilled) expect(sample).toBe(0);
         expect(low.fill).toBeCloseTo(0.5, 6);
@@ -133,7 +133,7 @@ test.describe("stepped delivery", () => {
         for (const frame of [low, earlyExit])
             for (const sample of frame.trail) expect(sample).toBeGreaterThan(3);
     });
-    test("early in the back-in exit the icon is at least as large as at spawn, at the same centre", () => {
+    test("early in the back-in exit the icon is at least as large as at spawn, at the same center", () => {
         expect(earlyExit.iconWidth).toBeGreaterThanOrEqual(spawn.iconWidth);
         expect(earlyExit.icon).toBeGreaterThanOrEqual(spawn.icon);
         for (let axis = 0; axis < 2; axis++) {
@@ -149,7 +149,7 @@ test.describe("stepped delivery", () => {
         expect(spawn.iconVisible).toBeGreaterThan(100);
         expect(gone.iconVisible).toBe(0);
     });
-    test("the zone stays visible at its footprint and a short downward arrow floats above its centre, disappearing on arrival", () => {
+    test("the zone stays visible at its footprint and a short downward arrow floats above its center, disappearing on arrival", () => {
         for (const frame of [spawn, low, earlyExit, gone])
             for (const sample of frame.zone) expect(sample).toBeGreaterThan(2);
         for (const frame of [spawn, low]) {

@@ -385,7 +385,7 @@ async function inspectPageScreenshot(page: Page, encoded: string) {
                 ? channels(getComputedStyle(progress).backgroundColor)
                 : [];
             // Non-real adapters add a notice panel: its surface is loading UI too,
-            // not a hole exposing the canvas. Count that colour only inside its panel.
+            // not a hole exposing the canvas. Count that color only inside its panel.
             const notice = [...(overlay?.querySelectorAll<HTMLElement>("div") ?? [])].find(
                 (node) =>
                     node.childElementCount === 0 && /^\S+ adapter: /.test(node.textContent ?? ""),
@@ -778,7 +778,7 @@ test("embedded-scene progress stays in its owned frame and reaches the bar; its 
             );
             expect(
                 loadingPixels.inkPixels,
-                "the held screenshot contains more than 20 ink-coloured description pixels",
+                "the held screenshot contains more than 20 ink-colored description pixels",
             ).toBeGreaterThan(20);
             expect(
                 loadingPixels.progressPixels,
@@ -941,7 +941,7 @@ test("first and later frames match the projected unit cube and remain stable, co
     ).toBe(true);
     expect(
         first.backgroundDeltaE,
-        "the first clear's mean colour is within CSS Color 4's gamut-mapping JND (ΔE_OK 0.02) of the frame",
+        "the first clear's mean color is within CSS Color 4's gamut-mapping JND (ΔE_OK 0.02) of the frame",
     ).toBeLessThanOrEqual(0.02);
 
     expect(
@@ -959,7 +959,7 @@ test("first and later frames match the projected unit cube and remain stable, co
     ).toBeLessThanOrEqual(0.001);
     expect(
         later.backgroundDeltaE,
-        "the later clear's mean colour is within CSS Color 4's gamut-mapping JND (ΔE_OK 0.02) of the frame",
+        "the later clear's mean color is within CSS Color 4's gamut-mapping JND (ΔE_OK 0.02) of the frame",
     ).toBeLessThanOrEqual(0.02);
     const colors = await page.evaluate(() => ({
         page: getComputedStyle(document.body)

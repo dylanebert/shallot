@@ -16,7 +16,7 @@ export const BUDGET = /** @type {const} */ ({
 
 /**
  * CI hang ceilings for one browser test and one of its waits. A software adapter spaced frames by 21 s on
- * Windows, and the slowest modelled test took 24 s. A hang and its retry leave the rest of the slowest subject
+ * Windows, and the slowest modeled test took 24 s. A hang and its retry leave the rest of the slowest subject
  * (85 s of a 135 s Windows run) inside {@link CEILING}.browser, so a red reports its line on both attempts.
  */
 export const BROWSER_CEILING = /** @type {const} */ ({

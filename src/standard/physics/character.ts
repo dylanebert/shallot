@@ -33,20 +33,20 @@ export const GroundState = { InAir: 0, OnGround: 1, OnSteepGround: 2 } as const;
 export const Character = component(
     "Character",
     {
-        /** World-space metres per second. */
+        /** World-space meters per second. */
         velocity: vec3,
         groundState: u32,
         /** World-space unit normal at the pogo ray hit, or zero in air. */
         groundNormal: vec3,
-        /** Hit body's velocity at the ground point, in world-space metres per second, or zero in air. */
+        /** Hit body's velocity at the ground point, in world-space meters per second, or zero in air. */
         groundVelocity: vec3,
         /** Maximum walkable slope in radians, measured from up. */
         maxSlope: field,
         /** Unit world-space up direction. */
         up: vec3,
-        /** Pogo spring speed in metres per second; persists between fixed ticks. */
+        /** Pogo spring speed in meters per second; persists between fixed ticks. */
         pogoVelocity: field,
-        /** Pogo spring rest length in capsule radii, down from the lower sphere's centre, so the capsule rests `pogoRest - 1` radii above contact. Box3D's mover sample uses 3. */
+        /** Pogo spring rest length in capsule radii, down from the lower sphere's center, so the capsule rests `pogoRest - 1` radii above contact. Box3D's mover sample uses 3. */
         pogoRest: field,
         /** 1 adds a vertical wall behind each contact steeper than `maxSlope`, so a rounded capsule cannot ride up a step edge, as Jolt's `CharacterVirtual` does. Box3D's mover sample does not, so 0 is the default. */
         steepWalls: u32,

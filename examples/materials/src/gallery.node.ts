@@ -8,7 +8,7 @@ import { Materials, MeshMaterial, StandardMaterial } from "@dylanebert/shallot";
 import { Gallery, GalleryPlugin, presets } from "./gallery";
 import { CheckerMaterial, QuantizedMaterial, WaveMaterial } from "./materials";
 
-test("the gallery's carbon and red colours reach the checkerboard's material row", async () => {
+test("the gallery's carbon and red colors reach the checkerboard's material row", async () => {
     const app = await createApp({ defaults: false, plugins: [GalleryPlugin] });
     try {
         const world = app.world;

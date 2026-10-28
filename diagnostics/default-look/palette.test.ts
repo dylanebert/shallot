@@ -26,27 +26,27 @@ test("current-in-range repairs only overflowing albedo and ink, preserving hue a
 test("dev-orange-neutral keeps accents but gives large surfaces current's mid-neutral lightness", () => {
     const palette = PALETTES["dev-orange-neutral"];
     const orange = PALETTES["dev-orange"];
-    for (const key of ["blue", "orange", "greyboxLift", "embedded"] as const)
+    for (const key of ["blue", "orange", "grayboxLift", "embedded"] as const)
         expect(palette.materials[key]).toEqual(orange.materials[key]);
     for (const key of [
         "blueGround",
-        "greyboxGround",
-        "greyboxStep",
-        "greyboxTower",
-        "greyboxPerch",
+        "grayboxGround",
+        "grayboxStep",
+        "grayboxTower",
+        "grayboxPerch",
     ] as const) {
         const [l, c] = oklchFromLinear(palette.materials[key]);
         expect(l).toBeCloseTo(oklchFromLinear(PALETTES.current.materials[key])[0], 6);
         expect(c).toBeLessThanOrEqual(0.0120001);
     }
-    expect(palette.materials.trim).toEqual(orange.materials.greyboxTower);
+    expect(palette.materials.trim).toEqual(orange.materials.grayboxTower);
 });
 
 test("dev-orange route neutrals keep the palette hue and distinguish each route surface from ground", () => {
     const materials = PALETTES["dev-orange"].materials;
     const ground = oklchFromLinear(materials.routeGround!)[0];
     for (const [role, separation] of [
-        ["greyboxStep", 0.13461559834486136],
+        ["grayboxStep", 0.13461559834486136],
         ["routeTower", 0.1613200129072455],
         ["routePerch", 0.19105840600223323],
     ] as const) {
@@ -62,10 +62,10 @@ test("dev-orange route neutrals keep the palette hue and distinguish each route 
 
 test("aperture-carbon orange matches the brand icon and stays distinct from amber", () => {
     const materials = PALETTES["aperture-carbon"].materials;
-    expect(materials.greyboxLift.slice(0, 3).map((c) => Math.round(srgbChannel(c)))).toEqual([
+    expect(materials.grayboxLift.slice(0, 3).map((c) => Math.round(srgbChannel(c)))).toEqual([
         212, 149, 96,
     ]);
-    const orangeHue = oklchFromLinear(materials.greyboxLift)[2];
+    const orangeHue = oklchFromLinear(materials.grayboxLift)[2];
     const amberHue = oklchFromLinear(materials.blue)[2];
     expect(Math.abs(orangeHue - amberHue)).toBeGreaterThan(20);
 });

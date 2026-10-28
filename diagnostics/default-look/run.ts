@@ -12,10 +12,10 @@ bun diagnostics/default-look/run.ts --cost          # seven-page representative 
 bun diagnostics/default-look/run.ts --cost --qualify # exhaustive, for a proposed default
 ```
 
-`scenes.ts` owns the fixed scenes and `palette.ts` their material colours.
+`scenes.ts` owns the fixed scenes and `palette.ts` their material colors.
 Captures use 1280×720 device pixels. Without flags, each palette gets its own
 `test-results/default-look/<palette>/` directory; index.html compares the PNGs
-and reports colour bounds. Candidate hard-bound violations fail the report;
+and reports color bounds. Candidate hard-bound violations fail the report;
 theme ranges and the unchanged baseline's violations remain reference data.
 
 --ssao captures Off, Low, Medium, High, Ultra and Custom under
@@ -34,7 +34,7 @@ bun diagnostics/default-look/run.ts --ssao
 shasum -a 256 -c /tmp/ssao.sha256
 ```
 
---cost defaults to primitives-greybox, Off and every quality, on seven fresh pages
+--cost defaults to primitives-graybox, Off and every quality, on seven fresh pages
 per level. Each page warms for 30 frames, then reports medians over the last 60 of
 120 queue-awaited frames, as in the fog bench. The extra frames let asynchronous
 GPU diagnostics fill. --scene=<id> selects another scene; --quality=<level> narrows
@@ -249,7 +249,7 @@ try {
         const qualification = process.argv.includes("--qualify");
         const scene =
             process.argv.find((arg) => arg.startsWith("--scene="))?.split("=")[1] ??
-            "primitives-greybox";
+            "primitives-graybox";
         const quality =
             process.argv.find((arg) => arg.startsWith("--quality="))?.split("=")[1] ?? "all";
         const pages = Number(

@@ -90,7 +90,7 @@ function pointGaussian(offset: number, volume: boolean): number {
     const scale = 0.003 * Math.max(...original.map(Math.abs));
     return POSITIONS.reduce((sum, [u, v], i) => {
         const tap = biased.map((value, axis) => value + scale * (u * bx[axis] + v * by[axis]));
-        // All these off-centre directions remain on +Z; its atlas projection is (-x, y, z).
+        // All these off-center directions remain on +Z; its atlas projection is (-x, y, z).
         const uv = 0.5 - (tap[0] / (tap[2] * TAN_HALF)) * 0.5;
         return sum + COEFFICIENTS[i] * hardware(uv, SIDE / 4);
     }, 0);

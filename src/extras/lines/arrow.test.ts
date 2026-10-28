@@ -5,7 +5,7 @@ import { World } from "../../engine";
 import { SEGMENT_FLOATS, triangleVertex } from "./pipeline";
 import { drawArrow, drawLine, head, lineStaging, segmentState } from "./segments";
 
-test("an arrow stages one filled triangle in its shaft's colour and width, facing world up by default", () => {
+test("an arrow stages one filled triangle in its shaft's color and width, facing world up by default", () => {
     const world = new World();
     try {
         drawArrow(world, [0, 0, 0], [5, 0, 0], 0xeee9df, { width: 3 });

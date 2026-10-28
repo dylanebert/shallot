@@ -55,9 +55,9 @@ Texture and sampler entries in `materialLayout` and `backgroundLayout` name one 
 
 ## Fragment contexts gain prepass
 
-A material's fragment also runs in the depth prepass, the normal prepass and shadow maps, where its lighting is stubbed and `fragCoord` is that pass's target. `ctx.prepass` is true there and false in the colour pass; put storage-buffer and storage-texture writes under `if (!ctx.prepass)`.
+A material's fragment also runs in the depth prepass, the normal prepass and shadow maps, where its lighting is stubbed and `fragCoord` is that pass's target. `ctx.prepass` is true there and false in the color pass; put storage-buffer and storage-texture writes under `if (!ctx.prepass)`.
 
-## Material shaders lose the constant colour
+## Material shaders lose the constant color
 
 `color` is removed from the material vertex input and fragment context; it was always `vec4f(1)`. Write `1`, or read a mesh attribute: declare `{ type: "attribute", element: d.vec4f }` in `materialLayout`, add the stream under the same name in the mesh's `attributes`, and pass `layout.$.<name>[input.vidx]` from the vertex function to the fragment as a varying.
 

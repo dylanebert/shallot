@@ -43,7 +43,7 @@ export function placement(
         const hash = record.y;
         const kind = packed >>> 24;
         const chunk = layout.$.chunks[slot];
-        const centre = d.vec3f(
+        const center = d.vec3f(
             d.f32((chunk.x - layout.$.params.center) * size) -
                 layout.$.params.remainder +
                 d.f32(packed & 255) +
@@ -51,7 +51,7 @@ export function placement(
             d.f32((packed >>> 8) & 255) - 0.5 - config.height / 2,
             d.f32(chunk.y * size) + d.f32((packed >>> 16) & 255) + 0.5,
         );
-        const scale = 1 - std.smoothstep(inner, outer, std.length(centre.xz));
+        const scale = 1 - std.smoothstep(inner, outer, std.length(center.xz));
         if (scale <= 0) return;
         let jitter = d.vec2f(0);
         let yaw = d.f32(0);
@@ -66,7 +66,7 @@ export function placement(
         for (let p = d.u32(0); p < n; p++) {
             const part = layout.$.parts[kind * 2 + p];
             layout.$.placements[row + p] = Xform({
-                pos: centre.add(d.vec3f(jitter.x, 0.5 * scale, jitter.y)),
+                pos: center.add(d.vec3f(jitter.x, 0.5 * scale, jitter.y)),
                 quat: d.vec4f(0, std.sin(yaw * 0.5), 0, std.cos(yaw * 0.5)),
                 scale: d.vec3f(scale),
             });
