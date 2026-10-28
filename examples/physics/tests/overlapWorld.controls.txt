@@ -1,0 +1,9 @@
+20	queryZ	4
+40	queryZ	5
+60	queryZ	6
+120	queryZ	10
+180	queryZ	4
+240	queryZ	5
+300	queryZ	6
+360	queryZ	10
+420	queryZ	0

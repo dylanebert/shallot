@@ -59,7 +59,8 @@ struct Camera
 };
 constexpr int KEY_W = 1, KEY_S = 2, KEY_A = 3, KEY_D = 4, KEY_L = 5, KEY_T = 6, KEY_B = 7;
 constexpr int KEY_SPACE = 8, KEY_LEFT_SHIFT = 9, KEY_V = 10;
-constexpr int ACTION_PRESS = 1, MOD_SHIFT = 1, MOD_ALT = 2;
+constexpr int ACTION_PRESS = 1, MOD_SHIFT = 1, MOD_ALT = 2, MOD_CTRL = 4;
+constexpr int ImGuiSliderFlags_Logarithmic = 1;
 void sapp_lock_mouse( bool ) {}
 bool IsKeyDown( int key ) {
 	float value = 0;
@@ -189,7 +190,7 @@ void Text( const char*, ... ) {}
 void SameLine() {}
 void PushItemWidth( float ) {}
 float GetFontSize() { return 14.0f; }
-bool SliderFloat( const char* name, float* value, float, float, const char* = "%.3f" ) {
+bool SliderFloat( const char* name, float* value, float, float, const char* = "%.3f", int = 0 ) {
     std::string label(name);
     const auto suffix = label.find("##");
     if (suffix != std::string::npos) {
@@ -295,6 +296,7 @@ public:
 	virtual void Keyboard( int, int, int ) {}
 	void ToggleThirdPerson() { m_camera->m_thirdPerson = !m_camera->m_thirdPerson; }
 	virtual bool DrawControls() { return false; }
+    virtual bool HasSolverControls() const { return true; }
 	virtual void Render() {}
 	void DrawTextLine( const char* format, ... ) {
         if (meshReadouts && strcmp(format, "triangle count = %d, area = %g") == 0) {
@@ -422,6 +424,10 @@ int main( int argc, char** argv )
 		{ "arch", Arch::Create }, { "doubleDomino", DoubleDomino::Create },
 		{ "pyramid2D", Pyramid2D::Create }, { "edgeCrossing", EdgeCrossing::Create },
         { "ragdollBox", RagdollOnBox::Create }, { "ragdollMesh", RagdollOnMesh::Create }, { "ragdollPile", RagdollPile::Create }, { "ragdollIncline", RagdollIncline::Create },
+        { "rayCurtain", Collision::RayCurtain::Create }, { "castWorld", Collision::CastWorld::Create },
+        { "meshScale", Collision::MeshScale::Create }, { "shapeCast", Collision::ShapeCast::Create },
+        { "overlapWorld", Collision::OverlapWorld::Create }, { "longRayCast", Collision::LongRayCast::Create },
+        { "initialOverlap", Collision::InitialOverlap::Create }, { "capsuleCastRay", Collision::CapsuleCastRay::Create },
 		{ "box_stack", BoxStack::Create }, { "bridge", Bridge::Create },
 		{ "driving", Driving::Create }, { "gearLift", GearLift::Create }, { "door", Door::Create }, { "distance", DistanceJoint::Create }, { "spherical", SphericalJoint::Create }, { "motionLocks", MotionLocks::Create },
         { "ballAndChain", BallAndChain::Create }, { "foldOut", FoldOut::Create }, { "topDownFriction", TopDownFriction::Create }, { "weld", WeldJoint::Create },
@@ -452,6 +458,7 @@ int main( int argc, char** argv )
 		}
 		fclose( file );
 	}
+    Collision::queries = getenv("COLLISION_QUERIES") ? fopen(getenv("COLLISION_QUERIES"), "w") : nullptr;
     characterDrawing = getenv("CHARACTER_DRAWING") ? fopen(getenv("CHARACTER_DRAWING"), "w") : nullptr;
     FILE* villageReadouts = getenv("VILLAGE_READOUTS") ? fopen(getenv("VILLAGE_READOUTS"), "w") : nullptr;
     if (getenv("VILLAGE_READOUTS")) assert(villageReadouts && !strcmp(argv[1], "village"));
@@ -488,6 +495,12 @@ int main( int argc, char** argv )
 				assert( tag > 0 && tag <= (int)recordedBodies.size() );
 				b3Pos p = b3Body_GetPosition( recordedBodies[tag - 1] );
 				sample->Grab( { { p.x, p.y, p.z + 10 }, { 0, 0, -20 } } );
+            } else if (change.name == "queryZ" || change.name == "queryY") {
+                assert(!strcmp(argv[1],"shapeCast") || !strcmp(argv[1],"overlapWorld"));
+                const bool y = change.name == "queryY";
+                sample->MouseDown({},0,y ? MOD_CTRL : MOD_SHIFT);
+                sample->MouseMove(y ? b3Vec2{0,-20.0f*change.value} : b3Vec2{-20.0f*change.value,0});
+                sample->MouseUp({},0);
             } else if ( change.name == "dragX" ) context.camera.pickRay.origin.x = change.value;
             else if ( change.name == "dragY" ) context.camera.pickRay.origin.y = change.value;
             else if ( change.name == "dragZ" ) context.camera.pickRay.origin.z = change.value;
@@ -505,6 +518,9 @@ int main( int argc, char** argv )
         characterMarks.clear();
         meshBuildCount = 0;
 		sample->Step();
+        if (!strcmp(argv[1],"rayCurtain") || !strcmp(argv[1],"capsuleCastRay")) sample->Render();
+        if (!strcmp(argv[1],"meshScale")) printf("%016llx\n", (unsigned long long)b3HashWorldState(b3GetWorldFromId(sample->m_worldId)));
+        if (Collision::queries) fprintf(Collision::queries,"step\n");
         if (!strcmp(argv[1], "meshCreation")) printf("%016llx\n", (unsigned long long)b3HashWorldState(b3GetWorldFromId(sample->m_worldId)));
         if (meshReadouts) {
             if (!strcmp(argv[1], "meshViewer")) {
@@ -578,6 +594,7 @@ int main( int argc, char** argv )
 	}
     if (characterDrawing) fclose(characterDrawing);
     if (bodyQueries) fclose(bodyQueries);
+    if (Collision::queries) fclose(Collision::queries);
     if (readouts) fclose(readouts);
     if (moverReadouts) fclose(moverReadouts);
     if (rigidReadouts) fclose(rigidReadouts);

@@ -26,7 +26,8 @@
     let values = $state(controlValues(scene));
     const controls = $derived(Object.fromEntries(Object.entries(enabledControls(scene, values)).filter(([name]) => liveControls[name] !== false)));
     const sectionTitle = $derived(scene === "meshViewer" ? "Mesh settings" : scene === "meshCreation" ? "Build cost" : scene === "gyroscopicPrecession" ? "Precession, rad/s" : scene === "moverOverlap" ? "Planes and normals" : "Simulation");
-    const separateReadouts = $derived(scene === "sensorHits" || scene === "meshViewer");
+    const separateReadouts = $derived(scene === "sensorHits" || scene === "meshViewer" || scene === "castWorld" || scene === "longRayCast");
+    const readoutTitle = $derived(scene === "meshViewer" ? "Mesh statistics" : scene === "castWorld" ? "Cast results" : scene === "longRayCast" ? "Ray accuracy" : "Touch counts");
     function update(name: string, value: number) { change(name, value, values); }
     let open = $state(false);
     let picker: HTMLElement;
@@ -69,8 +70,8 @@
         {#each Object.entries(scenes[scene].controls ?? {}).filter(([, control]) => control.when?.at(-1) === parent && (!separateReadouts || Boolean(control.read) === readOnly)) as [name, control]}
                 <fieldset class="section" disabled={!(name in controls)}>
                     {#if control.read}
-                        {#if outputs[name] != null}
-                            <div class="row"><span>{control.label}</span><output aria-label={control.label}>{formatReadout(outputs[name]!, control.decimals, control.precision)}</output></div>
+                        {#if outputs[name] != null || scene === "castWorld" || scene === "longRayCast"}
+                            <div class="row"><span>{control.label}</span><output aria-label={control.label}>{outputs[name] == null ? "—" : formatReadout(outputs[name]!, control.decimals, control.precision)}</output></div>
                         {/if}
                     {:else if control.button}
                         <button tabindex="-1" onfocus={(event) => event.currentTarget.blur()} onclick={() => update(name, 1)}>{control.label}</button>
@@ -98,7 +99,7 @@
                         <div class="row">
                             <label for={`control-${name}`}>{control.label}</label>
                             <div class="slider">
-                                <input tabindex="-1" onfocus={(event) => event.currentTarget.blur()} id={`control-${name}`} type="range" min={liveBounds[name]?.[0] ?? control.bounds?.(values, world)[0] ?? control.min} max={liveBounds[name]?.[1] ?? control.bounds?.(values, world)[1] ?? control.max} step={control.step} value={values[name]} oninput={(event) => update(name, Number(event.currentTarget.value))} />
+                                <input tabindex="-1" onfocus={(event) => event.currentTarget.blur()} id={`control-${name}`} type="range" min={control.logarithmic ? Math.log10(control.min) : liveBounds[name]?.[0] ?? control.bounds?.(values, world)[0] ?? control.min} max={control.logarithmic ? Math.log10(control.max!) : liveBounds[name]?.[1] ?? control.bounds?.(values, world)[1] ?? control.max} step={control.logarithmic ? "any" : control.step} value={control.logarithmic ? Math.log10(values[name]) : values[name]} oninput={(event) => { const value = Number(event.currentTarget.value); update(name, control.logarithmic ? Math.round(10 ** value / control.step!) * control.step! : value); }}  />
                                 <output for={`control-${name}`}>{formatValue(values[name], control.decimals)}</output>
                             </div>
                         </div>
@@ -117,8 +118,8 @@
                 {@render fields()}
             </section>
             {#if separateReadouts}
-                <section class="section" aria-label={scene === "meshViewer" ? "Mesh statistics" : "Touch counts"}>
-                    <h2 class="section-title">{scene === "meshViewer" ? "Mesh statistics" : "Touch counts"}</h2>
+                <section class="section" aria-label={readoutTitle}>
+                    <h2 class="section-title">{readoutTitle}</h2>
                     {@render fields(undefined, true)}
                 </section>
             {/if}

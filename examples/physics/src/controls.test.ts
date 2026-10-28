@@ -2,6 +2,80 @@ import { expect, test } from "bun:test";
 import { formatReadout, formatValue } from "./control-format";
 import { type Controls, controlValues, enabledControls, type Scene, scenes } from "./scenes";
 
+test("Collision rows retain native choices, bounds and formats with units in fixed-width labels", () => {
+    const cast = scenes.castWorld.controls!;
+    expect(Object.keys(cast)).toEqual([
+        "Cast Type",
+        "Radius",
+        "Mode",
+        "Initial Overlap",
+        "Spheres",
+        "Capsules",
+        "Hulls",
+        "Meshes",
+        "Height Field",
+        "Destroy Shape",
+        "Material 1",
+        "Triangle 1",
+        "Material 2",
+        "Triangle 2",
+        "Material 3",
+        "Triangle 3",
+    ]);
+    expect(cast["Cast Type"]!.options!.map((o) => o.label)).toEqual([
+        "Ray",
+        "Sphere",
+        "Capsule",
+        "Box",
+    ]);
+    expect(cast.Mode!.options!.map((o) => o.label)).toEqual([
+        "Any",
+        "Closest",
+        "Multiple",
+        "Sorted",
+    ]);
+    expect(cast.Radius).toMatchObject({ value: 0.5, min: 0.1, max: 2, step: 0.1, decimals: 1 });
+    const mesh = scenes.meshScale.controls!;
+    expect(Object.keys(mesh)).toEqual([
+        "Scale X",
+        "Scale Y",
+        "Scale Z",
+        "Start Y",
+        "Start Z",
+        "sphere Cast",
+    ]);
+    for (const name of ["Scale X", "Scale Y", "Scale Z", "Start Y", "Start Z"])
+        expect(mesh[name]).toMatchObject({ min: -2, max: 2, step: 0.1, decimals: 1 });
+    expect(Object.keys(scenes.shapeCast.controls!)).toEqual(["Initial Overlap"]);
+    expect(Object.keys(scenes.initialOverlap.controls!)).toEqual(["initial overlap"]);
+    const long = scenes.longRayCast.controls!;
+    expect(long["Ray Length"]).toMatchObject({
+        label: "Ray Length, km",
+        value: 1,
+        min: 1,
+        max: 10000,
+        step: 1,
+        decimals: 0,
+        logarithmic: true,
+    });
+    expect(long["Cone Angle"]).toMatchObject({
+        label: "Cone Angle, deg",
+        value: 5,
+        min: 0,
+        max: 12,
+        step: 0.1,
+        decimals: 1,
+    });
+    expect(formatValue(10000, long["Ray Length"]!.decimals)).toBe("10000");
+    expect(formatValue(12, long["Cone Angle"]!.decimals)).toBe("12.0");
+    for (const name of ["Sphere", "Capsule", "Hull", "Mesh", "Height Field"]) {
+        expect(long[`${name} error`]!.read).toBeFunction();
+        expect(long[`${name} failures`]!.read).toBeFunction();
+    }
+    for (const scene of ["rayCurtain", "overlapWorld", "capsuleCastRay"] as const)
+        expect(scenes[scene].controls).toBeUndefined();
+});
+
 test("Ragdoll retains only the native tuning rows and Respawn with step-based formats", () => {
     for (const [scene, hertz] of [
         ["ragdollBox", 1],

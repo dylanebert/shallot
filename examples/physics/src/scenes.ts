@@ -18,6 +18,7 @@ import { benchmarkScenes } from "./benchmarks";
 import { BodySampleState, bodyScenes } from "./bodies";
 import { CastState } from "./cast";
 import { CharacterSample, characterScenes } from "./character";
+import { CollisionState, collisionScenes } from "./collision";
 import { compoundScenes } from "./compound";
 import { continuousScenes } from "./continuous";
 import { eventScenes } from "./events";
@@ -45,6 +46,7 @@ export type Scene =
     | "filter"
     | "parallel"
     | "village"
+    | keyof typeof collisionScenes
     | keyof typeof ragdollScenes
     | keyof typeof meshScenes
     | keyof typeof compoundScenes
@@ -104,6 +106,19 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
             { id: "geometricMover", name: "Geometric Mover" },
             { id: "moverOverlap", name: "MoverOverlap" },
             { id: "rigidBody", name: "Rigid Body" },
+        ],
+    },
+    {
+        name: "Collision",
+        scenes: [
+            { id: "capsuleCastRay", name: "Capsule Cast Ray" },
+            { id: "castWorld", name: "Cast World" },
+            { id: "initialOverlap", name: "Initial Overlap" },
+            { id: "longRayCast", name: "Long Ray Cast" },
+            { id: "meshScale", name: "Mesh Scale" },
+            { id: "overlapWorld", name: "Overlap World" },
+            { id: "rayCurtain", name: "Ray Curtain" },
+            { id: "shapeCast", name: "Shape Cast" },
         ],
     },
     {
@@ -234,6 +249,7 @@ export interface Control {
     step?: number;
     decimals?: number;
     precision?: number;
+    logarithmic?: boolean;
     button?: boolean;
     read?: (world: World) => number | null;
     enabled?: (world: World) => boolean;
@@ -299,6 +315,7 @@ export function changeControl(
 export const scenes = {
     geometricMover: geometricMoverScene,
     rigidBody: rigidBodyScene,
+    ...collisionScenes,
     ...ragdollScenes,
     ...shapeScenes,
     ...compoundScenes,
@@ -908,6 +925,7 @@ export function createScene(world: World, scene: Scene): number[] {
     Object.assign(world.resource(BodySampleState), BodySampleState.create());
     Object.assign(world.resource(PrecessionState), PrecessionState.create());
     Object.assign(world.resource(CastState), CastState.create());
+    Object.assign(world.resource(CollisionState), CollisionState.create());
     Object.assign(world.resource(CharacterSample), CharacterSample.create());
     Object.assign(world.resource(GeometricMoverState), GeometricMoverState.create());
     Object.assign(world.resource(VillageState), VillageState.create());

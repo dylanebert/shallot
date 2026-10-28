@@ -15,6 +15,61 @@ const beforeWheel = samples[samples.findIndex((sample) => sample.id === "wheel")
 test.use(pipelineWarnings);
 
 for (const width of [1280, 390]) {
+    test(`Collision formats, logarithmic tuning and query readouts fit at ${width}`, async ({
+        page,
+    }) => {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 720 });
+        await page.goto("/tests/controls.html");
+        await page.waitForFunction(() => "controlsKey" in window);
+        await pointerControl(page, page.getByRole("button", { name: "Scene", exact: true }));
+        await pointerControl(
+            page,
+            page
+                .getByRole("region", { name: "Collision", exact: true })
+                .getByRole("button", { name: "Cast World", exact: true }),
+        );
+        const panel = page.locator(".controls"),
+            radius = panel.getByLabel("Radius", { exact: true });
+        const initial = await panel.boundingBox();
+        await expect(radius).toBeDisabled();
+        await panel.getByLabel("Cast Type", { exact: true }).selectOption("1");
+        await expect(radius).toBeEnabled();
+        expect(await panel.boundingBox()).toEqual(initial);
+        await panel.getByLabel("Cast Type", { exact: true }).selectOption("3");
+        await expect(radius).toBeDisabled();
+        await expect(
+            panel.getByRole("region", { name: "Cast results", exact: true }).locator("output"),
+        ).toHaveCount(6);
+        await pointerControl(page, page.getByRole("button", { name: "Scene", exact: true }));
+        await pointerControl(
+            page,
+            page
+                .getByRole("region", { name: "Collision", exact: true })
+                .getByRole("button", { name: "Long Ray Cast", exact: true }),
+        );
+        const length = panel.getByRole("slider", { name: "Ray Length, km", exact: true }),
+            angle = panel.getByRole("slider", { name: "Cone Angle, deg", exact: true });
+        await expect(length).toHaveAttribute("min", "0");
+        await expect(length).toHaveAttribute("max", "4");
+        await length.fill("4");
+        await expect(panel.locator("output[for='control-Ray Length']")).toHaveText("10000");
+        await angle.fill("12");
+        await expect(panel.locator("output[for='control-Cone Angle']")).toHaveText("12.0");
+        await expect(
+            panel.getByRole("region", { name: "Ray accuracy", exact: true }).locator("output"),
+        ).toHaveCount(10);
+        expect(await panel.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+        expect(
+            await panel
+                .locator(".slider output")
+                .evaluateAll((elements) =>
+                    elements.every((el) => el.scrollWidth <= el.clientWidth),
+                ),
+        ).toBe(true);
+        await dragRange(page, length);
+        await gameKeyMovesCamera(page);
+    });
+
     test(`Mesh signs and terrain bounds fit their fields at ${width}`, async ({ page }) => {
         await page.setViewportSize({ width, height: width === 390 ? 844 : 720 });
         await page.goto("/tests/controls.html");

@@ -42,6 +42,8 @@ import {
 } from "@dylanebert/shallot/standard/physics";
 import { drawCastView } from "./cast-presentation";
 import { drawCharacterView } from "./character-presentation";
+import { collisionNames } from "./collision";
+import { drawCollisionView } from "./collision-presentation";
 import { childGeometry, compoundChildren, largeCompound, overlaps } from "./compound-presentation";
 import { drawingBounds, drawSet } from "./draw-set";
 import { DrivingState } from "./driving";
@@ -505,6 +507,10 @@ function createView(world: World, scene: Scene, camera: number): () => void {
                 );
             if (scene === "meshViewer")
                 drawMeshViewerView(world, (a, b, color, options) =>
+                    drawLine(world, a, b, color, options),
+                );
+            if ((collisionNames as readonly string[]).includes(scene))
+                drawCollisionView(world, camera, (a, b, color, options) =>
                     drawLine(world, a, b, color, options),
                 );
             if (scene === "cast")

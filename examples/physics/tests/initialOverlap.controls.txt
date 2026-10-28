@@ -1,0 +1,2 @@
+20	initial overlap	0
+300	initial overlap	1

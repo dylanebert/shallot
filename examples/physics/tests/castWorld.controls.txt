@@ -1,0 +1,82 @@
+0	Meshes	1
+1	Meshes	1
+2	Meshes	1
+3	Meshes	1
+4	Meshes	1
+5	Meshes	1
+6	Meshes	1
+7	Meshes	1
+8	Meshes	1
+9	Meshes	1
+10	Meshes	1
+11	Meshes	1
+12	Meshes	1
+13	Meshes	1
+14	Meshes	1
+15	Meshes	1
+16	Meshes	1
+17	Meshes	1
+18	Meshes	1
+19	Meshes	1
+20	Meshes	1
+21	Meshes	1
+22	Meshes	1
+23	Meshes	1
+24	Meshes	1
+25	Meshes	1
+26	Meshes	1
+27	Meshes	1
+28	Meshes	1
+29	Meshes	1
+30	Meshes	1
+31	Meshes	1
+32	Meshes	1
+33	Meshes	1
+34	Meshes	1
+35	Meshes	1
+36	Meshes	1
+37	Meshes	1
+38	Meshes	1
+39	Meshes	1
+40	Meshes	1
+41	Meshes	1
+42	Meshes	1
+43	Meshes	1
+44	Meshes	1
+45	Meshes	1
+46	Meshes	1
+47	Meshes	1
+48	Meshes	1
+49	Meshes	1
+50	Meshes	1
+51	Meshes	1
+52	Meshes	1
+53	Meshes	1
+54	Meshes	1
+55	Meshes	1
+56	Meshes	1
+57	Meshes	1
+58	Meshes	1
+59	Meshes	1
+60	Meshes	1
+61	Meshes	1
+62	Meshes	1
+63	Meshes	1
+80	Cast Type	1
+81	Radius	2
+100	Mode	0
+150	Mode	2
+180	Initial Overlap	1
+200	Mode	3
+250	Cast Type	2
+251	Radius	1.2
+300	Cast Type	3
+350	Cast Type	0
+380	Mode	1
+400	Spheres	1
+420	Capsules	1
+440	Hulls	1
+460	Height Field	1
+480	Destroy Shape	1
+500	Meshes	1
+520	Initial Overlap	0

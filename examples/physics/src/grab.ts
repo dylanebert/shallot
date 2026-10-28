@@ -27,8 +27,9 @@ import {
     setAwake,
     setTargetTransform,
 } from "@dylanebert/shallot/standard/physics";
-
 import { CharacterSample, characterDrag } from "./character";
+import { CollisionState } from "./collision";
+import { collisionDrag } from "./collision-drag";
 
 export const Grab = {
     create: () => ({
@@ -135,14 +136,17 @@ const SampleGrab: System = {
             grab.translation.x = ray.dir[0] * reach;
             grab.translation.y = ray.dir[1] * reach;
             grab.translation.z = ray.dir[2] * reach;
-            if (world.resource(CharacterSample).scene) {
-                const tracking = characterDrag(
-                    world,
-                    grab.origin,
-                    grab.translation,
-                    grab.pending,
-                    grab.held,
-                );
+            const collision = world.resource(CollisionState).scene;
+            if (
+                world.resource(CharacterSample).scene ||
+                collision === "shapeCast" ||
+                collision === "overlapWorld"
+            ) {
+                const tracking = (
+                    collision === "shapeCast" || collision === "overlapWorld"
+                        ? collisionDrag
+                        : characterDrag
+                )(world, grab.origin, grab.translation, grab.pending, grab.held);
                 grab.pending = false;
                 if (tracking && !grab.camera && world.has(camera, Orbit)) {
                     grab.camera = camera;
@@ -186,7 +190,13 @@ const UpdateGrab: System = {
     before: StandardPhysicsPlugin.systems?.filter((system) => system.group === "fixed"),
     update(world) {
         const grab = world.resource(Grab);
-        if (world.resource(CharacterSample).scene) return;
+        const collision = world.resource(CollisionState).scene;
+        if (
+            world.resource(CharacterSample).scene ||
+            collision === "shapeCast" ||
+            collision === "overlapWorld"
+        )
+            return;
         if (!grab.held) {
             release(world);
             return;

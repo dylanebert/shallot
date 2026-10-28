@@ -198,6 +198,7 @@ test("the accepted role baseline covers every critical-set scene", () => {
                         "Benchmark",
                         "Bodies",
                         "Character",
+                        "Collision",
                         "Compound",
                         "Continuous",
                         "Mesh",
@@ -321,7 +322,8 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
             expect(presentation.shapes.map((shape) => shape.eid).sort()).toEqual(
                 [...world.query([Shape])].sort(),
             );
-            if (id === "meshCreation") expect(presentation.shapes).toHaveLength(0);
+            if (id === "meshCreation" || id === "castWorld")
+                expect(presentation.shapes).toHaveLength(0);
             else expect(presentation.shapes.length).toBeGreaterThan(0);
             const driven = new Set<number>();
             for (const joint of [DistanceJoint, PrismaticJoint, RevoluteJoint, WheelJoint]) {
@@ -383,6 +385,14 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 expect(ground.mesh.indices.length).toBeGreaterThan(0);
             } else expect(presentation.ground).toBeUndefined();
             const extent = {
+                rayCurtain: 10,
+                castWorld: 30,
+                meshScale: 10,
+                shapeCast: 10,
+                overlapWorld: 10,
+                longRayCast: 10,
+                initialOverlap: 10,
+                capsuleCastRay: 10,
                 ragdollBox: 20,
                 ragdollMesh: 20,
                 ragdollPile: 10,

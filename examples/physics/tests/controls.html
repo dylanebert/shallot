@@ -16,9 +16,10 @@ import { createViewer } from '../src/view';
 import { GeometricMoverPlugin } from '../src/geometric-mover';
 import { RigidBodyPlugin } from '../src/rigid-body';
 import { MeshSamplePlugin } from '../src/mesh';
+import { CollisionPlugin } from '../src/collision';
 // The checks read game state and the DOM; a low pixel ratio keeps each stepped draw cheap.
 const Viewer={create:createViewer};
-const app = await createApp({plugins:[StandardPhysicsPlugin,MeshSamplePlugin,ShapesSamplePlugin,BodySamplePlugin,GeometricMoverPlugin,RigidBodyPlugin,EventSamplePlugin,SampleInputPlugin,TextPlugin,OrbitPlugin,LinesPlugin,{name:'SampleViewer',dependencies:[OrbitPlugin],initialize(world){world.resource(Viewer);}}],pixelRatio:0.05,setup(world){world.resource(PhysicsWorldDefinition).workerCount=1;}});
+const app = await createApp({plugins:[StandardPhysicsPlugin,CollisionPlugin,MeshSamplePlugin,ShapesSamplePlugin,BodySamplePlugin,GeometricMoverPlugin,RigidBodyPlugin,EventSamplePlugin,SampleInputPlugin,TextPlugin,OrbitPlugin,LinesPlugin,{name:'SampleViewer',dependencies:[OrbitPlugin],initialize(world){world.resource(Viewer);}}],pixelRatio:0.05,setup(world){world.resource(PhysicsWorldDefinition).workerCount=1;}});
 const world=app.world;
 const container=mountOverlay(document.querySelector('canvas'),world);
 const replace=sceneSwitcher(world,world.resource(Viewer));

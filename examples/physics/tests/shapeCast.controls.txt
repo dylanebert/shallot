@@ -1,0 +1,12 @@
+20	Initial Overlap	1
+30	queryZ	4
+60	queryZ	5
+90	queryZ	6
+120	queryY	-2
+150	queryZ	10
+180	queryZ	4
+210	queryY	2
+240	queryZ	5
+300	Initial Overlap	0
+360	queryY	0
+420	queryZ	0
