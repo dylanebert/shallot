@@ -3,6 +3,37 @@ import { formatReadout, formatValue } from "./control-format";
 import { manifoldNames, manifoldPointLimits } from "./manifold";
 import { type Controls, controlValues, enabledControls, type Scene, scenes } from "./scenes";
 
+test("Robustness retains native recovery controls and only the overflow pile's claim readouts", () => {
+    expect(scenes.highMassRatio1.controls).toBeUndefined();
+    expect(scenes.tinyPyramid.controls).toBeUndefined();
+    const controls = scenes.overlapRecovery.controls;
+    expect(Object.keys(controls)).toEqual([
+        "Extent",
+        "Base Count",
+        "Overlap",
+        "Speed",
+        "Hertz",
+        "Damping Ratio",
+        "Reset Scene",
+    ]);
+    for (const [name, value, min, max, step, decimals] of [
+        ["Extent", 0.5, 0.1, 1, 0.1, 1],
+        ["Base Count", 4, 1, 10, 1, 0],
+        ["Overlap", 0.25, 0, 1, 0.01, 2],
+        ["Speed", 3, 0, 10, 0.1, 1],
+        ["Hertz", 30, 0, 240, 1, 0],
+        ["Damping Ratio", 10, 0, 20, 0.1, 1],
+    ] as const)
+        expect(controls[name]).toMatchObject({ label: name, value, min, max, step, decimals });
+    expect(controls["Reset Scene"].button).toBe(true);
+    const rows = scenes.overflowColorPile.controls;
+    expect(Object.keys(rows)).toEqual(["Neighbors", "Overflow contacts", "Total contacts"]);
+    for (const row of Object.values(rows)) {
+        expect(row.read).toBeFunction();
+        expect(row.decimals).toBe(0);
+    }
+});
+
 test("Manifold retains the cache toggle, feature choices, native separation formats and reserved contact rows", () => {
     for (const [index, scene] of manifoldNames.entries()) {
         const controls = scenes[scene].controls;

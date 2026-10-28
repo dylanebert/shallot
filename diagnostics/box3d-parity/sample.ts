@@ -16,6 +16,7 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
     const ragdoll = readFileSync(join(samples, "sample_ragdoll.cpp"), "utf8");
     const mesh = readFileSync(join(samples, "sample_mesh.cpp"), "utf8");
     const stacking = readFileSync(join(samples, "sample_stacking.cpp"), "utf8");
+    const robustness = readFileSync(join(samples, "sample_robustness.cpp"), "utf8");
     const joints = readFileSync(join(samples, "sample_joint.cpp"), "utf8");
     const sample = readFileSync(join(samples, "sample.cpp"), "utf8");
     const events = readFileSync(join(samples, "sample_events.cpp"), "utf8");
@@ -65,6 +66,8 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         section(benchmark, "inline bool operator<", "class BenchmarkLargePyramid"),
         section(benchmark, "struct ShapeUserData", "static int benchmarkSensor"),
         section(benchmark, "class CandyCups :", "static int sampleSmallConvexes"),
+        readFileSync(join(samples, "../shared/overflow_color.c"), "utf8"),
+        ...["HighMassRatio1", "TinyPyramid", "OverlapRecovery", "OverflowColorPile"].map(name => section(robustness, `class ${name} :`, `static int sample${name}`)),
         ...["BoxStack", "CardHouse", "SphereStack", "CapsuleStack", "JengaStack", "SingleBox", "Cylinder", "CylinderStack", "Dominoes", "Wedge", "Arch", "DoubleDomino", "Pyramid2D", "EdgeCrossing"].map(name => section(stacking, `class ${name} :`, `static int sample${name}`)),
         ...["DistanceJoint", "SphericalJoint", "MotionLocks", "BallAndChain", "FoldOut", "TopDownFriction", "WeldJoint", "GearLift", "Driving"].map(name => section(joints, `class ${name} :`, `static int sample${name}`)),
         section(joints, "class Door :", "static int sampleDoor").replace(/\n\tvoid MouseDown\([\s\S]*?(?=\n\tbool DrawControls)/, ""),

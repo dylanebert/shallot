@@ -21,6 +21,7 @@ import { ManifoldPlugin } from "./manifold";
 import { MeshSamplePlugin } from "./mesh";
 import { RagdollPlugin } from "./ragdoll";
 import { RigidBodyPlugin } from "./rigid-body";
+import { RobustnessSamplePlugin } from "./robustness";
 import { ShapesSamplePlugin } from "./shapes";
 import { StackingSamplePlugin } from "./stacking";
 import { createViewer } from "./view";
@@ -52,6 +53,7 @@ export const AppPlugin: Plugin = {
         GeometricMoverPlugin,
         VillagePlugin,
         RigidBodyPlugin,
+        RobustnessSamplePlugin,
         SampleInputPlugin,
         TextPlugin,
         OrbitPlugin,

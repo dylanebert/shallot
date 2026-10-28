@@ -176,6 +176,15 @@ test("each picker label selects its scene in its category, exactly once", () => 
             ],
         },
         {
+            name: "Robustness",
+            scenes: [
+                { id: "highMassRatio1", name: "HighMassRatio1" },
+                { id: "overflowColorPile", name: "Overflow Color Pile" },
+                { id: "overlapRecovery", name: "Overlap Recovery" },
+                { id: "tinyPyramid", name: "Tiny Pyramid" },
+            ],
+        },
+        {
             name: "Shapes",
             scenes: [
                 { id: "conveyorBelt", name: "Conveyor Belt" },

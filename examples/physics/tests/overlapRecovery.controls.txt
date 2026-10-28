@@ -1,0 +1,15 @@
+20	Extent	0.7
+50	Base Count	7
+90	Overlap	0.75
+130	Speed	1.2
+170	Hertz	120
+210	Damping Ratio	3.4
+250	Reset Scene	1
+290	Overlap	0
+330	Base Count	1
+370	Extent	0.1
+410	Speed	10
+450	Hertz	0
+490	Damping Ratio	0
+530	Base Count	10
+570	Overlap	1

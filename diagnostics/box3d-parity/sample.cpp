@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 #define NDEBUG
 #include "box3d/box3d.h"
+#include "box3d/constants.h"
+#include "overflow_color.h"
 #undef NDEBUG
 #include "utils.h"
 #include "benchmarks.h"
@@ -81,6 +83,7 @@ void DrawAxes( b3WorldTransform, float ) {}
 using Vec4 = int;
 int MakeColor( int color ) { return color; }
 FILE* meshReadouts = nullptr;
+FILE* robustnessReadouts = nullptr;
 FILE* meshBoundsFile = nullptr;
 int meshTriangleCount = 0;
 int meshBuildCount = 0;
@@ -327,6 +330,11 @@ public:
     virtual bool HasSolverControls() const { return true; }
 	virtual void Render() {}
 	void DrawTextLine( const char* format, ... ) {
+        if (robustnessReadouts) {
+            va_list args; va_start(args, format);
+            fprintf(robustnessReadouts, "%d%s", va_arg(args, int), strcmp(format, "total contacts = %d") == 0 ? "\n" : " ");
+            va_end(args);
+        }
         if (meshReadouts && strcmp(format, "triangle count = %d, area = %g") == 0) {
             va_list args; va_start(args, format); meshTriangleCount = va_arg(args, int); va_end(args);
         }
@@ -457,6 +465,8 @@ int main( int argc, char** argv )
 		{ "destruction", BenchmarkDestruction::Create },
         { "heightField", BenchmarkHeightField::Create },
         { "hull", BenchmarkHull::Create },
+        { "highMassRatio1", HighMassRatio1::Create }, { "tinyPyramid", TinyPyramid::Create },
+        { "overlapRecovery", OverlapRecovery::Create }, { "overflowColorPile", OverflowColorPile::Create },
 		{ "cardHouse", CardHouse::Create }, { "sphereStack", SphereStack::Create },
 		{ "jenga", JengaStack::Create },
 		{ "capsuleStack", CapsuleStack::Create }, { "singleBox", SingleBox::Create },
@@ -522,6 +532,11 @@ int main( int argc, char** argv )
     meshBoundsFile = getenv("MESH_BOUNDS") ? fopen(getenv("MESH_BOUNDS"), "w") : nullptr;
     if (getenv("MESH_READOUTS")) assert(meshReadouts && (!strcmp(argv[1], "meshViewer") || !strcmp(argv[1], "meshCreation")));
     if (getenv("MESH_BOUNDS")) assert(meshBoundsFile && !strcmp(argv[1], "meshViewer"));
+    if (getenv("ROBUSTNESS_READOUTS")) {
+        assert(!strcmp(argv[1], "overflowColorPile"));
+        robustnessReadouts = fopen(getenv("ROBUSTNESS_READOUTS"), "w");
+        assert(robustnessReadouts);
+    }
     FILE* readouts = getenv("PRECESSION_READOUTS") ? fopen(getenv("PRECESSION_READOUTS"), "w") : nullptr;
     if (getenv("PRECESSION_READOUTS")) assert(readouts && !strcmp(argv[1], "gyroscopicPrecession"));
     if (getenv("CONTACT_DRAWING")) {
@@ -671,5 +686,6 @@ int main( int argc, char** argv )
     if (contactDrawing) fclose(contactDrawing);
     if (meshReadouts) fclose(meshReadouts);
     if (meshBoundsFile) fclose(meshBoundsFile);
+    if (robustnessReadouts) fclose(robustnessReadouts);
 	delete sample;
 }

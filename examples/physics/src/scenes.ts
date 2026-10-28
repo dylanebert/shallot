@@ -33,6 +33,7 @@ import { MeshCreationState, MeshInspectorState } from "./mesh-inspector";
 import { PrecessionState } from "./precession";
 import { RagdollState, ragdollScenes } from "./ragdoll";
 import { RigidBodyState, rigidBodyScene } from "./rigid-body";
+import { RobustnessState, robustnessScenes } from "./robustness";
 import { MotorizedJoint } from "./roles";
 import { ShapeControlsState, shapeScenes, WindState } from "./shapes";
 import { StackingImpulses, stackingScenes } from "./stacking";
@@ -63,7 +64,8 @@ export type Scene =
     | keyof typeof jointScenes
     | keyof typeof bodyScenes
     | keyof typeof shapeScenes
-    | keyof typeof characterScenes;
+    | keyof typeof characterScenes
+    | keyof typeof robustnessScenes;
 export const categories: { name: string; scenes: { id: Scene; name: string }[] }[] = [
     {
         name: "Benchmark",
@@ -238,6 +240,15 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
         ],
     },
     {
+        name: "Robustness",
+        scenes: [
+            { id: "highMassRatio1", name: "HighMassRatio1" },
+            { id: "overflowColorPile", name: "Overflow Color Pile" },
+            { id: "overlapRecovery", name: "Overlap Recovery" },
+            { id: "tinyPyramid", name: "Tiny Pyramid" },
+        ],
+    },
+    {
         name: "Shapes",
         scenes: [
             { id: "conveyorBelt", name: "Conveyor Belt" },
@@ -365,6 +376,7 @@ export const scenes = {
     ...stackingScenes,
     ...jointScenes,
     ...characterScenes,
+    ...robustnessScenes,
     boxStack: {
         construct: boxStack,
         gridExtent: 40,
@@ -952,6 +964,7 @@ export const scenes = {
 } as const;
 
 export function createScene(world: World, scene: Scene): number[] {
+    Object.assign(world.resource(RobustnessState), RobustnessState.create());
     Object.assign(world.resource(HeightFieldState), HeightFieldState.create());
     Object.assign(world.resource(MeshInspectorState), MeshInspectorState.create());
     Object.assign(world.resource(MeshCreationState), MeshCreationState.create());
