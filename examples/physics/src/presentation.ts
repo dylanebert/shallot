@@ -6,7 +6,6 @@ import {
     PrismaticJoint,
     RevoluteJoint,
     Shape,
-    ShapeKind,
     StandardMaterial,
     shapeEdges,
     shapeMesh,
@@ -41,17 +40,8 @@ const restingReaction = StandardMaterial({
     perceptualRoughness: 0.9,
 });
 
-export const meshMaterials = new Map(
-    [...Object.values(materials), ...Object.values(sleeping), reaction, restingReaction].map(
-        (material) => [material, { ...material, cullMode: "none" as const }] as const,
-    ),
-);
-
 export function shapeMaterial(world: World, role: keyof typeof materials, eid: number) {
-    const material = roleMaterial(world, role, eid);
-    return world.storage(Shape).kind.get(eid) === ShapeKind.Mesh
-        ? meshMaterials.get(material)!
-        : material;
+    return roleMaterial(world, role, eid);
 }
 
 function roleMaterial(world: World, role: keyof typeof materials, eid: number) {

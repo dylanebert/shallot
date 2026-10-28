@@ -1008,7 +1008,7 @@ export const eventScenes = {
         construct: sensorHits,
         gridExtent: 10,
         gridSpacing: 1,
-        camera: { yaw: 0, pitch: 25, distance: 45, phoneDistance: 70, target: [0, 5, 0] },
+        camera: { yaw: -35, pitch: 25, distance: 45, phoneDistance: 70, target: [0, 5, 0] },
         controls: {
             Bullet: {
                 label: "Bullet",

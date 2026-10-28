@@ -7,7 +7,6 @@ import {
     PrismaticJoint,
     RevoluteJoint,
     Shape,
-    ShapeKind,
     StandardPhysicsPlugin,
     WheelJoint,
 } from "@dylanebert/shallot";
@@ -358,9 +357,7 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 expect(role).toBe(expected);
                 expect(presentation.materials[role]).toBeDefined();
                 const material = shapeMaterial(world, role, eid);
-                expect("cullMode" in material ? material.cullMode : "back").toBe(
-                    world.storage(Shape).kind.get(eid) === ShapeKind.Mesh ? "none" : "back",
-                );
+                expect("cullMode" in material ? material.cullMode : "back").toBe("back");
             }
             expect(Array.from(presentation.materials.sensor.baseColor)).toEqual(
                 [0.04, 0.43, 0.53, 1].map(Math.fround),

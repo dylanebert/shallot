@@ -51,7 +51,6 @@ import { Grab } from "./grab";
 import { drawJointViews } from "./joint-presentation";
 import {
     drivenBodies,
-    meshMaterials,
     type ShapeGeometryCache,
     scenePresentation,
     shapeMaterial,
@@ -103,9 +102,6 @@ export const GrabFeedback = {
 };
 
 export function createViewer(world: World): (world: World, scene: Scene) => () => void {
-    const materials = world.resource(Materials);
-    for (const material of meshMaterials.values())
-        materials.add(material, { cullMode: material.cullMode });
     const ambient = world.resource(GlobalAmbientLight);
     ambient.color = 0xd8e4ff;
     ambient.brightness = 380;
@@ -219,9 +215,7 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         const material = shapeMaterial(world, role, eid);
         let handle = stateMaterials.get(material);
         if (!handle) {
-            handle = materials.add(material, {
-                cullMode: "cullMode" in material ? material.cullMode : "back",
-            });
+            handle = materials.add(material);
             stateMaterials.set(material, handle);
         }
         return handle;
