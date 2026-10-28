@@ -80,8 +80,19 @@ const jointMutations: Record<string, [string, string, string]> = {
     topDownFriction: ["TopDownFriction", "int n = 10;", "int n = 9;"],
     weld: ["WeldJoint", "bodyDef.position = { 0.0f, 4.0f, 0.0f };", "bodyDef.position = { 0.0f, 4.1f, 0.0f };"],
 };
+const shapeMutations: Record<string, [string, string, string]> = {
+    inclinedPlane: ["InclinedPlane", "bodyDef.position = { 0.0f, 7.5f, -5.0f };", "bodyDef.position = { 0.0f, 7.6f, -5.0f };"],
+    rollingResistance: ["RollingResistance", "b3Sphere sphere = { b3Vec3_zero, 1.0f };", "b3Sphere sphere = { b3Vec3_zero, 1.1f };"],
+    highResistance: ["HighResistance", "shapeDef.baseMaterial.rollingResistance = 0.2f * index;", "shapeDef.baseMaterial.rollingResistance = 0.21f * index;"],
+    isotropicFriction: ["IsotropicFriction", "shapeDef.baseMaterial.friction = 0.6f;", "shapeDef.baseMaterial.friction = 0.61f;"],
+    slideTwist: ["SlideTwist", "bodyDef.position = { 0.0f, 5.0f, 0.0f };", "bodyDef.position = { 0.0f, 5.1f, 0.0f };"],
+    conveyorBelt: ["ConveyorBelt", "{ 2.0f, 0.0f, 0.0f };", "{ 2.1f, 0.0f, 0.0f };"],
+    conveyorMesh: ["ConveyorMesh", "materials[i].friction = 0.8f;", "materials[i].friction = 0.81f;"],
+    windDrop: ["WindDrop", "m_lift = 4.0f;", "m_lift = 4.1f;"],
+    windFlap: ["WindFlap", "m_lift = 2.0f;", "m_lift = 2.1f;"],
+};
 const steps = 600;
-for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "filter", "parallel", "motor", "joint", "sensor", "contact", "hit", ...Object.keys(stackingMutations), ...Object.keys(jointMutations), ...Object.keys(bodyMutations)]) {
+for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "filter", "parallel", "motor", "joint", "sensor", "contact", "hit", ...Object.keys(stackingMutations), ...Object.keys(jointMutations), ...Object.keys(bodyMutations), ...Object.keys(shapeMutations)]) {
     test(`${scene}: upstream sample hashes repeat and a source constant changes them`, () => {
         const binary = sampleBinary();
         const hashes = run([binary, scene, String(steps)]);
@@ -100,13 +111,13 @@ for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "f
             mkdirSync(join(copy, "samples"));
             mkdirSync(join(copy, "shared"));
             copyFileSync(join(process.env.BOX3D!, "shared/benchmarks.c"), join(copy, "shared/benchmarks.c"));
-            for (const name of ["sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp", "sample_bodies.cpp"]) {
+            for (const name of ["sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp", "sample_bodies.cpp", "sample_shapes.cpp"]) {
                 copyFileSync(join(process.env.BOX3D!, "samples", name), join(copy, "samples", name));
             }
-            const path = join(copy, "samples", scene in bodyMutations ? "sample_bodies.cpp" : scene === "box_stack" || scene in stackingMutations ? "sample_stacking.cpp" : ["joint", "sensor", "contact", "hit"].includes(scene) ? "sample_events.cpp" : "sample_joint.cpp");
+            const path = join(copy, "samples", scene in shapeMutations ? "sample_shapes.cpp" : scene in bodyMutations ? "sample_bodies.cpp" : scene === "box_stack" || scene in stackingMutations ? "sample_stacking.cpp" : ["joint", "sensor", "contact", "hit"].includes(scene) ? "sample_events.cpp" : "sample_joint.cpp");
             const source = readFileSync(path, "utf8");
             const classes: Record<string, string> = { box_stack: "BoxStack", bridge: "Bridge", revolute: "RevoluteJoint", prismatic: "PrismaticJoint", wheel: "WheelJoint", filter: "FilterJoint", parallel: "ParallelJoint", motor: "MotorJoint", joint: "JointEvent", sensor: "SensorVisit", contact: "ContactEvent", hit: "HitEvent" };
-            const start = source.indexOf(`class ${bodyMutations[scene]?.[0] ?? jointMutations[scene]?.[0] ?? stackingMutations[scene]?.[0] ?? classes[scene]} :`);
+            const start = source.indexOf(`class ${shapeMutations[scene]?.[0] ?? bodyMutations[scene]?.[0] ?? jointMutations[scene]?.[0] ?? stackingMutations[scene]?.[0] ?? classes[scene]} :`);
             const prefix = source.slice(0, start);
             const selected = source.slice(start);
             const [constant, replacement] = scene === "box_stack" ? ["float a = 0.5f;", "float a = 0.6f;"] : scene === "bridge" ? ["shapeDef.density = 20.0f;", "shapeDef.density = 21.0f;"] : ["bodyDef.position = { 0.0f, 4.0f, 0.0f };", "bodyDef.position = { 0.0f, 4.1f, 0.0f };"];
@@ -117,8 +128,8 @@ for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "f
                 contact: ["bodyDef.position = { 0.0f, 1.0f, 0.0f };", "bodyDef.position = { 0.0f, 1.1f, 0.0f };"],
                 hit: ["float r = 0.75f;", "float r = 0.8f;"],
             };
-            const before = bodyMutations[scene]?.[1] ?? jointMutations[scene]?.[1] ?? stackingMutations[scene]?.[1] ?? eventConstants[scene]?.[0] ?? (scene === "wheel" ? "bodyDef.position = { 0.0f, 2.0f, 0.0f };" : scene === "filter" ? "bodyDef.position = { 2.0f, 4.0f, 0.0f };" : constant!);
-            const after = bodyMutations[scene]?.[2] ?? jointMutations[scene]?.[2] ?? stackingMutations[scene]?.[2] ?? eventConstants[scene]?.[1] ?? (scene === "wheel" ? "bodyDef.position = { 0.0f, 2.1f, 0.0f };" : scene === "filter" ? "bodyDef.position = { 2.1f, 4.0f, 0.0f };" : replacement!);
+            const before = shapeMutations[scene]?.[1] ?? bodyMutations[scene]?.[1] ?? jointMutations[scene]?.[1] ?? stackingMutations[scene]?.[1] ?? eventConstants[scene]?.[0] ?? (scene === "wheel" ? "bodyDef.position = { 0.0f, 2.0f, 0.0f };" : scene === "filter" ? "bodyDef.position = { 2.0f, 4.0f, 0.0f };" : constant!);
+            const after = shapeMutations[scene]?.[2] ?? bodyMutations[scene]?.[2] ?? jointMutations[scene]?.[2] ?? stackingMutations[scene]?.[2] ?? eventConstants[scene]?.[1] ?? (scene === "wheel" ? "bodyDef.position = { 0.0f, 2.1f, 0.0f };" : scene === "filter" ? "bodyDef.position = { 2.1f, 4.0f, 0.0f };" : replacement!);
             expect(selected.includes(before)).toBe(true);
             writeFileSync(path, prefix + selected.replace(before, after));
             const mutated = run([sampleBinary(join(copy, "samples")), scene, String(steps)]);
@@ -173,7 +184,7 @@ for (const [scene, [before, after]] of Object.entries(benchmarkMutations)) {
         try {
             mkdirSync(join(copy, "samples"));
             mkdirSync(join(copy, "shared"));
-            for (const name of ["sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp", "sample_bodies.cpp"])
+            for (const name of ["sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp", "sample_bodies.cpp", "sample_shapes.cpp"])
                 copyFileSync(join(process.env.BOX3D!, "samples", name), join(copy, "samples", name));
             copyFileSync(join(process.env.BOX3D!, "shared/benchmarks.c"), join(copy, "shared/benchmarks.c"));
             const path = join(copy, ["benchmarkSensor", "chains", "fallingBoxes", "candyCups", "explosion", "destruction"].includes(scene) ? "samples/sample_benchmark.cpp" : "shared/benchmarks.c");

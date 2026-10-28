@@ -20,6 +20,7 @@ import { eventScenes } from "./events";
 import { jointScenes } from "./joints";
 import { PrecessionState } from "./precession";
 import { MotorizedJoint } from "./roles";
+import { shapeScenes, WindState } from "./shapes";
 import { StackingImpulses, stackingScenes } from "./stacking";
 
 export type Scene =
@@ -34,7 +35,8 @@ export type Scene =
     | keyof typeof benchmarkScenes
     | keyof typeof stackingScenes
     | keyof typeof jointScenes
-    | keyof typeof bodyScenes;
+    | keyof typeof bodyScenes
+    | keyof typeof shapeScenes;
 export const categories: { name: string; scenes: { id: Scene; name: string }[] }[] = [
     {
         name: "Benchmark",
@@ -103,6 +105,20 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
             { id: "topDownFriction", name: "Top Down Friction" },
             { id: "weld", name: "Weld" },
             { id: "wheel", name: "Wheel" },
+        ],
+    },
+    {
+        name: "Shapes",
+        scenes: [
+            { id: "conveyorBelt", name: "Conveyor Belt" },
+            { id: "conveyorMesh", name: "Conveyor Mesh" },
+            { id: "highResistance", name: "High Resistance" },
+            { id: "inclinedPlane", name: "Inclined Plane" },
+            { id: "isotropicFriction", name: "Isotropic Friction" },
+            { id: "rollingResistance", name: "Rolling Resistance" },
+            { id: "slideTwist", name: "Slide Twist" },
+            { id: "windDrop", name: "Wind Drop" },
+            { id: "windFlap", name: "Wind Flap" },
         ],
     },
     {
@@ -187,6 +203,7 @@ export function changeControl(
     selected.set(world, bodies, value, values);
 }
 export const scenes = {
+    ...shapeScenes,
     ...bodyScenes,
     ...eventScenes,
     ...benchmarkScenes,
@@ -779,6 +796,7 @@ export const scenes = {
 } as const;
 
 export function createScene(world: World, scene: Scene): number[] {
+    Object.assign(world.resource(WindState), { shapes: [], joints: [], lift: 0, time: 0 });
     world.resource(StackingImpulses).length = 0;
     Object.assign(world.resource(BodySampleState), BodySampleState.create());
     Object.assign(world.resource(PrecessionState), PrecessionState.create());

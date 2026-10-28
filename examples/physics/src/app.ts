@@ -11,6 +11,7 @@ import { BodySamplePlugin } from "./bodies";
 import { EventSamplePlugin, SampleInputPlugin } from "./events";
 import { GrabPlugin } from "./grab";
 import { JointSamplePlugin } from "./joints";
+import { ShapesSamplePlugin } from "./shapes";
 import { StackingSamplePlugin } from "./stacking";
 import { createViewer } from "./view";
 
@@ -26,6 +27,7 @@ export const AppPlugin: Plugin = {
         EventSamplePlugin,
         BenchmarkSamplePlugin,
         StackingSamplePlugin,
+        ShapesSamplePlugin,
         JointSamplePlugin,
         BodySamplePlugin,
         SampleInputPlugin,

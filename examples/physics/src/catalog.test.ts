@@ -73,6 +73,20 @@ test("each picker label selects its scene in its category, exactly once", () => 
             ],
         },
         {
+            name: "Shapes",
+            scenes: [
+                { id: "conveyorBelt", name: "Conveyor Belt" },
+                { id: "conveyorMesh", name: "Conveyor Mesh" },
+                { id: "highResistance", name: "High Resistance" },
+                { id: "inclinedPlane", name: "Inclined Plane" },
+                { id: "isotropicFriction", name: "Isotropic Friction" },
+                { id: "rollingResistance", name: "Rolling Resistance" },
+                { id: "slideTwist", name: "Slide Twist" },
+                { id: "windDrop", name: "Wind Drop" },
+                { id: "windFlap", name: "Wind Flap" },
+            ],
+        },
+        {
             name: "Stacking",
             scenes: [
                 { id: "arch", name: "Arch" },

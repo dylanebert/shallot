@@ -10,6 +10,7 @@
 #include <vector>
 #include <array>
 // SAMPLE_EARCUT
+// SAMPLE_MESH_LOADER
 #include <set>
 #include <string>
 
@@ -260,6 +261,10 @@ int main( int argc, char** argv )
 	SampleContext context;
 	struct Entry { const char* name; Sample* (*create)(SampleContext*); };
 	const Entry entries[] = {
+        { "inclinedPlane", InclinedPlane::Create }, { "rollingResistance", RollingResistance::Create },
+        { "highResistance", HighResistance::Create }, { "isotropicFriction", IsotropicFriction::Create },
+        { "slideTwist", SlideTwist::Create }, { "conveyorBelt", ConveyorBelt::Create },
+        { "conveyorMesh", ConveyorMesh::Create }, { "windDrop", WindDrop::Create }, { "windFlap", WindFlap::Create },
         { "bodyType", BodyType::Create }, { "weeble", Weeble::Create }, { "disable", DisableBody::Create },
         { "gyroscopicPrecession", GyroscopicPrecession::Create },
         { "spinningBook", SpinningBooks::Create }, { "gyroscopicTorque", GyroscopicTorque::Create },

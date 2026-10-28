@@ -177,7 +177,7 @@ const acceptedColors = {
 test("the accepted role baseline covers every critical-set scene", () => {
     expect(Object.keys(acceptedRoles).sort()).toEqual(
         categories
-            .filter((category) => category.name !== "Benchmark" && category.name !== "Bodies")
+            .filter((category) => !["Benchmark", "Bodies", "Shapes"].includes(category.name))
             .flatMap((category) =>
                 category.scenes
                     .filter((scene) => category.name !== "Stacking" || scene.id === "boxStack")
@@ -340,6 +340,15 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 expect(ground.mesh.indices.length).toBeGreaterThan(0);
             } else expect(presentation.ground).toBeUndefined();
             const extent = {
+                inclinedPlane: 50,
+                rollingResistance: 80,
+                highResistance: 50,
+                isotropicFriction: 100,
+                slideTwist: 50,
+                conveyorBelt: 20,
+                conveyorMesh: 20,
+                windDrop: 15,
+                windFlap: 50,
                 gyroscopicPrecession: 40,
                 bodyType: 20,
                 weeble: 30,

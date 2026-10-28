@@ -5,6 +5,7 @@ import { nativeBinary } from "./native";
 
 /** Compile the selected upstream classes verbatim, without the samples app's graphics dependencies. */
 export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples")): string {
+    const shapes = readFileSync(join(samples, "sample_shapes.cpp"), "utf8");
     const bodies = readFileSync(join(samples, "sample_bodies.cpp"), "utf8");
     const stacking = readFileSync(join(samples, "sample_stacking.cpp"), "utf8");
     const joints = readFileSync(join(samples, "sample_joint.cpp"), "utf8");
@@ -19,6 +20,7 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
     }
     const sources = [
         section(sample, "b3BodyId Sample::AddGroundBox(", "struct RowDef"),
+        ...["InclinedPlane", "RollingResistance", "HighResistance", "IsotropicFriction", "SlideTwist", "ConveyorBelt", "ConveyorMesh", "WindDrop", "WindFlap"].map(name => section(shapes, `class ${name} :`, `static int sample${name}`)),
         ...[["GyroscopicPrecession", "sampleGyroscopicPrecession"], ["BodyType", "sampleBodyType"], ["Weeble", "sampleWeeble"], ["DisableBody", "sampleDisable"], ["SpinningBooks", "sampleBook"], ["GyroscopicTorque", "sampleGyroscopicTorque"], ["Kinematic", "sampleKinematic"], ["LockMixing", "sampleLockMixing"], ["FixedRotation", "sampleFixedRotation"], ["OffsetKinematic", "sampleOffsetKinematic"]].map(([name, end]) => section(bodies, `class ${name} :`, `static int ${end}`)),
         section(benchmark.slice(benchmark.lastIndexOf("class BenchmarkLargeWorld :")), "class BenchmarkLargeWorld :", "static int sampleLargeWorld"),
         ...["BenchmarkLargePyramid", "BenchmarkWidePyramid", "BenchmarkManyPyramids", "BenchmarkJointGrid", "FallingBoxes", "BenchmarkRain", "BenchmarkJunkyard", "BenchmarkWasher", "BenchmarkConvexPile", "BenchmarkFallingTrees", "BenchmarkExplosion", "BenchmarkDestruction", "BenchmarkChains", "BenchmarkHeightField", "BenchmarkHull"].map(name =>
@@ -41,8 +43,18 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         .replace(/\t\tPickRay pickRay = m_camera->BuildPickRay\( p.x, p.y \);/, "")
         .replace(/\n\t}\s*$/, "");
     const up = section(sample, "void Sample::MouseUp(", "void Sample::MouseMove(");
+    const meshLoader = [
+        readFileSync(join(process.env.BOX3D ?? "", "samples/mesh_loader.h"), "utf8"),
+        "#define TINYOBJLOADER_IMPLEMENTATION\n#define TINYOBJLOADER_USE_MAPBOX_EARCUT",
+        readFileSync(join(process.env.BOX3D ?? "", "samples/tiny_obj_loader.h"), "utf8").replace('#include "earcut.h"', ''),
+        readFileSync(join(process.env.BOX3D ?? "", "samples/mesh_loader.cpp"), "utf8")
+            .replace('#include "mesh_loader.h"', '')
+            .replace('#include "tiny_obj_loader.h"', '')
+            .replace('reader.ParseFromFile( path, readerConfig )', 'reader.ParseFromFile( (std::string(getenv("BOX3D")) + "/" + path), readerConfig )'),
+    ].join("\n");
     const source = readFileSync(join(import.meta.dir, "sample.cpp"), "utf8")
         .replace("// SAMPLE_EARCUT", readFileSync(join(process.env.BOX3D ?? "", "samples/earcut.h"), "utf8"))
+        .replace("// SAMPLE_MESH_LOADER", meshLoader)
         .replace("// SAMPLE_GRAB", grab)
         .replace("// SAMPLE_UP", up.slice(up.indexOf("{")))
         .replace("// SAMPLE_EVENTS", readFileSync(join(import.meta.dir, "sample-events.h"), "utf8"))
