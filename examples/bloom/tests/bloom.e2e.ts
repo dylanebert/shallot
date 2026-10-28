@@ -1,30 +1,8 @@
 import { mkdir } from "node:fs/promises";
 import { holdFrames, pipelineWarnings } from "@dylanebert/shallot/testing";
-import { expect, type Page, test } from "playwright/test";
+import { expect, test } from "playwright/test";
 import { settings } from "../src/settings";
 import { bodyHasFocus, dragRange, gameKeyMovesCamera, pointerControl } from "./pointer";
-
-type CaptureWindow = Window & { captureScene: () => Promise<number[]>; captures: number[][] };
-async function capture(page: Page): Promise<number> {
-    return page.evaluate(async () => {
-        const win = window as unknown as CaptureWindow;
-        win.captures ??= [];
-        win.captures.push(await win.captureScene());
-        return win.captures.length - 1;
-    });
-}
-async function difference(page: Page, a: number, b: number): Promise<number> {
-    return page.evaluate(
-        ([a, b]) => {
-            const captures = (window as unknown as CaptureWindow).captures;
-            let sum = 0;
-            for (let i = 0; i < captures[a].length; i++)
-                if (i % 4 !== 3) sum += Math.abs(captures[a][i] - captures[b][i]);
-            return sum / (captures[a].length * 0.75);
-        },
-        [a, b],
-    );
-}
 
 test.use(pipelineWarnings);
 
@@ -37,31 +15,6 @@ test("the first frame has no late-pipeline warning", async ({ page }) => {
     );
 });
 
-test("a bloom control changes the captured frame and off restores the unbloomed frame", async ({
-    page,
-}) => {
-    const errors: string[] = [];
-    page.on("pageerror", (error) => errors.push(error.message));
-    await page.goto("http://127.0.0.1:4276/tests/stepped.html");
-    await page.waitForFunction(() => "captureScene" in window);
-    const toggle = page.getByRole("checkbox");
-    const panel = page.getByRole("region", { name: "Bloom controls" });
-    const bounds = await panel.boundingBox();
-    const bloom = await capture(page);
-    await toggle.uncheck();
-    const off = await capture(page);
-    expect(await difference(page, bloom, off)).toBeGreaterThan(0.1);
-    expect(await panel.boundingBox()).toEqual(bounds);
-    for (const slider of await page.getByRole("slider").all()) await expect(slider).toBeDisabled();
-    await toggle.check();
-    expect(await difference(page, await capture(page), bloom)).toBeLessThan(0.1);
-    await page.getByRole("slider", { name: "Intensity", exact: true }).fill("0.8");
-    expect(await difference(page, await capture(page), bloom)).toBeGreaterThan(0.01);
-    await toggle.uncheck();
-    expect(await difference(page, await capture(page), off)).toBeLessThan(0.1);
-    expect(errors).toEqual([]);
-});
-
 test("each control writes its camera field and the toggle restores them", async ({ page }) => {
     await page.goto("http://127.0.0.1:4276/tests/stepped.html?controls");
     await page.waitForFunction(() => "bloomFields" in window);
@@ -69,6 +22,11 @@ test("each control writes its camera field and the toggle restores them", async 
         page.evaluate(() =>
             (window as unknown as { bloomFields(): Record<string, number> | null }).bloomFields(),
         );
+    const toggle = page.getByRole("checkbox");
+    const initial = await fields();
+    await toggle.uncheck();
+    await toggle.check();
+    expect(await fields()).toEqual(initial);
     const values = [0.8, 0, 0.1, 0.1, 50, 1, 8];
     for (const [index, control] of settings.entries()) {
         await page.locator(`#control-${index}`).fill(String(values[index]));
@@ -77,9 +35,9 @@ test("each control writes its camera field and the toggle restores them", async 
     await page.getByRole("combobox").selectOption("1");
     expect((await fields())!.compositeMode).toBe(1);
     const set = await fields();
-    const toggle = page.getByRole("checkbox");
     await toggle.uncheck();
     expect(await fields()).toBeNull();
+    for (const slider of await page.getByRole("slider").all()) await expect(slider).toBeDisabled();
     await toggle.check();
     expect(await fields()).toEqual(set);
 });

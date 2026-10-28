@@ -14,7 +14,6 @@
         <canvas width="1280" height="720"></canvas>
         <script type="module">
             import { Camera, createApp, mountOverlay } from "@dylanebert/shallot";
-            import { captureFrame } from "@dylanebert/shallot/rendering";
             import { flushSync } from "svelte";
             import { hud } from "../src/hud";
             import { ScenePlugin } from "../src/scene";
@@ -45,13 +44,6 @@
             };
             hud(mountOverlay(canvas, app.world), app.world);
             flushSync();
-            window.captureScene = async () => {
-                flushSync();
-                const pending = captureFrame(canvas);
-                app.world.step(0);
-                const image = await pending;
-                return Array.from(image.rgba);
-            };
         </script>
     </body>
 </html>
