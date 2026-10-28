@@ -1,6 +1,6 @@
 import type { Plugin } from "@dylanebert/shallot";
-import { FIELD } from "./trail";
 
+export const FIELD = 24;
 export const HILL_SIZE = 65;
 export const heights = Float32Array.from({ length: HILL_SIZE * HILL_SIZE }, (_, i) => {
     const x = ((i % HILL_SIZE) / (HILL_SIZE - 1) - 0.5) * FIELD;

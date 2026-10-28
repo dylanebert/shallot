@@ -30,8 +30,8 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { openGpuApp } from "@dylanebert/shallot/testing/gpu";
 import { DemoPlugin, RADIUS, SnowTrails } from "./demo";
 import { Grab, pick } from "./grab";
-import { groundAt } from "./hills";
-import { DEPTH, FIELD, RESOLUTION, Trail } from "./trail";
+import { FIELD, groundAt } from "./hills";
+import { DEPTH, RESOLUTION, Trail } from "./trail";
 
 setDefaultTimeout(TIMEOUT.node);
 const { setupGlobals } = await import("@dylanebert/shallot/webgpu");
@@ -115,7 +115,8 @@ beforeAll(async () => {
     if (!adapter) throw new Error("Snow trails needs a WebGPU adapter");
     device = await adapter.requestDevice({ requiredFeatures: ["indirect-first-instance"] });
     for (let i = 0; i < 8; i++) subjects.push(await openGpuApp({ ...config(), device, adapter }));
-    subjects.push(await openGpuApp({ ...config(1024, 512), device, adapter }));
+    for (let i = 0; i < 2; i++)
+        subjects.push(await openGpuApp({ ...config(1024, 512), device, adapter }));
 }, TIMEOUT.startup);
 afterAll(() => {
     for (const app of subjects) app.dispose();
@@ -415,8 +416,8 @@ function along(path: [number, number][], spacing: number) {
     }
     return out;
 }
-test("the opening groove's floor varies along its center line by under 3.75 mm", async () => {
-    const world = apps()[8].world;
+/** Steps the opening and looks down on it, returning its path and its center line. */
+function openingFromAbove(world: World) {
     const path = opening(world);
     world.step(0);
     const xs = path.map(([x]) => x),
@@ -424,7 +425,11 @@ test("the opening groove's floor varies along its center line by under 3.75 mm",
     const [x0, x1, z0, z1] = [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)];
     lookDown(world, (x0 + x1) / 2, (z0 + z1) / 2, Math.max(z1 - z0, (x1 - x0) / 2) / 2 + 1.5);
     // From one radius past the landing to one radius short of the last frame, every centimeter.
-    const line = along(path, 0.01).slice(RADIUS * 100, -RADIUS * 100);
+    return { path, line: along(path, 0.01).slice(RADIUS * 100, -RADIUS * 100) };
+}
+test("the opening groove's floor varies along its center line by under 3.75 mm", async () => {
+    const world = apps()[8].world;
+    const { line } = openingFromAbove(world);
     const tops = (await heightsAt(world, line)).map((y, i) => y - groundAt(...line[i]!));
     // Against the mean over 30 cm either side, which follows the boulder's own rise and fall.
     const window = 30;
@@ -433,4 +438,25 @@ test("the opening groove's floor varies along its center line by under 3.75 mm",
         return Math.abs(top - near.reduce((a, b) => a + b) / near.length);
     });
     expect(Math.max(...deviation)).toBeLessThan(0.00375);
+});
+test("no texel where the opening trail starts is darker than its floor by more than 40", async () => {
+    const world = apps()[9].world;
+    const { path, line } = openingFromAbove(world);
+    const { camera } = world.resource(SnowTrails);
+    const frame = await captureTexture(world, camera);
+    const luminance = ([x, z]: [number, number]) => {
+        const [u, v] = worldToViewport(world, camera, [x, 0, z])!;
+        const i = (Math.floor(v) * frame.width + Math.floor(u)) * 4;
+        return 0.2126 * frame.rgba[i]! + 0.7152 * frame.rgba[i + 1]! + 0.0722 * frame.rgba[i + 2]!;
+    };
+    const floor = line.map(luminance).sort((a, b) => a - b)[line.length >> 1]!;
+    const trail = new Float32Array((await probeTexture(world, world.resource(Trail).image!)).bytes);
+    // Every pressed point, a centimeter apart, within 1.5 m of where the boulder landed.
+    const [lx, lz] = path[0]!;
+    let darkest = Infinity;
+    for (let x = lx - 1.5; x <= lx + 1.5; x += 0.01)
+        for (let z = lz - 1.5; z <= lz + 1.5; z += 0.01)
+            if (Math.hypot(x - lx, z - lz) < 1.5 && pixel(trail, x, z) > 0)
+                darkest = Math.min(darkest, luminance([x, z]));
+    expect(floor - darkest).toBeLessThan(40);
 });

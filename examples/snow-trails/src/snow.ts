@@ -8,8 +8,8 @@ import {
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { HILL_SIZE, Hills, HillsPlugin } from "./hills";
-import { DEPTH, FIELD, RESOLUTION, Trail, TrailPlugin } from "./trail";
+import { FIELD, HILL_SIZE, Hills, HillsPlugin } from "./hills";
+import { DEPTH, RESOLUTION, Trail, TrailPlugin } from "./trail";
 
 const layout = materialLayout(d.struct({ sweep: d.vec3f }), {
     image: { type: "texture", filterable: false },
