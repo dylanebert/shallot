@@ -1,7 +1,6 @@
-import { expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import {
-    chmodSync,
-    copyFileSync,
+    linkSync,
     mkdirSync,
     mkdtempSync,
     readdirSync,
@@ -21,6 +20,43 @@ setDefaultTimeout(TIMEOUT.node);
 const repo = resolve(import.meta.dir, "../..");
 const accountA = "a".repeat(32),
     accountB = "b".repeat(32);
+
+const RECORD = `const record=(entry)=>fs.appendFileSync(path.join(root,'commands.jsonl'),JSON.stringify(entry)+'\\n');`;
+const tools = mkdtempSync(join(tmpdir(), "shallot-publish-tools-"));
+const suffix = process.platform === "win32" ? ".exe" : "";
+/**
+ * The fixture's wrangler and bun: one native executable, linked into each fixture's bin, that reads the
+ * fixture's root as its bin's parent. Native tools keep PATH interception independent of POSIX shebangs.
+ * Source-derived Wrangler 4.151.3 answers: whoami JSON, versions/list JSON, command-failed code 10007,
+ * and deploy JSONL. No credentials or provider API.
+ */
+let tool = "";
+beforeAll(async () => {
+    const source = join(tools, "tool.ts");
+    writeFileSync(
+        source,
+        `const fs=require('node:fs'),path=require('node:path'); const root=path.dirname(path.dirname(process.execPath)); ${RECORD}
+const args=process.argv.slice(2);
+if(path.basename(process.execPath).replace(/\\.exe$/, '')==='bun') {
+if(JSON.stringify(args)!==JSON.stringify(['add','--dev','wrangler@${WRANGLER_VERSION}']))throw Error('Unexpected install');
+record({command:'install'});const p=path.join(process.cwd(),'package.json'),m=JSON.parse(fs.readFileSync(p));m.devDependencies={wrangler:'${WRANGLER_VERSION}'};fs.writeFileSync(p,JSON.stringify(m,null,4));fs.cpSync(path.join(root,'wrangler'),path.join(process.cwd(),'node_modules/wrangler'),{recursive:true});process.exit(0);
+}
+const state=JSON.parse(fs.readFileSync(path.join(root,'answers.json')));
+const config=JSON.parse(fs.readFileSync(args[args.indexOf('--config')+1]));
+record({command:args[0],config,linked:JSON.parse(fs.readFileSync(path.join(process.cwd(),'package.json'))).shallot.publish});
+const replies=JSON.parse(fs.readFileSync(${JSON.stringify(join(import.meta.dir, "fixtures/publish-wrangler.json"))}));
+const replay=(reply)=>{for(const entry of reply.entries??[])fs.appendFileSync(process.env.WRANGLER_OUTPUT_FILE_PATH,JSON.stringify(entry)+'\\n');process.stdout.write(reply.stdout??'');process.stderr.write(reply.stderr??'');process.exit(reply.status);};
+if(args[0]==='whoami')replay(state.account==='${accountA}'?replies.accountA:replies.accountB);
+if(args[0]==='versions')replay(state.collision?replies.exists:replies.absent);
+if(args[0]==='deploy'){if(!fs.existsSync(path.join(config.assets.directory,'_headers')))throw Error('missing headers');fs.writeFileSync(path.join(root,'deployed.json'),JSON.stringify(config));replay(state.fail?replies.failed:replies.deployed);}
+throw Error('Unexpected provider command');`,
+    );
+    const executable = join(tools, `tool${suffix}`);
+    const compiled = await Bun.build({ entrypoints: [source], compile: { outfile: executable } });
+    if (!compiled.success) throw new Error(compiled.logs.map(String).join("\n"));
+    tool = executable;
+});
+afterAll(() => removeTestDirectory(tools));
 
 async function fixture() {
     const root = mkdtempSync(join(tmpdir(), "shallot-publish-flow-"));
@@ -49,7 +85,7 @@ async function fixture() {
     const save = () => writeFileSync(statePath, JSON.stringify(state));
     save();
     writeFileSync(records, "");
-    const record = `const fs=require('node:fs'),path=require('node:path'); const root=${JSON.stringify(root)}; const record=(entry)=>fs.appendFileSync(path.join(root,'commands.jsonl'),JSON.stringify(entry)+'\\n');`;
+    const record = `const fs=require('node:fs'),path=require('node:path'); const root=${JSON.stringify(root)}; ${RECORD}`;
     writeFileSync(
         join(root, "wrangler/package.json"),
         JSON.stringify({
@@ -62,36 +98,7 @@ async function fixture() {
         join(root, "wrangler/cli.cjs"),
         `const r=require('node:child_process').spawnSync('wrangler',process.argv.slice(2),{stdio:'inherit',env:process.env});process.exit(r.status??1);`,
     );
-    // Source-derived Wrangler 4.151.3 answers: whoami JSON, versions/list JSON,
-    // command-failed code 10007, and deploy JSONL. No credentials or provider API.
-    writeFileSync(
-        join(root, "tool.ts"),
-        `${record}
-const args=process.argv.slice(2);
-if(path.basename(process.execPath).replace(/\\.exe$/, '')==='bun') {
-if(JSON.stringify(args)!==JSON.stringify(['add','--dev','wrangler@${WRANGLER_VERSION}']))throw Error('Unexpected install');
-record({command:'install'});const p=path.join(process.cwd(),'package.json'),m=JSON.parse(fs.readFileSync(p));m.devDependencies={wrangler:'${WRANGLER_VERSION}'};fs.writeFileSync(p,JSON.stringify(m,null,4));fs.cpSync(path.join(root,'wrangler'),path.join(process.cwd(),'node_modules/wrangler'),{recursive:true});process.exit(0);
-}
-const state=JSON.parse(fs.readFileSync(path.join(root,'answers.json')));
-const config=JSON.parse(fs.readFileSync(args[args.indexOf('--config')+1]));
-record({command:args[0],config,linked:JSON.parse(fs.readFileSync(path.join(process.cwd(),'package.json'))).shallot.publish});
-const replies=JSON.parse(fs.readFileSync(${JSON.stringify(join(import.meta.dir, "fixtures/publish-wrangler.json"))}));
-const replay=(reply)=>{for(const entry of reply.entries??[])fs.appendFileSync(process.env.WRANGLER_OUTPUT_FILE_PATH,JSON.stringify(entry)+'\\n');process.stdout.write(reply.stdout??'');process.stderr.write(reply.stderr??'');process.exit(reply.status);};
-if(args[0]==='whoami')replay(state.account==='${accountA}'?replies.accountA:replies.accountB);
-if(args[0]==='versions')replay(state.collision?replies.exists:replies.absent);
-if(args[0]==='deploy'){if(!fs.existsSync(path.join(config.assets.directory,'_headers')))throw Error('missing headers');fs.writeFileSync(path.join(root,'deployed.json'),JSON.stringify(config));replay(state.fail?replies.failed:replies.deployed);}
-throw Error('Unexpected provider command');`,
-    );
-    // Native fixture tools keep PATH interception independent of POSIX shebangs.
-    const suffix = process.platform === "win32" ? ".exe" : "";
-    const executable = join(bin, `wrangler${suffix}`);
-    const compiled = await Bun.build({
-        entrypoints: [join(root, "tool.ts")],
-        compile: { outfile: executable },
-    });
-    if (!compiled.success) throw new Error(compiled.logs.map(String).join("\n"));
-    copyFileSync(executable, join(bin, `bun${suffix}`));
-    chmodSync(join(bin, `bun${suffix}`), 0o755);
+    for (const name of ["wrangler", "bun"]) linkSync(tool, join(bin, `${name}${suffix}`));
     writeFileSync(
         join(project, "node_modules/vite/package.json"),
         JSON.stringify({ name: "vite", bin: { vite: "cli.cjs" } }),
