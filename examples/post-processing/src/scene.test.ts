@@ -6,6 +6,7 @@ import { setSetting, settings } from "./settings";
 
 function scene(): World {
     const world = new World();
+    for (const effect of effects) world.registry.register(effect.component);
     ScenePlugin.initialize!(world);
     return world;
 }
@@ -40,14 +41,11 @@ test("each control adds and removes only its own camera effect", () => {
 
 for (const [effect, controls] of settings.entries()) {
     for (const [index, control] of controls.entries()) {
-        test(`${effects[effect].name} ${control.label} writes its camera field while off`, () => {
+        test(`${effects[effect].name} ${control.label} starts at its camera field and writes it while off`, () => {
             const world = scene();
             try {
-                setEffect(world, effect, false);
                 const camera = world.resource(Scene).camera;
-                const value = (control.min + control.max) / 2;
-                setSetting(world, effect, index, value);
-                const actual =
+                const read = () =>
                     effect === 0 && index > 0
                         ? world
                               .storage(LensDistortion)
@@ -55,7 +53,11 @@ for (const [effect, controls] of settings.entries()) {
                         : world
                               .storage(effects[effect].component)
                               [control.field as "intensity"].get(camera);
-                expect(actual).toBeCloseTo(value);
+                expect(read()).toBe(Math.fround(control.value));
+                setEffect(world, effect, false);
+                const value = (control.min + control.max) / 2;
+                setSetting(world, effect, index, value);
+                expect(read()).toBeCloseTo(value);
             } finally {
                 world.dispose();
             }
