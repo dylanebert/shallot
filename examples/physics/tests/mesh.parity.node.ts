@@ -1,10 +1,6 @@
-import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { createApp, hashPhysics } from "@dylanebert/shallot";
-import * as physics from "@dylanebert/shallot/standard/physics";
-import {
-    PhysicsWorldDefinition,
-    StandardPhysicsPlugin,
-} from "@dylanebert/shallot/standard/physics";
+import { StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { MeshSamplePlugin, meshScenes } from "../src/mesh";
 import { MeshInspectorState } from "../src/mesh-inspector";
@@ -12,10 +8,12 @@ import { meshViewerBounds } from "../src/mesh-inspector-presentation";
 import { type Controls, controlValues, createScene } from "../src/scenes";
 import { drawingDigest } from "./digest";
 import { sampleGold } from "./gold";
+import { manualParityScenes } from "./manual-parity";
 import { meshControl } from "./mesh-controls";
 
 setDefaultTimeout(TIMEOUT.node);
 for (const scene of Object.keys(meshScenes) as (keyof typeof meshScenes)[]) {
+    if (manualParityScenes.has(scene)) continue;
     const controls = meshScenes[scene].controls as Controls | undefined;
     for (const controlled of controls && Object.values(controls).some((control) => !control.read)
         ? [false, true]
@@ -27,7 +25,7 @@ for (const scene of Object.keys(meshScenes) as (keyof typeof meshScenes)[]) {
                 ).text(),
             );
             expect(gold).toHaveLength(600);
-            const inspector = scene === "meshViewer" || scene === "meshCreation";
+            const inspector = scene === "meshViewer";
             const stem = `${scene}${controlled ? ".controls" : ""}`;
             const readouts = inspector
                 ? (await Bun.file(new URL(`./${stem}.readouts.gold.txt`, import.meta.url)).text())
@@ -60,12 +58,6 @@ for (const scene of Object.keys(meshScenes) as (keyof typeof meshScenes)[]) {
                 },
             });
             const values = controlValues(scene);
-            const builds =
-                scene === "meshCreation" ? spyOn(physics, "createPhysicsMesh") : undefined;
-            const releases =
-                scene === "meshCreation" ? spyOn(physics, "destroyPhysicsMesh") : undefined;
-            if (scene === "meshCreation")
-                expect(app.world.resource(PhysicsWorldDefinition).enableAutomaticStep).toBe(false);
             try {
                 for (const [step, expected] of gold.entries()) {
                     for (const change of sequence.filter((c) => c.step === step)) {
@@ -81,25 +73,15 @@ for (const scene of Object.keys(meshScenes) as (keyof typeof meshScenes)[]) {
                     app.world.tick();
                     expect(hashPhysics(app.world), `step ${step}`).toBe(expected.hash);
                     if (inspector) {
-                        const names =
-                            scene === "meshViewer"
-                                ? [
-                                      "triangle count",
-                                      "vertex count",
-                                      "degenerate count",
-                                      "node area",
-                                      "height",
-                                  ]
-                                : ["triangle count"];
+                        const names = [
+                            "triangle count",
+                            "vertex count",
+                            "degenerate count",
+                            "node area",
+                            "height",
+                        ];
                         const row = names.map((name) => controls![name]!.read!(app.world)!);
-                        if (scene === "meshViewer")
-                            row.push(app.world.resource(MeshInspectorState).values["draw level"]);
-                        if (builds && releases) {
-                            row.push(builds.mock.calls.length);
-                            expect(releases.mock.calls).toHaveLength(builds.mock.calls.length);
-                            builds.mockClear();
-                            releases.mockClear();
-                        }
+                        row.push(app.world.resource(MeshInspectorState).values["draw level"]);
                         expect(drawingDigest([row]), `readouts step ${step}`).toBe(readouts[step]!);
                     }
                     if (scene === "meshViewer")
@@ -109,8 +91,6 @@ for (const scene of Object.keys(meshScenes) as (keyof typeof meshScenes)[]) {
                         ).toBe(bounds[step]!);
                 }
             } finally {
-                builds?.mockRestore();
-                releases?.mockRestore();
                 app.dispose();
             }
             console.log(

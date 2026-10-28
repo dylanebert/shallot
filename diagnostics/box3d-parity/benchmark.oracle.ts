@@ -1,11 +1,13 @@
-import { expect, setDefaultTimeout, test } from "bun:test";
+import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
+import * as physics from "@dylanebert/shallot/standard/physics";
+import { MeshSamplePlugin } from "../../examples/physics/src/mesh";
 import { Body, BodyType, createApp, hashPhysics, Shape, StandardPhysicsPlugin } from "@dylanebert/shallot";
 import { BenchmarkSamplePlugin, benchmarkScenes } from "../../examples/physics/src/benchmarks";
 import { sceneSwitcher } from "../../examples/physics/src/sample";
-import { changeControl, controlValues, createScene } from "../../examples/physics/src/scenes";
+import { changeControl, controlValues, createScene, scenes } from "../../examples/physics/src/scenes";
 import { sampleGold } from "../../examples/physics/tests/gold";
 import { setLinearVelocity } from "@dylanebert/shallot/standard/physics";
-import { digestMismatch, eventRecord, recordDigest } from "../../examples/physics/tests/digest";
+import { digestMismatch, drawingDigest, eventRecord, recordDigest } from "../../examples/physics/tests/digest";
 import { sensorEvents } from "./records";
 import "./village.oracle";
 import { VillagePlugin } from "../../examples/physics/src/village";
@@ -19,8 +21,36 @@ setDefaultTimeout(0);
 // Large World's million-body switch is held by large-world-construction.oracle.ts.
 for (const scene of [...manualParityScenes].filter(scene => scene !== "largeWorld")) {
     test(`${scene} switches equal to a fresh scene through 600 steps`, () =>
-        expectSwitchesEqualFresh([scene], [BenchmarkSamplePlugin, VillagePlugin]));
+        expectSwitchesEqualFresh([scene], [BenchmarkSamplePlugin, VillagePlugin, MeshSamplePlugin]));
 }
+
+test("meshCreation triangle count and build work equal every recorded native step", async () => {
+    const gold = sampleGold(await Bun.file(new URL("../../examples/physics/tests/meshCreation.gold.txt", import.meta.url)).text());
+    const readouts = (await Bun.file(new URL("../../examples/physics/tests/meshCreation.readouts.gold.txt", import.meta.url)).text()).trim().split("\n");
+    expect(gold).toHaveLength(600);
+    expect(readouts).toHaveLength(gold.length);
+    const start = performance.now();
+    const app = await createApp({ defaults: false, plugins: [MeshSamplePlugin], setup(world) { createScene(world, "meshCreation"); } });
+    const builds = spyOn(physics, "createPhysicsMesh");
+    const releases = spyOn(physics, "destroyPhysicsMesh");
+    try {
+        expect(app.world.resource(physics.PhysicsWorldDefinition).enableAutomaticStep).toBe(false);
+        for (const [step, expected] of gold.entries()) {
+            app.world.tick();
+            expect(hashPhysics(app.world), `step ${step} hash`).toBe(expected.hash);
+            const count = scenes.meshCreation.controls["triangle count"]!.read!(app.world)!;
+            expect(drawingDigest([[count, builds.mock.calls.length]]), `readouts step ${step}`).toBe(readouts[step]!);
+            expect(releases.mock.calls).toHaveLength(builds.mock.calls.length);
+            builds.mockClear();
+            releases.mockClear();
+        }
+    } finally {
+        builds.mockRestore();
+        releases.mockRestore();
+        await app.dispose();
+    }
+    console.log(`meshCreation: ${(performance.now() - start).toFixed(0)} ms; ${gold.length} recorded steps; 1 solver thread`);
+});
 
 test("explosion magnitude and button sequence equals every recorded native step", async () => {
     const gold = sampleGold(await Bun.file(new URL("../../examples/physics/tests/explosion.controls.gold.txt", import.meta.url)).text());

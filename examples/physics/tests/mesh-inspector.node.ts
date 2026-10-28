@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { Body, createApp, hashPhysics, PhysicsMeshes } from "@dylanebert/shallot";
+import { Body, createApp, PhysicsMeshes } from "@dylanebert/shallot";
 import { PhysicsWorldDefinition } from "@dylanebert/shallot/standard/physics";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { INK } from "../src/ink-presentation";
@@ -8,10 +8,10 @@ import { MeshSamplePlugin } from "../src/mesh";
 import { MeshCreationState, MeshInspectorState } from "../src/mesh-inspector";
 import { drawMeshViewerView, meshViewerBounds } from "../src/mesh-inspector-presentation";
 import { sceneSwitcher } from "../src/sample";
-import { changeControl, controlValues, createScene, scenes } from "../src/scenes";
+import { changeControl, controlValues, scenes } from "../src/scenes";
 
 setDefaultTimeout(TIMEOUT.node);
-test("Viewer draws selected node bounds in ink; Creation Benchmark's switched build frame equals fresh", async () => {
+test("Viewer draws selected node bounds in ink and restores stepping after Creation Benchmark", async () => {
     const app = await createApp({ defaults: false, plugins: [MeshSamplePlugin] });
     try {
         const select = sceneSwitcher(app.world);
@@ -55,23 +55,6 @@ test("Viewer draws selected node bounds in ink; Creation Benchmark's switched bu
         expect(meshViewerBounds(app.world)).toEqual([]);
         expect([...app.world.query([Body])]).toEqual([]);
         expect(app.world.resource(PhysicsWorldDefinition).enableAutomaticStep).toBe(false);
-        const fresh = await createApp({
-            defaults: false,
-            plugins: [MeshSamplePlugin],
-            setup(world) {
-                createScene(world, "meshCreation");
-            },
-        });
-        try {
-            app.world.tick();
-            fresh.world.tick();
-            expect(hashPhysics(app.world)).toBe(hashPhysics(fresh.world));
-            expect(app.world.resource(MeshCreationState).triangleCount).toBe(
-                fresh.world.resource(MeshCreationState).triangleCount,
-            );
-        } finally {
-            await fresh.dispose();
-        }
         select("meshViewer");
         expect(app.world.resource(MeshCreationState).active).toBe(false);
         expect(app.world.resource(PhysicsWorldDefinition).enableAutomaticStep).toBe(true);

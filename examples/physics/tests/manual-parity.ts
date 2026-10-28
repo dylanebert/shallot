@@ -6,4 +6,5 @@ export const manualParityScenes: ReadonlySet<Scene> = new Set([
         .find((category) => category.name === "Benchmark")!
         .scenes.map((scene) => scene.id),
     "village",
+    "meshCreation",
 ]);
