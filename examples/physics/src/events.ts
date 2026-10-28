@@ -27,6 +27,7 @@ import {
     applyLinearImpulseToCenter,
     applyTorque,
     computeBodyAABB,
+    getContactData,
     getLocalPoint,
     getMassData,
     PhysicsEvents,
@@ -40,6 +41,7 @@ import {
     setTargetTransform,
 } from "@dylanebert/shallot/standard/physics";
 
+import type { EventMark } from "./event-presentation";
 import type { Controls } from "./scenes";
 
 export const EventSample = {
@@ -66,6 +68,8 @@ export const EventSample = {
         speed: 0,
         time: 0,
         hits: [] as PhysicsHitEvent[],
+        contactPair: null as null | [EntityRef, EntityRef],
+        contactMarks: [] as EventMark[],
         reactions: new Set<EntityRef>(),
         bodyRefs: [] as EntityRef[],
         shapeRefs: [] as EntityRef[],
@@ -86,6 +90,13 @@ const BeforeSample: System = {
         }
         if (sample.scene === "motor") {
             driveMotor(world);
+            return;
+        }
+        if (sample.scene === "move" && !sample.initialized) {
+            sample.initialized = true;
+            const body = sample.bodies[0]!;
+            setAngularVelocity(world, body, { x: 0, y: 0, z: 1 });
+            setLinearVelocity(world, body, { x: -10, y: 0, z: 0 });
             return;
         }
         if (sample.scene !== "hit" || sample.initialized) return;
@@ -140,6 +151,10 @@ const AfterSample: System = {
         }
         if (sample.scene === "contact") {
             stepContact(world);
+            return;
+        }
+        if (sample.scene === "persistentContact") {
+            stepPersistentContact(world);
             return;
         }
         if (sample.scene !== "hit") return;
@@ -702,7 +717,142 @@ function driveMotor(world: World): void {
     );
 }
 
+export function move(world: World): number[] {
+    const sample = world.resource(EventSample);
+    sample.scene = "move";
+    const ground = world.create();
+    world.add(ground, Transform, { translation: [0, -1, 0] });
+    world.add(ground, Body);
+    world.add(ground, Shape, {
+        geometry: world.resource(Hulls).add({ name: "ground", halfExtents: [40, 1, 40] }),
+    });
+    const body = world.create();
+    world.add(body, Transform, { translation: [0, 1, 0] });
+    world.add(body, Body, { type: BodyType.Dynamic });
+    sample.bodies = [body];
+    world.add(body, Shape, {
+        geometry: world.resource(Hulls).add({
+            name: "big box",
+            halfExtents: [0.5, 10, 0.5],
+            transform: { position: [0, 10, 0], rotation: [0, 0, 0, 1] },
+        }),
+        enableHitEvents: 1,
+    });
+    remember(world);
+    return [body];
+}
+
+export function persistentContact(world: World): number[] {
+    const sample = world.resource(EventSample);
+    sample.scene = "persistentContact";
+    const ground = world.create();
+    world.add(ground, Body);
+    world.add(ground, Shape, {
+        kind: ShapeKind.Mesh,
+        geometry: world.resource(PhysicsMeshes).add({
+            name: "grid",
+            grid: {
+                xCount: 20,
+                zCount: 20,
+                cellWidth: 2,
+                materialCount: 2,
+                identifyEdges: true,
+            },
+        }),
+    });
+    const body = world.create();
+    world.add(body, Transform, { translation: [-18, 1, 0.5] });
+    world.add(body, Body, { type: BodyType.Dynamic, linearVelocity: [4, 0, 0] });
+    world.add(body, Shape, {
+        kind: ShapeKind.Sphere,
+        radius: 0.5,
+        density: 20,
+        enableContactEvents: 1,
+        rollingResistance: 0.01,
+    });
+    remember(world);
+    return [body];
+}
+
+function stepPersistentContact(world: World): void {
+    const sample = world.resource(EventSample);
+    const events = world.resource(PhysicsEvents);
+    if (events.contactBegin.count) {
+        const first = events.contactBegin.records[0]!;
+        sample.contactPair = [first.shapeA, first.shapeB];
+    }
+    for (let i = 0; i < events.contactEnd.count; i++) {
+        const event = events.contactEnd.records[i]!;
+        if (sample.contactPair?.[0] === event.shapeA && sample.contactPair[1] === event.shapeB) {
+            sample.contactPair = null;
+            break;
+        }
+    }
+    sample.contactMarks = [];
+    if (!sample.contactPair) return;
+    const data = getContactData(
+        world,
+        world.resolve(sample.contactPair[0]),
+        world.resolve(sample.contactPair[1]),
+    );
+    if (!data) {
+        sample.contactPair = null;
+        return;
+    }
+    const shape = world.resolve(data.shapeA);
+    const body = world.storage(Shape).body.get(shape) || shape;
+    const mass = getMassData(world, body)!;
+    const transform = world.storage(GlobalTransform);
+    const rotation = transform.rotation;
+    const offset = qRotate(
+        rotation.x.get(body),
+        rotation.y.get(body),
+        rotation.z.get(body),
+        rotation.w.get(body),
+        mass.center.x,
+        mass.center.y,
+        mass.center.z,
+    );
+    const f = Math.fround;
+    const center = [
+        f(transform.translation.x.get(body) + offset[0]),
+        f(transform.translation.y.get(body) + offset[1]),
+        f(transform.translation.z.get(body) + offset[2]),
+    ];
+    for (const manifold of data.manifolds)
+        for (const point of manifold.points) {
+            const position: [number, number, number] = [
+                f(center[0]! + point.anchorA.x),
+                f(center[1]! + point.anchorA.y),
+                f(center[2]! + point.anchorA.z),
+            ];
+            sample.contactMarks.push({
+                point: position,
+                end: [
+                    f(position[0] + f(point.totalNormalImpulse * manifold.normal.x)),
+                    f(position[1] + f(point.totalNormalImpulse * manifold.normal.y)),
+                    f(position[2] + f(point.totalNormalImpulse * manifold.normal.z)),
+                ],
+                label: point.totalNormalImpulse.toFixed(2),
+            });
+        }
+}
+
 export const eventScenes = {
+    move: {
+        construct: move,
+        gridExtent: 40,
+        gridSpacing: 2,
+        camera: { yaw: 0, pitch: 30, distance: 55, phoneDistance: 90, target: [-8, 7, 0] },
+        controls: undefined,
+    },
+    persistentContact: {
+        construct: persistentContact,
+        gridExtent: 20,
+        gridSpacing: 2,
+        camera: { yaw: 0, pitch: 35, distance: 50, phoneDistance: 80, target: [0, 0, 0] },
+        controls: undefined,
+    },
     joint: {
         construct: joint,
         gridExtent: 20,

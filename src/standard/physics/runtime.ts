@@ -32,6 +32,7 @@ import { syncBodyFields } from "./body-sync";
 import type { ShapeProxy } from "./collision/distance";
 import { DEFAULT_MASK_BITS, SetType } from "./common/constants";
 import type { EntityId } from "./common/ids";
+import { type PhysicsContactData, readContactManifolds } from "./contact";
 import { PhysicsCreationOrder, recordPhysicsMembership } from "./creation-order";
 import { jointIsValid, getJointLinearSeparation as jointLinearSeparation } from "./solver/joint";
 
@@ -1187,6 +1188,50 @@ export function getMassData(world: World, eid: number) {
     return runtime.physicsWorld && body
         ? bodyGetMassData(runtime.physicsWorld, body.index1 - 1)
         : null;
+}
+
+/** Reads the pair's current touching contact in the solver's A/B order, independent of argument
+ * order. Returns null before first sync, after separation or for absent shapes. All returned data
+ * belongs to the caller. Anchors are world-space offsets from each body's center of mass, in meters;
+ * impulses retain Box3D's per-substep and total-substep meanings. */
+export function getContactData(
+    world: World,
+    shapeA: number,
+    shapeB: number,
+): PhysicsContactData | null {
+    const runtime = runtimeFor(world);
+    const state = runtime.physicsWorld;
+    const a = runtime.shapes.get(shapeA);
+    const b = runtime.shapes.get(shapeB);
+    if (
+        !state ||
+        !a ||
+        !b ||
+        !world.has(shapeA, ShapeComponent) ||
+        !world.has(shapeB, ShapeComponent)
+    )
+        return null;
+    const context = newQueryContext();
+    if (!queryShapeEntities(world, runtime, a.index1 - 1, context) || context.shapeEid !== shapeA)
+        return null;
+    if (!queryShapeEntities(world, runtime, b.index1 - 1, context) || context.shapeEid !== shapeB)
+        return null;
+    const k = kernel(world);
+    const pointer = k.contactQuery(state.worldId, a.index1 - 1, b.index1 - 1);
+    if (!pointer) return null;
+    const header = new Uint32Array(k.memory.buffer, k.worldQueryResultPtr(), 3);
+    const first = { shape: 0 as EntityRef, body: 0 as EntityRef };
+    const second = { shape: 0 as EntityRef, body: 0 as EntityRef };
+    if (
+        !liveShapeEntity(state.shapeEntities, header[0]!, first) ||
+        !liveShapeEntity(state.shapeEntities, header[1]!, second)
+    )
+        return null;
+    return {
+        shapeA: first.shape,
+        shapeB: second.shape,
+        manifolds: readContactManifolds(k, pointer, header[2]!),
+    };
 }
 
 /** Immediately sets mass in kg, center in local meters and inertia in kg·m² about that center.

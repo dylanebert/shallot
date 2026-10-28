@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cstdarg>
 #include <vector>
 #include <array>
 // SAMPLE_EARCUT
@@ -49,11 +50,18 @@ bool IsKeyDown( int key ) {
 void DrawGroundGrid( int ) {}
 template<class T> void DrawAxes( T, float ) {}
 int MakeColor( int color ) { return color; }
+FILE* contactDrawing = nullptr;
+struct ContactMark { b3Pos point; b3Pos end; std::string label; };
+std::vector<ContactMark> contactMarks;
 void DrawPoint( b3Pos, float, int ) {}
-void DrawLine( b3Pos, b3Pos, int ) {}
+void DrawLine( b3Pos a, b3Pos b, int ) { if (contactDrawing) contactMarks.push_back({a,b,{}}); }
 void DrawArrow( b3Pos, b3Pos, int ) {}
 void DrawWireSphere( b3WorldTransform, const b3Sphere*, int, int ) {}
-void DrawString3D( b3Pos, int, const char*, ... ) {}
+void DrawString3D( b3Pos, int, const char* format, ... ) {
+    if (!contactDrawing) return;
+    char text[128]; va_list args; va_start(args, format); vsnprintf(text, sizeof(text), format, args); va_end(args);
+    contactMarks.back().label = text;
+}
 int MakeColorAlpha( int color, float ) { return color; }
 constexpr int TRANSPARENT_SHADOW_NONE = 0;
 void DrawSolidSphere( b3WorldTransform, b3Sphere, int ) {}
@@ -260,7 +268,7 @@ int main( int argc, char** argv )
 		fprintf( stderr, "usage: sample <scene> <steps> [grab|control-sequence-file]\n" );
 		return 2;
 	}
-	recordEvents = !strcmp( argv[1], "benchmarkSensor" ) || !strcmp( argv[1], "joint" ) || !strcmp( argv[1], "sensor" ) || !strcmp( argv[1], "contact" ) || !strcmp( argv[1], "hit" ) || !strcmp( argv[1], "motor" );
+	recordEvents = !strcmp( argv[1], "benchmarkSensor" ) || !strcmp( argv[1], "joint" ) || !strcmp( argv[1], "sensor" ) || !strcmp( argv[1], "contact" ) || !strcmp( argv[1], "hit" ) || !strcmp( argv[1], "motor" ) || !strcmp( argv[1], "move" ) || !strcmp( argv[1], "persistentContact" );
 	b3SetLogFcn( []( const char* message ) { fprintf( stderr, "%s\n", message ); } );
     recordQueriesAndBuilds = !strcmp( argv[1], "heightField" ) || !strcmp( argv[1], "hull" );
 	SampleContext context;
@@ -305,6 +313,7 @@ int main( int argc, char** argv )
 		{ "wheel", WheelJoint::Create }, { "filter", FilterJoint::Create }, { "parallel", ParallelJoint::Create },
 		{ "motor", MotorJoint::Create }, { "joint", JointEvent::Create },
 		{ "sensor", SensorVisit::Create }, { "contact", ContactEvent::Create }, { "hit", HitEvent::Create },
+        { "move", MoveEvent::Create }, { "persistentContact", PersistentContact::Create },
 	};
 	Sample* sample = nullptr;
 	for ( const Entry& entry : entries ) if ( strcmp( argv[1], entry.name ) == 0 ) sample = entry.create( &context );
@@ -324,6 +333,11 @@ int main( int argc, char** argv )
 	}
     FILE* readouts = getenv("PRECESSION_READOUTS") ? fopen(getenv("PRECESSION_READOUTS"), "w") : nullptr;
     if (getenv("PRECESSION_READOUTS")) assert(readouts && !strcmp(argv[1], "gyroscopicPrecession"));
+    if (getenv("CONTACT_DRAWING")) {
+        assert(!strcmp(argv[1], "persistentContact"));
+        contactDrawing = fopen(getenv("CONTACT_DRAWING"), "w");
+        assert(contactDrawing);
+    }
 	for ( int i = 0; i < atoi( argv[2] ); ++i )
 	{
 		if ( grab )
@@ -343,7 +357,17 @@ int main( int argc, char** argv )
 		}
 		currentStep = i;
 		sample->DrawControls();
+        contactMarks.clear();
 		sample->Step();
+        if (contactDrawing) {
+            fprintf(contactDrawing, "[");
+            for (size_t j = 0; j < contactMarks.size(); ++j) {
+                const auto& m = contactMarks[j];
+                if (j) fprintf(contactDrawing, ",");
+                fprintf(contactDrawing, "{\"point\":[%.9g,%.9g,%.9g],\"end\":[%.9g,%.9g,%.9g],\"label\":\"%s\"}", m.point.x,m.point.y,m.point.z,m.end.x,m.end.y,m.end.z,m.label.c_str());
+            }
+            fprintf(contactDrawing, "]\n");
+        }
         if (readouts) {
             auto* top = static_cast<GyroscopicPrecession*>(sample);
             if (top->m_elapsed > 0) fprintf(readouts, "%.9g %.9g\n", top->m_expectedAngle / top->m_elapsed, top->m_actualAngle / top->m_elapsed);
@@ -352,5 +376,6 @@ int main( int argc, char** argv )
         if ( recordQueriesAndBuilds ) sample->Render();
 	}
     if (readouts) fclose(readouts);
+    if (contactDrawing) fclose(contactDrawing);
 	delete sample;
 }

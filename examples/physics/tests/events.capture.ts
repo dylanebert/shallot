@@ -6,6 +6,8 @@ for (const [id, name] of [
     ["sensor", "Sensor Visit"],
     ["contact", "Contact"],
     ["hit", "Hit"],
+    ["move", "Move"],
+    ["persistentContact", "Persistent Contact"],
     ["motor", "Motor Joint"],
 ]) {
     test(`${name} event-stage look review`, async ({ page }) => {
@@ -14,12 +16,13 @@ for (const [id, name] of [
         });
         await page.goto(`/?scene=${id}`);
         await page.getByRole("button", { name: "Scene", exact: true }).waitFor();
+        if (id === "move" || id === "persistentContact") await page.waitForTimeout(1500);
         await capture(page, `${id}-default`);
         if (id === "sensor") {
             await page.waitForTimeout(2000);
             await capture(page, "sensor-reaction");
         }
-        if (id === "hit" || id === "contact") {
+        if (id === "hit" || id === "contact" || id === "persistentContact") {
             await page.waitForTimeout(id === "hit" ? 5500 : 1800);
             await capture(page, `${id}-events`);
         }

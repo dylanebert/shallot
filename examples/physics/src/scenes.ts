@@ -82,6 +82,8 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
             { id: "contact", name: "Contact" },
             { id: "hit", name: "Hit" },
             { id: "joint", name: "Joint" },
+            { id: "move", name: "Move" },
+            { id: "persistentContact", name: "Persistent Contact" },
             { id: "sensor", name: "Sensor Visit" },
         ],
     },

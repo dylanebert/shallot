@@ -9,6 +9,7 @@ export {
     solvePlanes,
 } from "./collision/mover";
 export type { QueryFilter } from "./common/types";
+export type { PhysicsContactData, PhysicsManifold, PhysicsManifoldPoint } from "./contact";
 export type {
     PhysicsContactEvent,
     PhysicsContactPair,
@@ -39,6 +40,7 @@ export {
     emptyQueryHit,
     explode,
     getAngularVelocity,
+    getContactData,
     getJointLinearSeparation,
     getLocalPoint,
     getMassData,

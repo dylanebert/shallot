@@ -5,6 +5,32 @@ use crate::finalize::{TY_CAPSULE, TY_COMPOUND, TY_HEIGHT_FIELD, TY_HULL, TY_MESH
 use crate::manifold::{Capsule, Sphere};
 use crate::math::{Quat, Transform, Vec3};
 use crate::query::*;
+
+/// Finds a touching pair in body A's contact adjacency list. Results retain the solver's A/B order.
+#[export_name = "contactQuery"]
+pub unsafe extern "C" fn contact_query(world: usize, shape_a: usize, shape_b: usize) -> usize {
+    use crate::manifold_abi::*;
+    let shapes = crate::shapes::col(world);
+    let body = shapes.get(shape_a * SHAPE_STRIDE + crate::shapes::S_QUERY_BODY) as usize;
+    let dir = crate::manifolds::dir_col(world);
+    let mut key = crate::bodies::record(world, body).head_contact_key;
+    while key != -1 {
+        let offset = (key >> 1) as usize * DIR_STRIDE;
+        let a = dir.get(offset + DIR_SHAPE_A) as usize;
+        let b = dir.get(offset + DIR_SHAPE_B) as usize;
+        if ((a == shape_a && b == shape_b) || (a == shape_b && b == shape_a))
+            && dir.get(offset + DIR_FLAGS) & contact_flags::TOUCHING != 0
+        {
+            let result = &raw mut crate::world_query::RESULT as *mut u32;
+            result.write(a as u32);
+            result.add(1).write(b as u32);
+            result.add(2).write(dir.get(offset + DIR_MANIFOLD_COUNT));
+            return dir.get(offset + DIR_MANIFOLD_BASE) as usize;
+        }
+        key = dir.get(offset + DIR_EDGE_A + 2 + 3 * (key & 1) as usize) as i32;
+    }
+    0
+}
 use crate::shapes::{SHAPE_STRIDE, S_GEOM, S_MATERIAL_COUNT, S_TYPE};
 // transform(7), count/radius(2), translation(3), fraction/encroach(2), points(128*3).
 static mut INPUT: [f32; 398] = [0.0; 398];

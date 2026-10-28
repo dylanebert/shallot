@@ -8,7 +8,17 @@ import {
 } from "@dylanebert/shallot";
 import { PhysicsEvents, setTargetTransform } from "@dylanebert/shallot/standard/physics";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { contact, EventSample, EventSamplePlugin, hit, joint, motor, sensor } from "../src/events";
+import {
+    contact,
+    EventSample,
+    EventSamplePlugin,
+    hit,
+    joint,
+    motor,
+    move,
+    persistentContact,
+    sensor,
+} from "../src/events";
 import { Grab, pick, release } from "../src/grab";
 import { type Controls, changeControl, controlValues, scenes } from "../src/scenes";
 import { sampleGold } from "./gold";
@@ -61,6 +71,8 @@ function eventRecords(world: World) {
 setDefaultTimeout(TIMEOUT.node);
 
 for (const [name, construct] of [
+    ["move", move],
+    ["persistentContact", persistentContact],
     ["hit", hit],
     ["joint", joint],
     ["sensor", sensor],

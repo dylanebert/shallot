@@ -79,6 +79,14 @@ test("Body Type follows its selected type's role and Weeble draws only its explo
 
 // The accepted critical-set baseline, in eid order; counts compress adjacent equal roles.
 const acceptedRoles = {
+    move: [
+        ["ground", 1],
+        ["subject", 1],
+    ],
+    persistentContact: [
+        ["ground", 1],
+        ["subject", 1],
+    ],
     driving: [
         ["ground", 1],
         ["subject", 5],
@@ -414,6 +422,8 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 explosion: 20,
                 destruction: 20,
                 benchmarkSensor: 130,
+                move: 40,
+                persistentContact: 20,
             }[id];
             const grid = presentation.grid;
             const spacing = grid.lines[2]!.a[2] - grid.lines[0]!.a[2];

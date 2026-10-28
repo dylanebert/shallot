@@ -82,8 +82,7 @@ function placeMarker(
     }
 }
 
-const HIT_SEGMENT = { width: 2, depthBias: -1 };
-const HIT_POINT = { width: 3, depthBias: -1 };
+import { drawEventMark } from "./event-presentation";
 
 export const GrabFeedback = {
     create: () => ({ marker: 0, attachment: [0, 0, 0] as [number, number, number] }),
@@ -334,9 +333,22 @@ function createView(world: World, scene: Scene, camera: number): () => void {
             world.add(eid, MeshInstance, { mesh });
             world.add(eid, MeshMaterial, materialFor(shape.role, eid));
         }
-        for (let i = 0; i < sample.hits.length; i++) {
-            const hit = sample.hits[i]!;
-            const point: [number, number, number] = [hit.point.x, hit.point.y, hit.point.z];
+        const marks =
+            sample.scene === "persistentContact"
+                ? sample.contactMarks
+                : sample.hits.map((hit) => ({
+                      point: [hit.point.x, hit.point.y, hit.point.z] as [number, number, number],
+                      end: [
+                          hit.point.x - hit.approachSpeed * hit.normal.x,
+                          hit.point.y - hit.approachSpeed * hit.normal.y,
+                          hit.point.z - hit.approachSpeed * hit.normal.z,
+                      ] as [number, number, number],
+                      label: `${hit.approachSpeed.toFixed(1)}, ${hit.userMaterialIdA}`,
+                  }));
+        while (labels.length > marks.length) world.destroy(labels.pop()!);
+        for (let i = 0; i < marks.length; i++) {
+            const mark = marks[i]!;
+            const point = mark.point;
             if (!labels[i]) {
                 const label = world.create();
                 labels[i] = label;
@@ -344,10 +356,7 @@ function createView(world: World, scene: Scene, camera: number): () => void {
                     translation: point,
                 });
                 world.add(label, Text, {
-                    content: internText(
-                        world,
-                        `${hit.approachSpeed.toFixed(1)}, ${hit.userMaterialIdA}`,
-                    ),
+                    content: internText(world, mark.label),
                     fontSize: 1,
                     depthBias: -1,
                     billboard: Billboard.Screen,
@@ -355,24 +364,10 @@ function createView(world: World, scene: Scene, camera: number): () => void {
                 });
                 world.add(label, Anchor, { offset: [...Anchor.BOTTOM_LEFT] });
             }
-            drawLine(
-                world,
-                [
-                    point[0] - hit.approachSpeed * hit.normal.x,
-                    point[1] - hit.approachSpeed * hit.normal.y,
-                    point[2] - hit.approachSpeed * hit.normal.z,
-                ],
-                point,
-                0xffb62e,
-                HIT_SEGMENT,
-            );
-            drawLine(
-                world,
-                [point[0] - 0.2, point[1], point[2]],
-                [point[0] + 0.2, point[1], point[2]],
-                0xffb62e,
-                HIT_POINT,
-            );
+            const label = labels[i]!;
+            world.storage(Transform).translation.set(label, ...point);
+            world.storage(Text).content.set(label, internText(world, mark.label));
+            drawEventMark(mark, (a, b, color, options) => drawLine(world, a, b, color, options));
         }
     }
     updateShapes(world);
