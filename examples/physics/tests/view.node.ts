@@ -340,6 +340,9 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 expect(ground.mesh.indices.length).toBeGreaterThan(0);
             } else expect(presentation.ground).toBeUndefined();
             const extent = {
+                restitution: 50,
+                staticInvoke: 20,
+                wind: 20,
                 inclinedPlane: 50,
                 rollingResistance: 80,
                 highResistance: 50,

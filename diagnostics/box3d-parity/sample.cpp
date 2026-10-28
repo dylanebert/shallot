@@ -51,6 +51,7 @@ template<class T> void DrawAxes( T, float ) {}
 int MakeColor( int color ) { return color; }
 void DrawPoint( b3Pos, float, int ) {}
 void DrawLine( b3Pos, b3Pos, int ) {}
+void DrawArrow( b3Pos, b3Pos, int ) {}
 void DrawWireSphere( b3WorldTransform, const b3Sphere*, int, int ) {}
 void DrawString3D( b3Pos, int, const char*, ... ) {}
 int MakeColorAlpha( int color, float ) { return color; }
@@ -93,6 +94,7 @@ b3HullData* RecordedHull( const b3Vec3* points, int count, int maxCount ) {
 b3HullData* RecordedClone( const b3HullData* hull, b3Transform transform, b3Vec3 scale ) {
     b3HullData* result = b3CloneAndTransformHull( hull, transform, scale ); PrintHull( result ); return result;
 }
+#define IM_ARRAYSIZE(_ARR) ((int)(sizeof(_ARR) / sizeof(*(_ARR))))
 namespace ImGui
 {
 void Text( const char*, ... ) {}
@@ -112,11 +114,14 @@ bool SliderFloat( const char* name, float* value, float, float, const char* = "%
         if ( change.step == currentStep && change.name == name ) { *value = change.value; return true; }
     return false;
 }
-bool SliderInt( const char* name, int* value, int, int ) {
+bool SliderInt( const char* name, int* value, int, int, const char* = "%d" ) {
     float result = float(*value);
     bool changed = SliderFloat( name, &result, 0, 0, "" );
     *value = int(result);
     return changed;
+}
+bool Combo( const char* name, int* value, const char* const*, int ) {
+    return SliderInt( name, value, 0, 0 );
 }
 bool SliderFloat3( const char* name, float* value, float min, float max, const char* format ) {
     bool changed = false;
@@ -264,6 +269,7 @@ int main( int argc, char** argv )
         { "inclinedPlane", InclinedPlane::Create }, { "rollingResistance", RollingResistance::Create },
         { "highResistance", HighResistance::Create }, { "isotropicFriction", IsotropicFriction::Create },
         { "slideTwist", SlideTwist::Create }, { "conveyorBelt", ConveyorBelt::Create },
+        { "restitution", Restitution::Create }, { "staticInvoke", StaticInvoke::Create }, { "wind", Wind::Create },
         { "conveyorMesh", ConveyorMesh::Create }, { "windDrop", WindDrop::Create }, { "windFlap", WindFlap::Create },
         { "bodyType", BodyType::Create }, { "weeble", Weeble::Create }, { "disable", DisableBody::Create },
         { "gyroscopicPrecession", GyroscopicPrecession::Create },

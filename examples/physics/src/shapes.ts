@@ -10,6 +10,7 @@ import {
     Shape,
     ShapeKind,
     ShapeMaterials,
+    SphericalJoint,
     type System,
     Transform,
     type World,
@@ -21,8 +22,8 @@ import {
     StandardPhysicsPlugin,
     StepPhysicsSystem,
 } from "@dylanebert/shallot/standard/physics";
-
 import conveyor from "./conveyor.json" with { type: "json" };
+import type { Controls } from "./scenes";
 
 const f = Math.fround;
 const pi = f(Math.PI);
@@ -37,6 +38,28 @@ const AfterShapes: System = {
     group: "fixed",
     after: [StepPhysicsSystem],
     update(world) {
+        const sample = world.resource(ShapeControlsState);
+        if (sample.scene === "staticInvoke" && ++sample.step === 20) createStatic(world);
+        if (sample.scene === "wind") {
+            const speed = f(Math.sqrt(f(sample.wind * sample.wind)));
+            const direction = speed ? f(f(1 / speed) * sample.wind) : 0;
+            const wind = {
+                x: f(speed * f(direction + sample.noise[0]!)),
+                y: f(speed * sample.noise[1]!),
+                z: f(speed * sample.noise[2]!),
+            };
+            for (const eid of sample.bodies)
+                applyWind(world, eid, wind, sample.drag, sample.lift, 10, true);
+            for (let i = 0; i < 3; i++) {
+                let x = sample.seed;
+                x ^= x << 13;
+                x ^= x >>> 17;
+                x ^= x << 5;
+                sample.seed = x >>> 0;
+                const rand = f(f(f(f(0.3) - f(-0.3)) * f((sample.seed % 32768) / 32767)) + f(-0.3));
+                sample.noise[i] = f(f(f(1 - f(0.05)) * sample.noise[i]!) + f(f(0.05) * rand));
+            }
+        }
         const state = world.resource(WindState);
         for (const shape of state.shapes)
             applyWind(world, shape, { x: 0, y: 0, z: 0 }, 1, state.lift, 10, !state.joints.length);
@@ -47,12 +70,6 @@ const AfterShapes: System = {
             state.time = f(state.time + f(1 / 60));
         }
     },
-};
-export const ShapesSamplePlugin: Plugin = {
-    name: "ShapesSample",
-    dependencies: [StandardPhysicsPlugin],
-    systems: [AfterShapes],
-    recovery: recoverResource(WindState),
 };
 function rotation(world: World, axis: V3, angle: number): Q4 {
     return rotationFromAxisAngle(world, { x: axis[0], y: axis[1], z: axis[2] }, angle);
@@ -281,7 +298,257 @@ function windFlap(world: World): number[] {
     Object.assign(world.resource(WindState), { shapes: [wing1, wing2], joints, lift: 2, time: 0 });
     return [wing1, wing2, torso];
 }
+export const ShapeControlsState = {
+    create: () => ({
+        scene: "",
+        bodies: [] as number[],
+        joints: [] as number[],
+        staticBody: -1,
+        ground: -1,
+        step: 0,
+        invoke: 0,
+        shape: 2,
+        count: 10,
+        wind: 6,
+        drag: 1,
+        lift: 0.75,
+        noise: [0, 0, 0],
+        seed: 12345,
+    }),
+};
+const ShapeControlsPlugin: Plugin = {
+    name: "ShapeControls",
+    recovery: recoverResource(ShapeControlsState),
+};
+export const ShapesSamplePlugin: Plugin = {
+    name: "ShapesSample",
+    dependencies: [StandardPhysicsPlugin, ShapeControlsPlugin],
+    systems: [AfterShapes],
+    recovery: recoverResource(WindState),
+};
+function restitutionBodies(world: World): number[] {
+    const state = world.resource(ShapeControlsState);
+    for (const eid of state.bodies) world.destroy(eid);
+    state.bodies = [];
+    const geometry = box(world, [0.5, 0.5, 0.5]);
+    const dr = f(1 / 39);
+    let restitution = 0;
+    for (let i = 0; i < 40; i++) {
+        const eid = body(world, [-39 + 2 * i, 40, 0]);
+        world.add(
+            eid,
+            Shape,
+            state.shape === 0
+                ? { kind: ShapeKind.Sphere, radius: 0.5, restitution }
+                : { geometry, restitution },
+        );
+        state.bodies.push(eid);
+        restitution = f(restitution + dr);
+    }
+    return state.bodies;
+}
+function restitution(world: World): number[] {
+    ground(world, 50);
+    Object.assign(world.resource(ShapeControlsState), { scene: "restitution", shape: 0 });
+    return restitutionBodies(world);
+}
+function createStatic(world: World): void {
+    const state = world.resource(ShapeControlsState);
+    if (state.staticBody !== -1) world.destroy(state.staticBody);
+    state.staticBody = body(world, [0, 0.5, 0], false);
+    world.add(state.staticBody, Shape, {
+        kind: ShapeKind.Sphere,
+        radius: 0.5,
+        invokeContactCreation: state.invoke,
+    });
+}
+function staticInvoke(world: World): number[] {
+    ground(world, 20);
+    const eid = body(world, [0.25, 1, 0]);
+    world.add(eid, Shape, { kind: ShapeKind.Sphere, radius: 0.5, rollingResistance: 0.2 });
+    world.resource(ShapeControlsState).scene = "staticInvoke";
+    return [eid];
+}
+function windBodies(world: World): number[] {
+    const state = world.resource(ShapeControlsState);
+    for (const eid of state.joints) world.destroy(eid);
+    for (const eid of state.bodies) world.destroy(eid);
+    state.bodies = [];
+    state.joints = [];
+    const r = f(0.1);
+    const geometry = box(world, [f(1.25 * r), f(0.75 * r), f(0.125 * r)]);
+    let a = state.ground;
+    for (let i = 0; i < state.count; i++) {
+        const eid = body(world, [f((2 * i + 1) * r), 2, 0]);
+        world.storage(Body).gravityScale.set(eid, 0.5);
+        world.storage(Body).enableSleep.set(eid, 0);
+        world.add(
+            eid,
+            Shape,
+            state.shape === 0
+                ? { kind: ShapeKind.Sphere, radius: r, density: 20 }
+                : state.shape === 1
+                  ? {
+                        kind: ShapeKind.Capsule,
+                        capsuleCenter1: [-r, 0, 0],
+                        capsuleCenter2: [r, 0, 0],
+                        radius: f(0.5 * r),
+                        density: 20,
+                    }
+                  : { geometry, density: 20 },
+        );
+        const joint = world.create();
+        world.add(joint, SphericalJoint, {
+            a,
+            b: eid,
+            localAnchorA: i ? [r, 0, 0] : [0, 2, 0],
+            localAnchorB: [-r, 0, 0],
+            drawScale: 0.1,
+        });
+        state.bodies.push(eid);
+        state.joints.push(joint);
+        a = eid;
+    }
+    return state.bodies;
+}
+function wind(world: World): number[] {
+    ground(world, 20);
+    Object.assign(world.resource(ShapeControlsState), {
+        scene: "wind",
+        ground: body(world, [0, 0, 0], false),
+    });
+    return windBodies(world);
+}
+const restitutionControls = {
+    Shape: {
+        label: "Shape",
+        value: 0,
+        options: [
+            { label: "Sphere", value: 0 },
+            { label: "Box", value: 1 },
+        ],
+        set(world, _bodies, value) {
+            world.resource(ShapeControlsState).shape = value;
+            restitutionBodies(world);
+        },
+    },
+} satisfies Controls;
+const staticControls = {
+    Mode: {
+        label: "Mode",
+        value: 0,
+        select: true,
+        options: [
+            { label: "Invoke", value: 1 },
+            { label: "Passive", value: 0 },
+        ],
+        set(world, _bodies, value) {
+            world.resource(ShapeControlsState).invoke = value;
+        },
+    },
+    Create: {
+        label: "Create",
+        value: 0,
+        button: true,
+        enabled: (world) => world.resource(ShapeControlsState).staticBody === -1,
+        set(world) {
+            createStatic(world);
+        },
+    },
+    Destroy: {
+        label: "Destroy",
+        value: 0,
+        button: true,
+        enabled: (world) => world.resource(ShapeControlsState).staticBody !== -1,
+        set(world) {
+            const state = world.resource(ShapeControlsState);
+            world.destroy(state.staticBody);
+            state.staticBody = -1;
+        },
+    },
+} satisfies Controls;
+const windControls = {
+    Shape: {
+        label: "Shape",
+        value: 2,
+        select: true,
+        options: [
+            { label: "Circle", value: 0 },
+            { label: "Capsule", value: 1 },
+            { label: "Box", value: 2 },
+        ],
+        set(world, _bodies, value) {
+            world.resource(ShapeControlsState).shape = value;
+            windBodies(world);
+        },
+    },
+    Wind: {
+        label: "Wind",
+        value: 6,
+        min: -50,
+        max: 50,
+        step: 0.1,
+        decimals: 1,
+        set(world, _bodies, value) {
+            world.resource(ShapeControlsState).wind = f(value);
+        },
+    },
+    Drag: {
+        label: "Drag",
+        value: 1,
+        min: 0,
+        max: 1,
+        step: 0.01,
+        decimals: 2,
+        set(world, _bodies, value) {
+            world.resource(ShapeControlsState).drag = f(value);
+        },
+    },
+    Lift: {
+        label: "Lift",
+        value: 0.75,
+        min: 0,
+        max: 4,
+        step: 0.01,
+        decimals: 2,
+        set(world, _bodies, value) {
+            world.resource(ShapeControlsState).lift = f(value);
+        },
+    },
+    Count: {
+        label: "Count",
+        value: 10,
+        min: 1,
+        max: 60,
+        step: 1,
+        set(world, _bodies, value) {
+            world.resource(ShapeControlsState).count = value;
+            windBodies(world);
+        },
+    },
+} satisfies Controls;
 export const shapeScenes = {
+    restitution: {
+        construct: restitution,
+        gridExtent: 50,
+        gridSpacing: 5,
+        camera: { yaw: 5, pitch: 20, distance: 160, target: [0, 20, 0] },
+        controls: restitutionControls,
+    },
+    staticInvoke: {
+        construct: staticInvoke,
+        gridExtent: 20,
+        gridSpacing: 1,
+        camera: { yaw: 30, pitch: 20, distance: 6, target: [0, 1, 0] },
+        controls: staticControls,
+    },
+    wind: {
+        construct: wind,
+        gridExtent: 20,
+        gridSpacing: 1,
+        camera: { yaw: 15, pitch: 15, distance: 6, target: [1, 2.2, 0] },
+        controls: windControls,
+    },
     inclinedPlane: {
         construct: inclinedPlane,
         gridExtent: 50,

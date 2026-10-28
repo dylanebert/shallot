@@ -2,6 +2,38 @@ import { expect, test } from "bun:test";
 import { formatValue } from "./control-format";
 import { type Controls, controlValues, enabledControls, type Scene, scenes } from "./scenes";
 
+test("Shapes rows retain native choices, slider bounds and stable actions", () => {
+    expect(scenes.restitution.controls.Shape.options).toEqual([
+        { label: "Sphere", value: 0 },
+        { label: "Box", value: 1 },
+    ]);
+    expect(scenes.wind.controls.Shape.select).toBe(true);
+    expect(scenes.wind.controls.Shape.options.map((option) => option.label)).toEqual([
+        "Circle",
+        "Capsule",
+        "Box",
+    ]);
+    expect(scenes.staticInvoke.controls.Mode.select).toBe(true);
+    expect(scenes.staticInvoke.controls.Mode.options.map((option) => option.label)).toEqual([
+        "Invoke",
+        "Passive",
+    ]);
+    expect(scenes.staticInvoke.controls.Create.button).toBe(true);
+    expect(scenes.staticInvoke.controls.Destroy.button).toBe(true);
+    for (const [name, min, max, step, decimals] of [
+        ["Wind", -50, 50, 0.1, 1],
+        ["Drag", 0, 1, 0.01, 2],
+        ["Lift", 0, 4, 0.01, 2],
+        ["Count", 1, 60, 1, undefined],
+    ] as const)
+        expect((scenes.wind.controls as Controls)[name]).toMatchObject({
+            min,
+            max,
+            step,
+            ...(decimals === undefined ? {} : { decimals }),
+        });
+});
+
 test("Bodies rows retain the native choices, bounds and action modes", () => {
     expect(Object.keys(scenes.bodyType.controls)).toEqual(["Type", "Enable"]);
     expect(scenes.bodyType.controls.Type.select).toBe(true);

@@ -1,0 +1,4 @@
+60	Box	1
+180	Sphere	1
+300	Box	1
+420	Sphere	1

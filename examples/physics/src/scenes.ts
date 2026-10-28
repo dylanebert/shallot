@@ -20,7 +20,7 @@ import { eventScenes } from "./events";
 import { jointScenes } from "./joints";
 import { PrecessionState } from "./precession";
 import { MotorizedJoint } from "./roles";
-import { shapeScenes, WindState } from "./shapes";
+import { ShapeControlsState, shapeScenes, WindState } from "./shapes";
 import { StackingImpulses, stackingScenes } from "./stacking";
 
 export type Scene =
@@ -115,8 +115,11 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
             { id: "highResistance", name: "High Resistance" },
             { id: "inclinedPlane", name: "Inclined Plane" },
             { id: "isotropicFriction", name: "Isotropic Friction" },
+            { id: "restitution", name: "Restitution" },
             { id: "rollingResistance", name: "Rolling Resistance" },
             { id: "slideTwist", name: "Slide Twist" },
+            { id: "staticInvoke", name: "Static Invoke" },
+            { id: "wind", name: "Wind" },
             { id: "windDrop", name: "Wind Drop" },
             { id: "windFlap", name: "Wind Flap" },
         ],
@@ -150,6 +153,7 @@ export interface Control {
     decimals?: number;
     button?: boolean;
     read?: (world: World) => number | null;
+    enabled?: (world: World) => boolean;
     options?: readonly { label: string; value: number }[];
     select?: boolean;
     when?: readonly string[];
@@ -180,11 +184,17 @@ export function controlValues(scene: Scene): Record<string, number> {
         ]),
     );
 }
-export function enabledControls(scene: Scene, values: Record<string, number>): Controls {
+export function enabledControls(
+    scene: Scene,
+    values: Record<string, number>,
+    world?: World,
+): Controls {
     const controls: Controls | undefined = scenes[scene].controls;
     return Object.fromEntries(
         Object.entries(controls ?? {}).filter(
-            ([, control]) => !control.when || control.when.every((name) => values[name]),
+            ([, control]) =>
+                (!control.when || control.when.every((name) => values[name])) &&
+                (!world || !control.enabled || control.enabled(world)),
         ),
     );
 }
@@ -199,6 +209,7 @@ export function changeControl(
     const controls: Controls | undefined = scenes[scene].controls;
     const selected = controls?.[name];
     if (!selected || selected.read) throw new Error(`Unknown ${scene} control: ${name}`);
+    if (!(name in enabledControls(scene, values, world))) return;
     values[name] = value;
     selected.set(world, bodies, value, values);
 }
@@ -796,6 +807,7 @@ export const scenes = {
 } as const;
 
 export function createScene(world: World, scene: Scene): number[] {
+    Object.assign(world.resource(ShapeControlsState), ShapeControlsState.create());
     Object.assign(world.resource(WindState), { shapes: [], joints: [], lift: 0, time: 0 });
     world.resource(StackingImpulses).length = 0;
     Object.assign(world.resource(BodySampleState), BodySampleState.create());

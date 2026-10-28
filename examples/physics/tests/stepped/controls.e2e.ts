@@ -15,6 +15,71 @@ const beforeWheel = samples[samples.findIndex((sample) => sample.id === "wheel")
 test.use(pipelineWarnings);
 
 for (const width of [1280, 390]) {
+    test(`Shapes choices fit their fixed fields at ${width}`, async ({ page }) => {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 720 });
+        await page.goto("/tests/controls.html");
+        await page.waitForFunction(() => "controlsKey" in window);
+        for (const scene of ["Restitution", "Static Invoke", "Wind"]) {
+            await pointerControl(page, page.getByRole("button", { name: "Scene", exact: true }));
+            await pointerControl(page, page.getByRole("button", { name: scene, exact: true }));
+            const panel = page.locator(".controls");
+            expect(
+                await panel.evaluate((element) => element.scrollWidth <= element.clientWidth),
+            ).toBe(true);
+            if (scene === "Restitution") {
+                for (const name of ["Box", "Sphere"])
+                    await pointerControl(page, panel.getByRole("radio", { name, exact: true }));
+            } else {
+                const select = panel.getByRole("combobox");
+                const bounds = (await panel.boundingBox())!;
+                const field = (await select.boundingBox())!;
+                expect(field.x + field.width).toBeLessThanOrEqual(bounds.x + bounds.width - 16);
+                for (const value of scene === "Wind" ? ["0", "1", "2"] : ["1", "0"]) {
+                    await select.selectOption(value);
+                    await expect(select).toHaveValue(value);
+                    await bodyHasFocus(page);
+                }
+            }
+            await gameKeyMovesCamera(page);
+        }
+    });
+
+    test(`Static Invoke swaps live actions without moving its panel at ${width}`, async ({
+        page,
+    }) => {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 720 });
+        await page.goto("/tests/controls.html");
+        await page.waitForFunction(() => "controlsKey" in window);
+        await pointerControl(page, page.getByRole("button", { name: "Scene", exact: true }));
+        await pointerControl(
+            page,
+            page.getByRole("button", { name: "Static Invoke", exact: true }),
+        );
+        const panel = page.locator(".controls");
+        const create = panel.getByRole("button", { name: "Create", exact: true });
+        const destroy = panel.getByRole("button", { name: "Destroy", exact: true });
+        const bounds = await panel.boundingBox();
+        await expect(create).toBeEnabled();
+        await expect(destroy).toBeDisabled();
+        await page.evaluate(() => {
+            for (let i = 0; i < 20; i++)
+                (window as unknown as { controlsKey(): number }).controlsKey();
+        });
+        await expect(create).toBeDisabled();
+        await expect(destroy).toBeEnabled();
+        expect(await panel.boundingBox()).toEqual(bounds);
+        for (let i = 0; i < 2; i++) {
+            await pointerControl(page, destroy);
+            await expect(create).toBeEnabled();
+            await expect(destroy).toBeDisabled();
+            expect(await panel.boundingBox()).toEqual(bounds);
+            await pointerControl(page, create);
+            await expect(create).toBeDisabled();
+            await expect(destroy).toBeEnabled();
+            expect(await panel.boundingBox()).toEqual(bounds);
+        }
+    });
+
     test(`Precession's averaged rates fit the label column at ${width}`, async ({ page }) => {
         await page.setViewportSize({ width, height: width === 390 ? 844 : 720 });
         await page.goto("/tests/controls.html");

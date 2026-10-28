@@ -1,0 +1,9 @@
+30	Shape	0
+60	Shape	1
+90	Shape	2
+120	Wind	-12.3
+180	Drag	0.25
+240	Lift	2.5
+300	Count	60
+420	Count	1
+480	Wind	0

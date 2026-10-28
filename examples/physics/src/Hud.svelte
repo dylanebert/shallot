@@ -2,12 +2,15 @@
     import "./controls.css";
     import { onMount } from "svelte";
     let outputs = $state<Record<string, number | null>>({});
+    let liveControls = $state<Record<string, boolean>>({});
     onMount(() => {
         const rows = Object.entries(scenes[scene].controls ?? {}).filter(([, control]) => control.read);
-        if (!rows.length) return;
+        const live = Object.entries(scenes[scene].controls ?? {}).filter(([, control]) => control.enabled);
+        if (!rows.length && !live.length) return;
         let frame: number;
         function read() {
             outputs = Object.fromEntries(rows.map(([name, control]) => [name, control.read!(world)]));
+            liveControls = Object.fromEntries(live.map(([name, control]) => [name, control.enabled!(world)]));
             frame = requestAnimationFrame(read);
         }
         read();
@@ -18,7 +21,7 @@
     import { categories, controlValues, scenes, enabledControls, type Scene } from "./scenes";
     let { world, scene, select, change }: { world: World; scene: Scene; select: (scene: Scene) => void; change: (name: string, value: number, values: Record<string, number>) => void } = $props();
     let values = $state(controlValues(scene));
-    const controls = $derived(enabledControls(scene, values));
+    const controls = $derived(Object.fromEntries(Object.entries(enabledControls(scene, values)).filter(([name]) => liveControls[name] !== false)));
     const sectionTitle = $derived(scene === "gyroscopicPrecession" ? "Precession, rad/s" : "Simulation");
     function update(name: string, value: number) { change(name, value, values); }
     let open = $state(false);

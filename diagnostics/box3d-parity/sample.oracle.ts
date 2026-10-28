@@ -81,6 +81,9 @@ const jointMutations: Record<string, [string, string, string]> = {
     weld: ["WeldJoint", "bodyDef.position = { 0.0f, 4.0f, 0.0f };", "bodyDef.position = { 0.0f, 4.1f, 0.0f };"],
 };
 const shapeMutations: Record<string, [string, string, string]> = {
+    restitution: ["Restitution", "40.0f", "40.1f"],
+    staticInvoke: ["StaticInvoke", "0.25f", "0.3f"],
+    wind: ["Wind", "m_lift = 0.75f;", "m_lift = 0.8f;"],
     inclinedPlane: ["InclinedPlane", "bodyDef.position = { 0.0f, 7.5f, -5.0f };", "bodyDef.position = { 0.0f, 7.6f, -5.0f };"],
     rollingResistance: ["RollingResistance", "b3Sphere sphere = { b3Vec3_zero, 1.0f };", "b3Sphere sphere = { b3Vec3_zero, 1.1f };"],
     highResistance: ["HighResistance", "shapeDef.baseMaterial.rollingResistance = 0.2f * index;", "shapeDef.baseMaterial.rollingResistance = 0.21f * index;"],
@@ -98,7 +101,7 @@ for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "f
         const hashes = run([binary, scene, String(steps)]);
         equalSampleSteps(run([binary, scene, String(steps)]), hashes, `${scene} repeat`);
         equalSampleSteps(hashes, readFileSync(new URL(`../../examples/physics/tests/${scene === "box_stack" ? "boxStack" : scene}.gold.txt`, import.meta.url), "utf8"), scene);
-        if (["bodyType", "weeble", "disable", "revolute", "prismatic", "wheel", "parallel", "motor", "joint", "contact", "jenga", "weld", "topDownFriction", "distance", "spherical", "motionLocks", "door", "gearLift", "driving"].includes(scene)) {
+        if (["restitution", "staticInvoke", "wind", "bodyType", "weeble", "disable", "revolute", "prismatic", "wheel", "parallel", "motor", "joint", "contact", "jenga", "weld", "topDownFriction", "distance", "spherical", "motionLocks", "door", "gearLift", "driving"].includes(scene)) {
             const sequence = fileURLToPath(new URL(`../../examples/physics/tests/${scene}.controls.txt`, import.meta.url));
             const controlledSteps = scene === "contact" ? 1204 : steps;
             const controlled = run([binary, scene, String(controlledSteps), sequence]);
