@@ -4,21 +4,14 @@
 import { createApp, Camera, Transform } from '@dylanebert/shallot';
 import { Views } from '@dylanebert/shallot/rendering';
 import { PhysicsWorldDefinition } from '@dylanebert/shallot/standard/physics';
+import { MotesPlugin } from '../../../examples/particles/src/motes';
 const params = new URLSearchParams(location.search);
-const family = params.get('family');
-const samples = Number(params.get('samples'));
-const { MotesPlugin } = family === 'particles'
-    ? await import('../../../examples/particles/src/motes')
-    : await import('../../../examples/volumetric-fog/src/motes');
 const counts = [];
 let upscaling = 0;
 const app = await createApp({pixelRatio: 1, setup(world) { world.resource(PhysicsWorldDefinition).workerCount = 1; }, plugins: [{
     name: 'MotesPreparationControl', dependencies: [MotesPlugin],
     initialize(world) {
-        for (const eid of world.query([Camera])) {
-            if (!samples) world.remove(eid, Camera);
-            else world.storage(Camera).antialias.set(eid, samples === 1 ? 0 : 1);
-        }
+        for (const eid of world.query([Camera])) world.storage(Camera).antialias.set(eid, 0);
         if (params.has('stack')) {
             const camera = world.create();
             world.add(camera, Transform);
@@ -29,7 +22,7 @@ const app = await createApp({pixelRatio: 1, setup(world) { world.resource(Physic
             const create = device[name].bind(device);
             device[name] = descriptor => {
                 if (descriptor.label === 'upscaling') upscaling++;
-                if (descriptor.label === 'particles:draw' || descriptor.label === 'dust:draw')
+                if (descriptor.label === 'particles:draw')
                     counts.push(descriptor.multisample?.count ?? 1);
                 return create(descriptor);
             };
