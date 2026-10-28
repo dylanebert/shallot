@@ -7,6 +7,7 @@ import { sampleGold } from "../../examples/physics/tests/gold";
 import { setLinearVelocity } from "@dylanebert/shallot/standard/physics";
 import { digestMismatch, eventRecord, recordDigest } from "../../examples/physics/tests/digest";
 import { sensorEvents } from "./records";
+import "./village.oracle";
 
 // Run by path with sample.oracle.ts. Scene parity needs one solver thread; the engine's
 // small determinism scenes hold scheduling and cross-host equality.

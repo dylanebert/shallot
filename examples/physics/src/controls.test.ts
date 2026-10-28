@@ -2,6 +2,11 @@ import { expect, test } from "bun:test";
 import { formatValue } from "./control-format";
 import { type Controls, controlValues, enabledControls, type Scene, scenes } from "./scenes";
 
+test("Village carries neither a Surface row nor sample-app statistics", () => {
+    expect(scenes.village.controls).toBeUndefined();
+    expect(controlValues("village")).toEqual({});
+});
+
 test("Character rows retain Solve, Clip Velocity and two integer read-only overlap counts", () => {
     expect(Object.keys(scenes.geometricMover.controls)).toEqual(["Clip Velocity"]);
     expect(scenes.rigidBody.controls).toBeUndefined();

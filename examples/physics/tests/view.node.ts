@@ -304,8 +304,8 @@ test("a broken joint recolours its body", async () => {
 });
 
 for (const { id, name } of categories.flatMap((category) => category.scenes)) {
-    // Large World presents its per-frame query set, covered by large-world.node.ts.
-    if (id === "largeWorld") continue;
+    // Their camera draw sets are held by large-world-view.node.ts and village-view.node.ts.
+    if (id === "largeWorld" || id === "village") continue;
     test(`${name} builds every shape mesh, role material and controls panel without a GPU`, async () => {
         const app = await createApp({
             defaults: false,
@@ -388,6 +388,7 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 compoundHulls: 12,
                 tileFloor: 208,
                 meshTile: 12,
+                village: 800,
                 bulletVersusStack: 50,
                 meshDrop: 20,
                 thinWall: 40,

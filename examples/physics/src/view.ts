@@ -42,6 +42,7 @@ import {
 } from "@dylanebert/shallot/standard/physics";
 import { drawCastView } from "./cast-presentation";
 import { drawCharacterView } from "./character-presentation";
+import { childGeometry, compoundChildren, largeCompound, overlaps } from "./compound-presentation";
 import { drawingBounds, drawSet } from "./draw-set";
 import { DrivingState } from "./driving";
 import { EventSample } from "./events";
@@ -60,6 +61,8 @@ import {
 import { castHeightField } from "./queries";
 import { RigidBodyState } from "./rigid-body";
 import { type Scene, scenes } from "./scenes";
+import { VillageState } from "./village";
+import { drawVillageView } from "./village-presentation";
 
 function placeMarker(
     world: World,
@@ -127,16 +130,22 @@ export function setSceneCamera(world: World, scene: Scene, camera: number): void
         camera,
         phone && "phoneDistance" in view ? view.phoneDistance : view.distance,
     );
-    const follow = scene === "driving" || scene === "geometricMover" || scene === "rigidBody";
+    const follow =
+        scene === "driving" ||
+        scene === "geometricMover" ||
+        scene === "rigidBody" ||
+        scene === "village";
     orbit.target.set(
         camera,
         scene === "driving"
             ? world.resource(DrivingState).chassis
-            : scene === "geometricMover"
-              ? world.resource(GeometricMoverState).entity
-              : scene === "rigidBody"
-                ? world.resource(RigidBodyState).character.body
-                : 0,
+            : scene === "village"
+              ? world.resource(VillageState).entity
+              : scene === "geometricMover"
+                ? world.resource(GeometricMoverState).entity
+                : scene === "rigidBody"
+                  ? world.resource(RigidBodyState).character.body
+                  : 0,
     );
     // Sharing the orbit button prevents flythrough from detaching a follow camera.
     orbit.flyButton.set(camera, follow ? orbit.orbitButton.get(camera) : 2);
@@ -173,10 +182,13 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         sensor: materials.add(presentation.materials.sensor),
     };
     let moverMesh: MeshHandle | undefined;
-    if (scene === "geometricMover") {
-        const mover = world.resource(GeometricMoverState);
+    if (scene === "geometricMover" || scene === "village") {
+        const mover =
+            scene === "village"
+                ? world.resource(VillageState)
+                : world.resource(GeometricMoverState);
         const shape = {
-            ...world.get(presentation.shapes[0]!.eid, Shape)!,
+            ...world.get([...world.query([Shape])][0]!, Shape)!,
             kind: ShapeKind.Capsule,
             radius: mover.mover.capsule.radius,
             capsuleCenter1: [0, -0.5, 0] as [number, number, number],
@@ -284,6 +296,13 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         world.add(rings, Transform);
         world.add(rings, Gizmo, { handle: registerGizmo(world, asset), width: 2 });
     }
+    const compoundViews = [...world.query([Shape])]
+        .filter((eid) => largeCompound(world, eid))
+        .flatMap((eid) => compoundChildren(world, eid).map((child) => ({ child, entity: 0 })));
+    const childAssets = new Map<
+        string,
+        { mesh: MeshHandle; edges: ReturnType<typeof registerGizmo> }
+    >();
     const views = new Map<EntityRef, MeshHandle>();
     const shared = new Map<
         object,
@@ -306,6 +325,46 @@ function createView(world: World, scene: Scene, camera: number): () => void {
                     world.storage(Camera).fov.get(camera),
                 ),
             );
+        }
+        if (compoundViews.length) {
+            const pose = world.get(camera, Transform)!;
+            const bounds = drawingBounds(
+                pose.translation,
+                qRotate(...pose.rotation, 0, 0, -1),
+                typeof window === "undefined" ? 1 : window.innerWidth / window.innerHeight,
+                world.storage(Camera).fov.get(camera),
+            );
+            for (const view of compoundViews) {
+                const child = view.child;
+                if (!overlaps(child.bounds, bounds)) {
+                    if (view.entity) world.destroy(view.entity);
+                    view.entity = 0;
+                    continue;
+                }
+                if (view.entity) continue;
+                let asset = childAssets.get(child.key);
+                if (!asset) {
+                    const geometry = childGeometry(world, child);
+                    const edges = new GizmoAsset();
+                    for (const [a, b] of geometry.edges) drawLine(edges, a, b, 0x000000);
+                    asset = { mesh: meshes.add(geometry.mesh), edges: registerGizmo(world, edges) };
+                    childAssets.set(child.key, asset);
+                }
+                view.entity = world.create();
+                world.add(view.entity, Transform, {
+                    translation: child.translation,
+                    rotation: child.rotation,
+                    scale: child.scale,
+                });
+                world.add(view.entity, MeshInstance, { mesh: asset.mesh });
+                world.add(view.entity, MeshMaterial, roles.ground);
+                world.add(view.entity, Gizmo, {
+                    handle: asset.edges,
+                    width: 1,
+                    opacity: 0.45,
+                    depthBias: -0.0001,
+                });
+            }
         }
         for (const [ref, mesh] of views) {
             const eid = world.resolve(ref);
@@ -330,6 +389,7 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         const sample = world.resource(EventSample);
         const driven = drivenBodies(world, drivenSet);
         for (const eid of visible ?? world.query([Shape])) {
+            if (largeCompound(world, eid)) continue;
             const body = world.storage(Shape).body.get(eid) || eid;
             if (body !== eid) {
                 const pose = world.get(body, Transform);
@@ -439,6 +499,10 @@ function createView(world: World, scene: Scene, camera: number): () => void {
                 drawCharacterView(world, camera, (a, b, color, options) =>
                     drawLine(world, a, b, color, options),
                 );
+            if (scene === "village")
+                drawVillageView(world, camera, (a, b, color, options) =>
+                    drawLine(world, a, b, color, options),
+                );
             if (scene === "cast")
                 drawCastView(world, camera, (a, b, color, options) =>
                     drawLine(world, a, b, color, options),
@@ -462,6 +526,9 @@ function createView(world: World, scene: Scene, camera: number): () => void {
     }
     return () => {
         for (const system of systems) world.removeSystem(system);
+        for (const view of compoundViews)
+            if (view.entity && world.exists(view.entity)) world.destroy(view.entity);
+        for (const asset of childAssets.values()) meshes.remove(asset.mesh);
         for (const asset of shared.values()) meshes.remove(asset.mesh);
         meshes.remove(markerMesh);
         if (moverMesh !== undefined) meshes.remove(moverMesh);

@@ -64,6 +64,7 @@ bool IsKeyDown( int key ) {
 		if ( change.step <= currentStep && change.name == names[key] ) value = change.value;
 	return value != 0;
 }
+int GetLastCompoundDrawStats(int* total) { *total = 0; return 0; }
 void DrawGroundGrid( int ) {}
 void SetDrawOrigin( b3Pos ) {}
 void DrawCube( b3WorldTransform, b3Vec3, int ) {}
@@ -90,7 +91,9 @@ void DrawString3D( b3Pos, int, const char* format, ... ) {
 }
 int MakeColorAlpha( int color, float ) { return color; }
 constexpr int TRANSPARENT_SHADOW_NONE = 0;
-void DrawSolidSphere( b3WorldTransform, b3Sphere, int ) {}
+void DrawSolidSphere( b3WorldTransform t, b3Sphere s, int ) {
+    if (characterDrawing) characterMarks.push_back({4,t.p.x,t.p.y,t.p.z,t.q.v.x,t.q.v.y,t.q.v.z,t.q.s,s.center.x,s.center.y,s.center.z,s.radius});
+}
 void DrawSphereEx( b3WorldTransform, float, int, float, float, int ) {}
 void DrawHull( b3WorldTransform, const b3HullData*, int ) {}
 void DrawSolidCapsule( b3WorldTransform t, b3Capsule c, int ) {
@@ -248,6 +251,7 @@ class Sample
 {
 public:
     float m_launchSpeedScale = 1.0f;
+    uint64_t m_userMaterialId = 0;
 	explicit Sample( SampleContext* context ) : m_context( context ), m_camera( &context->camera )
 	{
 		b3WorldDef worldDef = b3DefaultWorldDef();
@@ -351,7 +355,7 @@ int main( int argc, char** argv )
 	struct Entry { const char* name; Sample* (*create)(SampleContext*); };
 	const Entry entries[] = {
         { "simpleCompound", SimpleCompound::Create }, { "compoundSpheres", CompoundSpheres::Create },
-        { "compoundHulls", CompoundHulls::Create }, { "tileFloor", TileFloor::Create }, { "meshTile", MeshTile::Create },
+        { "compoundHulls", CompoundHulls::Create }, { "tileFloor", TileFloor::Create }, { "meshTile", MeshTile::Create }, { "village", Village::Create },
         { "bulletVersusStack", BulletVersusStack::Create }, { "meshDrop", MeshDrop::Create },
         { "thinWall", ThinWall::Create }, { "bounceHouse", BounceHouse::Create },
         { "spinningStick", SpinningStick::Create }, { "needleMesh", NeedleMesh::Create },
@@ -403,8 +407,12 @@ int main( int argc, char** argv )
 	Sample* sample = nullptr;
 	for ( const Entry& entry : entries ) if ( strcmp( argv[1], entry.name ) == 0 ) sample = entry.create( &context );
 	if ( !sample ) { fprintf( stderr, "unknown sample: %s\n", argv[1] ); return 2; }
+    if (getenv("VILLAGE_CAST_ORIGIN")) {
+        assert(!strcmp(argv[1], "village"));
+        static_cast<Village*>(sample)->m_rayOrigin = {0,20,0};
+    }
 	drivingControls = !strcmp( argv[1], "driving" );
-	if ( drivingControls || !strcmp(argv[1], "geometricMover") ) context.camera.m_thirdPerson = true;
+	if ( drivingControls || !strcmp(argv[1], "geometricMover") || !strcmp(argv[1], "village") ) context.camera.m_thirdPerson = true;
 	bool grab = argc == 4 && strcmp( argv[3], "grab" ) == 0;
 	if ( argc == 4 && !grab ) {
 		FILE* file = fopen( argv[3], "r" );
@@ -417,6 +425,8 @@ int main( int argc, char** argv )
 		fclose( file );
 	}
     characterDrawing = getenv("CHARACTER_DRAWING") ? fopen(getenv("CHARACTER_DRAWING"), "w") : nullptr;
+    FILE* villageReadouts = getenv("VILLAGE_READOUTS") ? fopen(getenv("VILLAGE_READOUTS"), "w") : nullptr;
+    if (getenv("VILLAGE_READOUTS")) assert(villageReadouts && !strcmp(argv[1], "village"));
     FILE* rigidReadouts = getenv("RIGID_READOUTS") ? fopen(getenv("RIGID_READOUTS"), "w") : nullptr;
     if (getenv("RIGID_READOUTS")) assert(rigidReadouts && !strcmp(argv[1], "rigidBody"));
     FILE* moverReadouts = getenv("MOVER_READOUTS") ? fopen(getenv("MOVER_READOUTS"), "w") : nullptr;
@@ -471,6 +481,10 @@ int main( int argc, char** argv )
             }
             fprintf(contactDrawing, "]\n");
         }
+        if (villageReadouts) {
+            auto& m = static_cast<Village*>(sample)->m_mover;
+            fprintf(villageReadouts, "[%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%d,%d,%d,%d]\n", m.m_transform.p.x,m.m_transform.p.y,m.m_transform.p.z,m.m_velocity.x,m.m_velocity.y,m.m_velocity.z,m.m_pogoVelocity,m.m_onGround,m.m_sprint,m.m_planeCount,m.m_totalIterations);
+        }
         if (rigidReadouts) {
             auto& c = static_cast<RigidBodyCharacter*>(sample)->m_character;
             auto p = b3Body_GetPosition(c.m_bodyId); auto vel = b3Body_GetLinearVelocity(c.m_bodyId);
@@ -516,6 +530,7 @@ int main( int argc, char** argv )
     if (readouts) fclose(readouts);
     if (moverReadouts) fclose(moverReadouts);
     if (rigidReadouts) fclose(rigidReadouts);
+    if (villageReadouts) fclose(villageReadouts);
     if (sensorReadouts) fclose(sensorReadouts);
     if (contactDrawing) fclose(contactDrawing);
 	delete sample;

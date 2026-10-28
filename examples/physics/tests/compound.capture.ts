@@ -3,7 +3,7 @@ import { compoundScenes } from "../src/compound";
 import { capture } from "./capture";
 
 for (const width of [1280, 390]) {
-    for (const id of Object.keys(compoundScenes)) {
+    for (const id of [...Object.keys(compoundScenes), "village"]) {
         test(`${id} Compound look review at ${width}`, async ({ page }) => {
             page.on("pageerror", (error) => {
                 throw error;

@@ -14,6 +14,7 @@ import {
     type World,
 } from "@dylanebert/shallot";
 import { isAwake } from "@dylanebert/shallot/standard/physics";
+import { largeCompound } from "./compound-presentation";
 import { EventSample } from "./events";
 import { GeometricMoverState } from "./geometric-mover";
 import { RigidBodyState } from "./rigid-body";
@@ -168,9 +169,9 @@ export function scenePresentation(
     cache: ShapeGeometryCache = new Map(),
 ) {
     const driven = drivenBodies(world);
-    const shapes = Array.from(scene === "largeWorld" ? [] : world.query([Shape]), (eid) =>
-        shapePresentation(world, eid, cache, driven),
-    );
+    const shapes = Array.from(scene === "largeWorld" ? [] : world.query([Shape]))
+        .filter((eid) => !largeCompound(world, eid))
+        .map((eid) => shapePresentation(world, eid, cache, driven));
     const definition = scenes[scene];
     const { gridExtent: extent, gridSpacing: spacing } = definition;
     const height = ("gridHeight" in definition ? definition.gridHeight : 0) + 0.005;

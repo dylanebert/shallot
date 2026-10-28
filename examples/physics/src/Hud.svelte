@@ -59,7 +59,7 @@
 </section>
 {#if scene === "contact"}<span class="ec input-help">WASD to roll</span>{/if}
 {#if scene === "driving"}<span class="ec input-help">WASD to drive</span>{/if}
-{#if scene === "geometricMover" || scene === "rigidBody"}<span class="ec input-help">WASD to move · Space to jump · Shift to sprint</span>{/if}
+{#if scene === "geometricMover" || scene === "rigidBody" || scene === "village"}<span class="ec input-help">WASD to move · Space to jump · Shift to sprint</span>{/if}
 {#if scenes[scene].controls}
     {#snippet fields(parent?: string, readOnly = false)}
         {#each Object.entries(scenes[scene].controls ?? {}).filter(([, control]) => control.when?.at(-1) === parent && (scene !== "sensorHits" || Boolean(control.read) === readOnly)) as [name, control]}

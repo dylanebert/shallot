@@ -153,6 +153,7 @@ const compoundMutations: Record<string, [string, string, string]> = {
     compoundHulls: ["CompoundHulls", "float h = 10.0f;", "float h = 10.1f;"],
     tileFloor: ["TileFloor", "float a = 4.0f;", "float a = 4.1f;"],
     meshTile: ["MeshTile", "float a = 4.0f;", "float a = 4.1f;"],
+    village: ["Village", "float a = 4.0f;", "float a = 4.1f;"],
 };
 for (const [scene, [name, before, after]] of Object.entries(compoundMutations)) {
     test(`${scene}: Compound sample repeats its gold and rejects a source mutation`, () => {
@@ -169,6 +170,28 @@ for (const [scene, [name, before, after]] of Object.entries(compoundMutations)) 
             expect(nativeCompoundRecords(readFileSync(records, "utf8"))).toEqual(geometry);
             equalSampleSteps(hashes, readFileSync(new URL(`../../examples/physics/tests/${scene}.gold.txt`, import.meta.url), "utf8"), scene);
             expect(hashes.trimEnd().split("\n")).toHaveLength(600);
+            if (scene === "village") {
+                const drawing = join(copy, "drawing.txt"), mover = join(copy, "mover.txt");
+                for (const mode of ["", ".controls", ".casts"]) {
+                    const stem = `village${mode}`;
+                    const args = [binary, scene, "600", ...(mode === ".controls" ? [fileURLToPath(new URL("../../examples/physics/tests/village.controls.txt", import.meta.url))] : [])];
+                    const env = { CHARACTER_DRAWING: drawing, VILLAGE_READOUTS: mover, ...(mode === ".casts" ? { VILLAGE_CAST_ORIGIN: "1" } : {}) };
+                    const result = run(args, env);
+                    equalSampleSteps(result, readFileSync(new URL(`../../examples/physics/tests/${mode === ".controls" ? stem : "village"}.gold.txt`, import.meta.url), "utf8"), stem);
+                    const drawings = readFileSync(drawing, "utf8");
+                    const states = readFileSync(mover, "utf8");
+                    expect(drawings.trimEnd().split("\n").map(line => {
+                        const rows: number[][] = JSON.parse(line);
+                        const first = rows.findIndex(r => r[0] === 1 && r[2] === 20 && r[5] === -20);
+                        expect(first).toBeGreaterThanOrEqual(0);
+                        return drawingDigest(rows.slice(first, -1));
+                    }).join("\n") + "\n").toBe(readFileSync(new URL(`../../examples/physics/tests/${stem}.drawing.gold.txt`, import.meta.url), "utf8"));
+                    if (mode !== ".casts") expect(states.trimEnd().split("\n").map(line => drawingDigest([JSON.parse(line)])).join("\n") + "\n").toBe(readFileSync(new URL(`../../examples/physics/tests/${stem}.mover.gold.txt`, import.meta.url), "utf8"));
+                    expect(run(args, env)).toBe(result);
+                    expect(readFileSync(drawing, "utf8")).toBe(drawings);
+                    expect(readFileSync(mover, "utf8")).toBe(states);
+                }
+            }
             mkdirSync(join(copy, "samples")); mkdirSync(join(copy, "shared"));
             copyFileSync(join(process.env.BOX3D!, "shared/benchmarks.c"), join(copy, "shared/benchmarks.c"));
             for (const file of ["sample_compound.cpp", "sample_continuous.cpp", "sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp", "sample_bodies.cpp", "sample_shapes.cpp", "sample_character.cpp", "mover.h", "mover.cpp"])
@@ -182,6 +205,15 @@ for (const [scene, [name, before, after]] of Object.entries(compoundMutations)) 
             rmSync(records);
             const mutated = run([sampleBinary(join(copy, "samples")), scene, "600"], { COMPOUND_GEOMETRY: records });
             expect(nativeCompoundRecords(readFileSync(records, "utf8"))).not.toEqual(geometry);
+            if (scene === "village") {
+                const drawing = join(copy, "mutation-drawing.txt");
+                run([sampleBinary(join(copy, "samples")), scene, "600"], { CHARACTER_DRAWING: drawing, VILLAGE_CAST_ORIGIN: "1" });
+                const digests = readFileSync(drawing, "utf8").trimEnd().split("\n").map(line => {
+                    const rows: number[][] = JSON.parse(line);
+                    return drawingDigest(rows.slice(rows.findIndex(r => r[0] === 1 && r[2] === 20 && r[5] === -20), -1));
+                }).join("\n") + "\n";
+                expect(digests).not.toBe(readFileSync(new URL("../../examples/physics/tests/village.casts.drawing.gold.txt", import.meta.url), "utf8"));
+            }
             if (scene === "simpleCompound" || scene === "tileFloor")
                 expect(sampleGold(mutated).map(step => step.hash)).not.toEqual(sampleGold(hashes).map(step => step.hash));
         } finally { rmSync(copy, { recursive: true, force: true }); }

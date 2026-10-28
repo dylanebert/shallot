@@ -1,0 +1,16 @@
+0	W	1
+80	Shift	1
+120	Space	1
+121	Space	0
+180	W	0
+180	Shift	0
+180	D	1
+240	D	0
+240	S	1
+300	Space	1
+301	Space	0
+360	S	0
+360	A	1
+420	A	0
+420	W	1
+480	W	0

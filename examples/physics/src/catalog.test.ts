@@ -60,6 +60,7 @@ test("each picker label selects its scene in its category, exactly once", () => 
                 { id: "simpleCompound", name: "Simple" },
                 { id: "compoundSpheres", name: "Spheres" },
                 { id: "tileFloor", name: "Tile Floor" },
+                { id: "village", name: "Village" },
             ],
         },
         {

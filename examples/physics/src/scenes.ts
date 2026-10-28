@@ -28,6 +28,7 @@ import { RigidBodyState, rigidBodyScene } from "./rigid-body";
 import { MotorizedJoint } from "./roles";
 import { ShapeControlsState, shapeScenes, WindState } from "./shapes";
 import { StackingImpulses, stackingScenes } from "./stacking";
+import { VillageState, villageScene } from "./village";
 
 export type Scene =
     | "geometricMover"
@@ -39,6 +40,7 @@ export type Scene =
     | "wheel"
     | "filter"
     | "parallel"
+    | "village"
     | keyof typeof compoundScenes
     | keyof typeof continuousScenes
     | keyof typeof eventScenes
@@ -106,6 +108,7 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
             { id: "simpleCompound", name: "Simple" },
             { id: "compoundSpheres", name: "Spheres" },
             { id: "tileFloor", name: "Tile Floor" },
+            { id: "village", name: "Village" },
         ],
     },
     {
@@ -267,6 +270,7 @@ export const scenes = {
     rigidBody: rigidBodyScene,
     ...shapeScenes,
     ...compoundScenes,
+    village: villageScene,
     ...continuousScenes,
     ...bodyScenes,
     ...eventScenes,
@@ -869,6 +873,7 @@ export function createScene(world: World, scene: Scene): number[] {
     Object.assign(world.resource(CastState), CastState.create());
     Object.assign(world.resource(CharacterSample), CharacterSample.create());
     Object.assign(world.resource(GeometricMoverState), GeometricMoverState.create());
+    Object.assign(world.resource(VillageState), VillageState.create());
     Object.assign(world.resource(RigidBodyState), RigidBodyState.create());
     world.resource(PhysicsWorldDefinition).enableAutomaticStep = true;
     world.resource(PhysicsWorldDefinition).workerCount = 1;

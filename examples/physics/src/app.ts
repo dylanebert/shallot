@@ -18,6 +18,7 @@ import { RigidBodyPlugin } from "./rigid-body";
 import { ShapesSamplePlugin } from "./shapes";
 import { StackingSamplePlugin } from "./stacking";
 import { createViewer } from "./view";
+import { VillagePlugin } from "./village";
 
 export const Viewer = { create: createViewer };
 
@@ -37,6 +38,7 @@ export const AppPlugin: Plugin = {
         CharacterSamplePlugin,
         ContinuousSamplePlugin,
         GeometricMoverPlugin,
+        VillagePlugin,
         RigidBodyPlugin,
         SampleInputPlugin,
         TextPlugin,
