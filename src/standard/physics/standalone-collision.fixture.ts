@@ -1,11 +1,13 @@
 import type { World } from "../../engine/ecs";
 import {
     type DistanceInput,
+    type DistanceOutput,
     type ShapeProxy,
     type SimplexCache,
     type Sweep,
     shapeCast,
     shapeDistance,
+    type TOIOutput,
     timeOfImpact,
 } from ".";
 
@@ -52,12 +54,12 @@ export function emptyCache(): SimplexCache {
 }
 const scratch = new Float32Array(1);
 const words = new Uint32Array(scratch.buffer);
-function bits(n: number): number {
+export function bits(n: number): number {
     scratch[0] = n;
     return words[0];
 }
-const hex = (n: number) => (n >>> 0).toString(16).padStart(8, "0");
-const vf = (p: { x: number; y: number; z: number }) => [p.x, p.y, p.z].map(bits);
+export const hex = (n: number) => (n >>> 0).toString(16).padStart(8, "0");
+export const vf = (p: { x: number; y: number; z: number }) => [p.x, p.y, p.z].map(bits);
 function sweep(c1: { x: number; y: number; z: number }, c2 = c1): Sweep {
     return { localCenter: v(), c1, c2, q1: q, q2: q };
 }
@@ -102,33 +104,7 @@ export function publicCollisionOutput(world: World): string {
     for (const { input } of collisionCases) {
         const cache = emptyCache();
         const d = shapeDistance(world, input, cache, 32);
-        const a = [
-            ...vf(d.pointA),
-            ...vf(d.pointB),
-            ...vf(d.normal),
-            bits(d.distance),
-            d.iterations,
-            bits(cache.metric),
-            cache.count,
-            ...cache.indexA,
-            ...cache.indexB,
-            d.simplexCount,
-        ];
-        for (let i = 0; i < d.simplexCount; i++) {
-            const s = d.simplexes[i];
-            a.push(s.count);
-            for (let j = 0; j < s.count; j++) {
-                const vertex = s.vertices[j];
-                a.push(
-                    ...vf(vertex.wA),
-                    ...vf(vertex.wB),
-                    ...vf(vertex.w),
-                    bits(vertex.a),
-                    vertex.indexA,
-                    vertex.indexB,
-                );
-            }
-        }
+        const a = distanceWords(d, cache);
         lines.push(`7 ${a.map(hex).join(" ")}`);
         const c = shapeCast(world, {
             ...input,
@@ -151,21 +127,50 @@ export function publicCollisionOutput(world: World): string {
             },
             maxFraction: 1,
         });
-        lines.push(
-            `5 ${[
-                t.state,
-                bits(t.fraction),
-                bits(t.distance),
-                ...vf(t.point),
-                ...vf(t.normal),
-                t.distanceIterations,
-                t.pushBackIterations,
-                t.rootIterations,
-                0,
-            ]
-                .map(hex)
-                .join(" ")}`,
-        );
+        lines.push(`5 ${toiWords(t).map(hex).join(" ")}`);
     }
     return `${lines.join("\n")}\n`;
+}
+export function distanceWords(d: DistanceOutput, cache: SimplexCache): number[] {
+    const a = [
+        ...vf(d.pointA),
+        ...vf(d.pointB),
+        ...vf(d.normal),
+        bits(d.distance),
+        d.iterations,
+        bits(cache.metric),
+        cache.count,
+        ...cache.indexA,
+        ...cache.indexB,
+        d.simplexCount,
+    ];
+    for (let i = 0; i < d.simplexCount; i++) {
+        const s = d.simplexes[i];
+        a.push(s.count);
+        for (let j = 0; j < s.count; j++) {
+            const vertex = s.vertices[j];
+            a.push(
+                ...vf(vertex.wA),
+                ...vf(vertex.wB),
+                ...vf(vertex.w),
+                bits(vertex.a),
+                vertex.indexA,
+                vertex.indexB,
+            );
+        }
+    }
+    return a;
+}
+export function toiWords(t: TOIOutput): number[] {
+    return [
+        t.state,
+        bits(t.fraction),
+        bits(t.distance),
+        ...vf(t.point),
+        ...vf(t.normal),
+        t.distanceIterations,
+        t.pushBackIterations,
+        t.rootIterations,
+        0,
+    ];
 }

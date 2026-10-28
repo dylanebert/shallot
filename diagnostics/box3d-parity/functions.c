@@ -33,6 +33,7 @@ static b3Sweep sweep(const uint32_t* r, int i) {
 int main(void) {
     unsigned operation, count;
     uint32_t r[4096];
+    b3SimplexCache warmCache = {0};
     while (scanf("%u %u", &operation, &count) == 2) {
         if (count > 4096) return 2;
         for (unsigned i = 0; i < count; ++i) {
@@ -68,25 +69,40 @@ int main(void) {
                 word(index);
                 break;
             }
-            case 3: case 4: case 5: case 7: {
+            case 21:
+                word(b3_toiStateUnknown); word(b3_toiStateFailed); word(b3_toiStateOverlapped);
+                word(b3_toiStateHit); word(b3_toiStateSeparated);
+                break;
+            case 20: {
+                b3Sweep s = sweep(r, 800);
+                b3Transform t = b3GetSweepTransform(&s, value(r[15]));
+                vector(t.p); vector(t.q.v); emit(t.q.s);
+                break;
+            }
+            case 3: case 4: case 5: case 7: case 8: case 9: {
                 b3Vec3 pa[128], pb[128];
                 if (r[0] > 128 || r[2] > 128) return 6;
                 for (unsigned i=0; i<r[0]; i++) pa[i]=vec(r,32+3*i);
                 for (unsigned i=0; i<r[2]; i++) pb[i]=vec(r,416+3*i);
                 b3ShapeProxy a={pa,(int)r[0],value(r[1])}, b={pb,(int)r[2],value(r[3])};
                 b3Transform transform={vec(r,4),quat(r,7)};
-                if (operation == 3 || operation == 7) {
+                if (operation == 3 || operation == 7 || operation == 8) {
                     b3SimplexCache cache={0};
                     cache.metric=value(r[16]); cache.count=(uint16_t)r[17];
                     for(int i=0;i<4;i++) { cache.indexA[i]=(uint8_t)r[18+i]; cache.indexB[i]=(uint8_t)r[22+i]; }
                     b3DistanceInput input={a,b,transform,r[11]!=0};
+                    if(operation == 8) {
+                        if(r[27]) memset(&warmCache, 0, sizeof(warmCache));
+                        cache = warmCache;
+                    }
                     b3Simplex simplexes[32];
-                    b3DistanceOutput d=b3ShapeDistance(&input,&cache,operation == 7 ? simplexes : NULL,operation == 7 ? (int)r[26] : 0);
+                    b3DistanceOutput d=b3ShapeDistance(&input,&cache,operation != 3 ? simplexes : NULL,operation != 3 ? (int)r[26] : 0);
+                    if(operation == 8) warmCache = cache;
                     vector(d.pointA); vector(d.pointB); vector(d.normal); emit(d.distance); word(d.iterations);
                     emit(cache.metric); word(cache.count);
                     for(int i=0;i<4;i++) word(cache.indexA[i]);
                     for(int i=0;i<4;i++) word(cache.indexB[i]);
-                    if(operation == 7) {
+                    if(operation == 7 || operation == 8) {
                         word(d.simplexCount);
                         for(int i=0;i<d.simplexCount;i++) {
                             b3Simplex* s=simplexes+i;
@@ -98,11 +114,12 @@ int main(void) {
                             }
                         }
                     }
-                } else if(operation == 4) {
+                } else if(operation == 4 || operation == 9) {
                     b3ShapeCastPairInput input={a,b,transform,vec(r,12),value(r[15]),r[11]!=0};
                     b3CastOutput c=b3ShapeCast(&input);
                     word(c.hit); word(c.iterations);
-                    if(c.hit) { emit(c.fraction); vector(c.point); vector(c.normal); word(c.triangleIndex); word(c.childIndex); word(c.materialIndex); }
+                    if(operation == 9) { emit(c.fraction); vector(c.point); vector(c.normal); }
+                    else if(c.hit) { emit(c.fraction); vector(c.point); vector(c.normal); word(c.triangleIndex); word(c.childIndex); word(c.materialIndex); }
                 } else {
                     b3TOIInput input={a,b,sweep(r,800),sweep(r,817),value(r[15])};
                     b3TOIOutput t=b3TimeOfImpact(&input);

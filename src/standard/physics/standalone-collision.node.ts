@@ -9,6 +9,9 @@ import {
     timeOfImpact,
 } from ".";
 import { collisionCases, emptyCache, publicCollisionOutput } from "./standalone-collision.fixture";
+import { publicEdgeOutput } from "./standalone-collision-edge.fixture";
+import failed from "./standalone-collision-failed.json";
+import history from "./standalone-collision-history.json";
 
 setDefaultTimeout(TIMEOUT.node);
 test("public standalone queries equal native hit, miss, touching and deep-overlap records and simplex histories", async () => {
@@ -17,6 +20,19 @@ test("public standalone queries equal native hit, miss, touching and deep-overla
         expect(publicCollisionOutput(app.world)).toBe(
             await Bun.file(new URL("./standalone-collision.gold.txt", import.meta.url)).text(),
         );
+    } finally {
+        app.dispose();
+    }
+});
+
+test("warm moving caches, every truncation capacity, complete misses, failed TOI and rotating sweep transforms equal native", async () => {
+    const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
+    try {
+        expect(publicEdgeOutput(app.world)).toBe(
+            await Bun.file(new URL("./standalone-collision-edge.gold.txt", import.meta.url)).text(),
+        );
+        expect(shapeDistance(app.world, history, emptyCache(), 32).simplexCount).toBe(32);
+        expect(timeOfImpact(app.world, failed).state).toBe(1);
     } finally {
         app.dispose();
     }
