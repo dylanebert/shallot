@@ -2,7 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { Body, BodyType, Hulls, Shape } from "../../core/physics";
 import { GlobalTransform, Transform } from "../../core/transform";
 import { createApp } from "../../engine";
-import { TIMEOUT } from "../../project/testing.js";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { getMassData, hashPhysics, StandardPhysicsPlugin, setMassData } from "./index";
 import gold from "./mass-data.gold.json";
 
