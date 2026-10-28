@@ -1,0 +1,8 @@
+30	Bullet	0
+31	Launch	1
+100	Launch	1
+160	Bullet	1
+161	Launch	1
+300	Launch	1
+450	Bullet	0
+451	Launch	1

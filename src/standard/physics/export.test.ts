@@ -64,6 +64,7 @@ test("standard physics exports consumed world operations and profiling without s
         "getJointLinearSeparation",
         "getLocalPoint",
         "getMassData",
+        "getSensorData",
         "hashPhysics",
         "isAwake",
         "overlapAABB",

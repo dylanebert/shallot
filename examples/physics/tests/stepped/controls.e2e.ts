@@ -80,6 +80,31 @@ for (const width of [1280, 390]) {
         }
     });
 
+    test(`Sensor Hits keeps actions and read-only touch counts in separate sections at ${width}`, async ({
+        page,
+    }) => {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 720 });
+        await page.goto("/tests/controls.html");
+        await page.waitForFunction(() => "controlsKey" in window);
+        await pointerControl(page, page.getByRole("button", { name: "Scene", exact: true }));
+        await pointerControl(page, page.getByRole("button", { name: "Sensor Hits", exact: true }));
+        const panel = page.locator(".controls");
+        const bounds = await panel.boundingBox();
+        const actions = panel.getByRole("region", { name: "Simulation", exact: true });
+        const counts = panel.getByRole("region", { name: "Touch counts", exact: true });
+        await expect(actions.getByRole("checkbox", { name: "Bullet", exact: true })).toBeChecked();
+        for (const label of ["Begin touch", "End touch"])
+            await expect(counts.getByLabel(label, { exact: true })).toHaveText("0");
+        await expect(counts.locator("input, button")).toHaveCount(0);
+        await pointerControl(page, actions.getByRole("checkbox", { name: "Bullet", exact: true }));
+        await pointerControl(page, actions.getByRole("button", { name: "Launch", exact: true }));
+        expect(await panel.boundingBox()).toEqual(bounds);
+        expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+            true,
+        );
+        await gameKeyMovesCamera(page);
+    });
+
     test(`Precession's averaged rates fit the label column at ${width}`, async ({ page }) => {
         await page.setViewportSize({ width, height: width === 390 ? 844 : 720 });
         await page.goto("/tests/controls.html");

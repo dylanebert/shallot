@@ -82,7 +82,7 @@ function placeMarker(
     }
 }
 
-import { drawEventMark } from "./event-presentation";
+import { drawEventMark, drawSensorHitViews } from "./event-presentation";
 
 export const GrabFeedback = {
     create: () => ({ marker: 0, attachment: [0, 0, 0] as [number, number, number] }),
@@ -333,6 +333,9 @@ function createView(world: World, scene: Scene, camera: number): () => void {
             world.add(eid, MeshInstance, { mesh });
             world.add(eid, MeshMaterial, materialFor(shape.role, eid));
         }
+        drawSensorHitViews(world, camera, (a, b, color, options) =>
+            drawLine(world, a, b, color, options),
+        );
         const marks =
             sample.scene === "persistentContact"
                 ? sample.contactMarks

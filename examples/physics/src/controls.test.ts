@@ -2,6 +2,19 @@ import { expect, test } from "bun:test";
 import { formatValue } from "./control-format";
 import { type Controls, controlValues, enabledControls, type Scene, scenes } from "./scenes";
 
+test("Sensor Hits retains Bullet and Launch with two integer read-only touch counts", () => {
+    const controls: Controls = scenes.sensorHits.controls;
+    expect(Object.keys(controls)).toEqual(["Bullet", "Launch", "Begin touch", "End touch"]);
+    expect(controls.Bullet).toMatchObject({ label: "Bullet", value: 1 });
+    expect(controls.Bullet!.min).toBeUndefined();
+    expect(controls.Bullet!.button).toBeUndefined();
+    expect(controls.Launch).toMatchObject({ label: "Launch", button: true });
+    for (const name of ["Begin touch", "End touch"]) {
+        expect(controls[name]).toMatchObject({ value: 0, decimals: 0 });
+        expect(controls[name]!.read).toBeFunction();
+    }
+});
+
 test("Shapes rows retain native choices, slider bounds and stable actions", () => {
     expect(scenes.restitution.controls.Shape.options).toEqual([
         { label: "Sphere", value: 0 },

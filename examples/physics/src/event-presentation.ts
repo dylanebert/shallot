@@ -1,3 +1,17 @@
+import type { World } from "@dylanebert/shallot";
+import { EventSample } from "./events";
+import { drawInkPoint, type INK_DOT } from "./ink-presentation";
+
+type Point = [number, number, number];
+export function drawSensorHitViews(
+    world: World,
+    camera: number,
+    line: (a: Point, b: Point, color: number, options: typeof INK_DOT) => void,
+): void {
+    for (const point of world.resource(EventSample).sensorMarks)
+        drawInkPoint(world, camera, point, line);
+}
+
 export interface EventMark {
     point: [number, number, number];
     end: [number, number, number];

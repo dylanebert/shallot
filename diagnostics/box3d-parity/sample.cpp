@@ -37,7 +37,7 @@ struct Camera
 	b3Vec3 GetForward() const { return { 0, 0, 1 }; }
 	b3Vec3 GetRight() const { return { 1, 0, 0 }; }
 };
-constexpr int KEY_W = 1, KEY_S = 2, KEY_A = 3, KEY_D = 4, KEY_L = 5, KEY_T = 6;
+constexpr int KEY_W = 1, KEY_S = 2, KEY_A = 3, KEY_D = 4, KEY_L = 5, KEY_T = 6, KEY_B = 7;
 constexpr int ACTION_PRESS = 1;
 void sapp_lock_mouse( bool ) {}
 bool IsKeyDown( int key ) {
@@ -268,7 +268,7 @@ int main( int argc, char** argv )
 		fprintf( stderr, "usage: sample <scene> <steps> [grab|control-sequence-file]\n" );
 		return 2;
 	}
-	recordEvents = !strcmp( argv[1], "benchmarkSensor" ) || !strcmp( argv[1], "joint" ) || !strcmp( argv[1], "sensor" ) || !strcmp( argv[1], "contact" ) || !strcmp( argv[1], "hit" ) || !strcmp( argv[1], "motor" ) || !strcmp( argv[1], "move" ) || !strcmp( argv[1], "persistentContact" );
+	recordEvents = !strcmp( argv[1], "benchmarkSensor" ) || !strcmp( argv[1], "joint" ) || !strcmp( argv[1], "sensor" ) || !strcmp( argv[1], "contact" ) || !strcmp( argv[1], "hit" ) || !strcmp( argv[1], "motor" ) || !strcmp( argv[1], "move" ) || !strcmp( argv[1], "persistentContact" ) || !strcmp( argv[1], "sensorHits" );
 	b3SetLogFcn( []( const char* message ) { fprintf( stderr, "%s\n", message ); } );
     recordQueriesAndBuilds = !strcmp( argv[1], "heightField" ) || !strcmp( argv[1], "hull" );
 	SampleContext context;
@@ -314,6 +314,7 @@ int main( int argc, char** argv )
 		{ "motor", MotorJoint::Create }, { "joint", JointEvent::Create },
 		{ "sensor", SensorVisit::Create }, { "contact", ContactEvent::Create }, { "hit", HitEvent::Create },
         { "move", MoveEvent::Create }, { "persistentContact", PersistentContact::Create },
+        { "sensorHits", SensorHits::Create },
 	};
 	Sample* sample = nullptr;
 	for ( const Entry& entry : entries ) if ( strcmp( argv[1], entry.name ) == 0 ) sample = entry.create( &context );
@@ -331,6 +332,8 @@ int main( int argc, char** argv )
 		}
 		fclose( file );
 	}
+    FILE* sensorReadouts = getenv("SENSOR_READOUTS") ? fopen(getenv("SENSOR_READOUTS"), "w") : nullptr;
+    if (getenv("SENSOR_READOUTS")) assert(sensorReadouts && !strcmp(argv[1], "sensorHits"));
     FILE* readouts = getenv("PRECESSION_READOUTS") ? fopen(getenv("PRECESSION_READOUTS"), "w") : nullptr;
     if (getenv("PRECESSION_READOUTS")) assert(readouts && !strcmp(argv[1], "gyroscopicPrecession"));
     if (getenv("CONTACT_DRAWING")) {
@@ -368,6 +371,15 @@ int main( int argc, char** argv )
             }
             fprintf(contactDrawing, "]\n");
         }
+        if (sensorReadouts) {
+            auto* sensor = static_cast<SensorHits*>(sample);
+            fprintf(sensorReadouts, "[%d,%d,[", sensor->m_beginCount, sensor->m_endCount);
+            for (int j = 0; j < sensor->m_transformCount; ++j) {
+                b3Pos p = sensor->m_transforms[j].p;
+                fprintf(sensorReadouts, "%s[%.9g,%.9g,%.9g]", j ? "," : "", p.x, p.y, p.z);
+            }
+            fprintf(sensorReadouts, "]]\n");
+        }
         if (readouts) {
             auto* top = static_cast<GyroscopicPrecession*>(sample);
             if (top->m_elapsed > 0) fprintf(readouts, "%.9g %.9g\n", top->m_expectedAngle / top->m_elapsed, top->m_actualAngle / top->m_elapsed);
@@ -376,6 +388,7 @@ int main( int argc, char** argv )
         if ( recordQueriesAndBuilds ) sample->Render();
 	}
     if (readouts) fclose(readouts);
+    if (sensorReadouts) fclose(sensorReadouts);
     if (contactDrawing) fclose(contactDrawing);
 	delete sample;
 }

@@ -95,13 +95,13 @@ const shapeMutations: Record<string, [string, string, string]> = {
     windFlap: ["WindFlap", "m_lift = 2.0f;", "m_lift = 2.1f;"],
 };
 const steps = 600;
-for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "filter", "parallel", "motor", "joint", "sensor", "contact", "hit", "move", "persistentContact", ...Object.keys(stackingMutations), ...Object.keys(jointMutations), ...Object.keys(bodyMutations), ...Object.keys(shapeMutations)]) {
+for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "filter", "parallel", "motor", "joint", "sensor", "contact", "hit", "move", "persistentContact", "sensorHits", ...Object.keys(stackingMutations), ...Object.keys(jointMutations), ...Object.keys(bodyMutations), ...Object.keys(shapeMutations)]) {
     test(`${scene}: upstream sample hashes repeat and a source constant changes them`, () => {
         const binary = sampleBinary();
         const hashes = run([binary, scene, String(steps)]);
         equalSampleSteps(run([binary, scene, String(steps)]), hashes, `${scene} repeat`);
         equalSampleSteps(hashes, readFileSync(new URL(`../../examples/physics/tests/${scene === "box_stack" ? "boxStack" : scene}.gold.txt`, import.meta.url), "utf8"), scene);
-        if (["restitution", "staticInvoke", "wind", "bodyType", "weeble", "disable", "revolute", "prismatic", "wheel", "parallel", "motor", "joint", "contact", "jenga", "weld", "topDownFriction", "distance", "spherical", "motionLocks", "door", "gearLift", "driving"].includes(scene)) {
+        if (["restitution", "staticInvoke", "wind", "bodyType", "weeble", "disable", "revolute", "prismatic", "wheel", "parallel", "motor", "joint", "contact", "jenga", "weld", "topDownFriction", "distance", "spherical", "motionLocks", "door", "gearLift", "driving", "sensorHits"].includes(scene)) {
             const sequence = fileURLToPath(new URL(`../../examples/physics/tests/${scene}.controls.txt`, import.meta.url));
             const controlledSteps = scene === "contact" ? 1204 : steps;
             const controlled = run([binary, scene, String(controlledSteps), sequence]);
@@ -111,6 +111,15 @@ for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "f
         }
         const copy = mkdtempSync(join(tmpdir(), "box3d-sample-mutation-"));
         try {
+            if (scene === "sensorHits") {
+                for (const controlled of [false, true]) {
+                    const drawing = join(copy, "sensor.txt");
+                    const args = [binary, scene, String(steps)];
+                    if (controlled) args.push(fileURLToPath(new URL("../../examples/physics/tests/sensorHits.controls.txt", import.meta.url)));
+                    run(args, { SENSOR_READOUTS: drawing });
+                    expect(readFileSync(drawing, "utf8")).toBe(readFileSync(new URL(`../../examples/physics/tests/sensorHits${controlled ? ".controls" : ""}.drawing.gold.txt`, import.meta.url), "utf8"));
+                }
+            }
             if (scene === "persistentContact") {
                 const drawing = join(copy, "drawing.txt");
                 run([binary, scene, String(steps)], { CONTACT_DRAWING: drawing });
@@ -122,9 +131,9 @@ for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "f
             for (const name of ["sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp", "sample_bodies.cpp", "sample_shapes.cpp"]) {
                 copyFileSync(join(process.env.BOX3D!, "samples", name), join(copy, "samples", name));
             }
-            const path = join(copy, "samples", scene in shapeMutations ? "sample_shapes.cpp" : scene in bodyMutations ? "sample_bodies.cpp" : scene === "box_stack" || scene in stackingMutations ? "sample_stacking.cpp" : ["joint", "sensor", "contact", "hit", "move", "persistentContact"].includes(scene) ? "sample_events.cpp" : "sample_joint.cpp");
+            const path = join(copy, "samples", scene in shapeMutations ? "sample_shapes.cpp" : scene in bodyMutations ? "sample_bodies.cpp" : scene === "box_stack" || scene in stackingMutations ? "sample_stacking.cpp" : ["joint", "sensor", "contact", "hit", "move", "persistentContact", "sensorHits"].includes(scene) ? "sample_events.cpp" : "sample_joint.cpp");
             const source = readFileSync(path, "utf8");
-            const classes: Record<string, string> = { box_stack: "BoxStack", bridge: "Bridge", revolute: "RevoluteJoint", prismatic: "PrismaticJoint", wheel: "WheelJoint", filter: "FilterJoint", parallel: "ParallelJoint", motor: "MotorJoint", joint: "JointEvent", sensor: "SensorVisit", contact: "ContactEvent", hit: "HitEvent", move: "MoveEvent", persistentContact: "PersistentContact" };
+            const classes: Record<string, string> = { box_stack: "BoxStack", bridge: "Bridge", revolute: "RevoluteJoint", prismatic: "PrismaticJoint", wheel: "WheelJoint", filter: "FilterJoint", parallel: "ParallelJoint", motor: "MotorJoint", joint: "JointEvent", sensor: "SensorVisit", contact: "ContactEvent", hit: "HitEvent", move: "MoveEvent", persistentContact: "PersistentContact", sensorHits: "SensorHits" };
             const start = source.indexOf(`class ${shapeMutations[scene]?.[0] ?? bodyMutations[scene]?.[0] ?? jointMutations[scene]?.[0] ?? stackingMutations[scene]?.[0] ?? classes[scene]} :`);
             const prefix = source.slice(0, start);
             const selected = source.slice(start);
@@ -137,6 +146,7 @@ for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "f
                 hit: ["float r = 0.75f;", "float r = 0.8f;"],
                 move: ["b3Pos pivot = { 0.0f, 1.0f, 0.0f };", "b3Pos pivot = { 0.0f, 1.1f, 0.0f };"],
                 persistentContact: ["shapeDef.density = 20.0f;", "shapeDef.density = 21.0f;"],
+                sensorHits: ["RandomFloatRange( 200.0f, 300.0f )", "RandomFloatRange( 201.0f, 300.0f )"],
             };
             const before = shapeMutations[scene]?.[1] ?? bodyMutations[scene]?.[1] ?? jointMutations[scene]?.[1] ?? stackingMutations[scene]?.[1] ?? eventConstants[scene]?.[0] ?? (scene === "wheel" ? "bodyDef.position = { 0.0f, 2.0f, 0.0f };" : scene === "filter" ? "bodyDef.position = { 2.0f, 4.0f, 0.0f };" : constant!);
             const after = shapeMutations[scene]?.[2] ?? bodyMutations[scene]?.[2] ?? jointMutations[scene]?.[2] ?? stackingMutations[scene]?.[2] ?? eventConstants[scene]?.[1] ?? (scene === "wheel" ? "bodyDef.position = { 0.0f, 2.1f, 0.0f };" : scene === "filter" ? "bodyDef.position = { 2.1f, 4.0f, 0.0f };" : replacement!);

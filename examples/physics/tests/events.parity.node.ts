@@ -1,13 +1,17 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import type { EntityRef, World } from "@dylanebert/shallot";
 import {
+    Camera,
     createApp,
     GlobalTransform,
     hashPhysics,
+    resizeViewport,
     StandardPhysicsPlugin,
 } from "@dylanebert/shallot";
+import { type View, Views, worldToViewport } from "@dylanebert/shallot/rendering";
 import { PhysicsEvents, setTargetTransform } from "@dylanebert/shallot/standard/physics";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { drawSensorHitViews } from "../src/event-presentation";
 import {
     contact,
     EventSample,
@@ -18,6 +22,7 @@ import {
     move,
     persistentContact,
     sensor,
+    sensorHits,
 } from "../src/events";
 import { Grab, pick, release } from "../src/grab";
 import { type Controls, changeControl, controlValues, scenes } from "../src/scenes";
@@ -71,6 +76,7 @@ function eventRecords(world: World) {
 setDefaultTimeout(TIMEOUT.node);
 
 for (const [name, construct] of [
+    ["sensorHits", sensorHits],
     ["move", move],
     ["persistentContact", persistentContact],
     ["hit", hit],
@@ -79,7 +85,10 @@ for (const [name, construct] of [
     ["contact", contact],
     ["motor", motor],
 ] as const) {
-    for (const controlled of name === "contact" || name === "motor" || name === "joint"
+    for (const controlled of name === "contact" ||
+    name === "motor" ||
+    name === "joint" ||
+    name === "sensorHits"
         ? [false, true]
         : [false]) {
         test(`${name} equals every native solve ${controlled ? "through controls and input" : "by default"}`, async () => {
@@ -98,6 +107,20 @@ for (const [name, construct] of [
                           return { step: Number(step), key: key!, value: Number(value) };
                       })
                 : [];
+            const drawing =
+                name === "sensorHits"
+                    ? (
+                          await Bun.file(
+                              new URL(
+                                  `./sensorHits${controlled ? ".controls" : ""}.drawing.gold.txt`,
+                                  import.meta.url,
+                              ),
+                          ).text()
+                      )
+                          .trim()
+                          .split("\n")
+                          .map((line) => JSON.parse(line) as [number, number, number[][]])
+                    : [];
             const values = controlValues(name);
             let bodies: number[] = [];
             const used = new Set<string>();
@@ -108,6 +131,19 @@ for (const [name, construct] of [
                     bodies = construct(world);
                 },
             });
+            let camera = 0;
+            if (name === "sensorHits") {
+                camera = app.world.create();
+                app.world.add(camera, Camera, { fov: 60, near: 0.01, mode: 0 });
+                app.world.add(camera, GlobalTransform, {
+                    translation: [-7, 5, 45],
+                    scale: [1, 1, 1],
+                });
+                app.world
+                    .resource(Views)
+                    .set(camera, { viewportIndex: 0, camera: app.world.ref(camera) } as View);
+                resizeViewport(app.world, 0, 390, 844, 2);
+            }
             let cursor = 0;
             const trackDebris = name === "contact" && controlled;
             const occupiedSlots = new Set<number>();
@@ -164,6 +200,36 @@ for (const [name, construct] of [
                     if (grab.mouse)
                         setTargetTransform(app.world, grab.mouse, grab.point, [0, 0, 0, 1]);
                     app.world.tick();
+                    if (name === "sensorHits") {
+                        const native = drawing[step]!;
+                        expect([sample.beginCount, sample.endCount], `step ${step} counts`).toEqual(
+                            [native[0], native[1]],
+                        );
+                        expect(sample.sensorMarks, `step ${step} marks`).toEqual(
+                            native[2].map((p) => p.map(Math.fround) as [number, number, number]),
+                        );
+                        expect(scenes.sensorHits.controls["Begin touch"].read(app.world)).toBe(
+                            native[0],
+                        );
+                        expect(scenes.sensorHits.controls["End touch"].read(app.world)).toBe(
+                            native[1],
+                        );
+                        let mark = 0;
+                        drawSensorHitViews(app.world, camera, (a, b, color, options) => {
+                            const point = native[2][mark++]!.map(Math.fround);
+                            for (let axis = 0; axis < 3; axis++)
+                                expect((a[axis]! + b[axis]!) / 2).toBeCloseTo(point[axis]!, 8);
+                            expect(color).toBe(0xeee9df);
+                            expect(options).toEqual({ width: 4, depthBias: -1 });
+                            const start = worldToViewport(app.world, camera, a)!;
+                            const end = worldToViewport(app.world, camera, b)!;
+                            expect(Math.hypot(start[0] - end[0], start[1] - end[1])).toBeCloseTo(
+                                4,
+                                5,
+                            );
+                        });
+                        expect(mark).toBe(native[2].length);
+                    }
                     const records = app.world.resource(PhysicsEvents);
                     for (let i = 0; i < records.contactHit.count; i++)
                         hitMaterials.add(String(records.contactHit.records[i]!.userMaterialIdA));
@@ -235,7 +301,10 @@ for (const [name, construct] of [
                 }
                 if (controlled)
                     expect([...used].sort()).toEqual(
-                        Object.keys(scenes[name].controls ?? {}).sort(),
+                        Object.entries(scenes[name].controls ?? {})
+                            .filter(([, control]) => !("read" in control))
+                            .map(([key]) => key)
+                            .sort(),
                     );
             } finally {
                 app.dispose();

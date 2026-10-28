@@ -8,6 +8,7 @@ for (const [id, name] of [
     ["hit", "Hit"],
     ["move", "Move"],
     ["persistentContact", "Persistent Contact"],
+    ["sensorHits", "Sensor Hits"],
     ["motor", "Motor Joint"],
 ]) {
     test(`${name} event-stage look review`, async ({ page }) => {
@@ -16,7 +17,8 @@ for (const [id, name] of [
         });
         await page.goto(`/?scene=${id}`);
         await page.getByRole("button", { name: "Scene", exact: true }).waitFor();
-        if (id === "move" || id === "persistentContact") await page.waitForTimeout(1500);
+        if (id === "move" || id === "persistentContact" || id === "sensorHits")
+            await page.waitForTimeout(1500);
         await capture(page, `${id}-default`);
         if (id === "sensor") {
             await page.waitForTimeout(2000);
@@ -33,6 +35,23 @@ for (const [id, name] of [
             await page.waitForTimeout(500);
             await capture(page, "joint-grab");
             await page.mouse.up();
+        }
+        if (id === "sensorHits") {
+            await page.getByRole("checkbox", { name: "Bullet", exact: true }).uncheck();
+            await page.getByRole("button", { name: "Launch", exact: true }).click();
+            await page.waitForTimeout(500);
+            await capture(page, "sensorHits-controls");
+            await page.setViewportSize({ width: 390, height: 844 });
+            await page.goto("/?scene=sensorHits");
+            await page.getByRole("button", { name: "Scene", exact: true }).waitFor();
+            await page.waitForTimeout(1500);
+            await capture(page, "sensorHits-phone-default");
+            await page.getByRole("checkbox", { name: "Bullet", exact: true }).uncheck();
+            await page.getByRole("button", { name: "Launch", exact: true }).click();
+            await page.waitForTimeout(500);
+            await capture(page, "sensorHits-phone-controls");
+            await page.getByText("Physics", { exact: true }).click();
+            await capture(page, "sensorHits-phone-scene");
         }
         if (id === "motor") {
             await page.getByRole("slider", { name: "Speed", exact: true }).fill("1");

@@ -8,6 +8,7 @@ import {
 import { countedKernelBytes } from "../../../scripts/counted-kernel";
 import { BodyType } from "./common/types";
 import { clockImport, type Kernel, kernelState } from "./kernel/kernel";
+import { ShapeField, shapeField } from "./kernel/shaperecords";
 import { makeBoxHull } from "./shapes/build-hull";
 import { createHullShape } from "./shapes/shape";
 import {
@@ -25,14 +26,14 @@ beforeAll(async () => {
     kernelBytes = await countedKernelBytes();
 }, TIMEOUT.startup);
 
-test("fixed-tick contact reads retain their records without steady JavaScript allocation", async () => {
+test("fixed-tick contact and sensor reads retain their records without steady JavaScript allocation", async () => {
     const sample = await sampleAllocation(entry, { warm: 6000, frames: 600 });
     expect(sample.control.length).toBeGreaterThan(0);
     const failure = allocationFailure(sample);
     if (failure !== undefined) throw new Error(failure);
 });
 
-test("contact query and child-event reads allocate no WASM heap, with an allocating control", async () => {
+test("contact, sensor and child-event reads allocate no WASM heap, with an allocating control", async () => {
     const bytes = kernelBytes;
     if (!bytes) throw new Error("counting kernel was not built");
     const runtime = kernelState(undefined);
@@ -69,11 +70,24 @@ test("contact query and child-event reads allocate no WASM heap, with an allocat
         const shapeB = createHullShape(
             world,
             b,
-            testShapeDef({ enableContactEvents: true }),
+            testShapeDef({ enableContactEvents: true, enableSensorEvents: true }),
             hull,
         )!;
+        const sensorBody = createTestBody(world, { type: BodyType.Static });
+        const sensor = createHullShape(
+            world,
+            sensorBody,
+            testShapeDef({ isSensor: true, enableSensorEvents: true }),
+            makeBoxHull(3, 3, 3),
+        )!;
         stepTestWorld(world, 1 / 60);
+        const sensorIndex = shapeField(world, sensor, ShapeField.sensorIndex);
         const read = () => {
+            if (
+                k.sensorVisitorCount(world!.worldId, sensorIndex) !== 1 ||
+                k.sensorVisitorWord(world!.worldId, sensorIndex, 0, 0) !== shapeB
+            )
+                throw new Error("wrong allocation sensor visitor");
             if (!k.contactQuery(world!.worldId, shapeA, shapeB, 0))
                 throw new Error("missing allocation contact");
             if (k.eventChildIndex(world!.worldId, 2, 0) !== 0)

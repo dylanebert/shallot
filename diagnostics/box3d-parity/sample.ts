@@ -37,6 +37,7 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         section(events, "class SensorVisit :", "static int sampleSensorVisit"),
         section(events, "class HitEvent :", "static int sampleHitEvent"),
         section(events, "class MoveEvent :", "static int sampleMoveEvent"),
+        section(events, "class SensorHits :", "static int sampleSensorHits"),
         section(events, "class PersistentContact :", "static int samplePersistentContact"),
         section(events, "class JointEvent :", "static int sampleJointEvent"),
         section(events, "struct BodyUserData", "static int sampleContactEvent"),

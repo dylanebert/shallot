@@ -191,6 +191,7 @@ interface PhysicsRuntime {
     shapeBodies: EidColumn;
     shapeDependencies: BodyDependencies;
     contactData: ContactDataBuffer;
+    sensorData: PhysicsSensorData;
     contactContext: QueryContext;
     queryContexts: QueryContext[];
     queryDepth: number;
@@ -262,6 +263,7 @@ function newRuntime(): PhysicsRuntime {
         shapeBodies: new EidColumn(),
         shapeDependencies: new BodyDependencies(),
         contactData: new ContactDataBuffer(),
+        sensorData: { shapes: [], count: 0 },
         contactContext: newQueryContext(),
         queryContexts: [newQueryContext()],
         queryDepth: 0,
@@ -1229,6 +1231,47 @@ export function getContactData(
     const k = kernel(world);
     const pointer = k.contactQuery(state.worldId, a.index1 - 1, b.index1 - 1, childIndex);
     return pointer ? runtime.contactData.read(k, pointer, childIndex, state) : null;
+}
+
+export interface PhysicsSensorData {
+    /** Borrowed visitor shape entities; only the first `count` entries are current. */
+    shapes: number[];
+    count: number;
+}
+
+/** Reads the sensor's current visitor shape entities in native order from the most recently
+ * completed fixed physics step, including a restored step. Call between steps, not from solver
+ * callbacks. Returns null for an unbound shape and zero visitors for a non-sensor.
+ * The World owns the result and its shapes array: the next successful read on this World overwrites them.
+ * Copy explicitly to retain it. Warmed reads allocate nothing below their visitor high-water mark. */
+export function getSensorData(world: World, sensorShape: number): PhysicsSensorData | null {
+    const runtime = runtimeFor(world);
+    const state = runtime.physicsWorld;
+    const shape = runtime.shapes.get(sensorShape);
+    if (!state || state.locked || !shape || !world.has(sensorShape, ShapeComponent)) return null;
+    const context = runtime.contactContext;
+    if (
+        !queryShapeEntities(world, runtime, shape.index1 - 1, context) ||
+        context.shapeEid !== sensorShape
+    )
+        return null;
+    const index = shapeField(state, shape.index1 - 1, ShapeField.sensorIndex);
+    const result = runtime.sensorData;
+    let count = 0;
+    if (index !== -1) {
+        const k = kernel(world);
+        for (let i = 0, n = k.sensorVisitorCount(state.worldId, index); i < n; i++) {
+            const id = k.sensorVisitorWord(state.worldId, index, i, 0);
+            const generation = k.sensorVisitorWord(state.worldId, index, i, 1);
+            if (
+                generation === liveShapeGeneration(state.shapeEntities, id) &&
+                queryShapeEntities(world, runtime, id, context)
+            )
+                result.shapes[count++] = context.shapeEid;
+        }
+    }
+    result.count = count;
+    return result;
 }
 
 /** Immediately sets mass in kg, center in local meters and inertia in kg·m² about that center.

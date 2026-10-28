@@ -1,7 +1,8 @@
 import { Transform } from "../../../core/transform";
 import { createApp } from "../../../engine";
 import { contactPair } from "../contact-data.fixture";
-import { getContactData, StandardPhysicsPlugin } from "../index";
+import { getContactData, getSensorData, StandardPhysicsPlugin } from "../index";
+import { sensorVisitors } from "../sensor-data.fixture";
 
 export let controlSink: { frame: number } | undefined;
 export function control() {
@@ -17,12 +18,21 @@ export default async function create(input: string) {
         world.storage(Transform).translation.x.set(b, scene * 50);
         return { a, b, children: scene === 2 ? 2 : 1 };
     });
+    const sensors = sensorVisitors(world);
+    for (const eid of sensors) {
+        const x = world.storage(Transform).translation.x;
+        x.set(eid, x.get(eid) + 200);
+    }
     world.tick();
     for (const system of StandardPhysicsPlugin.systems!) world.removeSystem(system);
     world.addSystem({
         name: "read-contacts",
         group: "fixed",
         update(world) {
+            if (getSensorData(world, sensors[0]!)?.count !== 3)
+                throw new Error("allocation sensor lost its visitors");
+            if (getSensorData(world, sensors[1]!)?.count !== 0)
+                throw new Error("non-sensor returned visitors");
             for (const subject of subjects) {
                 for (let child = 0; child < subject.children; child++) {
                     const data = getContactData(world, subject.a, subject.b, child);

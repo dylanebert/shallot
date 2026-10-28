@@ -49,6 +49,7 @@ test("each picker label selects its scene in its category, exactly once", () => 
                 { id: "joint", name: "Joint" },
                 { id: "move", name: "Move" },
                 { id: "persistentContact", name: "Persistent Contact" },
+                { id: "sensorHits", name: "Sensor Hits" },
                 { id: "sensor", name: "Sensor Visit" },
             ],
         },

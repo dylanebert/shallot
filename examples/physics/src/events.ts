@@ -30,6 +30,7 @@ import {
     getContactData,
     getLocalPoint,
     getMassData,
+    getSensorData,
     PhysicsEvents,
     type PhysicsHitEvent,
     rotationFromAxisAngle,
@@ -70,6 +71,14 @@ export const EventSample = {
         hits: [] as PhysicsHitEvent[],
         contactPair: null as null | [EntityRef, EntityRef, number],
         contactMarks: [] as EventMark[],
+        sensorMarks: [] as [number, number, number][],
+        beginCount: 0,
+        endCount: 0,
+        isBullet: true,
+        kinematicSensor: 0,
+        dynamicSensor: 0,
+        sensorJoint: 0,
+        projectile: 0,
         reactions: new Set<EntityRef>(),
         bodyRefs: [] as EntityRef[],
         shapeRefs: [] as EntityRef[],
@@ -122,6 +131,7 @@ const AfterSample: System = {
     update(world) {
         const sample = world.resource(EventSample);
         const records = world.resource(PhysicsEvents);
+        if (sample.scene === "sensorHits") stepSensorHits(world);
         if (sample.scene === "sensor") {
             for (let i = 0; i < records.sensorBegin.count; i++) {
                 const event = records.sensorBegin.records[i]!;
@@ -173,7 +183,18 @@ const AfterSample: System = {
 export const EventSamplePlugin: Plugin = {
     name: "EventSample",
     dependencies: [StandardPhysicsPlugin],
-    systems: [BeforeSample, AfterSample],
+    systems: [
+        {
+            name: "sensor-hits-before-sync",
+            group: "fixed",
+            before: [SyncPhysicsConstraintsSystem],
+            update(world) {
+                if (world.resource(EventSample).scene === "sensorHits") driveSensorHits(world);
+            },
+        },
+        BeforeSample,
+        AfterSample,
+    ],
     recovery: recoverResource(EventSample),
 };
 
@@ -845,7 +866,185 @@ function stepPersistentContact(world: World): void {
         }
 }
 
+export function sensorHits(world: World): number[] {
+    const sample = world.resource(EventSample);
+    sample.scene = "sensorHits";
+    eventGround(world, 10);
+    const ground = world.create();
+    world.add(ground, Body);
+    world.add(ground, Shape, {
+        geometry: world.resource(Hulls).add({
+            name: "wall",
+            halfExtents: [0.1, 5, 5],
+            transform: { position: [10, 5, 0], rotation: [0, 0, 0, 1] },
+        }),
+    });
+    const grid = world.resource(PhysicsMeshes).add({
+        name: "sensor grid",
+        grid: { xCount: 2, zCount: 2, cellWidth: 5, materialCount: 0, identifyEdges: true },
+    });
+    const rotation = rotationFromAxisAngle(
+        world,
+        { x: 0, y: 0, z: 1 },
+        Math.fround(0.5 * Math.fround(Math.PI)),
+    );
+    for (const [i, x] of [-4, 0].entries()) {
+        const sensor = world.create();
+        world.add(sensor, Transform, { translation: [x, 6, 0], rotation });
+        world.add(sensor, Body, {
+            type: i === 0 ? BodyType.Static : BodyType.Kinematic,
+            linearVelocity: i === 0 ? [0, 0, 0] : [0.5, 0, 0],
+        });
+        world.add(sensor, Shape, {
+            kind: ShapeKind.Mesh,
+            geometry: grid,
+            isSensor: 1,
+            enableSensorEvents: 1,
+        });
+        if (i === 1) sample.kinematicSensor = sensor;
+    }
+    const sensor = world.create();
+    world.add(sensor, Transform, { translation: [4, 1, 0] });
+    world.add(sensor, Body, { type: BodyType.Dynamic });
+    world.add(sensor, Shape, {
+        kind: ShapeKind.Capsule,
+        capsuleCenter1: [0, 1, 0],
+        capsuleCenter2: [0, 9, 0],
+        radius: 0.1,
+        isSensor: 1,
+        enableSensorEvents: 1,
+    });
+    sample.dynamicSensor = sensor;
+    sample.sensorJoint = world.create();
+    world.add(sample.sensorJoint, PrismaticJoint, {
+        a: ground,
+        b: sensor,
+        localAnchorA: [4, 7, 0],
+        localAnchorB: [0, 6, 0],
+        enableMotor: 1,
+        maxMotorForce: 1000,
+        motorSpeed: 0.5,
+    });
+    launchSensorHits(world);
+    return [sensor, sample.projectile];
+}
+
+function launchSensorHits(world: World): void {
+    const sample = world.resource(EventSample);
+    if (sample.projectile) world.destroy(sample.projectile);
+    sample.sensorMarks = [];
+    sample.beginCount = sample.endCount = 0;
+    const body = world.create();
+    world.add(body, Transform, { translation: [-26.7, 6, 0] });
+    world.add(body, Body, {
+        type: BodyType.Dynamic,
+        linearVelocity: [random(world, 200, 300), 0, 0],
+        isBullet: sample.isBullet ? 1 : 0,
+    });
+    world.add(body, Shape, {
+        kind: ShapeKind.Sphere,
+        radius: 0.25,
+        enableSensorEvents: 1,
+        friction: 0.8,
+        rollingResistance: 0.01,
+    });
+    sample.projectile = body;
+    if (sample.bodyRefs.length) {
+        sample.bodyRefs.push(world.ref(body));
+        sample.shapeRefs.push(world.ref(body));
+    } else remember(world);
+}
+
+function driveSensorHits(world: World): void {
+    const sample = world.resource(EventSample);
+    const global = world.storage(GlobalTransform);
+    const x = global.translation.x.get(sample.kinematicSensor);
+    if (x > 1) setLinearVelocity(world, sample.kinematicSensor, { x: -0.5, y: 0, z: 0 });
+    else if (x < -1) setLinearVelocity(world, sample.kinematicSensor, { x: 0.5, y: 0, z: 0 });
+    const translation = Math.fround(global.translation.x.get(sample.dynamicSensor) - 4);
+    const joint = world.storage(PrismaticJoint);
+    if (translation > 1) joint.motorSpeed.set(sample.sensorJoint, -0.5);
+    else if (translation < -1) joint.motorSpeed.set(sample.sensorJoint, 0.5);
+}
+
+function stepSensorHits(world: World): void {
+    const sample = world.resource(EventSample);
+    const events = world.resource(PhysicsEvents);
+    sample.beginCount += events.sensorBegin.count;
+    sample.endCount += events.sensorEnd.count;
+    for (let i = 0; i < events.sensorBegin.count; i++) {
+        const event = events.sensorBegin.records[i]!;
+        const visitors = getSensorData(world, world.resolve(event.sensorShape));
+        for (
+            let v = 0;
+            v < Math.min(5, visitors?.count ?? 0) && sample.sensorMarks.length < 20;
+            v++
+        ) {
+            const body = world.resolve(event.sensorBody);
+            const global = world.storage(GlobalTransform);
+            const mass = getMassData(world, body)!;
+            const q = global.rotation;
+            const offset = qRotate(
+                q.x.get(body),
+                q.y.get(body),
+                q.z.get(body),
+                q.w.get(body),
+                mass.center.x,
+                mass.center.y,
+                mass.center.z,
+            );
+            const p = global.translation;
+            sample.sensorMarks.push([
+                Math.fround(p.x.get(body) + offset[0]),
+                Math.fround(p.y.get(body) + offset[1]),
+                Math.fround(p.z.get(body) + offset[2]),
+            ]);
+        }
+    }
+}
+
 export const eventScenes = {
+    sensorHits: {
+        construct: sensorHits,
+        gridExtent: 10,
+        gridSpacing: 1,
+        camera: { yaw: 0, pitch: 25, distance: 45, phoneDistance: 70, target: [0, 5, 0] },
+        controls: {
+            Bullet: {
+                label: "Bullet",
+                value: 1,
+                set(world: World, _bodies: readonly number[], value: number) {
+                    world.resource(EventSample).isBullet = Boolean(value);
+                },
+            },
+            Launch: {
+                label: "Launch",
+                value: 0,
+                button: true,
+                set(world: World) {
+                    launchSensorHits(world);
+                },
+            },
+            "Begin touch": {
+                label: "Begin touch",
+                value: 0,
+                decimals: 0,
+                read(world: World) {
+                    return world.resource(EventSample).beginCount;
+                },
+                set() {},
+            },
+            "End touch": {
+                label: "End touch",
+                value: 0,
+                decimals: 0,
+                read(world: World) {
+                    return world.resource(EventSample).endCount;
+                },
+                set() {},
+            },
+        } satisfies Controls,
+    },
     move: {
         construct: move,
         gridExtent: 40,

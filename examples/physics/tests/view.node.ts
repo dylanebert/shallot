@@ -83,6 +83,11 @@ const acceptedRoles = {
         ["ground", 1],
         ["subject", 1],
     ],
+    sensorHits: [
+        ["ground", 2],
+        ["sensor", 3],
+        ["subject", 1],
+    ],
     persistentContact: [
         ["ground", 1],
         ["subject", 1],
@@ -424,6 +429,7 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 benchmarkSensor: 130,
                 move: 40,
                 persistentContact: 20,
+                sensorHits: 10,
             }[id];
             const grid = presentation.grid;
             const spacing = grid.lines[2]!.a[2] - grid.lines[0]!.a[2];
