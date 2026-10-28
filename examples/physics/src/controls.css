@@ -80,6 +80,7 @@
 .ec .categories h2 { margin: var(--zero); padding: var(--zero) var(--s2); font: var(--regular) var(--small)/var(--leading) var(--mono); letter-spacing: var(--tracking); text-transform: uppercase; color: var(--muted); }
 .ec .scenes button { width: var(--full); text-align: left; }
 .ec.input-help { position: absolute; top: calc(var(--s5) + env(safe-area-inset-top)); left: calc(var(--s5) + env(safe-area-inset-left)); pointer-events: none; }
+@media (pointer: coarse), (max-width: 480px) { .ec.input-help { display: none; } }
 @media (pointer: coarse) { .ec button, .ec select, .ec .toggle { min-height: var(--touch); } .ec nav button { min-width: var(--touch); } }
 @media (max-width: 480px) {
  .ec button, .ec select, .ec .toggle { min-height: var(--touch); }
@@ -88,5 +89,4 @@
  .ec.picker { bottom: calc(var(--s4) + env(safe-area-inset-bottom)); left: calc(var(--s4) + env(safe-area-inset-left)); right: calc(var(--s4) + env(safe-area-inset-right)); }
  .ec .categories { flex-direction: column; }
  .ec .scenes { max-height: calc(var(--view) - var(--s4) - var(--s4) - var(--reserve)); }
- .ec.input-help { top: calc(var(--s4) + env(safe-area-inset-top)); left: calc(var(--s4) + env(safe-area-inset-left)); }
 }
