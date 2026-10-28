@@ -143,10 +143,10 @@ test("phone touch opens the panel and both pickers remain usable", async ({ brow
     });
     try {
         const page = await context.newPage();
+        await holdFrames(page, "[aria-label='Tonemapping controls']");
         await page.goto("/");
         const panel = page.getByRole("group", { name: "Tonemapping controls" });
         await panel.waitFor();
-        await holdFrames(page, "[aria-label='Tonemapping controls']");
         await page.locator("summary").tap();
         await expect(panel).not.toHaveAttribute("open", "");
         await page.locator("summary").tap();
