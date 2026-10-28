@@ -63,8 +63,7 @@ if [ "$check_only" = true ]; then
     exit 0
 fi
 
-# CI runs each subject only on the hosts scripts/test-hosts.ts lists for it.
-[ -z "${CI:-}" ] || subjects=$(bun scripts/test-hosts.ts $subjects)
+subjects=$(bun scripts/test-hosts.ts $subjects)
 subject_count=$(printf '%s\n' "$subjects" | wc -l)
 printf '%s\n' "$subjects" | awk -v shard="$shard_index" -v count="$shard_count" -v total="$subject_count" \
     'NR > int((shard - 1) * total / count) && NR <= int(shard * total / count)' | while IFS= read -r subject; do

@@ -86,9 +86,14 @@ test("browser shards partition sorted subjects but validate every subject", () =
             for (const file of ["vite.config.ts", "playwright.config.ts", "check.e2e.ts"])
                 writeFileSync(join(tree, "examples", subject, file), "");
         }
-        for (const command of ["bun", "bunx"]) {
+        // The stubbed bun keeps every subject as this host's and reads the browser timeout as 60000.
+        const stubs = {
+            bun: 'if [ "$1" = scripts/test-hosts.ts ]; then shift; printf \'%s\\n\' "$@"; else echo 60000; fi',
+            bunx: "echo 60000",
+        };
+        for (const [command, script] of Object.entries(stubs)) {
             const path = join(tree, "bin", command);
-            writeFileSync(path, "#!/bin/sh\necho 60000\n");
+            writeFileSync(path, `#!/bin/sh\n${script}\n`);
             chmodSync(path, 0o755);
         }
         const run = (...args: string[]) =>
@@ -96,8 +101,6 @@ test("browser shards partition sorted subjects but validate every subject", () =
                 cwd: tree,
                 env: {
                     ...process.env,
-                    // Outside CI the script runs every subject, so the stubbed bun is not asked for host files.
-                    CI: "",
                     PATH: `${join(tree, "bin")}${process.platform === "win32" ? ";" : ":"}${process.env.PATH}`,
                 },
                 stdout: "pipe",

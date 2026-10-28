@@ -1,9 +1,10 @@
 import { normalizePath } from "../src/project/paths";
 
 /**
- * Test files and browser subjects CI runs on only the listed platforms, keyed by repository-relative path; every
- * other one runs on every host. A claim runs on the cheapest host that can fail on it, and each host-only class
- * keeps files that red it on its own host.
+ * Test files and browser subjects hosted CI runs on only the listed platforms, keyed by repository-relative path;
+ * every other one runs on every host. A claim runs on the cheapest host that can fail on it, and each host-only
+ * class keeps files that red it on its own host. Outside GitHub Actions, as in scripts/lavapipe.sh, every path
+ * runs on every platform.
  */
 export const ONLY: Readonly<Record<string, readonly NodeJS.Platform[]>> = {
     // Converged fog images fail alike on every adapter, and Metal runs them in a fifth of llvmpipe's time and a
@@ -38,18 +39,25 @@ export const ONLY: Readonly<Record<string, readonly NodeJS.Platform[]>> = {
     "scripts/publish-browser-session.node.ts": ["darwin", "linux"],
 };
 
-/** Whether CI runs the test file at `path`, relative to the repository root, on `platform`. */
-export function runsOn(path: string, platform: NodeJS.Platform = process.platform): boolean {
-    return ONLY[normalizePath(path).replace(/^\.\//, "")]?.includes(platform) ?? true;
+const HOSTED = process.env.GITHUB_ACTIONS === "true";
+
+/** Whether the path, relative to the repository root, runs on `platform`; `hosted` applies {@link ONLY}. */
+export function runsOn(
+    path: string,
+    platform: NodeJS.Platform = process.platform,
+    hosted = HOSTED,
+): boolean {
+    return !hosted || (ONLY[normalizePath(path).replace(/^\.\//, "")]?.includes(platform) ?? true);
 }
 
-/** The `paths` CI runs on `platform`, in order. */
+/** The `paths` that run on `platform`, in order. */
 export function hostFiles(
     paths: readonly string[],
     platform: NodeJS.Platform = process.platform,
+    hosted = HOSTED,
 ): string[] {
-    return paths.filter((path) => runsOn(path, platform));
+    return paths.filter((path) => runsOn(path, platform, hosted));
 }
 
-// Usage: bun scripts/test-hosts.ts <file>... prints, one per line, the files this host runs.
+// Usage: bun scripts/test-hosts.ts <path>... prints, one per line, the paths this host runs.
 if (import.meta.main) for (const path of hostFiles(process.argv.slice(2))) console.log(path);
