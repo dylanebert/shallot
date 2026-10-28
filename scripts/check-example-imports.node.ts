@@ -58,6 +58,12 @@ test("isometric carries city's building layout with only its population changed"
     expect(layout("isometric")).toBe(layout("city"));
 });
 
+test("low-res carries post-processing's panel styling", () => {
+    const controls = (name: string) =>
+        readFileSync(resolve(EXAMPLES, name, "src/hud/controls.css"), "utf8");
+    expect(controls("low-res")).toBe(controls("post-processing"));
+});
+
 function moduleScripts(source: string): string[] {
     const scripts = source.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi);
     return [...scripts]
