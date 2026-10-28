@@ -1,6 +1,7 @@
 import {
     Body,
     BodyType,
+    GlobalTransform,
     Hulls,
     PhysicsMeshes,
     type Plugin,
@@ -12,18 +13,99 @@ import {
 } from "@dylanebert/shallot";
 import {
     computeCosSin,
+    isAwake,
+    PhysicsWorldDefinition,
     rotationFromAxisAngle,
     StandardPhysicsPlugin,
+    StepPhysicsSystem,
+    stepPhysics,
 } from "@dylanebert/shallot/standard/physics";
 import type { Controls } from "./scenes";
 
 const f = Math.fround;
 type V3 = [number, number, number];
-const ContinuousState = { create: () => ({ bullet: -1 }) };
+export const ContinuousState = {
+    create: () => ({
+        bullet: -1,
+        meshDrop: false,
+        ground: -1,
+        walls: [] as number[],
+        bodies: [] as number[],
+        dropBox: 0,
+        cylinder: 0,
+        type: 0,
+        amplitude: 0.5,
+        collide: true,
+        auto: false,
+        failure: false,
+        paused: false,
+        steps: 0,
+        moving: false,
+        seed: null as number | null,
+    }),
+};
+export const ContinuousStepObserver = {
+    create: () => ({ observe: undefined as ((world: World) => void) | undefined }),
+};
+function meshSeed(world: World): number {
+    const state = world.resource(ContinuousState);
+    return state.seed === null ? Math.floor(world.time.realElapsed * 1e6) : state.seed++;
+}
 export const ContinuousSamplePlugin: Plugin = {
     name: "ContinuousSample",
     dependencies: [StandardPhysicsPlugin],
     recovery: recoverResource(ContinuousState),
+    systems: [
+        {
+            name: "mesh-drop-before-step",
+            group: "fixed",
+            before: [StepPhysicsSystem],
+            update(world) {
+                const state = world.resource(ContinuousState);
+                // Native move events include a body on the step in which it falls asleep.
+                if (state.meshDrop) state.moving = state.bodies.some((eid) => isAwake(world, eid));
+            },
+        },
+        {
+            name: "mesh-drop-step",
+            group: "fixed",
+            after: [StepPhysicsSystem],
+            update(world) {
+                const state = world.resource(ContinuousState);
+                if (!state.meshDrop || state.paused) return;
+                world.resource(ContinuousStepObserver).observe?.(world);
+                state.steps++;
+                const transform = world.storage(GlobalTransform);
+                for (const eid of state.bodies) {
+                    if (state.failure) break;
+                    // Only the cylinder has an offset mass center, along its local Y axis.
+                    const center = state.type === 2 ? 0.2 : 0;
+                    const x = transform.rotation.x.get(eid),
+                        z = transform.rotation.z.get(eid);
+                    const y = transform.translation.y.get(eid) + center * (1 - 2 * (x * x + z * z));
+                    if (y < -2) {
+                        state.paused = state.failure = true;
+                        state.auto = false;
+                    }
+                }
+                if (state.auto) {
+                    if (!state.moving && !state.bodies.some((eid) => isAwake(world, eid)))
+                        generate(world);
+                    for (let i = 0; i < 20; i++) {
+                        stepPhysics(world, 1 / 60, 4);
+                        world.resource(ContinuousStepObserver).observe?.(world);
+                    }
+                    state.steps += 20;
+                    if (state.steps > (state.type === 1 ? 3000 : 1000)) {
+                        state.paused = state.failure = true;
+                        state.auto = false;
+                    }
+                }
+                if (state.paused)
+                    world.resource(PhysicsWorldDefinition).enableAutomaticStep = false;
+            },
+        },
+    ],
 };
 function box(world: World, halfExtents: V3): number {
     return world.resource(Hulls).add({ name: "box", halfExtents });
@@ -241,7 +323,220 @@ function stall(world: World): number[] {
     });
     return [launch(world)];
 }
+function launchStack(world: World): void {
+    const state = world.resource(ContinuousState);
+    if (state.bullet !== -1) world.destroy(state.bullet);
+    const eid = body(world, [20.5, 5.5, 0]);
+    world.storage(Body).isBullet.set(eid, 1);
+    world.storage(Body).linearVelocity.set(eid, -500, 0, 0);
+    world.add(eid, Shape, { kind: ShapeKind.Sphere, radius: 0.25, density: 10000 });
+    state.bullet = eid;
+}
+function bulletVersusStack(world: World): number[] {
+    ground(world, 50);
+    const wall = body(world, [0, -1, 0], false);
+    world.add(wall, Shape, {
+        geometry: world.resource(Hulls).add({
+            name: "wall",
+            halfExtents: [0.1, 5, 10],
+            transform: { position: [-1, 5, 0], rotation: [0, 0, 0, 1] },
+        }),
+    });
+    const geometry = box(world, [0.5, 0.5, 0.5]);
+    return Array.from({ length: 10 }, (_, row) => {
+        const eid = body(world, [0, f(0.5 + f(f(1.1) * row)), 0]);
+        world.add(eid, Shape, { geometry });
+        return eid;
+    });
+}
+function meshGround(world: World): void {
+    const state = world.resource(ContinuousState);
+    for (const eid of state.walls) world.destroy(eid);
+    state.walls.length = 0;
+    if (state.ground !== -1) world.destroy(state.ground);
+    const eid = body(world, [0, 0, 0], false);
+    state.ground = eid;
+    world.add(eid, Shape, {
+        kind: ShapeKind.Mesh,
+        geometry: world.resource(PhysicsMeshes).add({
+            name: "wave",
+            wave: {
+                xCount: 40,
+                zCount: 40,
+                cellWidth: 1,
+                amplitude: state.amplitude,
+                rowFrequency: 0.1,
+                columnFrequency: 0.2,
+            },
+        }),
+        filterCategoryLow: 1,
+        filterCategoryHigh: 0,
+    });
+    for (const [position, halfExtents] of [
+        [
+            [0, 1, -20],
+            [20, 1, 0.1],
+        ],
+        [
+            [0, 1, 20],
+            [20, 1, 0.1],
+        ],
+        [
+            [-20, 1, 0],
+            [0.1, 1, 20],
+        ],
+        [
+            [20, 1, 0],
+            [0.1, 1, 20],
+        ],
+    ] as [V3, V3][]) {
+        const shape = world.create();
+        state.walls.push(shape);
+        world.add(shape, Shape, {
+            body: eid,
+            filterCategoryLow: 1,
+            filterCategoryHigh: 0,
+            geometry: world.resource(Hulls).add({
+                name: "wall",
+                halfExtents,
+                transform: { position, rotation: [0, 0, 0, 1] },
+            }),
+        });
+    }
+}
+function generate(world: World): void {
+    const state = world.resource(ContinuousState);
+    for (const eid of state.bodies) world.destroy(eid);
+    state.bodies.length = 0;
+    state.steps = 0;
+    let seed = meshSeed(world) >>> 0;
+    const random = (lo: number, hi: number) => {
+        seed ^= seed << 13;
+        seed ^= seed >>> 17;
+        seed ^= seed << 5;
+        seed >>>= 0;
+        return f(f(f(hi - lo) * f((seed % 32768) / 32767)) + lo);
+    };
+    const geometry = state.type === 0 ? state.dropBox : state.cylinder;
+    for (let i = 0; i < 32; i++)
+        for (let j = 0; j < 32; j++) {
+            const eid = body(world, [0.5 * (i - 16), 5, 0.5 * (j - 16)]);
+            world
+                .storage(Body)
+                .linearVelocity.set(eid, random(-1, 1), random(-1, 1), random(-1, 1));
+            world
+                .storage(Body)
+                .angularVelocity.set(eid, random(-5, 5), random(-5, 5), random(-5, 5));
+            world.add(eid, Shape, {
+                ...(state.type === 1
+                    ? {
+                          kind: ShapeKind.Capsule,
+                          capsuleCenter1: [0, -0.2, 0] as V3,
+                          capsuleCenter2: [0, 0.2, 0] as V3,
+                          radius: 0.05,
+                      }
+                    : state.type === 3
+                      ? { kind: ShapeKind.Sphere, radius: 0.05 }
+                      : { geometry }),
+                rollingResistance: state.type === 1 ? 0.4 : 0.1,
+                ...(state.collide
+                    ? {}
+                    : {
+                          filterCategoryLow: 2,
+                          filterCategoryHigh: 0,
+                          filterMaskLow: 1,
+                          filterMaskHigh: 0,
+                      }),
+            });
+            state.bodies.push(eid);
+        }
+}
+function meshDrop(world: World): number[] {
+    const state = world.resource(ContinuousState);
+    state.meshDrop = true;
+    meshGround(world);
+    state.cylinder = world.resource(Hulls).add({
+        name: "cylinder",
+        cylinder: { height: 0.4, radius: 0.05, yOffset: 0, sides: 6 },
+    });
+    state.dropBox = box(world, [0.02, 0.2, 0.04]);
+    generate(world);
+    return world.resource(ContinuousState).bodies;
+}
+const meshControls = {
+    Type: {
+        label: "Type",
+        value: 0,
+        select: true,
+        options: ["box", "capsule", "cylinder", "sphere"].map((label, value) => ({ label, value })),
+        set(world, _bodies, value) {
+            world.resource(ContinuousState).type = value;
+            generate(world);
+        },
+    },
+    Amplitude: {
+        label: "Amplitude",
+        value: 0.5,
+        min: 0,
+        max: 1,
+        step: 0.001,
+        set(world, _bodies, value) {
+            world.resource(ContinuousState).amplitude = value;
+            meshGround(world);
+            generate(world);
+        },
+    },
+    Collide: {
+        label: "Collide",
+        value: 1,
+        set(world, _bodies, value) {
+            world.resource(ContinuousState).collide = value !== 0;
+            generate(world);
+        },
+    },
+    Generate: {
+        label: "Generate",
+        value: 0,
+        button: true,
+        set(world) {
+            generate(world);
+        },
+    },
+    "Auto Generate": {
+        label: "Auto Generate",
+        value: 0,
+        button: true,
+        set(world) {
+            const state = world.resource(ContinuousState);
+            state.auto = !state.auto;
+            state.steps = 0;
+        },
+    },
+} satisfies Controls;
 export const continuousScenes = {
+    bulletVersusStack: {
+        construct: bulletVersusStack,
+        gridExtent: 50,
+        gridSpacing: 2,
+        camera: { yaw: 25, pitch: 20, distance: 36, target: [6, 4, 0] },
+        controls: {
+            Launch: {
+                label: "Launch",
+                value: 0,
+                button: true,
+                set(world) {
+                    launchStack(world);
+                },
+            },
+        } satisfies Controls,
+    },
+    meshDrop: {
+        construct: meshDrop,
+        gridExtent: 20,
+        gridSpacing: 1,
+        camera: { yaw: 35, pitch: 50, distance: 62, phoneDistance: 95, target: [0, 0, 0] },
+        controls: meshControls,
+    },
     thinWall: {
         construct: thinWall,
         gridExtent: 40,

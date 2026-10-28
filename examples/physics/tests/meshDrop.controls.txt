@@ -1,0 +1,13 @@
+1	Type	1
+15	Type	2
+30	Type	3
+45	Type	0
+50	Auto Generate	1
+55	Auto Generate	1
+60	Amplitude	1
+75	Collide	0
+90	Generate	1
+100	Type	2
+101	Collide	1
+110	Auto Generate	1
+270	Generate	1

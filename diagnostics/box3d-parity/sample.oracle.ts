@@ -144,6 +144,8 @@ for (const scene of ["capsulePlane", "moverOverlap"]) {
 }
 
 const continuousMutations: Record<string, [string, string, string]> = {
+    bulletVersusStack: ["BulletVersusStack", "1.1f * row", "1.2f * row"],
+    meshDrop: ["MeshDrop", "m_groundAmplitude = 0.5f;", "m_groundAmplitude = 0.6f;"],
     thinWall: ["ThinWall", "-180.0f", "-181.0f"],
     bounceHouse: ["BounceHouse", "120.0f", "121.0f"],
     spinningStick: ["SpinningStick", "-100.0f", "-101.0f"],
@@ -160,12 +162,19 @@ for (const [scene, [name, before, after]] of Object.entries(continuousMutations)
         equalSampleSteps(run([binary, scene, "600"]), hashes, `${scene} repeat`);
         equalSampleSteps(hashes, readFileSync(new URL(`../../examples/physics/tests/${scene}.gold.txt`, import.meta.url), "utf8"), scene);
         expect(hashes.trimEnd().split("\n")).toHaveLength(600);
-        if (scene === "stall") {
-            const sequence = fileURLToPath(new URL("../../examples/physics/tests/stall.controls.txt", import.meta.url));
-            const controlled = run([binary, scene, "600", sequence]);
-            equalSampleSteps(run([binary, scene, "600", sequence]), controlled, "stall controls repeat");
-            equalSampleSteps(controlled, readFileSync(new URL("../../examples/physics/tests/stall.controls.gold.txt", import.meta.url), "utf8"), "stall controls");
+        if (["stall", "bulletVersusStack", "meshDrop"].includes(scene)) {
+            const sequence = fileURLToPath(new URL(`../../examples/physics/tests/${scene}.controls.txt`, import.meta.url));
+            const env: Record<string, string> = scene === "meshDrop" ? { SAMPLE_DISABLE_SLEEP: "1" } : {};
+            const controlled = run([binary, scene, "600", sequence], env);
+            equalSampleSteps(run([binary, scene, "600", sequence], env), controlled, `${scene} controls repeat`);
+            equalSampleSteps(controlled, readFileSync(new URL(`../../examples/physics/tests/${scene}.controls.gold.txt`, import.meta.url), "utf8"), `${scene} controls`);
             expect(controlled).not.toBe(hashes);
+        }
+        if (scene === "meshDrop") {
+            const sequence = fileURLToPath(new URL("../../examples/physics/tests/meshDrop.regeneration.controls.txt", import.meta.url));
+            const controlled = run([binary, scene, "600", sequence]);
+            equalSampleSteps(run([binary, scene, "600", sequence]), controlled, "meshDrop regeneration repeat");
+            equalSampleSteps(controlled, readFileSync(new URL("../../examples/physics/tests/meshDrop.regeneration.controls.gold.txt", import.meta.url), "utf8"), "meshDrop regeneration");
         }
         const copy = mkdtempSync(join(tmpdir(), "box3d-continuous-mutation-"));
         try {

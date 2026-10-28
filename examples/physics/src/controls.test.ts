@@ -21,7 +21,7 @@ test("Character rows retain Solve, Clip Velocity and two integer read-only overl
     }
 });
 
-test("Continuous has only Stall's Launch action", () => {
+test("Continuous carries only the samples' labelled controls", () => {
     for (const scene of [
         "thinWall",
         "bounceHouse",
@@ -33,6 +33,33 @@ test("Continuous has only Stall's Launch action", () => {
         expect(scenes[scene].controls).toBeUndefined();
     expect(Object.keys(scenes.stall.controls)).toEqual(["Launch"]);
     expect(scenes.stall.controls.Launch).toMatchObject({ label: "Launch", value: 0, button: true });
+    expect(scenes.bulletVersusStack.controls.Launch).toMatchObject({
+        label: "Launch",
+        value: 0,
+        button: true,
+    });
+    expect(Object.keys(scenes.meshDrop.controls)).toEqual([
+        "Type",
+        "Amplitude",
+        "Collide",
+        "Generate",
+        "Auto Generate",
+    ]);
+    expect(scenes.meshDrop.controls.Type).toMatchObject({
+        label: "Type",
+        value: 0,
+        select: true,
+        options: ["box", "capsule", "cylinder", "sphere"].map((label, value) => ({ label, value })),
+    });
+    expect(scenes.meshDrop.controls.Amplitude).toMatchObject({
+        value: 0.5,
+        min: 0,
+        max: 1,
+        step: 0.001,
+    });
+    expect(scenes.meshDrop.controls.Collide).toMatchObject({ value: 1 });
+    for (const name of ["Generate", "Auto Generate"] as const)
+        expect(scenes.meshDrop.controls[name]).toMatchObject({ label: name, button: true });
 });
 
 test("Sensor Hits retains Bullet and Launch with two integer read-only touch counts", () => {

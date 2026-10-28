@@ -22,11 +22,18 @@ struct Change { int step; std::string name; float value; };
 std::vector<Change> changes;
 int currentStep = 0;
 bool drivingControls = false;
+bool meshDropRecording = false;
+uint64_t SampleTicks() { static uint64_t seed = 12345; return seed++; }
 
 extern "C" {
 struct b3World;
 b3World* b3GetWorldFromId( b3WorldId );
 uint64_t b3HashWorldState( b3World* );
+}
+
+void RecordedStep(b3WorldId world, float dt, int substeps) {
+    b3World_Step(world, dt, substeps);
+    if (meshDropRecording) printf("%016llx\n", (unsigned long long)b3HashWorldState(b3GetWorldFromId(world)));
 }
 
 // The selected sample classes and AddGroundBox compile verbatim; drawing callbacks below are inert.
@@ -222,6 +229,7 @@ GuiDraw* GetGuiDraw() { static GuiDraw draw; return &draw; }
 struct SampleContext
 {
 	Camera camera;
+    float mouseX = 0, mouseY = 0;
 	bool restart = false;
 	bool pause = false;
 	int singleStep = 0;
@@ -287,9 +295,10 @@ public:
 		b3World_EnableSleeping( m_worldId, m_context->enableSleep );
 		b3World_EnableWarmStarting( m_worldId, m_context->enableWarmStarting );
 		b3World_EnableContinuous( m_worldId, m_context->enableContinuous );
-		b3World_Step( m_worldId, 1.0f / m_context->hertz, m_context->subStepCount );
+        if (m_context->pause) return;
+		RecordedStep( m_worldId, 1.0f / m_context->hertz, m_context->subStepCount );
 		m_stepHash = b3HashWorldState( b3GetWorldFromId( m_worldId ) );
-        if ( !recordQueriesAndBuilds ) {
+        if ( !recordQueriesAndBuilds && !meshDropRecording ) {
 		    printf( "%016llx", (unsigned long long)m_stepHash );
 		    if ( recordEvents ) PrintEvents( m_worldId );
 		    printf( "\n" );
@@ -321,6 +330,8 @@ public:
 #define b3Body_CastShape RecordedBodyShape
 #define b3Body_OverlapShape RecordedBodyOverlap
 #define b3Body_CollideMover RecordedBodyMover
+#define b3GetTicks SampleTicks
+#define b3World_Step RecordedStep
 // SAMPLE_SOURCES
 
 int main( int argc, char** argv )
@@ -333,9 +344,12 @@ int main( int argc, char** argv )
 	recordEvents = !strcmp( argv[1], "benchmarkSensor" ) || !strcmp( argv[1], "joint" ) || !strcmp( argv[1], "sensor" ) || !strcmp( argv[1], "contact" ) || !strcmp( argv[1], "hit" ) || !strcmp( argv[1], "motor" ) || !strcmp( argv[1], "move" ) || !strcmp( argv[1], "persistentContact" ) || !strcmp( argv[1], "sensorHits" );
 	b3SetLogFcn( []( const char* message ) { fprintf( stderr, "%s\n", message ); } );
     recordQueriesAndBuilds = !strcmp( argv[1], "heightField" ) || !strcmp( argv[1], "hull" );
+    meshDropRecording = !strcmp(argv[1], "meshDrop");
 	SampleContext context;
+    if (getenv("SAMPLE_DISABLE_SLEEP")) context.enableSleep = false;
 	struct Entry { const char* name; Sample* (*create)(SampleContext*); };
 	const Entry entries[] = {
+        { "bulletVersusStack", BulletVersusStack::Create }, { "meshDrop", MeshDrop::Create },
         { "thinWall", ThinWall::Create }, { "bounceHouse", BounceHouse::Create },
         { "spinningStick", SpinningStick::Create }, { "needleMesh", NeedleMesh::Create },
         { "humpMesh", HumpMesh::Create }, { "isFast", IsFast::Create }, { "stall", Stall::Create },

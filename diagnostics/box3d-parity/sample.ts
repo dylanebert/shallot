@@ -29,6 +29,8 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         section(sample, "b3BodyId Sample::AddGroundBox(", "struct RowDef"),
         "#define printf(...) fprintf(stderr, __VA_ARGS__)",
         ...["ThinWall", "BounceHouse", "SpinningStick", "NeedleMesh", "HumpMesh", "IsFast", "Stall"].map(name => section(continuous, `class ${name} :`, `static int sample${name}`)),
+        section(continuous, "class BulletVersusStack :", "static int sampleContinuous6"),
+        section(continuous, "struct IndexPair", "static int sampleMeshDrop"),
         "#undef printf",
         ...["InclinedPlane", "RollingResistance", "HighResistance", "IsotropicFriction", "SlideTwist", "Restitution", "StaticInvoke", "Wind", "ConveyorBelt", "ConveyorMesh", "WindDrop", "WindFlap"].map(name => section(shapes, `class ${name} :`, `static int sample${name}`)),
         ...[["ClassRing", "sampleClassRing"], ["BodyCast", "sampleBodyCast"], ["GyroscopicPrecession", "sampleGyroscopicPrecession"], ["BodyType", "sampleBodyType"], ["Weeble", "sampleWeeble"], ["DisableBody", "sampleDisable"], ["SpinningBooks", "sampleBook"], ["GyroscopicTorque", "sampleGyroscopicTorque"], ["Kinematic", "sampleKinematic"], ["LockMixing", "sampleLockMixing"], ["FixedRotation", "sampleFixedRotation"], ["OffsetKinematic", "sampleOffsetKinematic"]].map(([name, end]) => section(bodies, `class ${name} :`, `static int ${end}`)),

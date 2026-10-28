@@ -100,8 +100,10 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
         name: "Continuous",
         scenes: [
             { id: "bounceHouse", name: "Bounce House" },
+            { id: "bulletVersusStack", name: "Bullet vs Stack" },
             { id: "humpMesh", name: "Hump Mesh" },
             { id: "isFast", name: "Is Fast" },
+            { id: "meshDrop", name: "Mesh Drop" },
             { id: "needleMesh", name: "Needle Mesh" },
             { id: "spinningStick", name: "Spinning Stick" },
             { id: "stall", name: "Stall" },
