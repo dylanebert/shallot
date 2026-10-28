@@ -36,12 +36,14 @@ export type PhysicsWorldDefinitionConfig = Omit<
      * (https://bugs.webkit.org/show_bug.cgi?id=255103).
      */
     maximumMemory?: number;
-    /** Solver substeps per fixed tick. Box3D's recommended default is four. */
+    /** Solver substeps per automatic step. Box3D's recommended default is four. */
     subStepCount: number;
     /** Whether contact and joint impulses are warm-started. */
     enableWarmStarting: boolean;
     /** Whether mesh contacts may use speculative points. */
     enableSpeculative: boolean;
+    /** Automatically solve once per fixed tick; defaults true. Disable to step only through `stepPhysics`. */
+    enableAutomaticStep: boolean;
     /** Contact separation at which a contact is recycled. */
     contactRecycleDistance: number;
     /** Optional collision-pair filter, called at the solver's serial callback point. */
@@ -69,6 +71,7 @@ export const PhysicsWorldDefinition: Resource<PhysicsWorldDefinitionConfig> = {
             subStepCount: 4,
             enableWarmStarting: true,
             enableSpeculative: true,
+            enableAutomaticStep: true,
             contactRecycleDistance: CONTACT_RECYCLE_DISTANCE,
             customFilterCallback: null,
             preSolveCallback: null,

@@ -100,7 +100,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 ### Physics
 
 - `PhysicsPlugin` (`core/physics`) registers `Body`, `Shape`, the joint kinds and the geometry registries with their defaults; it knows no solver and installs no simulation
-- `StandardPhysicsPlugin` (`standard/physics`) owns the whole Box3D-based simulation at `Time.FIXED_DT`, including `PhysicsWorldDefinition`. A body belongs to one simulation: a replacement backend consumes core's data and replaces all of standard physics, not single phases
+- `StandardPhysicsPlugin` (`standard/physics`) owns the whole Box3D-based simulation, including `PhysicsWorldDefinition`. It steps at `Time.FIXED_DT` unless `PhysicsWorldDefinition.enableAutomaticStep` is false; fixed systems may call `stepPhysics` with their own timestep and substep count. A body belongs to one simulation: a replacement backend consumes core's data and replaces all of standard physics, not single phases
 - The ECS `World` is the only public physics world; the kernel world is an internal resource of it
 - Box3D is the correctness authority: world hashes equal its native reference with no tolerance, and authoring takes its definitions whole, with their defaults. Hashes see only simulation state; allocation, published ECS values and events need their own tests
 - A definition field with a Box3D setter applies through that setter at the next fixed sync; a field without one applies at spawn, and its JSDoc says so. Physics compares marked authoring fields against kernel state, never a second copy of ECS values

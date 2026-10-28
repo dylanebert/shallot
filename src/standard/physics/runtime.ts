@@ -1871,44 +1871,69 @@ function applyTransformPoses(world: World, runtime: PhysicsRuntime): void {
     clearFieldCandidates(candidates);
 }
 
-/** the fixed-group solver step: the ordering anchor a producer that moves bodies before the solve (the character sweep's kinematic upload) orders `before:`. */
+/**
+ * Synchronizes pending authoring, solves once for `timeStep` seconds with `subStepCount`
+ * substeps, and publishes placement, velocity and this call's events (replacing prior events).
+ * Callable only in the fixed group. Does not advance the world's tick clock.
+ * Disable `PhysicsWorldDefinition.enableAutomaticStep` to own solve ordering.
+ * Refuses a locked solver, a non-finite or negative timestep, or a non-positive integer substep count.
+ */
+export function stepPhysics(world: World, timeStep: number, subStepCount: number): void {
+    if (world.currentSystemGroup !== "fixed")
+        throw new Error("stepPhysics requires a system in the fixed group");
+    if (!Number.isFinite(timeStep) || timeStep < 0)
+        throw new Error("stepPhysics requires a finite non-negative timeStep");
+    if (!Number.isSafeInteger(subStepCount) || subStepCount <= 0)
+        throw new Error("stepPhysics requires a positive integer subStepCount");
+    if (runtimeFor(world).physicsWorld?.locked)
+        throw new Error("stepPhysics refuses a locked solver");
+    SyncPhysicsWorldDefinitionSystem.update!(world);
+    SyncSystem.update!(world);
+    SyncPhysicsConstraintsSystem.update!(world);
+    solvePhysics(world, timeStep, subStepCount);
+}
+
+function solvePhysics(world: World, timeStep: number, subStepCount: number): void {
+    const runtime = runtimeFor(world);
+    const physicsWorld = runtime.physicsWorld;
+    if (!physicsWorld) return;
+    applyTransformPoses(world, runtime);
+    stepWorld(physicsWorld, timeStep, subStepCount);
+    rebuildPhysicsEvents(world, runtime);
+    const record = world.recordSink;
+    if (record) {
+        readStepProfile(physicsWorld);
+        const profile = physicsWorld.profile;
+        const measurement = world.resource(phaseMeasurement);
+        sampleDiagnosticTime(measurement);
+        for (let i = 0; i < phaseFields.length; i++) {
+            const ms = profile[phaseFields[i]];
+            if (ms !== 0) {
+                measurement[1] = ms;
+                record(phaseNames[i], measurement);
+            }
+        }
+    }
+    runtime.counters.bytesUploaded = 0;
+    const global = world.storage(GlobalTransform);
+    const rows = physicsWorld.bodyStore.movedRows();
+    global.translation.writeEncoded(rows.eids, rows.pos);
+    global.rotation.writeEncoded(rows.eids, rows.quat);
+    global.linearVelocity.writeEncoded(rows.eids, rows.vel);
+    const pose = world.storage(Transform);
+    pose.translation.writeEncoded(rows.eids, rows.pos);
+    pose.rotation.writeEncoded(rows.eids, rows.quat);
+}
+
+/** Ordering anchor for producers that move bodies before the automatic solve. */
 export const StepPhysicsSystem: System = {
     name: "step",
     group: "fixed",
     update(world) {
-        const runtime = runtimeFor(world);
-        const physicsWorld = runtime.physicsWorld;
-        if (!physicsWorld) return;
-        applyTransformPoses(world, runtime);
-        stepWorld(
-            physicsWorld,
-            fixedDeltaTime,
-            world.resource(PhysicsWorldDefinition).subStepCount,
-        );
-        rebuildPhysicsEvents(world, runtime);
-        const record = world.recordSink;
-        if (record) {
-            readStepProfile(physicsWorld);
-            const profile = physicsWorld.profile;
-            const measurement = world.resource(phaseMeasurement);
-            sampleDiagnosticTime(measurement);
-            for (let i = 0; i < phaseFields.length; i++) {
-                const ms = profile[phaseFields[i]];
-                if (ms !== 0) {
-                    measurement[1] = ms;
-                    record(phaseNames[i], measurement);
-                }
-            }
-        }
-        runtime.counters.bytesUploaded = 0;
-        const global = world.storage(GlobalTransform);
-        const rows = physicsWorld.bodyStore.movedRows();
-        global.translation.writeEncoded(rows.eids, rows.pos);
-        global.rotation.writeEncoded(rows.eids, rows.quat);
-        global.linearVelocity.writeEncoded(rows.eids, rows.vel);
-        const pose = world.storage(Transform);
-        pose.translation.writeEncoded(rows.eids, rows.pos);
-        pose.rotation.writeEncoded(rows.eids, rows.quat);
+        const definition = world.resource(PhysicsWorldDefinition);
+        if (definition.enableAutomaticStep)
+            solvePhysics(world, fixedDeltaTime, definition.subStepCount);
+        else applyTransformPoses(world, runtimeFor(world));
     },
 };
 

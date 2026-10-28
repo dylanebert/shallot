@@ -59,6 +59,7 @@ export {
     setMassData,
     setTargetTransform,
     setTransform,
+    stepPhysics,
 } from "./runtime";
 export { shapeEdges, shapeMesh } from "./shape-mesh";
 export { cloneAndTransformHull, createHull } from "./shapes/build-hull";

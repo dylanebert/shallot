@@ -93,6 +93,8 @@ export class Scheduler {
     private readonly _measurement = new Float64Array(2);
     /** The system executing synchronously, including setup; restored after nested runs. */
     currentSystem?: string;
+    /** @internal Group of the executing synchronous system callback. */
+    currentSystemGroup?: SystemGroup;
     /** Borrowed [monotonic seconds, CPU milliseconds], reused after the callback. */
     record?: (name: string, measurement: Readonly<Float64Array>) => void;
     /** optional fence-wait telemetry sink — installed by the profile plugin */
@@ -251,6 +253,8 @@ export class Scheduler {
             // A system removed by an earlier one in this pass stays out until it is added again.
             if (!this._systems.has(system) || this._errored.has(system)) continue;
             const previous = this.currentSystem;
+            const previousGroup = this.currentSystemGroup;
+            this.currentSystemGroup = group;
             const name = this._names.get(system) ?? system.name ?? "?";
             this.currentSystem = this._names.get(system);
             try {
@@ -275,6 +279,7 @@ export class Scheduler {
                 );
             } finally {
                 this.currentSystem = previous;
+                this.currentSystemGroup = previousGroup;
             }
         }
     }

@@ -179,6 +179,11 @@ export class World {
         return this._scheduler.currentSystem;
     }
 
+    /** @internal Group of the system executing synchronously; absent outside the schedule. */
+    get currentSystemGroup() {
+        return this._scheduler.currentSystemGroup;
+    }
+
     /** @internal GPU context for lifecycle code that must also run without a device. */
     get gpuIfAvailable(): WorldGpu | undefined {
         return this._gpu;
