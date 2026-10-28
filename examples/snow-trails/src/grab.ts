@@ -28,6 +28,12 @@ import {
     setTargetTransform,
 } from "@dylanebert/shallot/standard/physics";
 
+/** Shape category bit the grab's pointer ray passes through. */
+export const UNGRABBABLE = 2;
+const grabbable = {
+    categoryBits: 0xffffffffffffffffn,
+    maskBits: ~BigInt(UNGRABBABLE) & 0xffffffffffffffffn,
+};
 export const Grab = {
     create: () => ({
         outlined: 0,
@@ -137,7 +143,7 @@ const SampleGrab: System = {
             const hit =
                 devices.enabled &&
                 (devices.pointer.hover || grab.pending) &&
-                castRayClosest(world, grab.origin, grab.translation, grab.hit);
+                castRayClosest(world, grab.origin, grab.translation, grab.hit, grabbable);
             const hovered =
                 hit && world.storage(Body).type.get(grab.hit.body) === BodyType.Dynamic
                     ? grab.hit.body

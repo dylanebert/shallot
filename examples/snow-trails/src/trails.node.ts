@@ -112,7 +112,7 @@ beforeAll(async () => {
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error("Snow trails needs a WebGPU adapter");
     device = await adapter.requestDevice({ requiredFeatures: ["indirect-first-instance"] });
-    for (let i = 0; i < 7; i++) subjects.push(await openGpuApp({ ...config, device, adapter }));
+    for (let i = 0; i < 8; i++) subjects.push(await openGpuApp({ ...config, device, adapter }));
 }, TIMEOUT.startup);
 afterAll(() => {
     for (const app of subjects) app.dispose();
@@ -156,6 +156,45 @@ test("the opening fall and roll depart from a straight line by more than the bou
             ),
         ),
     ).toBeGreaterThan(RADIUS);
+});
+test("a boulder dragged hard toward each side and released stays on the field", () => {
+    const world = apps()[7].world;
+    resizeViewport(world, 0, 320, 240, 1);
+    world.step(1 / 60);
+    const { boulder, camera } = world.resource(SnowTrails);
+    const grab = world.resource(Grab);
+    const p = world.storage(GlobalTransform).translation;
+    for (const [dx, dz] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+    ]) {
+        setTransform(world, boulder, [0, groundAt(0, 0) + RADIUS, 0], [0, 0, 0, 1]);
+        setLinearVelocity(world, boulder, { x: 0, y: 0, z: 0 });
+        world.step(1 / 60);
+        pointerMove(world, ...worldToViewport(world, camera, [0, groundAt(0, 0) + RADIUS, 0])!);
+        pressButton(world, "left");
+        world.step(0);
+        expect(grab.body).toBe(boulder);
+        // Pull the held point at 30 m/s from the field's center to 6 m past the side, then let go.
+        grab.fraction = 0;
+        for (let i = 0; i < 36; i++) {
+            const d = Math.min(30 * (i + 1) * (1 / 60), FIELD / 2 + 6);
+            grab.origin.x = dx * d;
+            grab.origin.y = groundAt(0, 0) + RADIUS + 3;
+            grab.origin.z = dz * d;
+            world.tick();
+        }
+        releaseButton(world, "left");
+        world.step(0);
+        expect(grab.body).toBe(0);
+        for (let i = 0; i < 300; i++) world.tick();
+        const x = p.x.get(boulder),
+            z = p.z.get(boulder);
+        expect(Math.max(Math.abs(x), Math.abs(z))).toBeLessThan(FIELD / 2);
+        expect(p.y.get(boulder) - RADIUS).toBeGreaterThan(groundAt(x, z) - 0.1);
+    }
 });
 function pixel(data: Float32Array, x: number, z: number) {
     return data[

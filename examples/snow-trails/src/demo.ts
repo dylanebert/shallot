@@ -29,7 +29,7 @@ import {
     TonemappingMethod,
 } from "@dylanebert/shallot/rendering";
 import { StandardPhysicsPlugin, StepPhysicsSystem } from "@dylanebert/shallot/standard/physics";
-import { GrabPlugin } from "./grab";
+import { GrabPlugin, UNGRABBABLE } from "./grab";
 import { groundAt, HIGH, HILL_SIZE, heights, LOW } from "./hills";
 import { SnowMaterial, SnowPlugin, StampMaterial, snowPlane } from "./snow";
 import { DEPTH, FIELD, RESOLUTION, Trail } from "./trail";
@@ -86,6 +86,23 @@ export const DemoPlugin: Plugin = {
             }),
             friction: 0.8,
         });
+        for (const [x, z, width, length] of [
+            [-1, 0, 1, FIELD + 2],
+            [1, 0, 1, FIELD + 2],
+            [0, -1, FIELD + 2, 1],
+            [0, 1, FIELD + 2, 1],
+        ]) {
+            const wall = world.create();
+            world.add(wall, Transform, {
+                translation: [(x * (FIELD + 1)) / 2, HIGH, (z * (FIELD + 1)) / 2],
+            });
+            world.add(wall, Body, { type: BodyType.Static });
+            world.add(wall, Shape, {
+                scale: [width, 40, length],
+                filterCategoryLow: UNGRABBABLE,
+                filterCategoryHigh: 0,
+            });
+        }
         const capture = world.create();
         state.capture = capture;
         world.add(capture, Transform, {
