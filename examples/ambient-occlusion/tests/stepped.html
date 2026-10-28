@@ -13,11 +13,13 @@
     <body>
         <canvas width="1280" height="720"></canvas>
         <script type="module">
-            import { Camera, createApp, mountOverlay } from "@dylanebert/shallot";
+            import { Camera, createApp, mountOverlay, ScreenSpaceAmbientOcclusion } from "@dylanebert/shallot";
             import { captureFrame } from "@dylanebert/shallot/rendering";
             import { flushSync } from "svelte";
             import { hud } from "../src/hud";
             import { AppPlugin } from "../src/app";
+            import { Scene } from "../src/scene";
+            import { settings } from "../src/settings";
 
             const canvas = document.querySelector("canvas");
             canvas.width = window.innerWidth;
@@ -32,6 +34,14 @@
                 app.world.step(1 / 60);
                 const camera = [...app.world.query([Orbit])][0];
                 return app.world.storage(Orbit).yaw.get(camera);
+            };
+            window.occlusionFields = () => {
+                const camera = app.world.resource(Scene).camera;
+                if (!app.world.has(camera, ScreenSpaceAmbientOcclusion)) return null;
+                const ssao = app.world.storage(ScreenSpaceAmbientOcclusion);
+                const fields = { qualityLevel: ssao.qualityLevel.get(camera) };
+                for (const { field } of settings) fields[field] = ssao[field].get(camera);
+                return fields;
             };
             hud(mountOverlay(canvas, app.world), app.world);
             flushSync();

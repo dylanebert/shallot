@@ -1,6 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, type Page, test } from "playwright/test";
+import { settings } from "../src/settings";
 import { bodyHasFocus, dragRange, gameKeyMovesCamera, pointerControl } from "./pointer";
 
 type CaptureWindow = Window & { captureScene: () => Promise<number[]>; captures: number[][] };
@@ -117,6 +118,40 @@ test("every ambient occlusion control changes the captured frame and off restore
     await expect(page.getByRole("combobox")).toHaveValue("3");
     expect(await difference(page, await capture(page), tuned)).toBeLessThan(0.1);
     expect(errors).toEqual([]);
+});
+
+test("each control writes its camera field and the toggle restores them", async ({ page }) => {
+    await page.goto("http://127.0.0.1:4276/tests/stepped.html?controls");
+    await page.waitForFunction(() => "occlusionFields" in window);
+    const fields = () =>
+        page.evaluate(() =>
+            (
+                window as unknown as { occlusionFields(): Record<string, number> | null }
+            ).occlusionFields(),
+        );
+    const toggle = page.getByRole("checkbox");
+    const quality = page.getByRole("combobox");
+    const initial = await fields();
+    expect(initial!.qualityLevel).toBe(Number(await quality.inputValue()));
+    await toggle.uncheck();
+    await toggle.check();
+    expect(await fields()).toEqual(initial);
+    const values = [8, 4];
+    for (const [index, control] of settings.entries()) {
+        await page.locator(`#control-${index}`).fill(String(values[index]));
+        expect((await fields())![control.field], control.label).toBeCloseTo(values[index]);
+    }
+    for (const level of [0, 1, 3]) {
+        await quality.selectOption(String(level));
+        expect((await fields())!.qualityLevel).toBe(level);
+    }
+    const set = await fields();
+    await toggle.uncheck();
+    expect(await fields()).toBeNull();
+    for (const slider of await page.getByRole("slider").all()) await expect(slider).toBeDisabled();
+    await expect(quality).toBeDisabled();
+    await toggle.check();
+    expect(await fields()).toEqual(set);
 });
 
 for (const viewport of [
