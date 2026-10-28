@@ -80,6 +80,8 @@ mod runtime {
         sensor_end: [Vec<SensorTouch>; 2],
         contact_begin: Vec<ContactBegin>,
         contact_end: [Vec<ContactEnd>; 2],
+        contact_begin_children: Vec<i32>,
+        contact_end_children: [Vec<i32>; 2],
         contact_hit: Vec<ContactHit>,
         joints: Vec<JointEvent>,
         end_index: usize,
@@ -91,6 +93,8 @@ mod runtime {
             sensor_end: [Vec::new(), Vec::new()],
             contact_begin: Vec::new(),
             contact_end: [Vec::new(), Vec::new()],
+            contact_begin_children: Vec::new(),
+            contact_end_children: [Vec::new(), Vec::new()],
             contact_hit: Vec::new(),
             joints: Vec::new(),
             end_index: 0,
@@ -132,6 +136,9 @@ mod runtime {
         save(&w.contact_begin, out);
         save(&w.contact_end[0], out);
         save(&w.contact_end[1], out);
+        save(&w.contact_begin_children, out);
+        save(&w.contact_end_children[0], out);
+        save(&w.contact_end_children[1], out);
         save(&w.contact_hit, out);
         save(&w.joints, out);
     }
@@ -145,6 +152,9 @@ mod runtime {
         w.contact_begin = load(input);
         w.contact_end[0] = load(input);
         w.contact_end[1] = load(input);
+        w.contact_begin_children = load(input);
+        w.contact_end_children[0] = load(input);
+        w.contact_end_children[1] = load(input);
         w.contact_hit = load(input);
         w.joints = load(input);
     }
@@ -191,6 +201,7 @@ mod runtime {
         let w = state(world);
         w.sensor_begin.clear();
         w.contact_begin.clear();
+        w.contact_begin_children.clear();
         w.contact_hit.clear();
         w.joints.clear();
         w.move_count = 0;
@@ -200,6 +211,7 @@ mod runtime {
         w.end_index = 1 - w.end_index;
         w.sensor_end[w.end_index].clear();
         w.contact_end[w.end_index].clear();
+        w.contact_end_children[w.end_index].clear();
     }
 
     pub unsafe extern "C" fn contact_touch_in_world(world: usize, contact: usize, begin: bool) {
@@ -207,9 +219,11 @@ mod runtime {
         let o = contact * DIR_STRIDE;
         let a = shape_id(world, d.get(o + DIR_SHAPE_A) as usize);
         let b = shape_id(world, d.get(o + DIR_SHAPE_B) as usize);
+        let child = d.get(o + DIR_CHILD_INDEX) as i32;
         let contact = contact_id(world, contact, d.get(o + DIR_GENERATION));
         let w = state(world);
         if begin {
+            w.contact_begin_children.push(child);
             w.contact_begin.push(ContactBegin {
                 a,
                 b,
@@ -217,9 +231,20 @@ mod runtime {
                 normal_impulse: 0.0,
             });
         } else {
+            w.contact_end_children[w.end_index].push(child);
             w.contact_end[w.end_index].push(ContactEnd { a, b, contact });
         }
     }
+    #[export_name = "eventChildIndex"]
+    pub unsafe extern "C" fn child_index(world: usize, kind: usize, index: usize) -> i32 {
+        let w = state(world);
+        if kind == 2 {
+            w.contact_begin_children[index]
+        } else {
+            w.contact_end_children[1 - w.end_index][index]
+        }
+    }
+
     unsafe fn total_impulse(world_index: usize, contact: usize) -> f32 {
         let entry = read_dir(manifolds::dir_col(world_index), contact);
         let m = block_col(

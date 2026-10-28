@@ -68,7 +68,7 @@ export const EventSample = {
         speed: 0,
         time: 0,
         hits: [] as PhysicsHitEvent[],
-        contactPair: null as null | [EntityRef, EntityRef],
+        contactPair: null as null | [EntityRef, EntityRef, number],
         contactMarks: [] as EventMark[],
         reactions: new Set<EntityRef>(),
         bodyRefs: [] as EntityRef[],
@@ -779,11 +779,15 @@ function stepPersistentContact(world: World): void {
     const events = world.resource(PhysicsEvents);
     if (events.contactBegin.count) {
         const first = events.contactBegin.records[0]!;
-        sample.contactPair = [first.shapeA, first.shapeB];
+        sample.contactPair = [first.shapeA, first.shapeB, first.childIndex];
     }
     for (let i = 0; i < events.contactEnd.count; i++) {
         const event = events.contactEnd.records[i]!;
-        if (sample.contactPair?.[0] === event.shapeA && sample.contactPair[1] === event.shapeB) {
+        if (
+            sample.contactPair?.[0] === event.shapeA &&
+            sample.contactPair[1] === event.shapeB &&
+            sample.contactPair[2] === event.childIndex
+        ) {
             sample.contactPair = null;
             break;
         }
@@ -794,6 +798,7 @@ function stepPersistentContact(world: World): void {
         world,
         world.resolve(sample.contactPair[0]),
         world.resolve(sample.contactPair[1]),
+        sample.contactPair[2],
     );
     if (!data) {
         sample.contactPair = null;
@@ -819,8 +824,10 @@ function stepPersistentContact(world: World): void {
         f(transform.translation.y.get(body) + offset[1]),
         f(transform.translation.z.get(body) + offset[2]),
     ];
-    for (const manifold of data.manifolds)
-        for (const point of manifold.points) {
+    for (let m = 0; m < data.manifoldCount; m++)
+        for (let p = 0; p < data.manifolds[m]!.pointCount; p++) {
+            const manifold = data.manifolds[m]!;
+            const point = manifold.points[p]!;
             const position: [number, number, number] = [
                 f(center[0]! + point.anchorA.x),
                 f(center[1]! + point.anchorA.y),

@@ -41,7 +41,8 @@ export type Kernel = {
     moverPlanesPtr(count: number): number;
     moverOutputPtr(): number;
     moverSolve(operation: number, x: number, y: number, z: number, count: number): void;
-    contactQuery(world: number, shapeA: number, shapeB: number): number;
+    contactQuery(world: number, shapeA: number, shapeB: number, childIndex: number): number;
+    eventChildIndex(world: number, kind: number, index: number): number;
     shapeQueryInputPtr(): number;
     shapeQueryOutputPtr(): number;
     shapeQueryRay(world: number, shape: number, local: number): void;

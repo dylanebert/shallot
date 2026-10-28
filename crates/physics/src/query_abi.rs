@@ -8,7 +8,12 @@ use crate::query::*;
 
 /// Finds a touching pair in body A's contact adjacency list. Results retain the solver's A/B order.
 #[export_name = "contactQuery"]
-pub unsafe extern "C" fn contact_query(world: usize, shape_a: usize, shape_b: usize) -> usize {
+pub unsafe extern "C" fn contact_query(
+    world: usize,
+    shape_a: usize,
+    shape_b: usize,
+    child: i32,
+) -> usize {
     use crate::manifold_abi::*;
     let shapes = crate::shapes::col(world);
     let body = shapes.get(shape_a * SHAPE_STRIDE + crate::shapes::S_QUERY_BODY) as usize;
@@ -19,6 +24,7 @@ pub unsafe extern "C" fn contact_query(world: usize, shape_a: usize, shape_b: us
         let a = dir.get(offset + DIR_SHAPE_A) as usize;
         let b = dir.get(offset + DIR_SHAPE_B) as usize;
         if ((a == shape_a && b == shape_b) || (a == shape_b && b == shape_a))
+            && dir.get(offset + DIR_CHILD_INDEX) as i32 == child
             && dir.get(offset + DIR_FLAGS) & contact_flags::TOUCHING != 0
         {
             let result = &raw mut crate::world_query::RESULT as *mut u32;

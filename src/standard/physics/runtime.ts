@@ -32,7 +32,7 @@ import { syncBodyFields } from "./body-sync";
 import type { ShapeProxy } from "./collision/distance";
 import { DEFAULT_MASK_BITS, SetType } from "./common/constants";
 import type { EntityId } from "./common/ids";
-import { type PhysicsContactData, readContactManifolds } from "./contact";
+import { ContactDataBuffer, type PhysicsContactData } from "./contact";
 import { PhysicsCreationOrder, recordPhysicsMembership } from "./creation-order";
 import { jointIsValid, getJointLinearSeparation as jointLinearSeparation } from "./solver/joint";
 
@@ -190,6 +190,8 @@ interface PhysicsRuntime {
     /** Each attached shape's body eid. */
     shapeBodies: EidColumn;
     shapeDependencies: BodyDependencies;
+    contactData: ContactDataBuffer;
+    contactContext: QueryContext;
     queryContexts: QueryContext[];
     queryDepth: number;
     queryCastCallback: QueryCallback;
@@ -259,6 +261,8 @@ function newRuntime(): PhysicsRuntime {
         shapes: new Map(),
         shapeBodies: new EidColumn(),
         shapeDependencies: new BodyDependencies(),
+        contactData: new ContactDataBuffer(),
+        contactContext: newQueryContext(),
         queryContexts: [newQueryContext()],
         queryDepth: 0,
         queryCastCallback: null!,
@@ -1190,14 +1194,19 @@ export function getMassData(world: World, eid: number) {
         : null;
 }
 
-/** Reads the pair's current touching contact in the solver's A/B order, independent of argument
- * order. Returns null before first sync, after separation or for absent shapes. All returned data
- * belongs to the caller. Anchors are world-space offsets from each body's center of mass, in meters;
- * impulses retain Box3D's per-substep and total-substep meanings. */
+/** Reads a touching contact from the most recently completed fixed physics step, including a
+ * restored step. Call between physics steps, not from solver callbacks.
+ * Returns null before first sync, after separation, for absent shapes or an absent
+ * child. The returned A/B order is the solver's, independent of argument order; manifold normals
+ * point from returned A toward B. `childIndex` is the compound child, or 0 for a non-compound pair.
+ * The World owns the result and its nested records: the next successful read on this World
+ * overwrites them. Copy explicitly to retain them. Records grow only at a new manifold/point
+ * high-water mark; warmed reads allocate nothing while kernel memory stays the same size. */
 export function getContactData(
     world: World,
     shapeA: number,
     shapeB: number,
+    childIndex = 0,
 ): PhysicsContactData | null {
     const runtime = runtimeFor(world);
     const state = runtime.physicsWorld;
@@ -1211,27 +1220,15 @@ export function getContactData(
         !world.has(shapeB, ShapeComponent)
     )
         return null;
-    const context = newQueryContext();
+    if (!Number.isInteger(childIndex) || childIndex < 0 || childIndex > 0x7fffffff) return null;
+    const context = runtime.contactContext;
     if (!queryShapeEntities(world, runtime, a.index1 - 1, context) || context.shapeEid !== shapeA)
         return null;
     if (!queryShapeEntities(world, runtime, b.index1 - 1, context) || context.shapeEid !== shapeB)
         return null;
     const k = kernel(world);
-    const pointer = k.contactQuery(state.worldId, a.index1 - 1, b.index1 - 1);
-    if (!pointer) return null;
-    const header = new Uint32Array(k.memory.buffer, k.worldQueryResultPtr(), 3);
-    const first = { shape: 0 as EntityRef, body: 0 as EntityRef };
-    const second = { shape: 0 as EntityRef, body: 0 as EntityRef };
-    if (
-        !liveShapeEntity(state.shapeEntities, header[0]!, first) ||
-        !liveShapeEntity(state.shapeEntities, header[1]!, second)
-    )
-        return null;
-    return {
-        shapeA: first.shape,
-        shapeB: second.shape,
-        manifolds: readContactManifolds(k, pointer, header[2]!),
-    };
+    const pointer = k.contactQuery(state.worldId, a.index1 - 1, b.index1 - 1, childIndex);
+    return pointer ? runtime.contactData.read(k, pointer, childIndex, state) : null;
 }
 
 /** Immediately sets mass in kg, center in local meters and inertia in kg·m² about that center.
@@ -1613,6 +1610,7 @@ function contactRecordAt(
         bodyA: 0 as EntityRef,
         shapeB: 0 as EntityRef,
         bodyB: 0 as EntityRef,
+        childIndex: 0,
         normalImpulse: 0,
     });
 }
@@ -1704,6 +1702,7 @@ function fillContactRecords(
         record.bodyA = a.body;
         record.shapeB = b.shape;
         record.bodyB = b.body;
+        record.childIndex = k.eventChildIndex(state.worldId, kind, i);
         record.normalImpulse =
             kind === EventKind.ContactBegin ? k.eventFloat(state.worldId, kind, i, 7) : 0;
     }

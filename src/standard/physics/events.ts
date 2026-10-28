@@ -15,6 +15,8 @@ export interface PhysicsContactPair {
 }
 
 export interface PhysicsContactEvent extends PhysicsContactPair {
+    /** Compound child identifying this contact within its shape pair; 0 for a non-compound pair. */
+    childIndex: number;
     normalImpulse: number;
 }
 
