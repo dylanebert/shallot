@@ -30,7 +30,7 @@ import {
     setTargetTransform,
     setTransform,
 } from "@dylanebert/shallot/standard/physics";
-
+import { gyroscopicPrecession, PrecessionPlugin } from "./precession";
 import type { Controls } from "./scenes";
 
 type V3 = [number, number, number];
@@ -52,7 +52,7 @@ export const BodySampleState = {
 };
 export const BodySamplePlugin: Plugin = {
     name: "BodySample",
-    dependencies: [StandardPhysicsPlugin],
+    dependencies: [StandardPhysicsPlugin, PrecessionPlugin],
     recovery: recoverResource(BodySampleState),
     systems: [
         {
@@ -432,6 +432,7 @@ const disableControls: Controls = Object.fromEntries(
     ]),
 );
 export const bodyScenes = {
+    gyroscopicPrecession,
     bodyType: {
         construct: bodyType,
         gridExtent: 20,

@@ -11,6 +11,7 @@ import type { BodyDef, BodyType } from "../common/types";
 import {
     readSimLocalCenter,
     readSimTransform,
+    readStateAngularVelocity,
     readStateLinearVelocity,
 } from "../kernel/bodycolumns";
 import { BodyField, bodyField, bodyInertia } from "../kernel/bodyrecords";
@@ -91,6 +92,15 @@ export function bodyGetTransform(
 export function bodyGetLinearVelocity(world: WorldState, body: number, out: Vec3): Vec3 {
     const state = getBodyState(world, body);
     if (state !== null) return readStateLinearVelocity(world, state, out);
+    out.x = 0;
+    out.y = 0;
+    out.z = 0;
+    return out;
+}
+
+export function bodyGetAngularVelocity(world: WorldState, body: number, out: Vec3): Vec3 {
+    const state = getBodyState(world, body);
+    if (state !== null) return readStateAngularVelocity(world, state, out);
     out.x = 0;
     out.y = 0;
     out.z = 0;

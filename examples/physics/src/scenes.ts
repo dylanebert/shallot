@@ -18,6 +18,7 @@ import { benchmarkScenes } from "./benchmarks";
 import { BodySampleState, bodyScenes } from "./bodies";
 import { eventScenes } from "./events";
 import { jointScenes } from "./joints";
+import { PrecessionState } from "./precession";
 import { MotorizedJoint } from "./roles";
 import { StackingImpulses, stackingScenes } from "./stacking";
 
@@ -64,6 +65,7 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
             { id: "bodyType", name: "Body Type" },
             { id: "disable", name: "Disable" },
             { id: "fixedRotation", name: "Fixed Rotation" },
+            { id: "gyroscopicPrecession", name: "Gyroscopic Precession" },
             { id: "gyroscopicTorque", name: "Gyroscopic Torque" },
             { id: "kinematic", name: "Kinematic" },
             { id: "lockMixing", name: "Lock Mixing" },
@@ -779,6 +781,7 @@ export const scenes = {
 export function createScene(world: World, scene: Scene): number[] {
     world.resource(StackingImpulses).length = 0;
     Object.assign(world.resource(BodySampleState), BodySampleState.create());
+    Object.assign(world.resource(PrecessionState), PrecessionState.create());
     world.resource(PhysicsWorldDefinition).workerCount = 1;
     world.resource(PhysicsWorldDefinition).maximumMemory = 4 * 1024 ** 3;
     return scenes[scene].construct(world);

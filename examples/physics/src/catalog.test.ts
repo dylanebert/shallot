@@ -32,6 +32,7 @@ test("each picker label selects its scene in its category, exactly once", () => 
                 { id: "bodyType", name: "Body Type" },
                 { id: "disable", name: "Disable" },
                 { id: "fixedRotation", name: "Fixed Rotation" },
+                { id: "gyroscopicPrecession", name: "Gyroscopic Precession" },
                 { id: "gyroscopicTorque", name: "Gyroscopic Torque" },
                 { id: "kinematic", name: "Kinematic" },
                 { id: "lockMixing", name: "Lock Mixing" },

@@ -59,6 +59,7 @@ test("standard physics exports consumed world operations and profiling without s
         "drawPhysics",
         "emptyQueryHit",
         "explode",
+        "getAngularVelocity",
         "getJointLinearSeparation",
         "getLocalPoint",
         "getMassData",

@@ -225,6 +225,7 @@ public:
 		++m_stepCount;
 	}
 	bool m_stepWhilePaused = true;
+    bool m_didStep = true;
 	int m_stepCount = 0;
 	static constexpr bool m_isDebug = false;
 	float m_shadowSplitFar = 0;
@@ -260,6 +261,7 @@ int main( int argc, char** argv )
 	struct Entry { const char* name; Sample* (*create)(SampleContext*); };
 	const Entry entries[] = {
         { "bodyType", BodyType::Create }, { "weeble", Weeble::Create }, { "disable", DisableBody::Create },
+        { "gyroscopicPrecession", GyroscopicPrecession::Create },
         { "spinningBook", SpinningBooks::Create }, { "gyroscopicTorque", GyroscopicTorque::Create },
         { "kinematic", Kinematic::Create }, { "lockMixing", LockMixing::Create },
         { "fixedRotation", FixedRotation::Create }, { "offsetKinematic", OffsetKinematic::Create },
@@ -309,6 +311,8 @@ int main( int argc, char** argv )
 		}
 		fclose( file );
 	}
+    FILE* readouts = getenv("PRECESSION_READOUTS") ? fopen(getenv("PRECESSION_READOUTS"), "w") : nullptr;
+    if (getenv("PRECESSION_READOUTS")) assert(readouts && !strcmp(argv[1], "gyroscopicPrecession"));
 	for ( int i = 0; i < atoi( argv[2] ); ++i )
 	{
 		if ( grab )
@@ -329,7 +333,13 @@ int main( int argc, char** argv )
 		currentStep = i;
 		sample->DrawControls();
 		sample->Step();
+        if (readouts) {
+            auto* top = static_cast<GyroscopicPrecession*>(sample);
+            if (top->m_elapsed > 0) fprintf(readouts, "%.9g %.9g\n", top->m_expectedAngle / top->m_elapsed, top->m_actualAngle / top->m_elapsed);
+            else fprintf(readouts, "null null\n");
+        }
         if ( recordQueriesAndBuilds ) sample->Render();
 	}
+    if (readouts) fclose(readouts);
 	delete sample;
 }

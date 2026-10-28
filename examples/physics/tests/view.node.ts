@@ -340,6 +340,7 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 expect(ground.mesh.indices.length).toBeGreaterThan(0);
             } else expect(presentation.ground).toBeUndefined();
             const extent = {
+                gyroscopicPrecession: 40,
                 bodyType: 20,
                 weeble: 30,
                 disable: 20,

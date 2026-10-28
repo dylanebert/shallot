@@ -7,7 +7,11 @@ import { sampleGold } from "./gold";
 
 setDefaultTimeout(TIMEOUT.node);
 for (const scene of Object.keys(bodyScenes) as (keyof typeof bodyScenes)[]) {
-    for (const controlled of scenes[scene].controls ? [false, true] : [false]) {
+    for (const controlled of Object.values(scenes[scene].controls ?? {}).some(
+        (control) => !control.read,
+    )
+        ? [false, true]
+        : [false]) {
         test(`${scene} equals every native step${controlled ? " through all controls" : ""}`, async () => {
             const start = performance.now();
             const gold = sampleGold(

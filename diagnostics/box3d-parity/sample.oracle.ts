@@ -24,6 +24,17 @@ function equalSampleSteps(actual: string, expected: string, label: string): void
     }
 }
 
+test("gyroscopicPrecession readouts are the sample's own averaged rates", () => {
+    const dir = mkdtempSync(join(tmpdir(), "precession-readouts-"));
+    try {
+        const path = join(dir, "rates.txt");
+        run([sampleBinary(), "gyroscopicPrecession", "600"], { PRECESSION_READOUTS: path });
+        expect(readFileSync(path, "utf8")).toBe(readFileSync(new URL("../../examples/physics/tests/gyroscopicPrecession.readouts.gold.txt", import.meta.url), "utf8"));
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
 test("grab sequence reproduces the example's native gold", () => {
     const hashes = run([sampleBinary(), "box_stack", "45", "grab"]);
     equalSampleSteps(run([sampleBinary(), "box_stack", "45", "grab"]), hashes, "grab repeat");
@@ -50,6 +61,7 @@ const bodyMutations: Record<string, [string, string, string]> = {
     weeble: ["Weeble", "offset = { 0.0f, -1.5f, 0.0f }", "offset = { 0.0f, -1.4f, 0.0f }"],
     disable: ["DisableBody", "float linkRadius = 0.1f;", "float linkRadius = 0.11f;"],
     spinningBook: ["SpinningBooks", "b3MakeBoxHull( 0.35f, 0.08f, 0.5f )", "b3MakeBoxHull( 0.36f, 0.08f, 0.5f )"],
+    gyroscopicPrecession: ["GyroscopicPrecession", "constexpr float r = 2.0f;", "constexpr float r = 2.1f;"],
     gyroscopicTorque: ["GyroscopicTorque", "0.6f, 0.15f, 0.0f, 32", "0.61f, 0.15f, 0.0f, 32"],
     kinematic: ["Kinematic", "m_amplitude = 2.0f;", "m_amplitude = 2.1f;"],
     lockMixing: ["LockMixing", "{ 0.0f, 2.0f, 0.0f }", "{ 0.0f, 2.1f, 0.0f }"],
