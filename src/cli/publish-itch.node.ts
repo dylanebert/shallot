@@ -91,6 +91,9 @@ function cdn(isolated: boolean) {
 const isolatedCdn = cdn(true);
 const classicCdn = cdn(false);
 const builds: Record<string, string> = {};
+// The scaffold; physics loads its kernel chunk and workers; materials names a public image by
+// new URL(..., import.meta.url).
+const examples = ["minimal", "physics", "materials"];
 
 beforeAll(async () => {
     browser = await publishTestChromium();
@@ -111,7 +114,7 @@ beforeAll(async () => {
         );
         return context;
     };
-    for (const example of ["minimal", "physics"]) {
+    for (const example of examples) {
         builds[example] = join(root, example);
         await buildWeb(join(repo, "examples", example), { outDir: builds[example], stdout: 2 });
     }
@@ -133,7 +136,7 @@ const verify = (server: { url: URL }, path = build) =>
         TIMEOUT.cheap,
     );
 
-for (const example of ["minimal", "physics"])
+for (const example of examples)
     test(`the verifier plays ${example} from the frame document on the recorded HTML CDN`, async () => {
         directory = builds[example]!;
         const context = await browser.newContext();

@@ -20,12 +20,14 @@ let requests = 0;
 let unavailableStatus = 404;
 let stale = 0;
 let documentRequests = 0;
+const SUBPATH = "/html/19938966-2182067/";
 let browser: Awaited<ReturnType<typeof publishTestChromium>>;
 const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
     fetch(request) {
-        const path = new URL(request.url).pathname;
+        // A build is also served from the subpath, as an HTML host's upload directory.
+        const path = new URL(request.url).pathname.replace(SUBPATH, "/");
         const headers: Record<string, string> = { ...CROSS_ORIGIN_ISOLATION };
         if (path === "/" && control === "absent isolation") {
             for (const name of Object.keys(CROSS_ORIGIN_ISOLATION)) delete headers[name];
@@ -108,7 +110,7 @@ for (const [fault, failure] of [
         // The fixture dispatches startup synchronously; its missing signal must fail within the Node tier.
         const result = verifyPublishedGame(
             browser,
-            server.url.href,
+            new URL(SUBPATH, server.url).href,
             directory,
             assets,
             TIMEOUT.cheap,
