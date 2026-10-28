@@ -7,7 +7,6 @@ import {
     readFileSync,
     realpathSync,
     symlinkSync,
-    unlinkSync,
     writeFileSync,
 } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
@@ -224,54 +223,6 @@ for (const template of ["minimal", "physics"])
         });
         expect(dry.exitCode, `${dry.stdout}\n${dry.stderr}`).toBe(0);
         expect(dry.stdout.toString()).toContain("--dry-run: exiting now");
-        if (template === "minimal") {
-            const ancestor = join(root, "wrangler.json");
-            // biome-ignore lint/style/useNamingConvention: Wrangler owns its configuration field names.
-            const conflicting = { name: link.name, account_id: "b".repeat(32) };
-            writeFileSync(ancestor, JSON.stringify(conflicting));
-            expect(discoverWranglerConfig(scaffold)).toBe(ancestor);
-            const probe = () => {
-                const result = Bun.spawnSync(
-                    [
-                        "node",
-                        "-e",
-                        `const {unstable_readConfig}=require(${JSON.stringify(join(scaffold, "node_modules/wrangler/wrangler-dist/cli.js"))}); console.log(unstable_readConfig({}).account_id);`,
-                    ],
-                    {
-                        cwd: scaffold,
-                        env: { ...env, CLOUDFLARE_ACCOUNT_ID: link.accountId },
-                        stdout: "pipe",
-                        stderr: "pipe",
-                    },
-                );
-                expect(result.exitCode, result.stderr.toString()).toBe(0);
-                return result.stdout.toString().trim();
-            };
-            // Plain commands are withheld because Wrangler resolves the ancestor's account.
-            expect(probe()).toBe(conflicting.account_id);
-            unlinkSync(ancestor);
-            expect(discoverWranglerConfig(scaffold)).toBeUndefined();
-            for (const args of [
-                ["login", "--help"],
-                ["login", "--device", "--help"],
-                ["dev", "--assets", directory, "--help"],
-                ["rollback", "--name", link.name, "--help"],
-                ["delete", "--name", link.name, "--dry-run"],
-            ]) {
-                const parsed = Bun.spawnSync(["node", wrangler, ...args], {
-                    cwd: scaffold,
-                    env: { ...env, CLOUDFLARE_ACCOUNT_ID: link.accountId },
-                    stdout: "pipe",
-                    stderr: "pipe",
-                });
-                expect(
-                    parsed.exitCode,
-                    `${args.join(" ")}: ${parsed.stdout}\n${parsed.stderr}`,
-                ).toBe(0);
-                if (args[0] === "delete")
-                    expect(parsed.stdout.toString()).toContain("--dry-run: exiting now");
-            }
-        }
         writeFileSync(config, JSON.stringify(cloudflareConfig(directory, link)));
         const port = await freePort();
         const child = spawn(
@@ -364,3 +315,60 @@ for (const template of ["minimal", "physics"])
             await exited;
         }
     });
+
+test("pinned Wrangler resolves an ancestor config's account and, without one, parses each command publish prints", async () => {
+    const wrangler = resolveWrangler(repo)!;
+    const accountId = "a".repeat(32);
+    const node = async (args: string[], cwd: string) => {
+        const child = Bun.spawn(["node", ...args], {
+            cwd,
+            env: { ...env, CLOUDFLARE_ACCOUNT_ID: accountId },
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        const [code, stdout, stderr] = await Promise.all([
+            child.exited,
+            new Response(child.stdout).text(),
+            new Response(child.stderr).text(),
+        ]);
+        expect(code, `${args.slice(1).join(" ")}: ${stdout}\n${stderr}`).toBe(0);
+        return stdout;
+    };
+    // The packed tests leave their deploy config in root.
+    const scratch = mkdtempSync(join(tmpdir(), "shallot-wrangler-"));
+    try {
+        const linked = join(scratch, "linked");
+        const nested = join(linked, "game");
+        const plain = join(scratch, "plain");
+        mkdirSync(nested, { recursive: true });
+        mkdirSync(plain);
+        const ancestor = join(linked, "wrangler.json");
+        // biome-ignore lint/style/useNamingConvention: Wrangler owns its configuration field names.
+        const conflicting = { name: "shallot-publish-local", account_id: "b".repeat(32) };
+        writeFileSync(ancestor, JSON.stringify(conflicting));
+        expect(discoverWranglerConfig(nested)).toBe(ancestor);
+        expect(discoverWranglerConfig(plain)).toBeUndefined();
+        const cli = join(repo, "node_modules/wrangler/wrangler-dist/cli.js");
+        const [account, ...parsed] = await Promise.all([
+            // Plain commands are withheld because Wrangler resolves the ancestor's account.
+            node(
+                [
+                    "-e",
+                    `console.log(require(${JSON.stringify(cli)}).unstable_readConfig({}).account_id);`,
+                ],
+                nested,
+            ),
+            ...[
+                ["login", "--help"],
+                ["login", "--device", "--help"],
+                ["dev", "--assets", plain, "--help"],
+                ["rollback", "--name", conflicting.name, "--help"],
+                ["delete", "--name", conflicting.name, "--dry-run"],
+            ].map((args) => node([wrangler, ...args], plain)),
+        ]);
+        expect(account!.trim()).toBe(conflicting.account_id);
+        expect(parsed.at(-1)).toContain("--dry-run: exiting now");
+    } finally {
+        removeTestDirectory(scratch);
+    }
+});
