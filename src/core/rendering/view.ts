@@ -486,7 +486,8 @@ export function sizeView(world: World, eid: number, view: View): void {
  * draw bottom to top by {@link Camera} `order`. Detaching, pruning or disposing the last camera on it
  * destroys it. Refuses non-cameras, duplicate bindings, uninitialized rendering, dimensions outside the
  * device's texture limit and a texture no camera of this World holds. BeginFrameSystem acquires it on
- * the next draw; the final pass writes the same base format as a canvas.
+ * the next draw; the final pass writes the same base format as a canvas. A material or pass may
+ * sample the texture once its camera has drawn.
  */
 export function attachTexture(
     world: World,
@@ -521,7 +522,10 @@ export function attachTexture(
         label: "camera final texture",
         size: [size.width, size.height],
         format: navigator.gpu.getPreferredCanvasFormat(),
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+        usage:
+            GPUTextureUsage.RENDER_ATTACHMENT |
+            GPUTextureUsage.COPY_SRC |
+            GPUTextureUsage.TEXTURE_BINDING,
     });
     world.own(texture);
     view.texture = texture;
