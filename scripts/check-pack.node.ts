@@ -91,6 +91,10 @@ test("the npm package contains only declared files and required consumers", asyn
     );
 
     const packedFiles = new Set(files);
+    // A packed test that reads a gold fails in every created project, since golds stay unpacked.
+    for (const file of files.filter((file) => /^examples\/.*\.[cm]?[jt]s$/.test(file)))
+        if (/[\w}]\.gold\.(?:txt|json)/.test(readFileSync(resolve(pkgDir, file), "utf8")))
+            violations.push(`${file} (reads an unpacked gold; name it *.parity.node.ts)`);
     for (const file of files.filter((file) => /\.(?:[cm]?js|[cm]?ts|jsx|tsx)$/.test(file))) {
         const source = readFileSync(resolve(pkgDir, file), "utf8");
         for (const specifier of importsIn(source, file).specifiers) {
