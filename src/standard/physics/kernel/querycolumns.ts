@@ -25,12 +25,7 @@ export class QueryColumns extends KernelViews {
     resultU = new Uint32Array(0);
     resultF = new Float32Array(0);
     cast = new Float32Array(0);
-    private _category = DEFAULT_CATEGORY_BITS;
-    private _mask = DEFAULT_MASK_BITS;
-    private _categoryHigh = 0xffffffff;
-    private _categoryLow = 0xffffffff;
-    private _maskHigh = 0xffffffff;
-    private _maskLow = 0xffffffff;
+    private readonly _filterBits = new DataView(new ArrayBuffer(8));
 
     constructor(world: WorldState) {
         super(world.ecsState);
@@ -64,20 +59,12 @@ export class QueryColumns extends KernelViews {
         const z = origin.z;
         const h = this.headerU;
         h[19] = 0;
-        if (category !== DEFAULT_CATEGORY_BITS && category !== this._category) {
-            this._category = category;
-            this._categoryHigh = Number((category >> 32n) & 0xffffffffn);
-            this._categoryLow = Number(category & 0xffffffffn);
-        }
-        if (mask !== DEFAULT_MASK_BITS && mask !== this._mask) {
-            this._mask = mask;
-            this._maskHigh = Number((mask >> 32n) & 0xffffffffn);
-            this._maskLow = Number(mask & 0xffffffffn);
-        }
-        h[6] = category === DEFAULT_CATEGORY_BITS ? 0xffffffff : this._categoryHigh;
-        h[7] = category === DEFAULT_CATEGORY_BITS ? 0xffffffff : this._categoryLow;
-        h[8] = mask === DEFAULT_MASK_BITS ? 0xffffffff : this._maskHigh;
-        h[9] = mask === DEFAULT_MASK_BITS ? 0xffffffff : this._maskLow;
+        this._filterBits.setBigUint64(0, category);
+        h[6] = this._filterBits.getUint32(0);
+        h[7] = this._filterBits.getUint32(4);
+        this._filterBits.setBigUint64(0, mask);
+        h[8] = this._filterBits.getUint32(0);
+        h[9] = this._filterBits.getUint32(4);
         const f = this.headerF;
         f[10] = x;
         f[11] = y;
@@ -85,7 +72,7 @@ export class QueryColumns extends KernelViews {
         return k;
     }
 
-    placement(pose: WorldTransform, origin: Pos): void {
+    placement(pose: WorldTransform, origin: Pos, offset = 0): void {
         const px = pose.p.x - origin.x;
         const py = pose.p.y - origin.y;
         const pz = pose.p.z - origin.z;
@@ -94,13 +81,13 @@ export class QueryColumns extends KernelViews {
         const qz = pose.q.v.z;
         const qs = pose.q.s;
         const input = this.input;
-        input[0] = px;
-        input[1] = py;
-        input[2] = pz;
-        input[3] = qx;
-        input[4] = qy;
-        input[5] = qz;
-        input[6] = qs;
+        input[offset] = px;
+        input[offset + 1] = py;
+        input[offset + 2] = pz;
+        input[offset + 3] = qx;
+        input[offset + 4] = qy;
+        input[offset + 5] = qz;
+        input[offset + 6] = qs;
     }
 
     proxy(proxy: ShapeProxy): void {

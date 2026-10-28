@@ -8,7 +8,7 @@ import {
 
 setDefaultTimeout(TIMEOUT.node);
 const entry = resolve(import.meta.dir, "fixtures/body-query-allocation.entry.ts");
-test("warmed body ray, shape, overlap and mover queries allocate nothing on hits, misses and changing plane counts", async () => {
+test("warmed body ray, shape, overlap, mover and TOI queries allocate nothing on hits, misses and alternating filters", async () => {
     const sample = await sampleAllocation(entry, { warm: 12000 });
     expect(sample.control.length).toBeGreaterThan(0);
     const failure = allocationFailure(sample);

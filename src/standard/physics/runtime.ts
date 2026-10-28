@@ -202,6 +202,7 @@ interface PhysicsRuntime {
     queryBodyPlaneCallback: QueryCallback;
     queryPlaneCallback: QueryCallback;
     bodyPlanes: { records: PhysicsBodyPlaneHit[]; count: number };
+    bodyTOI: PhysicsBodyTOI;
     planes: { records: PhysicsBodyPlaneHit[]; count: number };
     planeCapacity: number;
     /** Each attached shape's EntityRef at its first attachment. */
@@ -279,6 +280,13 @@ function newRuntime(): PhysicsRuntime {
         queryBodyPlaneCallback: null!,
         queryPlaneCallback: null!,
         bodyPlanes: { records: [], count: 0 },
+        bodyTOI: {
+            shape: 0,
+            body: 0,
+            point: { x: 0, y: 0, z: 0 },
+            normal: { x: 0, y: 0, z: 0 },
+            fraction: 1,
+        },
         planes: { records: [], count: 0 },
         planeCapacity: 0,
         shapeStamps: new EidColumn(),
@@ -850,6 +858,71 @@ export interface PhysicsPlanes {
 }
 
 export type PhysicsBodyPlanes = PhysicsPlanes;
+
+/** Earliest body-mover contact; a miss has shape/body zero, fraction one and zero point/normal. */
+export interface PhysicsBodyTOI {
+    shape: number;
+    body: number;
+    point: Pos;
+    normal: Vec3;
+    fraction: number;
+}
+
+/**
+ * Sweep a body's last-fixed-sync sphere, capsule and hull shapes from start to end against a
+ * translating capsule. origin, start.p and end.p are world-space meters; mover centers are
+ * world-axis offsets from origin, and translation is in meters over the same interval.
+ * Filters shapes and excludes initial overlaps. Returns the earliest hit with a world-space point
+ * and unit normal pointing from body to mover. A miss or unbound body has shape/body zero and
+ * fraction one.
+ * The World owns this allocation-free result, valid until its next timeOfImpactBodyMover call.
+ * Copy to retain.
+ */
+export function timeOfImpactBodyMover(
+    world: World,
+    body: number,
+    origin: Pos,
+    mover: Capsule,
+    translation: Vec3,
+    start: WorldTransform,
+    end: WorldTransform,
+    filter?: QueryFilter,
+): PhysicsBodyTOI {
+    const runtime = runtimeFor(world);
+    const out = runtime.bodyTOI;
+    out.shape = out.body = 0;
+    out.point.x = out.point.y = out.point.z = 0;
+    out.normal.x = out.normal.y = out.normal.z = 0;
+    out.fraction = 1;
+    const id = boundBody(world, runtime, body);
+    if (!id || !runtime.physicsWorld) return out;
+    const state = runtime.physicsWorld;
+    const q = queryColumns(state);
+    const k = q.prepare(origin, filter);
+    q.placement(start, origin);
+    q.placement(end, origin, 20);
+    q.mover(mover.center1, mover.center2, mover.radius);
+    q.translation(translation);
+    k.bodyTimeOfImpactMover(state.worldId, id.index1 - 1);
+    const shape = q.resultU[0];
+    if (shape === 0xffffffff) return out;
+    const context = beginQuery(runtime, world, origin, null, null, null);
+    try {
+        if (!queryShapeEntities(world, runtime, shape, context)) return out;
+        out.shape = context.shapeEid;
+        out.body = context.bodyEid;
+        out.fraction = q.resultF[5];
+        out.point.x = origin.x + q.resultF[6];
+        out.point.y = origin.y + q.resultF[7];
+        out.point.z = origin.z + q.resultF[8];
+        out.normal.x = q.resultF[9];
+        out.normal.y = q.resultF[10];
+        out.normal.z = q.resultF[11];
+        return out;
+    } finally {
+        endQuery(runtime);
+    }
+}
 
 /**
  * Return up to capacity capsule contact planes against a body's last-fixed-sync shapes at placement,

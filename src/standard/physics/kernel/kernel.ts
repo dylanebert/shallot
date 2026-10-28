@@ -68,6 +68,7 @@ export type Kernel = {
     worldQueryResultPtr(): number;
     worldQuery(world: number, operation: number, callback: number): void;
     bodyQuery(world: number, operation: number, head: number, capacity: number): void;
+    bodyTimeOfImpactMover(world: number, body: number): void;
     eventCount(world: number, kind: number): number;
     eventWord(world: number, kind: number, index: number, lane: number): number;
     eventBufferPtr(world: number, kind: number): number;

@@ -8,6 +8,7 @@ import {
     overlapBodyShape,
     PhysicsWorldDefinition,
     StandardPhysicsPlugin,
+    timeOfImpactBodyMover,
 } from "@dylanebert/shallot/standard/physics";
 
 export let controlSink: object | undefined;
@@ -46,6 +47,7 @@ export default async function create(input: string) {
     };
     const hit = emptyQueryHit();
     const filter = { categoryBits: 1n, maskBits: 1n };
+    const emptyFilter = { categoryBits: 0n, maskBits: 0n };
     return {
         step() {
             if (
@@ -83,6 +85,39 @@ export default async function create(input: string) {
             if (collideMover(world, miss.p, mover).count !== 0) throw new Error("world mover hit");
             if (collideMover(world, zero, mover, 4, filter).count !== 3)
                 throw new Error("filtered world mover lost planes");
+            if (
+                timeOfImpactBodyMover(
+                    world,
+                    body,
+                    origin,
+                    mover,
+                    translation,
+                    placement,
+                    placement,
+                    filter,
+                ).shape === 0
+            )
+                throw new Error("TOI missed");
+            if (timeOfImpactBodyMover(world, body, origin, mover, zero, miss, miss).shape !== 0)
+                throw new Error("TOI hit");
+            if (
+                timeOfImpactBodyMover(world, body, zero, mover, zero, placement, placement)
+                    .fraction !== 1
+            )
+                throw new Error("TOI reported initial overlap");
+            if (
+                timeOfImpactBodyMover(
+                    world,
+                    body,
+                    origin,
+                    mover,
+                    translation,
+                    placement,
+                    placement,
+                    emptyFilter,
+                ).shape !== 0
+            )
+                throw new Error("TOI ignored filter");
             if (input === "leak") leaked = { ...hit };
         },
         dispose() {

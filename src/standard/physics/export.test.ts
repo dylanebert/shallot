@@ -86,5 +86,6 @@ test("standard physics exports consumed world operations and profiling without s
         "shapeMesh",
         "solvePlanes",
         "stepPhysics",
+        "timeOfImpactBodyMover",
     ]);
 });

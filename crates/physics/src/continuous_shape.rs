@@ -181,7 +181,7 @@ fn mesh_impact(
     }
     context.output
 }
-fn shape_proxy<'a>(shape: &'a Shape) -> ShapeProxy<'a> {
+pub(crate) fn shape_proxy<'a>(shape: &'a Shape) -> ShapeProxy<'a> {
     match shape {
         Shape::Sphere(s) => ShapeProxy {
             points: core::slice::from_ref(&s.center),

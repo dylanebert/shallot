@@ -56,6 +56,7 @@ export {
     overlapShape,
     type PhysicsBodyPlaneHit,
     type PhysicsBodyPlanes,
+    type PhysicsBodyTOI,
     type PhysicsCastCallback,
     type PhysicsOverlapCallback,
     type PhysicsPlaneHit,
@@ -73,6 +74,7 @@ export {
     setTargetTransform,
     setTransform,
     stepPhysics,
+    timeOfImpactBodyMover,
 } from "./runtime";
 export { shapeEdges, shapeMesh } from "./shape-mesh";
 export { cloneAndTransformHull, createHull } from "./shapes/build-hull";

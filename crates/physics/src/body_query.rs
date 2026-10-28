@@ -140,3 +140,78 @@ pub extern "C" fn run_in_world(world: usize, operation: u32, head: u32, capacity
         }
     }
 }
+
+/// Sweep the body's eligible convex shapes against a translating capsule.
+/// Input lanes 20..27 hold the end transform relative to the mover origin.
+#[export_name = "bodyTimeOfImpactMover"]
+pub unsafe extern "C" fn time_of_impact_mover(world: usize, body: usize) {
+    use crate::distance::{time_of_impact, Sweep, TOIInput};
+    use crate::math::{Quat, Transform};
+    let (r, start, proxy) = query_abi::input();
+    let end = Transform {
+        p: Vec3::new(r[20], r[21], r[22]),
+        q: Quat {
+            v: Vec3::new(r[23], r[24], r[25]),
+            s: r[26],
+        },
+    };
+    let sim = crate::bodies::column(world, body, 1, crate::body::SIM_STRIDE);
+    let local_center = crate::body::read_fin(sim, 0).local_center;
+    let mut input = TOIInput {
+        proxy_a: proxy,
+        proxy_b: proxy,
+        sweep_a: Sweep {
+            local_center,
+            c1: start.point(local_center),
+            c2: end.point(local_center),
+            q1: start.q,
+            q2: end.q,
+        },
+        sweep_b: Sweep {
+            local_center: Vec3::ZERO,
+            c1: Vec3::ZERO,
+            c2: Vec3::new(r[9], r[10], r[11]),
+            q1: Quat::IDENTITY,
+            q2: Quat::IDENTITY,
+        },
+        max_fraction: 1.0,
+    };
+    let result = &raw mut world_query::RESULT as *mut u32;
+    result.write(NULL_SHAPE);
+    let header = world_query::HEADER;
+    let mut id = crate::bodies::record(world, body).head_shape_id;
+    while id != -1 {
+        let shape_id = id as usize;
+        id = crate::shapes::col(world).get(shape_id * SHAPE_STRIDE + S_NEXT) as i32;
+        if !world_query::accepts(world, shape_id, &header) {
+            continue;
+        }
+        let (shape, _) = query_abi::shape(world, shape_id);
+        if !matches!(
+            shape,
+            query::Shape::Sphere(_) | query::Shape::Capsule(_) | query::Shape::Hull(_)
+        ) {
+            continue;
+        }
+        let out = time_of_impact(&TOIInput {
+            proxy_a: crate::continuous_shape::shape_proxy(&shape),
+            ..input
+        });
+        if 0.0 < out.fraction && out.fraction < input.max_fraction {
+            input.max_fraction = out.fraction;
+            result.write(shape_id as u32);
+            world_query::write_cast(
+                &crate::distance::CastOutput {
+                    hit: true,
+                    fraction: out.fraction,
+                    point: out.point,
+                    normal: out.normal,
+                    triangle_index: 0,
+                    ..crate::distance::CastOutput::MISS
+                },
+                result.add(4),
+                0,
+            );
+        }
+    }
+}
