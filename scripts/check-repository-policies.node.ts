@@ -96,6 +96,8 @@ test("browser shards partition sorted subjects but validate every subject", () =
                 cwd: tree,
                 env: {
                     ...process.env,
+                    // Outside CI the script runs every subject, so the stubbed bun is not asked for host files.
+                    CI: "",
                     PATH: `${join(tree, "bin")}${process.platform === "win32" ? ";" : ":"}${process.env.PATH}`,
                 },
                 stdout: "pipe",

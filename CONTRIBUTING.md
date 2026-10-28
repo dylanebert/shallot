@@ -246,7 +246,7 @@ sh scripts/lavapipe.sh HEAD sh scripts/browser.sh
 ### CI coverage
 
 - [CI](.github/workflows/test.yml) owns host and tier commands and judges compatibility on those hosts; a local run does not
-- A claim runs on the cheapest host that can fail on it. [test-hosts.ts](scripts/test-hosts.ts) names the files CI runs on fewer than every host and why; each host-only class keeps cheap files that red it on its host
+- A claim runs on the cheapest host that can fail on it. [test-hosts.ts](scripts/test-hosts.ts) names the files and browser subjects CI runs on fewer than every host and why; each host-only class keeps cheap files that red it on its host
 - A red push run on main does not close landing; a release waits until every red on main is answered
 - A dependency or infrastructure failure is named as such, not quarantined as a test
 - For a red only one hosted OS shows, run that OS and tier before landing: `gh workflow run test.yml --ref <branch> -f os=<os> -f tier=<tier>`
