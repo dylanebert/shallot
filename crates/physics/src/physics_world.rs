@@ -440,6 +440,8 @@ pub unsafe extern "C" fn begin_in_world(
     default_mix: bool,
 ) {
     crate::solve::SCHEDULER.reset();
+    crate::world_counters::reset(world);
+    crate::arena::begin_diagnostics(world, threads);
     PROFILE[world] = Profile::ZERO;
     SYNC_COUNT = 0;
     crate::callback_work::reset(world);
@@ -670,6 +672,7 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                         DRIVER.default_mix as u32,
                         DRIVER.recycle,
                     );
+                    crate::arena::reset_collide_diagnostics(world, CONTEXT[0] > 0.0);
                     contact_list::copy_in_world(
                         world_index,
                         crate::arena::collide_list_ptr() as *mut u32,
@@ -810,6 +813,7 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                 events::end_step(world);
                 crate::arena::grow_stack(world_index);
                 accumulate(world_index, 0, DRIVER.step_start);
+                crate::world_counters::finish_tasks(world);
                 DRIVER.phase = 0;
             }
             _ => unreachable!(),

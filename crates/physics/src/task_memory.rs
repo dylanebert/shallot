@@ -54,6 +54,10 @@ impl Stack {
         max_allocation: 0,
     };
 
+    pub(crate) fn max_allocation(&self) -> usize {
+        self.max_allocation
+    }
+
     pub(crate) fn is_empty(&self) -> bool {
         self.capacity == 0
     }
@@ -215,6 +219,10 @@ impl WorkerArena {
                 shared,
             },
         }
+    }
+
+    pub(crate) unsafe fn peak_demand(&self) -> usize {
+        (*self.arena.shared).peak_demand
     }
 
     pub(crate) unsafe fn sync(&mut self) {

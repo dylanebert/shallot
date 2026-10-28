@@ -88,6 +88,7 @@ test("standard physics exports consumed world operations and profiling without s
         "getMassData",
         "getSensorData",
         "getSweepTransform",
+        "getWorldCounters",
         "getWorldInverseRotationalInertia",
         "hashPhysics",
         "isAwake",

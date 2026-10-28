@@ -401,6 +401,7 @@ unsafe fn solve_impl(world_index: usize, worker: usize, i: usize, probe: bool) -
                             )
                         {
                             fraction = output.fraction;
+                            crate::arena::note_impact(world_index, worker, &output);
                             su.atomic_or(i * body::SIM_STRIDE + body::FLAGS, HAD_TIME_OF_IMPACT);
                         }
                     }

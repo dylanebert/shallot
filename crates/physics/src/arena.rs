@@ -241,7 +241,25 @@ pub(crate) unsafe fn body_count() -> usize {
 }
 
 // --- b3CollideTask / b3UpdateContact --------------------------------------------------------
+#[derive(Default, Clone, Copy)]
+struct ImpactIterations {
+    distance: i32,
+    push_back: i32,
+    root: i32,
+}
+
+#[derive(Default)]
+pub(crate) struct Diagnostics {
+    pub sat_calls: i32,
+    pub sat_hits: i32,
+    sat_multiplier: i32,
+    pub recycled: i32,
+    pub manifold_counts: [i32; 8],
+    impact: ImpactIterations,
+}
+
 struct TaskContext {
+    diagnostics: Diagnostics,
     arena: crate::task_memory::WorkerArena,
     materials: usize,
     hit_event_bitset: crate::bitset::BitSet,
@@ -256,6 +274,7 @@ struct TaskContext {
 impl TaskContext {
     fn new() -> Self {
         Self {
+            diagnostics: Diagnostics::default(),
             arena: unsafe { crate::task_memory::WorkerArena::new(128 * 1024) },
             materials: 0,
             hit_event_bitset: crate::bitset::BitSet::new(1024),
@@ -358,6 +377,50 @@ pub(crate) unsafe fn enlarged_sims(world: usize) -> &'static crate::bitset::BitS
     &(*task_context(world, 0)).enlarged_sim_bitset
 }
 
+pub(crate) unsafe fn begin_diagnostics(world: usize, workers: usize) {
+    TASK_CONTEXTS[world].resize_with(workers.max(1), TaskContext::new);
+}
+
+pub(crate) unsafe fn reset_collide_diagnostics(world: usize, positive_dt: bool) {
+    for (worker, context) in TASK_CONTEXTS[world].iter_mut().enumerate() {
+        let impact = context.diagnostics.impact;
+        context.diagnostics = Diagnostics::default();
+        context.diagnostics.impact = impact;
+        context.diagnostics.sat_multiplier = i32::from(worker != 0 || positive_dt);
+    }
+}
+
+pub(crate) unsafe fn note_impact(world: usize, worker: usize, output: &crate::distance::TOIOutput) {
+    let impact = &mut (*task_context(world, worker)).diagnostics.impact;
+    impact.distance = impact.distance.max(output.distance_iterations);
+    impact.push_back = impact.push_back.max(output.push_back_iterations);
+    impact.root = impact.root.max(output.root_iterations);
+}
+
+pub(crate) unsafe fn diagnostics(world: usize, output: &mut [i32]) {
+    output[5] = STACKS[world].max_allocation() as i32;
+    for context in &TASK_CONTEXTS[world] {
+        let d = &context.diagnostics;
+        output[6] = output[6].max(context.arena.peak_demand() as i32);
+        output[9] += d.sat_multiplier * d.sat_calls;
+        output[10] += d.sat_multiplier * d.sat_hits;
+        for (slot, value) in output[37..45].iter_mut().zip(d.manifold_counts) {
+            *slot += value;
+        }
+        output[46] += d.recycled;
+        output[47] = output[47].max(d.impact.distance);
+        output[48] = output[48].max(d.impact.push_back);
+        output[49] = output[49].max(d.impact.root);
+    }
+}
+
+unsafe fn count_manifolds(world: usize, worker: usize, count: usize) {
+    let bucket = count.min(7);
+    if bucket > 0 {
+        (*task_context(world, worker)).diagnostics.manifold_counts[bucket - 1] += 1;
+    }
+}
+
 pub(crate) unsafe fn sync_task_arenas(world: usize) {
     for context in &mut TASK_CONTEXTS[world] {
         context.arena.sync();
@@ -442,6 +505,7 @@ static mut CONTACT_STATES: [Vec<crate::bitset::BitSet>; crate::regions::MAX_WORL
     [const { Vec::new() }; crate::regions::MAX_WORLDS];
 
 pub(crate) unsafe fn reset_contact_states(world: usize) {
+    crate::world_counters::reset(world);
     CONTACT_STATES[world] = Vec::new();
     TASK_CONTEXTS[world] = Vec::new();
 }
@@ -1166,7 +1230,12 @@ unsafe fn update_contact(
             }
         }
         match &cache {
-            ConvexContactCache::Sat(cache) => write_sat(dir, contact_id, cache),
+            ConvexContactCache::Sat(cache) => {
+                let diagnostics = &mut (*task_context(world_index, thread)).diagnostics;
+                diagnostics.sat_calls += 1;
+                diagnostics.sat_hits += cache.hit as i32;
+                write_sat(dir, contact_id, cache);
+            }
             ConvexContactCache::Simplex(cache) => write_simplex(dir, contact_id, cache),
             ConvexContactCache::Empty => {}
         }
@@ -1524,6 +1593,8 @@ unsafe fn contact_block_impl(
                                 manifolds.set(po + P_PERSISTED, f32::from_bits(1));
                             }
                         }
+                        (*task_context(world_index, thread)).diagnostics.recycled += 1;
+                        count_manifolds(world_index, thread, mc);
                         continue;
                     }
                 }
@@ -1560,6 +1631,11 @@ unsafe fn contact_block_impl(
                 xf_b,
                 fin_b.local_center,
                 fast,
+            );
+            count_manifolds(
+                world_index,
+                thread,
+                dir.get(o + DIR_MANIFOLD_COUNT) as usize,
             );
             let updated = dir.get(o + DIR_FLAGS);
             if flags & contact_flags::SIM_TOUCHING != 0

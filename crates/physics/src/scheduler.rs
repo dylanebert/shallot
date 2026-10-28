@@ -43,6 +43,10 @@ impl Scheduler {
             live_workers: AtomicUsize::new(0),
         }
     }
+    pub fn task_count(&self) -> usize {
+        self.next_slot.load(Ordering::SeqCst)
+    }
+
     pub fn reset(&self) {
         for task in &self.tasks[..self.next_slot.load(Ordering::SeqCst)] {
             assert_eq!(task.status.load(Ordering::SeqCst), COMPLETE);
@@ -238,6 +242,7 @@ mod tests {
                     scope.spawn(|| scheduler.worker());
                 }
                 for _ in 0..16 {
+                    assert_eq!(scheduler.task_count(), 0);
                     work.entered.store(0, Ordering::SeqCst);
                     for count in &work.counts {
                         count.store(0, Ordering::SeqCst);
@@ -255,7 +260,9 @@ mod tests {
                         scheduler.finish(handle);
                         assert_eq!(work.counts[i].load(Ordering::SeqCst), 1);
                     }
+                    assert_eq!(scheduler.task_count(), 128);
                     scheduler.reset();
+                    assert_eq!(scheduler.task_count(), 0);
                 }
                 scheduler.stop();
             });

@@ -100,16 +100,10 @@ mod checked {
     }
 }
 
-#[cfg(all(target_arch = "wasm32", feature = "count-allocations"))]
+#[cfg(target_arch = "wasm32")]
 mod allocation;
 #[cfg(target_arch = "wasm32")]
 mod arena;
-#[cfg(all(
-    target_arch = "wasm32",
-    target_feature = "atomics",
-    not(feature = "count-allocations")
-))]
-mod shared_allocation;
 
 #[cfg(target_arch = "wasm32")]
 mod bodies;
@@ -180,5 +174,7 @@ mod standalone_manifold;
 mod treework;
 #[cfg(target_arch = "wasm32")]
 mod wind;
+#[cfg(target_arch = "wasm32")]
+mod world_counters;
 #[cfg(target_arch = "wasm32")]
 mod world_query;

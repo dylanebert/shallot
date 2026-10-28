@@ -90,6 +90,7 @@ export {
     getLocalPoint,
     getMassData,
     getSensorData,
+    getWorldCounters,
     getWorldInverseRotationalInertia,
     hashPhysics,
     isAwake,
@@ -129,6 +130,7 @@ export {
 export type { Capsule, MassData } from "./shapes/geometry";
 export type { HullData } from "./shapes/hull";
 export { computeCapsuleMass, computeHullMass } from "./shapes/mass";
+export type { PhysicsWorldCounters } from "./world/counters";
 export type { StepProfile } from "./world/profile";
 export {
     PhysicsWorldDefinition,

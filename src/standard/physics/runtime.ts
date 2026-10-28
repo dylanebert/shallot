@@ -139,6 +139,7 @@ import {
     bodySetType,
     destroyBody,
 } from "./world/body";
+import { type PhysicsWorldCounters, WorldCountersBuffer } from "./world/counters";
 import { type DebugDraw, worldDraw } from "./world/draw";
 import { hashWorldState } from "./world/hash";
 import { PROFILE_FIELDS, readStepProfile } from "./world/profile";
@@ -194,6 +195,7 @@ interface PhysicsRuntime {
     shapeDependencies: BodyDependencies;
     contactData: ContactDataBuffer;
     sensorData: PhysicsSensorData;
+    worldCounters: WorldCountersBuffer;
     contactContext: QueryContext;
     queryContexts: QueryContext[];
     queryDepth: number;
@@ -275,6 +277,7 @@ function newRuntime(): PhysicsRuntime {
         shapeDependencies: new BodyDependencies(),
         contactData: new ContactDataBuffer(),
         sensorData: { shapes: [], count: 0 },
+        worldCounters: new WorldCountersBuffer(),
         contactContext: newQueryContext(),
         queryContexts: [newQueryContext()],
         queryDepth: 0,
@@ -1684,6 +1687,22 @@ export function getContactData(
     const k = kernel(world);
     const pointer = k.contactQuery(state.worldId, a.index1 - 1, b.index1 - 1, childIndex);
     return pointer ? runtime.contactData.read(k, pointer, childIndex, state) : null;
+}
+
+/** Reads Box3D's b3Counters between steps, not from solver callbacks; returns null while locked
+ * or before the simulation is initialized. Entity, graph and tree counts reflect the current
+ * synchronized simulation; marked ECS authoring changes enter at the next fixed sync. Collision
+ * statistics describe the most recent nonempty collide pass and task counts the most recent
+ * executed step, or zero before that work first runs; diagnostics are not snapshot state.
+ * Stack and arena measurements and the three TOI
+ * iteration maxima are kernel lifetime high-water marks. Memory and task measurements describe this host, not native Box3D.
+ * The World owns this record and both arrays: the next successful read overwrites them.
+ * Copy explicitly to retain values. Warmed reads allocate nothing unless kernel memory grows. */
+export function getWorldCounters(world: World): PhysicsWorldCounters | null {
+    const runtime = runtimeFor(world);
+    const state = runtime.physicsWorld;
+    if (!state || state.locked) return null;
+    return runtime.worldCounters.read(kernel(world), state.worldId);
 }
 
 export interface PhysicsSensorData {

@@ -73,6 +73,7 @@ export type Kernel = {
     mathCosSin(radians: number): number;
     mathNormalizeQuat(x: number, y: number, z: number, s: number): number;
     mathQuatIsValid(x: number, y: number, z: number, s: number): number;
+    worldCounters(world: number): number;
     worldQueryHeaderPtr(): number;
     worldQueryResultPtr(): number;
     worldQuery(world: number, operation: number, callback: number): void;
