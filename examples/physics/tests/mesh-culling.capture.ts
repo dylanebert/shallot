@@ -4,7 +4,7 @@ import { capture } from "./capture";
 
 test.use(pipelineWarnings);
 
-for (const scene of ["sensorHits", "conveyorMesh", "heightField"]) {
+for (const scene of ["sensorHits", "conveyorMesh", "heightField", "hollowBox"]) {
     test(`${scene} single-sided mesh review`, async ({ page }) => {
         page.on("pageerror", (error) => {
             throw error;

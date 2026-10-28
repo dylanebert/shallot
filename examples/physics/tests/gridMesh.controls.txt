@@ -1,0 +1,13 @@
+10	Sphere	1
+50	Capsule	1
+90	Box	1
+130	Cylinder	1
+170	Scale X	-1.5
+210	Scale Z	-0.5
+250	Scale X	0.5
+290	Scale X	1.2
+330	Scale Z	1.4
+370	Scale X	-2
+410	Scale Z	-2
+450	Scale X	2
+490	Scale Z	2

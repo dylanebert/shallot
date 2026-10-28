@@ -2,6 +2,29 @@ import { expect, test } from "bun:test";
 import { formatValue } from "./control-format";
 import { type Controls, controlValues, enabledControls, type Scene, scenes } from "./scenes";
 
+test("Mesh rows retain the four shape choices and native scale bounds without telemetry", () => {
+    expect(scenes.voxel.controls).toBeUndefined();
+    expect(scenes.hollowBox.controls).toBeUndefined();
+    for (const scene of ["gridMesh", "bigBoxMesh", "boxMesh"] as const) {
+        const controls = scenes[scene].controls;
+        expect(Object.keys(controls)).toEqual(["Shape", "Scale X", "Scale Z"]);
+        expect(controls.Shape!.options).toEqual(
+            ["Sphere", "Capsule", "Box", "Cylinder"].map((label, value) => ({ label, value })),
+        );
+        expect(controls.Shape!.select).toBe(true);
+        expect(controls.Shape!.value).toBe(scene === "boxMesh" ? 2 : 3);
+        for (const label of ["Scale X", "Scale Z"])
+            expect(controls[label]).toMatchObject({
+                label,
+                min: -2,
+                max: 2,
+                step: 0.1,
+                decimals: 1,
+                value: scene === "gridMesh" ? 2 : 1,
+            });
+    }
+});
+
 test("Village carries neither a Surface row nor sample-app statistics", () => {
     expect(scenes.village.controls).toBeUndefined();
     expect(controlValues("village")).toEqual({});

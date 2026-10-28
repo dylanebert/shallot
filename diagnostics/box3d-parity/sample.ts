@@ -10,6 +10,7 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
     const character = readFileSync(join(samples, "sample_character.cpp"), "utf8");
     const continuous = readFileSync(join(samples, "sample_continuous.cpp"), "utf8");
     const compound = readFileSync(join(samples, "sample_compound.cpp"), "utf8");
+    const mesh = readFileSync(join(samples, "sample_mesh.cpp"), "utf8");
     const stacking = readFileSync(join(samples, "sample_stacking.cpp"), "utf8");
     const joints = readFileSync(join(samples, "sample_joint.cpp"), "utf8");
     const sample = readFileSync(join(samples, "sample.cpp"), "utf8");
@@ -22,6 +23,8 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         return source.slice(first, last);
     }
     const sources = [
+        section(mesh, "enum class ShapeType", "class GridMesh"),
+        ...[["GridMesh", "sampleGridMesh"], ["BigBoxMesh", "sampleBigBoxMesh"], ["BoxMesh", "sampleBoxMesh"], ["VoxelMesh", "sampleVoxelMesh"], ["HollowBox", "sampleHollowBox"]].map(([name,end]) => section(mesh, `class ${name} :`, `static int ${end}`)),
         ...[["SimpleCompound", "sampleSimple"], ["CompoundSpheres", "sampleCompoundSpheres"], ["CompoundHulls", "sampleCompoundHulls"], ["TileFloor", "sampleTileFloor"], ["MeshTile", "sampleCompoundMesh"]].map(([name, end]) => section(compound, `class ${name} :`, `static int ${end}`)),
         section(readFileSync(join(samples, "mover.h"), "utf8"), "class Sample;"),
         section(readFileSync(join(samples, "mover.cpp"), "utf8"), "static bool MoverFilterCallback"),
@@ -78,7 +81,7 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         .replace("// SAMPLE_GRAB", grab)
         .replace("// SAMPLE_UP", up.slice(up.indexOf("{")))
         .replace("// SAMPLE_EVENTS", readFileSync(join(import.meta.dir, "sample-events.h"), "utf8"))
-        .replace("// SAMPLE_SOURCES", readFileSync(join(import.meta.dir, "sample-compounds.h"), "utf8") + "\n" + sources);
+        .replace("// SAMPLE_SOURCES", readFileSync(join(import.meta.dir, "sample-compounds.h"), "utf8") + "\n" + readFileSync(join(import.meta.dir, "sample-meshes.h"), "utf8") + "\n" + sources);
     const path = join(tmpdir(), `box3d-sample-${Bun.hash(source).toString(16)}.cpp`);
     writeFileSync(path, source);
     return nativeBinary(path, undefined, join(samples, "../shared/benchmarks.c"));

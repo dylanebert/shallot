@@ -165,12 +165,21 @@ export function scenePresentation(
     const definition = scenes[scene];
     const { gridExtent: extent, gridSpacing: spacing } = definition;
     const height = ("gridHeight" in definition ? definition.gridHeight : 0) + 0.005;
+    const [cx, cz] = "gridCenter" in definition ? definition.gridCenter : [0, 0];
     const lines: { a: [number, number, number]; b: [number, number, number]; color: number }[] = [];
     for (let offset = -extent; offset <= extent; offset += spacing) {
         const color = offset === 0 ? 0x797369 : 0x49453f;
         lines.push(
-            { a: [-extent, height, offset], b: [extent, height, offset], color },
-            { a: [offset, height, -extent], b: [offset, height, extent], color },
+            {
+                a: [cx! - extent, height, cz! + offset],
+                b: [cx! + extent, height, cz! + offset],
+                color,
+            },
+            {
+                a: [cx! + offset, height, cz! - extent],
+                b: [cx! + offset, height, cz! + extent],
+                color,
+            },
         );
     }
     return {

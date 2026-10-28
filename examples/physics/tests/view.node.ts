@@ -200,6 +200,7 @@ test("the accepted role baseline covers every critical-set scene", () => {
                         "Character",
                         "Compound",
                         "Continuous",
+                        "Mesh",
                         "Shapes",
                     ].includes(category.name),
             )
@@ -380,6 +381,11 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 expect(ground.mesh.indices.length).toBeGreaterThan(0);
             } else expect(presentation.ground).toBeUndefined();
             const extent = {
+                voxel: 40,
+                hollowBox: 10,
+                gridMesh: 20,
+                bigBoxMesh: 50,
+                boxMesh: 20,
                 simpleCompound: 8,
                 compoundSpheres: 12,
                 compoundHulls: 12,
@@ -486,11 +492,14 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
             // reserve at least 4 pixels in both screen directions (at most 1 line / 4 px).
             const camera = scenes[id].camera;
             const pitch = (camera.pitch * Math.PI) / 180;
-            const depth = camera.distance + camera.target[1]! * Math.sin(pitch);
+            const definition = scenes[id];
+            const groundHeight = "gridHeight" in definition ? definition.gridHeight : 0;
+            const targetHeight = camera.target[1]! - groundHeight;
+            const depth = camera.distance + targetHeight * Math.sin(pitch);
             const focal = 720 / (2 * Math.tan(Math.PI / 6));
             const across = (focal * spacing) / depth;
             const along =
-                (focal * spacing * (camera.distance * Math.sin(pitch) + camera.target[1]!)) /
+                (focal * spacing * (camera.distance * Math.sin(pitch) + targetHeight)) /
                 (depth * depth - ((Math.cos(pitch) * spacing) / 2) ** 2);
             expect(
                 Math.min(across, along),
@@ -499,17 +508,18 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
             expect(grid).toBeDefined();
             expect(grid.width).toBe(1);
             expect(grid.opacity).toBeLessThan(0.45);
-            const height = id === "simpleCompound" ? -0.995 : 0.005;
+            const height = groundHeight + 0.005;
+            const [cx, cz] = "gridCenter" in definition ? definition.gridCenter : [0, 0];
             for (let offset = -extent; offset <= extent; offset += spacing) {
                 const color = offset === 0 ? 0x797369 : 0x49453f;
                 expect(grid.lines).toContainEqual({
-                    a: [-extent, height, offset],
-                    b: [extent, height, offset],
+                    a: [cx! - extent, height, cz! + offset],
+                    b: [cx! + extent, height, cz! + offset],
                     color,
                 });
                 expect(grid.lines).toContainEqual({
-                    a: [offset, height, -extent],
-                    b: [offset, height, extent],
+                    a: [cx! + offset, height, cz! - extent],
+                    b: [cx! + offset, height, cz! + extent],
                     color,
                 });
             }

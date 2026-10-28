@@ -23,6 +23,7 @@ import { continuousScenes } from "./continuous";
 import { eventScenes } from "./events";
 import { GeometricMoverState, geometricMoverScene } from "./geometric-mover";
 import { jointScenes } from "./joints";
+import { meshScenes } from "./mesh";
 import { PrecessionState } from "./precession";
 import { RigidBodyState, rigidBodyScene } from "./rigid-body";
 import { MotorizedJoint } from "./roles";
@@ -41,6 +42,7 @@ export type Scene =
     | "filter"
     | "parallel"
     | "village"
+    | keyof typeof meshScenes
     | keyof typeof compoundScenes
     | keyof typeof continuousScenes
     | keyof typeof eventScenes
@@ -160,6 +162,16 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
         ],
     },
     {
+        name: "Mesh",
+        scenes: [
+            { id: "bigBoxMesh", name: "Big Box" },
+            { id: "boxMesh", name: "Box" },
+            { id: "gridMesh", name: "Grid" },
+            { id: "hollowBox", name: "Hollow Box" },
+            { id: "voxel", name: "Voxel" },
+        ],
+    },
+    {
         name: "Shapes",
         scenes: [
             { id: "conveyorBelt", name: "Conveyor Belt" },
@@ -270,6 +282,7 @@ export const scenes = {
     rigidBody: rigidBodyScene,
     ...shapeScenes,
     ...compoundScenes,
+    ...meshScenes,
     village: villageScene,
     ...continuousScenes,
     ...bodyScenes,

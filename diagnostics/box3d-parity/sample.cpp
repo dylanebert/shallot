@@ -337,6 +337,7 @@ public:
 #define b3Body_CollideMover RecordedBodyMover
 #define b3GetTicks SampleTicks
 #define b3World_Step RecordedStep
+struct Human {};
 // SAMPLE_SOURCES
 
 int main( int argc, char** argv )
@@ -354,6 +355,8 @@ int main( int argc, char** argv )
     if (getenv("SAMPLE_DISABLE_SLEEP")) context.enableSleep = false;
 	struct Entry { const char* name; Sample* (*create)(SampleContext*); };
 	const Entry entries[] = {
+        { "voxel", VoxelMesh::Create }, { "hollowBox", HollowBox::Create },
+        { "gridMesh", GridMesh::Create }, { "bigBoxMesh", BigBoxMesh::Create }, { "boxMesh", BoxMesh::Create },
         { "simpleCompound", SimpleCompound::Create }, { "compoundSpheres", CompoundSpheres::Create },
         { "compoundHulls", CompoundHulls::Create }, { "tileFloor", TileFloor::Create }, { "meshTile", MeshTile::Create }, { "village", Village::Create },
         { "bulletVersusStack", BulletVersusStack::Create }, { "meshDrop", MeshDrop::Create },
