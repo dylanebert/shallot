@@ -13,6 +13,7 @@ import { EventSamplePlugin, SampleInputPlugin } from "./events";
 import { GeometricMoverPlugin } from "./geometric-mover";
 import { GrabPlugin } from "./grab";
 import { JointSamplePlugin } from "./joints";
+import { RigidBodyPlugin } from "./rigid-body";
 import { ShapesSamplePlugin } from "./shapes";
 import { StackingSamplePlugin } from "./stacking";
 import { createViewer } from "./view";
@@ -34,6 +35,7 @@ export const AppPlugin: Plugin = {
         BodySamplePlugin,
         CharacterSamplePlugin,
         GeometricMoverPlugin,
+        RigidBodyPlugin,
         SampleInputPlugin,
         TextPlugin,
         OrbitPlugin,

@@ -22,12 +22,14 @@ import { eventScenes } from "./events";
 import { GeometricMoverState, geometricMoverScene } from "./geometric-mover";
 import { jointScenes } from "./joints";
 import { PrecessionState } from "./precession";
+import { RigidBodyState, rigidBodyScene } from "./rigid-body";
 import { MotorizedJoint } from "./roles";
 import { ShapeControlsState, shapeScenes, WindState } from "./shapes";
 import { StackingImpulses, stackingScenes } from "./stacking";
 
 export type Scene =
     | "geometricMover"
+    | "rigidBody"
     | "boxStack"
     | "bridge"
     | "revolute"
@@ -89,6 +91,7 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
             { id: "capsulePlane", name: "CapsulePlane" },
             { id: "geometricMover", name: "Geometric Mover" },
             { id: "moverOverlap", name: "MoverOverlap" },
+            { id: "rigidBody", name: "Rigid Body" },
         ],
     },
     {
@@ -233,6 +236,7 @@ export function changeControl(
 }
 export const scenes = {
     geometricMover: geometricMoverScene,
+    rigidBody: rigidBodyScene,
     ...shapeScenes,
     ...bodyScenes,
     ...eventScenes,
@@ -835,6 +839,7 @@ export function createScene(world: World, scene: Scene): number[] {
     Object.assign(world.resource(CastState), CastState.create());
     Object.assign(world.resource(CharacterSample), CharacterSample.create());
     Object.assign(world.resource(GeometricMoverState), GeometricMoverState.create());
+    Object.assign(world.resource(RigidBodyState), RigidBodyState.create());
     world.resource(PhysicsWorldDefinition).enableAutomaticStep = true;
     world.resource(PhysicsWorldDefinition).workerCount = 1;
     world.resource(PhysicsWorldDefinition).maximumMemory = 4 * 1024 ** 3;

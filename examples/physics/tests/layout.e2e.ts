@@ -177,10 +177,12 @@ for (const viewport of [
                         await expect(panel.locator("output").last()).toBeInViewport();
                     }
                     if (sample.id === "contact") {
-                        const help = (await page
-                            .getByText("WASD to roll", { exact: true })
-                            .boundingBox())!;
-                        expect([help.x, help.y]).toEqual([phone ? 16 : 24, phone ? 16 : 24]);
+                        const hint = page.getByText("WASD to roll", { exact: true });
+                        if (phone) await expect(hint).toBeHidden();
+                        else {
+                            const help = (await hint.boundingBox())!;
+                            expect([help.x, help.y]).toEqual([24, 24]);
+                        }
                     }
                 }
             });

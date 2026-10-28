@@ -4,6 +4,7 @@ import { type Controls, controlValues, enabledControls, type Scene, scenes } fro
 
 test("Character rows retain Solve, Clip Velocity and two integer read-only overlap counts", () => {
     expect(Object.keys(scenes.geometricMover.controls)).toEqual(["Clip Velocity"]);
+    expect(scenes.rigidBody.controls).toBeUndefined();
     expect(scenes.geometricMover.controls["Clip Velocity"]).toMatchObject({
         label: "Clip Velocity",
         value: 1,

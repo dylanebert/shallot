@@ -23,6 +23,7 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         section(readFileSync(join(samples, "mover.h"), "utf8"), "class Sample;"),
         section(readFileSync(join(samples, "mover.cpp"), "utf8"), "static bool MoverFilterCallback"),
         section(character, "struct MoverImpact", "static int sampleMover"),
+        section(character, "struct ClosestShapeCastContext", "static int sampleRBCharacter"),
         ...["CapsulePlane", "MoverOverlap"].map(name => section(character, `class ${name} :`, `static int sample${name}`)),
         section(sample, "b3BodyId Sample::AddGroundBox(", "struct RowDef"),
         ...["InclinedPlane", "RollingResistance", "HighResistance", "IsotropicFriction", "SlideTwist", "Restitution", "StaticInvoke", "Wind", "ConveyorBelt", "ConveyorMesh", "WindDrop", "WindFlap"].map(name => section(shapes, `class ${name} :`, `static int sample${name}`)),

@@ -20,6 +20,7 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { EventSample, EventSamplePlugin } from "../src/events";
 import { GeometricMoverState } from "../src/geometric-mover";
 import { scenePresentation, shapeMaterial } from "../src/presentation";
+import { RigidBodyState } from "../src/rigid-body";
 import { MotorizedJoint } from "../src/roles";
 import {
     categories,
@@ -343,7 +344,8 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                             ? "ground"
                             : world.get(body, Body)!.type === BodyType.Kinematic ||
                                 driven.has(body) ||
-                                body === world.resource(EventSample).player
+                                body === world.resource(EventSample).player ||
+                                body === world.resource(RigidBodyState).character.body
                               ? "motorized"
                               : "subject");
                 expect(role).toBe(expected);
@@ -375,6 +377,7 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
             } else expect(presentation.ground).toBeUndefined();
             const extent = {
                 geometricMover: 80,
+                rigidBody: 3300,
                 capsulePlane: 10,
                 moverOverlap: 12,
                 cast: 10,

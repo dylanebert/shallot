@@ -14,7 +14,7 @@ for (const view of [
             viewport: { width: view.width, height: view.height },
             hasTouch: view.hasTouch,
         });
-        for (const scene of ["Contact", "Driving", "Geometric Mover"]) {
+        for (const scene of ["Contact", "Driving", "Geometric Mover", "Rigid Body"]) {
             test(`${scene} earns a key hint only on a desktop fine pointer`, async ({ page }) => {
                 await page.goto("/tests/controls.html");
                 await page.waitForFunction(() => "controlsKey" in window);
@@ -27,6 +27,10 @@ for (const view of [
                 if (view.hint) await expect(hint).toBeVisible();
                 else await expect(hint).toBeHidden();
                 const panel = page.locator(".controls");
+                if (scene === "Rigid Body") {
+                    await expect(panel).toHaveCount(0);
+                    return;
+                }
                 await expect(panel).toBeVisible();
                 expect(
                     await panel.evaluate((element) => {

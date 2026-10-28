@@ -58,6 +58,7 @@ import {
     shapeRole,
 } from "./presentation";
 import { castHeightField } from "./queries";
+import { RigidBodyState } from "./rigid-body";
 import { type Scene, scenes } from "./scenes";
 
 function placeMarker(
@@ -126,14 +127,16 @@ export function setSceneCamera(world: World, scene: Scene, camera: number): void
         camera,
         phone && "phoneDistance" in view ? view.phoneDistance : view.distance,
     );
-    const follow = scene === "driving" || scene === "geometricMover";
+    const follow = scene === "driving" || scene === "geometricMover" || scene === "rigidBody";
     orbit.target.set(
         camera,
         scene === "driving"
             ? world.resource(DrivingState).chassis
             : scene === "geometricMover"
               ? world.resource(GeometricMoverState).entity
-              : 0,
+              : scene === "rigidBody"
+                ? world.resource(RigidBodyState).character.body
+                : 0,
     );
     // Sharing the orbit button prevents flythrough from detaching a follow camera.
     orbit.flyButton.set(camera, follow ? orbit.orbitButton.get(camera) : 2);

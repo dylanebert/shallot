@@ -41,6 +41,38 @@ test("grab sequence reproduces the example's native gold", () => {
     equalSampleSteps(hashes, readFileSync(new URL("../../examples/physics/tests/grab.gold.txt", import.meta.url), "utf8"), "grab");
 });
 
+test("rigidBody: native hashes and character state repeat through held keys and reject a source mutation", () => {
+    const start = performance.now();
+    const binary = sampleBinary();
+    const directory = mkdtempSync(join(tmpdir(), "box3d-rigid-body-"));
+    const records = join(directory, "character.txt");
+    const sequence = fileURLToPath(new URL("../../examples/physics/tests/rigidBody.controls.txt", import.meta.url));
+    try {
+        for (const controlled of [false, true]) {
+            const stem = `rigidBody${controlled ? ".controls" : ""}`;
+            const args = [binary, "rigidBody", "600", ...(controlled ? [sequence] : [])];
+            const hashes = run(args, { RIGID_READOUTS: records });
+            const states = readFileSync(records, "utf8");
+            expect(run(args, { RIGID_READOUTS: records })).toBe(hashes);
+            expect(readFileSync(records, "utf8")).toBe(states);
+            expect(hashes).toBe(readFileSync(new URL(`../../examples/physics/tests/${stem}.gold.txt`, import.meta.url), "utf8"));
+            expect(states).toBe(readFileSync(new URL(`../../examples/physics/tests/${stem}.character.gold.txt`, import.meta.url), "utf8"));
+            expect(hashes.trimEnd().split("\n")).toHaveLength(600);
+            expect(states.trimEnd().split("\n")).toHaveLength(600);
+        }
+        const copy = join(directory, "source"); mkdirSync(join(copy, "samples"), { recursive: true }); mkdirSync(join(copy, "shared"));
+        copyFileSync(join(process.env.BOX3D!, "shared/benchmarks.c"), join(copy, "shared/benchmarks.c"));
+        for (const name of ["sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp", "sample_bodies.cpp", "sample_shapes.cpp", "sample_character.cpp", "mover.h", "mover.cpp"]) copyFileSync(join(process.env.BOX3D!, "samples", name), join(copy, "samples", name));
+        const path = join(copy, "samples/sample_character.cpp"); const source = readFileSync(path, "utf8");
+        expect(source.includes("m_walkSpeed = 230.0f * SRC;")).toBe(true);
+        writeFileSync(path, source.replace("m_walkSpeed = 230.0f * SRC;", "m_walkSpeed = 231.0f * SRC;"));
+        const mutated = run([sampleBinary(join(copy, "samples")), "rigidBody", "600", sequence], { RIGID_READOUTS: records });
+        expect(mutated).not.toBe(readFileSync(new URL("../../examples/physics/tests/rigidBody.controls.gold.txt", import.meta.url), "utf8"));
+        expect(readFileSync(records, "utf8")).not.toBe(readFileSync(new URL("../../examples/physics/tests/rigidBody.controls.character.gold.txt", import.meta.url), "utf8"));
+        console.log(`rigidBody native hashes, character state, controls and mutation: ${(performance.now() - start).toFixed(0)} ms`);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
 test("geometricMover: native hashes and mover state repeat through keys and DrawControls, and a source mutation reds them", () => {
     const start = performance.now();
     const copy = mkdtempSync(join(tmpdir(), "box3d-geometric-mutation-"));

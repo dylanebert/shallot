@@ -16,6 +16,7 @@ import {
 import { isAwake } from "@dylanebert/shallot/standard/physics";
 import { EventSample } from "./events";
 import { GeometricMoverState } from "./geometric-mover";
+import { RigidBodyState } from "./rigid-body";
 import { MotorizedJoint } from "./roles";
 import { controlValues, enabledControls, type Scene, scenes } from "./scenes";
 import { SensorSample } from "./sensor";
@@ -96,6 +97,7 @@ export function shapeRole(
     if (
         type === BodyType.Kinematic ||
         body === world.resource(EventSample).player ||
+        body === world.resource(RigidBodyState).character.body ||
         driven.has(body)
     )
         return "motorized";

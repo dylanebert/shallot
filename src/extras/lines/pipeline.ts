@@ -146,16 +146,21 @@ export const lineQuad = tgpu.fn(
     d.struct({ clip: d.vec4f, edge: d.vec2f, tint: d.vec4f }),
 )((sClip, eClip, res, t, edge, widthPx) => {
     "use gpu";
-    const nearW = d.f32(1e-5);
     let start = d.vec4f(sClip);
     let end = d.vec4f(eClip);
-    if (start.w < nearW && end.w < nearW) {
+    // Clip to the reverse-Z near plane before dividing by w. An eye-plane epsilon can round
+    // to zero on long segments, and their projected depth then loses the surface offset.
+    const startNear = start.w - start.z;
+    const endNear = end.w - end.z;
+    if (startNear < 0 && endNear < 0) {
         return { clip: d.vec4f(0, 0, -1, 1), edge: d.vec2f(0), tint: d.vec4f(0) };
     }
-    if (start.w < nearW) {
-        start = d.vec4f(std.mix(start, end, (nearW - start.w) / (end.w - start.w)));
-    } else if (end.w < nearW) {
-        end = d.vec4f(std.mix(end, start, (nearW - end.w) / (start.w - end.w)));
+    if (startNear < 0) {
+        const clipped = std.mix(start, end, startNear / (startNear - endNear));
+        start = d.vec4f(clipped.xy, clipped.z, clipped.z);
+    } else if (endNear < 0) {
+        const clipped = std.mix(end, start, endNear / (endNear - startNear));
+        end = d.vec4f(clipped.xy, clipped.z, clipped.z);
     }
     // Reverse-Z puts a finite far plane at z = 0; the clipped end is set on it exactly, since the
     // mix may round past it and depth bias treats the plane itself as a limit.

@@ -4,11 +4,80 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { CharacterSample, CharacterSamplePlugin, characterDrag } from "../src/character";
 import { characterDrawing } from "../src/character-presentation";
 import { GeometricMoverPlugin, GeometricMoverState } from "../src/geometric-mover";
+import { RigidBodyPlugin, RigidBodyState } from "../src/rigid-body";
 import { changeControl, controlValues, createScene } from "../src/scenes";
 import { drawingDigest } from "./digest";
 import { sampleGold } from "./gold";
 
 setDefaultTimeout(TIMEOUT.node);
+for (const controlled of [false, true])
+    test(`rigidBody equals all 600 native hashes and character states${controlled ? " through held keys" : ""}`, async () => {
+        const stem = `rigidBody${controlled ? ".controls" : ""}`;
+        const gold = sampleGold(
+            await Bun.file(new URL(`./${stem}.gold.txt`, import.meta.url)).text(),
+        );
+        const states = (
+            await Bun.file(new URL(`./${stem}.character.gold.txt`, import.meta.url)).text()
+        )
+            .trimEnd()
+            .split("\n")
+            .map((line) => (JSON.parse(line) as number[]).map(Math.fround));
+        const sequence = controlled
+            ? (await Bun.file(new URL("./rigidBody.controls.txt", import.meta.url)).text())
+                  .trimEnd()
+                  .split("\n")
+                  .map((row) => {
+                      const [step, name, value] = row.split("\t");
+                      return { step: Number(step), name: name!, value: Number(value) };
+                  })
+            : [];
+        const app = await createApp({ defaults: false, plugins: [RigidBodyPlugin] });
+        const start = performance.now();
+        try {
+            createScene(app.world, "rigidBody");
+            const state = app.world.resource(RigidBodyState),
+                s = state.character;
+            expect(gold).toHaveLength(600);
+            expect(states).toHaveLength(600);
+            for (let i = 0; i < 600; i++) {
+                for (const change of sequence)
+                    if (change.step === i)
+                        state.keys[change.name as keyof typeof state.keys] = change.value;
+                app.world.tick();
+                expect(hashPhysics(app.world), `${stem} step ${i} hash`).toBe(gold[i]!.hash);
+                expect(
+                    [
+                        s.position.x,
+                        s.position.y,
+                        s.position.z,
+                        s.velocity.x,
+                        s.velocity.y,
+                        s.velocity.z,
+                        +s.onGround,
+                        +s.sprint,
+                        s.jumpCooldown,
+                        s.groundNormal.x,
+                        s.groundNormal.y,
+                        s.groundNormal.z,
+                        s.groundVelocity.x,
+                        s.groundVelocity.y,
+                        s.groundVelocity.z,
+                        +s.didStep,
+                        s.stepPosition.x,
+                        s.stepPosition.y,
+                        s.stepPosition.z,
+                        s.wishVelocity.x,
+                        s.wishVelocity.y,
+                        s.wishVelocity.z,
+                    ].map(Math.fround),
+                    `${stem} step ${i} character`,
+                ).toEqual(states[i]);
+            }
+        } finally {
+            app.dispose();
+        }
+        console.log(`${stem}: ${(performance.now() - start).toFixed(0)} ms`);
+    });
 for (const controlled of [false, true])
     test(`geometricMover equals all 600 native hashes and mover states${controlled ? " through keys and Clip Velocity" : ""}`, async () => {
         const stem = `geometricMover${controlled ? ".controls" : ""}`;

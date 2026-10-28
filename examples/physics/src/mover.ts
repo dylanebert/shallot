@@ -27,7 +27,7 @@ export const cross = (a: Vec, b: Vec) =>
         f(f(a.z * b.x) - f(a.x * b.z)),
         f(f(a.x * b.y) - f(a.y * b.x)),
     );
-const length = (a: Vec) => f(Math.sqrt(dot(a, a)));
+export const length = (a: Vec) => f(Math.sqrt(dot(a, a)));
 const norm = (a: Vec) => {
     const n = length(a);
     return n < f(1.1920928955078125e-7) ? v() : mul(f(1 / n), a);

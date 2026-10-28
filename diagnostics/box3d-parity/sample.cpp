@@ -36,6 +36,8 @@ struct Camera
 	// Contact's recording keeps its initial yaw-zero view and reads only the flattened basis.
 	bool m_thirdPerson = false;
 	b3Pos m_pivot = {};
+    b3Pos m_worldEye = {};
+    float m_radius = 5;
     PickRay pickRay = {};
 	PickRay BuildPickRay( float, float ) { return pickRay; }
 	void UpdateTransform() {}
@@ -45,7 +47,7 @@ struct Camera
     b3Pos DrawOrigin() const { return {}; }
 };
 constexpr int KEY_W = 1, KEY_S = 2, KEY_A = 3, KEY_D = 4, KEY_L = 5, KEY_T = 6, KEY_B = 7;
-constexpr int KEY_SPACE = 8, KEY_LEFT_SHIFT = 9;
+constexpr int KEY_SPACE = 8, KEY_LEFT_SHIFT = 9, KEY_V = 10;
 constexpr int ACTION_PRESS = 1, MOD_SHIFT = 1, MOD_ALT = 2;
 void sapp_lock_mouse( bool ) {}
 bool IsKeyDown( int key ) {
@@ -339,7 +341,7 @@ int main( int argc, char** argv )
         { "slideTwist", SlideTwist::Create }, { "conveyorBelt", ConveyorBelt::Create },
         { "restitution", Restitution::Create }, { "staticInvoke", StaticInvoke::Create }, { "wind", Wind::Create },
         { "conveyorMesh", ConveyorMesh::Create }, { "windDrop", WindDrop::Create }, { "windFlap", WindFlap::Create },
-        { "geometricMover", GeometricMover::Create }, { "capsulePlane", CapsulePlane::Create }, { "moverOverlap", MoverOverlap::Create },
+        { "rigidBody", RigidBodyCharacter::Create }, { "geometricMover", GeometricMover::Create }, { "capsulePlane", CapsulePlane::Create }, { "moverOverlap", MoverOverlap::Create },
         { "classRing", ClassRing::Create }, { "cast", BodyCast::Create },
         { "bodyType", BodyType::Create }, { "weeble", Weeble::Create }, { "disable", DisableBody::Create },
         { "gyroscopicPrecession", GyroscopicPrecession::Create },
@@ -395,6 +397,8 @@ int main( int argc, char** argv )
 		fclose( file );
 	}
     characterDrawing = getenv("CHARACTER_DRAWING") ? fopen(getenv("CHARACTER_DRAWING"), "w") : nullptr;
+    FILE* rigidReadouts = getenv("RIGID_READOUTS") ? fopen(getenv("RIGID_READOUTS"), "w") : nullptr;
+    if (getenv("RIGID_READOUTS")) assert(rigidReadouts && !strcmp(argv[1], "rigidBody"));
     FILE* moverReadouts = getenv("MOVER_READOUTS") ? fopen(getenv("MOVER_READOUTS"), "w") : nullptr;
     if (getenv("MOVER_READOUTS")) assert(moverReadouts && !strcmp(argv[1], "geometricMover"));
     FILE* sensorReadouts = getenv("SENSOR_READOUTS") ? fopen(getenv("SENSOR_READOUTS"), "w") : nullptr;
@@ -447,6 +451,11 @@ int main( int argc, char** argv )
             }
             fprintf(contactDrawing, "]\n");
         }
+        if (rigidReadouts) {
+            auto& c = static_cast<RigidBodyCharacter*>(sample)->m_character;
+            auto p = b3Body_GetPosition(c.m_bodyId); auto vel = b3Body_GetLinearVelocity(c.m_bodyId);
+            fprintf(rigidReadouts, "[%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%d,%d,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%d,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g]\n", p.x,p.y,p.z,vel.x,vel.y,vel.z,c.m_onGround,c.m_sprint,c.m_jumpCooldown,c.m_groundNormal.x,c.m_groundNormal.y,c.m_groundNormal.z,c.m_groundVelocity.x,c.m_groundVelocity.y,c.m_groundVelocity.z,c.m_didStep,c.m_stepPosition.x,c.m_stepPosition.y,c.m_stepPosition.z,c.m_lastWishVelocity.x,c.m_lastWishVelocity.y,c.m_lastWishVelocity.z);
+        }
         if (moverReadouts) {
             auto* scene = static_cast<GeometricMover*>(sample);
             auto& m = scene->m_mover;
@@ -486,6 +495,7 @@ int main( int argc, char** argv )
     if (bodyQueries) fclose(bodyQueries);
     if (readouts) fclose(readouts);
     if (moverReadouts) fclose(moverReadouts);
+    if (rigidReadouts) fclose(rigidReadouts);
     if (sensorReadouts) fclose(sensorReadouts);
     if (contactDrawing) fclose(contactDrawing);
 	delete sample;
