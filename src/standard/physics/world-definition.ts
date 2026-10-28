@@ -42,7 +42,12 @@ export type PhysicsWorldDefinitionConfig = Omit<
     enableWarmStarting: boolean;
     /** Whether mesh contacts may use speculative points. */
     enableSpeculative: boolean;
-    /** Automatically solve once per fixed tick; defaults true. Disable to step only through `stepPhysics`. */
+    /**
+     * Automatically solve once per fixed tick; defaults true. Disable to step only through `stepPhysics`.
+     * Disabling does not transfer the ordering of SyncPhysicsWorldDefinitionSystem, SyncSystem,
+     * SyncPhysicsConstraintsSystem or CharacterPlugin's MoveCharactersSystem before StepPhysicsSystem.
+     * Call `stepPhysics` in a fixed system with `after: [StepPhysicsSystem]` to follow those producers.
+     */
     enableAutomaticStep: boolean;
     /** Contact separation at which a contact is recycled. */
     contactRecycleDistance: number;

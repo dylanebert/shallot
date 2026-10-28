@@ -1875,7 +1875,10 @@ function applyTransformPoses(world: World, runtime: PhysicsRuntime): void {
  * Synchronizes pending authoring, solves once for `timeStep` seconds with `subStepCount`
  * substeps, and publishes placement, velocity and this call's events (replacing prior events).
  * Callable only in the fixed group. Does not advance the world's tick clock.
- * Disable `PhysicsWorldDefinition.enableAutomaticStep` to own solve ordering.
+ * Disable `PhysicsWorldDefinition.enableAutomaticStep` to own solve ordering. This does not
+ * transfer the automatic step's ordering: SyncPhysicsWorldDefinitionSystem, SyncSystem,
+ * SyncPhysicsConstraintsSystem and CharacterPlugin's MoveCharactersSystem precede StepPhysicsSystem.
+ * Put the calling fixed system `after: [StepPhysicsSystem]` to run after those producers.
  * Refuses a locked solver, a non-finite or negative timestep, or a non-positive integer substep count.
  */
 export function stepPhysics(world: World, timeStep: number, subStepCount: number): void {
@@ -1905,12 +1908,19 @@ function solvePhysics(world: World, timeStep: number, subStepCount: number): voi
         readStepProfile(physicsWorld);
         const profile = physicsWorld.profile;
         const measurement = world.resource(phaseMeasurement);
+        const caller = world.currentSystem!;
+        const namesByCaller = world.resource(phaseNames);
+        let names = namesByCaller.get(caller);
+        if (!names) {
+            names = phaseFields.map((field) => `${caller}/${field}`);
+            namesByCaller.set(caller, names);
+        }
         sampleDiagnosticTime(measurement);
         for (let i = 0; i < phaseFields.length; i++) {
             const ms = profile[phaseFields[i]];
             if (ms !== 0) {
                 measurement[1] = ms;
-                record(phaseNames[i], measurement);
+                record(names[i], measurement);
             }
         }
     }
@@ -2445,6 +2455,4 @@ export const StandardPhysicsPlugin: Plugin = {
 
 const phaseMeasurement = { create: () => new Float64Array(2) };
 const phaseFields = PROFILE_FIELDS.filter((field) => field !== "step");
-const phaseNames = phaseFields.map(
-    (field) => `${StandardPhysicsPlugin.name}/${StepPhysicsSystem.name}/${field}`,
-);
+const phaseNames = { create: () => new Map<string, string[]>() };
