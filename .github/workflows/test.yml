@@ -45,7 +45,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ github.event_name == 'workflow_dispatch' && inputs.tier == 'cheap' && fromJSON(format('["{0}"]', inputs.os)) || fromJSON('["ubuntu-latest","macos-15","windows-latest"]') }}
+        os: ${{ github.event_name == 'workflow_dispatch' && inputs.tier == 'cheap' && fromJSON(format('["{0}"]', inputs.os)) || fromJSON('["ubuntu-latest","windows-latest"]') }}
     defaults:
       run:
         shell: bash
@@ -94,7 +94,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ github.event_name == 'workflow_dispatch' && inputs.tier == 'gpu' && fromJSON(format('["{0}"]', inputs.os)) || fromJSON('["macos-15","ubuntu-latest","windows-latest"]') }}
+        os: ${{ github.event_name == 'workflow_dispatch' && inputs.tier == 'gpu' && fromJSON(format('["{0}"]', inputs.os)) || fromJSON('["ubuntu-latest","windows-latest"]') }}
     env:
       MESA_SHADER_CACHE_MAX_SIZE: 64M
     steps:
@@ -267,6 +267,26 @@ jobs:
       - name: compile time oracle
         if: matrix.shard == '1/3'
         run: bun test ./scripts/compile.oracle.ts
+      # macOS runs at most five jobs at once, so its cheap and GPU tiers ride two Node shards; type check, lint and
+      # clippy are host-independent and stay on Ubuntu and Windows.
+      - name: cheap tier
+        id: cheap
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' && matrix.os == 'macos-15' && matrix.shard == '2/3' }}
+        run: time -p bun run test --path-ignore-patterns '**/*.gpu.test.ts' --reporter=junit --reporter-outfile=cheap-junit.xml 2>&1 | tee cheap-test.log
+      - name: report slow cheap tests
+        if: ${{ always() && (steps.cheap.outcome == 'success' || steps.cheap.outcome == 'failure') }}
+        env:
+          RUNNER_OS: ${{ runner.os }}
+        run: bun scripts/report-slow-tests.ts cheap-junit.xml cheap-test.log
+      - name: GPU tier
+        id: gpu
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' && matrix.os == 'macos-15' && matrix.shard == '3/3' }}
+        run: /usr/bin/time -p bun scripts/gpu-compile.oracle.ts --reporter=junit --reporter-outfile=gpu-junit.xml 2>&1 | tee gpu-test.log
+      - name: report slow GPU tests
+        if: ${{ always() && (steps.gpu.outcome == 'success' || steps.gpu.outcome == 'failure') }}
+        env:
+          RUNNER_OS: ${{ runner.os }}
+        run: bun scripts/report-slow-tests.ts gpu-junit.xml gpu-test.log
 
   checked-kernel:
     timeout-minutes: 20
