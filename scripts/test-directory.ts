@@ -8,6 +8,8 @@ const RETRIES = 10;
 export function removeTestDirectory(
     path: string,
     remove: (path: string) => void = (target) => rmSync(target, { recursive: true, force: true }),
+    wait: (ms: number) => void = (ms) =>
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms),
 ): void {
     // Windows can retain a just-exited child's file locks until after its exit is observed.
     for (let attempt = 1; ; attempt++) {
@@ -17,7 +19,7 @@ export function removeTestDirectory(
         } catch (error) {
             const code = (error as NodeJS.ErrnoException).code;
             if (attempt > RETRIES || !code || !TRANSIENT.has(code)) throw error;
-            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, attempt * 100);
+            wait(attempt * 100);
         }
     }
 }

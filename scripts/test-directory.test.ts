@@ -3,12 +3,18 @@ import { removeTestDirectory } from "./test-directory";
 
 const failure = (code: string) => Object.assign(new Error(code), { code });
 
-test("a lock held past a child's exit is retried until removal succeeds", () => {
+test("a lock held past a child's exit is retried after a backoff until removal succeeds", () => {
     let calls = 0;
-    removeTestDirectory("held", () => {
-        if (++calls === 1) throw failure("EBUSY");
-    });
-    expect(calls).toBe(2);
+    const waits: number[] = [];
+    removeTestDirectory(
+        "held",
+        () => {
+            if (++calls < 3) throw failure("EBUSY");
+        },
+        (ms) => waits.push(ms),
+    );
+    expect(calls).toBe(3);
+    expect(waits).toEqual([100, 200]);
 });
 
 test("a failure no lock explains is thrown without retrying", () => {

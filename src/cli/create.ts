@@ -270,7 +270,7 @@ function tierJob(tier: string, tiers: Record<string, boolean>, typecheck: boolea
     return job;
 }
 
-function testWorkflow(projectDir: string): string {
+export function testWorkflow(projectDir: string): string {
     const tiers = tierFiles(projectDir);
     const typecheck = hasComponents(projectDir);
     const jobs = Object.keys(tiers)
