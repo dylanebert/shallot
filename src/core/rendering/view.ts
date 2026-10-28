@@ -678,7 +678,7 @@ export function cameraView(world: World, eid: number): View | undefined {
 
 /**
  * Releases views whose camera despawned or lost Camera, including recycled eids before their first frame.
- * BeginFrameSystem calls this before binding; retained references prevent a replacement camera from
+ * PrepareViewsSystem calls this before binding; retained references prevent a replacement camera from
  * inheriting the previous camera's canvas or texture.
  */
 export function pruneViews(world: World): void {
@@ -847,7 +847,7 @@ export function clearScratch(world: World): void {
 /**
  * auto-bind a camera to the first `<canvas>` in the document, idempotently, sharing it with any
  * camera already there. A no-op (returns undefined) headless or until a canvas mounts;
- * `BeginFrameSystem` retries each frame, so a late-mounted canvas binds when it appears.
+ * `PrepareViewsSystem` retries each frame, so a late-mounted canvas binds when it appears.
  * Multi-view binds each camera explicitly via {@link attachCanvas} before its first frame.
  */
 export function bindCamera(eid: number, world: World): View | undefined {
