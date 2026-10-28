@@ -534,7 +534,7 @@ export const continuousScenes = {
         construct: meshDrop,
         gridExtent: 20,
         gridSpacing: 1,
-        camera: { yaw: 35, pitch: 50, distance: 62, phoneDistance: 95, target: [0, 0, 0] },
+        camera: { yaw: 35, pitch: 50, distance: 62, phoneDistance: 130, target: [0, 0, 0] },
         controls: meshControls,
     },
     thinWall: {
