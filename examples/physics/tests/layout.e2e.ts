@@ -95,7 +95,10 @@ for (const viewport of [
             if (phone) await page.context().close();
         });
         test.beforeEach(() => page.keyboard.press("Escape"));
-        const samples = categories.flatMap((category) => category.scenes);
+        // Box3D reuses a sample name across categories (Height Field), so a pick is scoped to its category.
+        const samples = categories.flatMap((category) =>
+            category.scenes.map((scene) => ({ ...scene, category: category.name })),
+        );
         for (let start = 0; start < samples.length; start += 2) {
             const group = samples.slice(start, start + 2);
             test(`${group.map((sample) => sample.name).join(", ")}: fixed allocations and label fit`, async () => {
@@ -107,7 +110,10 @@ for (const viewport of [
                 );
                 for (const sample of group) {
                     await trigger.click();
-                    await page.getByRole("button", { name: sample.name, exact: true }).click();
+                    await page
+                        .getByRole("region", { name: sample.category, exact: true })
+                        .getByRole("button", { name: sample.name, exact: true })
+                        .click();
                     expect(
                         await arrows.evaluateAll((nodes) =>
                             nodes.map((node) => node.getBoundingClientRect().toJSON()),
