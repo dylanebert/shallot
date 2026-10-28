@@ -141,8 +141,10 @@ export const DemoPlugin: Plugin = {
         world.add(camera, Transform);
         world.add(camera, Camera, { clearColor: 0x191816, far: 100 });
         world.add(camera, StandardRenderer);
+        // A portrait phone is narrow; from farther, the opening trail stays in frame.
+        const phone = typeof window !== "undefined" && window.innerWidth <= 480;
         world.add(camera, Orbit, {
-            distance: 27,
+            distance: phone ? 38 : 27,
             yaw: 0.35,
             pitch: 0.85,
             minDistance: 10,

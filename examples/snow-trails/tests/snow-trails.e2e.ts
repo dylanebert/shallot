@@ -8,6 +8,7 @@ declare global {
             step(n?: number): void;
             position(): number[];
             point(): [number, number];
+            trail(): [number, number][];
             capture(): Promise<{ png: string; rgba: number[]; width: number; height: number }>;
         };
     }
@@ -27,7 +28,7 @@ for (const phone of [false, true]) {
                     .some((e) => e.name.endsWith(":first-update")),
             );
         });
-        test("the stepped snow covers the center and the boulder can be dragged", async ({
+        test("the stepped snow covers the center, frames the opening trail, and the boulder can be dragged", async ({
             page,
         }) => {
             await page.goto("/tests/stepped.html");
@@ -44,6 +45,13 @@ for (const phone of [false, true]) {
                     total++;
                 }
             expect(covered / total).toBeGreaterThan(0.9);
+            const viewport = page.viewportSize()!;
+            for (const [x, y] of await page.evaluate(() => window.snow.trail())) {
+                expect(x).toBeGreaterThan(0);
+                expect(x).toBeLessThan(viewport.width);
+                expect(y).toBeGreaterThan(0);
+                expect(y).toBeLessThan(viewport.height);
+            }
             const directory = process.env.SHALLOT_CAPTURE_DIR;
             if (directory) {
                 mkdirSync(directory, { recursive: true });
