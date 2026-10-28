@@ -50,6 +50,7 @@ import { drawingBounds, drawSet } from "./draw-set";
 import { DrivingState } from "./driving";
 import { EventSample } from "./events";
 import { GeometricMoverState } from "./geometric-mover";
+import { drawGeometry } from "./geometry-presentation";
 import { Grab } from "./grab";
 import { drawHeightFieldView } from "./height-field-presentation";
 import { drawJointViews } from "./joint-presentation";
@@ -529,6 +530,7 @@ function createView(world: World, scene: Scene, camera: number): () => void {
                 drawMeshViewerView(world, (a, b, color, options) =>
                     drawLine(world, a, b, color, options),
                 );
+            drawGeometry(world, (a, b, color, options) => drawLine(world, a, b, color, options));
             drawCollisionDebug(world, camera, (a, b, color, options) =>
                 drawLine(world, a, b, color, options),
             );

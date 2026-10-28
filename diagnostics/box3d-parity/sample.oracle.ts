@@ -28,6 +28,47 @@ function equalSampleSteps(actual: string, expected: string, label: string): void
 }
 
 for (const [scene, name, before, after] of [
+    ["boxHull", "BoxHull", "1.0f, 0.5f, 0.25f", "1.1f, 0.5f, 0.25f"],
+    ["geometryHull", "Hull", "0.01f * points[i]", "0.011f * points[i]"],
+    ["hullReduction", "HullReduction", "m_count = 16;", "m_count = 15;"],
+    ["hullTransform", "HullTransform", "0.0f, 9", "0.0f, 8"],
+    ["capsuleMass", "CapsuleMass", "m_radius = 1.0f;", "m_radius = 1.1f;"],
+] as const) {
+    test(`${scene}: native geometry records repeat, controls use DrawControls, and a source mutation fails parity`, () => {
+        const start = performance.now(), binary = sampleBinary();
+        const directory = mkdtempSync(join(tmpdir(), "box3d-geometry-"));
+        const records = join(directory, "geometry.jsonl");
+        const base = new URL("../../examples/physics/tests/", import.meta.url);
+        const digests = () => readFileSync(records, "utf8").trimEnd().split("\n").map(line => drawingDigest(JSON.parse(line))).join("\n") + "\n";
+        try {
+            for (const controlled of [false, true]) {
+                const sequence = fileURLToPath(new URL(`${scene}.controls.txt`, base));
+                if (controlled && !existsSync(sequence)) continue;
+                const stem = `${scene}${controlled ? ".controls" : ""}`;
+                const args = [binary, scene, "600", ...(controlled ? [sequence] : [])];
+                const hashes = run(args, { GEOMETRY_RECORDS: records }), geometry = digests();
+                equalSampleSteps(hashes, readFileSync(new URL(`${stem}.gold.txt`, base), "utf8"), stem);
+                expect(geometry).toBe(readFileSync(new URL(`${stem}.geometry.gold.txt`, base), "utf8"));
+                expect(geometry.trimEnd().split("\n")).toHaveLength(600);
+                equalSampleSteps(run(args, { GEOMETRY_RECORDS: records }), hashes, `${stem} repeat`);
+                expect(digests()).toBe(geometry);
+            }
+            const samples = join(directory, "samples"); mkdirSync(samples); mkdirSync(join(directory, "shared"));
+            for (const file of readdirSync(join(process.env.BOX3D!, "samples")))
+                if (file.endsWith(".cpp") || file.endsWith(".h")) copyFileSync(join(process.env.BOX3D!, "samples", file), join(samples, file));
+            copyFileSync(join(process.env.BOX3D!, "shared/benchmarks.c"), join(directory, "shared/benchmarks.c"));
+            const path = join(samples, "sample_geometry.cpp"), source = readFileSync(path, "utf8");
+            const offset = source.indexOf(`class ${name} :`);
+            expect(offset).toBeGreaterThan(0); expect(source.slice(offset)).toContain(before);
+            writeFileSync(path, source.slice(0, offset) + source.slice(offset).replace(before, after));
+            run([sampleBinary(samples), scene, "600"], { GEOMETRY_RECORDS: records });
+            expect(digests()).not.toBe(readFileSync(new URL(`${scene}.geometry.gold.txt`, base), "utf8"));
+            console.log(`${scene} native parity, repeats, controls and mutation: ${(performance.now()-start).toFixed(0)} ms`);
+        } finally { rmSync(directory, { recursive: true, force: true }); }
+    });
+}
+
+for (const [scene, name, before, after] of [
     ["shapeCastDebug", "ShapeCastDebug", "72267.117187500", "70000.000000000"],
     ["distanceDebug", "DistanceDebug", "1.00989532471", "1.10989532471"],
     ["shapeDistance", "ShapeDistance", "{ 0.0f, 1.0f, 0.0f }", "{ 0.0f, 1.1f, 0.0f }"],

@@ -201,6 +201,7 @@ test("the accepted role baseline covers every critical-set scene", () => {
                         "Collision",
                         "Compound",
                         "Continuous",
+                        "Geometry",
                         "Mesh",
                         "Ragdoll",
                         "Shapes",
@@ -328,7 +329,12 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 id === "shapeCastDebug" ||
                 id === "distanceDebug" ||
                 id === "shapeDistance" ||
-                id === "timeOfImpact"
+                id === "timeOfImpact" ||
+                id === "boxHull" ||
+                id === "geometryHull" ||
+                id === "hullReduction" ||
+                id === "hullTransform" ||
+                id === "capsuleMass"
             )
                 expect(presentation.shapes).toHaveLength(0);
             else expect(presentation.shapes.length).toBeGreaterThan(0);
@@ -392,6 +398,11 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 expect(ground.mesh.indices.length).toBeGreaterThan(0);
             } else expect(presentation.ground).toBeUndefined();
             const extent = {
+                boxHull: 10,
+                geometryHull: 2,
+                hullReduction: 10,
+                hullTransform: 10,
+                capsuleMass: 10,
                 shapeCastDebug: 4000,
                 distanceDebug: 40,
                 shapeDistance: 10,

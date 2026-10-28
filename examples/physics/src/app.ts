@@ -14,6 +14,7 @@ import { CollisionDebugPlugin } from "./collision-debug";
 import { ContinuousSamplePlugin } from "./continuous";
 import { EventSamplePlugin, SampleInputPlugin } from "./events";
 import { GeometricMoverPlugin } from "./geometric-mover";
+import { GeometryPlugin } from "./geometry";
 import { GrabPlugin } from "./grab";
 import { JointSamplePlugin } from "./joints";
 import { MeshSamplePlugin } from "./mesh";
@@ -39,6 +40,7 @@ export const AppPlugin: Plugin = {
         RagdollPlugin,
         CollisionPlugin,
         CollisionDebugPlugin,
+        GeometryPlugin,
         MeshSamplePlugin,
         ShapesSamplePlugin,
         JointSamplePlugin,

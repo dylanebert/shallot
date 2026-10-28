@@ -2,6 +2,60 @@ import { expect, test } from "bun:test";
 import { formatReadout, formatValue } from "./control-format";
 import { type Controls, controlValues, enabledControls, type Scene, scenes } from "./scenes";
 
+test("Geometry retains native bounds, formats, choices, Refresh and result rows", () => {
+    expect(scenes.geometryHull.controls).toBeUndefined();
+    const box = scenes.boxHull.controls!;
+    expect(Object.values(box).filter((c) => !c.read)).toHaveLength(13);
+    for (const axis of ["X", "Y", "Z"]) {
+        expect(box[`h ${axis}`]).toMatchObject({ min: 0.1, max: 2, step: 0.1, decimals: 1 });
+        expect(box[`c ${axis}`]).toMatchObject({ min: -2, max: 2, step: 0.1, decimals: 1 });
+        expect(box[`r ${axis}`]).toMatchObject({ min: -180, max: 180, step: 1, decimals: 0 });
+        expect(box[`s ${axis}`]).toMatchObject({ min: -2, max: 2, step: 0.1, decimals: 1 });
+    }
+    expect(box.Refresh!.button).toBe(true);
+    const transform = scenes.hullTransform.controls!;
+    for (const axis of ["x", "y", "z"]) {
+        expect(transform[`s${axis}`]).toMatchObject({
+            value: 1,
+            min: -2,
+            max: 2,
+            step: 0.1,
+            decimals: 1,
+        });
+        expect(transform[`r${axis}`]).toMatchObject({
+            value: 0,
+            min: -180,
+            max: 180,
+            step: 1,
+            decimals: 0,
+        });
+        expect(transform[`p${axis}`]).toMatchObject({
+            value: 0,
+            min: -1,
+            max: 1,
+            step: 0.1,
+            decimals: 1,
+        });
+    }
+    expect(scenes.hullReduction.controls!.type!.options).toEqual([
+        { label: "Box", value: 0 },
+        { label: "Sphere", value: 1 },
+    ]);
+    expect(scenes.hullReduction.controls!.count).toMatchObject({
+        value: 16,
+        min: 4,
+        max: 128,
+        step: 1,
+    });
+    expect(scenes.capsuleMass.controls!.sides).toMatchObject({ value: 6, min: 3, max: 6, step: 1 });
+    for (const [scene, count] of [
+        ["hullReduction", 3],
+        ["hullTransform", 6],
+        ["capsuleMass", 12],
+    ] as const)
+        expect(Object.values(scenes[scene].controls!).filter((c) => c.read)).toHaveLength(count);
+});
+
 test("Collision rows retain native choices, bounds and formats with units in fixed-width labels", () => {
     const cast = scenes.castWorld.controls!;
     expect(Object.keys(cast)).toEqual([

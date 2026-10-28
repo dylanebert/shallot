@@ -1,0 +1,6 @@
+0	sides	3
+60	sides	4
+120	sides	5
+180	sides	6
+300	sides	3
+400	sides	6

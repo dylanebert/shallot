@@ -107,6 +107,16 @@ test("each picker label selects its scene in its category, exactly once", () => 
             ],
         },
         {
+            name: "Geometry",
+            scenes: [
+                { id: "boxHull", name: "Box Hull" },
+                { id: "capsuleMass", name: "Capsule Mass" },
+                { id: "geometryHull", name: "Hull" },
+                { id: "hullReduction", name: "Hull Reduction" },
+                { id: "hullTransform", name: "Hull Transform" },
+            ],
+        },
+        {
             name: "Joints",
             scenes: [
                 { id: "ballAndChain", name: "Ball and Chain" },

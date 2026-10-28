@@ -5,6 +5,7 @@ import { nativeBinary } from "./native";
 
 /** Compile the selected upstream classes verbatim, without the samples app's graphics dependencies. */
 export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples")): string {
+    const geometry = readFileSync(join(samples, "sample_geometry.cpp"), "utf8");
     const shapes = readFileSync(join(samples, "sample_shapes.cpp"), "utf8");
     const bodies = readFileSync(join(samples, "sample_bodies.cpp"), "utf8");
     const character = readFileSync(join(samples, "sample_character.cpp"), "utf8");
@@ -25,6 +26,9 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         return source.slice(first, last);
     }
     const sources = [
+        "namespace Geometry {\n#define b3ComputeHullMass RecordedHullMass\n#define b3ComputeCapsuleMass RecordedCapsuleMass",
+        ...["BoxHull", "Hull", "HullReduction", "HullTransform", "CapsuleMass"].map(name => section(geometry, `class ${name} :`, `static int sample${name}`)),
+        "#undef b3ComputeHullMass\n#undef b3ComputeCapsuleMass\n}",
         ...[["RagdollOnBox", "sampleRagdollOnBox"], ["RagdollOnMesh", "sampleRagdollMesh"], ["RagdollPile", "sampleRagdollPile"], ["RagdollIncline", "sampleRagdollIncline"]].map(([name,end]) => section(ragdoll, `class ${name} :`, `static int ${end}`)),
         section(mesh, "enum class ShapeType", "class GridMesh"),
         section(mesh, "class MeshReflection :", "static int sampleMeshReflection"),

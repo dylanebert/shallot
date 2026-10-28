@@ -25,9 +25,9 @@
     let { world, scene, select, change }: { world: World; scene: Scene; select: (scene: Scene) => void; change: (name: string, value: number, values: Record<string, number>) => void } = $props();
     let values = $state(controlValues(scene));
     const controls = $derived(Object.fromEntries(Object.entries(enabledControls(scene, values)).filter(([name]) => liveControls[name] !== false)));
-    const sectionTitle = $derived(scene === "meshViewer" ? "Mesh settings" : scene === "meshCreation" ? "Build cost" : scene === "gyroscopicPrecession" ? "Precession, rad/s" : scene === "moverOverlap" ? "Planes and normals" : "Simulation");
-    const separateReadouts = $derived(scene === "sensorHits" || scene === "meshViewer" || scene === "castWorld" || scene === "longRayCast" || scene === "shapeDistance" || scene === "distanceDebug" || scene === "timeOfImpact");
-    const readoutTitle = $derived(scene === "shapeDistance" || scene === "distanceDebug" ? "Distance and vertex identity" : scene === "timeOfImpact" ? "Time of impact" : scene === "meshViewer" ? "Mesh statistics" : scene === "castWorld" ? "Cast results" : scene === "longRayCast" ? "Ray accuracy" : "Touch counts");
+    const sectionTitle = $derived(scene === "boxHull" || scene === "hullReduction" || scene === "hullTransform" || scene === "capsuleMass" ? "Geometry" : scene === "meshViewer" ? "Mesh settings" : scene === "meshCreation" ? "Build cost" : scene === "gyroscopicPrecession" ? "Precession, rad/s" : scene === "moverOverlap" ? "Planes and normals" : "Simulation");
+    const separateReadouts = $derived(scene === "hullReduction" || scene === "hullTransform" || scene === "capsuleMass" || scene === "sensorHits" || scene === "meshViewer" || scene === "castWorld" || scene === "longRayCast" || scene === "shapeDistance" || scene === "distanceDebug" || scene === "timeOfImpact");
+    const readoutTitle = $derived(scene === "capsuleMass" ? "Mass and inertia" : scene === "hullReduction" ? "Reduced hull" : scene === "hullTransform" ? "Hull geometry" : scene === "shapeDistance" || scene === "distanceDebug" ? "Distance and vertex identity" : scene === "timeOfImpact" ? "Time of impact" : scene === "meshViewer" ? "Mesh statistics" : scene === "castWorld" ? "Cast results" : scene === "longRayCast" ? "Ray accuracy" : "Touch counts");
     function update(name: string, value: number) { change(name, value, values); }
     let open = $state(false);
     let picker: HTMLElement;

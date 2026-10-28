@@ -115,8 +115,32 @@ void DrawSolidSphere( b3WorldTransform t, b3Sphere s, int ) {
     if (characterDrawing) characterMarks.push_back({4,t.p.x,t.p.y,t.p.z,t.q.v.x,t.q.v.y,t.q.v.z,t.q.s,s.center.x,s.center.y,s.center.z,s.radius});
 }
 void DrawSphereEx( b3WorldTransform, float, int, float, float, int ) {}
-void DrawHull( b3WorldTransform, const b3HullData*, int ) {}
+FILE* geometryRecords = nullptr;
+std::vector<std::vector<double>> geometryRows;
+void DrawHull( b3WorldTransform t, const b3HullData* h, int ) {
+    if (!geometryRecords) return;
+    std::vector<double> row = {5,t.p.x,t.p.y,t.p.z,t.q.v.x,t.q.v.y,t.q.v.z,t.q.s,
+        double(h->vertexCount),double(h->edgeCount),double(h->faceCount),h->surfaceArea,h->volume,h->innerRadius,
+        h->center.x,h->center.y,h->center.z,
+        h->centralInertia.cx.x,h->centralInertia.cx.y,h->centralInertia.cx.z,
+        h->centralInertia.cy.x,h->centralInertia.cy.y,h->centralInertia.cy.z,
+        h->centralInertia.cz.x,h->centralInertia.cz.y,h->centralInertia.cz.z};
+    const auto* points = b3GetHullPoints(h);
+    for (int i=0;i<h->vertexCount;i++) for (float v : {points[i].x,points[i].y,points[i].z}) row.push_back(v);
+    const auto* edges = b3GetHullEdges(h);
+    for (int i=0;i<h->edgeCount;i++) for (int v : {edges[i].next,edges[i].twin,edges[i].origin,edges[i].face}) row.push_back(v);
+    geometryRows.push_back(row);
+}
+b3MassData RecordMass(b3MassData m) {
+    if (geometryRecords) geometryRows.push_back({6,m.mass,m.center.x,m.center.y,m.center.z,
+        m.inertia.cx.x,m.inertia.cx.y,m.inertia.cx.z,m.inertia.cy.x,m.inertia.cy.y,m.inertia.cy.z,
+        m.inertia.cz.x,m.inertia.cz.y,m.inertia.cz.z});
+    return m;
+}
+b3MassData RecordedHullMass(const b3HullData* h, float density) { return RecordMass(b3ComputeHullMass(h,density)); }
+b3MassData RecordedCapsuleMass(const b3Capsule* c, float density) { return RecordMass(b3ComputeCapsuleMass(c,density)); }
 void DrawSolidCapsule( b3WorldTransform t, b3Capsule c, int ) {
+    if (geometryRecords) geometryRows.push_back({3,t.p.x,t.p.y,t.p.z,t.q.v.x,t.q.v.y,t.q.v.z,t.q.s,c.center1.x,c.center1.y,c.center1.z,c.center2.x,c.center2.y,c.center2.z,c.radius});
     if (characterDrawing) characterMarks.push_back({3,t.p.x,t.p.y,t.p.z,t.q.v.x,t.q.v.y,t.q.v.z,t.q.s,c.center1.x,c.center1.y,c.center1.z,c.center2.x,c.center2.y,c.center2.z,c.radius});
 }
 void DrawPlane( b3Vec3, b3Pos, int ) {}
@@ -307,6 +331,7 @@ public:
         }
     }
 
+    int m_textLine = 0, m_textIncrement = 1;
     b3Vec2 m_mouseDelta = {};
 	b3BodyId m_mouseBodyId = {};
 	b3JointId m_mouseJointId = {};
@@ -382,6 +407,9 @@ int main( int argc, char** argv )
     if (getenv("SAMPLE_DISABLE_SLEEP")) context.enableSleep = false;
 	struct Entry { const char* name; Sample* (*create)(SampleContext*); };
 	const Entry entries[] = {
+        { "boxHull", Geometry::BoxHull::Create }, { "geometryHull", Geometry::Hull::Create },
+        { "hullReduction", Geometry::HullReduction::Create }, { "hullTransform", Geometry::HullTransform::Create },
+        { "capsuleMass", Geometry::CapsuleMass::Create },
         { "meshReflection", MeshReflection::Create }, { "meshHeightField", HeightField::Create },
         { "meshViewer", MeshViewer::Create }, { "meshCreation", MeshCreationBenchmark::Create },
         { "voxel", VoxelMesh::Create }, { "hollowBox", HollowBox::Create },
@@ -463,6 +491,8 @@ int main( int argc, char** argv )
 		}
 		fclose( file );
 	}
+    geometryRecords = getenv("GEOMETRY_RECORDS") ? fopen(getenv("GEOMETRY_RECORDS"), "w") : nullptr;
+    const bool geometryScene = !strcmp(argv[1],"boxHull") || !strcmp(argv[1],"geometryHull") || !strcmp(argv[1],"hullReduction") || !strcmp(argv[1],"hullTransform") || !strcmp(argv[1],"capsuleMass");
     Collision::queries = getenv("COLLISION_QUERIES") ? fopen(getenv("COLLISION_QUERIES"), "w") : nullptr;
     characterDrawing = getenv("CHARACTER_DRAWING") ? fopen(getenv("CHARACTER_DRAWING"), "w") : nullptr;
     FILE* villageReadouts = getenv("VILLAGE_READOUTS") ? fopen(getenv("VILLAGE_READOUTS"), "w") : nullptr;
@@ -522,7 +552,20 @@ int main( int argc, char** argv )
         contactMarks.clear();
         characterMarks.clear();
         meshBuildCount = 0;
-		sample->Step();
+        if (geometryScene) {
+            geometryRows.clear();
+            sample->Render();
+            printf("%016llx\n", (unsigned long long)b3HashWorldState(b3GetWorldFromId(sample->m_worldId)));
+            if (geometryRecords) {
+                fprintf(geometryRecords,"[");
+                for (size_t j=0;j<geometryRows.size();j++) {
+                    fprintf(geometryRecords,"%s[",j ? "," : "");
+                    for (size_t k=0;k<geometryRows[j].size();k++) fprintf(geometryRecords,"%s%.9g",k ? "," : "",geometryRows[j][k]);
+                    fprintf(geometryRecords,"]");
+                }
+                fprintf(geometryRecords,"]\n");
+            }
+        } else sample->Step();
         if (!strcmp(argv[1],"rayCurtain") || !strcmp(argv[1],"capsuleCastRay") || !strcmp(argv[1],"shapeCastDebug")) sample->Render();
         if (!strcmp(argv[1],"meshScale") || !strcmp(argv[1],"distanceDebug") || !strcmp(argv[1],"shapeDistance") || !strcmp(argv[1],"timeOfImpact")) printf("%016llx\n", (unsigned long long)b3HashWorldState(b3GetWorldFromId(sample->m_worldId)));
         if (Collision::queries) fprintf(Collision::queries,"step\n");
@@ -597,6 +640,7 @@ int main( int argc, char** argv )
         }
         if ( recordQueriesAndBuilds ) sample->Render();
 	}
+    if (geometryRecords) fclose(geometryRecords);
     if (characterDrawing) fclose(characterDrawing);
     if (bodyQueries) fclose(bodyQueries);
     if (Collision::queries) fclose(Collision::queries);

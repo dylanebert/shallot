@@ -1,0 +1,9 @@
+0	count	4
+30	Box	1
+60	count	128
+90	Sphere	1
+120	count	32
+180	Box	1
+240	count	8
+300	Sphere	1
+360	count	16

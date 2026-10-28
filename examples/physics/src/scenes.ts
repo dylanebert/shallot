@@ -24,6 +24,7 @@ import { compoundScenes } from "./compound";
 import { continuousScenes } from "./continuous";
 import { eventScenes } from "./events";
 import { GeometricMoverState, geometricMoverScene } from "./geometric-mover";
+import { Geometry, geometryScenes } from "./geometry";
 import { jointScenes } from "./joints";
 import { meshScenes } from "./mesh";
 import { HeightFieldState } from "./mesh-height-field";
@@ -49,6 +50,7 @@ export type Scene =
     | "village"
     | keyof typeof collisionScenes
     | keyof typeof debugScenes
+    | keyof typeof geometryScenes
     | keyof typeof ragdollScenes
     | keyof typeof meshScenes
     | keyof typeof compoundScenes
@@ -162,6 +164,16 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
             { id: "persistentContact", name: "Persistent Contact" },
             { id: "sensorHits", name: "Sensor Hits" },
             { id: "sensor", name: "Sensor Visit" },
+        ],
+    },
+    {
+        name: "Geometry",
+        scenes: [
+            { id: "boxHull", name: "Box Hull" },
+            { id: "capsuleMass", name: "Capsule Mass" },
+            { id: "geometryHull", name: "Hull" },
+            { id: "hullReduction", name: "Hull Reduction" },
+            { id: "hullTransform", name: "Hull Transform" },
         ],
     },
     {
@@ -323,6 +335,7 @@ export const scenes = {
     rigidBody: rigidBodyScene,
     ...collisionScenes,
     ...debugScenes,
+    ...geometryScenes,
     ...ragdollScenes,
     ...shapeScenes,
     ...compoundScenes,
@@ -934,6 +947,7 @@ export function createScene(world: World, scene: Scene): number[] {
     Object.assign(world.resource(CastState), CastState.create());
     Object.assign(world.resource(CollisionState), CollisionState.create());
     Object.assign(world.resource(CollisionDebug), CollisionDebug.create());
+    Object.assign(world.resource(Geometry), Geometry.create());
     Object.assign(world.resource(CharacterSample), CharacterSample.create());
     Object.assign(world.resource(GeometricMoverState), GeometricMoverState.create());
     Object.assign(world.resource(VillageState), VillageState.create());
