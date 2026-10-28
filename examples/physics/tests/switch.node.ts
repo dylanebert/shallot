@@ -1,16 +1,29 @@
-import { setDefaultTimeout, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { categories } from "../src/scenes";
-import { expectSwitchesEqualFresh } from "./switch";
+import { manualParityScenes } from "./manual-parity";
+import { dominoSwitchRanges } from "./switch-dominoes";
 
 setDefaultTimeout(TIMEOUT.node);
 
-// Benchmark scenes hold scene parity by manual oracle; this check holds the switcher.
-// Bridge is held separately by switch-bridge.node.ts.
-test("switching the critical set equals fresh scenes through 600 steps after a changed, grabbed Bridge", () =>
-    expectSwitchesEqualFresh(
-        categories
-            .filter((category) => category.name !== "Benchmark")
-            .flatMap((category) => category.scenes.map((scene) => scene.id))
-            .filter((scene) => scene !== "bridge"),
-    ));
+test("every Node parity category has a switch file", async () => {
+    for (const category of categories) {
+        if (category.scenes.every((scene) => manualParityScenes.has(scene.id))) continue;
+        expect(
+            await Bun.file(
+                new URL(`./switch-${category.name.toLowerCase()}.node.ts`, import.meta.url),
+            ).text(),
+        ).toContain(`testCategorySwitches("${category.name}")`);
+    }
+});
+
+test("Dominoes switch files cover each of the 600 steps once", async () => {
+    const steps: number[] = [];
+    for (const [part, range] of Object.entries(dominoSwitchRanges)) {
+        expect(
+            await Bun.file(new URL(`./switch-dominoes-${part}.node.ts`, import.meta.url)).text(),
+        ).toContain(`testDominoSwitches("${part}")`);
+        for (let step = range.start; step < range.end; step++) steps.push(step);
+    }
+    expect(steps).toEqual(Array.from({ length: 600 }, (_, step) => step));
+});

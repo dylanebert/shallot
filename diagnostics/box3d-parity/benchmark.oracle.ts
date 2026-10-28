@@ -8,10 +8,19 @@ import { setLinearVelocity } from "@dylanebert/shallot/standard/physics";
 import { digestMismatch, eventRecord, recordDigest } from "../../examples/physics/tests/digest";
 import { sensorEvents } from "./records";
 import "./village.oracle";
+import { VillagePlugin } from "../../examples/physics/src/village";
+import { manualParityScenes } from "../../examples/physics/tests/manual-parity";
+import { expectSwitchesEqualFresh } from "../../examples/physics/tests/switch";
 
 // Run by path with sample.oracle.ts. Scene parity needs one solver thread; the engine's
 // small determinism scenes hold scheduling and cross-host equality.
 setDefaultTimeout(0);
+
+// Large World's million-body switch is held by large-world-construction.oracle.ts.
+for (const scene of [...manualParityScenes].filter(scene => scene !== "largeWorld")) {
+    test(`${scene} switches equal to a fresh scene through 600 steps`, () =>
+        expectSwitchesEqualFresh([scene], [BenchmarkSamplePlugin, VillagePlugin]));
+}
 
 test("explosion magnitude and button sequence equals every recorded native step", async () => {
     const gold = sampleGold(await Bun.file(new URL("../../examples/physics/tests/explosion.controls.gold.txt", import.meta.url)).text());

@@ -8,6 +8,7 @@ import {
     hashPhysics,
     MotorJoint,
     ParallelJoint,
+    type Plugin,
     PrismaticJoint,
     RevoluteJoint,
     Shape,
@@ -57,18 +58,25 @@ function observations(world: World, controls: Record<string, number>) {
 }
 
 /** Switches from a changed, grabbed Bridge to each destination and holds it equal to a fresh
- * scene at construction and through 600 steps. */
-export async function expectSwitchesEqualFresh(destinations: readonly Scene[]): Promise<void> {
+ * scene at construction and at each step in the requested range (end exclusive).
+ * Earlier steps are replayed without observation; the default holds all 600 steps. */
+export async function expectSwitchesEqualFresh(
+    destinations: readonly Scene[],
+    plugins: Plugin[] = [],
+    steps = { start: 0, end: 600 },
+): Promise<void> {
     const app = await createApp({
         defaults: false,
         plugins: [
             StandardPhysicsPlugin,
             EventSamplePlugin,
+            ...plugins,
             { name: "GrabRecovery", recovery: GrabPlugin.recovery },
         ],
         // createScene's single-thread request is read only at build, which this app passes empty.
         setup(world) {
             world.resource(PhysicsWorldDefinition).workerCount = 1;
+            world.resource(PhysicsWorldDefinition).maximumMemory = 4 * 1024 ** 3;
         },
     });
     try {
@@ -99,7 +107,7 @@ export async function expectSwitchesEqualFresh(destinations: readonly Scene[]): 
             const freshControls = controlValues(scene);
             const fresh = await createApp({
                 defaults: false,
-                plugins: [StandardPhysicsPlugin, EventSamplePlugin],
+                plugins: [StandardPhysicsPlugin, EventSamplePlugin, ...plugins],
                 setup(world) {
                     createScene(world, scene);
                 },
@@ -108,9 +116,10 @@ export async function expectSwitchesEqualFresh(destinations: readonly Scene[]): 
                 expect(observations(world, switchedControls), `${scene} construction`).toEqual(
                     observations(fresh.world, freshControls),
                 );
-                for (let step = 0; step < 600; step++) {
+                for (let step = 0; step < steps.end; step++) {
                     world.tick();
                     fresh.world.tick();
+                    if (step < steps.start) continue;
                     const hash = hashPhysics(world);
                     expect(hash, `${scene} step ${step} fresh`).toBe(hashPhysics(fresh.world));
                     expect(
