@@ -1,5 +1,5 @@
 import { sphere } from "../../core/mesh";
-import { Hulls, type Shape, ShapeKind } from "../../core/physics";
+import { Compounds, Hulls, type Shape, ShapeKind } from "../../core/physics";
 import type { ComponentRecord, World } from "../../engine";
 import type { Vec3 } from "./common/records";
 import { buildPlacedHull, heightFieldBuild, meshBuild } from "./geometry-builds";
@@ -96,7 +96,8 @@ function placedHull(world: World, shape: Parameters<typeof shapeMesh>[1]) {
  * and the centers and radius for spheres and capsules; the body's
  * Transform is not baked. Requires an initialized StandardPhysicsPlugin for geometry builds.
  * Height fields use their definition scale (Shape.scale does not apply), decoded after
- * quantization, and omit holes. Throws for missing geometry or an unsupported compound.
+ * quantization, and omit holes. Compounds bake each child's placement and geometry, ignoring
+ * Shape.scale. Throws for missing geometry or an unsupported shape kind.
  * This is an authoring-time conversion, not a live binding to subsequent Shape edits.
  */
 export function shapeMesh(
@@ -122,6 +123,72 @@ export function shapeMesh(
     indices: Uint32Array;
 } {
     const { kind, geometry, scale } = shape;
+    if (kind === ShapeKind.Compound) {
+        const compound = world.resource(Compounds).get(geometry);
+        if (!compound) throw new Error(`shapeMesh: missing compound ${geometry}`);
+        const vertices: number[] = [];
+        const indices: number[] = [];
+        const append = (
+            child: Parameters<typeof shapeMesh>[1],
+            placement?: { position: Point; rotation: [number, number, number, number] },
+        ) => {
+            const mesh = shapeMesh(world, child);
+            const offset = vertices.length / 8;
+            if (placement) {
+                const [qx, qy, qz, qw] = placement.rotation;
+                for (let i = 0; i < mesh.vertices.length; i += 8) {
+                    for (const lane of [0, 4]) {
+                        const start = i + lane;
+                        const x = mesh.vertices[start]!,
+                            y = mesh.vertices[start + 1]!,
+                            z = mesh.vertices[start + 2]!;
+                        const tx = 2 * (qy * z - qz * y),
+                            ty = 2 * (qz * x - qx * z),
+                            tz = 2 * (qx * y - qy * x);
+                        mesh.vertices[start] = x + qw * tx + qy * tz - qz * ty;
+                        mesh.vertices[start + 1] = y + qw * ty + qz * tx - qx * tz;
+                        mesh.vertices[start + 2] = z + qw * tz + qx * ty - qy * tx;
+                        if (lane === 0)
+                            for (let axis = 0; axis < 3; axis++)
+                                mesh.vertices[start + axis] += placement.position[axis]!;
+                    }
+                }
+            }
+            for (const value of mesh.vertices) vertices.push(value);
+            for (const index of mesh.indices) indices.push(offset + index);
+        };
+        const base = { ...shape, scale: [1, 1, 1] as Point };
+        for (const child of compound.capsules ?? [])
+            append({
+                ...base,
+                kind: ShapeKind.Capsule,
+                radius: child.radius,
+                capsuleCenter1: child.center1,
+                capsuleCenter2: child.center2,
+            });
+        for (const child of compound.hulls ?? [])
+            append({
+                ...base,
+                kind: ShapeKind.Hull,
+                geometry: child.hull,
+                hullPosition: child.transform.position,
+                hullRotation: child.transform.rotation,
+                enableHullTransform: 1,
+            });
+        for (const child of compound.meshes ?? [])
+            append(
+                { ...base, kind: ShapeKind.Mesh, geometry: child.mesh, scale: child.scale },
+                child.transform,
+            );
+        for (const child of compound.spheres ?? [])
+            append({
+                ...base,
+                kind: ShapeKind.Sphere,
+                radius: child.radius,
+                sphereCenter: child.center,
+            });
+        return { vertices: new Float32Array(vertices), indices: new Uint32Array(indices) };
+    }
     if (kind === ShapeKind.Sphere || kind === ShapeKind.Capsule) {
         const radius = shape.radius;
         const a = kind === ShapeKind.Sphere ? shape.sphereCenter : shape.capsuleCenter1;

@@ -1,5 +1,14 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { Body, HeightFields, Hulls, PhysicsMeshes, Shape, ShapeKind } from "../../core/physics";
+import {
+    Body,
+    type Compound,
+    Compounds,
+    HeightFields,
+    Hulls,
+    PhysicsMeshes,
+    Shape,
+    ShapeKind,
+} from "../../core/physics";
 import { createApp, World } from "../../engine";
 import { heightFieldBuild } from "./geometry-builds";
 import { StandardPhysicsPlugin, shapeEdges, shapeMesh } from "./index";
@@ -459,7 +468,9 @@ test("the collision-surface assertion rejects raw heights and stretching to the 
 });
 
 test("unsupported kinds and stale geometry are refused without creating an entity", () => {
-    expect(() => shapeMesh(world, definition({ kind: ShapeKind.Compound }))).toThrow("unsupported");
+    expect(() => shapeMesh(world, definition({ kind: ShapeKind.Compound, geometry: -1 }))).toThrow(
+        "missing compound",
+    );
     const hulls = world.resource(Hulls);
     const geometry = hulls.add({ name: "removed", halfExtents: [1, 1, 1] });
     hulls.remove(geometry);
@@ -631,5 +642,105 @@ for (const b of [
                     Math.abs(Math.hypot(...p.map((v, i) => v - q[i]!)) - Math.hypot(...b)) < 1e-6,
             ),
         ).toHaveLength(4);
+    });
+}
+
+for (const kind of ["capsule", "hull", "mesh", "sphere", "mixed"] as const) {
+    test(`compound ${kind} draws its child geometry and placements`, () => {
+        const hull = world.resource(Hulls).add({ name: "compound hull", halfExtents: [1, 2, 3] });
+        const mesh = world.resource(PhysicsMeshes).add({
+            name: "compound triangle",
+            vertices: new Float32Array([0, 0, 0, 2, 0, 0, 0, 3, 1]),
+            indices: new Uint32Array([0, 1, 2]),
+        });
+        const transform = {
+            position: [3, -2, 5] as Point,
+            rotation: [0, 0, Math.SQRT1_2, Math.SQRT1_2] as [number, number, number, number],
+        };
+        const compound: Compound = { name: kind };
+        const expected: Geometry[] = [];
+        const placed = (geometry: Geometry): Geometry => {
+            const vertices = geometry.vertices.slice();
+            for (let i = 0; i < vertices.length; i += 8) {
+                const x = vertices[i]!,
+                    y = vertices[i + 1]!;
+                vertices[i] = 3 - y;
+                vertices[i + 1] = -2 + x;
+                vertices[i + 2] += 5;
+                const nx = vertices[i + 4]!;
+                vertices[i + 4] = -vertices[i + 5]!;
+                vertices[i + 5] = nx;
+            }
+            return { vertices, indices: geometry.indices };
+        };
+        if (kind === "capsule" || kind === "mixed") {
+            const child = {
+                center1: [-2, 1, 3] as Point,
+                center2: [1, 4, 5] as Point,
+                radius: 0.3,
+            };
+            compound.capsules = [child];
+            expected.push(
+                shapeMesh(
+                    world,
+                    definition({
+                        kind: ShapeKind.Capsule,
+                        capsuleCenter1: child.center1,
+                        capsuleCenter2: child.center2,
+                        radius: child.radius,
+                    }),
+                ),
+            );
+        }
+        if (kind === "hull" || kind === "mixed") {
+            compound.hulls = [{ hull, transform }];
+            expected.push(placed(shapeMesh(world, definition({ geometry: hull }))));
+        }
+        if (kind === "mesh" || kind === "mixed") {
+            const scale: Point = [-2, 3, 0.5];
+            compound.meshes = [{ mesh, transform, scale }];
+            expected.push(
+                placed(
+                    shapeMesh(world, definition({ kind: ShapeKind.Mesh, geometry: mesh, scale })),
+                ),
+            );
+        }
+        if (kind === "sphere" || kind === "mixed") {
+            const child = { center: [1, -3, 2] as Point, radius: 0.7 };
+            compound.spheres = [child];
+            expected.push(
+                shapeMesh(
+                    world,
+                    definition({
+                        kind: ShapeKind.Sphere,
+                        sphereCenter: child.center,
+                        radius: child.radius,
+                    }),
+                ),
+            );
+        }
+        const geometry = world.resource(Compounds).add(compound);
+        const actual = shapeMesh(
+            world,
+            definition({
+                kind: ShapeKind.Compound,
+                geometry,
+                scale: [9, 8, 7],
+                hullPosition: [100, 100, 100],
+                enableHullTransform: 0,
+            }),
+        );
+        expect(actual.vertices.length).toBe(
+            expected.reduce((sum, g) => sum + g.vertices.length, 0),
+        );
+        const indices: number[] = [];
+        let offset = 0;
+        for (const child of expected) {
+            for (let i = 0; i < child.vertices.length; i++)
+                expect(actual.vertices[offset * 8 + i]!).toBeCloseTo(child.vertices[i]!, 5);
+            indices.push(...Array.from(child.indices, (i) => i + offset));
+            offset += child.vertices.length / 8;
+        }
+        expect(actual.indices).toEqual(new Uint32Array(indices));
     });
 }
