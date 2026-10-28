@@ -31,6 +31,18 @@
                 const camera = [...app.world.query([Orbit])][0];
                 return app.world.storage(Orbit).yaw.get(camera);
             };
+            const { Bloom } = await import("@dylanebert/shallot/bloom");
+            const { settings } = await import("../src/settings");
+            const { Scene } = await import("../src/scene");
+            window.bloomFields = () => {
+                const camera = app.world.resource(Scene).camera;
+                if (!app.world.has(camera, Bloom)) return null;
+                const bloom = app.world.storage(Bloom);
+                const fields = { compositeMode: bloom.compositeMode.get(camera) };
+                for (const { field } of settings)
+                    fields[field] = field === "scale" ? bloom.scale.x.get(camera) : bloom[field].get(camera);
+                return fields;
+            };
             hud(mountOverlay(canvas, app.world), app.world);
             flushSync();
             window.captureScene = async () => {

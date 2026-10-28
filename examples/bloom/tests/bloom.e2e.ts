@@ -1,6 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { holdFrames, pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, type Page, test } from "playwright/test";
+import { settings } from "../src/settings";
 import { bodyHasFocus, dragRange, gameKeyMovesCamera, pointerControl } from "./pointer";
 
 type CaptureWindow = Window & { captureScene: () => Promise<number[]>; captures: number[][] };
@@ -36,7 +37,7 @@ test("the first frame has no late-pipeline warning", async ({ page }) => {
     );
 });
 
-test("every bloom control changes the captured frame and off restores the unbloomed frame", async ({
+test("a bloom control changes the captured frame and off restores the unbloomed frame", async ({
     page,
 }) => {
     const errors: string[] = [];
@@ -54,27 +55,33 @@ test("every bloom control changes the captured frame and off restores the unbloo
     for (const slider of await page.getByRole("slider").all()) await expect(slider).toBeDisabled();
     await toggle.check();
     expect(await difference(page, await capture(page), bloom)).toBeLessThan(0.1);
-    const values = [0.8, 0, 0.1, 0.1, 50, 1, 8];
-    for (const [index, slider] of (await page.getByRole("slider").all()).entries()) {
-        // Softness filters only a nonzero threshold.
-        if (index === 5)
-            await page.getByRole("slider", { name: "Threshold", exact: true }).fill("50");
-        const before = await capture(page);
-        const original = await slider.inputValue();
-        await slider.fill(String(values[index]));
-        expect(
-            await difference(page, await capture(page), before),
-            (await slider.getAttribute("id"))!,
-        ).toBeGreaterThan(0.01);
-        await slider.fill(original);
-        if (index === 5)
-            await page.getByRole("slider", { name: "Threshold", exact: true }).fill("0");
-    }
-    await page.getByRole("combobox").selectOption("1");
+    await page.getByRole("slider", { name: "Intensity", exact: true }).fill("0.8");
     expect(await difference(page, await capture(page), bloom)).toBeGreaterThan(0.01);
     await toggle.uncheck();
     expect(await difference(page, await capture(page), off)).toBeLessThan(0.1);
     expect(errors).toEqual([]);
+});
+
+test("each control writes its camera field and the toggle restores them", async ({ page }) => {
+    await page.goto("http://127.0.0.1:4276/tests/stepped.html?controls");
+    await page.waitForFunction(() => "bloomFields" in window);
+    const fields = () =>
+        page.evaluate(() =>
+            (window as unknown as { bloomFields(): Record<string, number> | null }).bloomFields(),
+        );
+    const values = [0.8, 0, 0.1, 0.1, 50, 1, 8];
+    for (const [index, control] of settings.entries()) {
+        await page.locator(`#control-${index}`).fill(String(values[index]));
+        expect((await fields())![control.field], control.label).toBeCloseTo(values[index]);
+    }
+    await page.getByRole("combobox").selectOption("1");
+    expect((await fields())!.compositeMode).toBe(1);
+    const set = await fields();
+    const toggle = page.getByRole("checkbox");
+    await toggle.uncheck();
+    expect(await fields()).toBeNull();
+    await toggle.check();
+    expect(await fields()).toEqual(set);
 });
 
 for (const viewport of [

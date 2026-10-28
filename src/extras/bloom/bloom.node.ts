@@ -145,26 +145,45 @@ test("zero intensity leaves the frame unchanged and removal unregisters the pass
     world.add(eid, Bloom);
 });
 
-test("both composite modes, a threshold and non-uniform scale change the HDR frame", async () => {
+test("each field changes the HDR frame and its default restores it", async () => {
     const world = subjects()[0].world;
+    const bloom = world.storage(Bloom);
     world.step(0);
+    const unbloomed = await bits(world, input);
     const natural = await bits(world, output);
-    expect(natural).not.toEqual(await bits(world, input));
-    world.storage(Bloom).compositeMode.set(eid, BloomCompositeMode.Additive);
+    expect(natural).not.toEqual(unbloomed);
+    const changes = [
+        ["intensity", bloom.intensity, 0.8],
+        ["lowFrequencyBoost", bloom.lowFrequencyBoost, 0],
+        ["lowFrequencyBoostCurvature", bloom.lowFrequencyBoostCurvature, 0.1],
+        ["highPassFrequency", bloom.highPassFrequency, 0.1],
+        ["compositeMode", bloom.compositeMode, BloomCompositeMode.Additive],
+        ["threshold", bloom.threshold, 4],
+        ["scale.x", bloom.scale.x, 4],
+        ["scale.y", bloom.scale.y, 4],
+    ] as const;
+    for (const [field, column, value] of changes) {
+        const original = column.get(eid);
+        column.set(eid, value);
+        world.step(0);
+        const changed = await bits(world, output);
+        expect(changed, field).not.toEqual(natural);
+        expect(changed, field).not.toEqual(unbloomed);
+        column.set(eid, original);
+        world.step(0);
+        expect(await bits(world, output), field).toEqual(natural);
+    }
+    // Softness filters only a nonzero threshold.
+    bloom.threshold.set(eid, 4);
     world.step(0);
-    const additive = await bits(world, output);
-    expect(additive).not.toEqual(natural);
-    expect(additive).not.toEqual(await bits(world, input));
-    world.storage(Bloom).threshold.set(eid, 4);
-    world.storage(Bloom).thresholdSoftness.set(eid, 0.5);
+    const hard = await bits(world, output);
+    bloom.thresholdSoftness.set(eid, 0.5);
     world.step(0);
-    expect(await bits(world, output)).not.toEqual(additive);
-    world.remove(eid, Bloom);
-    world.add(eid, Bloom, { scale: [4, 1] });
+    expect(await bits(world, output), "thresholdSoftness").not.toEqual(hard);
+    bloom.thresholdSoftness.set(eid, 0);
     world.step(0);
-    expect(await bits(world, output)).not.toEqual(natural);
-    world.remove(eid, Bloom);
-    world.add(eid, Bloom);
+    expect(await bits(world, output), "thresholdSoftness").toEqual(hard);
+    bloom.threshold.set(eid, 0);
 });
 
 test("bloom stays first when EffectStackPlugin was installed first, including after reactivation", () => {
