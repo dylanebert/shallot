@@ -13,7 +13,7 @@
     <body>
         <canvas width="1280" height="720"></canvas>
         <script type="module">
-            import { createApp, mountOverlay } from "@dylanebert/shallot";
+            import { Camera, createApp, MeshInstance, mountOverlay, Tonemapping } from "@dylanebert/shallot";
             import { captureFrame } from "@dylanebert/shallot/rendering";
             import { flushSync } from "svelte";
             import { hud } from "../src/hud";
@@ -23,10 +23,22 @@
             canvas.width = innerWidth;
             canvas.height = innerHeight;
             const app = await createApp({ plugins: [ScenePlugin] });
+            // Controls checks read focus, orbit yaw and fields, not pixels; without a Camera a step draws
+            // nothing, and input stays bound to the canvas.
+            if (new URL(location.href).searchParams.has("controls"))
+                for (const eid of [...app.world.query([Camera])]) app.world.remove(eid, Camera);
             const { Orbit } = await import("@dylanebert/shallot/extras");
             window.controlsKey = () => {
                 app.world.step(1 / 60);
                 return app.world.storage(Orbit).yaw.get(app.world.resource(Scene).camera);
+            };
+            window.tonemappingFields = () => {
+                const { camera, subjects, pattern } = app.world.resource(Scene);
+                return {
+                    method: app.world.storage(Tonemapping).method.get(camera),
+                    pattern: app.world.has(pattern, MeshInstance),
+                    subjects: subjects.filter((eid) => app.world.has(eid, MeshInstance)).length,
+                };
             };
             hud(mountOverlay(canvas, app.world), app.world);
             flushSync();

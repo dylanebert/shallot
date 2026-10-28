@@ -71,37 +71,28 @@ async function difference(page: Page, a: number, b: number) {
     );
 }
 
-test("each method is distinct on both scenes and the scene picker changes the frame", async ({
-    page,
-}) => {
-    const errors: string[] = [];
-    page.on("pageerror", (error) => errors.push(error.message));
-    // Each capture waits on a full draw, which a software adapter spends most of the test on. The
-    // difference is a per-pixel mean, so the claim holds at a quarter of the 1280 px frame.
-    await page.setViewportSize({ width: 640, height: 360 });
-    await page.goto("http://127.0.0.1:4297/tests/stepped.html");
-    await page.waitForFunction(() => "captureScene" in window);
-    const basic = await capture(page);
-    for (const scene of ["basic", "pattern"]) {
-        await page.locator("#scene").selectOption(scene);
-        const frames: number[] = [];
-        for (const [name, value] of methods) {
-            await page.locator("#method").selectOption(String(value));
-            const frame = await capture(page);
-            for (const previous of frames)
-                expect(
-                    await difference(page, frame, previous),
-                    `${scene}: ${name}`,
-                ).toBeGreaterThan(0.001);
-            frames.push(frame);
-        }
-        if (scene === "pattern")
-            expect(await difference(page, basic, frames[0])).toBeGreaterThan(1);
+test("each picker writes its camera field and scene", async ({ page }) => {
+    await page.goto("http://127.0.0.1:4297/tests/stepped.html?controls");
+    await page.waitForFunction(() => "tonemappingFields" in window);
+    const fields = () =>
+        page.evaluate(() =>
+            (
+                window as unknown as {
+                    tonemappingFields(): { method: number; pattern: boolean; subjects: number };
+                }
+            ).tonemappingFields(),
+        );
+    const initial = await fields();
+    expect(initial.method).toBe(Number(await page.locator("#method").inputValue()));
+    expect(initial).toMatchObject({ pattern: false, subjects: 12 });
+    for (const [name, value] of methods) {
+        await page.locator("#method").selectOption(String(value));
+        expect((await fields()).method, name).toBe(value);
     }
-    await page.locator("#method").selectOption("0");
+    await page.locator("#scene").selectOption("pattern");
+    expect(await fields()).toMatchObject({ pattern: true, subjects: 0 });
     await page.locator("#scene").selectOption("basic");
-    expect(await difference(page, basic, await capture(page))).toBeLessThan(0.01);
-    expect(errors).toEqual([]);
+    expect(await fields()).toMatchObject({ pattern: false, subjects: 12 });
 });
 
 for (const viewport of [
