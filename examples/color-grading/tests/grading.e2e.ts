@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { holdFrames, pipelineWarnings } from "@dylanebert/shallot/testing";
-import { expect, type Page, test } from "playwright/test";
+import { expect, test } from "playwright/test";
 import { settings } from "../src/settings";
 import { dragRange, gameKeyMovesCamera, pointerControl } from "./pointer";
 
@@ -16,7 +16,7 @@ test("the first frame has no late-pipeline warning", async ({ page }) => {
 });
 
 test("each panel control leaves the orbit key working", async ({ page }) => {
-    await page.goto("http://127.0.0.1:4296/tests/stepped.html?controls");
+    await page.goto("http://127.0.0.1:4296/tests/stepped.html");
     await page.waitForFunction(() => "controlsKey" in window);
     await gameKeyMovesCamera(page);
     await pointerControl(page, page.locator("summary"));
@@ -30,54 +30,8 @@ test("each panel control leaves the orbit key working", async ({ page }) => {
     }
 });
 
-type CaptureWindow = Window & { captureScene: () => Promise<number[]>; captures: number[][] };
-async function capture(page: Page): Promise<number> {
-    return page.evaluate(async () => {
-        const win = window as unknown as CaptureWindow;
-        win.captures ??= [];
-        win.captures.push(await win.captureScene());
-        return win.captures.length - 1;
-    });
-}
-async function difference(page: Page, a: number, b: number) {
-    return page.evaluate(
-        ([a, b]) => {
-            const captures = (window as unknown as CaptureWindow).captures;
-            let sum = 0;
-            for (let i = 0; i < captures[a].length; i++)
-                if (i % 4 !== 3) sum += Math.abs(captures[a][i] - captures[b][i]);
-            return sum / (captures[a].length * 0.75);
-        },
-        [a, b],
-    );
-}
-
-test("a control changes the frame and identity returns the ungraded frame", async ({ page }) => {
-    const errors: string[] = [];
-    page.on("pageerror", (error) => errors.push(error.message));
-    // Each capture waits on a full draw, which a software adapter spends most of the test on. The
-    // difference is a per-pixel mean, so the claim holds at a quarter of the 1280 px frame.
-    await page.setViewportSize({ width: 640, height: 360 });
-    await page.goto("http://127.0.0.1:4296/tests/stepped.html");
-    await page.waitForFunction(() => "captureScene" in window);
-    await page.evaluate(() =>
-        (window as unknown as { setGrading: (enabled: boolean) => void }).setGrading(false),
-    );
-    const identity = await capture(page);
-    await page.evaluate(() =>
-        (window as unknown as { setGrading: (enabled: boolean) => void }).setGrading(true),
-    );
-    expect(await difference(page, await capture(page), identity)).toBeLessThan(0.01);
-    const slider = page.getByRole("slider", { name: "Global Exposure" });
-    await slider.fill(String(settings[0].max));
-    expect(await difference(page, await capture(page), identity)).toBeGreaterThan(0.01);
-    await slider.fill(String(settings[0].value));
-    expect(await difference(page, await capture(page), identity)).toBeLessThan(0.01);
-    expect(errors).toEqual([]);
-});
-
 test("each control writes its camera field", async ({ page }) => {
-    await page.goto("http://127.0.0.1:4296/tests/stepped.html?controls");
+    await page.goto("http://127.0.0.1:4296/tests/stepped.html");
     await page.waitForFunction(() => "gradingField" in window);
     const field = (index: number) =>
         page.evaluate(

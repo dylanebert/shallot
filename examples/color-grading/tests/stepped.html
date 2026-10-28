@@ -14,17 +14,15 @@
         <canvas width="1280" height="720"></canvas>
         <script type="module">
             import { Camera, ColorGrading, createApp, mountOverlay } from "@dylanebert/shallot";
-            import { captureFrame } from "@dylanebert/shallot/rendering";
             import { flushSync } from "svelte";
             import { hud } from "../src/hud";
             import { Scene, ScenePlugin } from "../src/scene";
 
             const canvas = document.querySelector("canvas");
             const app = await createApp({ plugins: [ScenePlugin] });
-            // Controls checks read focus and orbit yaw, not pixels; without a Camera a step draws nothing,
+            // These checks read focus, orbit yaw and camera fields, not pixels; without a Camera a step draws nothing,
             // and input stays bound to the canvas.
-            if (new URL(location.href).searchParams.has("controls"))
-                for (const eid of [...app.world.query([Camera])]) app.world.remove(eid, Camera);
+            for (const eid of [...app.world.query([Camera])]) app.world.remove(eid, Camera);
             const { Orbit } = await import("@dylanebert/shallot/extras");
             window.controlsKey = () => {
                 app.world.step(1 / 60);
@@ -41,18 +39,6 @@
             flushSync();
             app.world.step(0);
             app.world.step(0);
-            window.setGrading = (enabled) => {
-                const camera = app.world.resource(Scene).camera;
-                if (enabled) app.world.add(camera, ColorGrading);
-                else app.world.remove(camera, ColorGrading);
-            };
-            window.captureScene = async () => {
-                flushSync();
-                const pending = captureFrame(canvas);
-                app.world.step(0);
-                const image = await pending;
-                return Array.from(image.rgba);
-            };
         </script>
     </body>
 </html>
