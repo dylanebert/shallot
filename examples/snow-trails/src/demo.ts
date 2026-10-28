@@ -11,6 +11,7 @@ import {
     Meshes,
     MeshInstance,
     MeshMaterial,
+    NotShadowCaster,
     type Plugin,
     Shape,
     ShapeKind,
@@ -64,6 +65,7 @@ export const DemoPlugin: Plugin = {
         const snow = world.create();
         state.snow = snow;
         world.add(snow, Transform);
+        world.add(snow, NotShadowCaster);
         world.add(snow, MeshInstance, {
             mesh: world.resource(Meshes).add({ name: "snowfield", ...snowPlane() }),
         });
