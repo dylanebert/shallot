@@ -1,5 +1,5 @@
 import { mkdir } from "node:fs/promises";
-import { pipelineWarnings } from "@dylanebert/shallot/testing";
+import { holdFrames, pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, type Page, test } from "playwright/test";
 import { bodyHasFocus, dragRange, gameKeyMovesCamera, pointerControl } from "./pointer";
 
@@ -83,6 +83,9 @@ for (const viewport of [
 ]) {
     test(`default view and usable controls at ${viewport.width}px`, async ({ page }) => {
         await page.setViewportSize(viewport);
+        // A capture run screenshots the live scene; otherwise these claims read only the DOM.
+        if (!process.env.SHALLOT_CAPTURE_DIR)
+            await holdFrames(page, "[aria-label='Bloom controls']");
         await page.goto("/");
         const panel = page.getByRole("region", { name: "Bloom controls" });
         await panel.waitFor();
