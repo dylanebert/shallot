@@ -70,7 +70,20 @@ test("mass overrides equal native Box3D for static, kinematic, dynamic, rotation
             snapshot();
             setMassData(world, eid, { ...override, mass: c === 1 ? 0 : 3 });
             snapshot();
-            for (let i = 0; i < 3; i++) {
+            const saved = world.snapshot();
+            const savedMass = getMassData(world, eid);
+            const savedHash = hashPhysics(world);
+            world.tick();
+            snapshot();
+            const nextMass = getMassData(world, eid);
+            const nextHash = hashPhysics(world);
+            world.restore(saved);
+            expect(getMassData(world, eid), `case ${c} restored override`).toEqual(savedMass);
+            expect(hashPhysics(world), `case ${c} restored hash`).toBe(savedHash);
+            world.tick();
+            expect(getMassData(world, eid), `case ${c} replayed override`).toEqual(nextMass);
+            expect(hashPhysics(world), `case ${c} replayed hash`).toBe(nextHash);
+            for (let i = 1; i < 3; i++) {
                 world.tick();
                 snapshot();
             }
