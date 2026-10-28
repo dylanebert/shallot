@@ -233,8 +233,8 @@ function buildHeightField(world: World, def: HeightField, sx = 1, sy = 1, sz = 1
     }
     const { heights, materialIndices, scale, countX, countZ } = def;
     const label = `physics: height field "${def.name}"`;
-    if (!Number.isInteger(countX) || !Number.isInteger(countZ) || countX < 2 || countZ < 2)
-        throw new Error(`${label} is ${countX} by ${countZ} points, not integers of at least 2`);
+    if (!Number.isInteger(countX) || !Number.isInteger(countZ) || countX < 1 || countZ < 1)
+        throw new Error(`${label} is ${countX} by ${countZ} points, not integers of at least 1`);
     if (heights.length !== countX * countZ)
         throw new Error(`${label} has ${heights.length} heights for ${countX * countZ} points`);
     const cells = (countX - 1) * (countZ - 1);
@@ -242,8 +242,10 @@ function buildHeightField(world: World, def: HeightField, sx = 1, sy = 1, sz = 1
         throw new Error(
             `${label} has ${materialIndices.length} material indices for ${cells} cells`,
         );
-    if (!(scale[0] > 0 && scale[1] > 0 && scale[2] > 0))
-        throw new Error(`${label} has scale [${scale.join(", ")}], not positive`);
+    if (!(scale[0] > 0 && scale[1] >= 0 && scale[2] > 0))
+        throw new Error(
+            `${label} has scale [${scale.join(", ")}], not positive in xz and nonnegative in y`,
+        );
     if (!(def.globalMinimumHeight <= def.globalMaximumHeight))
         throw new Error(
             `${label} has globalMinimumHeight ${def.globalMinimumHeight} above globalMaximumHeight ${def.globalMaximumHeight}`,

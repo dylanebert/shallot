@@ -36,5 +36,10 @@ int main(void){puts("[");
  custom_field("height-clamped",5,4,(b3Vec3){0.3f,1.5f,2},-1,2,false,h,hm);custom_field("height-clockwise",5,4,(b3Vec3){0.3f,1.5f,2},-1,2,true,h,hm);custom_field("height-no-materials",5,4,(b3Vec3){1,1,1},-256,256,false,h,NULL);custom_field("height-zero-range",5,4,(b3Vec3){1,1,1},1,1,false,h,NULL);
  float hg[]={6,7,0.3f,1.5f,2,1};field("height-grid-holes",11,hg,6,b3CreateGrid(6,7,(b3Vec3){0.3f,1.5f,2},true));float hg2[]={2,2,1,1,1,0};field("height-grid-minimum",11,hg2,6,b3CreateGrid(2,2,(b3Vec3){1,1,1},false));
  float hw[]={32,32,2,1.5f,2,0.1f,0.03333f,0};field("height-wave",12,hw,8,b3CreateWave(32,32,(b3Vec3){2,1.5f,2},0.1f,0.03333f,false));float hw2[]={6,8,1,0.5f,1,0.25f,0.5f,1};field("height-wave-holes",12,hw2,8,b3CreateWave(6,8,(b3Vec3){1,0.5f,1},0.25f,0.5f,true));
+ float flat[]={10,10,2,0,2,0};field("height-zero-vertical-scale",11,flat,6,b3CreateGrid(10,10,(b3Vec3){2,0,2},false));
+ float column[]={10,1,2,1.5f,2,0};field("height-one-column",11,column,6,b3CreateGrid(10,1,(b3Vec3){2,1.5f,2},false));
+ float row[]={1,10,2,1.5f,2,0};field("height-one-row",11,row,6,b3CreateGrid(1,10,(b3Vec3){2,1.5f,2},false));
+ float point[]={1,1,2,1.5f,2,0};field("height-one-point",11,point,6,b3CreateGrid(1,1,(b3Vec3){2,1.5f,2},false));
+ float minimum[]={1,1,2,0,2,0.1f,0.03333f,1};field("height-wave-minimum",12,minimum,8,b3CreateWave(1,1,(b3Vec3){2,0,2},0.1f,0.03333f,true));
  puts("\n]");return 0;
 }

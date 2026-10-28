@@ -12,11 +12,11 @@ export type HeightFieldDef = {
     heights: ArrayLike<number>;
     /** Per-cell material index (0xFF = hole), length = (countX-1)*(countZ-1); null → all zero. */
     materialIndices: ArrayLike<number> | null;
-    /** Overall scale; all components must be positive. */
+    /** Horizontal scale must be positive; vertical scale may be zero. */
     scale: Vec3;
-    /** Number of grid lines along the x-axis (columns). */
+    /** Number of grid lines along the x-axis (columns), at least one. */
     countX: number;
-    /** Number of grid lines along the z-axis (rows). */
+    /** Number of grid lines along the z-axis (rows), at least one. */
     countZ: number;
     /** Global min/max heights for quantization; all heights clamp to this range (unscaled). */
     globalMinimumHeight: number;

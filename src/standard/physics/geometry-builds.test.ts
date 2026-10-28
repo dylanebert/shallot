@@ -532,6 +532,33 @@ test("each HeightField field reaches Box3D's height-field build", async () => {
     });
 });
 
+test("height fields accept one-point axes and zero vertical scale at the sample endpoints", async () => {
+    await withPhysics((world) => {
+        for (const [countX, countZ, verticalScale] of [
+            [10, 10, 0],
+            [1, 10, 1.5],
+            [1, 1, 1.5],
+        ]) {
+            const eid = world.create();
+            world.add(eid, Body);
+            world.add(eid, Shape, {
+                kind: ShapeKind.HeightField,
+                geometry: world.resource(HeightFields).add({
+                    name: "endpoint",
+                    countX: countX!,
+                    countZ: countZ!,
+                    heights: new Float32Array(countX! * countZ!),
+                    scale: [2, verticalScale!, 2],
+                    globalMinimumHeight: -256,
+                    globalMaximumHeight: 256,
+                }),
+            });
+        }
+        world.tick();
+        expect(worldCounters(state(world)).shapeCount).toBe(3);
+    });
+});
+
 test("a HeightField Box3D cannot build leaves its Shape unattached with a warning naming it", async () => {
     const square = {
         heights: new Float32Array(4),
@@ -543,16 +570,19 @@ test("a HeightField Box3D cannot build leaves its Shape unattached with a warnin
     };
     const cases: [Omit<GridField, "name">, RegExp][] = [
         [
-            { ...square, heights: new Float32Array(2), countX: 1 },
-            /is 1 by 2 points, not integers of at least 2/,
+            { ...square, heights: new Float32Array(0), countX: 0 },
+            /is 0 by 2 points, not integers of at least 1/,
         ],
         [
             { ...square, heights: new Float32Array(5), countX: 2.5 },
-            /is 2.5 by 2 points, not integers of at least 2/,
+            /is 2.5 by 2 points, not integers of at least 1/,
         ],
         [{ ...square, heights: new Float32Array(3) }, /has 3 heights for 4 points/],
         [{ ...square, materialIndices: new Uint8Array(2) }, /has 2 material indices for 1 cells/],
-        [{ ...square, scale: [1, 0, 1] }, /has scale \[1, 0, 1\], not positive/],
+        [
+            { ...square, scale: [1, -1, 1] },
+            /has scale \[1, -1, 1\], not positive in xz and nonnegative in y/,
+        ],
         [
             { ...square, globalMinimumHeight: 1, globalMaximumHeight: 0 },
             /has globalMinimumHeight 1 above globalMaximumHeight 0/,

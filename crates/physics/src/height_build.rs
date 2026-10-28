@@ -34,7 +34,7 @@ pub fn create_height_field(d: &Definition<'_>) -> Image {
     let nz = d.rows;
     let count = nx * nz;
     let cells = (nx - 1) * (nz - 1);
-    assert!(nx >= 2 && nz >= 2 && d.heights.len() >= count && d.minimum <= d.maximum);
+    assert!(nx >= 1 && nz >= 1 && d.heights.len() >= count && d.minimum <= d.maximum);
     let heights_offset = 96;
     let material_offset = heights_offset + align8(2 * count);
     let flags_offset = material_offset + align8(cells);
