@@ -25,12 +25,12 @@ import {
     MainPassSystem,
     NORMAL_FORMAT,
     NormalPrepassRequests,
+    PrepareViewsSystem,
     PrepassSystem,
     RenderContext,
     RenderPhases,
     renderLayers,
     SAMPLE_COUNT,
-    sizeView,
     type TransparentPhase,
     Views,
 } from "../../core/rendering";
@@ -1346,6 +1346,7 @@ const ShadowCameraSystem: System = {
     name: "shadow-camera",
     group: "draw",
     first: true,
+    after: [PrepareViewsSystem],
     before: [BeginFrameSystem],
     update(world) {
         const _standardRendererState = world.resource(standardRendererStateKey);
@@ -1355,8 +1356,6 @@ const ShadowCameraSystem: System = {
             main = eid;
             break;
         }
-        const mainView = world.resource(Views).get(main);
-        if (mainView) sizeView(world, main, mainView);
         const casters = updatePointShadows(world, main, _standardRendererState.pointFrames);
         setPointFrames(world, _standardRendererState.pointFrames, casters);
         setShadowView(world, world.resource(Views).get(main) ?? null);

@@ -391,6 +391,34 @@ export function initialStackedViews(world: World): ViewSlot[] {
     return views.filter((view) => view.sortedIndexForTarget);
 }
 
+/** Bind, order and size target cameras before shadow fitting and projection packing.
+ * Camera producers run before this anchor; view consumers run after it. */
+export const PrepareViewsSystem: System = {
+    group: "draw",
+    first: true,
+    after: [PrepareGlobalTransformSystem],
+    update(world) {
+        if (!world.gpu.device) return;
+        // Prune before binding so recycled camera eids cannot inherit an old surface.
+        pruneViews(world);
+        const frame = world.resource(renderFrameKey);
+        let count = 0;
+        for (const eid of world.query(CAMERAS)) {
+            const view = bindCamera(eid, world);
+            if (!view || (!view.context && !view.texture)) continue;
+            frame.targetEids[count] = eid;
+            frame.targetViews[count] = view;
+            count++;
+        }
+        frame.targetEids.length = count;
+        frame.targetViews.length = count;
+        sortTargets(world, frame.targetEids, frame.targetViews);
+        // The bottom camera resolves the canvas backing size before the cameras above it.
+        for (let i = 0; i < count; i++)
+            sizeView(world, frame.targetEids[i]!, frame.targetViews[i]!);
+    },
+};
+
 /**
  * prepares per-frame render state: writes the Frame UBO, records history work
  * on the World's lazy frame encoder, acquires each view's swapchain backbuffer
@@ -401,7 +429,7 @@ export function initialStackedViews(world: World): ViewSlot[] {
 export const BeginFrameSystem: System = {
     group: "draw",
     first: true,
-    after: [PrepareGlobalTransformSystem],
+    after: [PrepareViewsSystem],
     before: [ClearChangeMarksSystem],
     update(world) {
         const _render = world.resource(RenderContext);
@@ -410,15 +438,11 @@ export const BeginFrameSystem: System = {
         const device = world.gpu.device;
         if (!device) return;
 
-        // Prune before binding so recycled camera eids cannot inherit an old surface.
-        pruneViews(world);
-
         prepareGlobalTransformFrame(world);
         writeFrame(world);
 
         let shadeCount = 0;
         let depthOnly = 0;
-        let targetCount = 0;
         const presentingEids = _renderFrame.presentingEids;
         const presentingViews = _renderFrame.presentingViews;
         const targetEids = _renderFrame.targetEids;
@@ -426,32 +450,22 @@ export const BeginFrameSystem: System = {
         // Presenting views own the low uniform slots; depth-only views stack above them in the
         // fixed cull-table tail. These scratch arrays are retained by renderFrameKey across frames.
         for (const eid of world.query(CAMERAS)) {
-            const view = bindCamera(eid, world);
+            const view = world.resource(Views).get(eid);
             if (!view) continue;
             view.framebuffer = null;
             view.framebufferFormat = undefined;
             view.present = null;
             view.canvasTexture = undefined;
-            if (view.context || view.texture) {
-                targetEids[targetCount] = eid;
-                targetViews[targetCount] = view;
-                targetCount++;
-                continue;
-            }
+            if (view.context || view.texture) continue;
             sizeView(world, eid, view);
             if (view.width === 0 || view.height === 0) continue;
             _renderFrame.depthOnlyEids[depthOnly] = eid;
             _renderFrame.depthOnlyViews[depthOnly] = view;
             depthOnly++;
         }
-        targetEids.length = targetCount;
-        targetViews.length = targetCount;
-        sortTargets(world, targetEids, targetViews);
-        // Bottom to top, so a camera above the bottom of a canvas sizes after the canvas does.
-        for (let i = 0; i < targetCount; i++) {
+        for (let i = 0; i < targetEids.length; i++) {
             const eid = targetEids[i]!;
             const view = targetViews[i]!;
-            sizeView(world, eid, view);
             if (
                 view.width === 0 ||
                 view.height === 0 ||
@@ -617,6 +631,7 @@ export const RenderingPlugin: Plugin = {
         GlobalTransformHistoryStartSystem,
         GlobalTransformHistoryEndSystem,
         PrepareGlobalTransformHistorySystem,
+        PrepareViewsSystem,
         BeginFrameSystem,
         OverlaySystem,
         PresentationSystem,
