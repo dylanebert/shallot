@@ -52,6 +52,7 @@ import {
     MainPassSystem,
     NormalPrepassRequests,
     OverlaySystem,
+    PrepareViewsSystem,
     PrepassSystem,
     PresentationSystem,
     RenderingPlugin,
@@ -123,6 +124,7 @@ const contractResources = {
 };
 const lightResources = { clusterGpuKey, lightInputKey, Clusters, LightCull, lightingKey, Lighting };
 const coreSystems = {
+    PrepareViewsSystem,
     BeginFrameSystem,
     OverlaySystem,
     PresentationSystem,

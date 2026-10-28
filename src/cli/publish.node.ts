@@ -18,6 +18,7 @@ import { bunChild } from "../../scripts/bun-child";
 import { packedInstall } from "../../scripts/packed-install-spawn";
 import { publishTestChromium } from "../../scripts/publish-browser";
 import { removeTestDirectory } from "../../scripts/test-directory";
+import { publishHeaders } from "./publish";
 import {
     cloudflareConfig,
     discoverWranglerConfig,
@@ -147,176 +148,150 @@ beforeAll(() => {
 });
 afterAll(() => removeTestDirectory(root));
 
-for (const template of ["minimal", "physics"])
-    test(`a packed minimal scaffold ${template === "physics" ? "with physics" : "without physics"} starts through pinned Wrangler assets, dry-runs without credentials, and changes only its link`, async () => {
-        const cli = join(project, "node_modules/@dylanebert/shallot/bin/shallot.ts");
-        const scaffold = join(root, `scaffold-${template}`);
-        run([cli, "create", scaffold]);
-        if (template === "physics") {
-            const html = join(scaffold, "index.html");
-            writeFileSync(
-                html,
-                readFileSync(html, "utf8")
-                    .replace("runApp, shallotDark", "runApp, shallotDark, StandardPhysicsPlugin")
-                    .replace("plugins: [Welcome]", "plugins: [StandardPhysicsPlugin, Welcome]")
-                    .replace(
-                        'from "@dylanebert/shallot";',
-                        'from "@dylanebert/shallot"; import { PhysicsWorldDefinition } from "@dylanebert/shallot/standard/physics";',
-                    )
-                    .replace(
-                        "await runApp({",
-                        "const app = await runApp({ setup: world => { world.resource(PhysicsWorldDefinition).workerCount = 2; },",
-                    )
-                    .replace(
-                        "loading: shallotDark({ bootstrap }) });",
-                        "loading: shallotDark({ bootstrap }) });\n            app.world.tick();",
-                    ),
-            );
-            expect(readFileSync(html, "utf8")).toContain("app.world.tick();");
+test("a packed minimal scaffold with physics starts through pinned Wrangler assets and changes only its link", async () => {
+    const cli = join(project, "node_modules/@dylanebert/shallot/bin/shallot.ts");
+    const scaffold = join(root, "scaffold");
+    run([cli, "create", scaffold]);
+    const html = join(scaffold, "index.html");
+    writeFileSync(
+        html,
+        readFileSync(html, "utf8")
+            .replace("runApp, shallotDark", "runApp, shallotDark, StandardPhysicsPlugin")
+            .replace("plugins: [Welcome]", "plugins: [StandardPhysicsPlugin, Welcome]")
+            .replace(
+                'from "@dylanebert/shallot";',
+                'from "@dylanebert/shallot"; import { PhysicsWorldDefinition } from "@dylanebert/shallot/standard/physics";',
+            )
+            .replace(
+                "await runApp({",
+                "const app = await runApp({ setup: world => { world.resource(PhysicsWorldDefinition).workerCount = 2; },",
+            )
+            .replace(
+                "loading: shallotDark({ bootstrap }) });",
+                "loading: shallotDark({ bootstrap }) });\n            app.world.tick();",
+            ),
+    );
+    expect(readFileSync(html, "utf8")).toContain("app.world.tick();");
+    const path = join(scaffold, "package.json");
+    const manifest = JSON.parse(readFileSync(path, "utf8"));
+    manifest.dependencies["@dylanebert/shallot"] = spec;
+    manifest.devDependencies.wrangler = WRANGLER_VERSION;
+    writeFileSync(path, JSON.stringify(manifest, null, 4));
+    symlinkSync(join(project, "node_modules"), join(scaffold, "node_modules"), "junction");
+    const installed = join(scaffold, "node_modules/@dylanebert/shallot");
+    const publish = (await import(
+        join(installed, "src/cli/publish.ts")
+    )) as typeof import("./publish");
+    const verify = (await import(
+        join(installed, "src/cli/publish-verify.ts")
+    )) as typeof import("./publish-verify");
+    const build = (await import(
+        join(installed, "src/project/build.ts")
+    )) as typeof import("../project/build");
+    const snapshot = (relative = "", files = new Map<string, Buffer<ArrayBuffer>>()) => {
+        for (const entry of readdirSync(join(scaffold, relative), {
+            withFileTypes: true,
+        })) {
+            if (entry.name === "node_modules") continue;
+            const file = relative ? `${relative}/${entry.name}` : entry.name;
+            if (entry.isDirectory()) snapshot(file, files);
+            else files.set(file, readFileSync(join(scaffold, file)));
         }
-        const path = join(scaffold, "package.json");
-        const manifest = JSON.parse(readFileSync(path, "utf8"));
-        manifest.dependencies["@dylanebert/shallot"] = spec;
-        manifest.devDependencies.wrangler = WRANGLER_VERSION;
-        writeFileSync(path, JSON.stringify(manifest, null, 4));
-        symlinkSync(join(project, "node_modules"), join(scaffold, "node_modules"), "junction");
-        const installed = join(scaffold, "node_modules/@dylanebert/shallot");
-        const publish = (await import(
-            join(installed, "src/cli/publish.ts")
-        )) as typeof import("./publish");
-        const verify = (await import(
-            join(installed, "src/cli/publish-verify.ts")
-        )) as typeof import("./publish-verify");
-        const build = (await import(
-            join(installed, "src/project/build.ts")
-        )) as typeof import("../project/build");
-        const snapshot = (relative = "", files = new Map<string, Buffer<ArrayBuffer>>()) => {
-            for (const entry of readdirSync(join(scaffold, relative), {
-                withFileTypes: true,
-            })) {
-                if (entry.name === "node_modules") continue;
-                const file = relative ? `${relative}/${entry.name}` : entry.name;
-                if (entry.isDirectory()) snapshot(file, files);
-                else files.set(file, readFileSync(join(scaffold, file)));
-            }
-            return files;
-        };
-        const before = snapshot();
-        const directory = join(root, `web-${template}`);
-        await build.buildWeb(scaffold, { outDir: directory, stdout: 2 });
-        const assets = publish.publishAssets(directory);
-        publish.preflightPublish(assets, { files: 20_000, bytes: 25 * 1024 * 1024 });
-        writeFileSync(join(directory, "_headers"), publish.publishHeaders());
-        const link = {
-            target: "cloudflare" as const,
-            name: "shallot-publish-local",
-            accountId: "a".repeat(32),
-        };
-        const config = join(root, "wrangler.json");
-        writeFileSync(config, JSON.stringify(cloudflareConfig(directory, link)));
-        const wrangler = resolveWrangler(scaffold)!;
-        const dry = Bun.spawnSync(["node", wrangler, "deploy", "--config", config, "--dry-run"], {
-            cwd: scaffold,
-            env,
-            stdout: "pipe",
-            stderr: "pipe",
-        });
-        expect(dry.exitCode, `${dry.stdout}\n${dry.stderr}`).toBe(0);
-        expect(dry.stdout.toString()).toContain("--dry-run: exiting now");
-        writeFileSync(config, JSON.stringify(cloudflareConfig(directory, link)));
-        const port = await freePort();
-        const child = spawn(
-            "node",
-            [
-                wrangler,
-                "dev",
-                "--config",
-                config,
-                "--port",
-                String(port),
-                "--inspector-port",
-                "0",
-                "--ip",
-                "127.0.0.1",
-                "--persist-to",
-                join(root, "state"),
-            ],
-            { cwd: root, env, stdio: ["ignore", "pipe", "pipe"] },
-        );
-        let logs = "";
-        child.stdout.on("data", (chunk) => {
-            logs += chunk;
-        });
-        child.stderr.on("data", (chunk) => {
-            logs += chunk;
-        });
-        const exited = new Promise<void>((done) => child.once("exit", () => done()));
-        let browser: Awaited<ReturnType<typeof publishTestChromium>> | undefined;
-        try {
-            browser = await publishTestChromium();
-            const newContext = browser.newContext.bind(browser);
-            browser.newContext = async (...args) => {
-                const context = await newContext(...args);
-                await context.addInitScript(() =>
-                    Object.defineProperty(navigator, "hardwareConcurrency", { value: 2 }),
-                );
-                return context;
-            };
-            const url = `http://127.0.0.1:${port}`;
-            const deadline = Date.now() + TIMEOUT.startup;
-            while (true) {
-                try {
-                    if ((await fetch(url)).ok) break;
-                } catch {
-                    /* not listening yet */
-                }
-                if (child.exitCode !== null || Date.now() > deadline)
-                    throw new Error(`Wrangler did not start:\n${logs}`);
-                await Bun.sleep(100);
-            }
-            const rootResponse = await fetch(url);
-            expect(rootResponse.headers.get("cache-control")).toBe("no-cache");
-            const hashed = assets.find(
-                (asset) => asset.path.startsWith("assets/") && asset.path.endsWith(".js"),
-            );
-            expect(hashed).toBeDefined();
-            expect((await fetch(`${url}/${hashed!.path}`)).headers.get("cache-control")).toContain(
-                "immutable",
-            );
-            const verification = await verify.verifyPublishedGame(browser, url, directory, assets);
-            console.info(`publish ${template} local verification:`, verification);
-            if (template === "physics") {
-                expect(verification.artifact).toBe("shared");
-                expect(verification.physicsStepped).toBe(true);
-            } else expect(verification.threads).toBeUndefined();
-            publish.savePublishLink(scaffold, link);
-            for (const [file, bytes] of before) {
-                if (file !== "package.json")
-                    expect(readFileSync(join(scaffold, file)), file).toEqual(bytes);
-            }
-            expect([...snapshot().keys()].sort()).toEqual([...before.keys()].sort());
-            const after = JSON.parse(readFileSync(path, "utf8"));
-            expect(after).toEqual({ ...manifest, shallot: { publish: link } });
-            const refusal = Bun.spawnSync({
-                ...bunChild([join(installed, "bin/shallot.ts"), "publish"]),
-                cwd: scaffold,
-                env,
-                stdin: "ignore",
-                stdout: "pipe",
-                stderr: "pipe",
-                timeout: TIMEOUT.startup,
-            });
-            expect(refusal.exitCode).toBe(1);
-            expect(refusal.stderr.toString()).toContain("CLOUDFLARE_API_TOKEN");
-            expect(refusal.stdout.toString()).toBe("");
-        } finally {
-            await browser?.close();
-            child.kill("SIGTERM");
-            await exited;
-        }
+        return files;
+    };
+    const before = snapshot();
+    const directory = join(root, "web");
+    await build.buildWeb(scaffold, { outDir: directory, stdout: 2 });
+    const assets = publish.publishAssets(directory);
+    publish.preflightPublish(assets, { files: 20_000, bytes: 25 * 1024 * 1024 });
+    writeFileSync(join(directory, "_headers"), publish.publishHeaders());
+    const link = {
+        target: "cloudflare" as const,
+        name: "shallot-publish-local",
+        accountId: "a".repeat(32),
+    };
+    const config = join(root, "wrangler.json");
+    writeFileSync(config, JSON.stringify(cloudflareConfig(directory, link)));
+    const wrangler = resolveWrangler(scaffold)!;
+    const port = await freePort();
+    const child = spawn(
+        "node",
+        [
+            wrangler,
+            "dev",
+            "--config",
+            config,
+            "--port",
+            String(port),
+            "--inspector-port",
+            "0",
+            "--ip",
+            "127.0.0.1",
+            "--persist-to",
+            join(root, "state"),
+        ],
+        { cwd: root, env, stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let logs = "";
+    child.stdout.on("data", (chunk) => {
+        logs += chunk;
     });
+    child.stderr.on("data", (chunk) => {
+        logs += chunk;
+    });
+    const exited = new Promise<void>((done) => child.once("exit", () => done()));
+    let browser: Awaited<ReturnType<typeof publishTestChromium>> | undefined;
+    try {
+        browser = await publishTestChromium();
+        const newContext = browser.newContext.bind(browser);
+        browser.newContext = async (...args) => {
+            const context = await newContext(...args);
+            await context.addInitScript(() =>
+                Object.defineProperty(navigator, "hardwareConcurrency", { value: 2 }),
+            );
+            return context;
+        };
+        const url = `http://127.0.0.1:${port}`;
+        const deadline = Date.now() + TIMEOUT.startup;
+        while (true) {
+            try {
+                if ((await fetch(url)).ok) break;
+            } catch {
+                /* not listening yet */
+            }
+            if (child.exitCode !== null || Date.now() > deadline)
+                throw new Error(`Wrangler did not start:\n${logs}`);
+            await Bun.sleep(100);
+        }
+        const rootResponse = await fetch(url);
+        expect(rootResponse.headers.get("cache-control")).toBe("no-cache");
+        const hashed = assets.find(
+            (asset) => asset.path.startsWith("assets/") && asset.path.endsWith(".js"),
+        );
+        expect(hashed).toBeDefined();
+        expect((await fetch(`${url}/${hashed!.path}`)).headers.get("cache-control")).toContain(
+            "immutable",
+        );
+        const verification = await verify.verifyPublishedGame(browser, url, directory, assets);
+        console.info("publish physics local verification:", verification);
+        expect(verification.artifact).toBe("shared");
+        expect(verification.physicsStepped).toBe(true);
+        publish.savePublishLink(scaffold, link);
+        for (const [file, bytes] of before) {
+            if (file !== "package.json")
+                expect(readFileSync(join(scaffold, file)), file).toEqual(bytes);
+        }
+        expect([...snapshot().keys()].sort()).toEqual([...before.keys()].sort());
+        const after = JSON.parse(readFileSync(path, "utf8"));
+        expect(after).toEqual({ ...manifest, shallot: { publish: link } });
+    } finally {
+        await browser?.close();
+        child.kill("SIGTERM");
+        await exited;
+    }
+});
 
-test("pinned Wrangler resolves an ancestor config's account and, without one, parses each command publish prints", async () => {
+test("pinned Wrangler resolves an ancestor config's account and, without one, parses each command publish prints and dry-runs the deploy config; the packed CLI refuses a linked publish without credentials", async () => {
     const wrangler = resolveWrangler(repo)!;
     const accountId = "a".repeat(32);
     const node = async (args: string[], cwd: string) => {
@@ -348,8 +323,45 @@ test("pinned Wrangler resolves an ancestor config's account and, without one, pa
         writeFileSync(ancestor, JSON.stringify(conflicting));
         expect(discoverWranglerConfig(nested)).toBe(ancestor);
         expect(discoverWranglerConfig(plain)).toBeUndefined();
+        // Beside plain, not above it, so the plain commands still find no config.
+        const deploy = join(scratch, "deploy");
+        const assets = join(deploy, "web");
+        mkdirSync(assets, { recursive: true });
+        writeFileSync(join(assets, "index.html"), "<title>game</title>");
+        writeFileSync(join(assets, "_headers"), publishHeaders());
+        const link = {
+            target: "cloudflare" as const,
+            name: conflicting.name,
+            accountId,
+        };
+        const deployConfig = join(deploy, "wrangler.json");
+        writeFileSync(deployConfig, JSON.stringify(cloudflareConfig(assets, link)));
+        const refusing = join(scratch, "refusing");
+        mkdirSync(refusing);
+        writeFileSync(
+            join(refusing, "package.json"),
+            JSON.stringify({ name: "refusing", shallot: { publish: link } }),
+        );
+        symlinkSync(join(project, "node_modules"), join(refusing, "node_modules"), "junction");
+        const refusal = Bun.spawn({
+            ...bunChild([
+                join(project, "node_modules/@dylanebert/shallot/bin/shallot.ts"),
+                "publish",
+            ]),
+            cwd: refusing,
+            env,
+            stdin: "ignore",
+            stdout: "pipe",
+            stderr: "pipe",
+            timeout: TIMEOUT.startup,
+        });
         const cli = join(repo, "node_modules/wrangler/wrangler-dist/cli.js");
-        const [account, ...parsed] = await Promise.all([
+        const [refused, account, ...parsed] = await Promise.all([
+            Promise.all([
+                refusal.exited,
+                new Response(refusal.stdout).text(),
+                new Response(refusal.stderr).text(),
+            ]),
             // Plain commands are withheld because Wrangler resolves the ancestor's account.
             node(
                 [
@@ -364,10 +376,15 @@ test("pinned Wrangler resolves an ancestor config's account and, without one, pa
                 ["dev", "--assets", plain, "--help"],
                 ["rollback", "--name", conflicting.name, "--help"],
                 ["delete", "--name", conflicting.name, "--dry-run"],
+                ["deploy", "--config", deployConfig, "--dry-run"],
             ].map((args) => node([wrangler, ...args], plain)),
         ]);
         expect(account!.trim()).toBe(conflicting.account_id);
-        expect(parsed.at(-1)).toContain("--dry-run: exiting now");
+        for (const dry of parsed.slice(-2)) expect(dry).toContain("--dry-run: exiting now");
+        const [code, stdout, stderr] = refused;
+        expect(code, stderr).toBe(1);
+        expect(stderr).toContain("CLOUDFLARE_API_TOKEN");
+        expect(stdout).toBe("");
     } finally {
         removeTestDirectory(scratch);
     }

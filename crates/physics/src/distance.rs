@@ -58,21 +58,22 @@ pub struct DistanceOutput {
     pub normal: Vec3,
     pub distance: f32,
     pub iterations: i32,
+    pub simplex_count: usize,
 }
 
 /// One simplex vertex: the Minkowski support point and its barycentric weight (b3SimplexVertex).
 #[derive(Clone, Copy)]
-struct SimplexVertex {
+pub struct SimplexVertex {
     /// Support point in proxy A.
-    w_a: Vec3,
+    pub w_a: Vec3,
     /// Support point in proxy B.
-    w_b: Vec3,
+    pub w_b: Vec3,
     /// w_b - w_a.
-    w: Vec3,
+    pub w: Vec3,
     /// Barycentric coordinate.
-    a: f32,
-    index_a: usize,
-    index_b: usize,
+    pub a: f32,
+    pub index_a: usize,
+    pub index_b: usize,
 }
 
 impl SimplexVertex {
@@ -88,13 +89,13 @@ impl SimplexVertex {
 
 /// The GJK simplex: up to four vertices (b3Simplex).
 #[derive(Clone, Copy)]
-struct Simplex {
-    vertices: [SimplexVertex; 4],
-    count: usize,
+pub struct Simplex {
+    pub vertices: [SimplexVertex; 4],
+    pub count: usize,
 }
 
 impl Simplex {
-    fn empty() -> Simplex {
+    pub fn empty() -> Simplex {
         Simplex {
             vertices: [SimplexVertex::ZERO; 4],
             count: 0,
@@ -642,6 +643,14 @@ pub fn shape_cast(input: &ShapeCastPairInput) -> CastOutput {
 /// `cache` warm-starts the simplex and is updated in place; zero-initialize it on the first call.
 /// The query runs in shape A's frame using `input.transform`, the relative pose of B in A.
 pub fn shape_distance(input: &DistanceInput, cache: &mut SimplexCache) -> DistanceOutput {
+    shape_distance_debug(input, cache, &mut [])
+}
+
+pub fn shape_distance_debug(
+    input: &DistanceInput,
+    cache: &mut SimplexCache,
+    simplexes: &mut [Simplex],
+) -> DistanceOutput {
     let xf_t = input.transform;
     let m = crate::math::Mat3::from_quat(xf_t.q);
     let mt = m.transpose();
@@ -693,7 +702,12 @@ pub fn shape_distance(input: &DistanceInput, cache: &mut SimplexCache) -> Distan
         normal: Vec3::ZERO,
         distance: 0.0,
         iterations: 0,
+        simplex_count: 0,
     };
+    if !simplexes.is_empty() {
+        simplexes[0] = simplex;
+        output.simplex_count = 1;
+    }
 
     let mut distance_sq = FLT_MAX;
     let mut normal = Vec3::ZERO;
@@ -714,6 +728,11 @@ pub fn shape_distance(input: &DistanceInput, cache: &mut SimplexCache) -> Distan
         if !solved {
             simplex = backup;
             break;
+        }
+
+        if output.simplex_count < simplexes.len() {
+            simplexes[output.simplex_count] = simplex;
+            output.simplex_count += 1;
         }
 
         if simplex.count == MAX_SIMPLEX_VERTICES {

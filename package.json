@@ -78,6 +78,7 @@
         "examples/day-night-cycle",
         "examples/hud",
         "examples/post-processing",
+        "examples/low-res",
         "examples/bloom",
         "examples/ambient-occlusion",
         "examples/color-grading",

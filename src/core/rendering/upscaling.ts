@@ -9,11 +9,11 @@ import {
     precompile,
     setRenderBindGroup,
     setRenderPipeline,
+    setViewport,
 } from "../../engine/runtime";
 import { Camera } from "./camera";
-import { initialStackedViews } from "./substrate";
 import { fullscreenVertex } from "./tonemapping";
-import { cameraView, type View } from "./view";
+import type { View } from "./view";
 
 const upscalingLayout = tgpu.bindGroupLayout({
     source: { texture: d.texture2d(d.f32), visibility: ["fragment"] },
@@ -45,6 +45,7 @@ function createUpscaling(world: World) {
         view: null!,
         loadOp: "load",
         storeOp: "store",
+        clearValue: { r: 0, g: 0, b: 0, a: 1 },
     };
     return {
         pipeline: world.gpu.root.unwrap(pipeline),
@@ -57,26 +58,10 @@ function createUpscaling(world: World) {
 }
 export const upscalingKey = { create: createUpscaling };
 
-function initialCanvasStack(world: World): boolean {
-    if (typeof document === "undefined") return false;
-    const canvas = document.querySelector("canvas");
-    if (!canvas) return false;
-    let cameras = 0;
-    for (const eid of world.query([Camera])) {
-        const view = cameraView(world, eid);
-        if ((!view?.target || view.canvas === canvas) && ++cameras > 1) return true;
-    }
-    return false;
-}
-
 export function warmUpscaling(world: World): void {
     precompile(world, "upscaling-prepare", () => {
-        if (
-            world.pixelRatio === "auto" ||
-            initialStackedViews(world).length ||
-            initialCanvasStack(world)
-        )
-            world.resource(upscalingKey);
+        // A camera may gain a rectangle or join a stack after warm-up, at any pixelRatio.
+        world.resource(upscalingKey);
         return [];
     });
 }
@@ -84,14 +69,16 @@ export function warmUpscaling(world: World): void {
 /**
  * Blends each presented camera above the bottom of its target over that target, bottom to top, as Bevy's
  * upscaling node writes every camera after the first with alpha blending. The bottom camera presents into
- * the target directly, so it takes no blit. `views` is this frame's presenting views sorted by target,
- * Camera.order and eid. Runs after every draw system, so a replacement presentation has written its image.
+ * the target directly unless it has a CameraViewport. A bottom rectangle clears the whole target
+ * before its blit, as Bevy's upscaling node opens its attachment before setting the viewport scissor.
+ * `views` is this frame's presenting views sorted by target, Camera.order and eid. Runs after every draw system, so a replacement presentation has written its image.
  */
 export function encodeUpscaling(world: World, views: readonly View[]): void {
     let state: ReturnType<typeof createUpscaling> | undefined;
     for (let i = 0; i < views.length; i++) {
         const view = views[i]!;
-        if (!view.sortedIndexForTarget || !view.present || !view.surfaceView) continue;
+        if ((!view.sortedIndexForTarget && !view.viewport) || !view.present || !view.surfaceView)
+            continue;
         state ??= world.resource(upscalingKey);
         let group = state.groups.get(view.present);
         if (!group) {
@@ -105,7 +92,20 @@ export function encodeUpscaling(world: World, views: readonly View[]): void {
             state.groups.set(view.present, group);
         }
         state.attachment.view = view.surfaceView;
+        const bottom = !view.sortedIndexForTarget;
+        state.attachment.loadOp = bottom ? "clear" : "load";
+        if (bottom) {
+            const packed = world.storage(Camera).clearColor.get(world.resolve(view.camera));
+            const clear = state.attachment.clearValue as GPUColorDict;
+            clear.r = ((packed >>> 16) & 255) / 255;
+            clear.g = ((packed >>> 8) & 255) / 255;
+            clear.b = (packed & 255) / 255;
+        }
         const pass = beginRenderPass(world.frameEncoder()!, state.pass);
+        if (view.viewport) {
+            const rect = view.viewport;
+            setViewport(pass, rect.x, rect.y, rect.width, rect.height, 0, 1);
+        }
         setRenderPipeline(pass, state.pipeline);
         setRenderBindGroup(pass, 0, group);
         draw(pass, 3);

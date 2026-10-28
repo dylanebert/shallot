@@ -145,7 +145,7 @@ interface SceneSnapshot {
 
 function cameraFrame(world: World, eid: number): CameraFrame {
     const viewSlot = world.resource(Views).get(eid)!;
-    const aspect = viewSlot.width / viewSlot.height;
+    const aspect = viewSlot.aspect;
     const view = new Float32Array(16);
     computeClipFromWorld(world, eid, aspect, new Float32Array(16), view);
     return {

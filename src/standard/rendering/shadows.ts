@@ -628,7 +628,7 @@ export function updateCascades(world: World, main: number): void {
     shadow.sunTowardLight[1] = -_sunDir[1];
     shadow.sunTowardLight[2] = -_sunDir[2];
     const view = world.resource(Views).get(main);
-    const aspect = view && view.height > 0 ? view.width / view.height : 1;
+    const aspect = view ? view.aspect : 1;
     composeGlobalTransform(world, main, _cascWorld);
     const mode = world.storage(Camera).mode.get(main);
     const fov = world.storage(Camera).fov.get(main);

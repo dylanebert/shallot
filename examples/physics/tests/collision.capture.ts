@@ -1,9 +1,10 @@
 import { test } from "playwright/test";
 import { collisionNames } from "../src/collision";
+import { debugNames } from "../src/collision-debug";
 import { capture } from "./capture";
 
 for (const width of [1280, 390])
-    for (const id of collisionNames) {
+    for (const id of [...collisionNames, ...debugNames]) {
         test(`${id} Collision look review at ${width}`, async ({ page }) => {
             page.on("pageerror", (error) => {
                 throw error;

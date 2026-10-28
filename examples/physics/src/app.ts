@@ -10,6 +10,7 @@ import { BenchmarkSamplePlugin } from "./benchmarks";
 import { BodySamplePlugin } from "./bodies";
 import { CharacterSamplePlugin } from "./character";
 import { CollisionPlugin } from "./collision";
+import { CollisionDebugPlugin } from "./collision-debug";
 import { ContinuousSamplePlugin } from "./continuous";
 import { EventSamplePlugin, SampleInputPlugin } from "./events";
 import { GeometricMoverPlugin } from "./geometric-mover";
@@ -37,6 +38,7 @@ export const AppPlugin: Plugin = {
         StackingSamplePlugin,
         RagdollPlugin,
         CollisionPlugin,
+        CollisionDebugPlugin,
         MeshSamplePlugin,
         ShapesSamplePlugin,
         JointSamplePlugin,

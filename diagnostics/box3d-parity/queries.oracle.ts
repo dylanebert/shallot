@@ -30,7 +30,7 @@ for (const scene of ["heightField", "hull"] as const) {
         const copy = mkdtempSync(join(tmpdir(), "box3d-query-mutation-"));
         try {
             mkdirSync(join(copy, "samples")); mkdirSync(join(copy, "shared"));
-            for (const name of ["sample_ragdoll.cpp", "sample_mesh.cpp", "sample_compound.cpp", "sample_continuous.cpp", "sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp", "sample_bodies.cpp", "sample_shapes.cpp", "sample_character.cpp", "mover.h", "mover.cpp"]) copyFileSync(join(process.env.BOX3D!, "samples", name), join(copy, "samples", name));
+            for (const name of ["sample_ragdoll.cpp", "sample_mesh.cpp", "sample_collision.cpp", "sample_compound.cpp", "sample_continuous.cpp", "sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp", "sample_bodies.cpp", "sample_shapes.cpp", "sample_character.cpp", "mover.h", "mover.cpp"]) copyFileSync(join(process.env.BOX3D!, "samples", name), join(copy, "samples", name));
             copyFileSync(join(process.env.BOX3D!, "shared/benchmarks.c"), join(copy, "shared/benchmarks.c"));
             const path = join(copy, "samples/sample_benchmark.cpp");
             const source = readFileSync(path, "utf8");

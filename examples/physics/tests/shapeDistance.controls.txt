@@ -1,0 +1,26 @@
+0	shape A	0
+0	radius A	0.2
+0	shape B	1
+0	radius B	0.1
+20	use cache	1
+40	show indices	1
+60	draw simplex	1
+80	index	1
+100	shape A	1
+120	shape B	2
+140	shape A	2
+160	shape B	3
+180	use cache	0
+200	draw simplex	0
+220	shape A	3
+240	shape B	0
+260	radius B	0.5
+280	shape B	1
+300	radius B	0
+320	shape A	2
+340	shape B	3
+360	dragY	1
+360	dragZ	10
+360	drag	1
+380	dragX	0.5
+400	drag	0
