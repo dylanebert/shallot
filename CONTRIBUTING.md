@@ -219,7 +219,7 @@ bun run format                  # biome
 bun test $(find ./src/core/rendering ./src/standard/rendering ./src/extras \( -name '*.test.ts' -o -name '*.node.ts' \) -print | sort) ./diagnostics/readback-allocation/render.oracle.ts
 ```
 
-- A final candidate that changes what an existing view draws also runs that set and every browser subject that reads pixels through `scripts/lavapipe.sh`; one that only adds a pass no existing subject enables runs its own tests there. This requires Docker and tests software adapters, not hardware qualification. Commit the candidate first: the script runs a `git archive` of the given revision, excluding uncommitted edits
+- A final candidate that changes what an existing view draws also runs that set and every browser subject that reads pixels through `scripts/lavapipe.sh`; one that only adds a pass no existing subject enables runs its own tests there. This requires Docker running amd64 containers natively or under Rosetta, as hosted Ubuntu runs (on a Mac, a Colima profile named `hostedx86` with `--vz-rosetta`, which the script selects), and tests software adapters, not hardware qualification. Commit the candidate first: the script runs a `git archive` of the given revision, excluding uncommitted edits
 
 ```sh
 sh scripts/lavapipe.sh HEAD sh -c 'bun test $(find ./src/core/rendering ./src/standard/rendering ./src/extras \( -name "*.test.ts" -o -name "*.node.ts" \) -print | sort)'
