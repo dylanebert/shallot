@@ -1,6 +1,6 @@
 <!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Snow trails, stepped</title><style>html,body,canvas{margin:0;width:100%;height:100%;display:block;background:#191816;touch-action:none}</style></head><body><canvas></canvas><script type="module">
 import { createApp, GlobalTransform, resizeViewport } from '@dylanebert/shallot';
-import { captureFrame, worldToViewport } from '@dylanebert/shallot/rendering';
+import { captureFrame, RenderLayers, worldToViewport } from '@dylanebert/shallot/rendering';
 import { DemoPlugin, SnowTrails } from '../src/demo';
 import { groundAt } from '../src/hills';
 import { DEPTH } from '../src/trail';
@@ -8,12 +8,15 @@ const app=await createApp({plugins:[DemoPlugin]});
 const world=app.world, canvas=document.querySelector('canvas');
 resizeViewport(world,0,innerWidth,innerHeight,1);
 const state=world.resource(SnowTrails), opening=[];
+// Only the captured frame reads the view. On a software adapter the view's snow is most of a frame's cost,
+// so the steps between captures leave it out; the trail and physics under it step unchanged.
+world.add(state.snow,RenderLayers,{mask:0});
 for(let i=0;i<48;i++){world.step(1/20);const p=world.storage(GlobalTransform).translation;opening.push([p.x.get(state.boulder),p.z.get(state.boulder)])}
 window.snow={
  step(n=1){for(let i=0;i<n;i++)world.step(1/60)},
  position(){const p=world.storage(GlobalTransform).translation;return [p.x.get(state.boulder),p.y.get(state.boulder),p.z.get(state.boulder)]},
  point(){return worldToViewport(world,state.camera,this.position())},
  trail(){return opening.map(([x,z])=>worldToViewport(world,state.camera,[x,groundAt(x,z)+DEPTH,z]))},
- async capture(){const pending=captureFrame(canvas);world.step(0);const image=await pending;const c=document.createElement('canvas');c.width=image.width;c.height=image.height;c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(image.rgba),image.width,image.height),0,0);return {png:c.toDataURL('image/png'),rgba:Array.from(image.rgba),width:image.width,height:image.height}}
+ async capture(){world.remove(state.snow,RenderLayers);const pending=captureFrame(canvas);world.step(0);const image=await pending;world.add(state.snow,RenderLayers,{mask:0});const c=document.createElement('canvas');c.width=image.width;c.height=image.height;c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(image.rgba),image.width,image.height),0,0);return {png:c.toDataURL('image/png'),rgba:Array.from(image.rgba),width:image.width,height:image.height}}
 };
 </script></body></html>
