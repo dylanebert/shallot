@@ -35,6 +35,10 @@ export const ONLY: Readonly<Record<string, readonly NodeJS.Platform[]>> = {
     "src/project/browser": ["darwin"],
     // Its cost is DOM-bound, so SwiftShader's runners run it no slower than the other hosts.
     "examples/color-grading": ["linux"],
+    // Its packaging classes are Windows paths and Linux case; macOS adds none, and there, on runners GitHub caps at
+    // five, it is the costliest file (8 min). The packed CLI on macOS stays held by mac-native, packed-gpu and
+    // icons-packed.
+    "scripts/packed-install.node.ts": ["linux", "win32"],
     // Its desktop opener shim is POSIX.
     "scripts/publish-browser-session.node.ts": ["darwin", "linux"],
 };
