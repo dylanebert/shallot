@@ -4,7 +4,8 @@ import * as std from "typegpu/std";
 import type { EntityRef, World } from "../../engine";
 import { resizeViewport, Viewports } from "../../engine";
 import { rawDevice } from "../../engine/runtime";
-import { Camera, Resolution } from "./camera";
+import { Camera, CameraViewport, Resolution } from "./camera";
+import { type CameraRect, cameraRect } from "./camera-viewport";
 import { CULL_VOLUME_FLOATS } from "./frustum";
 import { RenderContext } from "./render";
 import { releaseViewTargets } from "./targets";
@@ -78,7 +79,8 @@ export const linearToSrgb3 = tgpu.fn(
  * RenderContext.format: resolve MSAA into it, or draw into it single-sample. Effects may replace it.
  * present is the final attachment in the non-sRGB base canvas format; presentation encodes linear→sRGB
  * exactly once. Scene color stays offscreen so effects can read it instead of writing the swapchain in place.
- * On a target shared with cameras below it, present is instead this camera's own image in the same format,
+ * On a target shared with cameras below it, or for a camera with CameraViewport, present is instead
+ * this camera's own image in the same format,
  * blended over the target after every draw system by its premultiplied alpha.
  * depth matches the main pass sample count and is null unless DepthPrepass or a plugin requests it.
  * A depth-only attachView registration takes a frustum-cull slot but has no canvas, context or color targets;
@@ -103,9 +105,13 @@ export interface View {
     texture?: GPUTexture;
     /** True after a frame acquired this surface and submitted its encoder. */
     presented?: boolean;
-    /** Backing-store dimensions in device pixels, including Resolution or pixelRatio. */
+    /** Scene-image dimensions in device pixels, including Resolution, pixelRatio and CameraViewport. */
     width: number;
     height: number;
+    /** Destination rectangle in target backing pixels, absent for a full-target camera. */
+    viewport?: CameraRect;
+    /** Coordinate-pixel aspect of a clamped CameraViewport, independent of render resolution. */
+    projectionAspect?: number;
     /** Canvas display dimensions in CSS pixels, mirrored from the world-owned viewport row. */
     clientWidth: number;
     clientHeight: number;
@@ -417,7 +423,13 @@ const _sizeInputs = new WeakMap<View, Float64Array>();
  */
 export function sizeView(world: World, eid: number, view: View): void {
     const canvas = view.canvas;
-    if (!canvas) return;
+    if (!canvas) {
+        if (view.texture) {
+            view.width = view.texture.width;
+            view.height = view.texture.height;
+        }
+        return;
+    }
     // This read forces current layout before swapchain acquisition can use a stale display size.
     const clientWidth = canvas.clientWidth;
     const clientHeight = canvas.clientHeight;
@@ -434,9 +446,13 @@ export function sizeView(world: World, eid: number, view: View): void {
         resizeViewport(world, view.viewportIndex, rect.width, rect.height, dpr);
     }
     const viewport = world.resource(Viewports).get(view.viewportIndex);
-    if (!viewport || viewport.cssWidth <= 0 || viewport.cssHeight <= 0) return;
-    view.clientWidth = viewport.cssWidth;
-    view.clientHeight = viewport.cssHeight;
+    view.clientWidth = viewport?.cssWidth ?? 0;
+    view.clientHeight = viewport?.cssHeight ?? 0;
+    if (!viewport || viewport.cssWidth <= 0 || viewport.cssHeight <= 0) {
+        view.width = 0;
+        view.height = 0;
+        return;
+    }
     const ratio =
         world.pixelRatio === "auto" ? Math.min(Math.max(viewport.dpr, 1), 2) : world.pixelRatio;
     const pinned = world.has(eid, Resolution);
@@ -458,10 +474,13 @@ export function sizeView(world: World, eid: number, view: View): void {
         inputs[3] === view.clientHeight &&
         inputs[4] === ratio &&
         inputs[5] === (bottom ? 1 : 0)
-    )
+    ) {
+        view.width = inputs[6]!;
+        view.height = inputs[7]!;
         return;
+    }
     if (!inputs) {
-        inputs = new Float64Array(6);
+        inputs = new Float64Array(8);
         _sizeInputs.set(view, inputs);
     }
     inputs[0] = resW;
@@ -471,13 +490,47 @@ export function sizeView(world: World, eid: number, view: View): void {
     inputs[4] = ratio;
     inputs[5] = bottom ? 1 : 0;
     const { w, h, pixelated } = backingSize(resW, resH, view.clientWidth, view.clientHeight, ratio);
-    view.width = w;
-    view.height = h;
+    view.width = inputs[6] = w;
+    view.height = inputs[7] = h;
     if (!bottom) return;
     const ir = pixelated ? "pixelated" : "auto";
     if (canvas.style.imageRendering !== ir) canvas.style.imageRendering = ir;
     if (canvas.width !== w) canvas.width = w;
     if (canvas.height !== h) canvas.height = h;
+}
+
+const _cameraRect: CameraRect = { x: 0, y: 0, width: 0, height: 0 };
+
+/** Crop the scene and presentation image after sizeView resolves the whole target's backing size. */
+export function sizeCameraViewport(world: World, eid: number, view: View): void {
+    view.projectionAspect = undefined;
+    if (!world.has(eid, CameraViewport)) {
+        view.viewport = undefined;
+        return;
+    }
+    const width = view.texture?.width ?? view.clientWidth;
+    const height = view.texture?.height ?? view.clientHeight;
+    cameraRect(world, eid, width, height, _cameraRect);
+    const component = world.storage(CameraViewport);
+    if (component.x.get(eid) !== _cameraRect.x) component.x.set(eid, _cameraRect.x);
+    if (component.y.get(eid) !== _cameraRect.y) component.y.set(eid, _cameraRect.y);
+    if (component.width.get(eid) !== _cameraRect.width) component.width.set(eid, _cameraRect.width);
+    if (component.height.get(eid) !== _cameraRect.height)
+        component.height.set(eid, _cameraRect.height);
+    const rect = (view.viewport ??= { x: 0, y: 0, width: 0, height: 0 });
+    const targetWidth = view.texture?.width ?? view.canvas!.width;
+    const targetHeight = view.texture?.height ?? view.canvas!.height;
+    const x = width > 0 ? _cameraRect.x / width : 0;
+    const y = height > 0 ? _cameraRect.y / height : 0;
+    const w = width > 0 ? _cameraRect.width / width : 0;
+    const h = height > 0 ? _cameraRect.height / height : 0;
+    rect.x = Math.floor(x * targetWidth);
+    rect.y = Math.floor(y * targetHeight);
+    rect.width = Math.floor((x + w) * targetWidth) - rect.x;
+    rect.height = Math.floor((y + h) * targetHeight) - rect.y;
+    view.width = w > 0 ? Math.max(1, Math.floor(view.width * w)) : 0;
+    view.height = h > 0 ? Math.max(1, Math.floor(view.height * h)) : 0;
+    view.projectionAspect = _cameraRect.width / _cameraRect.height;
 }
 
 /**
@@ -653,7 +706,7 @@ export function offscreenTexture(world: World, eid: number): GPUTexture | undefi
     return world.resource(viewResourcesKey).offscreen.get(eid)?.texture;
 }
 
-/** The presented image of a camera above the bottom of its target, (re)allocated to the view size in the
+/** The presented image of a camera above the bottom or with a rectangle, (re)allocated to the view size in the
  * target's format. Its presentation writes it; EndFrameSystem blends it over the target. */
 export function stacked(world: World, eid: number, w: number, h: number): GPUTextureView {
     const _viewResources = world.resource(viewResourcesKey);

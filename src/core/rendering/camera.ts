@@ -77,6 +77,22 @@ export const Camera = component(
 );
 
 /**
+ * Optional rectangle within a Camera's target, with a top-left origin. Position and size use whole CSS
+ * pixels of a bound canvas, or pixels of an attached texture. Unlike Bevy's Camera::viewport these
+ * are not physical canvas pixels, so pixelRatio does not move the rectangle. Clamped to the target
+ * as Bevy's Viewport::clamp_to_size: an outside origin moves to the last pixel with size 1; a zero
+ * target dimension gives zero. Each frame writes the clamped position and size back to this component.
+ * Projection, culling, effects and presentation use the clamped size.
+ * The bottom camera still clears the whole target to its clearColor.
+ */
+export const CameraViewport = component("CameraViewport", {
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+});
+
+/**
  * render this camera at a fixed low resolution and scale it up to fill the canvas, crisp not blurred.
  * Without it the view renders at the canvas backing size (the world's pixelRatio policy). `0` on an axis
  * derives it from the other to keep the canvas aspect, so `height: 360` alone renders 360 lines tall and

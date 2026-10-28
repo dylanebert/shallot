@@ -20,6 +20,7 @@ import { Anchor } from "./anchor";
 import {
     Camera,
     CameraMode,
+    CameraViewport,
     computeClipFromWorld,
     EXPOSURE_EV100_BLENDER,
     Exposure,
@@ -72,6 +73,7 @@ import {
     presentingViewSlot,
     pruneViews,
     releaseStacked,
+    sizeCameraViewport,
     sizeView,
     stacked,
     VIEW_BYTES,
@@ -113,7 +115,7 @@ function bindSlotMatrices(world: World, capacity: number): void {
     frame.clipFromViews = slotMatrices(staging, capacity, CLIP_FROM_VIEW_F32);
 }
 
-export { Camera, CameraMode, Exposure, Resolution } from "./camera";
+export { Camera, CameraMode, CameraViewport, Exposure, Resolution } from "./camera";
 export { CAPTURE_CONTRACT, type Capture, captureFrame, captureTexture } from "./capture";
 export {
     AmbientLight,
@@ -197,7 +199,7 @@ function packView(world: World, eid: number, view: ViewSlot, shading: boolean, s
     computeClipFromWorld(
         world,
         eid,
-        view.width / view.height,
+        view.projectionAspect ?? view.width / view.height,
         clipFromWorld,
         viewFromWorld,
         _renderFrame.clipFromViews[slot],
@@ -451,7 +453,14 @@ export const BeginFrameSystem: System = {
             const eid = targetEids[i]!;
             const view = targetViews[i]!;
             sizeView(world, eid, view);
-            if (view.width === 0 || view.height === 0) continue;
+            sizeCameraViewport(world, eid, view);
+            if (
+                view.width === 0 ||
+                view.height === 0 ||
+                view.viewport?.width === 0 ||
+                view.viewport?.height === 0
+            )
+                continue;
             const slot = presentingViewSlot(shadeCount);
             if (slot === undefined) {
                 console.warn(presentingViewRefusal(eid));
@@ -467,7 +476,7 @@ export const BeginFrameSystem: System = {
                 view.surfaceTexture = texture;
                 view.surfaceView = texture.createView();
             }
-            if (!view.sortedIndexForTarget) {
+            if (!view.sortedIndexForTarget && !view.viewport) {
                 releaseStacked(world, eid);
                 view.present = view.surfaceView!;
             } else view.present = stacked(world, eid, view.width, view.height);
@@ -617,6 +626,7 @@ export const RenderingPlugin: Plugin = {
     ],
     recovery: recoverGlobalTransformHistory,
     components: [
+        CameraViewport,
         Anchor,
         Camera,
         Exposure,
