@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { run } from "./native";
 import { sampleBinary } from "./sample";
 import { sampleGold } from "../../examples/physics/tests/gold";
-import { digestMismatch, eventDigests } from "../../examples/physics/tests/digest";
+import { digestMismatch, eventDigests, querySteps, recordDigest } from "../../examples/physics/tests/digest";
 
 setDefaultTimeout(0);
 
@@ -158,12 +158,12 @@ for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "f
             if (scene === "cast") {
                 run([binary, scene, String(steps)], { BODY_QUERIES: queryPath });
                 const queries = readFileSync(queryPath, "utf8");
-                expect(queries).toBe(readFileSync(new URL("../../examples/physics/tests/cast.queries.gold.txt", import.meta.url), "utf8"));
+                expect(querySteps("cast", queries).map(recordDigest).join("\n") + "\n").toBe(readFileSync(new URL("../../examples/physics/tests/cast.queries.gold.txt", import.meta.url), "utf8"));
                 run([binary, scene, String(steps)], { BODY_QUERIES: queryPath });
                 expect(readFileSync(queryPath, "utf8")).toBe(queries);
             }
             const mutated = run([sampleBinary(join(copy, "samples")), scene, String(steps)], scene === "cast" ? { BODY_QUERIES: queryPath } : {});
-            if (scene === "cast") expect(readFileSync(queryPath, "utf8")).not.toBe(readFileSync(new URL("../../examples/physics/tests/cast.queries.gold.txt", import.meta.url), "utf8"));
+            if (scene === "cast") expect(querySteps("cast", readFileSync(queryPath, "utf8")).map(recordDigest).join("\n") + "\n").not.toBe(readFileSync(new URL("../../examples/physics/tests/cast.queries.gold.txt", import.meta.url), "utf8"));
             if (scene === "cast") equalSampleSteps(mutated, hashes, "cast unstepped mutation");
             else expect(sampleGold(mutated).map(step => step.hash)).not.toEqual(sampleGold(hashes).map(step => step.hash));
             expect(hashes.trim().split("\n")).toHaveLength(steps);

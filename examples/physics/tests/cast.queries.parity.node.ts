@@ -7,6 +7,7 @@ import { CastState, moverOrigin, rayOrigin, rayTranslation } from "../src/cast";
 import { castDrawing } from "../src/cast-presentation";
 import { JOINT_DOT, JOINT_INK, JOINT_LINE } from "../src/joint-presentation";
 import { createScene } from "../src/scenes";
+import { recordDigest } from "./digest";
 
 setDefaultTimeout(TIMEOUT.node);
 const bits = (n: number) =>
@@ -15,6 +16,9 @@ test("Cast holds every native query invocation and draws its unstepped results",
     const gold = (await Bun.file(new URL("./cast.queries.gold.txt", import.meta.url)).text())
         .trim()
         .split("\n");
+    const first = await Bun.file(new URL("./cast.queries.first.gold.txt", import.meta.url)).text();
+    // Cast's unstepped scene repeats the same queries each tick.
+    expect(gold.every((digest) => digest === recordDigest(first))).toBe(true);
     const app = await createApp({
         defaults: false,
         plugins: [BodySamplePlugin],
@@ -22,10 +26,10 @@ test("Cast holds every native query invocation and draws its unstepped results",
             createScene(world, "cast");
         },
     });
-    const lines: string[] = [];
     try {
         let hash: bigint | undefined;
         for (let tick = 0; tick < 600; tick++) {
+            const lines: string[] = [];
             app.world.tick();
             hash ??= hashPhysics(app.world);
             expect(hashPhysics(app.world)).toBe(hash);
@@ -45,6 +49,18 @@ test("Cast holds every native query invocation and draws its unstepped results",
                 expect(body).toBe(s.body);
                 lines.push(
                     `plane ${[p.plane.normal.x, p.plane.normal.y, p.plane.normal.z, p.plane.offset, p.point.x, p.point.y, p.point.z].map(bits).join(" ")} ${p.triangleIndex} ${p.childIndex} ${p.materialIndex}`,
+                );
+            }
+            const records = `${lines.join("\n")}\n`;
+            if (recordDigest(records) !== gold[tick]) {
+                const expected = first.trimEnd().split(/\s+/);
+                const actual = records.trimEnd().split(/\s+/);
+                const field = Array.from(
+                    { length: Math.max(expected.length, actual.length) },
+                    (_, i) => i,
+                ).find((i) => expected[i] !== actual[i]);
+                throw new Error(
+                    `cast step ${tick} field ${field}: native ${expected[field!]} Shallot ${actual[field!]}`,
                 );
             }
             const drawing = castDrawing(app.world);
@@ -68,7 +84,7 @@ test("Cast holds every native query invocation and draws its unstepped results",
             );
             expect(drawing.segments.every((s) => s.color === JOINT_INK)).toBe(true);
         }
-        expect(lines).toEqual(gold);
+        expect(gold).toHaveLength(600);
         const s = app.world.resource(CastState);
         const before = castDrawing(app.world);
         const hullEdges = shapeEdges(app.world, app.world.get(s.body, Shape)!);

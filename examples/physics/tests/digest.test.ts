@@ -42,6 +42,18 @@ test("each cast field and hull vertex is visible in its step digest", () => {
     );
 });
 
+test("Cast digests hold each invocation including its mover planes", () => {
+    const cast = "cast 0 00000000\ncast 0 00000000\noverlap 1\nmover 0\n";
+    const planes = cast.replace("mover 0\n", "mover 2\nplane 00000000\nplane 00000001\n");
+    expect(querySteps("cast", cast + planes)).toEqual([cast, planes]);
+    const changed = planes.replace("plane 00000001", "plane 00000002");
+    expect(querySteps("cast", cast + changed).map(recordDigest)).toEqual([
+        recordDigest(cast),
+        recordDigest(changed),
+    ]);
+    expect(recordDigest(changed)).not.toBe(recordDigest(planes));
+});
+
 test("every physics gold is at most 100 KB", () => {
     for (const file of readdirSync(import.meta.dir).filter((file) => file.endsWith(".gold.txt"))) {
         expect(statSync(`${import.meta.dir}/${file}`).size, file).toBeLessThanOrEqual(100000);

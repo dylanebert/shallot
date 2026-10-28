@@ -20,8 +20,25 @@ export function eventDigests(text: string): string[] {
     return sampleGold(text).map(({ hash, events }) => recordDigest(eventRecord(hash, events)));
 }
 
-export function querySteps(scene: "heightField" | "hull", text: string): string[] {
+export function querySteps(scene: "cast" | "heightField" | "hull", text: string): string[] {
     const lines = text.trimEnd().split("\n");
+    if (scene === "cast") {
+        const steps: string[] = [];
+        for (let i = 0; i < lines.length; ) {
+            const count = Number(lines[i + 3]?.split(" ")[1]);
+            if (
+                !lines[i]?.startsWith("cast ") ||
+                !lines[i + 3]?.startsWith("mover ") ||
+                !Number.isInteger(count) ||
+                count < 0 ||
+                i + 4 + count > lines.length
+            )
+                throw new Error(`cast: invalid query records at line ${i}`);
+            steps.push(`${lines.slice(i, i + 4 + count).join("\n")}\n`);
+            i += 4 + count;
+        }
+        return steps;
+    }
     if (scene === "hull") return [`${lines.join("\n")}\n`];
     if (lines.length !== 28556)
         throw new Error(`heightField: expected 28556 cast records, got ${lines.length}`);
