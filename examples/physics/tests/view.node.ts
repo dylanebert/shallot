@@ -190,26 +190,13 @@ const acceptedColors = {
     sensor: [0.04, 0.43, 0.53, 1],
 };
 
+// The role baseline holds Stacking's Box Stack and every Joints and Events
+// scene. Named by inclusion, so each later category leaves this baseline untouched.
+const criticalCategories = ["Stacking", "Joints", "Events"];
 test("the accepted role baseline covers every critical-set scene", () => {
     expect(Object.keys(acceptedRoles).sort()).toEqual(
         categories
-            .filter(
-                (category) =>
-                    ![
-                        "Benchmark",
-                        "Bodies",
-                        "Character",
-                        "Collision",
-                        "Compound",
-                        "Continuous",
-                        "Geometry",
-                        "Manifold",
-                        "Mesh",
-                        "Ragdoll",
-                        "Robustness",
-                        "Shapes",
-                    ].includes(category.name),
-            )
+            .filter((category) => criticalCategories.includes(category.name))
             .flatMap((category) =>
                 category.scenes
                     .filter((scene) => category.name !== "Stacking" || scene.id === "boxStack")
