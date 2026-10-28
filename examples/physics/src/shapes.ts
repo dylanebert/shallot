@@ -22,9 +22,11 @@ import {
     StandardPhysicsPlugin,
     StepPhysicsSystem,
 } from "@dylanebert/shallot/standard/physics";
-import conveyor from "./conveyor.json" with { type: "json" };
+import conveyorData from "./conveyor.json" with { type: "json" };
+import { decodeMesh } from "./mesh-data";
 import type { Controls } from "./scenes";
 
+const conveyor = decodeMesh(conveyorData);
 const f = Math.fround;
 const pi = f(Math.PI);
 const radians = f(pi / 180);
@@ -203,9 +205,9 @@ function conveyorMesh(world: World): number[] {
     // Box3D data/meshes/conveyor.obj; material indices map the sample's built triangles to source faces.
     const geometry = world.resource(PhysicsMeshes).add({
         name: "conveyor",
-        vertices: new Float32Array(conveyor.vertices),
-        indices: new Uint32Array(conveyor.indices),
-        materialIndices: new Uint8Array(conveyor.materialIndices),
+        vertices: conveyor.vertices,
+        indices: conveyor.indices,
+        materialIndices: conveyor.materialIndices,
         useMedianSplit: true,
         identifyEdges: true,
         weldVertices: true,
