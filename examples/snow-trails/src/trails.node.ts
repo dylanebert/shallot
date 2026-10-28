@@ -115,8 +115,7 @@ beforeAll(async () => {
     if (!adapter) throw new Error("Snow trails needs a WebGPU adapter");
     device = await adapter.requestDevice({ requiredFeatures: ["indirect-first-instance"] });
     for (let i = 0; i < 8; i++) subjects.push(await openGpuApp({ ...config(), device, adapter }));
-    for (let i = 0; i < 2; i++)
-        subjects.push(await openGpuApp({ ...config(1024, 512), device, adapter }));
+    subjects.push(await openGpuApp({ ...config(1024, 512), device, adapter }));
 }, TIMEOUT.startup);
 afterAll(() => {
     for (const app of subjects) app.dispose();
@@ -427,9 +426,9 @@ function openingFromAbove(world: World) {
     // From one radius past the landing to one radius short of the last frame, every centimeter.
     return { path, line: along(path, 0.01).slice(RADIUS * 100, -RADIUS * 100) };
 }
-test("the opening groove's floor varies along its center line by under 3.75 mm", async () => {
+test("the opening groove's floor varies along its center line by under 3.75 mm, and no texel where it starts is darker than its floor by more than 40", async () => {
     const world = apps()[8].world;
-    const { line } = openingFromAbove(world);
+    const { path, line } = openingFromAbove(world);
     const tops = (await heightsAt(world, line)).map((y, i) => y - groundAt(...line[i]!));
     // Against the mean over 30 cm either side, which follows the boulder's own rise and fall.
     const window = 30;
@@ -438,10 +437,6 @@ test("the opening groove's floor varies along its center line by under 3.75 mm",
         return Math.abs(top - near.reduce((a, b) => a + b) / near.length);
     });
     expect(Math.max(...deviation)).toBeLessThan(0.00375);
-});
-test("no texel where the opening trail starts is darker than its floor by more than 40", async () => {
-    const world = apps()[9].world;
-    const { path, line } = openingFromAbove(world);
     const { camera } = world.resource(SnowTrails);
     const frame = await captureTexture(world, camera);
     const luminance = ([x, z]: [number, number]) => {
