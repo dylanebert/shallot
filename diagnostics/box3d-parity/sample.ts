@@ -70,11 +70,11 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         section(events, "struct BodyUserData", "static int sampleContactEvent"),
         "#undef b3World_CastRayClosest\n#undef b3World_CastShape\n#undef b3Body_CastRay",
         readFileSync(join(import.meta.dir, "sample-collision.h"), "utf8"),
-        "namespace Collision {\n#define b3World_CastRay Ray\n#define b3World_CastRayClosest Closest\n#define b3World_CastShape Shape\n#define b3World_OverlapShape Overlap\n#define b3Body_CastRay BodyRay\n#define b3ShapeDistance Distance\n#define b3ShapeCast Cast\n#define b3TimeOfImpact TOI",
+        "namespace Collision {\n#define b3World_CastRay Ray\n#define b3World_CastRayClosest Closest\n#define b3World_CastShape Shape\n#define b3World_OverlapShape Overlap\n#define b3Body_CastRay BodyRay",
         section(collision, "class RayCurtain :", "static int sampleRayCurtain"),
         section(collision, "struct CastContext", "static int sampleCastWorld"),
-        ...["MeshScale", "ShapeCast", "OverlapWorld", "LongRayCast", "InitialOverlap", "CapsuleCastRay", "ShapeCastDebug", "DistanceDebug", "ShapeDistance", "TimeOfImpact"].map(name => section(collision, `class ${name} :`, `static int sample${name}`)),
-        "#undef b3World_CastRay\n#undef b3World_CastRayClosest\n#undef b3World_CastShape\n#undef b3World_OverlapShape\n#undef b3Body_CastRay\n#undef b3ShapeDistance\n#undef b3ShapeCast\n#undef b3TimeOfImpact\n}",
+        ...["MeshScale", "ShapeCast", "OverlapWorld", "LongRayCast", "InitialOverlap", "CapsuleCastRay"].map(name => section(collision, `class ${name} :`, `static int sample${name}`)),
+        "#undef b3World_CastRay\n#undef b3World_CastRayClosest\n#undef b3World_CastShape\n#undef b3World_OverlapShape\n#undef b3Body_CastRay\n}",
     ].join("\n");
     const grab = section(sample, "\t\t// Ctrl click grabs", "\n\telse if ( modifiers & MOD_SHIFT )")
         .replace(/\t\tPickRay pickRay = m_camera->BuildPickRay\( p.x, p.y \);/, "")

@@ -29,7 +29,6 @@ import {
 } from "@dylanebert/shallot/standard/physics";
 import { CharacterSample, characterDrag } from "./character";
 import { CollisionState } from "./collision";
-import { CollisionDebug, debugDrag } from "./collision-debug";
 import { collisionDrag } from "./collision-drag";
 
 export const Grab = {
@@ -138,19 +137,15 @@ const SampleGrab: System = {
             grab.translation.y = ray.dir[1] * reach;
             grab.translation.z = ray.dir[2] * reach;
             const collision = world.resource(CollisionState).scene;
-            const debug = world.resource(CollisionDebug).scene === "shapeDistance";
             if (
                 world.resource(CharacterSample).scene ||
                 collision === "shapeCast" ||
-                collision === "overlapWorld" ||
-                debug
+                collision === "overlapWorld"
             ) {
                 const tracking = (
-                    debug
-                        ? debugDrag
-                        : collision === "shapeCast" || collision === "overlapWorld"
-                          ? collisionDrag
-                          : characterDrag
+                    collision === "shapeCast" || collision === "overlapWorld"
+                        ? collisionDrag
+                        : characterDrag
                 )(world, grab.origin, grab.translation, grab.pending, grab.held);
                 grab.pending = false;
                 if (tracking && !grab.camera && world.has(camera, Orbit)) {

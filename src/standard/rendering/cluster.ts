@@ -542,7 +542,7 @@ function growClusterCapacity(world: World, shadeCount: number): void {
 function updateClusterView(this: World, view: View, eid: number): void {
     const render = this.resource(RenderContext);
     if (!view.framebuffer || view.slot >= render.shadeCount) return;
-    packClusterView(this, eid, view.aspect, view.slot);
+    packClusterView(this, eid, view.width / view.height, view.slot);
     const state = this.resource(clusterGpuKey);
     const viewFromWorld = view.viewFromWorld;
     if (viewFromWorld) state.viewMatrices[view.slot]!.set(viewFromWorld);

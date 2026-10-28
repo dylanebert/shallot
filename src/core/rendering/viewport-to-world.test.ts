@@ -2,13 +2,7 @@ import { expect, test } from "bun:test";
 import { qRotate, resizeViewport, World } from "../../engine";
 import { component } from "../../engine/ecs/component";
 import { GlobalTransform } from "../transform";
-import {
-    Camera,
-    CameraMode,
-    CameraViewport,
-    computeClipFromWorld,
-    computeViewFromWorld,
-} from "./camera";
+import { Camera, CameraMode, computeClipFromWorld, computeViewFromWorld } from "./camera";
 import { type View, Views } from "./view";
 import { viewportToWorld, worldToViewport } from "./viewport-to-world";
 
@@ -276,36 +270,6 @@ for (const [name, mode] of [
             };
             expect(worldToViewport(world, camera, ahead(1))).toBeNull();
             expect(worldToViewport(world, camera, ahead(2))).not.toBeNull();
-        } finally {
-            world.dispose();
-        }
-    });
-}
-
-for (const mode of [CameraMode.Perspective, CameraMode.Orthographic]) {
-    test(`rectangle rays use target-relative coordinates and clamped aspect, mode ${mode}`, () => {
-        const world = new World();
-        for (const c of [Camera, CameraViewport, GlobalTransform]) world.registry.register(c);
-        const camera = world.create();
-        world.add(camera, Camera, { mode, fov: 90, size: 4, near: 1 });
-        world.add(camera, GlobalTransform);
-        world.storage(GlobalTransform).scale.set(camera, 1, 1, 1, 0);
-        world.storage(GlobalTransform).rotation.set(camera, 0, 0, 0, 1);
-        world.add(camera, CameraViewport, { x: 600, y: 100, width: 200, height: 100 });
-        resizeViewport(world, 0, 800, 400, 2);
-        world.resource(Views).set(camera, { viewportIndex: 0, camera: world.ref(camera) } as View);
-        try {
-            expect(viewportToWorld(world, camera, 700, 150)!.origin).toEqual([0, 0, -1]);
-            const edge = viewportToWorld(world, camera, 800, 100)!;
-            expect(edge.origin[0]).toBeCloseTo(mode === CameraMode.Orthographic ? 8 : 2);
-            expect(edge.origin[1]).toBeCloseTo(mode === CameraMode.Orthographic ? 4 : 1);
-            expect(worldToViewport(world, camera, [0, 0, -2])).toEqual([700, 150]);
-            resizeViewport(world, 0, 650, 150, 1);
-            expect(viewportToWorld(world, camera, 625, 125)!.origin).toEqual([0, 0, -1]);
-            resizeViewport(world, 0, 100, 50, 1);
-            expect(viewportToWorld(world, camera, 99.5, 49.5)!.origin).toEqual([0, 0, -1]);
-            resizeViewport(world, 0, 0, 50, 1);
-            expect(viewportToWorld(world, camera, 0, 0)).toBeNull();
         } finally {
             world.dispose();
         }

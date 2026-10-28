@@ -128,7 +128,6 @@ mod callbacks;
 pub mod character;
 #[cfg(target_arch = "wasm32")]
 mod character_abi;
-mod collision_abi;
 #[cfg(target_arch = "wasm32")]
 mod compound_query;
 #[cfg(target_arch = "wasm32")]

@@ -25,7 +25,6 @@ import {
     MainPassSystem,
     NORMAL_FORMAT,
     NormalPrepassRequests,
-    PrepareViewsSystem,
     PrepassSystem,
     RenderContext,
     RenderPhases,
@@ -1346,7 +1345,6 @@ const ShadowCameraSystem: System = {
     name: "shadow-camera",
     group: "draw",
     first: true,
-    after: [PrepareViewsSystem],
     before: [BeginFrameSystem],
     update(world) {
         const _standardRendererState = world.resource(standardRendererStateKey);

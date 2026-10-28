@@ -8,7 +8,7 @@ setDefaultTimeout(TIMEOUT.node);
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 
 await setupGlobals();
-// Rendering compositions prepare one upscaling pipeline at every pixel ratio.
+// Rendering compositions prepare one upscaling pipeline for the default auto pixel ratio.
 const pipelineCounts: Record<string, number> = {
     "engine-only": 0,
     "core rendering": 2, // Stage 6 moved the cluster-grid, light-compact and light-cull pipelines to standard.
@@ -33,7 +33,7 @@ for (const subject of compileSubjects) {
         const labels: string[] = [];
         const result = await measureCompile(subject.config, (label) => labels.push(label));
         expect(result.pipelines).toBe(pipelineCounts[subject.name]);
-        // Every nonempty composition here enables rendering.
+        // Every nonempty composition here enables rendering with the default auto pixel ratio.
         expect(labels.filter((label) => label === "upscaling")).toHaveLength(
             result.pipelines ? 1 : 0,
         );
@@ -58,7 +58,7 @@ for (const antialias of [0, 1]) {
     });
 }
 
-test("core rendering prepares the same upscaling pipeline at automatic and fixed pixel ratios", async () => {
+test("core rendering's automatic-ratio extra pipeline is exactly upscaling", async () => {
     const autoLabels: string[] = [];
     const fixedLabels: string[] = [];
     const config = { defaults: false, plugins: [RenderingPlugin] };
@@ -66,8 +66,8 @@ test("core rendering prepares the same upscaling pipeline at automatic and fixed
     const fixed = await measureCompile({ ...config, pixelRatio: 1 }, (label) =>
         fixedLabels.push(label),
     );
-    expect(fixed.pipelines).toBe(auto.pipelines);
+    expect(auto.pipelines - fixed.pipelines).toBe(1);
     expect(autoLabels.filter((label) => label === "upscaling")).toEqual(["upscaling"]);
-    expect(fixedLabels.filter((label) => label === "upscaling")).toEqual(["upscaling"]);
-    expect(fixedLabels).toEqual(autoLabels);
+    expect(autoLabels.filter((label) => label !== "upscaling")).toEqual(fixedLabels);
+    expect(fixedLabels).not.toContain("upscaling");
 });

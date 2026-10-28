@@ -6,6 +6,9 @@ test.use(pipelineWarnings);
 
 type Frame = {
     adapter: unknown;
+    zone: number[];
+    arrow: number[];
+    arrowHead: number;
     png: string;
     icon: number;
     iconWidth: number;
@@ -75,7 +78,7 @@ test.describe("stepped delivery", () => {
             for (const [name, frame] of [
                 ["spawn", spawn],
                 ["mid-drive-low", low],
-                ["mid-bounce", earlyExit],
+                ["arrival", earlyExit],
             ] as const) {
                 await writeFile(
                     `${process.env.SHALLOT_CAPTURE_DIR}/${name}.png`,
@@ -145,6 +148,18 @@ test.describe("stepped delivery", () => {
     test("after the 0.35-second exit no icon pixels remain in its unscaled screen region", () => {
         expect(spawn.iconVisible).toBeGreaterThan(100);
         expect(gone.iconVisible).toBe(0);
+    });
+    test("the zone stays visible at its footprint and a short downward arrow floats above its centre, disappearing on arrival", () => {
+        for (const frame of [spawn, low, earlyExit, gone])
+            for (const sample of frame.zone) expect(sample).toBeGreaterThan(2);
+        for (const frame of [spawn, low]) {
+            for (const sample of frame.arrow) expect(sample).toBeGreaterThan(2);
+            expect(frame.arrowHead).toBeGreaterThan(2);
+        }
+        for (const frame of [earlyExit, gone]) {
+            expect(frame.arrow).toEqual([0, 0]);
+            expect(frame.arrowHead).toBe(0);
+        }
     });
     test("the device requests no requiredLimits, absent or empty", () => {
         expect(requests.length).toBeGreaterThan(0);

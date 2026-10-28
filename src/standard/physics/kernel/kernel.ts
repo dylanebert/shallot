@@ -45,9 +45,6 @@ export type Kernel = {
     moverSolve(operation: number, x: number, y: number, z: number, count: number): void;
     contactQuery(world: number, shapeA: number, shapeB: number, childIndex: number): number;
     eventChildIndex(world: number, kind: number, index: number): number;
-    collisionInputPtr(): number;
-    collisionOutputPtr(): number;
-    collisionQuery(operation: number): void;
     shapeQueryInputPtr(): number;
     shapeQueryOutputPtr(): number;
     shapeQueryRay(world: number, shape: number, local: number): void;

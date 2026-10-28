@@ -43,7 +43,6 @@ import {
 import { drawCastView } from "./cast-presentation";
 import { drawCharacterView } from "./character-presentation";
 import { collisionNames } from "./collision";
-import { debugDrawing, drawCollisionDebug } from "./collision-debug-presentation";
 import { drawCollisionView } from "./collision-presentation";
 import { childGeometry, compoundChildren, largeCompound, overlaps } from "./compound-presentation";
 import { drawingBounds, drawSet } from "./draw-set";
@@ -127,9 +126,6 @@ export function setSceneCamera(world: World, scene: Scene, camera: number): void
     orbit.yaw.set(camera, (view.yaw * Math.PI) / 180);
     orbit.pitch.set(camera, (view.pitch * Math.PI) / 180);
     const phone = typeof window !== "undefined" && window.innerWidth <= 480;
-    const distance = phone && "phoneDistance" in view ? view.phoneDistance : view.distance;
-    world.storage(Camera).far.set(camera, Math.max(1000, 3 * distance));
-    orbit.maxDistance.set(camera, Math.max(900, 2 * distance));
     orbit.distance.set(
         camera,
         phone && "phoneDistance" in view ? view.phoneDistance : view.distance,
@@ -153,11 +149,7 @@ export function setSceneCamera(world: World, scene: Scene, camera: number): void
     );
     // Sharing the orbit button prevents flythrough from detaching a follow camera.
     orbit.flyButton.set(camera, follow ? orbit.orbitButton.get(camera) : 2);
-    const target = follow
-        ? [0, 0, 0]
-        : phone && "phoneTarget" in view
-          ? view.phoneTarget
-          : view.target;
+    const target = follow ? [0, 0, 0] : view.target;
     orbit.pan.set(camera, target[0]!, target[1]!, target[2]!);
 }
 
@@ -452,26 +444,18 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         drawSensorHitViews(world, camera, (a, b, color, options) =>
             drawLine(world, a, b, color, options),
         );
-        const debugLabels = debugDrawing(world).labels;
-        const marks = debugLabels
-            .map((mark) => ({ ...mark, end: mark.point }))
-            .concat(
-                sample.scene === "persistentContact"
-                    ? sample.contactMarks
-                    : sample.hits.map((hit) => ({
-                          point: [hit.point.x, hit.point.y, hit.point.z] as [
-                              number,
-                              number,
-                              number,
-                          ],
-                          end: [
-                              hit.point.x - hit.approachSpeed * hit.normal.x,
-                              hit.point.y - hit.approachSpeed * hit.normal.y,
-                              hit.point.z - hit.approachSpeed * hit.normal.z,
-                          ] as [number, number, number],
-                          label: `${hit.approachSpeed.toFixed(1)}, ${hit.userMaterialIdA}`,
-                      })),
-            );
+        const marks =
+            sample.scene === "persistentContact"
+                ? sample.contactMarks
+                : sample.hits.map((hit) => ({
+                      point: [hit.point.x, hit.point.y, hit.point.z] as [number, number, number],
+                      end: [
+                          hit.point.x - hit.approachSpeed * hit.normal.x,
+                          hit.point.y - hit.approachSpeed * hit.normal.y,
+                          hit.point.z - hit.approachSpeed * hit.normal.z,
+                      ] as [number, number, number],
+                      label: `${hit.approachSpeed.toFixed(1)}, ${hit.userMaterialIdA}`,
+                  }));
         while (labels.length > marks.length) world.destroy(labels.pop()!);
         for (let i = 0; i < marks.length; i++) {
             const mark = marks[i]!;
@@ -484,8 +468,7 @@ function createView(world: World, scene: Scene, camera: number): () => void {
                 });
                 world.add(label, Text, {
                     content: internText(world, mark.label),
-                    fontSize:
-                        i < debugLabels.length ? world.storage(Orbit).distance.get(camera) / 50 : 1,
+                    fontSize: 1,
                     depthBias: -1,
                     billboard: Billboard.Screen,
                     color: 0xeee9df,
@@ -495,10 +478,7 @@ function createView(world: World, scene: Scene, camera: number): () => void {
             const label = labels[i]!;
             world.storage(Transform).translation.set(label, ...point);
             world.storage(Text).content.set(label, internText(world, mark.label));
-            if (i >= debugLabels.length)
-                drawEventMark(mark, (a, b, color, options) =>
-                    drawLine(world, a, b, color, options),
-                );
+            drawEventMark(mark, (a, b, color, options) => drawLine(world, a, b, color, options));
         }
     }
     updateShapes(world);
@@ -529,9 +509,6 @@ function createView(world: World, scene: Scene, camera: number): () => void {
                 drawMeshViewerView(world, (a, b, color, options) =>
                     drawLine(world, a, b, color, options),
                 );
-            drawCollisionDebug(world, camera, (a, b, color, options) =>
-                drawLine(world, a, b, color, options),
-            );
             if ((collisionNames as readonly string[]).includes(scene))
                 drawCollisionView(world, camera, (a, b, color, options) =>
                     drawLine(world, a, b, color, options),

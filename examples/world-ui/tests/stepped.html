@@ -7,7 +7,7 @@
 import { createApp, Camera, DirectionalLight, GlobalTransform, Sprite, Orbit, qRotate } from '@dylanebert/shallot';
 import { captureFrame, worldToViewport } from '@dylanebert/shallot/rendering';
 import { DirectionalLightShadowMap } from '@dylanebert/shallot/standard/rendering';
-import { assets, Delivery, DeliveryPlugin } from '../src/delivery';
+import { assets, Delivery, DeliveryPlugin, DriveCar } from '../src/delivery';
 const app = await createApp({ plugins: [{name:'SteppedScene',dependencies:[DeliveryPlugin],initialize(world){
  if(!new URLSearchParams(location.search).has('captures')){
   world.storage(Camera).antialias.set(world.resource(Delivery).camera,0);
@@ -58,11 +58,28 @@ window.delivery = {
         const promise = captureFrame(canvas);
         world.step(0);
         const image = await promise;
-        function ink(p, halfWidth, halfHeight, cyan = false, bounds) {
+        world.removeSystem(DriveCar);
+        let withoutMarkers;
+        try {
+            const background = captureFrame(canvas);
+            world.step(0);
+            withoutMarkers = await background;
+        } finally { world.addSystem(DriveCar); }
+        function marker(p) {
+            const center = projected(p);
+            let count = 0;
+            for (let y = Math.floor(center.y) - 2; y <= center.y + 2; y++)
+                for (let x = Math.floor(center.x) - 2; x <= center.x + 2; x++) {
+                    const at = (y * image.width + x) * 4;
+                    if ([0, 1, 2].some(c => Math.abs(image.rgba[at + c] - withoutMarkers.rgba[at + c]) > 10)) count++;
+                }
+            return count;
+        }
+        function ink(p, halfWidth, halfHeight, cyan = false, bounds, source = image) {
             let count = 0;
             for (let y = Math.floor(p.y - halfHeight); y <= p.y + halfHeight; y++) for (let x = Math.floor(p.x - halfWidth); x <= p.x + halfWidth; x++) {
                 const at = (y * image.width + x) * 4;
-                const [r, g, b] = image.rgba.subarray(at, at + 3);
+                const [r, g, b] = source.rgba.subarray(at, at + 3);
                 if (cyan ? g > r + 30 && b > r + 30 && b > 80 : r > 180 && g > 170 && b > 155 && Math.abs(r - b) < 65) {
                     count++;
                     if (bounds) {
@@ -94,7 +111,7 @@ window.delivery = {
          for(let x=Math.max(0,Math.floor(Math.min(a.x,b.x)-15));x<Math.min(image.width,Math.ceil(Math.max(a.x,b.x)+15));x++){
           const along=((x+.5-a.x)*dx+(y+.5-a.y)*dy)/(length*length);
           const distance=Math.abs((x+.5-a.x)*dy-(y+.5-a.y)*dx)/length;
-          if(along>0&&along<1&&distance>1.5&&distance<15)offShaft+=ink({x,y},0,0);
+          if(along>0&&along<1&&distance>1.5&&distance<15)offShaft+=ink({x,y},0,0,false,undefined,withoutMarkers);
          }
         let data = '';
         if (png) {
@@ -105,6 +122,9 @@ window.delivery = {
         }
         return {
             adapter: world.gpu.adapter, png: data,
+            zone: [2.4, 3, 3.6].map(x => marker([x, 0.1, 1.6])),
+            arrowHead: marker([3.05, 2.37, 1]),
+            arrow: [0.2, 0.5].map(t => marker([3, 3.2 - t, 1])),
             icon: ink(icon, icon.width * 0.45, icon.height * 0.45),
             iconWidth: icon.width,
             iconVisible,
@@ -115,8 +135,8 @@ window.delivery = {
             barFilled: [-0.32, 0, 0.32].map(t => ink({ ...barPoint(fill * 0.5), y: bar.y + t * bar.height }, 1, 0, true)),
             barEmpty: ink(empty, 1, 1, true),
             emptyRgb,
-            trail: trail.map(p => ink(p, 2, 2)),
-            besideTip: besideTip.map(p => ink(p, 0, 0)), offShaft,
+            trail: trail.map(p => ink(p, 2, 2, false, undefined, withoutMarkers)),
+            besideTip: besideTip.map(p => ink(p, 0, 0, false, undefined, withoutMarkers)), offShaft,
         };
     },
 };

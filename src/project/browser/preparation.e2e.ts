@@ -13,7 +13,9 @@ test("a fixed-ratio auto-bound canvas stack prepares one blit without binding vi
     });
     expect(actual).toEqual({ samples: [1], upscaling: 1, views: 0 });
 });
-test("a lone fixed-ratio canvas camera prepares its motes variant and one upscaling pipeline", async ({ page }) => {
+// Each family's sample-count variants are held on Dawn by scripts/motes-preparation.node.ts; upscaling
+// preparation reads the page's canvas.
+test("a lone fixed-ratio canvas camera prepares its motes variant and no upscaling", async ({ page }) => {
     await page.goto("/motes-preparation.html");
     await page.waitForFunction(() => "preparedSamples" in window);
     const actual = await page.evaluate(() => {
@@ -22,5 +24,5 @@ test("a lone fixed-ratio canvas camera prepares its motes variant and one upscal
         control.dispose();
         return result;
     });
-    expect(actual).toEqual({ samples: [1], upscaling: 1 });
+    expect(actual).toEqual({ samples: [1], upscaling: 0 });
 });

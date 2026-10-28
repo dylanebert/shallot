@@ -28,10 +28,6 @@ function equalSampleSteps(actual: string, expected: string, label: string): void
 }
 
 for (const [scene, name, before, after] of [
-    ["shapeCastDebug", "ShapeCastDebug", "72267.117187500", "70000.000000000"],
-    ["distanceDebug", "DistanceDebug", "1.00989532471", "1.10989532471"],
-    ["shapeDistance", "ShapeDistance", "{ 0.0f, 1.0f, 0.0f }", "{ 0.0f, 1.1f, 0.0f }"],
-    ["timeOfImpact", "TimeOfImpact", "-4.06512070", "-4.16512070"],
     ["rayCurtain", "RayCurtain", "0.9f };", "0.95f };"],
     ["castWorld", "CastWorld", "RandomVec3Uniform( -20.0f, 20.0f )", "RandomVec3Uniform( -20.0f, 19.0f )"],
     ["meshScale", "MeshScale", "m_start = { -2.0f, 0.0f, 0.0f };", "m_start = { -2.1f, 0.0f, 0.0f };"],

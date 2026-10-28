@@ -80,7 +80,7 @@ for (const scene of Object.keys(meshScenes) as (keyof typeof meshScenes)[]) {
                             "node area",
                             "height",
                         ];
-                        const row = names.map((name) => Number(controls![name]!.read!(app.world)!));
+                        const row = names.map((name) => controls![name]!.read!(app.world)!);
                         row.push(app.world.resource(MeshInspectorState).values["draw level"]);
                         expect(drawingDigest([row]), `readouts step ${step}`).toBe(readouts[step]!);
                     }

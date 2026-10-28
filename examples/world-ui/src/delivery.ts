@@ -2,7 +2,9 @@ import {
     Camera,
     component,
     DirectionalLight,
+    drawArrow,
     drawLine,
+    drawWireBox,
     f32,
     Gizmo,
     GizmoAsset,
@@ -40,6 +42,8 @@ const GROUND = [0.085, 0.08, 0.072, 1] as const;
 const CYAN = [0.04, 0.43, 0.53, 1] as const;
 const AMBER = [0.72, 0.4, 0.05, 1] as const;
 const DARK = [0.042, 0.039, 0.035, 1] as const;
+// aperture-carbon scene ink
+const MARKER = 0xeee9df;
 export const ROAD_START = -4.5;
 export const ROAD_LENGTH = 7.5;
 export const DRIVE_SECONDS = 6;
@@ -61,6 +65,11 @@ export const Delivery: Resource<{
     trailHandle: number;
     trailStart: number[];
     trailEnd: number[];
+    zoneMin: Vec3;
+    zoneMax: Vec3;
+    arrowStart: Vec3;
+    arrowEnd: Vec3;
+    arrowVisible: boolean;
 }> = {
     create: () => ({
         camera: 0,
@@ -77,6 +86,11 @@ export const Delivery: Resource<{
         trailHandle: 0,
         trailStart: [ROAD_START, 0.16, 1],
         trailEnd: [ROAD_START, 0.16, 1],
+        zoneMin: [2.25, 0.05, 0.4],
+        zoneMax: [3.75, 0.1, 1.6],
+        arrowStart: [3, 3.2, 1],
+        arrowEnd: [3, 2.2, 1],
+        arrowVisible: false,
     }),
 };
 export function assets(world: World): void {
@@ -214,6 +228,19 @@ export const DriveCar = {
             if (!world.has(scene.trail, Gizmo))
                 world.add(scene.trail, Gizmo, { handle: scene.trailHandle, width: 2 });
         } else if (world.has(scene.trail, Gizmo)) world.remove(scene.trail, Gizmo);
+        drawWireBox(world, scene.zoneMin, scene.zoneMax, MARKER, { width: 2 });
+        scene.arrowVisible = progress < 1;
+        if (scene.arrowVisible) {
+            drawArrow(
+                world,
+                scene.arrowStart,
+                scene.arrowEnd,
+                MARKER,
+                { width: 2 },
+                0.25,
+                [0, 0, 1],
+            );
+        }
         const t = Math.max(0, Math.min(1, (phase - DRIVE_SECONDS) / EXIT_SECONDS));
         const c1 = 1.70158;
         const easeInBack = t * t * ((c1 + 1) * t - c1);

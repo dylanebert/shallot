@@ -19,7 +19,6 @@ import { BodySampleState, bodyScenes } from "./bodies";
 import { CastState } from "./cast";
 import { CharacterSample, characterScenes } from "./character";
 import { CollisionState, collisionScenes } from "./collision";
-import { CollisionDebug, debugScenes } from "./collision-debug";
 import { compoundScenes } from "./compound";
 import { continuousScenes } from "./continuous";
 import { eventScenes } from "./events";
@@ -48,7 +47,6 @@ export type Scene =
     | "parallel"
     | "village"
     | keyof typeof collisionScenes
-    | keyof typeof debugScenes
     | keyof typeof ragdollScenes
     | keyof typeof meshScenes
     | keyof typeof compoundScenes
@@ -115,16 +113,12 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
         scenes: [
             { id: "capsuleCastRay", name: "Capsule Cast Ray" },
             { id: "castWorld", name: "Cast World" },
-            { id: "distanceDebug", name: "Distance Debug" },
             { id: "initialOverlap", name: "Initial Overlap" },
             { id: "longRayCast", name: "Long Ray Cast" },
             { id: "meshScale", name: "Mesh Scale" },
             { id: "overlapWorld", name: "Overlap World" },
             { id: "rayCurtain", name: "Ray Curtain" },
             { id: "shapeCast", name: "Shape Cast" },
-            { id: "shapeCastDebug", name: "Shape Cast Debug" },
-            { id: "shapeDistance", name: "Shape Distance" },
-            { id: "timeOfImpact", name: "Time of Impact" },
         ],
     },
     {
@@ -257,7 +251,7 @@ export interface Control {
     precision?: number;
     logarithmic?: boolean;
     button?: boolean;
-    read?: (world: World) => number | string | null;
+    read?: (world: World) => number | null;
     enabled?: (world: World) => boolean;
     options?: readonly { label: string; value: number }[];
     select?: boolean;
@@ -322,7 +316,6 @@ export const scenes = {
     geometricMover: geometricMoverScene,
     rigidBody: rigidBodyScene,
     ...collisionScenes,
-    ...debugScenes,
     ...ragdollScenes,
     ...shapeScenes,
     ...compoundScenes,
@@ -933,7 +926,6 @@ export function createScene(world: World, scene: Scene): number[] {
     Object.assign(world.resource(PrecessionState), PrecessionState.create());
     Object.assign(world.resource(CastState), CastState.create());
     Object.assign(world.resource(CollisionState), CollisionState.create());
-    Object.assign(world.resource(CollisionDebug), CollisionDebug.create());
     Object.assign(world.resource(CharacterSample), CharacterSample.create());
     Object.assign(world.resource(GeometricMoverState), GeometricMoverState.create());
     Object.assign(world.resource(VillageState), VillageState.create());

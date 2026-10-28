@@ -5,7 +5,7 @@ import { expectWarning } from "../../../scripts/test-console";
 import { drawLine, LinesPlugin } from "../../extras/lines";
 import { TextPlugin } from "../../extras/text";
 import { Transform } from "../transform";
-import { attachTexture, Camera, CameraViewport } from ".";
+import { attachTexture, Camera } from ".";
 
 setDefaultTimeout(TIMEOUT.gpu);
 
@@ -85,7 +85,7 @@ for (const [index, count] of [
             );
             expect(actual).toEqual(count ? [`${family}-${count}`] : []);
         }
-        expect(labels[index]!.filter((label) => label === "upscaling")).toEqual(["upscaling"]);
+        expect(labels[index]!.filter((label) => label === "upscaling")).toEqual([]);
     });
 }
 test("a camera declared by a dependent warm hook prepares only its reachable sample count", () => {
@@ -94,7 +94,7 @@ test("a camera declared by a dependent warm hook prepares only its reachable sam
         "lines-1",
         "text-1",
     ]);
-    expect(labels[4]!.filter((label) => label === "upscaling")).toEqual(["upscaling"]);
+    expect(labels[4]!.filter((label) => label === "upscaling")).toEqual([]);
 });
 test("a fixed-ratio initial stack prepares one blit and deduplicates its shared sample count", () => {
     subjects();
@@ -108,16 +108,6 @@ test("auto pixel ratio prepares upscaling even before a display change", () => {
     subjects();
     expect(labels[3]!.filter((label) => label === "upscaling")).toEqual(["upscaling"]);
 });
-test("a rectangle added after the first frame with numeric pixelRatio compiles no pipeline at draw", () => {
-    const world = subjects()[2].world;
-    world.step(0);
-    const before = labels[2]!.length;
-    const camera = [...world.query([Camera])][0]!;
-    world.add(camera, CameraViewport, { x: 2, y: 2, width: 4, height: 4 });
-    world.step(0);
-    expect(labels[2]!.length).toBe(before);
-});
-
 test("a later camera with another sample count warns instead of eagerly compiling the absent line variant", () => {
     const world = subjects()[1].world;
     const camera = world.create();

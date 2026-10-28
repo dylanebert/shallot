@@ -198,3 +198,21 @@ test("the scene then restarts as at spawn: car at start, icon whole, bar empty",
         app.dispose();
     }
 });
+
+test("the zone covers the stop footprint and its downward arrow is shown only while driving", async () => {
+    const app = await check();
+    try {
+        const world = app.world;
+        for (const seconds of [0, 3, 3, 1, 1]) {
+            advance(world, seconds);
+            const scene = world.resource(Delivery);
+            expect(scene.zoneMin).toEqual([2.25, 0.05, 0.4]);
+            expect(scene.zoneMax).toEqual([3.75, 0.1, 1.6]);
+            expect(scene.arrowStart).toEqual([3, 3.2, 1]);
+            expect(scene.arrowEnd).toEqual([3, 2.2, 1]);
+            expect(scene.arrowVisible).toBe(world.storage(Car).progress.get(scene.car) < 1);
+        }
+    } finally {
+        app.dispose();
+    }
+});
