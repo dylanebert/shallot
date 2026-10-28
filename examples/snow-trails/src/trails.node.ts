@@ -29,6 +29,7 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { openGpuApp } from "@dylanebert/shallot/testing/gpu";
 import { DemoPlugin, RADIUS, SnowTrails } from "./demo";
 import { Grab, pick } from "./grab";
+import { groundAt } from "./hills";
 import { DEPTH, FIELD, RESOLUTION, Trail } from "./trail";
 
 setDefaultTimeout(TIMEOUT.node);
@@ -111,13 +112,51 @@ beforeAll(async () => {
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error("Snow trails needs a WebGPU adapter");
     device = await adapter.requestDevice({ requiredFeatures: ["indirect-first-instance"] });
-    for (let i = 0; i < 5; i++) subjects.push(await openGpuApp({ ...config, device, adapter }));
+    for (let i = 0; i < 7; i++) subjects.push(await openGpuApp({ ...config, device, adapter }));
 }, TIMEOUT.startup);
 afterAll(() => {
     for (const app of subjects) app.dispose();
     device?.destroy();
 });
 const apps = () => subjects;
+test("a resting hillside boulder presses through the local snow to ground", async () => {
+    const world = apps()[5].world;
+    const { boulder } = world.resource(SnowTrails);
+    world.tick();
+    setTransform(world, boulder, [5, groundAt(5, 3) + RADIUS, 3], [0, 0, 0, 1]);
+    setLinearVelocity(world, boulder, { x: 0, y: 0, z: 0 });
+    for (let i = 0; i < 90; i++) world.tick();
+    world.step(0);
+    world.step(0);
+    world.step(0);
+    const p = world.storage(GlobalTransform).translation;
+    const x = p.x.get(boulder),
+        z = p.z.get(boulder);
+    expect(Math.abs(p.y.get(boulder) - RADIUS - groundAt(x, z))).toBeLessThan(0.08);
+    const data = new Float32Array((await probeTexture(world, world.resource(Trail).image!)).bytes);
+    expect(pixel(data, x, z)).toBeGreaterThan(0.85);
+});
+test("the opening fall and roll depart from a straight line by more than the boulder radius", () => {
+    const world = apps()[6].world;
+    const { boulder } = world.resource(SnowTrails);
+    const positions: [number, number][] = [];
+    for (let i = 0; i < 360; i++) {
+        world.tick();
+        const p = world.storage(GlobalTransform).translation;
+        positions.push([p.x.get(boulder), p.z.get(boulder)]);
+    }
+    const [x0, z0] = positions[0],
+        [x1, z1] = positions.at(-1)!;
+    const length = Math.hypot(x1 - x0, z1 - z0);
+    expect(
+        Math.max(
+            ...positions.map(
+                ([x, z]) =>
+                    Math.abs((x - x0) * (z1 - z0) - (z - z0) * (x1 - x0)) / Math.max(length, 1e-6),
+            ),
+        ),
+    ).toBeGreaterThan(RADIUS);
+});
 function pixel(data: Float32Array, x: number, z: number) {
     return data[
         Math.floor((0.5 - z / FIELD) * RESOLUTION) * RESOLUTION +
@@ -128,10 +167,10 @@ test("a rolling boulder leaves a deep persistent trail under every passed bottom
     const world = apps()[0].world;
     const { boulder } = world.resource(SnowTrails);
     world.tick();
-    setTransform(world, boulder, [-6, RADIUS, 0], [0, 0, 0, 1]);
+    setTransform(world, boulder, [-6, groundAt(-6, 0) + RADIUS, 0], [0, 0, 0, 1]);
     setLinearVelocity(world, boulder, { x: 3, y: 0, z: 0 });
     const positions: [number, number][] = [];
-    for (let i = 0; i < 120; i++) {
+    for (let i = 0; i < 45; i++) {
         world.step(1 / 60);
         const p = world.storage(GlobalTransform).translation;
         positions.push([p.x.get(boulder), p.z.get(boulder)]);
@@ -149,9 +188,9 @@ test("a grab holding the bottom halfway into snow records half the snow depth", 
     world.step(1 / 60);
     const { boulder, camera } = world.resource(SnowTrails);
     resizeViewport(world, 0, 320, 240, 1);
-    setTransform(world, boulder, [0, RADIUS + DEPTH / 2, 4], [0, 0, 0, 1]);
+    setTransform(world, boulder, [0, groundAt(0, 4) + RADIUS + DEPTH / 2, 4], [0, 0, 0, 1]);
     setLinearVelocity(world, boulder, { x: 0, y: 0, z: 0 });
-    const [x, y] = worldToViewport(world, camera, [0, RADIUS + DEPTH / 2, 4])!;
+    const [x, y] = worldToViewport(world, camera, [0, groundAt(0, 4) + RADIUS + DEPTH / 2, 4])!;
     pointerMove(world, x, y);
     pressButton(world, "left");
     world.step(0);
@@ -168,11 +207,11 @@ test("a grab holding the bottom halfway into snow records half the snow depth", 
         (t.x * t.x + t.y * t.y + t.z * t.z);
     grab.hit.body = boulder;
     pick(world, true);
-    for (let i = 0; i < 90; i++) world.step(1 / 60);
+    for (let i = 0; i < 90; i++) world.tick();
     world.step(0);
     world.step(0);
     const p = world.storage(GlobalTransform).translation;
-    const bottom = p.y.get(boulder) - RADIUS;
+    const bottom = p.y.get(boulder) - RADIUS - groundAt(p.x.get(boulder), p.z.get(boulder));
     expect(bottom).toBeGreaterThan(DEPTH * 0.4);
     expect(bottom).toBeLessThan(DEPTH * 0.6);
     const data = new Float32Array((await probeTexture(world, world.resource(Trail).image!)).bytes);
@@ -187,10 +226,10 @@ for (const touch of [false, true])
         resizeViewport(world, 0, 320, 240, 1);
         world.step(1 / 60);
         const { boulder, camera } = world.resource(SnowTrails);
-        setTransform(world, boulder, [0, RADIUS, 0], [0, 0, 0, 1]);
+        setTransform(world, boulder, [0, groundAt(0, 0) + RADIUS, 0], [0, 0, 0, 1]);
         setLinearVelocity(world, boulder, { x: 0, y: 0, z: 0 });
         world.step(1 / 60);
-        const [x, y] = worldToViewport(world, camera, [0, RADIUS, 0])!;
+        const [x, y] = worldToViewport(world, camera, [0, groundAt(0, 0) + RADIUS, 0])!;
         const down = (x: number, y: number) => {
             if (touch) touchPoint(world, 1, x, y);
             else {
@@ -212,7 +251,9 @@ for (const touch of [false, true])
         expect(world.storage(Orbit).mode.get(camera)).toBe(OrbitMode.Locked);
         const yaw = world.storage(Orbit).yaw.get(camera);
         move(x + 50, y);
-        for (let i = 0; i < 45; i++) world.step(1 / 60);
+        world.step(1 / 60);
+        for (let i = 0; i < 44; i++) world.tick();
+        world.step(0);
         expect(world.storage(Orbit).yaw.get(camera)).toBe(yaw);
         expect(world.storage(GlobalTransform).translation.x.get(boulder)).toBeGreaterThan(1);
         up();
@@ -232,7 +273,11 @@ for (const touch of [false, true])
 
 test("the stepped snow frame is lower and differently shaded on the trail than beside it", async () => {
     const world = apps()[4].world;
-    for (let i = 0; i < 120; i++) world.step(1 / 60);
+    const rock = world.resource(SnowTrails).boulder;
+    world.tick();
+    setTransform(world, rock, [-4, groundAt(-4, 0) + RADIUS, 0], [0, 0, 0, 1]);
+    setLinearVelocity(world, rock, { x: 0, y: 0, z: 0 });
+    for (let i = 0; i < 3; i++) world.step(1 / 60);
     world.step(0);
     world.step(0);
     const { camera, boulder } = world.resource(SnowTrails);
@@ -246,6 +291,7 @@ test("the stepped snow frame is lower and differently shaded on the trail than b
     world.storage(Transform).rotation.set(camera, ...lookAtRotation(0, 20, 0, 0, 0, 0, 0, 0, -1));
     world.tick();
     resetInterpolation(world, camera);
+    resetInterpolation(world, boulder);
     world.step(0);
     const on = worldToViewport(world, camera, [-4, 0, 0])!;
     const off = worldToViewport(world, camera, [-4, DEPTH, 2])!;
@@ -276,7 +322,10 @@ test("the stepped snow frame is lower and differently shaded on the trail than b
             })
         ).bytes,
     );
-    expect(depth[1] - depth[0]).toBeGreaterThan((DEPTH / 30) * 0.8);
+    expect(20 - (1 - depth[1]) * 30).toBeCloseTo(groundAt(-4, 2) + DEPTH, 1);
+    expect((depth[1] - depth[0]) * 30 + groundAt(-4, 0) - groundAt(-4, 2)).toBeGreaterThan(
+        DEPTH * 0.8,
+    );
     const frame = await captureTexture(world, camera);
     const color = (p: number[]) => {
         const i = (Math.floor(p[1]) * frame.width + Math.floor(p[0])) * 4;

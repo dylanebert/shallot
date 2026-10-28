@@ -8,10 +8,12 @@ import {
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
+import { HILL_SIZE, Hills, HillsPlugin } from "./hills";
 import { DEPTH, FIELD, RESOLUTION, Trail, TrailPlugin } from "./trail";
 
 const layout = materialLayout(d.struct({ unused: d.f32 }), {
     image: { type: "texture", filterable: false },
+    ground: { type: "texture", filterable: false },
 });
 const cell = tgpu.fn(
     [d.vec3f],
@@ -33,11 +35,45 @@ const depthAt = tgpu.fn(
     "use gpu";
     return std.textureLoad(layout.$.image, xy, 0).r;
 });
+const ground = tgpu.fn(
+    [d.vec3f],
+    d.f32,
+)((world) => {
+    "use gpu";
+    const uv = std.clamp(
+        d
+            .vec2f(world.x, world.z)
+            .div(FIELD)
+            .add(d.vec2f(0.5))
+            .mul(HILL_SIZE - 1),
+        d.vec2f(0),
+        d.vec2f(HILL_SIZE - 1.001),
+    );
+    const xy = d.vec2i(uv);
+    const f = std.fract(uv);
+    return std.mix(
+        std.mix(
+            std.textureLoad(layout.$.ground, xy, 0).r,
+            std.textureLoad(layout.$.ground, xy.add(d.vec2i(1, 0)), 0).r,
+            f.x,
+        ),
+        std.mix(
+            std.textureLoad(layout.$.ground, xy.add(d.vec2i(0, 1)), 0).r,
+            std.textureLoad(layout.$.ground, xy.add(d.vec2i(1, 1)), 0).r,
+            f.x,
+        ),
+        f.y,
+    );
+});
+const bindings = (world: import("@dylanebert/shallot").World) => ({
+    image: world.resource(Trail).image!,
+    ground: world.resource(Hills).image!,
+});
 export const SnowMaterial = materialType({
     name: "Snow",
     layout,
     defaults: { unused: 0 },
-    bindings: (world) => ({ image: world.resource(Trail).image! }),
+    bindings,
     vertex: (input) => {
         "use gpu";
         const xy = cell(input.world.xyz);
@@ -53,8 +89,25 @@ export const SnowMaterial = materialType({
                 RESOLUTION) /
             (2 * FIELD);
         return {
-            world: d.vec4f(input.world.x, DEPTH - depth * DEPTH, input.world.z, 1),
-            worldNormal: std.normalize(d.vec3f(dx, 1, -dz)),
+            world: d.vec4f(
+                input.world.x,
+                ground(input.world.xyz) + DEPTH - depth * DEPTH,
+                input.world.z,
+                1,
+            ),
+            worldNormal: std.normalize(
+                d.vec3f(
+                    dx -
+                        (ground(input.world.xyz.add(d.vec3f(0.05, 0, 0))) -
+                            ground(input.world.xyz.sub(d.vec3f(0.05, 0, 0)))) /
+                            0.1,
+                    1,
+                    -dz -
+                        (ground(input.world.xyz.add(d.vec3f(0, 0, 0.05))) -
+                            ground(input.world.xyz.sub(d.vec3f(0, 0, 0.05)))) /
+                            0.1,
+                ),
+            ),
         };
     },
     fragment: (ctx) => {
@@ -66,17 +119,23 @@ export const SnowMaterial = materialType({
 });
 export const StampMaterial = materialType({
     name: "PressDepth",
-    parameters: d.struct({ unused: d.f32 }),
+    layout,
+    bindings,
     defaults: { unused: 0 },
     fragment: (ctx) => {
         "use gpu";
-        const press = std.clamp((DEPTH - ctx.world.y) / DEPTH, 0, 1);
+        const press = std.clamp((ground(ctx.world) + DEPTH - ctx.world.y) / DEPTH, 0, 1);
         return d.vec4f(d.vec3f(press), 1);
     },
 });
 export const SnowPlugin: Plugin = {
     name: "Snow",
-    dependencies: [TrailPlugin, MaterialPlugin(SnowMaterial), MaterialPlugin(StampMaterial)],
+    dependencies: [
+        HillsPlugin,
+        TrailPlugin,
+        MaterialPlugin(SnowMaterial),
+        MaterialPlugin(StampMaterial),
+    ],
 };
 
 export function snowPlane() {

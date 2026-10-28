@@ -5,7 +5,7 @@ import { DemoPlugin, SnowTrails } from '../src/demo';
 const app=await createApp({plugins:[DemoPlugin]});
 const world=app.world, canvas=document.querySelector('canvas');
 resizeViewport(world,0,innerWidth,innerHeight,1);
-for(let i=0;i<120;i++)world.step(1/60);
+for(let i=0;i<48;i++)world.step(1/20);
 const state=world.resource(SnowTrails);
 window.snow={
  step(n=1){for(let i=0;i<n;i++)world.step(1/60)},

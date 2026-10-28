@@ -6,6 +6,7 @@ import {
     DirectionalLight,
     GlobalAmbientLight,
     GlobalTransform,
+    HeightFields,
     lookAtRotation,
     Materials,
     Meshes,
@@ -29,6 +30,7 @@ import {
 } from "@dylanebert/shallot/rendering";
 import { StandardPhysicsPlugin, StepPhysicsSystem } from "@dylanebert/shallot/standard/physics";
 import { GrabPlugin } from "./grab";
+import { groundAt, HIGH, HILL_SIZE, heights, LOW } from "./hills";
 import { SnowMaterial, SnowPlugin, StampMaterial, snowPlane } from "./snow";
 import { DEPTH, FIELD, RESOLUTION, Trail } from "./trail";
 
@@ -47,18 +49,16 @@ export const DemoPlugin: Plugin = {
             .add(StandardMaterial({ baseColor: [0.72, 0.4, 0.05, 1], perceptualRoughness: 0.8 }));
         const boulder = world.create();
         state.boulder = boulder;
-        world.add(boulder, Transform, { translation: [-6, RADIUS, 0] });
+        world.add(boulder, Transform, { translation: [-7, groundAt(-7, 2) + RADIUS + 2, 2] });
         world.add(boulder, Body, {
             type: BodyType.Dynamic,
-            linearVelocity: [3, 0, 0],
-            angularVelocity: [0, 0, -3 / RADIUS],
         });
         world.add(boulder, Shape, { kind: ShapeKind.Sphere, radius: RADIUS, friction: 0.8 });
         world.add(boulder, MeshInstance, { mesh: rockMesh });
         world.add(boulder, MeshMaterial, rock);
         const stamp = world.create();
         state.stamp = stamp;
-        world.add(stamp, Transform, { translation: [-6, RADIUS, 0] });
+        world.add(stamp, Transform, { translation: [-7, groundAt(-7, 2) + RADIUS + 2, 2] });
         world.add(stamp, MeshInstance, { mesh: rockMesh });
         world.add(stamp, MeshMaterial, world.resource(StampMaterial).add({ unused: 0 }));
         world.add(stamp, RenderLayers, { mask: 2 });
@@ -70,41 +70,33 @@ export const DemoPlugin: Plugin = {
             mesh: world.resource(Meshes).add({ name: "snowfield", ...snowPlane() }),
         });
         world.add(snow, MeshMaterial, world.resource(SnowMaterial).add({ unused: 0 }));
-        for (const [translation, scale] of [
-            [
-                [0, -0.5, 0],
-                [FIELD, 1, FIELD],
-            ],
-            [
-                [-12.5, 1, 0],
-                [1, 3, FIELD + 2],
-            ],
-            [
-                [12.5, 1, 0],
-                [1, 3, FIELD + 2],
-            ],
-            [
-                [0, 1, -12.5],
-                [FIELD, 3, 1],
-            ],
-            [
-                [0, 1, 12.5],
-                [FIELD, 3, 1],
-            ],
-        ] as const) {
-            const body = world.create();
-            world.add(body, Transform, { translation: [...translation] });
-            world.add(body, Body, { type: BodyType.Static });
-            world.add(body, Shape, { scale: [...scale] });
-        }
+        const ground = world.create();
+        world.add(ground, Transform, { translation: [-FIELD / 2, 0, -FIELD / 2] });
+        world.add(ground, Body, { type: BodyType.Static });
+        world.add(ground, Shape, {
+            kind: ShapeKind.HeightField,
+            geometry: world.resource(HeightFields).add({
+                name: "soft hills",
+                countX: HILL_SIZE,
+                countZ: HILL_SIZE,
+                scale: [FIELD / (HILL_SIZE - 1), 1, FIELD / (HILL_SIZE - 1)],
+                heights,
+                globalMinimumHeight: LOW,
+                globalMaximumHeight: HIGH,
+            }),
+            friction: 0.8,
+        });
         const capture = world.create();
         state.capture = capture;
-        world.add(capture, Transform, { rotation: lookAtRotation(0, 0, 0, 0, 1, 0, 0, 0, 1) });
+        world.add(capture, Transform, {
+            translation: [0, LOW, 0],
+            rotation: lookAtRotation(0, 0, 0, 0, 1, 0, 0, 0, 1),
+        });
         world.add(capture, Camera, {
             mode: CameraMode.Orthographic,
             size: FIELD / 2,
             near: 0,
-            far: DEPTH,
+            far: HIGH + DEPTH - LOW,
             clearColor: 0,
             antialias: 0,
             order: -1,
