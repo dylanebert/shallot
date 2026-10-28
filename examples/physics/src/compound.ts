@@ -158,14 +158,14 @@ export const compoundScenes = {
         construct: spheres,
         gridExtent: 12,
         gridSpacing: 2,
-        camera: { yaw: 40, pitch: 20, distance: 36, phoneDistance: 50, target: [0, 0, 0] },
+        camera: { yaw: 40, pitch: 20, distance: 26, phoneDistance: 38, target: [0, 0, 0] },
         controls: undefined,
     },
     compoundHulls: {
         construct: hulls,
         gridExtent: 12,
         gridSpacing: 2,
-        camera: { yaw: 40, pitch: 20, distance: 36, phoneDistance: 50, target: [0, 0, 0] },
+        camera: { yaw: 40, pitch: 20, distance: 26, phoneDistance: 38, target: [0, 0, 0] },
         controls: undefined,
     },
     tileFloor: {
