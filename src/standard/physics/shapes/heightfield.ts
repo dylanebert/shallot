@@ -14,9 +14,9 @@ export type HeightFieldDef = {
     materialIndices: ArrayLike<number> | null;
     /** Horizontal scale must be positive; vertical scale may be zero. */
     scale: Vec3;
-    /** Number of grid lines along the x-axis (columns), at least one. */
+    /** Number of grid lines along the x-axis (columns), at least one; countX * countZ is at least four. */
     countX: number;
-    /** Number of grid lines along the z-axis (rows), at least one. */
+    /** Number of grid lines along the z-axis (rows), at least one; countX * countZ is at least four. */
     countZ: number;
     /** Global min/max heights for quantization; all heights clamp to this range (unscaled). */
     globalMinimumHeight: number;

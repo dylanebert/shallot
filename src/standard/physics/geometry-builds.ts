@@ -219,6 +219,13 @@ export function meshBuild(world: World, id: number): MeshData | undefined {
 }
 
 function buildHeightField(world: World, def: HeightField, sx = 1, sy = 1, sz = 1): HeightFieldData {
+    const label = `physics: height field "${def.name}"`;
+    const countX = "wave" in def ? def.wave.columnCount : def.countX;
+    const countZ = "wave" in def ? def.wave.rowCount : def.countZ;
+    if (!Number.isInteger(countX) || !Number.isInteger(countZ) || countX < 1 || countZ < 1)
+        throw new Error(`${label} is ${countX} by ${countZ} points, not integers of at least 1`);
+    if (countX * countZ < 4)
+        throw new Error(`${label} has ${countX * countZ} points, not at least 4`);
     if ("wave" in def) {
         const a = def.wave;
         return createWave(
@@ -231,10 +238,7 @@ function buildHeightField(world: World, def: HeightField, sx = 1, sy = 1, sz = 1
             world,
         );
     }
-    const { heights, materialIndices, scale, countX, countZ } = def;
-    const label = `physics: height field "${def.name}"`;
-    if (!Number.isInteger(countX) || !Number.isInteger(countZ) || countX < 1 || countZ < 1)
-        throw new Error(`${label} is ${countX} by ${countZ} points, not integers of at least 1`);
+    const { heights, materialIndices, scale } = def;
     if (heights.length !== countX * countZ)
         throw new Error(`${label} has ${heights.length} heights for ${countX * countZ} points`);
     const cells = (countX - 1) * (countZ - 1);

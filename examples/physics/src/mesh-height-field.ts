@@ -120,7 +120,7 @@ const controls: Controls = Object.fromEntries(
             return [-limit, limit];
         };
         const range = dimension
-            ? [1, 500]
+            ? [2, 500]
             : label === "amplitude"
               ? [0, 2]
               : label === "radius"

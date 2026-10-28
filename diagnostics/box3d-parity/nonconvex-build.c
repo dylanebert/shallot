@@ -39,7 +39,7 @@ int main(void){puts("[");
  float flat[]={10,10,2,0,2,0};field("height-zero-vertical-scale",11,flat,6,b3CreateGrid(10,10,(b3Vec3){2,0,2},false));
  float column[]={10,1,2,1.5f,2,0};field("height-one-column",11,column,6,b3CreateGrid(10,1,(b3Vec3){2,1.5f,2},false));
  float row[]={1,10,2,1.5f,2,0};field("height-one-row",11,row,6,b3CreateGrid(1,10,(b3Vec3){2,1.5f,2},false));
- float point[]={1,1,2,1.5f,2,0};field("height-one-point",11,point,6,b3CreateGrid(1,1,(b3Vec3){2,1.5f,2},false));
- float minimum[]={1,1,2,0,2,0.1f,0.03333f,1};field("height-wave-minimum",12,minimum,8,b3CreateWave(1,1,(b3Vec3){2,0,2},0.1f,0.03333f,true));
+ float point[]={4,1,2,1.5f,2,0};field("height-minimum-line",11,point,6,b3CreateGrid(4,1,(b3Vec3){2,1.5f,2},false));
+ float minimum[]={2,2,2,0,2,0.1f,0.03333f,1};field("height-wave-minimum",12,minimum,8,b3CreateWave(2,2,(b3Vec3){2,0,2},0.1f,0.03333f,true));
  puts("\n]");return 0;
 }

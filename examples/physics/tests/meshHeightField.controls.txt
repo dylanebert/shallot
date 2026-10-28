@@ -9,8 +9,8 @@
 210	radius	0
 240	amplitude	2
 270	radius	1
-300	columns	1
-330	rows	1
+300	columns	2
+330	rows	2
 360	radius	0
 390	rows	10
 420	columns	10

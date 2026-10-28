@@ -46,11 +46,11 @@ for (const width of [1280, 390]) {
         await page.mouse.down();
         await page.mouse.move(columnBox.x, columnBox.y + columnBox.height / 2, { steps: 8 });
         await page.mouse.up();
-        await expect(columns).toHaveValue("1");
+        await expect(columns).toHaveValue("2");
         await bodyHasFocus(page);
         const ray = panel.getByLabel("ray x", { exact: true });
-        await expect(ray).toHaveAttribute("min", "-0.4");
-        await expect(ray).toHaveAttribute("max", "0.4");
+        await expect(ray).toHaveAttribute("min", "-1.4");
+        await expect(ray).toHaveAttribute("max", "1.4");
         const radius = panel.getByLabel("radius", { exact: true });
         await radius.scrollIntoViewIfNeeded();
         const radiusBox = (await radius.boundingBox())!;
@@ -65,8 +65,8 @@ for (const width of [1280, 390]) {
         await page.mouse.up();
         await expect(radius).toHaveValue("1");
         await bodyHasFocus(page);
-        await expect(ray).toHaveAttribute("min", "-2");
-        await expect(ray).toHaveAttribute("max", "2");
+        await expect(ray).toHaveAttribute("min", "-3");
+        await expect(ray).toHaveAttribute("max", "3");
         expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
             true,
         );

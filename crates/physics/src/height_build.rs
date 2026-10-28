@@ -33,8 +33,8 @@ pub fn create_height_field(d: &Definition<'_>) -> Image {
     let nx = d.columns;
     let nz = d.rows;
     let count = nx * nz;
+    assert!(nx >= 1 && nz >= 1 && count >= 4 && d.heights.len() >= count && d.minimum <= d.maximum);
     let cells = (nx - 1) * (nz - 1);
-    assert!(nx >= 1 && nz >= 1 && d.heights.len() >= count && d.minimum <= d.maximum);
     let heights_offset = 96;
     let material_offset = heights_offset + align8(2 * count);
     let flags_offset = material_offset + align8(cells);
@@ -145,6 +145,7 @@ fn generate(
     holes: bool,
     wave: Option<(f32, f32)>,
 ) -> Image {
+    assert!(rows >= 1 && columns >= 1 && rows * columns >= 4);
     let mut heights = vec![0.0; rows * columns];
     if let Some((rf, cf)) = wave {
         let oz = 2.0 * PI * rf;
@@ -175,4 +176,56 @@ fn generate(
         maximum: 256.0,
         clockwise: false,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn grid_and_wave_require_at_least_four_heights() {
+        for (rows, columns) in [(1, 1), (1, 3), (3, 1), (0, 4), (4, 0)] {
+            assert!(std::panic::catch_unwind(|| create_grid(
+                rows,
+                columns,
+                Vec3::new(1.0, 1.0, 1.0),
+                false
+            ))
+            .is_err());
+            assert!(std::panic::catch_unwind(|| create_wave(
+                rows,
+                columns,
+                Vec3::new(1.0, 1.0, 1.0),
+                0.1,
+                0.03333,
+                false
+            ))
+            .is_err());
+        }
+        for (rows, columns) in [(1, 4), (4, 1), (2, 2)] {
+            create_grid(rows, columns, Vec3::new(2.0, 0.0, 2.0), false);
+            create_wave(rows, columns, Vec3::new(2.0, 0.0, 2.0), 0.1, 0.03333, false);
+        }
+    }
+
+    #[test]
+    fn quantization_requires_ordered_height_bounds() {
+        let heights = [0.0; 4];
+        let def = Definition {
+            heights: &heights,
+            materials: &[],
+            scale: Vec3::new(1.0, 1.0, 1.0),
+            columns: 2,
+            rows: 2,
+            minimum: 1.0,
+            maximum: 0.0,
+            clockwise: false,
+        };
+        assert!(std::panic::catch_unwind(|| create_height_field(&def)).is_err());
+        create_height_field(&Definition {
+            minimum: 1.0,
+            maximum: 1.0,
+            ..def
+        });
+    }
 }

@@ -61,7 +61,7 @@ test("Height Field retains native controls, formats and geometry-dependent ray b
     for (const label of ["columns", "rows"])
         expect(controls[label]).toMatchObject({
             value: 10,
-            min: 1,
+            min: 2,
             max: 500,
             step: 1,
             decimals: 0,
@@ -83,7 +83,7 @@ test("Height Field retains native controls, formats and geometry-dependent ray b
     expect(formatValue(controls["ray z"]!.value, controls["ray z"]!.decimals)).toBe("1.0");
     for (const [columns, rows, radius] of [
         [10, 10, 0.2],
-        [1, 1, 0],
+        [2, 2, 0],
         [500, 500, 1],
         [12, 15, 0.5],
     ]) {

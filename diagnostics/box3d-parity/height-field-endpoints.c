@@ -8,7 +8,7 @@ extern struct b3World* b3GetWorldFromId(b3WorldId);
 extern uint64_t b3HashWorldState(struct b3World*);
 static void bits(float value) { uint32_t word; memcpy(&word, &value, 4); printf(",%u", word); }
 int main(void) {
-    const int sizes[][2] = {{10,10},{10,1},{1,10},{1,1}};
+    const int sizes[][2] = {{10,10},{4,1},{1,4},{2,2}};
     for (int i=0; i<4; ++i) {
         b3WorldDef wd=b3DefaultWorldDef();
         b3WorldId world=b3CreateWorld(&wd);

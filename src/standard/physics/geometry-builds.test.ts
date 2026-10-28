@@ -536,8 +536,9 @@ test("height fields accept one-point axes and zero vertical scale at the sample 
     await withPhysics((world) => {
         for (const [countX, countZ, verticalScale] of [
             [10, 10, 0],
-            [1, 10, 1.5],
-            [1, 1, 1.5],
+            [1, 4, 1.5],
+            [4, 1, 1.5],
+            [2, 2, 1.5],
         ]) {
             const eid = world.create();
             world.add(eid, Body);
@@ -555,7 +556,33 @@ test("height fields accept one-point axes and zero vertical scale at the sample 
             });
         }
         world.tick();
-        expect(worldCounters(state(world)).shapeCount).toBe(3);
+        expect(worldCounters(state(world)).shapeCount).toBe(4);
+    });
+});
+
+test("wave height fields apply the same count preconditions before entering the kernel", async () => {
+    await withPhysics((world) => {
+        for (const [columnCount, rowCount] of [
+            [0, 4],
+            [1, 1],
+            [1, 3],
+            [3, 1],
+        ]) {
+            const geometry = world.resource(HeightFields).add({
+                name: "small wave",
+                wave: {
+                    columnCount: columnCount!,
+                    rowCount: rowCount!,
+                    scale: [2, 0, 2],
+                    rowFrequency: 0.1,
+                    columnFrequency: 0.03333,
+                    makeHoles: false,
+                },
+            });
+            expect(() => heightFieldBuild(world, geometry)).toThrow(
+                columnCount === 0 ? "not integers of at least 1" : "not at least 4",
+            );
+        }
     });
 });
 
@@ -576,6 +603,18 @@ test("a HeightField Box3D cannot build leaves its Shape unattached with a warnin
         [
             { ...square, heights: new Float32Array(5), countX: 2.5 },
             /is 2.5 by 2 points, not integers of at least 1/,
+        ],
+        [
+            { ...square, heights: new Float32Array(1), countX: 1, countZ: 1 },
+            /has 1 points, not at least 4/,
+        ],
+        [
+            { ...square, heights: new Float32Array(3), countX: 1, countZ: 3 },
+            /has 3 points, not at least 4/,
+        ],
+        [
+            { ...square, heights: new Float32Array(3), countX: 3, countZ: 1 },
+            /has 3 points, not at least 4/,
         ],
         [{ ...square, heights: new Float32Array(3) }, /has 3 heights for 4 points/],
         [{ ...square, materialIndices: new Uint8Array(2) }, /has 2 material indices for 1 cells/],

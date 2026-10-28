@@ -5,7 +5,8 @@ import { PhysicsAssets } from "./assets";
  * Box3D's `b3HeightFieldDef`: a grid of `countX` by `countZ` points in the shape's xz plane, one unit
  * apart before `scale`, starting at the shape origin. A solver shares a build per definition and body
  * Transform.scale in each World, quantizing
- * each height to 16 bits between the global bounds. It refuses a count below 1, a `heights` length
+ * each height to 16 bits between the global bounds. Each count is at least 1 and their product is
+ * at least 4, as required by Box3D's height_field.c:108. It refuses a `heights` length
  * other than `countX * countZ`, a `materialIndices` length other than the cell count, a
  * non-positive horizontal scale, negative vertical scale, and `globalMinimumHeight` above
  * `globalMaximumHeight`. An axis with one point has no cells; zero vertical scale makes a flat
@@ -37,9 +38,9 @@ export interface HeightFieldGrid {
     materialIndices?: Uint8Array;
     /** Meters per grid unit along xz (positive) and per height unit along y (nonnegative). */
     scale: [number, number, number];
-    /** Grid points along x, at least 1. */
+    /** Grid points along x, at least 1; countX * countZ must be at least 4. */
     countX: number;
-    /** Grid points along z, at least 1. */
+    /** Grid points along z, at least 1; countX * countZ must be at least 4. */
     countZ: number;
     /**
      * Lowest height the field quantizes to, before `scale`; lower heights clamp to it. Fields that
