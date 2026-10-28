@@ -266,7 +266,8 @@ jobs:
           RUNNER_OS: ${{ runner.os }}
         run: bun scripts/report-slow-tests.ts node-junit.xml node-test.log
       - name: compile time oracle
-        if: matrix.shard == '1/3'
+        # dawn.node on Windows loads only under a host named node.exe, as the WARP tier runs it; the oracle never ran there.
+        if: matrix.shard == '1/3' && matrix.os != 'windows-latest'
         run: bun test ./scripts/compile.oracle.ts
 
   checked-kernel:
