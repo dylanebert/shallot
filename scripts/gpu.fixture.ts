@@ -13,6 +13,8 @@ import { expectWarning } from "./test-console";
 // On llvmpipe the first camera frame a process draws pays the driver's first-draw cost, below the
 // engine: a core camera drawn first took 593 ms, an MSAA camera next 63 ms and a third 4 ms (run
 // 39098643216). Whichever file drew first was charged it, so the tier pays it once here, printed.
+// With Mesa's shader cache cold the warm-up took 540-640 ms; warm within one job, 165-171 ms (run
+// 40623265815); on a cache restored from an earlier run, 1106 ms, cause not known (run 40627324373).
 // Elsewhere no such cost was shown, and the warm-up took 1.3-1.6 s on hosted macOS.
 let driverWarmup: Promise<void> | undefined;
 async function warmDriver(): Promise<void> {
