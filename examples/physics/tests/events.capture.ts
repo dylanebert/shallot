@@ -1,5 +1,8 @@
+import { pipelineWarnings } from "@dylanebert/shallot/testing";
 import { test } from "playwright/test";
 import { capture } from "./capture";
+
+test.use(pipelineWarnings);
 
 for (const [id, name] of [
     ["joint", "Joint"],
@@ -37,6 +40,11 @@ for (const [id, name] of [
             await page.mouse.up();
         }
         if (id === "sensorHits") {
+            await page.mouse.move(300, 550);
+            await page.mouse.down();
+            await page.mouse.move(480, 550, { steps: 12 });
+            await page.mouse.up();
+            await capture(page, "sensorHits-surfaces");
             await page.getByRole("checkbox", { name: "Bullet", exact: true }).uncheck();
             await page.getByRole("button", { name: "Launch", exact: true }).click();
             await page.waitForTimeout(500);
@@ -52,6 +60,11 @@ for (const [id, name] of [
             await capture(page, "sensorHits-phone-controls");
             await page.getByText("Physics", { exact: true }).click();
             await capture(page, "sensorHits-phone-scene");
+            await page.mouse.move(90, 650);
+            await page.mouse.down();
+            await page.mouse.move(190, 650, { steps: 12 });
+            await page.mouse.up();
+            await capture(page, "sensorHits-phone-surfaces");
         }
         if (id === "motor") {
             await page.getByRole("slider", { name: "Speed", exact: true }).fill("1");

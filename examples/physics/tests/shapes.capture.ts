@@ -1,8 +1,11 @@
+import { pipelineWarnings } from "@dylanebert/shallot/testing";
 import { test } from "playwright/test";
 import { capture } from "./capture";
 
+test.use(pipelineWarnings);
+
 for (const width of [1280, 390]) {
-    for (const id of ["restitution", "staticInvoke", "wind"]) {
+    for (const id of ["restitution", "staticInvoke", "wind", "conveyorMesh", "heightField"]) {
         test(`${id} Shapes look review at ${width}`, async ({ page }) => {
             await page.setViewportSize({ width, height: width === 390 ? 844 : 720 });
             await page.goto(`/?scene=${id}`);

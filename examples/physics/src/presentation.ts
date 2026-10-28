@@ -6,6 +6,7 @@ import {
     PrismaticJoint,
     RevoluteJoint,
     Shape,
+    ShapeKind,
     StandardMaterial,
     shapeEdges,
     shapeMesh,
@@ -37,7 +38,20 @@ const restingReaction = StandardMaterial({
     perceptualRoughness: 0.9,
 });
 
+export const meshMaterials = new Map(
+    [...Object.values(materials), ...Object.values(sleeping), reaction, restingReaction].map(
+        (material) => [material, { ...material, cullMode: "none" as const }] as const,
+    ),
+);
+
 export function shapeMaterial(world: World, role: keyof typeof materials, eid: number) {
+    const material = roleMaterial(world, role, eid);
+    return world.storage(Shape).kind.get(eid) === ShapeKind.Mesh
+        ? meshMaterials.get(material)!
+        : material;
+}
+
+function roleMaterial(world: World, role: keyof typeof materials, eid: number) {
     if (role === "ground") return materials.ground;
     const body = world.storage(Shape).body.get(eid) || eid;
     // Hue marks a reaction; resting bodies keep their role's tint but lose saturation and gloss.
