@@ -73,7 +73,6 @@ import {
     presentingViewSlot,
     pruneViews,
     releaseStacked,
-    sizeCameraViewport,
     sizeView,
     stacked,
     VIEW_BYTES,
@@ -199,7 +198,7 @@ function packView(world: World, eid: number, view: ViewSlot, shading: boolean, s
     computeClipFromWorld(
         world,
         eid,
-        view.projectionAspect ?? view.width / view.height,
+        view.aspect,
         clipFromWorld,
         viewFromWorld,
         _renderFrame.clipFromViews[slot],
@@ -453,7 +452,6 @@ export const BeginFrameSystem: System = {
             const eid = targetEids[i]!;
             const view = targetViews[i]!;
             sizeView(world, eid, view);
-            sizeCameraViewport(world, eid, view);
             if (
                 view.width === 0 ||
                 view.height === 0 ||

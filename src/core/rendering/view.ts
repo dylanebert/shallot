@@ -110,8 +110,9 @@ export interface View {
     height: number;
     /** Destination rectangle in target backing pixels, absent for a full-target camera. */
     viewport?: CameraRect;
-    /** Coordinate-pixel aspect of a clamped CameraViewport, independent of render resolution. */
-    projectionAspect?: number;
+    /** Projection aspect for camera, clusters and shadows; not the scene image's width/height ratio.
+     * With CameraViewport, uses its clamped coordinate-pixel size, independent of render resolution. */
+    aspect: number;
     /** Canvas display dimensions in CSS pixels, mirrored from the world-owned viewport row. */
     clientWidth: number;
     clientHeight: number;
@@ -313,6 +314,7 @@ export function attachCanvas(world: World, eid: number, canvas: HTMLCanvasElemen
         _views.set(eid, {
             canvas,
             context: shared.context,
+            aspect: 1,
             width: 0,
             height: 0,
             clientWidth: shared.clientWidth,
@@ -351,6 +353,7 @@ export function attachCanvas(world: World, eid: number, canvas: HTMLCanvasElemen
     const view: View = {
         canvas,
         context,
+        aspect: 1,
         width: 0,
         height: 0,
         clientWidth: rect.width,
@@ -414,14 +417,22 @@ export function backingSize(
 const _sizeInputs = new WeakMap<View, Float64Array>();
 
 /**
- * Refreshes canvas display geometry and resolves backing size from Resolution or world pixelRatio.
+ * Resolves scene size, destination rectangle and projection aspect. Refreshes canvas display geometry
+ * and resolves backing size from Resolution or world pixelRatio.
  * Called after binding each frame; sets nearest-neighbour upscaling when undersized. Resolution edits
  * apply without waiting for a resize event. Reads Resolution only when the entity carries it, so stale
  * storage from a recycled eid cannot act as a pin. Only the bottom camera on a canvas sizes the canvas;
- * one above it takes its own Resolution or the canvas size. No-op without a canvas; offscreen owners size
- * their targets.
+ * one above it takes its own Resolution or the canvas size. Textures keep their attached dimensions;
+ * depth-only owners supply theirs. CameraViewport crops the scene image but sets aspect from its
+ * coordinate-pixel bounds, not its rounded backing dimensions.
  */
 export function sizeView(world: World, eid: number, view: View): void {
+    sizeTarget(world, eid, view);
+    view.aspect = view.height > 0 ? view.width / view.height : 1;
+    if (view.canvas || view.texture) sizeCameraViewport(world, eid, view);
+}
+
+function sizeTarget(world: World, eid: number, view: View): void {
     const canvas = view.canvas;
     if (!canvas) {
         if (view.texture) {
@@ -502,8 +513,7 @@ export function sizeView(world: World, eid: number, view: View): void {
 const _cameraRect: CameraRect = { x: 0, y: 0, width: 0, height: 0 };
 
 /** Crop the scene and presentation image after sizeView resolves the whole target's backing size. */
-export function sizeCameraViewport(world: World, eid: number, view: View): void {
-    view.projectionAspect = undefined;
+function sizeCameraViewport(world: World, eid: number, view: View): void {
     if (!world.has(eid, CameraViewport)) {
         view.viewport = undefined;
         return;
@@ -530,7 +540,7 @@ export function sizeCameraViewport(world: World, eid: number, view: View): void 
     rect.height = Math.floor((y + h) * targetHeight) - rect.y;
     view.width = w > 0 ? Math.max(1, Math.floor(view.width * w)) : 0;
     view.height = h > 0 ? Math.max(1, Math.floor(view.height * h)) : 0;
-    view.projectionAspect = _cameraRect.width / _cameraRect.height;
+    view.aspect = _cameraRect.height > 0 ? _cameraRect.width / _cameraRect.height : 1;
 }
 
 /**
@@ -560,6 +570,7 @@ export function attachTexture(
         view.target = shared.target;
         view.width = target.width;
         view.height = target.height;
+        view.aspect = target.width / target.height;
         return target;
     }
     const size = target;
@@ -585,6 +596,7 @@ export function attachTexture(
     view.target = ++world.resource(viewResourcesKey).lastTarget;
     view.width = size.width;
     view.height = size.height;
+    view.aspect = size.width / size.height;
     return texture;
 }
 
@@ -602,6 +614,7 @@ export function attachView(world: World, eid: number): void {
         context: null,
         // square (aspect 1) — an off-screen view's own target sets the resolution; only the aspect
         // feeds `computeClipFromWorld`, so a shadow's ortho box stays square
+        aspect: 1,
         width: 1,
         height: 1,
         clientWidth: 0,

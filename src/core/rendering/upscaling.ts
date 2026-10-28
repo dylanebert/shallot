@@ -11,10 +11,9 @@ import {
     setRenderPipeline,
     setViewport,
 } from "../../engine/runtime";
-import { Camera, CameraViewport } from "./camera";
-import { initialStackedViews } from "./substrate";
+import { Camera } from "./camera";
 import { fullscreenVertex } from "./tonemapping";
-import { cameraView, type View } from "./view";
+import type { View } from "./view";
 
 const upscalingLayout = tgpu.bindGroupLayout({
     source: { texture: d.texture2d(d.f32), visibility: ["fragment"] },
@@ -59,27 +58,10 @@ function createUpscaling(world: World) {
 }
 export const upscalingKey = { create: createUpscaling };
 
-function initialCanvasStack(world: World): boolean {
-    if (typeof document === "undefined") return false;
-    const canvas = document.querySelector("canvas");
-    if (!canvas) return false;
-    let cameras = 0;
-    for (const eid of world.query([Camera])) {
-        const view = cameraView(world, eid);
-        if ((!view?.target || view.canvas === canvas) && ++cameras > 1) return true;
-    }
-    return false;
-}
-
 export function warmUpscaling(world: World): void {
     precompile(world, "upscaling-prepare", () => {
-        if (
-            world.pixelRatio === "auto" ||
-            initialStackedViews(world).length ||
-            [...world.query([Camera, CameraViewport])].length ||
-            initialCanvasStack(world)
-        )
-            world.resource(upscalingKey);
+        // A camera may gain a rectangle or join a stack after warm-up, at any pixelRatio.
+        world.resource(upscalingKey);
         return [];
     });
 }

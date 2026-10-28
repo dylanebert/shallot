@@ -30,6 +30,7 @@ import {
     RenderPhases,
     renderLayers,
     SAMPLE_COUNT,
+    sizeView,
     type TransparentPhase,
     Views,
 } from "../../core/rendering";
@@ -1354,6 +1355,8 @@ const ShadowCameraSystem: System = {
             main = eid;
             break;
         }
+        const mainView = world.resource(Views).get(main);
+        if (mainView) sizeView(world, main, mainView);
         const casters = updatePointShadows(world, main, _standardRendererState.pointFrames);
         setPointFrames(world, _standardRendererState.pointFrames, casters);
         setShadowView(world, world.resource(Views).get(main) ?? null);

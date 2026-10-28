@@ -151,7 +151,7 @@ test("Medium occludes the ambient-lit plane at box contact, and absent SSAO leav
     async function luminance(x: number, z: number) {
         const view = world.resource(Views).get(eid)!;
         const m = new Float32Array(16);
-        computeClipFromWorld(world, eid, view.width / view.height, m);
+        computeClipFromWorld(world, eid, view.aspect, m);
         const w = m[3]! * x + m[11]! * z + m[15]!;
         const sx = (m[0]! * x + m[8]! * z + m[12]!) / w;
         const sy = (m[1]! * x + m[9]! * z + m[13]!) / w;

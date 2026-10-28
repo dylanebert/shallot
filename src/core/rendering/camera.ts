@@ -126,7 +126,7 @@ export function computeViewFromWorld(world: World, eid: number, out: Float32Arra
 }
 
 /**
- * compute the world→clip matrix for a camera entity. `aspect` is the bound surface's width / height.
+ * Compute the world→clip matrix for a camera entity using its View.aspect projection aspect.
  * `viewOut` optionally receives the world→view matrix and `projectionOut` the view→clip matrix.
  */
 export function computeClipFromWorld(
