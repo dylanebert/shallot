@@ -322,7 +322,14 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
             expect(presentation.shapes.map((shape) => shape.eid).sort()).toEqual(
                 [...world.query([Shape])].sort(),
             );
-            if (id === "meshCreation" || id === "castWorld")
+            if (
+                id === "meshCreation" ||
+                id === "castWorld" ||
+                id === "shapeCastDebug" ||
+                id === "distanceDebug" ||
+                id === "shapeDistance" ||
+                id === "timeOfImpact"
+            )
                 expect(presentation.shapes).toHaveLength(0);
             else expect(presentation.shapes.length).toBeGreaterThan(0);
             const driven = new Set<number>();
@@ -385,6 +392,10 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 expect(ground.mesh.indices.length).toBeGreaterThan(0);
             } else expect(presentation.ground).toBeUndefined();
             const extent = {
+                shapeCastDebug: 4000,
+                distanceDebug: 40,
+                shapeDistance: 10,
+                timeOfImpact: 10,
                 rayCurtain: 10,
                 castWorld: 30,
                 meshScale: 10,

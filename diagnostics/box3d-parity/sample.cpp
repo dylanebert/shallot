@@ -49,6 +49,7 @@ struct Camera
 	b3Pos m_pivot = {};
     b3Pos m_worldEye = {};
     float m_radius = 5;
+    float m_width = 1280;
     PickRay pickRay = {};
 	PickRay BuildPickRay( float, float ) { return pickRay; }
 	void UpdateTransform() {}
@@ -59,6 +60,7 @@ struct Camera
 };
 constexpr int KEY_W = 1, KEY_S = 2, KEY_A = 3, KEY_D = 4, KEY_L = 5, KEY_T = 6, KEY_B = 7;
 constexpr int KEY_SPACE = 8, KEY_LEFT_SHIFT = 9, KEY_V = 10;
+constexpr int MOUSE_LEFT = 0;
 constexpr int ACTION_PRESS = 1, MOD_SHIFT = 1, MOD_ALT = 2, MOD_CTRL = 4;
 constexpr int ImGuiSliderFlags_Logarithmic = 1;
 void sapp_lock_mouse( bool ) {}
@@ -70,6 +72,7 @@ bool IsKeyDown( int key ) {
 	return value != 0;
 }
 int GetLastCompoundDrawStats(int* total) { *total = 0; return 0; }
+void DrawTriangle(b3WorldTransform, b3Vec3, b3Vec3, b3Vec3, int) {}
 void DrawGroundGrid( int ) {}
 void SetDrawOrigin( b3Pos ) {}
 void DrawCube( b3WorldTransform, b3Vec3, int ) {}
@@ -428,6 +431,8 @@ int main( int argc, char** argv )
         { "meshScale", Collision::MeshScale::Create }, { "shapeCast", Collision::ShapeCast::Create },
         { "overlapWorld", Collision::OverlapWorld::Create }, { "longRayCast", Collision::LongRayCast::Create },
         { "initialOverlap", Collision::InitialOverlap::Create }, { "capsuleCastRay", Collision::CapsuleCastRay::Create },
+        { "shapeCastDebug", Collision::ShapeCastDebug::Create }, { "distanceDebug", Collision::DistanceDebug::Create },
+        { "shapeDistance", Collision::ShapeDistance::Create }, { "timeOfImpact", Collision::TimeOfImpact::Create },
 		{ "box_stack", BoxStack::Create }, { "bridge", Bridge::Create },
 		{ "driving", Driving::Create }, { "gearLift", GearLift::Create }, { "door", Door::Create }, { "distance", DistanceJoint::Create }, { "spherical", SphericalJoint::Create }, { "motionLocks", MotionLocks::Create },
         { "ballAndChain", BallAndChain::Create }, { "foldOut", FoldOut::Create }, { "topDownFriction", TopDownFriction::Create }, { "weld", WeldJoint::Create },
@@ -518,8 +523,8 @@ int main( int argc, char** argv )
         characterMarks.clear();
         meshBuildCount = 0;
 		sample->Step();
-        if (!strcmp(argv[1],"rayCurtain") || !strcmp(argv[1],"capsuleCastRay")) sample->Render();
-        if (!strcmp(argv[1],"meshScale")) printf("%016llx\n", (unsigned long long)b3HashWorldState(b3GetWorldFromId(sample->m_worldId)));
+        if (!strcmp(argv[1],"rayCurtain") || !strcmp(argv[1],"capsuleCastRay") || !strcmp(argv[1],"shapeCastDebug")) sample->Render();
+        if (!strcmp(argv[1],"meshScale") || !strcmp(argv[1],"distanceDebug") || !strcmp(argv[1],"shapeDistance") || !strcmp(argv[1],"timeOfImpact")) printf("%016llx\n", (unsigned long long)b3HashWorldState(b3GetWorldFromId(sample->m_worldId)));
         if (Collision::queries) fprintf(Collision::queries,"step\n");
         if (!strcmp(argv[1], "meshCreation")) printf("%016llx\n", (unsigned long long)b3HashWorldState(b3GetWorldFromId(sample->m_worldId)));
         if (meshReadouts) {

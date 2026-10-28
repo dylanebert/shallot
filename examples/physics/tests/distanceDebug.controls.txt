@@ -1,0 +1,3 @@
+20	simplex index	1
+40	simplex index	2
+60	simplex index	0

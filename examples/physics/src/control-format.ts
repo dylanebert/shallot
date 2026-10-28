@@ -1,5 +1,6 @@
 /** Read-only fields keep their authored decimal or significant-digit format without a slider's width limit. */
-export function formatReadout(value: number, decimals?: number, precision = 3): string {
+export function formatReadout(value: number | string, decimals?: number, precision = 3): string {
+    if (typeof value === "string") return value;
     if (decimals !== undefined) return value.toFixed(decimals);
     const rounded = Number(value.toPrecision(precision));
     if (rounded === 0) return Object.is(rounded, -0) ? "-0" : "0";

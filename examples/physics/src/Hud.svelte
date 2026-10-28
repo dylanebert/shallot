@@ -1,7 +1,7 @@
 <script lang="ts">
     import "./controls.css";
     import { onMount } from "svelte";
-    let outputs = $state<Record<string, number | null>>({});
+    let outputs = $state<Record<string, number | string | null>>({});
     let liveControls = $state<Record<string, boolean>>({});
     let liveBounds = $state<Record<string, [number, number]>>({});
     onMount(() => {
@@ -26,8 +26,8 @@
     let values = $state(controlValues(scene));
     const controls = $derived(Object.fromEntries(Object.entries(enabledControls(scene, values)).filter(([name]) => liveControls[name] !== false)));
     const sectionTitle = $derived(scene === "meshViewer" ? "Mesh settings" : scene === "meshCreation" ? "Build cost" : scene === "gyroscopicPrecession" ? "Precession, rad/s" : scene === "moverOverlap" ? "Planes and normals" : "Simulation");
-    const separateReadouts = $derived(scene === "sensorHits" || scene === "meshViewer" || scene === "castWorld" || scene === "longRayCast");
-    const readoutTitle = $derived(scene === "meshViewer" ? "Mesh statistics" : scene === "castWorld" ? "Cast results" : scene === "longRayCast" ? "Ray accuracy" : "Touch counts");
+    const separateReadouts = $derived(scene === "sensorHits" || scene === "meshViewer" || scene === "castWorld" || scene === "longRayCast" || scene === "shapeDistance" || scene === "distanceDebug" || scene === "timeOfImpact");
+    const readoutTitle = $derived(scene === "shapeDistance" || scene === "distanceDebug" ? "Distance and vertex identity" : scene === "timeOfImpact" ? "Time of impact" : scene === "meshViewer" ? "Mesh statistics" : scene === "castWorld" ? "Cast results" : scene === "longRayCast" ? "Ray accuracy" : "Touch counts");
     function update(name: string, value: number) { change(name, value, values); }
     let open = $state(false);
     let picker: HTMLElement;
@@ -70,7 +70,7 @@
         {#each Object.entries(scenes[scene].controls ?? {}).filter(([, control]) => control.when?.at(-1) === parent && (!separateReadouts || Boolean(control.read) === readOnly)) as [name, control]}
                 <fieldset class="section" disabled={!(name in controls)}>
                     {#if control.read}
-                        {#if outputs[name] != null || scene === "castWorld" || scene === "longRayCast"}
+                        {#if outputs[name] != null || scene === "castWorld" || scene === "longRayCast" || scene === "shapeDistance" || scene === "timeOfImpact"}
                             <div class="row"><span>{control.label}</span><output aria-label={control.label}>{outputs[name] == null ? "—" : formatReadout(outputs[name]!, control.decimals, control.precision)}</output></div>
                         {/if}
                     {:else if control.button}

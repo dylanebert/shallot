@@ -1,7 +1,35 @@
 // SPDX-License-Identifier: MIT
 namespace Collision {
 FILE* queries = nullptr;
+void Vector(b3Vec3 v);
+b3DistanceOutput Distance(const b3DistanceInput* input, b3SimplexCache* cache, b3Simplex* simplexes, int capacity);
+b3CastOutput Cast(const b3ShapeCastPairInput* input);
+b3TOIOutput TOI(const b3TOIInput* input);
 void Float(float v) { unsigned bits; memcpy(&bits, &v, 4); fprintf(queries, " %08x", bits); }
+void Vector(b3Vec3 v) { Float(v.x); Float(v.y); Float(v.z); }
+b3DistanceOutput Distance(const b3DistanceInput* input, b3SimplexCache* cache, b3Simplex* simplexes, int capacity) {
+    auto d = b3ShapeDistance(input,cache,simplexes,capacity);
+    if (queries) {
+        fprintf(queries,"distance"); Vector(d.pointA); Vector(d.pointB); Vector(d.normal); Float(d.distance);
+        fprintf(queries," %d",d.iterations); Float(cache->metric); fprintf(queries," %d",cache->count);
+        for(int i=0;i<4;i++) fprintf(queries," %d",cache->indexA[i]);
+        for(int i=0;i<4;i++) fprintf(queries," %d",cache->indexB[i]);
+        fprintf(queries," %d",d.simplexCount);
+        for(int i=0;i<d.simplexCount;i++) { auto& s=simplexes[i]; fprintf(queries," %d",s.count); for(int j=0;j<s.count;j++) { auto& v=s.vertices[j]; Vector(v.wA); Vector(v.wB); Vector(v.w); Float(v.a); fprintf(queries," %d %d",v.indexA,v.indexB); } }
+        fprintf(queries,"\n");
+    }
+    return d;
+}
+b3CastOutput Cast(const b3ShapeCastPairInput* input) {
+    auto d=b3ShapeCast(input);
+    if(queries) { fprintf(queries,"cast"); Vector(d.point); Vector(d.normal); Float(d.fraction); fprintf(queries," %d %d\n",d.iterations,d.hit); }
+    return d;
+}
+b3TOIOutput TOI(const b3TOIInput* input) {
+    auto d=b3TimeOfImpact(input);
+    if(queries) { fprintf(queries,"toi %d",d.state); Float(d.fraction); Float(d.distance); Vector(d.point); Vector(d.normal); fprintf(queries," %d %d %d\n",d.distanceIterations,d.pushBackIterations,d.rootIterations); }
+    return d;
+}
 void Hit(b3Pos p, b3Vec3 n, float fraction, uint64_t material, int triangle, int child) {
     fprintf(queries, "hit");
     for (float v : {float(p.x),float(p.y),float(p.z),n.x,n.y,n.z,fraction}) Float(v);
