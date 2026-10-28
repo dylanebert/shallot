@@ -46,7 +46,7 @@ test("the npm package contains only declared files and required consumers", asyn
         .map((entry) => new Glob(entry.slice(1)));
     const requiredNegations = [
         "!src/standard/physics/oracle/**",
-        "!examples/physics/tests/*.gold.txt",
+        "!**/*.gold.txt",
         "!examples/physics/tests/*.parity.node.ts",
         "!**/fixtures",
         "!src/**/*.test.ts",
@@ -85,6 +85,7 @@ test("the npm package contains only declared files and required consumers", asyn
         ],
         ["test-support source", (f) => /^src\/(?:harness|testing)\//.test(f)],
         ["physics oracle test data", (f) => f.startsWith("src/standard/physics/oracle/")],
+        ["test gold", (f) => /\.gold\.(?:txt|json)$/.test(f)],
     ];
     const violations = files.flatMap((f) =>
         forbidden.filter(([, match]) => match(f)).map(([kind]) => `${f} (${kind})`),
