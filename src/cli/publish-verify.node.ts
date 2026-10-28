@@ -132,9 +132,12 @@ test("page resource console failures name the resource URL", async () => {
         join(directory, "index.html"),
         '<link rel="icon" href="data:,"><script src="/missing-startup.js"></script>',
     );
-    await expect(
-        verifyPublishedGame(browser, server.url.href, directory, [], TIMEOUT.cheap),
-    ).rejects.toThrow(`${server.url.href}missing-startup.js`);
+    expect(
+        await verifyPublishedGame(browser, server.url.href, directory, [], TIMEOUT.cheap).then(
+            () => undefined,
+            (error: Error) => error.message,
+        ),
+    ).toContain(`${server.url.href}missing-startup.js`);
 });
 
 test("asset availability retries transient 404s and 5xx, but bounds persistent 404s", async () => {

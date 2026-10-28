@@ -88,9 +88,17 @@ for (const cause of ["device", "console", "page", "browser", "crash"] as const)
             });
         });
         try {
-            await expect(
-                verifyPublishedGame(browser, `http://127.0.0.1:${address.port}`, repo, []),
-            ).rejects.toThrow(
+            expect(
+                await verifyPublishedGame(
+                    browser,
+                    `http://127.0.0.1:${address.port}`,
+                    repo,
+                    [],
+                ).then(
+                    () => undefined,
+                    (error: Error) => error.message,
+                ),
+            ).toMatch(
                 cause === "device" || cause === "console"
                     ? "WebGPU device creation failed"
                     : cause === "crash"

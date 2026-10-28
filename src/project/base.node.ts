@@ -85,10 +85,13 @@ test("the verifier rejects physics after worker startup falls back to the single
     await buildWeb(project, { stdout: 2 });
     blockWorkers = true;
     try {
-        await expect(
+        expect(
             // This control owns runtime fallback; the other cases verify every built asset's bytes.
-            verifyPublishedGame(browser, servers[0]!.url.href, directory, []),
-        ).rejects.toThrow("Physics initialized the single artifact, not shared.");
+            await verifyPublishedGame(browser, servers[0]!.url.href, directory, []).then(
+                () => undefined,
+                (error: Error) => error.message,
+            ),
+        ).toContain("Physics initialized the single artifact, not shared.");
     } finally {
         blockWorkers = false;
     }
