@@ -39,7 +39,7 @@ bun create shallot first-person --template first-person
 ## more
 
 - questions: [discord](https://discord.gg/eEY75Nqk3C). bugs: [issues](https://github.com/dylanebert/shallot/issues). releases: [npm](https://www.npmjs.com/package/@dylanebert/shallot)
-- upgrading from 0.10: [`MIGRATION.md`](MIGRATION.md)
+- upgrading: [`MIGRATION.md`](MIGRATION.md)
 - changing the engine: [contributing](https://github.com/dylanebert/shallot/blob/main/CONTRIBUTING.md)
 
 mit, see [`LICENSE`](LICENSE). physics derives from [box3d](https://github.com/erincatto/box3d) `47d7f7cc`, copyright erin catto, mit; see [`LICENSE-BOX3D`](LICENSE-BOX3D).

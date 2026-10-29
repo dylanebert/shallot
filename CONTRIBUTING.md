@@ -304,7 +304,7 @@ A choice the pillars leave open is taste, and goes to the person.
 
 ## Dependencies and releases
 
-- `MIGRATION.md` tells users of the last stable release what breaks and what to write instead; for 0.10.1 that is `v0.10.0`
+- `MIGRATION.md` tells users of the last stable release what breaks and what to write instead; for 0.10.2 that is `v0.10.1`
 - A breaking change edits its `MIGRATION.md` entry in the same commit. Layered changes edit the existing entry so the guide gives the whole path from the last stable release, excluding anything that release never shipped
 - `CHANGELOG.md` holds the release notes: one entry per published release, written by the release author for the release, from the commits since the last tag, for users of that release. An entry is a human pass, concise and formulaic so judging it is quick: lowercase lines of what was added, fixed, changed or removed, with no editorializing or narration. Unreleased work gets no per-commit entries
 - Measurements, design reasons, progress and test internals belong in commit history and this guide, not migration entries
