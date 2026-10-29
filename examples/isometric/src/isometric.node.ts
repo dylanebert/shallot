@@ -1,7 +1,7 @@
-import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { Camera, Devices, MeshInstance, Transform } from "@dylanebert/shallot";
 import { Orbit } from "@dylanebert/shallot/extras";
-import { attachTexture, captureTexture } from "@dylanebert/shallot/rendering";
+import { attachTexture, captureTexture, detachView } from "@dylanebert/shallot/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { openGpuApp } from "@dylanebert/shallot/testing/gpu";
 import { Isometric, IsometricPlugin } from "./isometric";
@@ -33,6 +33,15 @@ function step(count = 2) {
 function clear(r: number, g: number, b: number) {
     return Math.abs(r - 25) + Math.abs(g - 24) + Math.abs(b - 22) < 10;
 }
+function distance(camera: number) {
+    const t = app.world.storage(Transform).translation,
+        pan = app.world.storage(Orbit).pan;
+    return Math.hypot(
+        t.x.get(camera) - pan.x.get(camera),
+        t.y.get(camera) - pan.y.get(camera),
+        t.z.get(camera) - pan.z.get(camera),
+    );
+}
 async function frame() {
     step();
     return captureTexture(app.world, app.world.resource(Isometric).camera);
@@ -54,20 +63,11 @@ test("the default isometric frame draws buildings and an accent across its cente
     expect(accents / 6000).toBeGreaterThan(0.01);
 });
 
-test("scroll changes bounded size, not distance, and enlarges the buildings' footprint", async () => {
+test("scroll shrinks size, not distance, and enlarges the buildings' footprint", async () => {
     const { world } = app,
         camera = world.resource(Isometric).camera;
-    const orbit = world.storage(Orbit),
-        cameras = world.storage(Camera),
+    const cameras = world.storage(Camera),
         input = world.resource(Devices);
-    const distance = () => {
-        const t = world.storage(Transform).translation;
-        return Math.hypot(
-            t.x.get(camera) - orbit.pan.x.get(camera),
-            t.y.get(camera) - orbit.pan.y.get(camera),
-            t.z.get(camera) - orbit.pan.z.get(camera),
-        );
-    };
     const accents = (rgba: Uint8ClampedArray) => {
         let count = 0;
         for (let i = 0; i < rgba.length; i += 4)
@@ -81,40 +81,14 @@ test("scroll changes bounded size, not distance, and enlarges the buildings' foo
     };
     const before = await frame(),
         start = cameras.size.get(camera),
-        d = distance();
+        d = distance(camera);
     input.pointer.scroll = -100;
     step();
     input.pointer.scroll = 0;
     step(40);
     expect(cameras.size.get(camera)).toBeLessThan(start);
-    expect(distance()).toBeCloseTo(d, 3);
+    expect(distance(camera)).toBeCloseTo(d, 3);
     expect(accents((await frame()).rgba)).toBeGreaterThan(accents(before.rgba));
-    for (const [scroll, bound] of [
-        [-100000, orbit.minSize.get(camera)],
-        [100000, orbit.maxSize.get(camera)],
-    ]) {
-        input.pointer.scroll = scroll;
-        step();
-        input.pointer.scroll = 0;
-        step(60);
-        expect(cameras.size.get(camera)).toBeCloseTo(bound, 3);
-        expect(distance()).toBeCloseTo(d, 3);
-    }
-});
-
-test("held arrow keys stop pitch at 25 and 60 degrees", () => {
-    const { world } = app,
-        camera = world.resource(Isometric).camera;
-    const keys = world.resource(Devices).keys.held;
-    for (const [key, degrees] of [
-        ["ArrowUp", 60],
-        ["ArrowDown", 25],
-    ] as const) {
-        keys.add(key);
-        step(90);
-        keys.delete(key);
-        expect(world.storage(Orbit).pitch.get(camera)).toBeCloseTo((degrees * Math.PI) / 180, 5);
-    }
 });
 
 test("inside a tall building the negative near retains pixels positive near clears", async () => {
@@ -123,14 +97,17 @@ test("inside a tall building the negative near retains pixels positive near clea
     const orbit = world.storage(Orbit),
         cameras = world.storage(Camera);
     const building = layout(SEED, POPULATION).find((p) => p.material === 1 && p.scale[1] > 25)!;
+    // Snapping skips the settle, whose frames cost llvmpipe up to 100 ms each.
+    const smoothness = orbit.smoothness.get(camera);
+    orbit.smoothness.set(camera, 1);
     orbit.pitch.set(camera, Math.atan(1 / Math.sqrt(2)));
     orbit.size.set(camera, 12);
-    step(60);
+    step(1);
     const t = world.storage(Transform).translation;
     orbit.pan.x.set(camera, building.translation[0] - t.x.get(camera));
     orbit.pan.y.set(camera, building.translation[1] - t.y.get(camera));
     orbit.pan.z.set(camera, building.translation[2] - t.z.get(camera));
-    step(60);
+    step(1);
     expect(t.x.get(camera)).toBeCloseTo(building.translation[0], 3);
     expect(t.y.get(camera)).toBeCloseTo(building.translation[1], 3);
     expect(t.z.get(camera)).toBeCloseTo(building.translation[2], 3);
@@ -146,4 +123,46 @@ test("inside a tall building the negative near retains pixels positive near clea
             retained++;
     }
     expect(retained).toBeGreaterThan(100);
+    orbit.smoothness.set(camera, smoothness);
+});
+
+// Orbit's pose claims read no frame; without the camera's view, their steps draw nothing.
+describe("without a view", () => {
+    beforeAll(() => detachView(app.world, app.world.resource(Isometric).camera));
+    test("scroll stops size at its bounds without changing distance", () => {
+        const { world } = app,
+            camera = world.resource(Isometric).camera;
+        const orbit = world.storage(Orbit),
+            input = world.resource(Devices),
+            d = distance(camera);
+        for (const [scroll, bound] of [
+            [100000, orbit.maxSize.get(camera)],
+            [-100000, orbit.minSize.get(camera)],
+        ]) {
+            input.pointer.scroll = scroll;
+            step();
+            input.pointer.scroll = 0;
+            step(60);
+            expect(world.storage(Camera).size.get(camera)).toBeCloseTo(bound, 3);
+            expect(distance(camera)).toBeCloseTo(d, 3);
+        }
+    });
+
+    test("held arrow keys stop pitch at 25 and 60 degrees", () => {
+        const { world } = app,
+            camera = world.resource(Isometric).camera;
+        const keys = world.resource(Devices).keys.held;
+        for (const [key, degrees] of [
+            ["ArrowUp", 60],
+            ["ArrowDown", 25],
+        ] as const) {
+            keys.add(key);
+            step(90);
+            keys.delete(key);
+            expect(world.storage(Orbit).pitch.get(camera)).toBeCloseTo(
+                (degrees * Math.PI) / 180,
+                5,
+            );
+        }
+    });
 });
