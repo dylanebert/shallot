@@ -6,6 +6,7 @@ import {
     collideBodyMover,
     collideMover,
     emptyQueryHit,
+    getBodyTransform,
     getInverseMass,
     getWorldInverseRotationalInertia,
     overlapBodyShape,
@@ -134,12 +135,16 @@ export default async function create(input: string) {
                 throw new Error("cast mover ignored callback");
             if (castMover(world, origin, mover, translation, emptyFilter).fraction !== 1)
                 throw new Error("cast mover ignored filter");
+            const transform = getBodyTransform(world, body)!;
+            leaked = transform;
             if (
+                transform.q.s !== 1 ||
                 getInverseMass(world, body)!.inverseMass <= 0 ||
                 getWorldInverseRotationalInertia(world, body, inverse) !== inverse
             )
                 throw new Error("inverse read failed");
             if (input === "leak") leaked = { ...hit };
+            if (input === "transform-leak") leaked = { ...transform };
         },
         dispose() {
             app.dispose();

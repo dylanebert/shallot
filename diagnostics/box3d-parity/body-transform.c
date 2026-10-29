@@ -2,6 +2,18 @@
 #include <stdio.h>
 #include <string.h>
 
+static void PrintTransform(b3BodyId body)
+{
+    b3WorldTransform t = b3Body_GetTransform(body);
+    float values[] = {t.p.x,t.p.y,t.p.z,t.q.v.x,t.q.v.y,t.q.v.z,t.q.s};
+    for (int j = 0; j < 7; ++j)
+    {
+        unsigned bits; memcpy(&bits, values + j, 4);
+        printf("%s%08x", j ? " " : "", bits);
+    }
+    printf("\n");
+}
+
 int main(void)
 {
     for (int c = 0; c < 6; ++c)
@@ -23,15 +35,14 @@ int main(void)
         for (int step = 0; step < 3; ++step)
         {
             b3World_Step(world, 1.0f / 60.0f, 4);
-            b3WorldTransform t = b3Body_GetTransform(body);
-            float values[] = {t.p.x,t.p.y,t.p.z,t.q.v.x,t.q.v.y,t.q.v.z,t.q.s};
-            for (int j = 0; j < 7; ++j)
-            {
-                unsigned bits; memcpy(&bits, values + j, 4);
-                printf("%s%08x", j ? " " : "", bits);
-            }
-            printf("\n");
+            PrintTransform(body);
         }
+        b3Body_SetTransform(body, (b3Pos){4.25f, -2.5f, 8.75f}, (b3Quat){{0.5f, 0.5f, 0.5f}, 0.5f});
+        PrintTransform(body);
+        b3Body_SetType(body, c == 0 ? b3_dynamicBody : c == 1 ? b3_staticBody : b3_kinematicBody);
+        PrintTransform(body);
+        b3World_Step(world, 1.0f / 60.0f, 4);
+        PrintTransform(body);
         b3DestroyWorld(world);
     }
 }

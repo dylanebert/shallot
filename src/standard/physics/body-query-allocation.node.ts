@@ -8,11 +8,16 @@ import {
 
 setDefaultTimeout(TIMEOUT.node);
 const entry = resolve(import.meta.dir, "fixtures/body-query-allocation.entry.ts");
-test("warmed body ray, shape, overlap, mover and TOI queries allocate nothing on hits, misses and alternating filters", async () => {
+test("warmed body queries and borrowed transform and inertia reads allocate nothing", async () => {
     const sample = await sampleAllocation(entry, { warm: 12000 });
     expect(sample.control.length).toBeGreaterThan(0);
     const failure = allocationFailure(sample);
     if (failure !== undefined) throw new Error(failure);
+});
+test("body transform allocation gate rejects a spread result control", async () => {
+    const sample = await sampleAllocation(entry, { warm: 12000, input: "transform-leak" });
+    expect(sample.control.length).toBeGreaterThan(0);
+    expect(allocationFailure(sample)).toContain("allocated JavaScript heap");
 });
 test("body query allocation gate rejects a spread result control", async () => {
     const sample = await sampleAllocation(entry, { warm: 12000, input: "leak" });
