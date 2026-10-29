@@ -3,7 +3,7 @@
 // sharedHullCount and sharedMeshCount are diagnostics; children retain their geometry references.
 
 import { ALL_BITS_HI, ALL_BITS_LO } from "../common/constants";
-import type { Transform, Vec3 } from "../common/records";
+import type { AABB, Transform, Vec3 } from "../common/records";
 import { cloneMaterial, ShapeType, type SurfaceMaterial } from "../common/types";
 import * as tree from "../kernel/treecolumns";
 import {
@@ -232,8 +232,7 @@ export function createCompound(def: CompoundDef): CompoundData | null {
         return null;
     }
 
-    const t = tree.createTree(shapeCount);
-    let childIndex = 0;
+    const boxes: AABB[] = [];
 
     const materials: SurfaceMaterial[] = [];
     const getOrInsertMaterial = (mat: SurfaceMaterial): number => {
@@ -251,20 +250,18 @@ export function createCompound(def: CompoundDef): CompoundData | null {
         const materialIndex = getOrInsertMaterial(cd.material);
         const capsule = roundCapsule(cd.capsule);
         capsules.push({ capsule, materialIndex });
-        const box = computeCapsuleAABB(capsule, {
-            p: { x: 0, y: 0, z: 0 },
-            q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
-        });
-        tree.createProxy(t, box, ALL_BITS_HI, ALL_BITS_LO, childIndex);
-        childIndex += 1;
+        boxes.push(
+            computeCapsuleAABB(capsule, {
+                p: { x: 0, y: 0, z: 0 },
+                q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+            }),
+        );
     }
 
     const hulls: CompoundHull[] = [];
     const sharedHullHashes = new Set<bigint>();
     for (const hd of hullDefs) {
-        const box = computeHullAABB(hd.hull, hd.transform);
-        tree.createProxy(t, box, ALL_BITS_HI, ALL_BITS_LO, childIndex);
-        childIndex += 1;
+        boxes.push(computeHullAABB(hd.hull, hd.transform));
 
         const materialIndex = getOrInsertMaterial(hd.material);
         hulls.push({ hull: hd.hull, transform: hd.transform, materialIndex });
@@ -274,9 +271,7 @@ export function createCompound(def: CompoundDef): CompoundData | null {
     const meshes: CompoundMesh[] = [];
     const sharedMeshes: MeshData[] = [];
     for (const md of meshDefs) {
-        const box = computeMeshAABB(md.meshData, md.transform, md.scale);
-        tree.createProxy(t, box, ALL_BITS_HI, ALL_BITS_LO, childIndex);
-        childIndex += 1;
+        boxes.push(computeMeshAABB(md.meshData, md.transform, md.scale));
 
         const materialIndices = new Array<number>(MAX_COMPOUND_MESH_MATERIALS).fill(0);
         for (let j = 0; j < md.materialCount; ++j) {
@@ -299,15 +294,15 @@ export function createCompound(def: CompoundDef): CompoundData | null {
         const materialIndex = getOrInsertMaterial(sd.material);
         const sphere = roundSphere(sd.sphere);
         spheres.push({ sphere, materialIndex });
-        const box = computeSphereAABB(sphere, {
-            p: { x: 0, y: 0, z: 0 },
-            q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
-        });
-        tree.createProxy(t, box, ALL_BITS_HI, ALL_BITS_LO, childIndex);
-        childIndex += 1;
+        boxes.push(
+            computeSphereAABB(sphere, {
+                p: { x: 0, y: 0, z: 0 },
+                q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+            }),
+        );
     }
 
-    tree.rebuild(t, true);
+    const t = tree.buildTree(boxes, ALL_BITS_HI, ALL_BITS_LO);
 
     return {
         tree: t,

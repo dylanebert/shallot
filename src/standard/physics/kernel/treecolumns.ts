@@ -126,12 +126,13 @@ function withColumns<T>(
     t: DynamicTree,
     mutate: boolean,
     run: (ptr: number, state: number) => T,
+    proxies = t.proxyCount,
 ): T {
     t.store?.refreshIfStale();
     const k = kernel(t.store?.ecsState);
     const d = depth++;
     try {
-        const words = 6 + (t.store ? 0 : t.ni.length) + Math.max(t.proxyCount, 1) * 4;
+        const words = 6 + (t.store ? 0 : t.ni.length) + Math.max(proxies, 1) * 4;
         const state = t.store
             ? t.store.reserveTreeWork(d, words)
             : k.reserveTreeWork(d, words) >>> 0;
@@ -222,6 +223,43 @@ function uploadedMutation(
             Number(BigInt(user) >> 32n),
         ),
     );
+}
+/**
+ * A tree outside the kernel holding a proxy for each box, with its index as user data, fully
+ * rebuilt: the tree b3CreateCompound builds. Its columns upload once, not once per proxy.
+ */
+export function buildTree(boxes: readonly AABB[], hi: number, lo: number): DynamicTree {
+    const t = createTree(boxes.length);
+    withColumns(
+        t,
+        true,
+        (ptr, state) => {
+            const k = kernel(undefined);
+            for (let i = 0; i < boxes.length; i++) {
+                const box = boxes[i]!;
+                k.treeMutate(
+                    ptr,
+                    t.nodeCapacity,
+                    state,
+                    0,
+                    0,
+                    box.lowerBound.x,
+                    box.lowerBound.y,
+                    box.lowerBound.z,
+                    box.upperBound.x,
+                    box.upperBound.y,
+                    box.upperBound.z,
+                    hi,
+                    lo,
+                    i,
+                    0,
+                );
+            }
+            k.treeMutate(ptr, t.nodeCapacity, state, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        },
+        boxes.length,
+    );
+    return t;
 }
 export function reserveProxy(t: DynamicTree): void {
     t.store?.refreshIfStale();
