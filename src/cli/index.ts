@@ -25,7 +25,7 @@ const usage = `
 
   Commands
     create <name>                create a project from minimal or an example
-    migrate                      print the 0.10.1 to 0.10.2 guide
+    migrate                      print the 0.10.x migration guide
     publish [--target <name>]    build, publish and verify a public web game
     dev --target <platform>      develop a desktop app
     build --target <platform>    build a desktop app
@@ -179,7 +179,7 @@ ${desktopStatus}
     migrate: `
   shallot migrate
 
-  Print the 0.10.1 to 0.10.2 migration guide. It changes no files.
+  Print the 0.10.x migration guide. It changes no files.
 
   Shallot options
     -h, --help   Show this help

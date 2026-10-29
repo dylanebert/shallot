@@ -59,7 +59,7 @@ test("bare shallot presents the project map, loop, commands, targets and help co
 
   Commands
     create <name>                create a project from minimal or an example
-    migrate                      print the 0.10.1 to 0.10.2 guide
+    migrate                      print the 0.10.x migration guide
     publish [--target <name>]    build, publish and verify a public web game
     dev --target <platform>      develop a desktop app
     build --target <platform>    build a desktop app
@@ -137,7 +137,7 @@ test("shallot --skill prints the project skill and bare usage names it", async (
     expect(usage.stdout).toContain("--skill");
 });
 
-test("shallot migrate prints the 0.10.1 to 0.10.2 guide and refuses arguments", async () => {
+test("shallot migrate prints the 0.10.x migration guide and refuses arguments", async () => {
     const result = await cli("migrate");
     expect(result.code).toBe(0);
     expect(result.stderr).toBe("");
@@ -147,7 +147,7 @@ test("shallot migrate prints the 0.10.1 to 0.10.2 guide and refuses arguments", 
 
     const help = await cli("migrate", "--help");
     expect(help.code).toBe(0);
-    expect(help.stdout).toContain("0.10.1 to 0.10.2 migration guide");
+    expect(help.stdout).toContain("0.10.x migration guide");
     expect(help.stdout).toContain("It changes no files.");
 
     expectError(/^migrate takes no arguments$/);

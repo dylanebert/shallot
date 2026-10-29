@@ -27,7 +27,7 @@
 - orbit cameras follow interpolated fixed targets
 - readbacks reject after a gpu error, naming the first error that stopped the device
 
-to update a 0.10.1 app, run `bunx shallot migrate` or read [`MIGRATION.md`](https://github.com/dylanebert/shallot/blob/v0.10.2/MIGRATION.md).
+to update a 0.10 app, run `bunx shallot migrate` or read [`MIGRATION.md`](https://github.com/dylanebert/shallot/blob/v0.10.2/MIGRATION.md).
 
 ## 0.10.1
 
