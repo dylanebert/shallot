@@ -65,7 +65,7 @@
         "bin",
         "tsconfig.base.json",
         "MIGRATION.md",
-        "LICENSE.box3d",
+        "LICENSE-BOX3D",
         "crates/audio/pkg",
         "crates/native",
         "assets/icon-1024.png",
