@@ -333,7 +333,7 @@ const controls: Controls = {
     }),
     "Ray Cast": field("Ray Cast"),
     Overlap: field("Overlap"),
-    "Closet Point": field("Closet Point"),
+    "Closet Point": field("Closet Point", { label: "Closest Point" }),
     Profile: button("Profile", profile),
     Test: field("Test", { min: 0, max: 1023, step: 1, decimals: 0 }),
     Level: field("Level", {
@@ -343,7 +343,13 @@ const controls: Controls = {
         decimals: 0,
         bounds: (_values, world) => [-1, world?.resource(TreeBenchmarkState).height ?? 0],
     }),
-    Kilometers: field("Kilometers", { min: 0.5, max: 20, step: 0.1, decimals: 1 }),
+    Kilometers: field("Kilometers", {
+        label: "Draw distance, km",
+        min: 0.5,
+        max: 20,
+        step: 0.1,
+        decimals: 1,
+    }),
     Save: button("Save", (world) => {
         world.resource(SavedTree).image = savePhysicsTree(
             world,

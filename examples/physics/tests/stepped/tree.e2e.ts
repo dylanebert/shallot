@@ -23,7 +23,7 @@ for (const width of [1280, 390])
                 .getByRole("region", { name: "Tree statistics and cost", exact: true })
                 .locator("output"),
         ).toHaveCount(10);
-        for (const name of ["Ray Cast", "Overlap", "Closet Point"]) {
+        for (const name of ["Ray Cast", "Overlap", "Closest Point"]) {
             await pointerControl(page, panel.getByLabel(name, { exact: true }));
             await expect(panel.getByLabel(name, { exact: true })).toBeChecked();
         }
@@ -33,6 +33,10 @@ for (const width of [1280, 390])
         await expect(panel.getByLabel("Leaves", { exact: true })).toHaveText("268");
         await pointerControl(page, panel.getByRole("button", { name: "Load", exact: true }));
         await expect(panel.getByLabel("Leaves", { exact: true })).toHaveText("288");
+        await expect(panel.getByLabel("Draw distance, km", { exact: true })).toHaveAttribute(
+            "step",
+            "0.1",
+        );
         const level = panel.getByLabel("Level", { exact: true });
         await expect(level).toHaveAttribute("max", /^[1-9][0-9]*$/);
         await level.fill("0");

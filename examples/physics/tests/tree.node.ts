@@ -1,11 +1,16 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { Body, createApp } from "@dylanebert/shallot";
+import { Body, createApp, Transform } from "@dylanebert/shallot";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { INK } from "../src/ink-presentation";
 import { scenePresentation } from "../src/presentation";
 import { changeControl, controlValues, createScene, scenes } from "../src/scenes";
 import { TreeBenchmarkPlugin, TreeBenchmarkState, treeRecords } from "../src/tree";
-import { TREE_VISITED, treeBounds, treeQueryDrawing } from "../src/tree-presentation";
+import {
+    drawTreeBenchmark,
+    TREE_VISITED,
+    treeBounds,
+    treeQueryDrawing,
+} from "../src/tree-presentation";
 
 setDefaultTimeout(TIMEOUT.node);
 test("Tree Benchmark draws query shapes in ink and distinguishes visited leaves without adding physics bodies", async () => {
@@ -24,6 +29,18 @@ test("Tree Benchmark draws query shapes in ink and distinguishes visited leaves 
         expect(initial).toHaveLength(s.leaves);
         expect(initial.every((row) => row[6] === INK)).toBe(true);
         expect(treeQueryDrawing(world).segments).toHaveLength(0);
+        const camera = world.create();
+        world.add(camera, Transform, { translation: [0, 0, 330] });
+        world.tick();
+        const strokes: { color: number; width: number }[] = [];
+        const draw = () =>
+            drawTreeBenchmark(world, camera, (_a, _b, color, options) =>
+                strokes.push({ color, width: options.width }),
+            );
+        draw();
+        expect(strokes).toHaveLength(initial.length * 12);
+        expect(strokes.every((stroke) => stroke.color === INK && stroke.width === 1)).toBe(true);
+        strokes.length = 0;
         for (const name of ["Ray Cast", "Overlap", "Closet Point"])
             changeControl(world, "treeBenchmark", [], values, name, 1);
         world.tick();
@@ -32,6 +49,20 @@ test("Tree Benchmark draws query shapes in ink and distinguishes visited leaves 
         expect(drawing.boxes).toHaveLength(1);
         expect(drawing.boxes[0]![6]).toBe(INK);
         expect(drawing.marks).toHaveLength(Number(s.haveClosest));
+        draw();
+        // The camera has no render target, so the point is covered by the captures.
+        const nodeEdges = initial.length * 12;
+        expect(
+            strokes
+                .slice(0, nodeEdges)
+                .every((stroke) => stroke.width === (stroke.color === INK ? 0.25 : 1)),
+        ).toBe(true);
+        expect(strokes.slice(nodeEdges)).toHaveLength(12 + 73);
+        expect(
+            strokes.slice(nodeEdges).every((stroke) => stroke.color === INK && stroke.width === 3),
+        ).toBe(true);
+        expect(scenes.treeBenchmark.controls["Closet Point"]!.label).toBe("Closest Point");
+        expect(scenes.treeBenchmark.controls.Kilometers!.label).toBe("Draw distance, km");
         expect(treeBounds(world, [0, 0, 0]).some((row) => row[6] === TREE_VISITED)).toBe(true);
         changeControl(world, "treeBenchmark", [], values, "Level", 0);
         expect(treeBounds(world, [0, 0, 0])).toHaveLength(1);

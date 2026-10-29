@@ -5,6 +5,8 @@ import { TreeBenchmarkState } from "./tree";
 
 type Point = [number, number, number];
 export const TREE_VISITED = 0xd49560;
+const QUERY_LINE = { ...JOINT_LINE, width: 3 };
+const CONTEXT_LINE = { ...JOINT_LINE, width: 0.25 };
 export function treeGroundHeight(world: World): number {
     const s = world.resource(TreeBenchmarkState);
     return s.nodes[s.root]?.bounds.lowerBound.y ?? 0;
@@ -85,10 +87,7 @@ export function drawTreeBenchmark(
 ): void {
     const p = world.storage(GlobalTransform).translation;
     const drawing = treeQueryDrawing(world);
-    for (const box of [
-        ...treeBounds(world, [p.x.get(camera), p.y.get(camera), p.z.get(camera)]),
-        ...drawing.boxes,
-    ]) {
+    const bounds = (box: number[], options: typeof JOINT_LINE) => {
         const corner = (bits: number): Point => [
             box[bits & 1 ? 3 : 0]!,
             box[bits & 2 ? 4 : 1]!,
@@ -96,8 +95,12 @@ export function drawTreeBenchmark(
         ];
         for (let bits = 0; bits < 8; bits++)
             for (const axis of [1, 2, 4])
-                if (!(bits & axis)) line(corner(bits), corner(bits | axis), box[6]!, JOINT_LINE);
-    }
-    for (const [a, b] of drawing.segments) line(a, b, INK, JOINT_LINE);
-    for (const p of drawing.marks) drawInkPoint(world, camera, p, line);
+                if (!(bits & axis)) line(corner(bits), corner(bits | axis), box[6]!, options);
+    };
+    const querying = drawing.segments.length > 0 || drawing.boxes.length > 0;
+    for (const box of treeBounds(world, [p.x.get(camera), p.y.get(camera), p.z.get(camera)]))
+        bounds(box, querying && box[6] === INK ? CONTEXT_LINE : JOINT_LINE);
+    for (const box of drawing.boxes) bounds(box, QUERY_LINE);
+    for (const [a, b] of drawing.segments) line(a, b, INK, QUERY_LINE);
+    for (const p of drawing.marks) drawInkPoint(world, camera, p, line, INK, 15);
 }

@@ -11,7 +11,17 @@ for (const width of [1280, 390])
         await page.getByRole("button", { name: "Scene", exact: true }).waitFor();
         await page.waitForTimeout(2000);
         await capture(page, `treeBenchmark-${width}-default`);
-        for (const name of ["Ray Cast", "Overlap", "Closet Point"])
+        for (const [name, suffix] of [
+            ["Ray Cast", "ray"],
+            ["Overlap", "overlap"],
+            ["Closest Point", "closest"],
+        ] as const) {
+            const toggle = page.getByLabel(name, { exact: true });
+            await toggle.check();
+            await capture(page, `treeBenchmark-${width}-${suffix}`);
+            await toggle.uncheck();
+        }
+        for (const name of ["Ray Cast", "Overlap", "Closest Point"])
             await page.getByLabel(name, { exact: true }).check();
         await capture(page, `treeBenchmark-${width}-queries`);
         await page.getByLabel("Level", { exact: true }).fill("3");
