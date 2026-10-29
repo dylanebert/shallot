@@ -210,10 +210,43 @@ for (const viewport of [
             expect(box.y + box.height).toBeLessThanOrEqual(initial[0].y);
             await list.getByRole("button").last().scrollIntoViewIfNeeded();
             await expect(list.getByRole("button").last()).toBeInViewport();
-            await expect(list.locator(".categories")).toHaveCSS(
-                "flex-direction",
-                phone ? "column" : "row",
-            );
+            const flow = await list.locator(".categories").evaluate((node) => {
+                const sections = Array.from(node.querySelectorAll("section"));
+                const boxes = sections.map((section) => {
+                    const heading = section.querySelector("h2")!.getBoundingClientRect();
+                    const buttons = Array.from(section.querySelectorAll("button"), (button) =>
+                        button.getBoundingClientRect(),
+                    );
+                    return { heading, buttons };
+                });
+                return {
+                    headersKept: boxes.every(
+                        ({ heading, buttons }) =>
+                            Math.abs(heading.x - buttons[0].x) <= 8 &&
+                            buttons[0].y >= heading.bottom,
+                    ),
+                    splits: boxes.some(({ buttons }) =>
+                        buttons.some((box) => box.x !== buttons[0].x),
+                    ),
+                    stacks: boxes.some(({ heading }, index) =>
+                        boxes
+                            .slice(0, index)
+                            .some((previous) =>
+                                previous.buttons.some(
+                                    (button) =>
+                                        Math.abs(button.x - heading.x) <= 8 &&
+                                        button.bottom <= heading.y,
+                                ),
+                            ),
+                    ),
+                };
+            });
+            expect(flow.headersKept).toBe(true);
+            expect(flow.splits).toBe(!phone);
+            expect(flow.stacks).toBe(true);
+            await expect(list).toHaveCSS("padding", "16px");
+            await expect(list).toHaveCSS("scrollbar-width", "thin");
+            await expect(list).toHaveCSS("scrollbar-color", "rgb(160, 140, 120) rgb(42, 36, 32)");
             await page.keyboard.press("Escape");
             await expect(list).toBeHidden();
             expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);

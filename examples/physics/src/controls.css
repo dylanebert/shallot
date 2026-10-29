@@ -10,7 +10,7 @@
  --full: 100%; --half: 50%; --view: 100dvh; --phone-height: 60dvh; --reserve: 64px; --phone: 480px; --layer: 1; --none: 0; --two: 2;
  --header-surface: var(--bg2);
 }
-.ec, .ec * { box-sizing: border-box; }
+.ec, .ec * { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: var(--muted) var(--line); }
 .ec { color: var(--ink); font: var(--regular) var(--body)/var(--leading) var(--sans); pointer-events: auto; }
 .ec.controls { position: absolute; top: calc(var(--s5) + env(safe-area-inset-top)); right: calc(var(--s5) + env(safe-area-inset-right)); width: var(--panel); max-width: calc(var(--full) - var(--s4) - var(--s4)); max-height: calc(var(--view) - var(--s5) - var(--s5) - var(--reserve)); overflow-y: auto; background: var(--bg2); border: var(--hair) solid var(--line); border-radius: var(--radius); }
 .ec .panel-title { min-height: var(--row); font: var(--strong) var(--title)/var(--leading) var(--mono); padding: var(--s3) var(--s4); border-bottom: var(--hair) solid var(--line); }
@@ -74,9 +74,11 @@
 .ec.picker { position: absolute; z-index: var(--layer); bottom: calc(var(--s5) + env(safe-area-inset-bottom)); left: calc(var(--s5) + env(safe-area-inset-left)); right: calc(var(--s5) + env(safe-area-inset-right)); }
 .ec nav { display: flex; justify-content: center; gap: var(--s1); }
 .ec .name { width: 296px; flex: none; white-space: nowrap; }
-.ec .scenes { position: absolute; bottom: calc(var(--full) + var(--s2)); left: var(--half); transform: translateX(calc(var(--zero) - var(--half))); width: max-content; max-width: var(--full); max-height: calc(var(--view) - var(--s5) - var(--s5) - var(--reserve)); overflow-y: auto; padding: var(--s4); background: var(--bg2); border: var(--hair) solid var(--line); border-radius: var(--radius); }
-.ec .categories { display: flex; flex-wrap: wrap; gap: var(--s4); }
-.ec .categories section { display: grid; flex: none; align-content: start; gap: var(--s1); }
+.ec .scenes { position: absolute; bottom: calc(var(--full) + var(--s2)); left: var(--half); transform: translateX(calc(var(--zero) - var(--half))); width: var(--full); max-width: var(--full); max-height: calc(var(--view) - var(--s5) - var(--s5) - var(--reserve)); overflow-y: auto; padding: var(--s4); background: var(--bg2); border: var(--hair) solid var(--line); border-radius: var(--radius); }
+.ec .categories { column-width: 296px; column-gap: var(--s4); }
+.ec .categories section { margin-bottom: var(--s4); }
+.ec .categories h2 { break-after: avoid; }
+.ec .categories button { display: block; break-inside: avoid; margin-top: var(--s1); }
 .ec .categories h2 { margin: var(--zero); padding: var(--zero) var(--s2); font: var(--regular) var(--small)/var(--leading) var(--mono); letter-spacing: var(--tracking); text-transform: uppercase; color: var(--muted); }
 .ec .scenes button { width: var(--full); text-align: left; }
 .ec.input-help { position: absolute; top: calc(var(--s5) + env(safe-area-inset-top)); left: calc(var(--s5) + env(safe-area-inset-left)); pointer-events: none; }
@@ -87,6 +89,6 @@
  .ec nav button { min-width: var(--touch); }
  .ec .name { width: min(280px, calc(var(--full) - var(--touch) - var(--touch) - var(--s1) - var(--s1))); }
  .ec.picker { bottom: calc(var(--s4) + env(safe-area-inset-bottom)); left: calc(var(--s4) + env(safe-area-inset-left)); right: calc(var(--s4) + env(safe-area-inset-right)); }
- .ec .categories { flex-direction: column; }
+ .ec .categories { column-count: 1; }
  .ec .scenes { max-height: calc(var(--view) - var(--s4) - var(--s4) - var(--reserve)); }
 }

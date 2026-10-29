@@ -682,6 +682,9 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
                         : /\.section\b|\bnav\s*$|\.categories section/.test(s)
                           ? "4px"
                           : "8px";
+                else if (p === "margin-bottom" && s === ".ec .categories section")
+                    expected = "16px";
+                else if (p === "margin-top" && s === ".ec .categories button") expected = "4px";
                 else if (p.startsWith("margin") && heading && /categories/.test(s))
                     expected = "0px 0px 8px";
                 else if (p.startsWith("padding"))
@@ -827,6 +830,7 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
             let sizes: string[] = [];
             if (/radius/.test(p) || /^outline/.test(p)) sizes = ["2px"];
             else if (/border/.test(p)) sizes = ["1px"];
+            else if (p === "column-width" && s === ".ec .categories") sizes = ["296px"];
             else if (p === "width")
                 sizes = check
                     ? ["16px"]
