@@ -1,0 +1,2 @@
+stage: 4
+finding: P2 src/standard/physics/tree.ts:256-268: movePhysicsTreeProxy and destroyPhysicsTreeProxy are exported public operations, but sample_tree.cpp calls neither b3DynamicTree_MoveProxy nor b3DynamicTree_DestroyProxy. The unit explicitly limits the public module to the calls Tree Benchmark makes. Native parity tests exercising these additional operations do not justify widening that scope; remove them from the public surface unless the unit's scope is explicitly changed.
