@@ -228,6 +228,8 @@ sh scripts/lavapipe.sh HEAD bunx playwright test -c examples/embedded-scene --wo
 sh scripts/lavapipe.sh HEAD sh scripts/browser.sh
 ```
 
+- Under Rosetta the container's llvmpipe matches hosted Ubuntu's values except in fog's local-light in-scatter, where `src/extras/fog/temporal.node.ts` reads none. It, `in-scatter.node.ts`'s wall test and `lighting.node.ts`'s three range tests fail there on an unchanged tree; hosted Ubuntu passes `temporal.node.ts`
+
 ### Physics iteration
 
 - A change runs, in the loop, the sets of every row it touches. The common set is `bun check`, `bun run lint` and every `*.test.ts` under `src/core/physics` and `src/standard/physics`; the kernel set adds `bun crates/physics/scripts/build-kernel.ts`, `cargo clippy -p shallot-physics --all-targets -- -D warnings`, `cargo clippy -p shallot-physics --lib --target wasm32-unknown-unknown -- -D warnings`, `cargo test -p shallot-physics`, `src/standard/physics/solver/step.gold.node.ts` and `diagnostics/box3d-parity/phases.oracle.ts`
