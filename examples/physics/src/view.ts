@@ -56,7 +56,7 @@ import { drawGeometry } from "./geometry-presentation";
 import { Grab } from "./grab";
 import { drawHeightFieldView } from "./height-field-presentation";
 import { drawInkPoint } from "./ink-presentation";
-import { hullCrashPoints } from "./issues";
+import { hullCrashPoints, IssueState } from "./issues";
 import { drawJointViews } from "./joint-presentation";
 import { ManifoldSample } from "./manifold";
 import { drawManifold, manifoldGeometry } from "./manifold-presentation";
@@ -609,6 +609,16 @@ function createView(world: World, scene: Scene, camera: number): () => void {
                 drawCastView(world, camera, (a, b, color, options) =>
                     drawLine(world, a, b, color, options),
                 );
+            if (scene === "ghostCollisions")
+                for (const p of world.resource(IssueState).markers)
+                    drawInkPoint(
+                        world,
+                        camera,
+                        p,
+                        (a, b, color, options) => drawLine(world, a, b, color, options),
+                        0xff8135,
+                        4,
+                    );
             if (scene === "querySpawn")
                 drawQuerySpawn(world, (a, b, color, options) =>
                     drawLine(world, a, b, color, options),

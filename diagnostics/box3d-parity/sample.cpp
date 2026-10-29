@@ -455,6 +455,9 @@ int main( int argc, char** argv )
         { "sboxMover", Issues::SBoxMover::Create }, { "capsuleMesh", Issues::CapsuleMeshBug::Create },
         { "slideTwistOffCenterShape", Issues::SlideTwistOffCenterShape::Create }, { "hugeBox", Issues::HugeBox::Create },
         { "issueHeightfield", Issues::HeightfieldIssue::Create },
+        { "ghostCollisions", Issues::SBoxGhostCollisions::Create },
+        { "wheelStack", Issues::WheelStack::Create },
+        { "restitutionOvershoot", Issues::RestitutionOvershoot::Create },
         { "boxHull", Geometry::BoxHull::Create }, { "geometryHull", Geometry::Hull::Create },
         { "hullReduction", Geometry::HullReduction::Create }, { "hullTransform", Geometry::HullTransform::Create },
         { "capsuleMass", Geometry::CapsuleMass::Create },
@@ -575,6 +578,8 @@ int main( int argc, char** argv )
     if (getenv("TREE_BOUNDS")) assert(treeBounds && !strcmp(argv[1], "treeBenchmark"));
     FILE* treeRecords = getenv("TREE_RECORDS") ? fopen(getenv("TREE_RECORDS"), "w") : nullptr;
     if (getenv("TREE_RECORDS")) assert(treeRecords && !strcmp(argv[1], "treeBenchmark"));
+    FILE* issueReadouts = getenv("ISSUE_READOUTS") ? fopen(getenv("ISSUE_READOUTS"), "w") : nullptr;
+    if (getenv("ISSUE_READOUTS")) assert(issueReadouts && (!strcmp(argv[1], "ghostCollisions") || !strcmp(argv[1], "restitutionOvershoot")));
     FILE* worldReadouts = getenv("WORLD_READOUTS") ? fopen(getenv("WORLD_READOUTS"), "w") : nullptr;
     if (getenv("WORLD_READOUTS")) assert(worldReadouts);
     FILE* readouts = getenv("PRECESSION_READOUTS") ? fopen(getenv("PRECESSION_READOUTS"), "w") : nullptr;
@@ -641,6 +646,17 @@ int main( int argc, char** argv )
             else if (!strcmp(argv[1], "wavePile")) { auto& d = static_cast<WavePile*>(sample)->m_data; fprintf(determinismReadouts, "%d %08X\n", d.sleepStep, d.hash); }
             else if (!strcmp(argv[1], "meshDropDeterminism")) { auto& d = static_cast<MeshDropDeterminism*>(sample)->m_data; fprintf(determinismReadouts, "%d %08X\n", d.sleepStep, d.hash); }
             else { auto& d = static_cast<QuerySpawn*>(sample)->m_data; fprintf(determinismReadouts, "%d %08X %d %d %08X\n", d.sleepStep, d.hash, d.spawnCount, d.queryHitCount, d.queryHash); }
+        }
+        if (issueReadouts) {
+            if (!strcmp(argv[1], "ghostCollisions")) {
+                auto* s = static_cast<Issues::SBoxGhostCollisions*>(sample);
+                fprintf(issueReadouts, "[%d,%.9g,[", s->m_launchCount, s->m_maxLaunchSpeed);
+                for (int j=0;j<s->m_launchMarkerCount;++j) { auto p=s->m_launchMarkers[j]; fprintf(issueReadouts,"%s[%.9g,%.9g,%.9g]",j?",":"",p.x,p.y,p.z); }
+                fprintf(issueReadouts, "]]\n");
+            } else {
+                auto* s = static_cast<Issues::RestitutionOvershoot*>(sample);
+                fprintf(issueReadouts, "[%.9g,%.9g,%d]\n", s->m_dropHeight, s->m_maxBounceY, s->m_failed);
+            }
         }
         if (worldReadouts) {
             if (!strcmp(argv[1], "farStack")) { auto* s = static_cast<FarStack*>(sample); fprintf(worldReadouts, "%.1f %.4f\n", s->m_offsetKilometers, b3SubPos(b3Body_GetWorldCenter(s->m_topBodyId), s->m_base).y); }
@@ -741,6 +757,7 @@ int main( int argc, char** argv )
     if (meshBoundsFile) fclose(meshBoundsFile);
     if (robustnessReadouts) fclose(robustnessReadouts);
     if (worldReadouts) fclose(worldReadouts);
+    if (issueReadouts) fclose(issueReadouts);
     if (treeBounds) fclose(treeBounds);
     if (treeRecords) fclose(treeRecords);
     if (determinismReadouts) fclose(determinismReadouts);

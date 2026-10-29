@@ -19,6 +19,9 @@ function copyRobustnessSources(directory: string): void {
 }
 
 for (const [scene, name, before, after] of [
+    ["ghostCollisions", "SBoxGhostCollisions", "m_characterMass = 500.0f", "m_characterMass = 501.0f"],
+    ["wheelStack", "WheelStack", "friction = 0.6f", "friction = 0.7f"],
+    ["restitutionOvershoot", "RestitutionOvershoot", "m_dropHeight = 10.0f", "m_dropHeight = 11.0f"],
     ["crash", "Crash", "{ 2.0f, 4.0f, 0.0f }", "{ 2.1f, 4.0f, 0.0f }"],
     ["multiplePrismatic", "MultiplePrismatic", "{ 0.0f, -0.6f, 0.0f }", "{ 0.0f, -0.7f, 0.0f }"],
     ["hullCrash", "HullCrash", "{ 100.000000, -142.292389, 130.826111 }", "{ 101.000000, -142.292389, 130.826111 }"],
@@ -33,20 +36,26 @@ for (const [scene, name, before, after] of [
         const start = performance.now(), binary = sampleBinary();
         const directory = mkdtempSync(join(tmpdir(), "box3d-issues-"));
         const base = new URL("../../examples/physics/tests/", import.meta.url), records = join(directory, "geometry.jsonl");
-        const env: Record<string, string> = scene === "hullCrash" ? { GEOMETRY_RECORDS: records } : {};
+        const hasReadouts = scene === "ghostCollisions" || scene === "restitutionOvershoot";
+        const env: Record<string, string> = scene === "hullCrash" ? { GEOMETRY_RECORDS: records } : hasReadouts ? { ISSUE_READOUTS: records } : {};
+        const readouts = () => readFileSync(records, "utf8");
         const geometry = () => readFileSync(records, "utf8").trim().split("\n").map(line => drawingDigest(JSON.parse(line))).join("\n") + "\n";
         try {
             const hashes = run([binary, scene, "600"], env);
             equalSampleSteps(hashes, readFileSync(new URL(`${scene}.gold.txt`, base), "utf8"), scene);
+            if (hasReadouts) expect(readouts()).toBe(readFileSync(new URL(`${scene}.readouts.gold.txt`, base), "utf8"));
             const hull = scene === "hullCrash" ? geometry() : "";
             if (scene === "hullCrash") expect(hull).toBe(readFileSync(new URL("hullCrash.geometry.gold.txt", base), "utf8"));
             equalSampleSteps(run([binary, scene, "600"], env), hashes, `${scene} repeat`);
             if (scene === "hullCrash") expect(geometry()).toBe(hull);
-            if (scene === "crash") {
-                const args = [binary, scene, "600", fileURLToPath(new URL("crash.controls.txt", base))];
-                const controlled = run(args);
-                equalSampleSteps(controlled, readFileSync(new URL("crash.controls.gold.txt", base), "utf8"), "Crash controls");
-                equalSampleSteps(run(args), controlled, "Crash controls repeat");
+            if (hasReadouts) expect(readouts()).toBe(readFileSync(new URL(`${scene}.readouts.gold.txt`, base), "utf8"));
+            if (scene === "crash" || scene === "ghostCollisions") {
+                const args = [binary, scene, "600", fileURLToPath(new URL(`${scene}.controls.txt`, base))];
+                const controlled = run(args, env);
+                if(hasReadouts) expect(readouts()).toBe(readFileSync(new URL(`${scene}.controls.readouts.gold.txt`,base),"utf8"));
+                equalSampleSteps(controlled, readFileSync(new URL(`${scene}.controls.gold.txt`, base), "utf8"), `${scene} controls`);
+                equalSampleSteps(run(args, env), controlled, `${scene} controls repeat`);
+                if(hasReadouts) expect(readouts()).toBe(readFileSync(new URL(`${scene}.controls.readouts.gold.txt`,base),"utf8"));
                 expect(controlled).not.toBe(hashes);
             }
             const samples = join(directory, "samples"); mkdirSync(samples); mkdirSync(join(directory, "shared"));

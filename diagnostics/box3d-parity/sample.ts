@@ -33,6 +33,9 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
     }
     const sources = [
         "namespace Issues {",
+        section(issues, "class SBoxGhostCollisions :", "static int sampleSBoxGhostCollisions"),
+        section(issues, "static const b3Vec3 s_metalWheel1Verts", "static int sampleWheelStack"),
+        section(issues, "class RestitutionOvershoot :", "static int sampleRestitutionOvershoot"),
         ...[["Crash", "sampleCrash"], ["MultiplePrismatic", "sampleMultiplePrismatic"], ["HullCrash", "sampleHullCrash"], ["ConvexJitter", "sampleConvexJitter"], ["SBoxMover", "sampleBoxMesh"], ["CapsuleMeshBug", "sampleIndex"], ["SlideTwistOffCenterShape", "sampleSlideTwistOffCenterShape"], ["HugeBox", "sampleHugeBox"], ["HeightfieldIssue", "sampleIssueIndex"]].map(([name, end]) => section(issues, `class ${name} :`, `static int ${end}`)),
         "}",
         "namespace ManifoldSamples {",

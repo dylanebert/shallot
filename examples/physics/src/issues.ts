@@ -2,6 +2,7 @@ import {
     Body,
     BodyMotionLock,
     BodyType,
+    GlobalTransform,
     HeightFields,
     Hulls,
     PhysicsMeshes,
@@ -22,9 +23,12 @@ import {
     StepPhysicsSystem,
     SyncPhysicsConstraintsSystem,
     setAngularVelocity,
+    setLinearVelocity,
 } from "@dylanebert/shallot/standard/physics";
 import building from "./building.json" with { type: "json" };
 import { Geometry } from "./geometry";
+import { ghostFloor } from "./ghost-floor";
+import wheel from "./issue-wheel.json" with { type: "json" };
 import jitter from "./issues-points.json" with { type: "json" };
 import { decodeMesh } from "./mesh-data";
 import type { Controls } from "./scenes";
@@ -34,9 +38,27 @@ type V3 = [number, number, number];
 export const IssueVelocities = {
     create: () => [] as { body: number; velocity: { x: number; y: number; z: number } }[],
 };
+export const IssueState = {
+    create: () => ({
+        ghost: -1,
+        bounce: -1,
+        directionX: 1,
+        directionZ: 1,
+        speedX: f(350 * f(0.0254)),
+        speedZ: f(20 * f(0.0254)),
+        launches: 0,
+        maxLaunchSpeed: 0,
+        wasLaunched: false,
+        markers: [] as V3[],
+        bounced: false,
+        maxBounce: 0,
+        failed: false,
+    }),
+};
+const IssueStatePlugin: Plugin = { name: "IssueState", recovery: recoverResource(IssueState) };
 export const IssuesPlugin: Plugin = {
     name: "Issues",
-    dependencies: [StandardPhysicsPlugin],
+    dependencies: [StandardPhysicsPlugin, IssueStatePlugin],
     recovery: recoverResource(IssueVelocities),
     systems: [
         {
@@ -48,6 +70,53 @@ export const IssuesPlugin: Plugin = {
                 const pending = world.resource(IssueVelocities);
                 for (const { body, velocity } of pending) setAngularVelocity(world, body, velocity);
                 pending.length = 0;
+                const s = world.resource(IssueState);
+                if (s.ghost < 0) return;
+                const t = world.storage(GlobalTransform),
+                    e = s.ghost;
+                const x = t.translation.x.get(e),
+                    z = t.translation.z.get(e);
+                if (x > 3.5) s.directionX = -1;
+                else if (x < -3.5) s.directionX = 1;
+                if (z > 0.5) s.directionZ = -1;
+                else if (z < -0.5) s.directionZ = 1;
+                setLinearVelocity(world, e, {
+                    x: f(s.directionX * s.speedX),
+                    y: t.linearVelocity.y.get(e),
+                    z: f(s.directionZ * s.speedZ),
+                });
+            },
+        },
+        {
+            name: "issues-after-step",
+            group: "fixed",
+            after: [StepPhysicsSystem],
+            update(world) {
+                const s = world.resource(IssueState),
+                    t = world.storage(GlobalTransform);
+                if (s.ghost >= 0) {
+                    const e = s.ghost,
+                        y = t.translation.y.get(e),
+                        vy = t.linearVelocity.y.get(e);
+                    const grounded = y < f(f(f(36 * f(0.0254)) + f(0.01)) + f(4 * f(0.0254))),
+                        launched = vy > 0.5;
+                    if (grounded && launched && !s.wasLaunched) {
+                        s.launches++;
+                        s.maxLaunchSpeed = Math.max(s.maxLaunchSpeed, vy);
+                        if (s.markers.length < 64)
+                            s.markers.push([t.translation.x.get(e), y, t.translation.z.get(e)]);
+                    }
+                    s.wasLaunched = launched;
+                }
+                if (s.bounce >= 0) {
+                    const y = t.translation.y.get(s.bounce),
+                        vy = t.linearVelocity.y.get(s.bounce);
+                    if (!s.bounced && vy > 0) s.bounced = true;
+                    if (s.bounced) {
+                        s.maxBounce = Math.max(s.maxBounce, y);
+                        if (y > f(10 + f(0.05))) s.failed = true;
+                    }
+                }
             },
         },
     ],
@@ -293,7 +362,183 @@ function issueHeightfield(world: World): number[] {
     });
     return [eid];
 }
+function ghostCollisions(world: World): number[] {
+    for (let chunk = 0; chunk < 2; chunk++) {
+        const e = body(world, [0, 0, 0]);
+        world.add(e, Shape, {
+            kind: ShapeKind.Mesh,
+            geometry: world.resource(PhysicsMeshes).add({ name: "chunk", ...ghostFloor(chunk) }),
+        });
+    }
+    const half = f(16 * f(0.0254)),
+        height = f(36 * f(0.0254));
+    const e = body(world, [-3.5, f(height + f(0.1)), 0], true);
+    const b = world.storage(Body);
+    b.motionLocks.set(
+        e,
+        BodyMotionLock.angularX | BodyMotionLock.angularY | BodyMotionLock.angularZ,
+    );
+    b.enableSleep.set(e, 0);
+    b.enableContactRecycling.set(e, 0);
+    b.gravityScale.set(e, 2.03);
+    world.add(e, Shape, {
+        geometry: world.resource(Hulls).add({ name: "box", halfExtents: [half, height, half] }),
+        friction: 0,
+        restitution: 0,
+        density: f(500 / f(f(f(8 * half) * height) * half)),
+        enableSpeculativeContact: 0,
+    });
+    world.resource(IssueState).ghost = e;
+    return [e];
+}
+function wheelStack(world: World): number[] {
+    ground(world, 10);
+    const points: number[] = [];
+    for (const [offset, count] of wheel.spans) {
+        const hull = createHull(
+            wheel.points
+                .slice(offset!, offset! + count!)
+                .map(([x, y, z]) => ({ x: f(x!), y: f(y!), z: f(z!) })),
+            count!,
+            world,
+        );
+        if (hull)
+            for (const p of hull.points.slice(0, hull.vertexCount))
+                if (points.length < 512 * 3) points.push(p.x, p.y, p.z);
+    }
+    const geometry = world.resource(Hulls).add({
+        name: "wheel",
+        points: new Float32Array(points),
+        maxVertexCount: points.length / 3,
+    });
+    const result: number[] = [];
+    const height = f(0.171),
+        spacing = f(height + f(0.006)),
+        start = f(f(0.5 * height) + f(0.004));
+    for (let i = 0; i < 30; i++) {
+        const e = body(world, [0, f(start + f(i * spacing)), 0], true);
+        world.add(e, Shape, { geometry, friction: 0.6 });
+        result.push(e);
+    }
+    Object.assign(world.resource(PhysicsWorldDefinition), {
+        contactHertz: 240,
+        contactDampingRatio: 10,
+        contactSpeed: 3,
+    });
+    return result;
+}
+function restitutionOvershoot(world: World): number[] {
+    box(world, body(world, [0, -0.25, 0]), [0.375, 0.25, 0.375]);
+    const e = body(world, [0, 10, 0], true);
+    box(world, e, [0.5, 0.5, 0.5]);
+    world.storage(Shape).restitution.set(e, 1);
+    world.resource(IssueState).bounce = e;
+    return [e];
+}
 export const issueScenes = {
+    ghostCollisions: {
+        construct: ghostCollisions,
+        gridExtent: 6.5024,
+        gridExtentZ: 1.6256,
+        gridSpacing: 0.8128,
+        gridCenter: [0, 0],
+        camera: { yaw: 20, pitch: 30, distance: 15, phoneDistance: 23, target: [0, 0.5, 0] },
+        controls: {
+            "Walk Speed X (inch/s)": {
+                label: "Walk Speed X (inch/s)",
+                value: 350,
+                min: 100,
+                max: 400,
+                step: 1,
+                decimals: 0,
+                set(world, _b, value) {
+                    world.resource(IssueState).speedX = f(f(value) * f(0.0254));
+                },
+            },
+            "Walk Speed Z (inch/s)": {
+                label: "Walk Speed Z (inch/s)",
+                value: 20,
+                min: 10,
+                max: 100,
+                step: 1,
+                decimals: 0,
+                set(world, _b, value) {
+                    world.resource(IssueState).speedZ = f(f(value) * f(0.0254));
+                },
+            },
+            "Reset Counters": {
+                label: "Reset Counters",
+                value: 0,
+                button: true,
+                set(world) {
+                    const s = world.resource(IssueState);
+                    s.launches = 0;
+                    s.maxLaunchSpeed = 0;
+                    s.markers = [];
+                },
+            },
+            Launches: {
+                label: "Launches",
+                value: 0,
+                decimals: 0,
+                read(world) {
+                    return world.resource(IssueState).launches;
+                },
+                set() {},
+            },
+            Worst: {
+                label: "Worst, m/s",
+                value: 0,
+                decimals: 2,
+                read(world) {
+                    return world.resource(IssueState).maxLaunchSpeed;
+                },
+                set() {},
+            },
+        } satisfies Controls,
+    },
+    wheelStack: {
+        construct: wheelStack,
+        gridExtent: 10,
+        gridSpacing: 1,
+        camera: { yaw: 25, pitch: 15, distance: 9, phoneDistance: 12, target: [0, 2.6, 0] },
+        controls: undefined,
+    },
+    restitutionOvershoot: {
+        construct: restitutionOvershoot,
+        gridExtent: 0.375,
+        gridSpacing: 0.75,
+        camera: { yaw: 25, pitch: 10, distance: 18, phoneDistance: 23, target: [0, 5, 0] },
+        controls: {
+            Drop: {
+                label: "Drop height, m",
+                value: 10,
+                decimals: 2,
+                read() {
+                    return 10;
+                },
+                set() {},
+            },
+            Maximum: {
+                label: "Max bounce, m",
+                value: 0,
+                decimals: 2,
+                read(world) {
+                    return world.resource(IssueState).maxBounce;
+                },
+                set() {},
+            },
+            Result: {
+                label: "At or below drop",
+                value: 0,
+                read(world) {
+                    return world.resource(IssueState).failed ? "No" : "Yes";
+                },
+                set() {},
+            },
+        } satisfies Controls,
+    },
+
     crash: {
         construct: crash,
         gridHeight: -1,

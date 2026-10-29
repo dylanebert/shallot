@@ -1,0 +1,6 @@
+60	Walk Speed X (inch/s)	100
+120	Walk Speed Z (inch/s)	100
+180	Reset Counters	1
+240	Walk Speed X (inch/s)	400
+300	Walk Speed Z (inch/s)	10
+420	Reset Counters	1

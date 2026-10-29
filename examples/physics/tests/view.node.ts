@@ -392,6 +392,9 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 expect(ground.mesh.indices.length).toBeGreaterThan(0);
             } else expect(presentation.ground).toBeUndefined();
             const extent = {
+                ghostCollisions: 6.5024,
+                wheelStack: 10,
+                restitutionOvershoot: 0.375,
                 crash: 20,
                 multiplePrismatic: 10,
                 hullCrash: 4,
@@ -553,7 +556,8 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 sensorHits: 10,
             }[id];
             const grid = presentation.grid;
-            const spacing = grid.lines[2]!.a[2] - grid.lines[0]!.a[2];
+            const horizontal = grid.lines.filter((line) => line.a[0] !== line.b[0]);
+            const spacing = horizontal[1]!.a[2] - horizontal[0]!.a[2];
             expect(spacing).toBe(scenes[id].gridSpacing);
             // At the 720 CSS-pixel review camera, adjacent cells at the ground focus
             // reserve at least 4 pixels in both screen directions (at most 1 line / 4 px).
@@ -577,20 +581,26 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
             expect(grid.opacity).toBeLessThan(0.45);
             const height = groundHeight + 0.005;
             const [cx, cz] = "gridCenter" in definition ? definition.gridCenter : [0, 0];
-            for (let offset = -extent; offset <= extent; offset += spacing) {
+            const extentZ = "gridExtentZ" in definition ? definition.gridExtentZ : extent;
+            for (let i = 0; i <= Math.round((2 * extentZ) / spacing); i++) {
+                const offset = -extentZ + i * spacing;
                 const color = offset === 0 ? 0x797369 : 0x49453f;
                 expect(grid.lines).toContainEqual({
                     a: [cx! - extent, height, cz! + offset],
                     b: [cx! + extent, height, cz! + offset],
                     color,
                 });
+            }
+            for (let i = 0; i <= Math.round((2 * extent) / spacing); i++) {
+                const offset = -extent + i * spacing;
+                const color = offset === 0 ? 0x797369 : 0x49453f;
                 expect(grid.lines).toContainEqual({
-                    a: [cx! + offset, height, cz! - extent],
-                    b: [cx! + offset, height, cz! + extent],
+                    a: [cx! + offset, height, cz! - extentZ],
+                    b: [cx! + offset, height, cz! + extentZ],
                     color,
                 });
             }
-            expect(grid.lines).toHaveLength(((2 * extent) / spacing + 1) * 2);
+            expect(grid.lines).toHaveLength((2 * extent) / spacing + (2 * extentZ) / spacing + 2);
             expect(presentation.controls).toEqual(enabledControls(id, controlValues(id)));
         } finally {
             app.dispose();
