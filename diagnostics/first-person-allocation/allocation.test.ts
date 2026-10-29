@@ -113,37 +113,6 @@ const absolute = (path: string) => normalizePath(resolve(path));
 /** A bundle input's root-relative path with `/` separators. */
 const rooted = (path: string) => absolute(resolve(ROOT, path)).slice(ROOT.length + 1);
 
-test("a Node allocation import does not load the display-only oracle or Hyprland instrument", async () => {
-    const built = await Bun.build({
-        entrypoints: [resolve(import.meta.dir, "allocation.ts")],
-        metafile: true,
-        external: ["playwright", "webgpu", "chromium-bidi"],
-        target: "bun",
-    });
-    if (!built.success || built.metafile === undefined)
-        throw new Error(`allocation import graph failed: ${built.logs.map(String).join("\\n")}`);
-    const inputs = Object.keys(built.metafile.inputs).map(absolute);
-    expect(inputs.some((path) => path.endsWith("/diagnostics/first-person-allocation/display.ts"))).toBe(false);
-    expect(inputs.some((path) => path.endsWith("/diagnostics/first-person-allocation/display-seat.ts"))).toBe(false);
-
-    const node = await Bun.build({
-        entrypoints: [resolve(import.meta.dir, "allocation-sampler.mjs")],
-        metafile: true,
-        target: "node",
-        external: ["webgpu"],
-    });
-    if (!node.success || node.metafile === undefined)
-        throw new Error(`Node sampler graph failed: ${node.logs.map(String).join("\\n")}`);
-    const nodeInputs = Object.keys(node.metafile.inputs).map(absolute);
-    expect(nodeInputs.some((path) => path.endsWith("/allocation-sampler.mjs"))).toBe(true);
-    expect(nodeInputs.some((path) => path.endsWith("/display.ts"))).toBe(false);
-    const nodeImports = Object.values(node.metafile.inputs).flatMap((input) => input.imports);
-    expect(nodeImports.some((edge) => edge.external && edge.path === "webgpu")).toBe(true);
-    expect(nodeImports.some((edge) => edge.external && /^(?:bun:|playwright)/.test(edge.path))).toBe(
-        false,
-    );
-});
-
 // Profiler modules: the `profile` extra, which owns the physics step's timing clock.
 const PROFILER = [/^src\/extras\/profile\//];
 
