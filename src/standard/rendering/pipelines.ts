@@ -1977,28 +1977,8 @@ function bgFs(bg: AnyBackground) {
                 // Orthographic depth 0 remains a finite point on the far projection plane.
                 dir = std.normalize(std.sub(std.div(far.xyz, far.w), engineLayout.$.view.eye.xyz));
             }
-            // Shadow receivers read free WGSL names that TypeGPU's call graph cannot discover.
-            // Touch their layout bindings in the returned value: the transpiler removes an unused
-            // touch as dead code. Multiplying by zero preserves the background color.
-            const forcedZero =
-                (shadowLayout.$.pointShadows.casters[0].pos.x +
-                    shadowLayout.$.tileRects.rects[0].x +
-                    shadowLayout.$.sunShadow.enabled +
-                    std.textureSampleCompareLevel(
-                        shadowLayout.$.pointAtlas,
-                        shadowLayout.$.shadowSamp,
-                        d.vec2f(0, 0),
-                        0,
-                    ) +
-                    std.textureSampleCompareLevel(
-                        shadowLayout.$.shadowMap,
-                        shadowLayout.$.shadowSamp,
-                        d.vec2f(0, 0),
-                        0,
-                    )) *
-                0;
             const col = bg.fs(BackgroundContext({ dir }));
-            return d.vec4f(std.add(col, d.vec3f(forcedZero)), 1);
+            return d.vec4f(std.add(col, d.vec3f(shadowForce())), 1);
         })
         .$name(`${bg.name}Fs`);
 }
