@@ -6,12 +6,12 @@ import {
 } from "@dylanebert/shallot";
 
 /** Fixed query drawing stays separate from the records inspected by parity. A topology change snaps. */
-export function drawingHistory(read: (world: World) => number[][]) {
+export function drawingHistory(read: (world: World) => number[][], name = "query") {
     let previous: number[][] = [],
         current: number[][] = [];
     const systems: System[] = [
         {
-            name: "query-drawing-start",
+            name: `${name}-drawing-start`,
             group: "fixed",
             boundary: "before",
             after: [GlobalTransformTickStartSystem],
@@ -20,7 +20,7 @@ export function drawingHistory(read: (world: World) => number[][]) {
             },
         },
         {
-            name: "query-drawing-end",
+            name: `${name}-drawing-end`,
             group: "fixed",
             boundary: "after",
             after: [GlobalTransformTickEndSystem],

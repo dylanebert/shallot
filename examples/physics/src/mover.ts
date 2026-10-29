@@ -50,6 +50,7 @@ export const moverState = () => ({
     position: v(7.5, 0.75, 9),
     velocity: v(),
     pogoVelocity: 0,
+    pogoRay: undefined as { origin: Vec; end: Vec } | undefined,
     onGround: false,
     sprint: false,
     capsule: { center1: v(0, -0.5, 0), center2: v(0, 0.5, 0), radius: f(0.3) },
@@ -121,6 +122,12 @@ export function move(
                 f(f(1 + f(f(2 * f(0.7)) * omegaH)) + f(omegaH * omegaH)),
         );
     }
+    s.pogoRay = {
+        origin: rayOrigin,
+        end: s.onGround
+            ? v(ray.point.x, ray.point.y, ray.point.z)
+            : add(rayOrigin, v(0, -rayLength, 0)),
+    };
     const start = s.position;
     const target = add(
         add(s.position, mul(dt, s.velocity)),

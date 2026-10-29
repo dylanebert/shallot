@@ -63,6 +63,7 @@ import { drawJointViews } from "./joint-presentation";
 import { ManifoldSample } from "./manifold";
 import { drawManifold, manifoldGeometry } from "./manifold-presentation";
 import { drawMeshViewerView } from "./mesh-inspector-presentation";
+import { drawPogoRay, pogoDrawing } from "./mover-presentation";
 import { mountPlayerControls } from "./player-controls";
 import {
     drivenBodies,
@@ -211,6 +212,16 @@ function createView(world: World, scene: Scene, camera: number): () => void {
               ? drawingHistory((world) => characterDrawing(world).records)
               : undefined;
     for (const system of queryDrawing?.systems ?? []) addSystem(system);
+    const characterMover =
+        scene === "village"
+            ? world.resource(VillageState).mover
+            : scene === "geometricMover"
+              ? world.resource(GeometricMoverState).mover
+              : undefined;
+    const pogo = characterMover
+        ? drawingHistory(() => pogoDrawing(characterMover), "pogo")
+        : undefined;
+    for (const system of pogo?.systems ?? []) addSystem(system);
     const materials = world.resource(Materials);
     const geometry: ShapeGeometryCache = new Map();
     const presentation = scenePresentation(world, scene, geometry);
@@ -579,6 +590,10 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         group: "simulation",
         after: OrbitPlugin.systems,
         update(world) {
+            if (characterMover && pogo)
+                drawPogoRay(pogo.records(world), (a, b, color, options) =>
+                    drawLine(world, a, b, color, options),
+                );
             if (scene === "capsulePlane" || scene === "moverOverlap")
                 drawCharacterView(
                     world,
