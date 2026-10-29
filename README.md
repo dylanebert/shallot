@@ -42,4 +42,4 @@ bun create shallot first-person --template first-person
 - upgrading from 0.10: [`MIGRATION.md`](MIGRATION.md)
 - changing the engine: [contributing](https://github.com/dylanebert/shallot/blob/main/CONTRIBUTING.md)
 
-mit, see [`LICENSE`](LICENSE).
+mit, see [`LICENSE`](LICENSE). physics derives from [box3d](https://github.com/erincatto/box3d) `47d7f7cc`, copyright erin catto, mit; see [`LICENSE.box3d`](LICENSE.box3d).
