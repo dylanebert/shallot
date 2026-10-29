@@ -5,6 +5,61 @@ import { categories, type Scene, scenes } from "../src/scenes";
 
 test.use(pipelineWarnings);
 
+test("content-sized picker fits at 1920 and keeps touch rows on coarse pointers", async ({
+    browser,
+}) => {
+    const page = await heldPage(browser, { viewport: { width: 1920, height: 1080 } });
+    try {
+        await page.getByRole("button", { name: "Scene", exact: true }).click();
+        const list = page.locator("#scene-list");
+        await expect(list.locator(".categories")).toHaveAttribute("style", /column-count/);
+        expect(await list.evaluate((node) => node.scrollHeight <= node.clientHeight)).toBe(true);
+        for (const width of [1920, 1280]) {
+            await page.setViewportSize({ width, height: width === 1920 ? 1080 : 720 });
+            await expect
+                .poll(() =>
+                    list.evaluate((node) => {
+                        const buttons = Array.from(node.querySelectorAll("button"));
+                        const longest = Math.max(
+                            ...buttons.map((button) => {
+                                const range = document.createRange();
+                                range.selectNodeContents(button);
+                                return range.getBoundingClientRect().width;
+                            }),
+                        );
+                        const buttonWidth = buttons[0].getBoundingClientRect().width;
+                        const leftover =
+                            node.parentElement!.clientWidth - node.getBoundingClientRect().width;
+                        return (
+                            Math.abs(buttonWidth - longest - 18) < 1 &&
+                            leftover < buttonWidth + 16 &&
+                            node.scrollWidth <= node.clientWidth
+                        );
+                    }),
+                )
+                .toBe(true);
+        }
+    } finally {
+        await page.context().close();
+    }
+    const touch = await heldPage(browser, {
+        viewport: { width: 1280, height: 720 },
+        hasTouch: true,
+    });
+    try {
+        await touch.getByRole("button", { name: "Scene", exact: true }).click();
+        expect(
+            await touch
+                .locator("#scene-list button")
+                .evaluateAll((buttons) =>
+                    buttons.every((button) => button.getBoundingClientRect().height === 44),
+                ),
+        ).toBe(true);
+    } finally {
+        await touch.context().close();
+    }
+});
+
 // Each group's read-only claims share one page whose frames are held: scene switches and DOM reads need no
 // draw, and every action on a running scene would otherwise wait on one.
 async function heldPage(browser: Browser, options: Parameters<Browser["newContext"]>[0] = {}) {
@@ -244,6 +299,17 @@ for (const viewport of [
             expect(flow.headersKept).toBe(true);
             expect(flow.splits).toBe(!phone);
             expect(flow.stacks).toBe(true);
+            expect(
+                await list
+                    .getByRole("button")
+                    .evaluateAll((buttons) =>
+                        buttons.every(
+                            (button) =>
+                                button.getBoundingClientRect().height ===
+                                (matchMedia("(max-width: 480px)").matches ? 44 : 22),
+                        ),
+                    ),
+            ).toBe(true);
             await expect(list).toHaveCSS("padding", "16px");
             await expect(list).toHaveCSS("scrollbar-width", "thin");
             await expect(list).toHaveCSS("scrollbar-color", "rgb(160, 140, 120) rgb(42, 36, 32)");

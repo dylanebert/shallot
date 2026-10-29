@@ -38,6 +38,36 @@
         open = false;
         select(samples[(samples.findIndex(sample => sample.id === scene) + direction + samples.length) % samples.length].id);
     }
+    function fitColumns(node: HTMLElement) {
+        let disposed = false;
+        function fit() {
+            if (disposed) return;
+            node.style.width = "100%";
+            const style = getComputedStyle(node);
+            const columns = node.querySelector<HTMLElement>(".categories")!;
+            const gap = parseFloat(getComputedStyle(columns).columnGap);
+            const padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+            const chrome = node.offsetWidth - node.clientWidth + padding;
+            const available = node.clientWidth - padding;
+            const width = Math.min(available, Math.ceil(Math.max(...Array.from(
+                columns.querySelectorAll("button, h2"), (item) => {
+                    const range = document.createRange();
+                    range.selectNodeContents(item);
+                    const style = getComputedStyle(item);
+                    return range.getBoundingClientRect().width + parseFloat(style.paddingLeft)
+                        + parseFloat(style.paddingRight) + parseFloat(style.borderLeftWidth || "0")
+                        + parseFloat(style.borderRightWidth || "0");
+                },
+            ))));
+            const count = matchMedia("(max-width: 480px)").matches ? 1 : Math.max(1, Math.floor((available + gap) / (width + gap)));
+            columns.style.columnCount = String(count);
+            node.style.width = `${count * width + (count - 1) * gap + chrome}px`;
+        }
+        const observer = new ResizeObserver(fit);
+        observer.observe(picker);
+        void document.fonts.ready.then(fit);
+        return { destroy() { disposed = true; observer.disconnect(); } };
+    }
     function close() { open = false; }
     function toggle() { open = !open; }
 </script>
@@ -45,7 +75,7 @@
 <svelte:window onclick={(event) => { if (open && !picker.contains(event.target as Node)) close(); }} onkeydown={(event) => { if (open && event.key === "Escape") { event.preventDefault(); close(); } }} />
 <section onmousedown={(event) => event.preventDefault()} bind:this={picker} class="ec picker" aria-label="Physics scenes">
     {#if open}
-        <div id="scene-list" class="scenes" aria-label="Scenes">
+        <div use:fitColumns id="scene-list" class="scenes" aria-label="Scenes">
             <div class="categories">
                 {#each categories as category}
                     <section aria-label={category.name}>

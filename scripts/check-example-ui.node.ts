@@ -669,7 +669,8 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
             if (p === "letter-spacing" && (!heading || v !== ".08em")) fail("heading tracking");
             if (p === "text-transform" && v === "uppercase" && !heading) fail("heading case");
             if (!gameplay && /^(?:min-)?height$/.test(p) && rowSelector(s)) {
-                if (v !== (touch ? "44px" : "32px")) fail("row");
+                if (v !== (touch ? "44px" : s === ".ec .scenes button" ? "20px" : "32px"))
+                    fail("row");
                 const coverage = heights.get(s) ?? new Set();
                 for (const mode of modes) coverage.add(mode);
                 heights.set(s, coverage);
@@ -692,13 +693,15 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
                         ? "12px 16px"
                         : heading
                           ? "0px 8px"
-                          : /\.fields\b|\.scenes\b/.test(s)
+                          : /\.fields\b|\.scenes$/.test(s)
                             ? "16px"
                             : /dependents/.test(s)
                               ? "0px 0px 0px 8px"
-                              : /button|select/.test(s)
-                                ? "4px 8px"
-                                : "0px";
+                              : s === ".ec .scenes button" && !touch
+                                ? "0px 8px"
+                                : /button|select/.test(s)
+                                  ? "4px 8px"
+                                  : "0px";
                 if (
                     !spacingMatches(p, v, expected) &&
                     !/^0(?:px)?(?: 0(?:px)?)*$/.test(v) &&
@@ -830,7 +833,6 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
             let sizes: string[] = [];
             if (/radius/.test(p) || /^outline/.test(p)) sizes = ["2px"];
             else if (/border/.test(p)) sizes = ["1px"];
-            else if (p === "column-width" && s === ".ec .categories") sizes = ["296px"];
             else if (p === "width")
                 sizes = check
                     ? ["16px"]
@@ -864,7 +866,7 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
                         : track
                           ? ["4px"]
                           : rowSelector(s)
-                            ? [touch ? "44px" : "32px"]
+                            ? [touch ? "44px" : s === ".ec .scenes button" ? "20px" : "32px"]
                             : ["24px", "64px", ...(/\.scenes\b/.test(s) && touch ? ["16px"] : [])];
             else if (p === "grid-template-columns")
                 sizes = /\.slider\b/.test(s)
