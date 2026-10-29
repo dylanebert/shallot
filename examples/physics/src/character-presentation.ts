@@ -68,8 +68,9 @@ export function drawCharacterView(
     world: World,
     camera: number,
     line: (a: Point, b: Point, color: number, options: typeof JOINT_LINE) => void,
+    records = characterDrawing(world).records,
 ): void {
-    const { records, colors } = characterDrawing(world);
+    const { colors } = characterDrawing(world);
     const shape = world.get(world.query([Shape])[Symbol.iterator]().next().value!, Shape)!;
     for (let i = 0; i < records.length; i++) {
         const r = records[i]!,

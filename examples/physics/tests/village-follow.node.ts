@@ -40,16 +40,13 @@ test("Village keeps every movement key live with its follow camera and has no T 
         for (const key of ["W", "A", "S", "D", "Space", "Shift"] as const) {
             const code = key === "Shift" ? "ShiftLeft" : key === "Space" ? "Space" : `Key${key}`;
             pressKey(world, code);
+            const previous = { ...s.mover.position };
             world.step(Time.FIXED_DT);
             expect(s.keys[key]).toBe(1);
             expect(world.get(camera, Orbit)!.target).toBe(s.entity);
             const pose = world.get(camera, GlobalTransform)!;
             const forward = qRotate(...pose.rotation, 0, 0, -1);
-            for (const [axis, value] of [
-                s.mover.position.x,
-                s.mover.position.y,
-                s.mover.position.z,
-            ].entries())
+            for (const [axis, value] of [previous.x, previous.y, previous.z].entries())
                 expect(
                     pose.translation[axis]! + scenes.village.camera.distance * forward[axis]!,
                 ).toBeCloseTo(value, 4);

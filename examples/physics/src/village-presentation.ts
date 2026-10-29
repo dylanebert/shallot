@@ -9,9 +9,9 @@ export function drawVillageView(
     world: World,
     camera: number,
     line: (a: Point, b: Point, color: number, options: typeof JOINT_LINE) => void,
+    records = world.resource(VillageState).drawing,
 ): void {
-    const s = world.resource(VillageState);
-    for (const r of s.drawing) {
+    for (const r of records) {
         const a = r.slice(1, 4) as Point;
         if (r[0] === 0) drawInkPoint(world, camera, a, line, INK, r[4]);
         else if (r[0] === 1) line(a, r.slice(4, 7) as Point, INK, JOINT_LINE);

@@ -14,6 +14,7 @@ import {
     type World,
 } from "../../engine";
 import { clamp, lookAtRotationInto } from "../../engine/utils";
+import { followPosition, OrbitFollowPlugin } from "./follow";
 import { OrbitSmooth } from "./smooth";
 
 const Tau = Math.PI * 2;
@@ -88,7 +89,7 @@ export const Orbit = component(
         flyMax: f32,
         /** Free orbits, pans, and zooms; Locked disables all look (orbit rotation and fly look), leaving pan and zoom */
         mode: u8,
-        /** entity to orbit; pan is relative to its position (0 = world origin) */
+        /** entity to orbit; follows interpolated fixed placement, with pan relative to it (0 = world origin) */
         target: entity,
     },
     {
@@ -414,9 +415,9 @@ const OrbitSystem: System = {
                     let entityTargetZ = 0;
                     const targetEid = orbit.target.get(eid);
                     if (targetEid > 0 && world.has(targetEid, GlobalTransform)) {
-                        entityTargetX = global.translation.x.get(targetEid);
-                        entityTargetY = global.translation.y.get(targetEid);
-                        entityTargetZ = global.translation.z.get(targetEid);
+                        entityTargetX = followPosition(world, eid, targetEid, 0);
+                        entityTargetY = followPosition(world, eid, targetEid, 1);
+                        entityTargetZ = followPosition(world, eid, targetEid, 2);
                     }
                     panX =
                         global.translation.x.get(eid) -
@@ -434,9 +435,9 @@ const OrbitSystem: System = {
                 let targetZ = panZ;
                 const targetEid = orbit.target.get(eid);
                 if (targetEid > 0 && world.has(targetEid, GlobalTransform)) {
-                    targetX += global.translation.x.get(targetEid);
-                    targetY += global.translation.y.get(targetEid);
-                    targetZ += global.translation.z.get(targetEid);
+                    targetX += followPosition(world, eid, targetEid, 0);
+                    targetY += followPosition(world, eid, targetEid, 1);
+                    targetZ += followPosition(world, eid, targetEid, 2);
                 }
 
                 const camX = targetX + distS * Math.cos(pitchS) * Math.sin(yawS);
@@ -501,5 +502,5 @@ export const OrbitPlugin: Plugin = {
     systems: [OrbitSystem],
     components: [Orbit],
 
-    dependencies: [InputPlugin, TransformPlugin],
+    dependencies: [InputPlugin, TransformPlugin, OrbitFollowPlugin],
 };

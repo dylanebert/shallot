@@ -47,17 +47,14 @@ test("Geometric Mover's follow camera stays attached with every movement key liv
             const code = key === "Shift" ? "ShiftLeft" : key === "Space" ? "Space" : `Key${key}`;
             pressKey(world, code);
             for (let i = 0; i < 60; i++) {
+                const previous = { ...s.mover.position };
                 world.step(Time.FIXED_DT);
                 expect(s.keys[key]).toBe(1);
                 expect(world.get(camera, Orbit)!.target).toBe(s.entity);
                 const pose = world.get(camera, GlobalTransform)!;
                 const forward = qRotate(...pose.rotation, 0, 0, -1);
                 const target = pose.translation.map((value, axis) => value + 6 * forward[axis]!);
-                for (const [axis, value] of [
-                    s.mover.position.x,
-                    s.mover.position.y,
-                    s.mover.position.z,
-                ].entries())
+                for (const [axis, value] of [previous.x, previous.y, previous.z].entries())
                     expect(target[axis]).toBeCloseTo(value, 4);
             }
             releaseKey(world, code);

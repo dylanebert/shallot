@@ -41,13 +41,14 @@ import {
     shapeMesh,
 } from "@dylanebert/shallot/standard/physics";
 import { drawCastView } from "./cast-presentation";
-import { drawCharacterView } from "./character-presentation";
+import { characterDrawing, drawCharacterView } from "./character-presentation";
 import { collisionNames } from "./collision";
 import { debugDrawing, drawCollisionDebug } from "./collision-debug-presentation";
 import { drawCollisionView } from "./collision-presentation";
 import { childGeometry, compoundChildren, largeCompound, overlaps } from "./compound-presentation";
 import { drawQuerySpawn } from "./determinism-presentation";
 import { drawingBounds, drawSet } from "./draw-set";
+import { drawingHistory } from "./drawing-history";
 import { DrivingState } from "./driving";
 import { EventSample } from "./events";
 import { GeometricMoverState } from "./geometric-mover";
@@ -194,6 +195,13 @@ function createView(world: World, scene: Scene, camera: number): () => void {
             },
         });
     setSceneCamera(world, scene, camera);
+    const queryDrawing =
+        scene === "village"
+            ? drawingHistory((world) => world.resource(VillageState).drawing)
+            : scene === "capsulePlane" || scene === "moverOverlap"
+              ? drawingHistory((world) => characterDrawing(world).records)
+              : undefined;
+    for (const system of queryDrawing?.systems ?? []) addSystem(system);
     const materials = world.resource(Materials);
     const geometry: ShapeGeometryCache = new Map();
     const presentation = scenePresentation(world, scene, geometry);
@@ -563,12 +571,18 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         after: OrbitPlugin.systems,
         update(world) {
             if (scene === "capsulePlane" || scene === "moverOverlap")
-                drawCharacterView(world, camera, (a, b, color, options) =>
-                    drawLine(world, a, b, color, options),
+                drawCharacterView(
+                    world,
+                    camera,
+                    (a, b, color, options) => drawLine(world, a, b, color, options),
+                    queryDrawing!.records(world),
                 );
             if (scene === "village")
-                drawVillageView(world, camera, (a, b, color, options) =>
-                    drawLine(world, a, b, color, options),
+                drawVillageView(
+                    world,
+                    camera,
+                    (a, b, color, options) => drawLine(world, a, b, color, options),
+                    queryDrawing!.records(world),
                 );
             if (scene === "meshHeightField")
                 drawHeightFieldView(world, camera, (a, b, color, options) =>
