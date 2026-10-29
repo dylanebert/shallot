@@ -246,47 +246,33 @@ function compoundImage(c: CompoundData): Uint8Array {
             }),
         ),
     );
-    const hullBytes = c.hulls.map((x) => hullImage(x.hull));
     const hullOffset = push(new Uint8Array(c.hulls.length * 36));
     const hullView = new DataView(
         chunks.at(-1)!.buffer,
         chunks.at(-1)!.byteOffset,
         chunks.at(-1)!.byteLength,
     );
-    const uniqueHulls: { image: Uint8Array; offset: number }[] = [];
+    const sharedHulls = sharedImages(hullImage, push);
     c.hulls.forEach((x, i) => {
         const o = i * 36;
         putTransform(hullView, o, x.transform);
         hullView.setUint32(o + 32, x.materialIndex, true);
-        let found = uniqueHulls.find((y) => equalBytes(y.image, hullBytes[i]));
-        if (!found) {
-            const offset = push(hullBytes[i]);
-            found = { image: hullBytes[i], offset };
-            uniqueHulls.push(found);
-        }
-        hullView.setUint32(o + 28, found.offset, true);
+        hullView.setUint32(o + 28, sharedHulls.offset(x.hull), true);
     });
-    const meshBytes = c.meshes.map((x) => meshImage(x.meshData));
     const meshOffset = push(new Uint8Array(c.meshes.length * 60));
     const meshView = new DataView(
         chunks.at(-1)!.buffer,
         chunks.at(-1)!.byteOffset,
         chunks.at(-1)!.byteLength,
     );
-    const uniqueMeshes: { image: Uint8Array; offset: number }[] = [];
+    const sharedMeshes = sharedImages(meshImage, push);
     c.meshes.forEach((x, i) => {
         const o = i * 60;
         putTransform(meshView, o, x.transform);
         meshView.setFloat32(o + 28, x.scale.x, true);
         meshView.setFloat32(o + 32, x.scale.y, true);
         meshView.setFloat32(o + 36, x.scale.z, true);
-        let found = uniqueMeshes.find((y) => equalBytes(y.image, meshBytes[i]));
-        if (!found) {
-            const offset = push(meshBytes[i]);
-            found = { image: meshBytes[i], offset };
-            uniqueMeshes.push(found);
-        }
-        meshView.setUint32(o + 40, found.offset, true);
+        meshView.setUint32(o + 40, sharedMeshes.offset(x.meshData), true);
         for (let j = 0; j < x.materialIndices.length; ++j)
             meshView.setUint32(o + 44 + j * 4, x.materialIndices[j], true);
     });
@@ -334,10 +320,10 @@ function compoundImage(c: CompoundData): Uint8Array {
     u(80, c.capsules.length);
     u(84, hullOffset);
     u(88, c.hulls.length);
-    u(92, uniqueHulls.length);
+    u(92, sharedHulls.distinct.length);
     u(96, meshOffset);
     u(100, c.meshes.length);
-    u(104, uniqueMeshes.length);
+    u(104, sharedMeshes.distinct.length);
     u(108, spheresOffset);
     u(112, c.spheres.length);
     return bytes;
@@ -350,6 +336,29 @@ function concat(chunks: Uint8Array[]): Uint8Array {
         offset += b.length;
     }
     return out;
+}
+// Each distinct object serializes once, and objects with equal bytes share one copy, as
+// b3CreateCompound's hull and mesh maps share them.
+function sharedImages<T extends object>(
+    image: (value: T) => Uint8Array,
+    push: (bytes: Uint8Array) => number,
+) {
+    const offsets = new Map<T, number>();
+    const distinct: { image: Uint8Array; offset: number }[] = [];
+    const offset = (value: T): number => {
+        let at = offsets.get(value);
+        if (at === undefined) {
+            const bytes = image(value);
+            at = distinct.find((y) => equalBytes(y.image, bytes))?.offset;
+            if (at === undefined) {
+                at = push(bytes);
+                distinct.push({ image: bytes, offset: at });
+            }
+            offsets.set(value, at);
+        }
+        return at;
+    };
+    return { offset, distinct };
 }
 function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
     return a.length === b.length && a.every((x, i) => x === b[i]);
