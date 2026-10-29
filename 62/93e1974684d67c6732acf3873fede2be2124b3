@@ -1,2 +1,2 @@
 stage: 1
-finding: CHANGELOG.md:7-27 omits shipped user-facing additions outside its rendering/physics summary: recoverResource (src/engine/ecs/snapshot.ts:9-23, publicly exported at src/engine/ecs/index.ts:34 and src/engine/index.ts:46; added by a08eba17) and the newly public World.observeMembership contract (src/engine/ecs/world.ts:489-515; 967351f0). Neither appears anywhere in the 0.10.2 entry. Also CHANGELOG.md:26 mentions only orbit target interpolation and omits the new OrbitMode.Manual (src/extras/orbit/index.ts:31-37,241-258,329), which lets a game author orbit fields without consuming device input; it was added since v0.10.1 in dee3c214. The requested release-entry completeness claim therefore fails even while CLI tests pass.
+clean
