@@ -21,7 +21,7 @@ import { lookAtRotation, type Plugin, precompile, type World } from "../../engin
 import { probeBuffer } from "../../engine/runtime";
 import { pointAtlasView, sunShadowView } from "./atlas";
 import { StandardRenderer } from "./forward";
-import { StandardRenderingPlugin } from "./index";
+import { lit, StandardRenderingPlugin } from "./index";
 import { MeshMaterial } from "./material-data";
 import { AlphaMode, type MaterialHandle, MaterialPlugin, materialType } from "./material-type";
 import { MeshRenderPlugin } from "./mesh-render";
@@ -190,6 +190,30 @@ const Eight = materialType({
         return d.vec4f(ctx.a + ctx.b + ctx.c + ctx.e + ctx.f + ctx.g + ctx.h + ctx.k);
     },
 });
+const Lit = materialType({
+    parameters: Parameters,
+    defaults,
+    name: "PlainLit",
+    fragment: (ctx) => {
+        "use gpu";
+        return d.vec4f(lit(ctx.parameters.color.xyz, ctx.worldNormal), 1);
+    },
+});
+// Lit with one varying the fragment reads.
+const VaryingLit = materialType({
+    parameters: Parameters,
+    defaults,
+    name: "VaryingLit",
+    varyings: { a: d.f32 },
+    vertex: (input) => {
+        "use gpu";
+        return { world: input.world, worldNormal: input.worldNormal, a: 1 };
+    },
+    fragment: (ctx) => {
+        "use gpu";
+        return d.vec4f(lit(ctx.parameters.color.xyz, ctx.worldNormal), ctx.a);
+    },
+});
 const SIDE = 64;
 const depthLayout = tgpu.bindGroupLayout({
     view: { texture: d.textureDepth2d() },
@@ -330,6 +354,63 @@ const subjects = compileGpuFile(import.meta.path, async () => {
             results.push(error as Error);
         }
     }
+    let lighting!: {
+        world: World;
+        camera: number;
+        wall: number;
+        plain: MaterialHandle;
+        varying: MaterialHandle;
+    };
+    apps.push(
+        await createTestGpuApp({
+            defaults: false,
+            plugins: [
+                {
+                    name: "VaryingLighting",
+                    dependencies: [
+                        MeshRenderPlugin,
+                        StandardRenderingPlugin,
+                        MaterialPlugin(Lit),
+                        MaterialPlugin(VaryingLit),
+                    ],
+                    initialize(world) {
+                        const camera = world.create();
+                        world.add(camera, Transform, { translation: [0, 0, 3, 0] });
+                        world.add(camera, Camera, { antialias: 0 });
+                        world.add(camera, StandardRenderer);
+                        world.add(camera, Tonemapping, { method: TonemappingMethod.None });
+                        attachTexture(world, camera, { width: 32, height: 32 });
+                        // A wall filling the view: the point light lights its right half, and the occluder shades
+                        // a strip of its sunlit left.
+                        const wall = world.create();
+                        world.add(wall, Transform, { scale: [4, 4, 0.1] });
+                        world.add(wall, MeshInstance);
+                        const occluder = world.create();
+                        world.add(occluder, Transform, {
+                            translation: [-0.5, 0, 1, 0],
+                            scale: [0.3, 0.3, 0.1],
+                        });
+                        world.add(occluder, MeshInstance);
+                        const sun = world.create();
+                        world.add(sun, Transform, {
+                            rotation: lookAtRotation(0, 0, 0, 0.3, 0, -1),
+                        });
+                        world.add(sun, DirectionalLight, {
+                            illuminance: 2000,
+                            shadowMapsEnabled: 1,
+                        });
+                        const point = world.create();
+                        world.add(point, Transform, { translation: [0.6, 0, 0.6, 0] });
+                        world.add(point, PointLight, { intensity: 2000, range: 1.5 });
+                        const plain = world.resource(Lit).add(defaults);
+                        const varying = world.resource(VaryingLit).add(defaults);
+                        world.add(wall, MeshMaterial, plain);
+                        lighting = { world, camera, wall, plain, varying };
+                    },
+                },
+            ],
+        }),
+    );
     let overflow: unknown;
     try {
         apps.push(
@@ -341,7 +422,7 @@ const subjects = compileGpuFile(import.meta.path, async () => {
     } catch (error) {
         overflow = error;
     }
-    return { results, overflow };
+    return { results, lighting, overflow };
 });
 afterAll(() => disposeGpuApps(apps));
 async function observe(scene: Exclude<ReturnType<typeof subjects>["results"][number], Error>) {
@@ -421,6 +502,18 @@ test("a varying Mask fragment reads its row's cutoff and mode in color", async (
     expect(observed[1]).toBeCloseTo(1, 1);
     expect(observed).toEqual(pixel(reference.color));
     expect(actual.color).toEqual(reference.color);
+});
+test("a varying material's lit fragment matches its plain twin under a point light and a shadowed sun", async () => {
+    const { world, camera, wall, plain, varying } = subjects().lighting;
+    const capture = async (material: MaterialHandle) => {
+        world.remove(wall, MeshMaterial);
+        world.add(wall, MeshMaterial, material);
+        world.step(0);
+        world.step(0);
+        return (await captureTexture(world, camera)).rgba;
+    };
+    const reference = await capture(plain);
+    expect(await capture(varying)).toEqual(reference);
 });
 test("eight varyings with uv and localPos are refused against the granted device limit", () => {
     expect(String(subjects().overflow)).toContain(
