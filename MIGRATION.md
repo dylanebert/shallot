@@ -45,7 +45,7 @@ The entity table returned by `meshInstanceTable(world)` gains `layers` in existi
 
 Texture and sampler entries in `materialLayout` and `backgroundLayout` name one kind, `"texture"` or `"sampler"`, and choose the WGSL type through options. Rename each entry; the layouts and shaders they produce are unchanged.
 
-| 0.10.1 | 0.10.2 |
+| 0.10 | 0.10.2 |
 |---|---|
 | `{ type: "texture-2d" }` | `{ type: "texture" }` |
 | `{ type: "texture-2d-array" }` | `{ type: "texture", dimension: "2d-array" }` |
