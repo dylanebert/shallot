@@ -180,31 +180,6 @@ async function loadingTrackPixels(page: Page): Promise<{
     );
 }
 
-async function renderedCanvasPixels(page: Page): Promise<number> {
-    const screenshot = await page.locator("#canvas").screenshot();
-    return page.evaluate(async (base64) => {
-        const image = await createImageBitmap(
-            new Blob([Uint8Array.from(atob(base64), (value) => value.charCodeAt(0))]),
-        );
-        const canvas = document.createElement("canvas");
-        canvas.width = image.width;
-        canvas.height = image.height;
-        const context = canvas.getContext("2d")!;
-        context.drawImage(image, 0, 0);
-        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
-        image.close();
-        let visible = 0;
-        for (let i = 0; i < pixels.length; i += 4) {
-            if (
-                pixels[i + 3]! > 0 &&
-                (pixels[i]! > 35 || pixels[i + 1]! > 35 || pixels[i + 2]! > 35)
-            )
-                visible++;
-        }
-        return visible;
-    }, screenshot.toString("base64"));
-}
-
 test("the game title bootstrap hands off without a jump to its own progress track", async ({
     page,
 }) => {
@@ -342,15 +317,17 @@ test("a destroyed device before its first frame does not reach the failure scree
     await expect(page.locator(".frame-error")).toHaveCount(0);
 });
 
-test("a real GPU process crash after presentation reaches the failure screen", async ({
+// src/welcome/welcome.node.ts holds that the scene draws visible pixels.
+test("a real GPU process crash in the running frame loop reaches the failure screen", async ({
     page,
     browser,
 }) => {
     await page.goto("/");
-    await expect(page.locator(loadingOverlay)).toHaveCount(0, { timeout: TIMEOUT.browser });
-    await expect
-        .poll(() => renderedCanvasPixels(page), { timeout: TIMEOUT.browser })
-        .toBeGreaterThan(100);
+    await page.waitForFunction(() =>
+        performance
+            .getEntriesByType("measure")
+            .some((entry) => entry.name.endsWith(":first-update")),
+    );
     if (process.env.SHALLOT_CAPTURE_DIR)
         await page.screenshot({ path: `${process.env.SHALLOT_CAPTURE_DIR}/scene.png` });
 
