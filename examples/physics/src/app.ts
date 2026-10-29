@@ -25,6 +25,7 @@ import { RigidBodyPlugin } from "./rigid-body";
 import { RobustnessSamplePlugin } from "./robustness";
 import { ShapesSamplePlugin } from "./shapes";
 import { StackingSamplePlugin } from "./stacking";
+import { TreeBenchmarkPlugin } from "./tree";
 import { createViewer } from "./view";
 import { VillagePlugin } from "./village";
 import { WorldSamplePlugin } from "./world";
@@ -58,6 +59,7 @@ export const AppPlugin: Plugin = {
         RobustnessSamplePlugin,
         WorldSamplePlugin,
         DeterminismPlugin,
+        TreeBenchmarkPlugin,
         SampleInputPlugin,
         TextPlugin,
         OrbitPlugin,

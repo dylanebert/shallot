@@ -230,6 +230,10 @@ test("each picker label selects its scene in its category, exactly once", () => 
             ],
         },
         {
+            name: "Tree",
+            scenes: [{ id: "treeBenchmark", name: "Benchmark" }],
+        },
+        {
             name: "World",
             scenes: [
                 { id: "farMeshDrop", name: "Far Mesh Drop" },

@@ -25,12 +25,14 @@ import { EventSample, EventSamplePlugin } from "../src/events";
 import { Grab, GrabPlugin, pick } from "../src/grab";
 import { sceneSwitcher } from "../src/sample";
 import { changeControl, controlValues, createScene, type Scene } from "../src/scenes";
+import { TreeBenchmarkPlugin, TreeBenchmarkState, treeRecords } from "../src/tree";
 
 function observations(world: World, controls: Record<string, number>) {
     return {
         sample: world.resource(EventSample),
         grab: world.resource(Grab),
         controls,
+        tree: world.resource(TreeBenchmarkState).active ? treeRecords(world) : null,
         events: Object.fromEntries(
             Object.entries(world.resource(PhysicsEvents)).map(([name, channel]) => [
                 name,
@@ -72,6 +74,7 @@ export async function expectSwitchesEqualFresh(
             StandardPhysicsPlugin,
             EventSamplePlugin,
             DeterminismPlugin,
+            TreeBenchmarkPlugin,
             ...plugins,
             { name: "GrabRecovery", recovery: GrabPlugin.recovery },
         ],
@@ -109,7 +112,13 @@ export async function expectSwitchesEqualFresh(
             const freshControls = controlValues(scene);
             const fresh = await createApp({
                 defaults: false,
-                plugins: [StandardPhysicsPlugin, EventSamplePlugin, DeterminismPlugin, ...plugins],
+                plugins: [
+                    StandardPhysicsPlugin,
+                    EventSamplePlugin,
+                    DeterminismPlugin,
+                    TreeBenchmarkPlugin,
+                    ...plugins,
+                ],
                 setup(world) {
                     createScene(world, scene);
                 },

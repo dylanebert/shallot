@@ -14,9 +14,45 @@ import { digestMismatch, drawingDigest, eventDigests, querySteps, recordDigest }
 setDefaultTimeout(0);
 
 function copyRobustnessSources(directory: string): void {
-    for (const file of ["samples/sample_world.cpp", "samples/sample_robustness.cpp", "samples/sample_determinism.cpp", "shared/overflow_color.c", "shared/determinism.c", "shared/stability.c"])
+    for (const file of ["samples/sample_tree.cpp", "samples/sample_world.cpp", "samples/sample_robustness.cpp", "samples/sample_determinism.cpp", "shared/overflow_color.c", "shared/determinism.c", "shared/stability.c"])
         copyFileSync(join(process.env.BOX3D!, file), join(directory, file));
 }
+
+test("treeBenchmark: native tree records repeat, controls use DrawControls, and a source mutation fails parity", () => {
+    const start = performance.now(), binary = sampleBinary();
+    const directory = mkdtempSync(join(tmpdir(), "box3d-tree-sample-"));
+    const base = new URL("../../examples/physics/tests/", import.meta.url), records = join(directory, "records.txt"), bounds = join(directory, "bounds.txt");
+    const observe = (binary: string, controlled: boolean) => {
+        const args = [binary, "treeBenchmark", "600", ...(controlled ? [fileURLToPath(new URL("treeBenchmark.controls.txt", base))] : [])];
+        const hashes = run(args, { TREE_RECORDS: records, TREE_BOUNDS: bounds, TREE_SAVE_SLOT: join(directory, "tree.dt") });
+        return { hashes, records: readFileSync(records, "utf8").trim().split("\n").map(line => drawingDigest(JSON.parse(line))), bounds: readFileSync(bounds, "utf8").trim().split("\n").map(line => drawingDigest(JSON.parse(line))) };
+    };
+    try {
+        let plain: string[] = [];
+        for (const controlled of [false, true]) {
+            const stem = `treeBenchmark${controlled ? ".controls" : ""}`, actual = observe(binary, controlled);
+            equalSampleSteps(actual.hashes, readFileSync(new URL(`${stem}.gold.txt`, base), "utf8"), stem);
+            expect(actual.records).toHaveLength(600);
+            expect(actual.records).toEqual(readFileSync(new URL(`${stem}.tree.gold.txt`, base), "utf8").trim().split("\n"));
+            expect(actual.bounds).toHaveLength(600);
+            expect(actual.bounds).toEqual(readFileSync(new URL(`${stem}.bounds.gold.txt`, base), "utf8").trim().split("\n"));
+            expect(observe(binary, controlled)).toEqual(actual);
+            if (!controlled) plain = actual.records;
+            else expect(actual.records).not.toEqual(plain);
+        }
+        const samples = join(directory, "samples"); mkdirSync(samples); mkdirSync(join(directory, "shared"));
+        for (const name of readdirSync(join(process.env.BOX3D!, "samples")))
+            if (name.endsWith(".cpp") || name.endsWith(".h")) copyFileSync(join(process.env.BOX3D!, "samples", name), join(samples, name));
+        copyFileSync(join(process.env.BOX3D!, "shared/benchmarks.c"), join(directory, "shared/benchmarks.c"));
+        copyRobustnessSources(directory);
+        const path = join(samples, "sample_tree.cpp"), source = readFileSync(path, "utf8");
+        const before = "m_config[0] = { 1.0f, false };";
+        expect(source).toContain(before);
+        writeFileSync(path, source.replace(before, "m_config[0] = { 1.1f, false };"));
+        expect(observe(sampleBinary(samples), false).records).not.toEqual(plain);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+    console.log(`Tree Benchmark native repeat, controls and mutation: ${(performance.now() - start).toFixed(0)} ms`);
+});
 
 function equalSampleSteps(actual: string, expected: string, label: string): void {
     const a = sampleGold(actual), b = sampleGold(expected);

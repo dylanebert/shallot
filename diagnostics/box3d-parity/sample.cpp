@@ -21,6 +21,7 @@
 #include <queue>
 #include <utility>
 #include <string>
+#include <unordered_map>
 
 struct Change { int step; std::string name; float value; };
 std::vector<Change> changes;
@@ -400,7 +401,18 @@ public:
 #define b3CreateMesh CountedMeshBuild
 #define b3World_Step RecordedStep
 #include "human.h"
+FILE* TreeOpen(const char* path, const char* mode) {
+    const std::string absolute = std::string(getenv("BOX3D")) + "/" + path;
+    return fopen(absolute.c_str(), mode);
+}
+void TreeSave(const b3DynamicTree* tree, const char*) {
+    assert(getenv("TREE_SAVE_SLOT")); b3DynamicTree_Save(tree, getenv("TREE_SAVE_SLOT"));
+}
+b3DynamicTree TreeLoad(const char*, float scale) {
+    assert(getenv("TREE_SAVE_SLOT")); return b3DynamicTree_Load(getenv("TREE_SAVE_SLOT"), scale);
+}
 // SAMPLE_SOURCES
+// SAMPLE_TREE_RECORDS
 
 int main( int argc, char** argv )
 {
@@ -434,6 +446,7 @@ int main( int argc, char** argv )
         { "hullReduction", Geometry::HullReduction::Create }, { "hullTransform", Geometry::HullTransform::Create },
         { "capsuleMass", Geometry::CapsuleMass::Create },
         { "meshReflection", MeshReflection::Create }, { "meshHeightField", HeightField::Create },
+        { "treeBenchmark", TreeSample::TreeBenchmark::Create },
         { "meshViewer", MeshViewer::Create }, { "meshCreation", MeshCreationBenchmark::Create },
         { "voxel", VoxelMesh::Create }, { "hollowBox", HollowBox::Create },
         { "gridMesh", GridMesh::Create }, { "bigBoxMesh", BigBoxMesh::Create }, { "boxMesh", BoxMesh::Create },
@@ -544,6 +557,10 @@ int main( int argc, char** argv )
     }
     FILE* determinismReadouts = getenv("DETERMINISM_READOUTS") ? fopen(getenv("DETERMINISM_READOUTS"), "w") : nullptr;
     if (getenv("DETERMINISM_READOUTS")) assert(determinismReadouts);
+    FILE* treeBounds = getenv("TREE_BOUNDS") ? fopen(getenv("TREE_BOUNDS"), "w") : nullptr;
+    if (getenv("TREE_BOUNDS")) assert(treeBounds && !strcmp(argv[1], "treeBenchmark"));
+    FILE* treeRecords = getenv("TREE_RECORDS") ? fopen(getenv("TREE_RECORDS"), "w") : nullptr;
+    if (getenv("TREE_RECORDS")) assert(treeRecords && !strcmp(argv[1], "treeBenchmark"));
     FILE* worldReadouts = getenv("WORLD_READOUTS") ? fopen(getenv("WORLD_READOUTS"), "w") : nullptr;
     if (getenv("WORLD_READOUTS")) assert(worldReadouts);
     FILE* readouts = getenv("PRECESSION_READOUTS") ? fopen(getenv("PRECESSION_READOUTS"), "w") : nullptr;
@@ -603,6 +620,8 @@ int main( int argc, char** argv )
                 fprintf(geometryRecords,"]\n");
             }
         } else sample->Step();
+        if (treeRecords) RecordTree(static_cast<TreeSample::TreeBenchmark*>(sample), treeRecords);
+        if (treeBounds) RecordTreeBounds(static_cast<TreeSample::TreeBenchmark*>(sample), treeBounds);
         if (determinismReadouts) {
             if (!strcmp(argv[1], "fallingRagdolls")) { auto& d = static_cast<FallingRagdolls*>(sample)->m_data; fprintf(determinismReadouts, "%d %08X\n", d.sleepStep, d.hash); }
             else if (!strcmp(argv[1], "wavePile")) { auto& d = static_cast<WavePile*>(sample)->m_data; fprintf(determinismReadouts, "%d %08X\n", d.sleepStep, d.hash); }
@@ -708,6 +727,8 @@ int main( int argc, char** argv )
     if (meshBoundsFile) fclose(meshBoundsFile);
     if (robustnessReadouts) fclose(robustnessReadouts);
     if (worldReadouts) fclose(worldReadouts);
+    if (treeBounds) fclose(treeBounds);
+    if (treeRecords) fclose(treeRecords);
     if (determinismReadouts) fclose(determinismReadouts);
 	delete sample;
 }

@@ -38,6 +38,7 @@ import { RobustnessState, robustnessScenes } from "./robustness";
 import { MotorizedJoint } from "./roles";
 import { ShapeControlsState, shapeScenes, WindState } from "./shapes";
 import { StackingImpulses, stackingScenes } from "./stacking";
+import { resetTreeBenchmark, treeScenes } from "./tree";
 import { VillageState, villageScene } from "./village";
 import { WorldSampleState, worldScenes } from "./world";
 
@@ -69,7 +70,8 @@ export type Scene =
     | keyof typeof characterScenes
     | keyof typeof robustnessScenes
     | keyof typeof worldScenes
-    | keyof typeof determinismScenes;
+    | keyof typeof determinismScenes
+    | keyof typeof treeScenes;
 export const categories: { name: string; scenes: { id: Scene; name: string }[] }[] = [
     {
         name: "Benchmark",
@@ -298,6 +300,10 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
         ],
     },
     {
+        name: "Tree",
+        scenes: [{ id: "treeBenchmark", name: "Benchmark" }],
+    },
+    {
         name: "World",
         scenes: [
             { id: "farMeshDrop", name: "Far Mesh Drop" },
@@ -401,6 +407,7 @@ export const scenes = {
     ...robustnessScenes,
     ...worldScenes,
     ...determinismScenes,
+    ...treeScenes,
     boxStack: {
         construct: boxStack,
         gridExtent: 40,
@@ -988,6 +995,7 @@ export const scenes = {
 } as const;
 
 export function createScene(world: World, scene: Scene): number[] {
+    resetTreeBenchmark(world);
     Object.assign(world.resource(RobustnessState), RobustnessState.create());
     Object.assign(world.resource(WorldSampleState), WorldSampleState.create());
     Object.assign(world.resource(DeterminismState), DeterminismState.create());

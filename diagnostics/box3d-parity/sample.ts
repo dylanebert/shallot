@@ -15,6 +15,7 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
     const collision = readFileSync(join(samples, "sample_collision.cpp"), "utf8");
     const ragdoll = readFileSync(join(samples, "sample_ragdoll.cpp"), "utf8");
     const mesh = readFileSync(join(samples, "sample_mesh.cpp"), "utf8");
+    const tree = readFileSync(join(samples, "sample_tree.cpp"), "utf8");
     const stacking = readFileSync(join(samples, "sample_stacking.cpp"), "utf8");
     const world = readFileSync(join(samples, "sample_world.cpp"), "utf8");
     const determinism = readFileSync(join(samples, "sample_determinism.cpp"), "utf8");
@@ -44,6 +45,9 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         section(mesh, "struct CastContext", "static int sampleHeightField"),
         section(mesh, "static float ComputeInternalSurfaceArea", "static int sampleMeshViewer"),
         section(mesh, "class MeshCreationBenchmark :", "static int sampleMeshCreationBenchmark"),
+        'namespace TreeSample {\n#define fopen TreeOpen\n#define b3DynamicTree_Save TreeSave\n#define b3DynamicTree_Load TreeLoad\n#define printf(...) fprintf(stderr, __VA_ARGS__)',
+        section(tree, "constexpr int colorCount", "static int sampleTree"),
+        '#undef fopen\n#undef b3DynamicTree_Save\n#undef b3DynamicTree_Load\n#undef printf\n}',
         ...[["GridMesh", "sampleGridMesh"], ["BigBoxMesh", "sampleBigBoxMesh"], ["BoxMesh", "sampleBoxMesh"], ["VoxelMesh", "sampleVoxelMesh"], ["HollowBox", "sampleHollowBox"]].map(([name,end]) => section(mesh, `class ${name} :`, `static int ${end}`)),
         ...[["SimpleCompound", "sampleSimple"], ["CompoundSpheres", "sampleCompoundSpheres"], ["CompoundHulls", "sampleCompoundHulls"], ["TileFloor", "sampleTileFloor"], ["MeshTile", "sampleCompoundMesh"]].map(([name, end]) => section(compound, `class ${name} :`, `static int ${end}`)),
         section(readFileSync(join(samples, "mover.h"), "utf8"), "class Sample;"),
@@ -114,6 +118,7 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         .replace("// SAMPLE_MESH_LOADER", meshLoader)
         .replace("// SAMPLE_GRAB", grab)
         .replace("// SAMPLE_UP", up.slice(up.indexOf("{")))
+        .replace("// SAMPLE_TREE_RECORDS", readFileSync(join(import.meta.dir, "sample-tree.h"), "utf8"))
         .replace("// SAMPLE_EVENTS", readFileSync(join(import.meta.dir, "sample-events.h"), "utf8"))
         .replace("// SAMPLE_SOURCES", readFileSync(join(import.meta.dir, "sample-compounds.h"), "utf8") + "\n" + readFileSync(join(import.meta.dir, "sample-meshes.h"), "utf8") + "\n" + readFileSync(join(import.meta.dir, "sample-mesh-frames.h"), "utf8") + "\n" + sources);
     const path = join(tmpdir(), `box3d-sample-${Bun.hash(source).toString(16)}.cpp`);

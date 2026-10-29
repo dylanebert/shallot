@@ -69,6 +69,7 @@ import {
 import { castHeightField } from "./queries";
 import { RigidBodyState } from "./rigid-body";
 import { type Scene, scenes } from "./scenes";
+import { drawTreeBenchmark, treeGroundHeight } from "./tree-presentation";
 import { VillageState } from "./village";
 import { drawVillageView } from "./village-presentation";
 import { WorldSampleState } from "./world";
@@ -570,6 +571,17 @@ function createView(world: World, scene: Scene, camera: number): () => void {
                 drawHeightFieldView(world, camera, (a, b, color, options) =>
                     drawLine(world, a, b, color, options),
                 );
+            if (scene === "treeBenchmark") {
+                world
+                    .storage(Transform)
+                    .translation.y.set(
+                        gridEntity,
+                        treeGroundHeight(world) + 0.005 - presentation.grid.lines[0]!.a[1],
+                    );
+                drawTreeBenchmark(world, camera, (a, b, color, options) =>
+                    drawLine(world, a, b, color, options),
+                );
+            }
             if (scene === "meshViewer")
                 drawMeshViewerView(world, (a, b, color, options) =>
                     drawLine(world, a, b, color, options),

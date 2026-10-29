@@ -23,9 +23,10 @@ import { ManifoldPlugin } from '../src/manifold';
 import { RobustnessSamplePlugin } from '../src/robustness';
 import { WorldSamplePlugin } from '../src/world';
 import { DeterminismPlugin } from '../src/determinism';
+import { TreeBenchmarkPlugin } from '../src/tree';
 // The checks read game state and the DOM; a low pixel ratio keeps each stepped draw cheap.
 const Viewer={create:createViewer};
-const app = await createApp({plugins:[StandardPhysicsPlugin,DeterminismPlugin,WorldSamplePlugin,RobustnessSamplePlugin,ManifoldPlugin,GeometryPlugin,CollisionPlugin,CollisionDebugPlugin,MeshSamplePlugin,ShapesSamplePlugin,BodySamplePlugin,GeometricMoverPlugin,RigidBodyPlugin,EventSamplePlugin,SampleInputPlugin,TextPlugin,OrbitPlugin,LinesPlugin,{name:'SampleViewer',dependencies:[OrbitPlugin],initialize(world){world.resource(Viewer);}}],pixelRatio:0.05,setup(world){world.resource(PhysicsWorldDefinition).workerCount=1;}});
+const app = await createApp({plugins:[StandardPhysicsPlugin,TreeBenchmarkPlugin,DeterminismPlugin,WorldSamplePlugin,RobustnessSamplePlugin,ManifoldPlugin,GeometryPlugin,CollisionPlugin,CollisionDebugPlugin,MeshSamplePlugin,ShapesSamplePlugin,BodySamplePlugin,GeometricMoverPlugin,RigidBodyPlugin,EventSamplePlugin,SampleInputPlugin,TextPlugin,OrbitPlugin,LinesPlugin,{name:'SampleViewer',dependencies:[OrbitPlugin],initialize(world){world.resource(Viewer);}}],pixelRatio:0.05,setup(world){world.resource(PhysicsWorldDefinition).workerCount=1;}});
 const world=app.world;
 const container=mountOverlay(document.querySelector('canvas'),world);
 const replace=sceneSwitcher(world,world.resource(Viewer));

@@ -20,6 +20,7 @@ import { RigidBodyState } from "./rigid-body";
 import { MotorizedJoint } from "./roles";
 import { controlValues, enabledControls, type Scene, scenes } from "./scenes";
 import { SensorSample } from "./sensor";
+import { treeGroundHeight } from "./tree-presentation";
 import { WorldSampleState } from "./world";
 
 const materials = {
@@ -165,7 +166,12 @@ export function scenePresentation(
         .map((eid) => shapePresentation(world, eid, cache, driven));
     const definition = scenes[scene];
     const { gridExtent: extent, gridSpacing: spacing } = definition;
-    const height = ("gridHeight" in definition ? definition.gridHeight : 0) + 0.005;
+    const height =
+        (scene === "treeBenchmark"
+            ? treeGroundHeight(world)
+            : "gridHeight" in definition
+              ? definition.gridHeight
+              : 0) + 0.005;
     const [cx, cz] =
         scene === "farStack"
             ? [world.resource(WorldSampleState).offset * 1000, 0]

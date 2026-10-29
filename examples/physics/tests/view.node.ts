@@ -314,6 +314,7 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 [...world.query([Shape])].sort(),
             );
             if (
+                id === "treeBenchmark" ||
                 id === "meshCreation" ||
                 id === "castWorld" ||
                 id === "shapeCastDebug" ||
@@ -390,6 +391,7 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 expect(ground.mesh.indices.length).toBeGreaterThan(0);
             } else expect(presentation.ground).toBeUndefined();
             const extent = {
+                treeBenchmark: 200,
                 fallingRagdolls: 15,
                 wavePile: 10,
                 querySpawn: 12,
