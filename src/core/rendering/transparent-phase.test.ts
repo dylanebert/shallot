@@ -102,6 +102,32 @@ test("two views own opposite transparent orders for the same pair of panes", () 
     }
 });
 
+test("unsorted items follow sorted work without sort comparisons and survive reuse and growth", () => {
+    const { world, camera } = worldWithCamera([0, 0, 0]);
+    try {
+        const phase = new TransparentPhase();
+        for (const count of [3, 80, 1, 5, 0, 2]) {
+            phase.begin(world, camera, view());
+            phase.useRenderer(0);
+            for (let i = 0; i < count; i++) phase.addUnsorted(100 + i, i, 100 + i);
+            phase.sort();
+            expect(phase.metrics.sortComparisons).toBe(0);
+            phase.useRenderer(1);
+            phase.add(1, 1, 0, 0, -1, 1);
+            phase.addFromScratch(2, 1, 2);
+            phase.sort();
+            expect(phase.item(0).draw).toBe(1);
+            expect(phase.item(1).draw).toBe(2);
+            const tail = Array.from({ length: count }, (_, i) => phase.item(i + 2).draw);
+            expect(tail.sort((a, b) => a - b)).toEqual(
+                Array.from({ length: count }, (_, i) => 100 + i),
+            );
+        }
+    } finally {
+        world.dispose();
+    }
+});
+
 test("a phase reused across frames as a prompt's parts come and go queues each item exactly once", () => {
     const { world, camera } = worldWithCamera([0, 0, 0]);
     try {

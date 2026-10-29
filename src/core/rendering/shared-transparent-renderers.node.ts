@@ -82,7 +82,7 @@ function differsAt(first: Uint8ClampedArray, second: Uint8ClampedArray, offset: 
     return false;
 }
 
-test("standard, text and line renderers alternate in one phase; text and lines do not write transparent depth", async () => {
+test("standard and text sort together; depth-tested retained lines follow sorted transparency", async () => {
     const {
         world,
         scene: { camera, farMaterial, nearMaterial },
@@ -189,23 +189,16 @@ test("standard, text and line renderers alternate in one phase; text and lines d
     const phase = world.resource(TransparentPhases).get(camera)!;
     expect(phase.length).toBe(5);
     expect(phase.item(0).stableId).toBe(farPane);
-    expect(phase.item(1).stableId).toBe(offscreenLine);
-    expect(phase.item(phase.length - 1).stableId).toBe(nearPane);
-    const middle = [phase.item(2), phase.item(3)];
-    expect(middle.map((item) => item.stableId).sort((a, b) => a - b)).toEqual(
-        [label, line].sort((a, b) => a - b),
-    );
-    expect(phase.item(0).renderer).toBe(phase.item(phase.length - 1).renderer);
-    expect(middle[0]!.renderer).not.toBe(middle[1]!.renderer);
-    const labelItem = middle.find((item) => item.stableId === label)!;
-    const lineItem = middle.find((item) => item.stableId === line)!;
-    expect(labelItem.draw).not.toBe(label);
-    expect(lineItem.draw).not.toBe(line);
-    expect(lineItem.stablePart).toBe(0);
-    expect(lineItem.draw).not.toBe(lineItem.stablePart);
+    expect(phase.item(1).stableId).toBe(label);
+    expect(phase.item(2).stableId).toBe(nearPane);
+    expect(phase.item(0).renderer).toBe(phase.item(2).renderer);
+    expect(phase.item(1).renderer).not.toBe(phase.item(2).renderer);
+    expect(phase.item(3).batch).toBe(world.storage(Gizmo).handle.get(offscreenLine));
+    expect(phase.item(4).batch).toBe(world.storage(Gizmo).handle.get(line));
+    expect(phase.item(3).renderer).toBe(phase.item(4).renderer);
 });
 
-test("consecutive gizmos of one asset draw one run; an interleaved transparent mesh splits it", async () => {
+test("gizmos of one asset draw once after a transparent mesh regardless of instance depth", async () => {
     const {
         world,
         scene: { camera, nearMaterial },
@@ -225,25 +218,18 @@ test("consecutive gizmos of one asset draw one run; an interleaved transparent m
     world.add(near, Gizmo, { handle, width: 4, opacity: 0.75 });
     const combined = await readFrame(world, camera);
     const phase = world.resource(TransparentPhases).get(camera)!;
-    expect(phase.length).toBe(2);
-    expect(phase.item(0).stableId).toBe(far);
-    expect(phase.item(1).stableId).toBe(near);
-    expect(phase.item(0).sortKey).toBeCloseTo(-6);
-    expect(phase.item(1).sortKey).toBeCloseTo(-4);
+    expect(phase.length).toBe(1);
+    expect(phase.item(0).batch).toBe(handle);
     expect(phase.metrics.draws).toBe(1);
     const pane = world.create();
     world.add(pane, Transform, { scale: [0.7, 0.7, 0.02] });
     world.add(pane, MeshInstance);
     world.add(pane, MeshMaterial, nearMaterial);
     const interleaved = await readFrame(world, camera);
-    expect(phase.length).toBe(3);
-    expect([phase.item(0).stableId, phase.item(1).stableId, phase.item(2).stableId]).toEqual([
-        far,
-        pane,
-        near,
-    ]);
-    expect(phase.item(0).batch).toBe(phase.item(2).batch);
-    expect(phase.metrics.draws).toBe(3);
+    expect(phase.length).toBe(2);
+    expect(phase.item(0).stableId).toBe(pane);
+    expect(phase.item(1).batch).toBe(handle);
+    expect(phase.metrics.draws).toBe(2);
     expect(interleaved).not.toEqual(combined);
     world.remove(pane, MeshInstance);
     // Appending shared geometry invalidates its upload without changing its handle.

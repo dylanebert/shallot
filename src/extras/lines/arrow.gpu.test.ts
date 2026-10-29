@@ -139,7 +139,7 @@ test("one asset's line, arrow and box move all fifteen primitives with its entit
     expect(lineCount(world)).toBe(0);
     const phase = world.resource(TransparentPhases).get(camera)!;
     expect(phase.length).toBe(1);
-    expect(phase.item(0).stableId).toBe(entity);
+    expect(phase.item(0).batch).toBe(world.storage(Gizmo).handle.get(entity));
     expect(phase.metrics.draws).toBe(1);
     const centroid = (pixels: Uint8ClampedArray) => {
         let count = 0,

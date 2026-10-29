@@ -63,7 +63,9 @@ interface AssetUpload {
     revision: number;
     buffer: (TgpuBuffer<d.WgslArray<typeof Segment>> & StorageFlag) | null;
     group: GPUBindGroup | null;
-    center: Float32Array;
+    count: number;
+    start: number;
+    cursor: number;
 }
 const gizmoAssets = { create: () => [] as AssetUpload[] };
 
@@ -71,7 +73,7 @@ const gizmoAssets = { create: () => [] as AssetUpload[] };
 export function registerGizmo(world: World, asset: GizmoAsset): number {
     return world
         .resource(gizmoAssets)
-        .push({ asset, revision: -1, buffer: null, group: null, center: new Float32Array(3) });
+        .push({ asset, revision: -1, buffer: null, group: null, count: 0, start: 0, cursor: 0 });
 }
 
 const RETAINED_LINES_QUERY = [Gizmo, GlobalTransform];
@@ -127,7 +129,6 @@ function uploadAssets(world: World): void {
             0,
             source.count * SEGMENT_BYTES,
         );
-        boundsCenter(source, source.count, upload.center);
     }
 }
 
@@ -140,9 +141,7 @@ function retainedRecords(capacity = 64) {
         count: 0,
         floats: new Float32Array(staging),
         ints: new Uint32Array(staging),
-        eids: new Uint32Array(capacity),
         handles: new Uint32Array(capacity),
-        centers: new Float64Array(capacity * 3),
     };
 }
 const retainedKey = { create: () => retainedRecords() };
@@ -162,9 +161,7 @@ function extractGizmos(world: World): void {
             const next = retainedRecords(records.capacity * 2);
             next.count = records.count;
             next.ints.set(records.ints);
-            next.eids.set(records.eids);
             next.handles.set(records.handles);
-            next.centers.set(records.centers);
             Object.assign(records, next);
         }
         composeGlobalTransform(world, eid, matrix);
@@ -174,15 +171,7 @@ function extractGizmos(world: World): void {
         records.floats[at + 17] = gizmos.opacity.get(eid);
         records.floats[at + 18] = gizmos.depthBias.get(eid);
         records.ints[at + 19] = renderLayers(world, eid);
-        records.eids[row] = eid;
         records.handles[row] = handle;
-        const c = asset.center;
-        for (let axis = 0; axis < 3; axis++)
-            records.centers[row * 3 + axis] =
-                matrix[axis] * c[0] +
-                matrix[4 + axis] * c[1] +
-                matrix[8 + axis] * c[2] +
-                matrix[12 + axis];
     }
 }
 
@@ -210,11 +199,19 @@ function queueLines(world: World, camera: number, _view: View, phase: Transparen
     if (boundsCenter(segmentState(world), lineCount(world), phase.positionScratch, mask))
         phase.addFromScratch(0, 0, 0);
     const records = world.resource(retainedKey);
-    const position = phase.positionScratch;
+    const assets = world.resource(gizmoAssets);
+    for (const asset of assets) asset.count = 0;
     for (let row = 1; row <= records.count; row++) {
-        if (!(records.ints[row * INSTANCE_WORDS + 19] & mask)) continue;
-        for (let axis = 0; axis < 3; axis++) position[axis] = records.centers[row * 3 + axis];
-        phase.addFromScratch(row, records.handles[row], records.eids[row]);
+        if (records.ints[row * INSTANCE_WORDS + 19] & mask)
+            assets[records.handles[row] - 1].count++;
+    }
+    let start = 1;
+    for (let i = 0; i < assets.length; i++) {
+        const asset = assets[i];
+        asset.start = asset.cursor = start;
+        start += asset.count;
+        // Bevy's AlwaysOnTop gizmos follow sorted transparency; depth testing remains enabled.
+        if (asset.count) phase.addUnsorted(i + 1, i + 1, i + 1);
     }
 }
 
@@ -223,7 +220,7 @@ function prepareLines(
     camera: number,
     view: View,
     phase: TransparentPhase,
-    renderer: number,
+    _renderer: number,
 ): void {
     const state = world.resource(lineRendererKey);
     const viewBuffer = world.resource(RenderContext).viewBuffers[view.slot];
@@ -242,9 +239,11 @@ function prepareLines(
         );
     }
     if (!phase.length) return;
+    const records = world.resource(retainedKey);
+    const required = records.count + 1;
     let instances = state.instances.get(view.slot);
-    if (!instances || instances.capacity < phase.length) {
-        const capacity = Math.max(64, 2 ** Math.ceil(Math.log2(phase.length)));
+    if (!instances || instances.capacity < required) {
+        const capacity = Math.max(64, 2 ** Math.ceil(Math.log2(required)));
         const stale = instances?.buffer;
         if (stale) world.gpu.device.queue.onSubmittedWorkDone().then(() => stale.destroy());
         const buffer = world.gpu.root
@@ -264,30 +263,28 @@ function prepareLines(
         state.instances.set(view.slot, instances);
     }
     const { floats, ints } = instances;
-    const records = world.resource(retainedKey);
     const cameraLayers = renderLayers(world, camera);
-    for (let i = 0; i < phase.length; i++) {
-        const item = phase.item(i);
-        if (item.renderer !== renderer) continue;
-        const at = i * INSTANCE_WORDS;
-        if (item.batch) {
-            const source = item.draw * INSTANCE_WORDS;
-            for (let word = 0; word < INSTANCE_WORDS; word++)
-                ints[at + word] = records.ints[source + word];
-        } else {
-            floats.fill(0, at, at + INSTANCE_WORDS);
-            floats[at] = floats[at + 5] = floats[at + 10] = floats[at + 15] = 1;
-            floats[at + 16] = -1;
-            floats[at + 17] = 1;
-            ints[at + 19] = cameraLayers;
-        }
+    floats.fill(0, 0, INSTANCE_WORDS);
+    floats[0] = floats[5] = floats[10] = floats[15] = 1;
+    floats[16] = -1;
+    floats[17] = 1;
+    ints[19] = cameraLayers;
+    const assets = world.resource(gizmoAssets);
+    let count = 1;
+    for (let row = 1; row <= records.count; row++) {
+        const source = row * INSTANCE_WORDS;
+        if (!(records.ints[source + 19] & cameraLayers)) continue;
+        const at = assets[records.handles[row] - 1].cursor++ * INSTANCE_WORDS;
+        for (let word = 0; word < INSTANCE_WORDS; word++)
+            ints[at + word] = records.ints[source + word];
+        count++;
     }
     world.gpu.device.queue.writeBuffer(
         world.gpu.root.unwrap(instances.buffer),
         0,
         instances.staging,
         0,
-        phase.length * d.sizeOf(LineInstance),
+        count * INSTANCE_BYTES,
     );
 }
 
@@ -319,7 +316,7 @@ function drawLines(
     setRenderBindGroup(pass, 0, viewGroup);
     setRenderBindGroup(pass, 1, group);
     setRenderBindGroup(pass, 2, instances.group);
-    drawInstances(pass, 6 * count, end - start, start);
+    drawInstances(pass, 6 * count, asset ? asset.count : end - start, asset ? asset.start : 0);
     phase.metrics.draws++;
     phase.metrics.pipelineChanges++;
     phase.metrics.bindGroupChanges += 3;
@@ -338,7 +335,7 @@ const LinesSystem: System = {
     },
 };
 
-/** Screen-space pixel-width immediate lines and retained local-space gizmos in core's sorted transparent phase. */
+/** Screen-space pixel-width lines: immediate geometry sorts as one item; retained gizmos draw unsorted per asset after sorted transparency. */
 export const LinesPlugin: Plugin = {
     gpu: {},
     name: "Lines",

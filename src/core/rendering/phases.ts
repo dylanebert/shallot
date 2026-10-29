@@ -19,7 +19,7 @@ import { type View, Views } from "./view";
 
 /** One renderer-owned draw submitted to the shared, per-view transparent phase. */
 export interface TransparentPhaseItem {
-    /** Row 2 of the view-from-world matrix dotted with the item's world-space bounds center. */
+    /** View-space Z of a sorted item's bounds center; zero for unsorted items. */
     readonly sortKey: number;
     /** Renderer-owned stable identity, distinct from `draw`; unique with `stablePart` per renderer. */
     readonly stableId: number;
@@ -60,6 +60,7 @@ export class TransparentPhase {
     private _items: MutableTransparentItem[] = [];
     private _scratch: MutableTransparentItem[] = [];
     private _countValue = 0;
+    private _unsortedCount = 0;
     private _rendererValue = -1;
     private readonly _viewFromWorld = new Float32Array(16);
     /** @internal Reusable position input for renderers with their own typed staging. */
@@ -99,6 +100,7 @@ export class TransparentPhase {
         this._z2 = this._viewFromWorld[10];
         this._z3 = this._viewFromWorld[14];
         this._countValue = 0;
+        this._unsortedCount = 0;
         this._rendererValue = -1;
         this.metrics.items = 0;
         this.metrics.batches = 0;
@@ -135,8 +137,7 @@ export class TransparentPhase {
         if (!Number.isSafeInteger(stablePart) || stablePart < 0)
             invalidTransparentStablePart(stablePart);
         if (!Number.isFinite(sortKey)) invalidTransparentSortKey(sortKey);
-        this.ensureCapacity(this._countValue + 1);
-        const item = this._items[this._countValue++];
+        const item = this.nextItem();
         item.sortKey = sortKey;
         item.stableId = stableId;
         item.stablePart = stablePart;
@@ -158,8 +159,7 @@ export class TransparentPhase {
             this._z2 * this.positionScratch[2]! +
             this._z3;
         if (!Number.isFinite(sortKey)) invalidTransparentSortKey(sortKey);
-        this.ensureCapacity(this._countValue + 1);
-        const item = this._items[this._countValue++];
+        const item = this.nextItem();
         item.sortKey = sortKey;
         item.stableId = stableId;
         item.stablePart = stablePart;
@@ -169,17 +169,18 @@ export class TransparentPhase {
         this.metrics.items++;
     }
 
-    /** Read a sorted item without creating a per-frame view. */
+    /** Read a queued item without creating a per-frame view. */
     item(index: number): TransparentPhaseItem {
         if (index < 0 || index >= this._countValue)
             throw new RangeError(`transparent item index ${index} is out of range`);
         return this._items[index];
     }
 
-    /** Stable order by view Z, renderer namespace, stable id and stable part. */
+    /** Sort by view Z, renderer namespace, stable id and stable part, leaving unsorted work at the end. */
     sort(): void {
         const started = this.measureTimings ? performance.now() : 0;
-        const count = this._countValue;
+        const count = this._countValue - this._unsortedCount;
+        for (let i = count; i < this._countValue; i++) this._scratch[i] = this._items[i];
         for (let width = 1; width < count; width *= 2) {
             for (let left = 0; left < count; left += width * 2) {
                 const middle = Math.min(left + width, count);
@@ -226,6 +227,33 @@ export class TransparentPhase {
         this.metrics.uploadMs += milliseconds;
     }
 
+    /** Add unsorted work after all sorted items, without changing the pipeline's depth test. */
+    addUnsorted(draw: number, batch: number, stableId: number): void {
+        if (this._rendererValue < 0) invalidTransparentProducer();
+        if (!Number.isSafeInteger(stableId) || stableId < 0) invalidTransparentStableId(stableId);
+        const item = this.nextItem(false);
+        item.sortKey = 0;
+        item.stableId = stableId;
+        item.stablePart = 0;
+        item.renderer = this._rendererValue;
+        item.draw = draw;
+        item.batch = batch;
+        this.metrics.items++;
+        this._unsortedCount++;
+    }
+
+    private nextItem(sorted = true): MutableTransparentItem {
+        this.ensureCapacity(this._countValue + 1);
+        const index = this._countValue++;
+        const item = this._items[index];
+        if (sorted && this._unsortedCount) {
+            const first = index - this._unsortedCount;
+            this._items[index] = this._items[first];
+            this._items[first] = item;
+        }
+        return item;
+    }
+
     private ensureCapacity(required: number): void {
         if (required <= this._items.length) return;
         let capacity = Math.max(32, this._items.length * 2);
@@ -256,7 +284,7 @@ export const TransparentPhases: Resource<Map<number, TransparentPhase>> = {
     create: (world) => world.resource(transparentPhaseKey).views,
 };
 
-/** Records into a core-owned pass. Records must not end the pass. Renderers contribute transparent items to the shared sorted phase, prepare view-specific data before the pass, then draw only consecutive compatible items. */
+/** Records into a core-owned pass. Records must not end the pass. Renderers contribute sorted or unsorted transparent items to the shared phase, prepare view-specific data before the pass, then draw only consecutive compatible items. */
 export interface PhaseRenderer {
     /** Records into the core-owned depth prepass. When `view.normal` is set the pass also has a `NORMAL_FORMAT` color target: a pipeline drawn here must declare it and write world normals, encoded as `normal * 0.5 + 0.5`. Must not end the pass. */
     prepass?(world: World, eid: number, view: View, pass: GPURenderPassEncoder): void;
