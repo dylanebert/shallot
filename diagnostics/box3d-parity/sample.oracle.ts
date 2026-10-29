@@ -35,7 +35,7 @@ for (const [scene, name, before, after] of [
     test(`${scene}: Issues native steps repeat, controls use DrawControls, and a source mutation fails parity`, () => {
         const start = performance.now(), binary = sampleBinary();
         const directory = mkdtempSync(join(tmpdir(), "box3d-issues-"));
-        const base = new URL("../../examples/physics/tests/", import.meta.url), records = join(directory, "geometry.jsonl");
+        const base = new URL("../../examples/physics/tests/issues/", import.meta.url), records = join(directory, "geometry.jsonl");
         const hasReadouts = scene === "ghostCollisions" || scene === "restitutionOvershoot";
         const env: Record<string, string> = scene === "hullCrash" ? { GEOMETRY_RECORDS: records } : hasReadouts ? { ISSUE_READOUTS: records } : {};
         const readouts = () => readFileSync(records, "utf8");

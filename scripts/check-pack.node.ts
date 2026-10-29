@@ -48,6 +48,7 @@ test("the npm package contains only declared files and required consumers", asyn
         "!src/standard/physics/oracle/**",
         "!**/*.gold.txt",
         "!examples/physics/tests/*.parity.node.ts",
+        "!examples/physics/tests/issues/**",
         "!**/fixtures",
         "!src/**/*.test.ts",
         "!**/*.oracle.ts",
@@ -85,6 +86,7 @@ test("the npm package contains only declared files and required consumers", asyn
         ],
         ["test-support source", (f) => /^src\/(?:harness|testing)\//.test(f)],
         ["physics oracle test data", (f) => f.startsWith("src/standard/physics/oracle/")],
+        ["physics Issues regressions", (f) => f.startsWith("examples/physics/tests/issues/")],
         ["test gold", (f) => /\.gold\.(?:txt|json)$/.test(f)],
     ];
     const violations = files.flatMap((f) =>

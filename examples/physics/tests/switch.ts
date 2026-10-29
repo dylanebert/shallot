@@ -23,7 +23,6 @@ import { PhysicsEvents, PhysicsWorldDefinition } from "@dylanebert/shallot/stand
 import { DeterminismPlugin } from "../src/determinism";
 import { EventSample, EventSamplePlugin } from "../src/events";
 import { Grab, GrabPlugin, pick } from "../src/grab";
-import { IssuesPlugin } from "../src/issues";
 import { sceneSwitcher } from "../src/sample";
 import { changeControl, controlValues, createScene, type Scene } from "../src/scenes";
 import { TreeBenchmarkPlugin, TreeBenchmarkState, treeRecords } from "../src/tree";
@@ -76,7 +75,7 @@ export async function expectSwitchesEqualFresh(
             EventSamplePlugin,
             DeterminismPlugin,
             TreeBenchmarkPlugin,
-            IssuesPlugin,
+
             ...plugins,
             { name: "GrabRecovery", recovery: GrabPlugin.recovery },
         ],
@@ -119,7 +118,7 @@ export async function expectSwitchesEqualFresh(
                     EventSamplePlugin,
                     DeterminismPlugin,
                     TreeBenchmarkPlugin,
-                    IssuesPlugin,
+
                     ...plugins,
                 ],
                 setup(world) {

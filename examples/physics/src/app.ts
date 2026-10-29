@@ -17,7 +17,6 @@ import { EventSamplePlugin, SampleInputPlugin } from "./events";
 import { GeometricMoverPlugin } from "./geometric-mover";
 import { GeometryPlugin } from "./geometry";
 import { GrabPlugin } from "./grab";
-import { IssuesPlugin } from "./issues";
 import { JointSamplePlugin } from "./joints";
 import { ManifoldPlugin } from "./manifold";
 import { MeshSamplePlugin } from "./mesh";
@@ -61,7 +60,7 @@ export const AppPlugin: Plugin = {
         WorldSamplePlugin,
         DeterminismPlugin,
         TreeBenchmarkPlugin,
-        IssuesPlugin,
+
         SampleInputPlugin,
         TextPlugin,
         OrbitPlugin,

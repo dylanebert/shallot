@@ -26,7 +26,6 @@ import { DeterminismState, determinismScenes } from "./determinism";
 import { eventScenes } from "./events";
 import { GeometricMoverState, geometricMoverScene } from "./geometric-mover";
 import { Geometry, geometryScenes } from "./geometry";
-import { IssueState, IssueVelocities, issueScenes } from "./issues";
 import { jointScenes } from "./joints";
 import { ManifoldSample, manifoldScenes } from "./manifold";
 import { meshScenes } from "./mesh";
@@ -72,8 +71,7 @@ export type Scene =
     | keyof typeof robustnessScenes
     | keyof typeof worldScenes
     | keyof typeof determinismScenes
-    | keyof typeof treeScenes
-    | keyof typeof issueScenes;
+    | keyof typeof treeScenes;
 export const categories: { name: string; scenes: { id: Scene; name: string }[] }[] = [
     {
         name: "Benchmark",
@@ -200,23 +198,6 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
             { id: "geometryHull", name: "Hull" },
             { id: "hullReduction", name: "Hull Reduction" },
             { id: "hullTransform", name: "Hull Transform" },
-        ],
-    },
-    {
-        name: "Issues",
-        scenes: [
-            { id: "capsuleMesh", name: "Capsule Mesh" },
-            { id: "convexJitter", name: "Convex Jitter" },
-            { id: "crash", name: "Crash" },
-            { id: "wheelStack", name: "GMod Wheel Stack" },
-            { id: "issueHeightfield", name: "Heightfield" },
-            { id: "hugeBox", name: "Huge Box" },
-            { id: "hullCrash", name: "Hull Crash" },
-            { id: "multiplePrismatic", name: "Multiple Prismatic" },
-            { id: "restitutionOvershoot", name: "Restitution Overshoot" },
-            { id: "ghostCollisions", name: "s&box Ghost Collisions" },
-            { id: "sboxMover", name: "s&box mover" },
-            { id: "slideTwistOffCenterShape", name: "Slide Twist Off Center Shape" },
         ],
     },
     {
@@ -427,7 +408,6 @@ export const scenes = {
     ...worldScenes,
     ...determinismScenes,
     ...treeScenes,
-    ...issueScenes,
     boxStack: {
         construct: boxStack,
         gridExtent: 40,
@@ -1016,8 +996,6 @@ export const scenes = {
 
 export function createScene(world: World, scene: Scene): number[] {
     resetTreeBenchmark(world);
-    world.resource(IssueVelocities).length = 0;
-    Object.assign(world.resource(IssueState), IssueState.create());
     Object.assign(world.resource(PhysicsWorldDefinition), {
         contactHertz: 30,
         contactDampingRatio: 10,

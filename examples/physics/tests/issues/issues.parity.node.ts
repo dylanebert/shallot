@@ -1,12 +1,12 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { createApp, hashPhysics, type World } from "@dylanebert/shallot";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { Geometry, GeometryPlugin } from "../src/geometry";
-import { hullCrashPoints, IssueState, IssuesPlugin, issueScenes } from "../src/issues";
-import { changeControl, controlValues, createScene } from "../src/scenes";
-import { drawingDigest } from "./digest";
-import { hullRecord } from "./geometry-records";
-import { sampleGold } from "./gold";
+import { Geometry, GeometryPlugin } from "../../src/geometry";
+import { drawingDigest } from "../digest";
+import { hullRecord } from "../geometry-records";
+import { sampleGold } from "../gold";
+import { hullCrashPoints, IssueState, IssuesPlugin, issueScenes } from "./issues";
+import { changeControl, controlValues, createScene } from "./scenes";
 
 setDefaultTimeout(TIMEOUT.node);
 function readouts(world: World, scene: "ghostCollisions" | "restitutionOvershoot") {

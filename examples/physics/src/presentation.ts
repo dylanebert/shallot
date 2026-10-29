@@ -179,9 +179,8 @@ export function scenePresentation(
               ? definition.gridCenter
               : [0, 0];
     const lines: { a: [number, number, number]; b: [number, number, number]; color: number }[] = [];
-    const extentZ = "gridExtentZ" in definition ? definition.gridExtentZ : extent;
-    for (let i = 0; i <= Math.round((2 * extentZ) / spacing); i++) {
-        const offset = -extentZ + i * spacing;
+    for (let i = 0; i <= Math.round((2 * extent) / spacing); i++) {
+        const offset = -extent + i * spacing;
         const color = offset === 0 ? 0x797369 : 0x49453f;
         lines.push({
             a: [cx! - extent, height, cz! + offset],
@@ -193,8 +192,8 @@ export function scenePresentation(
         const offset = -extent + i * spacing;
         const color = offset === 0 ? 0x797369 : 0x49453f;
         lines.push({
-            a: [cx! + offset, height, cz! - extentZ],
-            b: [cx! + offset, height, cz! + extentZ],
+            a: [cx! + offset, height, cz! - extent],
+            b: [cx! + offset, height, cz! + extent],
             color,
         });
     }

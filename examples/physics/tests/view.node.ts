@@ -321,7 +321,6 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 id === "distanceDebug" ||
                 id === "shapeDistance" ||
                 id === "timeOfImpact" ||
-                id === "hullCrash" ||
                 id === "boxHull" ||
                 id === "geometryHull" ||
                 id === "hullReduction" ||
@@ -392,18 +391,6 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 expect(ground.mesh.indices.length).toBeGreaterThan(0);
             } else expect(presentation.ground).toBeUndefined();
             const extent = {
-                ghostCollisions: 6.5024,
-                wheelStack: 10,
-                restitutionOvershoot: 0.375,
-                crash: 20,
-                multiplePrismatic: 10,
-                hullCrash: 4,
-                convexJitter: 10,
-                sboxMover: 9.75,
-                capsuleMesh: 50,
-                slideTwistOffCenterShape: 50,
-                hugeBox: 400,
-                issueHeightfield: 49.5,
                 treeBenchmark: 200,
                 fallingRagdolls: 15,
                 wavePile: 10,
@@ -581,9 +568,8 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
             expect(grid.opacity).toBeLessThan(0.45);
             const height = groundHeight + 0.005;
             const [cx, cz] = "gridCenter" in definition ? definition.gridCenter : [0, 0];
-            const extentZ = "gridExtentZ" in definition ? definition.gridExtentZ : extent;
-            for (let i = 0; i <= Math.round((2 * extentZ) / spacing); i++) {
-                const offset = -extentZ + i * spacing;
+            for (let i = 0; i <= Math.round((2 * extent) / spacing); i++) {
+                const offset = -extent + i * spacing;
                 const color = offset === 0 ? 0x797369 : 0x49453f;
                 expect(grid.lines).toContainEqual({
                     a: [cx! - extent, height, cz! + offset],
@@ -595,12 +581,12 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 const offset = -extent + i * spacing;
                 const color = offset === 0 ? 0x797369 : 0x49453f;
                 expect(grid.lines).toContainEqual({
-                    a: [cx! + offset, height, cz! - extentZ],
-                    b: [cx! + offset, height, cz! + extentZ],
+                    a: [cx! + offset, height, cz! - extent],
+                    b: [cx! + offset, height, cz! + extent],
                     color,
                 });
             }
-            expect(grid.lines).toHaveLength((2 * extent) / spacing + (2 * extentZ) / spacing + 2);
+            expect(grid.lines).toHaveLength((2 * extent) / spacing + (2 * extent) / spacing + 2);
             expect(presentation.controls).toEqual(enabledControls(id, controlValues(id)));
         } finally {
             app.dispose();

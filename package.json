@@ -118,6 +118,7 @@
         "!**/*.gold.json",
         "!**/*.gold.txt",
         "!examples/physics/tests/*.parity.node.ts",
+        "!examples/physics/tests/issues/**",
         "!**/fixtures",
         "!**/target/**"
     ],

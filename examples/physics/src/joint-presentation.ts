@@ -30,8 +30,6 @@ const kinds = [
     WheelJoint,
 ] as const;
 const scenes = new Set<Scene>([
-    "crash",
-    "multiplePrismatic",
     ...categories
         .filter((category) => category.name === "Joints" || category.name === "Ragdoll")
         .flatMap((category) => category.scenes.map(({ id }) => id)),

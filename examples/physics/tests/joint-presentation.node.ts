@@ -4,12 +4,10 @@ import {
     createApp,
     DistanceJoint,
     GlobalTransform,
-    PrismaticJoint,
     qRotate,
     RevoluteJoint,
     resizeViewport,
     SphericalJoint,
-    WeldJoint,
 } from "@dylanebert/shallot";
 import { type View, Views, worldToViewport } from "@dylanebert/shallot/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
@@ -62,15 +60,12 @@ for (const [scene, kind] of [
     ["spherical", SphericalJoint],
     ["revolute", RevoluteJoint],
     ["door", RevoluteJoint],
-    ["multiplePrismatic", PrismaticJoint],
-    ["crash", WeldJoint],
 ] as const) {
     test(`${scene}: joint segments and dots follow the bodies' GlobalTransform and runtime joint membership without a GPU`, async () => {
         const app = await createApp({ defaults: false, plugins: [JointSamplePlugin] });
         const world = app.world;
         const bodies = createScene(world, scene);
         const values = controlValues(scene);
-        if (scene === "crash") changeControl(world, scene, bodies, values, "Add Joint", 1);
         try {
             const check = () => {
                 world.step(0);

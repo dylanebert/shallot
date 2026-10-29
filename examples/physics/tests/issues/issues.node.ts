@@ -1,8 +1,11 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { createApp, GlobalTransform } from "@dylanebert/shallot";
 import { setLinearVelocity } from "@dylanebert/shallot/standard/physics";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { IssueState, IssuesPlugin, issueScenes } from "./issues";
 import { changeControl, controlValues, createScene } from "./scenes";
+
+setDefaultTimeout(TIMEOUT.node);
 
 test("a grounded upward spike records its location once, recovers, and resets through the scene control", async () => {
     const app = await createApp({ defaults: false, plugins: [IssuesPlugin] });

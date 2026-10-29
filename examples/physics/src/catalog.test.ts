@@ -131,23 +131,6 @@ test("each picker label selects its scene in its category, exactly once", () => 
             ],
         },
         {
-            name: "Issues",
-            scenes: [
-                { id: "capsuleMesh", name: "Capsule Mesh" },
-                { id: "convexJitter", name: "Convex Jitter" },
-                { id: "crash", name: "Crash" },
-                { id: "wheelStack", name: "GMod Wheel Stack" },
-                { id: "issueHeightfield", name: "Heightfield" },
-                { id: "hugeBox", name: "Huge Box" },
-                { id: "hullCrash", name: "Hull Crash" },
-                { id: "multiplePrismatic", name: "Multiple Prismatic" },
-                { id: "restitutionOvershoot", name: "Restitution Overshoot" },
-                { id: "ghostCollisions", name: "s&box Ghost Collisions" },
-                { id: "sboxMover", name: "s&box mover" },
-                { id: "slideTwistOffCenterShape", name: "Slide Twist Off Center Shape" },
-            ],
-        },
-        {
             name: "Joints",
             scenes: [
                 { id: "ballAndChain", name: "Ball and Chain" },

@@ -25,13 +25,13 @@ import {
     setAngularVelocity,
     setLinearVelocity,
 } from "@dylanebert/shallot/standard/physics";
-import building from "./building.json" with { type: "json" };
-import { Geometry } from "./geometry";
+import building from "../../src/building.json" with { type: "json" };
+import { Geometry } from "../../src/geometry";
+import { decodeMesh } from "../../src/mesh-data";
+import type { Controls } from "../../src/scenes";
 import { ghostFloor } from "./ghost-floor";
 import wheel from "./issue-wheel.json" with { type: "json" };
 import jitter from "./issues-points.json" with { type: "json" };
-import { decodeMesh } from "./mesh-data";
-import type { Controls } from "./scenes";
 
 const f = Math.fround;
 type V3 = [number, number, number];
