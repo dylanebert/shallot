@@ -351,7 +351,7 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
             spritePublicationCompute: 3,
             textVertex: 6,
             textFragment: 0,
-            linesVertex: 2,
+            linesVertex: 4,
             linesFragment: 0,
         });
         expect(layouts.standardVertex).toBeLessThanOrEqual(8);

@@ -4,6 +4,7 @@ import {
     BeginFrameSystem,
     Camera,
     CorePipelinePlugin,
+    globalTransformTable,
     initialViewSampleCounts,
     PrepassSystem,
     RenderContext,
@@ -11,8 +12,9 @@ import {
     renderLayers,
     type TransparentPhase,
     type View,
+    type Xform,
 } from "../../core/rendering";
-import { composeGlobalTransform, GlobalTransform } from "../../core/transform";
+import { GlobalTransform } from "../../core/transform";
 import type { Plugin, System, World } from "../../engine";
 import { component, f32, precompile } from "../../engine";
 import { drawInstances, setRenderBindGroup, setRenderPipeline } from "../../engine/runtime";
@@ -42,7 +44,7 @@ import {
 
 export { drawArrow, drawLine, drawWireBox, GizmoAsset, type LineOptions } from "./segments";
 
-/** Draws a registered asset at the entity's GlobalTransform. Remove Gizmo to hide it. */
+/** Draws a registered asset at the entity's interpolated GlobalTransform, as meshes draw. Remove Gizmo to hide it. */
 export const Gizmo = component(
     "Gizmo",
     {
@@ -77,7 +79,6 @@ export function registerGizmo(world: World, asset: GizmoAsset): number {
 }
 
 const RETAINED_LINES_QUERY = [Gizmo, GlobalTransform];
-const matrixKey = { create: () => new Float32Array(16) };
 
 function boundsCenter(
     source: SegmentState,
@@ -151,7 +152,6 @@ function extractGizmos(world: World): void {
     records.count = 0;
     const gizmos = world.storage(Gizmo);
     const assets = world.resource(gizmoAssets);
-    const matrix = world.resource(matrixKey);
     for (const eid of world.query(RETAINED_LINES_QUERY)) {
         const handle = gizmos.handle.get(eid);
         const asset = assets[handle - 1];
@@ -164,20 +164,21 @@ function extractGizmos(world: World): void {
             next.handles.set(records.handles);
             Object.assign(records, next);
         }
-        composeGlobalTransform(world, eid, matrix);
         const at = row * INSTANCE_WORDS;
-        records.floats.set(matrix, at);
-        records.floats[at + 16] = gizmos.width.get(eid);
-        records.floats[at + 17] = gizmos.opacity.get(eid);
-        records.floats[at + 18] = gizmos.depthBias.get(eid);
-        records.ints[at + 19] = renderLayers(world, eid);
+        records.ints[at] = eid;
+        records.floats[at + 1] = gizmos.width.get(eid);
+        records.floats[at + 2] = gizmos.opacity.get(eid);
+        records.floats[at + 3] = gizmos.depthBias.get(eid);
+        records.ints[at + 4] = renderLayers(world, eid);
         records.handles[row] = handle;
     }
 }
 
 interface InstanceUpload {
     buffer: TgpuBuffer<d.WgslArray<typeof LineInstance>> & StorageFlag;
-    group: GPUBindGroup;
+    group: GPUBindGroup | null;
+    placement: object | null;
+    rows: object | null;
     staging: ArrayBuffer;
     floats: Float32Array;
     ints: Uint32Array;
@@ -202,8 +203,7 @@ function queueLines(world: World, camera: number, _view: View, phase: Transparen
     const assets = world.resource(gizmoAssets);
     for (const asset of assets) asset.count = 0;
     for (let row = 1; row <= records.count; row++) {
-        if (records.ints[row * INSTANCE_WORDS + 19] & mask)
-            assets[records.handles[row] - 1].count++;
+        if (records.ints[row * INSTANCE_WORDS + 4] & mask) assets[records.handles[row] - 1].count++;
     }
     let start = 1;
     for (let i = 0; i < assets.length; i++) {
@@ -252,9 +252,9 @@ function prepareLines(
         const staging = new ArrayBuffer(capacity * d.sizeOf(LineInstance));
         instances = {
             buffer,
-            group: world.gpu.root.unwrap(
-                world.gpu.root.createBindGroup(instanceLayout, { instances: buffer }),
-            ),
+            group: null,
+            placement: null,
+            rows: null,
             staging,
             floats: new Float32Array(staging),
             ints: new Uint32Array(staging),
@@ -262,18 +262,32 @@ function prepareLines(
         };
         state.instances.set(view.slot, instances);
     }
+    const table = globalTransformTable(world);
+    const rows = table.eidToRowTyped;
+    if (!rows) return;
+    if (instances.placement !== table.typed || instances.rows !== rows) {
+        instances.placement = table.typed;
+        instances.rows = rows;
+        instances.group = world.gpu.root.unwrap(
+            world.gpu.root.createBindGroup(instanceLayout, {
+                instances: instances.buffer,
+                globalTransforms: table.typed as TgpuBuffer<d.WgslArray<typeof Xform>> &
+                    StorageFlag,
+                globalTransformRows: rows as TgpuBuffer<d.WgslArray<d.U32>> & StorageFlag,
+            }),
+        );
+    }
     const { floats, ints } = instances;
     const cameraLayers = renderLayers(world, camera);
     floats.fill(0, 0, INSTANCE_WORDS);
-    floats[0] = floats[5] = floats[10] = floats[15] = 1;
-    floats[16] = -1;
-    floats[17] = 1;
-    ints[19] = cameraLayers;
+    floats[1] = -1;
+    floats[2] = 1;
+    ints[4] = cameraLayers;
     const assets = world.resource(gizmoAssets);
     let count = 1;
     for (let row = 1; row <= records.count; row++) {
         const source = row * INSTANCE_WORDS;
-        if (!(records.ints[source + 19] & cameraLayers)) continue;
+        if (!(records.ints[source + 4] & cameraLayers)) continue;
         const at = assets[records.handles[row] - 1].cursor++ * INSTANCE_WORDS;
         for (let word = 0; word < INSTANCE_WORDS; word++)
             ints[at + word] = records.ints[source + word];
@@ -305,7 +319,7 @@ function drawLines(
     const asset = batch ? world.resource(gizmoAssets)[batch - 1] : undefined;
     const group = batch ? asset?.group : state.segmentGroup;
     const count = batch ? asset?.asset.segments.count : lineCount(world);
-    if (!viewGroup || !instances || !group || !count) return;
+    if (!viewGroup || !instances?.group || !group || !count) return;
     const key = world.storage(Camera).antialias.get(eid) ? "multisample" : "single";
     const pipeline = (state[key] ??= createLinePipeline(
         world,

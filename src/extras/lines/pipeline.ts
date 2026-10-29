@@ -1,7 +1,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { biasClipDepth, DEPTH_FORMAT, ViewUniforms } from "../../core/rendering";
+import { biasClipDepth, DEPTH_FORMAT, ViewUniforms, Xform, xformMat } from "../../core/rendering";
 import { precompile, type World } from "../../engine";
 import { unpackLdrColor } from "../../engine/utils";
 
@@ -41,8 +41,10 @@ export const lineLayout = tgpu
     })
     .$idx(1);
 
+/** Placement is the entity's interpolated global-transform row; a negative width marks
+ * immediate lines, which are already in world space. */
 export const LineInstance = d.struct({
-    worldFromLocal: d.mat4x4f,
+    eid: d.u32,
     width: d.f32,
     opacity: d.f32,
     depthBias: d.f32,
@@ -51,6 +53,12 @@ export const LineInstance = d.struct({
 export const instanceLayout = tgpu
     .bindGroupLayout({
         instances: { storage: d.arrayOf(LineInstance), access: "readonly", visibility: ["vertex"] },
+        globalTransforms: { storage: d.arrayOf(Xform), access: "readonly", visibility: ["vertex"] },
+        globalTransformRows: {
+            storage: d.arrayOf(d.u32),
+            access: "readonly",
+            visibility: ["vertex"],
+        },
     })
     .$idx(2);
 
@@ -60,12 +68,25 @@ const LineVertex = tgpu.vertexFn({
 })((input) => {
     "use gpu";
     const instance = instanceLayout.$.instances[input.instance];
+    const retained = instance.width >= 0;
+    let worldFromLocal = d.mat4x4f(
+        d.vec4f(1, 0, 0, 0),
+        d.vec4f(0, 1, 0, 0),
+        d.vec4f(0, 0, 1, 0),
+        d.vec4f(0, 0, 0, 1),
+    );
+    if (retained) {
+        const row = instanceLayout.$.globalTransformRows[instance.eid];
+        if (row === 0) {
+            return { position: d.vec4f(0), rgba: d.vec4f(0), edge: d.vec2f(0) };
+        }
+        worldFromLocal = xformMat(Xform(instanceLayout.$.globalTransforms[row - 1]));
+    }
     const seg = Segment(lineLayout.$.segments[input.vertex / 6]);
     const index = input.vertex % 6;
-    const a = std.mul(instance.worldFromLocal, d.vec4f(seg.a, 1)).xyz;
-    const b = std.mul(instance.worldFromLocal, d.vec4f(seg.b, 1)).xyz;
-    const c = std.mul(instance.worldFromLocal, d.vec4f(seg.c, 1)).xyz;
-    const retained = instance.width >= 0;
+    const a = std.mul(worldFromLocal, d.vec4f(seg.a, 1)).xyz;
+    const b = std.mul(worldFromLocal, d.vec4f(seg.b, 1)).xyz;
+    const c = std.mul(worldFromLocal, d.vec4f(seg.c, 1)).xyz;
     const width = std.select(seg.width, instance.width, retained);
     const bias = std.select(seg.depthBias, instance.depthBias, retained);
     let rgba = unpackLdrColor(seg.color);
