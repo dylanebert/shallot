@@ -21,8 +21,10 @@ import {
 import bounds01 from "./bounds01.json" with { type: "json" };
 import bounds02 from "./bounds02.json" with { type: "json" };
 import bounds03 from "./bounds03.json" with { type: "json" };
+import { decodeFloat32 } from "./mesh-data";
 import type { Controls } from "./scenes";
 
+const bounds = [bounds01, bounds02, bounds03].map(decodeFloat32);
 const f = Math.fround;
 type Point = { x: number; y: number; z: number };
 type Bounds = { lowerBound: Point; upperBound: Point };
@@ -194,7 +196,7 @@ function createTree(world: World): void {
     release(world, s);
     s.proxies = [];
     s.tree = createPhysicsTree(world, 512);
-    const data = [bounds01, bounds02, bounds03][s.values.File]!,
+    const data = bounds[s.values.File]!,
         scale = s.values.File === 2 ? f(0.01) : 1;
     for (let i = 0; i < data.length; i += 6) {
         const p = (j: number): Point => ({
