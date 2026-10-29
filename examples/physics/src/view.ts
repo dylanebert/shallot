@@ -29,6 +29,7 @@ import {
     internText,
     LinesPlugin,
     Orbit,
+    OrbitMode,
     OrbitPlugin,
     registerGizmo,
     Text,
@@ -62,6 +63,7 @@ import { drawJointViews } from "./joint-presentation";
 import { ManifoldSample } from "./manifold";
 import { drawManifold, manifoldGeometry } from "./manifold-presentation";
 import { drawMeshViewerView } from "./mesh-inspector-presentation";
+import { mountPlayerControls } from "./player-controls";
 import {
     drivenBodies,
     type ShapeGeometryCache,
@@ -144,6 +146,9 @@ export function setSceneCamera(world: World, scene: Scene, camera: number): void
         camera,
         phone && "phoneDistance" in view ? view.phoneDistance : view.distance,
     );
+    const player = scene === "geometricMover" || scene === "rigidBody" || scene === "village";
+    orbit.mode.set(camera, player ? OrbitMode.Manual : OrbitMode.Free);
+    orbit.smoothness.set(camera, player ? 1 : 0.3);
     const follow =
         scene === "driving" ||
         scene === "geometricMover" ||
@@ -195,6 +200,10 @@ function createView(world: World, scene: Scene, camera: number): () => void {
             },
         });
     setSceneCamera(world, scene, camera);
+    const disposePlayerControls =
+        scene === "geometricMover" || scene === "rigidBody" || scene === "village"
+            ? mountPlayerControls(world)
+            : undefined;
     const queryDrawing =
         scene === "village"
             ? drawingHistory((world) => world.resource(VillageState).drawing)
@@ -655,6 +664,7 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         });
     }
     return () => {
+        disposePlayerControls?.();
         for (const system of systems) world.removeSystem(system);
         for (const view of compoundViews)
             if (view.entity && world.exists(view.entity)) world.destroy(view.entity);

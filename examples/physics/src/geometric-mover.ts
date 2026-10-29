@@ -1,8 +1,6 @@
 import {
     Body,
     BodyType,
-    Camera,
-    Devices,
     GlobalTransform,
     HeightFields,
     Hulls,
@@ -44,6 +42,7 @@ import {
     sub,
     v,
 } from "./mover";
+import { readPlayerControls } from "./player-controls";
 import type { Controls } from "./scenes";
 import stairsData from "./stairs.json" with { type: "json" };
 import testMap from "./test_map01.json" with { type: "json" };
@@ -263,6 +262,7 @@ function settled(world: World, owner: number, field: "treeTimer" | "respawnTimer
     s[field] = 0;
     return true;
 }
+
 export const GeometricMoverPlugin: Plugin = {
     name: "GeometricMoverSample",
     dependencies: [StandardPhysicsPlugin, InputPlugin],
@@ -274,23 +274,7 @@ export const GeometricMoverPlugin: Plugin = {
             update(world) {
                 const s = world.resource(GeometricMoverState);
                 if (!s.active) return;
-                const devices = world.resource(Devices);
-                for (const key of ["W", "A", "S", "D", "Space", "Shift"] as const)
-                    s.keys[key] = Number(
-                        devices.enabled &&
-                            devices.keys.held.has(
-                                key === "Shift"
-                                    ? "ShiftLeft"
-                                    : key === "Space"
-                                      ? "Space"
-                                      : `Key${key}`,
-                            ),
-                    );
-                const [camera] = world.query([Camera, GlobalTransform]);
-                if (!camera) return;
-                const q = pose(world, camera).q;
-                s.forward = rotate(q, v(0, 0, -1));
-                s.right = rotate(q, v(1, 0, 0));
+                readPlayerControls(world, s.keys, s.forward, s.right);
             },
         },
         {

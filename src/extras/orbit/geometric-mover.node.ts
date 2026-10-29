@@ -54,19 +54,28 @@ test("Geometric Mover's GPU-drawn capsule and Orbit follow camera advance togeth
         const state = world.resource(GeometricMoverState);
         const table = globalTransformTable(world);
         pressKey(world, "KeyW");
-        let previousDrawn = 0,
-            previousCamera = 0;
+        let previousDrawn = [0, 0],
+            previousCamera = [0, 0];
         for (let i = 0; i < 14; i++) {
             world.step(Time.FIXED_DT / 2);
             const result = await probeBuffer(world, table.buffer, {
                 size: table.buffer.size,
                 label: "mover-120hz-placement",
             });
-            const drawn = new Float32Array(result.bytes)[table.rowIndex(state.entity) * 12 + 2]!;
-            const followed = world.get(camera, GlobalTransform)!.translation[2];
+            const words = new Float32Array(result.bytes);
+            const row = table.rowIndex(state.entity) * 12;
+            const drawn = [words[row]!, words[row + 2]!];
+            const position = world.get(camera, GlobalTransform)!.translation;
+            const followed = [position[0], position[2]];
             if (i >= 6) {
-                expect(drawn - previousDrawn).toBeCloseTo(-0.05, 5);
-                expect(followed - previousCamera).toBeCloseTo(drawn - previousDrawn, 5);
+                expect(
+                    Math.hypot(drawn[0]! - previousDrawn[0]!, drawn[1]! - previousDrawn[1]!),
+                ).toBeCloseTo(0.05, 5);
+                for (let axis = 0; axis < 2; axis++)
+                    expect(followed[axis]! - previousCamera[axis]!).toBeCloseTo(
+                        drawn[axis]! - previousDrawn[axis]!,
+                        5,
+                    );
             }
             previousDrawn = drawn;
             previousCamera = followed;

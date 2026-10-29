@@ -120,6 +120,17 @@ const SampleGrab: System = {
             }
         }
         for (const camera of world.query([Camera])) {
+            if (
+                world.has(camera, Orbit) &&
+                world.storage(Orbit).mode.get(camera) === OrbitMode.Manual
+            ) {
+                release(world);
+                grab.pending = grab.held = false;
+                if (grab.outlined && world.has(grab.outlined, Outline))
+                    world.remove(grab.outlined, Outline);
+                grab.outlined = 0;
+                return;
+            }
             const ray = viewportToWorld(world, camera, pointerX, pointerY);
             if (!ray) continue;
             grab.origin.x = ray.origin[0];

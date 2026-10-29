@@ -235,7 +235,10 @@ async function exampleCss(root: string): Promise<Css> {
                 ),
             ),
         );
-        if (path.endsWith(join("src", "player.ts"))) {
+        if (
+            path.endsWith(join("src", "player.ts")) ||
+            path.endsWith(join("src", "player-controls.ts"))
+        ) {
             result.sheets.push(...cssTextStrings(source, true));
         } else result.lists.push(...css.lists);
         if (/\.[cm]?[jt]s$/.test(path)) {

@@ -23,13 +23,13 @@ const Deg2Rad = Math.PI / 180;
 // Multiplicative fly-speed changes make wheel input feel equal across speed magnitudes.
 const FlyScrollRate = Math.log(1.15) / 100; // ≈ 0.0014
 
-/** `Free` orbits, pans, and zooms; `Locked` disables all look (orbit rotation and fly look), leaving pan and zoom. */
-export const OrbitMode = { Free: 0, Locked: 1 } as const;
+/** `Free` consumes orbit, pan, zoom and fly input; `Locked` disables look; `Manual` consumes no device input and follows authored Orbit fields. */
+export const OrbitMode = { Free: 0, Locked: 1, Manual: 2 } as const;
 
 /**
  * Orbit, pan and zoom around a target. Hold the fly button for perspective flythrough
  * (mouse look, WASD/QE movement, Shift boost, scroll speed); in orthographic mode it orbits
- * instead, and scroll zooms size. Locked disables look.
+ * instead, and scroll zooms size. Locked disables look; Manual leaves all input to the game.
  * On touch, one finger rotates, two-finger pinch zooms, two-finger drag pans.
  */
 export const Orbit = component(
@@ -87,7 +87,7 @@ export const Orbit = component(
         flyMin: f32,
         /** upper clamp for scroll-adjusted flySpeed, world units per second */
         flyMax: f32,
-        /** Free orbits, pans, and zooms; Locked disables all look (orbit rotation and fly look), leaving pan and zoom */
+        /** Free consumes device input; Locked leaves pan and zoom; Manual follows authored fields without device input */
         mode: u8,
         /** entity to orbit; follows interpolated fixed placement, with pan relative to it (0 = world origin) */
         target: entity,
@@ -232,20 +232,24 @@ const OrbitSystem: System = {
 
             const hasCamera = world.has(eid, Camera);
             const isOrtho = hasCamera && camera.mode.get(eid) === CameraMode.Orthographic;
-            const locked = orbit.mode.get(eid) === OrbitMode.Locked;
-            const touchCount = input.touch.count;
+            const manual = orbit.mode.get(eid) === OrbitMode.Manual;
+            const locked = orbit.mode.get(eid) !== OrbitMode.Free;
+            const touchCount = manual ? 0 : input.touch.count;
             // Touch capture also holds pointer.left; reading mouse buttons here would orbit during pinch/pan.
             // Fly has no touch equivalent.
             const orbitHeld =
-                touchCount > 0
+                !manual &&
+                (touchCount > 0
                     ? touchCount === 1
-                    : isButton(input.pointer, orbit.orbitButton.get(eid));
+                    : isButton(input.pointer, orbit.orbitButton.get(eid)));
             const panHeld =
-                touchCount > 0
+                !manual &&
+                (touchCount > 0
                     ? touchCount >= 2
-                    : isButton(input.pointer, orbit.panButton.get(eid));
+                    : isButton(input.pointer, orbit.panButton.get(eid)));
             const flyHeld =
-                touchCount > 0 ? false : isButton(input.pointer, orbit.flyButton.get(eid));
+                !manual &&
+                (touchCount > 0 ? false : isButton(input.pointer, orbit.flyButton.get(eid)));
             // Leave movement keys to gameplay unless the fly button is held; orbit and pan take priority.
             const flying = !isOrtho && !orbitHeld && !panHeld && flyHeld;
             const looking = orbitHeld || (!panHeld && flyHeld);
@@ -316,7 +320,7 @@ const OrbitSystem: System = {
 
             // Wheel-away zooms out; a positive pinch spread zooms in. Both can arrive in one frame.
             const pinch = touchCount > 0 ? input.touch.pinchDelta : 0;
-            const zoomInput = input.pointer.scroll - pinch;
+            const zoomInput = manual ? 0 : input.pointer.scroll - pinch;
             if (zoomInput !== 0) {
                 if (flying) {
                     // flying drives Transform directly, so the orbit distance is invisible — scroll

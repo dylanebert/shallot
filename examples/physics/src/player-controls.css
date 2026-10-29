@@ -1,0 +1,7 @@
+.player-controls { position: absolute; inset: 0; pointer-events: none; }
+button[data-touch-action]:enabled { cursor: pointer; }
+button[data-touch-action] { box-sizing: border-box; border: 1px solid #2a2420; background: #3c322c; color: #f0e6d6; font: 400 13px/20px 'IBM Plex Sans', system-ui, sans-serif; cursor: default; }
+button[data-touch-action]:hover:not(:disabled) { border-color: #a08c78; }
+button[data-touch-action]:active:not(:disabled) { background: #2a2420; }
+button[data-touch-action]:disabled { background: #1c1917; color: #a08c78; cursor: default; }
+button[data-touch-action][aria-pressed='true'] { border-color: #d49560; }

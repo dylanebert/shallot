@@ -1,10 +1,7 @@
 import {
     Body,
-    Camera,
     type Compound,
     Compounds,
-    Devices,
-    GlobalTransform,
     Hulls,
     InputPlugin,
     PhysicsMeshes,
@@ -27,7 +24,8 @@ import {
 } from "@dylanebert/shallot/standard/physics";
 import building from "./building.json" with { type: "json" };
 import { decodeMesh } from "./mesh-data";
-import { add, move, moverState, mul, pose, rotate, sub, v } from "./mover";
+import { add, move, moverState, mul, sub, v } from "./mover";
+import { readPlayerControls } from "./player-controls";
 
 const f = Math.fround;
 const identity = (): [number, number, number, number] => [0, 0, 0, 1];
@@ -131,6 +129,7 @@ function construct(world: World): number[] {
     world.add(s.entity, Transform, { translation: [0, 10, 0] });
     return [];
 }
+
 export const VillagePlugin: Plugin = {
     name: "VillageSample",
     dependencies: [StandardPhysicsPlugin, InputPlugin],
@@ -142,23 +141,7 @@ export const VillagePlugin: Plugin = {
             update(world) {
                 const s = world.resource(VillageState);
                 if (!s.active) return;
-                const devices = world.resource(Devices);
-                for (const key of ["W", "A", "S", "D", "Space", "Shift"] as const)
-                    s.keys[key] = Number(
-                        devices.enabled &&
-                            devices.keys.held.has(
-                                key === "Shift"
-                                    ? "ShiftLeft"
-                                    : key === "Space"
-                                      ? "Space"
-                                      : `Key${key}`,
-                            ),
-                    );
-                const [camera] = world.query([Camera, GlobalTransform]);
-                if (!camera) return;
-                const q = pose(world, camera).q;
-                s.forward = rotate(q, v(0, 0, -1));
-                s.right = rotate(q, v(1, 0, 0));
+                readPlayerControls(world, s.keys, s.forward, s.right);
             },
         },
         {

@@ -13,7 +13,7 @@ import { changeControl } from '../src/scenes';
 import { BodySamplePlugin } from '../src/bodies';
 import { ShapesSamplePlugin } from '../src/shapes';
 import { createViewer } from '../src/view';
-import { GeometricMoverPlugin } from '../src/geometric-mover';
+import { GeometricMoverPlugin, GeometricMoverState } from '../src/geometric-mover';
 import { RigidBodyPlugin } from '../src/rigid-body';
 import { MeshSamplePlugin } from '../src/mesh';
 import { CollisionPlugin } from '../src/collision';
@@ -25,9 +25,10 @@ import { WorldSamplePlugin } from '../src/world';
 import { DeterminismPlugin } from '../src/determinism';
 import { TreeBenchmarkPlugin } from '../src/tree';
 import { IssuesPlugin } from '../src/issues';
+import { Grab, GrabPlugin } from '../src/grab';
 // The checks read game state and the DOM; a low pixel ratio keeps each stepped draw cheap.
 const Viewer={create:createViewer};
-const app = await createApp({plugins:[StandardPhysicsPlugin,IssuesPlugin,TreeBenchmarkPlugin,DeterminismPlugin,WorldSamplePlugin,RobustnessSamplePlugin,ManifoldPlugin,GeometryPlugin,CollisionPlugin,CollisionDebugPlugin,MeshSamplePlugin,ShapesSamplePlugin,BodySamplePlugin,GeometricMoverPlugin,RigidBodyPlugin,EventSamplePlugin,SampleInputPlugin,TextPlugin,OrbitPlugin,LinesPlugin,{name:'SampleViewer',dependencies:[OrbitPlugin],initialize(world){world.resource(Viewer);}}],pixelRatio:0.05,setup(world){world.resource(PhysicsWorldDefinition).workerCount=1;}});
+const app = await createApp({plugins:[StandardPhysicsPlugin,GrabPlugin,IssuesPlugin,TreeBenchmarkPlugin,DeterminismPlugin,WorldSamplePlugin,RobustnessSamplePlugin,ManifoldPlugin,GeometryPlugin,CollisionPlugin,CollisionDebugPlugin,MeshSamplePlugin,ShapesSamplePlugin,BodySamplePlugin,GeometricMoverPlugin,RigidBodyPlugin,EventSamplePlugin,SampleInputPlugin,TextPlugin,OrbitPlugin,LinesPlugin,{name:'SampleViewer',dependencies:[OrbitPlugin],initialize(world){world.resource(Viewer);}}],pixelRatio:new URLSearchParams(location.search).has('capture') ? 1 : 0.05,setup(world){world.resource(PhysicsWorldDefinition).workerCount=1;}});
 const world=app.world;
 const container=mountOverlay(document.querySelector('canvas'),world);
 const replace=sceneSwitcher(world,world.resource(Viewer));
@@ -43,6 +44,12 @@ select('revolute');
 window.actionSpeed=()=>{
  world.step(1/60);
  return world.storage(GlobalTransform).linearVelocity.x.get(world.resource(EventSample).player);
+};
+window.playerState=(steps=0)=>{
+ for(let i=0;i<steps;i++)world.step(1/60);
+ const state=world.resource(GeometricMoverState);
+ const camera=[...world.query([Orbit])][0];
+ return {grabbed:world.resource(Grab).body,position:{...state.mover.position},keys:{...state.keys},yaw:world.storage(Orbit).yaw.get(camera),pan:world.get(camera,Orbit).pan,distance:world.storage(Orbit).distance.get(camera)};
 };
 window.controlsKey=()=>{
  world.step(1/60);
