@@ -18,6 +18,13 @@ import {
 
 setDefaultTimeout(TIMEOUT.node);
 
+// The package's exclusions, each also matching the contents of a directory it names.
+const unpacked = (
+    JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as { files: string[] }
+).files
+    .filter((pattern) => pattern.startsWith("!"))
+    .flatMap((pattern) => [new Bun.Glob(pattern.slice(1)), new Bun.Glob(`${pattern.slice(1)}/**`)]);
+
 // One copied example Node file proves a created project's Node tier: the default renderer, physics kernel and
 // GPU opener run from the installed package under the copy's preload. Every example's Node files run in place.
 const COPIED_NODE_SUBJECT = { name: "first-person", subject: "./tests/ascent.node.ts" };
@@ -194,9 +201,10 @@ for (const name of examples) {
         });
 
         const nodeSubjects = projectFiles(join(ROOT, "examples", name))
+            .map((path) => normalizePath(relative(ROOT, path)))
             .filter((path) => path.endsWith(".node.ts"))
-            .filter((path) => name !== "physics" || !path.endsWith(".parity.node.ts"))
-            .map((path) => `./${normalizePath(relative(join(ROOT, "examples", name), path))}`)
+            .filter((path) => !unpacked.some((glob) => glob.match(path)))
+            .map((path) => `./${path.slice(`examples/${name}/`.length)}`)
             .sort();
         if (nodeSubjects.length)
             test(`${name} copies every shipped Node file`, () => {
