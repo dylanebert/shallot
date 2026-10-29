@@ -17,6 +17,7 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
     const mesh = readFileSync(join(samples, "sample_mesh.cpp"), "utf8");
     const stacking = readFileSync(join(samples, "sample_stacking.cpp"), "utf8");
     const world = readFileSync(join(samples, "sample_world.cpp"), "utf8");
+    const determinism = readFileSync(join(samples, "sample_determinism.cpp"), "utf8");
     const robustness = readFileSync(join(samples, "sample_robustness.cpp"), "utf8");
     const joints = readFileSync(join(samples, "sample_joint.cpp"), "utf8");
     const sample = readFileSync(join(samples, "sample.cpp"), "utf8");
@@ -68,7 +69,10 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         section(benchmark, "struct ShapeUserData", "static int benchmarkSensor"),
         section(benchmark, "class CandyCups :", "static int sampleSmallConvexes"),
         readFileSync(join(samples, "../shared/overflow_color.c"), "utf8"),
-        '#include "stability.h"',
+        '#include "stability.h"\n#include "determinism.h"',
+        '#define printf(...) fprintf(stderr, __VA_ARGS__)',
+        ...["FallingRagdolls", "WavePile", "QuerySpawn", "MeshDropDeterminism"].map(name => section(determinism, `class ${name} :`, `static int sample${name}`)),
+        '#undef printf',
         ...[["FarStack", "sampleLargeWorld"], ["FarPyramid", "sampleFarPyramid"], ["FarRagdolls", "sampleFarRagdolls"], ["FarMeshDrop", "sampleFarMeshDrop"]].map(([name, end]) => section(world, `class ${name} :`, `static int ${end}`)),
         ...["HighMassRatio1", "TinyPyramid", "OverlapRecovery", "OverflowColorPile"].map(name => section(robustness, `class ${name} :`, `static int sample${name}`)),
         ...["BoxStack", "CardHouse", "SphereStack", "CapsuleStack", "JengaStack", "SingleBox", "Cylinder", "CylinderStack", "Dominoes", "Wedge", "Arch", "DoubleDomino", "Pyramid2D", "EdgeCrossing"].map(name => section(stacking, `class ${name} :`, `static int sample${name}`)),
@@ -114,5 +118,11 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         .replace("// SAMPLE_SOURCES", readFileSync(join(import.meta.dir, "sample-compounds.h"), "utf8") + "\n" + readFileSync(join(import.meta.dir, "sample-meshes.h"), "utf8") + "\n" + readFileSync(join(import.meta.dir, "sample-mesh-frames.h"), "utf8") + "\n" + sources);
     const path = join(tmpdir(), `box3d-sample-${Bun.hash(source).toString(16)}.cpp`);
     writeFileSync(path, source);
-    return nativeBinary(path, undefined, join(samples, "../shared/benchmarks.c"));
+    const shared = ["benchmarks.c", "determinism.c", "stability.c"].map(name => {
+        const text = readFileSync(join(samples, "../shared", name), "utf8");
+        return name === "determinism.c" ? `#define CreateGroup CreateDeterminismGroup\n${text}\n#undef CreateGroup` : text;
+    }).join("\n");
+    const sharedPath = join(tmpdir(), `box3d-sample-shared-${Bun.hash(shared).toString(16)}.c`);
+    writeFileSync(sharedPath, shared);
+    return nativeBinary(path, undefined, sharedPath);
 }

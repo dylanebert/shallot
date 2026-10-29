@@ -3,6 +3,23 @@ import { formatReadout, formatValue } from "./control-format";
 import { manifoldNames, manifoldPointLimits } from "./manifold";
 import { type Controls, controlValues, enabledControls, type Scene, scenes } from "./scenes";
 
+test("Determinism retains only read-only sample claims", () => {
+    for (const scene of [
+        "fallingRagdolls",
+        "wavePile",
+        "meshDropDeterminism",
+        "querySpawn",
+    ] as const) {
+        const controls = Object.values(scenes[scene].controls);
+        expect(controls.map((c) => c.label)).toEqual(
+            scene === "querySpawn"
+                ? ["Sleep step", "Hash", "Spawned", "Query hits", "Query hash"]
+                : ["Sleep step", "Hash"],
+        );
+        expect(controls.every((c) => !!c.read)).toBe(true);
+    }
+});
+
 test("World retains offset presets and read-only position rows without build facts", () => {
     const stack = scenes.farStack.controls;
     expect(Object.keys(stack)).toEqual([

@@ -108,6 +108,7 @@ void DrawLine( b3Pos a, b3Pos b, int ) {
 }
 void DrawArrow( b3Pos a, b3Pos b, int ) { if (characterDrawing) characterMarks.push_back({2,a.x,a.y,a.z,b.x,b.y,b.z}); }
 void DrawWireSphere( b3WorldTransform, const b3Sphere*, int, int ) {}
+void DrawCross(b3Pos, float, int) {}
 void DrawString3D( b3Pos, int, const char* format, ... ) {
     if (!contactDrawing) return;
     char text[128]; va_list args; va_start(args, format); vsnprintf(text, sizeof(text), format, args); va_end(args);
@@ -416,6 +417,8 @@ int main( int argc, char** argv )
     if (getenv("SAMPLE_DISABLE_SLEEP")) context.enableSleep = false;
 	struct Entry { const char* name; Sample* (*create)(SampleContext*); };
 	const Entry entries[] = {
+        { "fallingRagdolls", FallingRagdolls::Create }, { "wavePile", WavePile::Create },
+        { "querySpawn", QuerySpawn::Create }, { "meshDropDeterminism", MeshDropDeterminism::Create },
         { "farStack", FarStack::Create }, { "farPyramid", FarPyramid::Create },
         { "farRagdolls", FarRagdolls::Create }, { "farMeshDrop", FarMeshDrop::Create },
         { "sphereVsSphere", ManifoldSamples::SphereAndSphere::Create },
@@ -539,6 +542,8 @@ int main( int argc, char** argv )
         robustnessReadouts = fopen(getenv("ROBUSTNESS_READOUTS"), "w");
         assert(robustnessReadouts);
     }
+    FILE* determinismReadouts = getenv("DETERMINISM_READOUTS") ? fopen(getenv("DETERMINISM_READOUTS"), "w") : nullptr;
+    if (getenv("DETERMINISM_READOUTS")) assert(determinismReadouts);
     FILE* worldReadouts = getenv("WORLD_READOUTS") ? fopen(getenv("WORLD_READOUTS"), "w") : nullptr;
     if (getenv("WORLD_READOUTS")) assert(worldReadouts);
     FILE* readouts = getenv("PRECESSION_READOUTS") ? fopen(getenv("PRECESSION_READOUTS"), "w") : nullptr;
@@ -598,6 +603,12 @@ int main( int argc, char** argv )
                 fprintf(geometryRecords,"]\n");
             }
         } else sample->Step();
+        if (determinismReadouts) {
+            if (!strcmp(argv[1], "fallingRagdolls")) { auto& d = static_cast<FallingRagdolls*>(sample)->m_data; fprintf(determinismReadouts, "%d %08X\n", d.sleepStep, d.hash); }
+            else if (!strcmp(argv[1], "wavePile")) { auto& d = static_cast<WavePile*>(sample)->m_data; fprintf(determinismReadouts, "%d %08X\n", d.sleepStep, d.hash); }
+            else if (!strcmp(argv[1], "meshDropDeterminism")) { auto& d = static_cast<MeshDropDeterminism*>(sample)->m_data; fprintf(determinismReadouts, "%d %08X\n", d.sleepStep, d.hash); }
+            else { auto& d = static_cast<QuerySpawn*>(sample)->m_data; fprintf(determinismReadouts, "%d %08X %d %d %08X\n", d.sleepStep, d.hash, d.spawnCount, d.queryHitCount, d.queryHash); }
+        }
         if (worldReadouts) {
             if (!strcmp(argv[1], "farStack")) { auto* s = static_cast<FarStack*>(sample); fprintf(worldReadouts, "%.1f %.4f\n", s->m_offsetKilometers, b3SubPos(b3Body_GetWorldCenter(s->m_topBodyId), s->m_base).y); }
             else if (!strcmp(argv[1], "farMeshDrop")) fprintf(worldReadouts, "1000 %d\n", static_cast<FarMeshDrop*>(sample)->m_failed);
@@ -697,5 +708,6 @@ int main( int argc, char** argv )
     if (meshBoundsFile) fclose(meshBoundsFile);
     if (robustnessReadouts) fclose(robustnessReadouts);
     if (worldReadouts) fclose(worldReadouts);
+    if (determinismReadouts) fclose(determinismReadouts);
 	delete sample;
 }

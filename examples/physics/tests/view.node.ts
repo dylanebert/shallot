@@ -325,6 +325,7 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 id === "hullReduction" ||
                 id === "hullTransform" ||
                 id === "capsuleMass" ||
+                id === "querySpawn" ||
                 (manifoldNames as readonly string[]).includes(id)
             )
                 expect(presentation.shapes).toHaveLength(0);
@@ -389,6 +390,10 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 expect(ground.mesh.indices.length).toBeGreaterThan(0);
             } else expect(presentation.ground).toBeUndefined();
             const extent = {
+                fallingRagdolls: 15,
+                wavePile: 10,
+                querySpawn: 12,
+                meshDropDeterminism: 20,
                 farStack: 12,
                 farPyramid: 400,
                 farRagdolls: 10,

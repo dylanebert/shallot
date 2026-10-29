@@ -22,6 +22,7 @@ import { CollisionState, collisionScenes } from "./collision";
 import { CollisionDebug, debugScenes } from "./collision-debug";
 import { compoundScenes } from "./compound";
 import { continuousScenes } from "./continuous";
+import { DeterminismState, determinismScenes } from "./determinism";
 import { eventScenes } from "./events";
 import { GeometricMoverState, geometricMoverScene } from "./geometric-mover";
 import { Geometry, geometryScenes } from "./geometry";
@@ -67,7 +68,8 @@ export type Scene =
     | keyof typeof shapeScenes
     | keyof typeof characterScenes
     | keyof typeof robustnessScenes
-    | keyof typeof worldScenes;
+    | keyof typeof worldScenes
+    | keyof typeof determinismScenes;
 export const categories: { name: string; scenes: { id: Scene; name: string }[] }[] = [
     {
         name: "Benchmark",
@@ -287,6 +289,15 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
         ],
     },
     {
+        name: "Determinism",
+        scenes: [
+            { id: "fallingRagdolls", name: "Falling Ragdolls" },
+            { id: "meshDropDeterminism", name: "Mesh Drop" },
+            { id: "querySpawn", name: "Query Spawn" },
+            { id: "wavePile", name: "Wave Pile" },
+        ],
+    },
+    {
         name: "World",
         scenes: [
             { id: "farMeshDrop", name: "Far Mesh Drop" },
@@ -389,6 +400,7 @@ export const scenes = {
     ...characterScenes,
     ...robustnessScenes,
     ...worldScenes,
+    ...determinismScenes,
     boxStack: {
         construct: boxStack,
         gridExtent: 40,
@@ -978,6 +990,7 @@ export const scenes = {
 export function createScene(world: World, scene: Scene): number[] {
     Object.assign(world.resource(RobustnessState), RobustnessState.create());
     Object.assign(world.resource(WorldSampleState), WorldSampleState.create());
+    Object.assign(world.resource(DeterminismState), DeterminismState.create());
     Object.assign(world.resource(HeightFieldState), HeightFieldState.create());
     Object.assign(world.resource(MeshInspectorState), MeshInspectorState.create());
     Object.assign(world.resource(MeshCreationState), MeshCreationState.create());

@@ -20,6 +20,7 @@ import {
     type World,
 } from "@dylanebert/shallot";
 import { PhysicsEvents, PhysicsWorldDefinition } from "@dylanebert/shallot/standard/physics";
+import { DeterminismPlugin } from "../src/determinism";
 import { EventSample, EventSamplePlugin } from "../src/events";
 import { Grab, GrabPlugin, pick } from "../src/grab";
 import { sceneSwitcher } from "../src/sample";
@@ -70,6 +71,7 @@ export async function expectSwitchesEqualFresh(
         plugins: [
             StandardPhysicsPlugin,
             EventSamplePlugin,
+            DeterminismPlugin,
             ...plugins,
             { name: "GrabRecovery", recovery: GrabPlugin.recovery },
         ],
@@ -107,7 +109,7 @@ export async function expectSwitchesEqualFresh(
             const freshControls = controlValues(scene);
             const fresh = await createApp({
                 defaults: false,
-                plugins: [StandardPhysicsPlugin, EventSamplePlugin, ...plugins],
+                plugins: [StandardPhysicsPlugin, EventSamplePlugin, DeterminismPlugin, ...plugins],
                 setup(world) {
                     createScene(world, scene);
                 },

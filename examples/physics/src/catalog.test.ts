@@ -221,6 +221,15 @@ test("each picker label selects its scene in its category, exactly once", () => 
             ],
         },
         {
+            name: "Determinism",
+            scenes: [
+                { id: "fallingRagdolls", name: "Falling Ragdolls" },
+                { id: "meshDropDeterminism", name: "Mesh Drop" },
+                { id: "querySpawn", name: "Query Spawn" },
+                { id: "wavePile", name: "Wave Pile" },
+            ],
+        },
+        {
             name: "World",
             scenes: [
                 { id: "farMeshDrop", name: "Far Mesh Drop" },

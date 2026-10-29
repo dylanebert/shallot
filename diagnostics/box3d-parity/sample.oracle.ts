@@ -14,7 +14,7 @@ import { digestMismatch, drawingDigest, eventDigests, querySteps, recordDigest }
 setDefaultTimeout(0);
 
 function copyRobustnessSources(directory: string): void {
-    for (const file of ["samples/sample_world.cpp", "samples/sample_robustness.cpp", "shared/overflow_color.c"])
+    for (const file of ["samples/sample_world.cpp", "samples/sample_robustness.cpp", "samples/sample_determinism.cpp", "shared/overflow_color.c", "shared/determinism.c", "shared/stability.c"])
         copyFileSync(join(process.env.BOX3D!, file), join(directory, file));
 }
 
@@ -30,6 +30,40 @@ function equalSampleSteps(actual: string, expected: string, label: string): void
         }
         expect(actualLines[step], `${label} step ${step} encoding`).toBe(expectedLines[step]);
     }
+}
+
+for (const [scene, file, before, after] of [
+    ["fallingRagdolls", "determinism.c", "float frictionTorque = 5.0f;", "float frictionTorque = 6.0f;"],
+    ["wavePile", "determinism.c", "float spacing = 1.7f;", "float spacing = 1.8f;"],
+    ["querySpawn", "determinism.c", "bodyDef.linearDamping = 1.0f;", "bodyDef.linearDamping = 1.1f;"],
+    ["meshDropDeterminism", "stability.c", "float groundAmplitude = 0.5f;", "float groundAmplitude = 0.6f;"],
+] as const) {
+    test(`${scene}: native sample readouts repeat and a shared source mutation fails parity`, () => {
+        const binary = sampleBinary(), directory = mkdtempSync(join(tmpdir(), "box3d-determinism-"));
+        const base = new URL("../../examples/physics/tests/", import.meta.url), rows = join(directory, "rows.txt");
+        try {
+            const args = [binary, scene, "600"], env = { DETERMINISM_READOUTS: rows };
+            const hashes = run(args, env), readouts = readFileSync(rows, "utf8");
+            equalSampleSteps(hashes, readFileSync(new URL(`${scene}.gold.txt`, base), "utf8"), scene);
+            expect(readouts).toBe(readFileSync(new URL(`${scene}.readouts.gold.txt`, base), "utf8"));
+            equalSampleSteps(run(args, env), hashes, `${scene} repeat`);
+            expect(readFileSync(rows, "utf8")).toBe(readouts);
+            if (scene === "querySpawn") {
+                run([binary, scene, "681"], env);
+                expect(`${readFileSync(rows, "utf8").trim().split("\n").at(-1)}\n`).toBe(readFileSync(new URL("querySpawn.sleep.gold.txt", base), "utf8"));
+            }
+            const samples = join(directory, "samples"); mkdirSync(samples); mkdirSync(join(directory, "shared"));
+            for (const name of readdirSync(join(process.env.BOX3D!, "samples")))
+                if (name.endsWith(".cpp") || name.endsWith(".h")) copyFileSync(join(process.env.BOX3D!, "samples", name), join(samples, name));
+            copyFileSync(join(process.env.BOX3D!, "shared/benchmarks.c"), join(directory, "shared/benchmarks.c"));
+            copyRobustnessSources(directory);
+            const path = join(directory, "shared", file), source = readFileSync(path, "utf8");
+            expect(source).toContain(before);
+            writeFileSync(path, source.replace(before, after));
+            const mutated = run([sampleBinary(samples), scene, "600"]);
+            expect(sampleGold(mutated).map(s => s.hash)).not.toEqual(sampleGold(hashes).map(s => s.hash));
+        } finally { rmSync(directory, { recursive: true, force: true }); }
+    });
 }
 
 for (const [scene, name, before, after] of [

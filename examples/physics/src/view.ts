@@ -46,6 +46,7 @@ import { collisionNames } from "./collision";
 import { debugDrawing, drawCollisionDebug } from "./collision-debug-presentation";
 import { drawCollisionView } from "./collision-presentation";
 import { childGeometry, compoundChildren, largeCompound, overlaps } from "./compound-presentation";
+import { drawQuerySpawn } from "./determinism-presentation";
 import { drawingBounds, drawSet } from "./draw-set";
 import { DrivingState } from "./driving";
 import { EventSample } from "./events";
@@ -586,6 +587,10 @@ function createView(world: World, scene: Scene, camera: number): () => void {
                 );
             if (scene === "cast")
                 drawCastView(world, camera, (a, b, color, options) =>
+                    drawLine(world, a, b, color, options),
+                );
+            if (scene === "querySpawn")
+                drawQuerySpawn(world, (a, b, color, options) =>
                     drawLine(world, a, b, color, options),
                 );
             drawJointViews(world, scene, camera, (a, b, color, options) =>
