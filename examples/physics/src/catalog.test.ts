@@ -131,6 +131,20 @@ test("each picker label selects its scene in its category, exactly once", () => 
             ],
         },
         {
+            name: "Issues",
+            scenes: [
+                { id: "capsuleMesh", name: "Capsule Mesh" },
+                { id: "convexJitter", name: "Convex Jitter" },
+                { id: "crash", name: "Crash" },
+                { id: "issueHeightfield", name: "Heightfield" },
+                { id: "hugeBox", name: "Huge Box" },
+                { id: "hullCrash", name: "Hull Crash" },
+                { id: "multiplePrismatic", name: "Multiple Prismatic" },
+                { id: "sboxMover", name: "s&box mover" },
+                { id: "slideTwistOffCenterShape", name: "Slide Twist Off Center Shape" },
+            ],
+        },
+        {
             name: "Joints",
             scenes: [
                 { id: "ballAndChain", name: "Ball and Chain" },

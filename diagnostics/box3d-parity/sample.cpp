@@ -102,7 +102,13 @@ std::vector<ContactMark> contactMarks;
 FILE* characterDrawing = nullptr;
 bool manifoldRecording = false;
 std::vector<std::vector<double>> characterMarks;
-void DrawPoint( b3Pos p, float size, int ) { if (characterDrawing || manifoldRecording) characterMarks.push_back({0,p.x,p.y,p.z,size}); }
+FILE* geometryRecords = nullptr;
+bool issueHullRecords = false;
+std::vector<std::vector<double>> geometryRows;
+void DrawPoint( b3Pos p, float size, int ) {
+    if (characterDrawing || manifoldRecording) characterMarks.push_back({0,p.x,p.y,p.z,size});
+    if (geometryRecords && issueHullRecords) geometryRows.push_back({0,p.x,p.y,p.z,size});
+}
 void DrawLine( b3Pos a, b3Pos b, int ) {
     if (contactDrawing) contactMarks.push_back({a,b,{}});
     if (characterDrawing || manifoldRecording) characterMarks.push_back({1,a.x,a.y,a.z,b.x,b.y,b.z});
@@ -121,8 +127,6 @@ void DrawSolidSphere( b3WorldTransform t, b3Sphere s, int ) {
     if (characterDrawing) characterMarks.push_back({4,t.p.x,t.p.y,t.p.z,t.q.v.x,t.q.v.y,t.q.v.z,t.q.s,s.center.x,s.center.y,s.center.z,s.radius});
 }
 void DrawSphereEx( b3WorldTransform, float, int, float, float, int ) {}
-FILE* geometryRecords = nullptr;
-std::vector<std::vector<double>> geometryRows;
 void DrawHull( b3WorldTransform t, const b3HullData* h, int ) {
     if (!geometryRecords) return;
     std::vector<double> row = {5,t.p.x,t.p.y,t.p.z,t.q.v.x,t.q.v.y,t.q.v.z,t.q.s,
@@ -135,6 +139,10 @@ void DrawHull( b3WorldTransform t, const b3HullData* h, int ) {
     for (int i=0;i<h->vertexCount;i++) for (float v : {points[i].x,points[i].y,points[i].z}) row.push_back(v);
     const auto* edges = b3GetHullEdges(h);
     for (int i=0;i<h->edgeCount;i++) for (int v : {edges[i].next,edges[i].twin,edges[i].origin,edges[i].face}) row.push_back(v);
+    if (issueHullRecords) {
+        const auto* faces = b3GetHullFaces(h);
+        for (int i=0;i<h->faceCount;i++) row.push_back(faces[i].edge);
+    }
     geometryRows.push_back(row);
 }
 b3MassData RecordMass(b3MassData m) {
@@ -442,6 +450,11 @@ int main( int argc, char** argv )
         { "triangleVsCapsule", ManifoldSamples::TriangleAndCapsule::Create },
         { "hullVsHull", ManifoldSamples::HullAndHull::Create },
         { "triangleVsHull", ManifoldSamples::TriangleAndHull::Create },
+        { "crash", Issues::Crash::Create }, { "multiplePrismatic", Issues::MultiplePrismatic::Create },
+        { "hullCrash", Issues::HullCrash::Create }, { "convexJitter", Issues::ConvexJitter::Create },
+        { "sboxMover", Issues::SBoxMover::Create }, { "capsuleMesh", Issues::CapsuleMeshBug::Create },
+        { "slideTwistOffCenterShape", Issues::SlideTwistOffCenterShape::Create }, { "hugeBox", Issues::HugeBox::Create },
+        { "issueHeightfield", Issues::HeightfieldIssue::Create },
         { "boxHull", Geometry::BoxHull::Create }, { "geometryHull", Geometry::Hull::Create },
         { "hullReduction", Geometry::HullReduction::Create }, { "hullTransform", Geometry::HullTransform::Create },
         { "capsuleMass", Geometry::CapsuleMass::Create },
@@ -532,8 +545,9 @@ int main( int argc, char** argv )
     manifoldRecords = getenv("MANIFOLD_RECORDS") ? fopen(getenv("MANIFOLD_RECORDS"), "w") : nullptr;
     manifoldRecording = manifoldRecords != nullptr;
     const bool manifoldScene = dynamic_cast<ManifoldSamples::Manifold*>(sample) || dynamic_cast<ManifoldSamples::TriangleManifold*>(sample);
+    issueHullRecords = !strcmp(argv[1], "hullCrash");
     geometryRecords = getenv("GEOMETRY_RECORDS") ? fopen(getenv("GEOMETRY_RECORDS"), "w") : nullptr;
-    const bool geometryScene = !strcmp(argv[1],"boxHull") || !strcmp(argv[1],"geometryHull") || !strcmp(argv[1],"hullReduction") || !strcmp(argv[1],"hullTransform") || !strcmp(argv[1],"capsuleMass");
+    const bool geometryScene = !strcmp(argv[1],"hullCrash") || !strcmp(argv[1],"boxHull") || !strcmp(argv[1],"geometryHull") || !strcmp(argv[1],"hullReduction") || !strcmp(argv[1],"hullTransform") || !strcmp(argv[1],"capsuleMass");
     Collision::queries = getenv("COLLISION_QUERIES") ? fopen(getenv("COLLISION_QUERIES"), "w") : nullptr;
     characterDrawing = getenv("CHARACTER_DRAWING") ? fopen(getenv("CHARACTER_DRAWING"), "w") : nullptr;
     FILE* villageReadouts = getenv("VILLAGE_READOUTS") ? fopen(getenv("VILLAGE_READOUTS"), "w") : nullptr;

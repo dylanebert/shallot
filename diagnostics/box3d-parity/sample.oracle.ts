@@ -14,8 +14,56 @@ import { digestMismatch, drawingDigest, eventDigests, querySteps, recordDigest }
 setDefaultTimeout(0);
 
 function copyRobustnessSources(directory: string): void {
-    for (const file of ["samples/sample_tree.cpp", "samples/sample_world.cpp", "samples/sample_robustness.cpp", "samples/sample_determinism.cpp", "shared/overflow_color.c", "shared/determinism.c", "shared/stability.c"])
+    for (const file of ["samples/sample_issues.cpp", "samples/sample_tree.cpp", "samples/sample_world.cpp", "samples/sample_robustness.cpp", "samples/sample_determinism.cpp", "shared/overflow_color.c", "shared/determinism.c", "shared/stability.c"])
         copyFileSync(join(process.env.BOX3D!, file), join(directory, file));
+}
+
+for (const [scene, name, before, after] of [
+    ["crash", "Crash", "{ 2.0f, 4.0f, 0.0f }", "{ 2.1f, 4.0f, 0.0f }"],
+    ["multiplePrismatic", "MultiplePrismatic", "{ 0.0f, -0.6f, 0.0f }", "{ 0.0f, -0.7f, 0.0f }"],
+    ["hullCrash", "HullCrash", "{ 100.000000, -142.292389, 130.826111 }", "{ 101.000000, -142.292389, 130.826111 }"],
+    ["convexJitter", "ConvexJitter", "rollingResistance = 0.1f;", "rollingResistance = 0.2f;"],
+    ["sboxMover", "SBoxMover", "{ 0.0f, 3.5f, 0.0f }", "{ 0.0f, 3.6f, 0.0f }"],
+    ["capsuleMesh", "CapsuleMeshBug", "{ 0.0f, 4.0f, 10.0f }", "{ 0.0f, 4.1f, 10.0f }"],
+    ["slideTwistOffCenterShape", "SlideTwistOffCenterShape", "b3Body_SetAngularVelocity( boxBody, 25.0f", "b3Body_SetAngularVelocity( boxBody, 26.0f"],
+    ["hugeBox", "HugeBox", "float a = 100.0f;", "float a = 101.0f;"],
+    ["issueHeightfield", "HeightfieldIssue", "{ 50, 20, 50 }", "{ 50, 21, 50 }"],
+] as const) {
+    test(`${scene}: Issues native steps repeat, controls use DrawControls, and a source mutation fails parity`, () => {
+        const start = performance.now(), binary = sampleBinary();
+        const directory = mkdtempSync(join(tmpdir(), "box3d-issues-"));
+        const base = new URL("../../examples/physics/tests/", import.meta.url), records = join(directory, "geometry.jsonl");
+        const env: Record<string, string> = scene === "hullCrash" ? { GEOMETRY_RECORDS: records } : {};
+        const geometry = () => readFileSync(records, "utf8").trim().split("\n").map(line => drawingDigest(JSON.parse(line))).join("\n") + "\n";
+        try {
+            const hashes = run([binary, scene, "600"], env);
+            equalSampleSteps(hashes, readFileSync(new URL(`${scene}.gold.txt`, base), "utf8"), scene);
+            const hull = scene === "hullCrash" ? geometry() : "";
+            if (scene === "hullCrash") expect(hull).toBe(readFileSync(new URL("hullCrash.geometry.gold.txt", base), "utf8"));
+            equalSampleSteps(run([binary, scene, "600"], env), hashes, `${scene} repeat`);
+            if (scene === "hullCrash") expect(geometry()).toBe(hull);
+            if (scene === "crash") {
+                const args = [binary, scene, "600", fileURLToPath(new URL("crash.controls.txt", base))];
+                const controlled = run(args);
+                equalSampleSteps(controlled, readFileSync(new URL("crash.controls.gold.txt", base), "utf8"), "Crash controls");
+                equalSampleSteps(run(args), controlled, "Crash controls repeat");
+                expect(controlled).not.toBe(hashes);
+            }
+            const samples = join(directory, "samples"); mkdirSync(samples); mkdirSync(join(directory, "shared"));
+            for (const file of readdirSync(join(process.env.BOX3D!, "samples")))
+                if (file.endsWith(".cpp") || file.endsWith(".h")) copyFileSync(join(process.env.BOX3D!, "samples", file), join(samples, file));
+            copyFileSync(join(process.env.BOX3D!, "shared/benchmarks.c"), join(directory, "shared/benchmarks.c"));
+            copyRobustnessSources(directory);
+            const path = join(samples, "sample_issues.cpp"), source = readFileSync(path, "utf8"), offset = source.indexOf(`class ${name} :`);
+            expect(offset).toBeGreaterThanOrEqual(0);
+            expect(source.slice(offset)).toContain(before);
+            writeFileSync(path, source.slice(0, offset) + source.slice(offset).replace(before, after));
+            const mutated = run([sampleBinary(samples), scene, "600"], env);
+            if (scene === "hullCrash") expect(geometry()).not.toBe(hull);
+            else expect(sampleGold(mutated).map(step => step.hash)).not.toEqual(sampleGold(hashes).map(step => step.hash));
+            console.log(`${scene} native parity, repeat, controls and mutation: ${(performance.now() - start).toFixed(0)} ms`);
+        } finally { rmSync(directory, { recursive: true, force: true }); }
+    });
 }
 
 test("treeBenchmark: native tree records repeat, controls use DrawControls, and a source mutation fails parity", () => {

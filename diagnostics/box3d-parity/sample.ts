@@ -5,6 +5,7 @@ import { nativeBinary } from "./native";
 
 /** Compile the selected upstream classes verbatim, without the samples app's graphics dependencies. */
 export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples")): string {
+    const issues = readFileSync(join(samples, "sample_issues.cpp"), "utf8");
     const manifold = readFileSync(join(samples, "sample_manifold.cpp"), "utf8");
     const geometry = readFileSync(join(samples, "sample_geometry.cpp"), "utf8");
     const shapes = readFileSync(join(samples, "sample_shapes.cpp"), "utf8");
@@ -31,6 +32,9 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         return source.slice(first, last);
     }
     const sources = [
+        "namespace Issues {",
+        ...[["Crash", "sampleCrash"], ["MultiplePrismatic", "sampleMultiplePrismatic"], ["HullCrash", "sampleHullCrash"], ["ConvexJitter", "sampleConvexJitter"], ["SBoxMover", "sampleBoxMesh"], ["CapsuleMeshBug", "sampleIndex"], ["SlideTwistOffCenterShape", "sampleSlideTwistOffCenterShape"], ["HugeBox", "sampleHugeBox"], ["HeightfieldIssue", "sampleIssueIndex"]].map(([name, end]) => section(issues, `class ${name} :`, `static int ${end}`)),
+        "}",
         "namespace ManifoldSamples {",
         section(manifold, "class Manifold :", "class SphereAndSphere :"),
         ...[["SphereAndSphere","sampleCollideSpheres"],["CapsuleAndSphere","sampleSphereAndCapsule"],["HullAndSphere","sampleSphereAndHull"],["TriangleAndSphere","sampleSphereAndTriangle"],["CapsuleAndCapsule","sampleCapsuleAndCapsule"],["CapsuleAndHull","sampleCapsuleAndHull"],["TriangleAndCapsule","sampleCapsuleAndTriangle"],["HullAndHull","sampleCollideHulls"],["TriangleAndHull","sampleHullAndTriangle"]].map(([name,end])=>section(manifold,`class ${name} :`,`static int ${end}`)),

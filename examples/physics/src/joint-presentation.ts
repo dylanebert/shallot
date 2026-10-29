@@ -29,11 +29,13 @@ const kinds = [
     WeldJoint,
     WheelJoint,
 ] as const;
-const scenes = new Set(
-    categories
+const scenes = new Set<Scene>([
+    "crash",
+    "multiplePrismatic",
+    ...categories
         .filter((category) => category.name === "Joints" || category.name === "Ragdoll")
         .flatMap((category) => category.scenes.map(({ id }) => id)),
-);
+]);
 export const JOINT_DOT_DIAMETER = JOINT_DOT.width;
 export const JOINT_LINE = { width: 1, depthBias: -1 };
 type Point = [number, number, number];
