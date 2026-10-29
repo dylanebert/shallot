@@ -1,0 +1,2 @@
+stage: 1
+finding: MIGRATION.md:48 labels the material-binding conversion table `0.10.1 | 0.10.2`, although 6293e197~1:MIGRATION.md:48 labels these same old/new forms `0.10 | 0.10.1`. This retained label change falsely presents the old texture/sampler spellings as the 0.10.1 API and obscures the direct published-0.10-to-latest path promised at MIGRATION.md:3. Restore the old-side baseline to 0.10 and label the destination consistently with the series guide.
