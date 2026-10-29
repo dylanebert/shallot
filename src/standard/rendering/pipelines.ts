@@ -742,74 +742,6 @@ function colorVs(surface: AnyMaterialType, clip = false, suffix = clip ? "Clip" 
         .$name(name);
 }
 
-function colorFs(
-    surface: AnyMaterialType,
-    alphaToCoverageFallback = false,
-    fogged = false,
-    coverage = false,
-    cullMode: number = CullModeCode.Back,
-) {
-    const readsFacing = cullMode === CullModeCode.None;
-    const facing = cullMode === CullModeCode.Back;
-    const fogColor = fogged ? foggedColor : unfoggedColor;
-    // Reuse the function's schema identity: a structurally equal context forces an implicit conversion.
-    const fragment = materialFragmentFunction(surface);
-    const CtxSchema = (fragment as any).shell.argTypes[0];
-    const needUv = !!surface.fragmentInputs?.uv;
-    const needLocalPos = !!surface.fragmentInputs?.localPos;
-    const inputSchema = {
-        pos: d.builtin.position,
-        worldNormal: d.vec3f,
-        eid: d.interpolate("flat", d.u32),
-        row: d.interpolate("flat", d.u32),
-        world: d.vec3f,
-        material: d.interpolate("flat", d.u32),
-        alphaMode: d.interpolate("flat", d.u32),
-        alphaCutoff: d.interpolate("flat", d.f32),
-        ...fragmentInterstage(surface),
-        ...facingInput(cullMode),
-    };
-    return tgpu
-        .fragmentFn({
-            in: inputSchema,
-            out: (coverage ? coverageOutput : colorOutput) as typeof colorOutput,
-        })((input: any) => {
-            "use gpu";
-            const worldNormal = std.normalize(input.worldNormal);
-            receiveLighting(input.world, worldNormal, input.pos);
-            // The no-varyings default adds a Record<string, never> index signature that rejects
-            // these known fields in TypeScript; the cast does not change the actual WGSL context schema.
-            const ctx = CtxSchema({
-                eid: input.eid,
-                row: input.row,
-                world: input.world,
-                worldNormal,
-                uv: needUv ? input.uv : d.vec2f(0),
-                localPos: needLocalPos ? input.localPos : d.vec3f(0),
-                material: materialRow(input.material),
-                alphaMode: alphaToCoverageFallback ? AlphaModeCode.Opaque : input.alphaMode,
-                alphaCutoff: input.alphaCutoff,
-                frontFacing: logicalFrontFacing(
-                    readsFacing ? input.frontFacing : facing,
-                    input.material,
-                ),
-                fragCoord: input.pos,
-                prepass: false,
-            } as any);
-            const col = d.vec4f(std.add(fragment(ctx), d.vec4f(shadowForce())));
-            const output = alphaColorOutput(
-                fogColor(col, input.world, input.alphaMode),
-                input.alphaMode,
-                input.alphaCutoff,
-                alphaToCoverageFallback ? 0xffffffff : 0,
-            );
-            if (coverage)
-                return { color: d.vec4f(output.xyz, 1), mask: coverageMask(output.w) } as never;
-            return { color: output };
-        })
-        .$name(`${surface.name}${alphaToCoverageFallback ? "Single" : ""}Fs`);
-}
-
 // Host surface objects cannot cross a TGSL helper boundary; this entry closes over its depth layout.
 // Only a material without a vertex function reaches it: the 8-byte stream carries no normal or uv.
 function prepassVs(surface: AnyMaterialType) {
@@ -857,58 +789,6 @@ const prepassNormalColor = tgpu.fn(
 /** The material fragment in a depth pass: `clip` discards below the cutoff, `normals` writes
  * {@link prepassNormalColor}. */
 function clipFs(
-    surface: AnyMaterialType,
-    normals = false,
-    clip = true,
-    cullMode: number = CullModeCode.Back,
-) {
-    const readsFacing = cullMode === CullModeCode.None;
-    const facing = cullMode === CullModeCode.Back;
-    const needUv = !!surface.fragmentInputs?.uv;
-    const needLocalPos = !!surface.fragmentInputs?.localPos;
-    const fragment = materialFragmentFunction(surface);
-    const Ctx = (fragment as any).shell.argTypes[0];
-    const input = {
-        pos: d.builtin.position,
-        worldNormal: d.vec3f,
-        eid: d.interpolate("flat", d.u32),
-        row: d.interpolate("flat", d.u32),
-        world: d.vec3f,
-        material: d.interpolate("flat", d.u32),
-        alphaMode: d.interpolate("flat", d.u32),
-        alphaCutoff: d.interpolate("flat", d.f32),
-        ...fragmentInterstage(surface),
-        ...facingInput(cullMode),
-    };
-    return tgpu
-        .fragmentFn({ in: input, out: normals ? colorOutput : d.Void })((fin: any) => {
-            "use gpu";
-            const ctx = Ctx({
-                eid: fin.eid,
-                row: fin.row,
-                world: fin.world,
-                worldNormal: std.normalize(fin.worldNormal),
-                uv: needUv ? (fin as any).uv : d.vec2f(0),
-                localPos: needLocalPos ? (fin as any).localPos : d.vec3f(0),
-                material: materialRow(fin.material),
-                alphaMode: d.u32(0),
-                alphaCutoff: fin.alphaCutoff,
-                frontFacing: logicalFrontFacing(
-                    readsFacing ? fin.frontFacing : facing,
-                    fin.material,
-                ),
-                fragCoord: fin.pos,
-                prepass: true,
-            });
-            const color = fragment(ctx);
-            const cutoff = fin.alphaCutoff;
-            if (clip && color.a < cutoff) std.discard();
-            if (normals) return { color: prepassNormalColor(fin.worldNormal) } as never;
-        })
-        .$name(`${surface.name}ClipFs`);
-}
-
-function varyingClipFs(
     surface: AnyMaterialType,
     normals = false,
     clip = true,
@@ -1146,7 +1026,7 @@ const receiveLighting = tgpu.fn([d.vec3f, d.vec3f, d.vec4f])((world, normal, pos
     pointScale.$ = 1;
 });
 
-function varyingFs(
+function colorFs(
     surface: AnyMaterialType,
     alphaToCoverageFallback = false,
     fogged = false,
@@ -1302,16 +1182,8 @@ export function compileMaterial<
         (alphaPipelineKey === AlphaPipelineKey.Blend ||
             alphaPipelineKey === AlphaPipelineKey.Premultiplied ||
             alphaPipelineKey === AlphaPipelineKey.Multiply);
-    const fragment = (
-        hasVaryings
-            ? varyingFs(surface, false, fogged, false, cullMode)
-            : colorFs(surface, false, fogged, false, cullMode)
-    ) as ReturnType<typeof colorFs>;
-    const singleFragment = (
-        hasVaryings
-            ? varyingFs(surface, true, fogged, false, cullMode)
-            : colorFs(surface, true, fogged, false, cullMode)
-    ) as ReturnType<typeof colorFs>;
+    const fragment = colorFs(surface, false, fogged, false, cullMode);
+    const singleFragment = colorFs(surface, true, fogged, false, cullMode);
     const name = variantName(surface, alphaPipelineKey, cullMode);
     const primitive = materialPrimitive(cullMode);
     const args: CompiledMaterial["args"] = {
@@ -1441,12 +1313,7 @@ export function ensureStacked(world: World, t: CompiledMaterial): TgpuRenderPipe
     if (t.stacked) return t.stacked;
     const { vertex, primitive, name, cullMode } = t.args;
     const surface = t.owner;
-    const hasVaryings = !!surface.varyings && Object.keys(surface.varyings).length > 0;
-    const fragment = (
-        hasVaryings
-            ? varyingFs(surface, false, false, true, cullMode)
-            : colorFs(surface, false, false, true, cullMode)
-    ) as ReturnType<typeof colorFs>;
+    const fragment = colorFs(surface, false, false, true, cullMode);
     t.stacked = materialRoot(world, surface)
         .createRenderPipeline({
             vertex,
@@ -1511,13 +1378,9 @@ function compilePrepass(
                       ? colorVs(surface, true)
                       : prepassVs(surface),
             fragment: clip
-                ? ((varying
-                      ? varyingClipFs(surface, normals, true, cullMode)
-                      : clipFs(surface, normals, true, cullMode)) as never)
+                ? (clipFs(surface, normals, true, cullMode) as never)
                 : normals
-                  ? ((varying
-                        ? varyingClipFs(surface, true, false, cullMode)
-                        : clipFs(surface, true, false, cullMode)) as never)
+                  ? (clipFs(surface, true, false, cullMode) as never)
                   : depthOnlyFs,
             targets: (normals ? { color: { format: NORMAL_FORMAT } } : undefined) as never,
             primitive,
@@ -1940,7 +1803,9 @@ ${outputAssignments}
         .$name(`${surface.name}${cascade ? "Cascade" : "Point"}ClipVs`);
 }
 
-function varyingShadowFs(surface: AnyMaterialType, cullMode: number) {
+/** The clipped atlas fragment: the tile-seam discard, then the surface fragment for its cutoff discard
+ * alone; this depth-only pipeline ignores its color. */
+function clipShadowFs(surface: AnyMaterialType, cullMode: number) {
     const readsFacing = cullMode === CullModeCode.None;
     const facing = cullMode === CullModeCode.Back;
     const varyings = surface.varyings ?? {};
@@ -2005,62 +1870,6 @@ function varyingShadowFs(surface: AnyMaterialType, cullMode: number) {
         .$name(`${surface.name}ClipShadowFs`);
 }
 
-/** the clipped atlas fragment: preserve the tile-seam discard, then call the surface fs solely for its
- * cutoff discard. Its color result is intentionally ignored by this depth-only pipeline. */
-function clipShadowFs(surface: AnyMaterialType, cullMode: number) {
-    const readsFacing = cullMode === CullModeCode.None;
-    const facing = cullMode === CullModeCode.Back;
-    const needUv = !!surface.fragmentInputs?.uv;
-    const needLocalPos = !!surface.fragmentInputs?.localPos;
-    const fragment = materialFragmentFunction(surface);
-    const Ctx = (fragment as any).shell.argTypes[0];
-    return tgpu
-        .fragmentFn({
-            in: {
-                pos: d.builtin.position,
-                tileBox: d.interpolate("flat", d.vec4f),
-                worldNormal: d.vec3f,
-                eid: d.interpolate("flat", d.u32),
-                row: d.interpolate("flat", d.u32),
-                world: d.vec3f,
-                material: d.interpolate("flat", d.u32),
-                alphaCutoff: d.interpolate("flat", d.f32),
-                ...fragmentInterstage(surface),
-                ...facingInput(cullMode),
-            },
-            out: d.Void,
-        })((input: any) => {
-            "use gpu";
-            const p = input.pos.xy;
-            const mn = input.tileBox.xy;
-            const sz = input.tileBox.z;
-            if (p.x < mn.x || p.x >= mn.x + sz || p.y < mn.y || p.y >= mn.y + sz) {
-                std.discard();
-            }
-            const ctx = Ctx({
-                eid: input.eid,
-                row: input.row,
-                world: input.world,
-                worldNormal: std.normalize(input.worldNormal),
-                uv: needUv ? (input as any).uv : d.vec2f(0),
-                localPos: needLocalPos ? (input as any).localPos : d.vec3f(0),
-                material: materialRow(input.material),
-                alphaMode: d.u32(0),
-                alphaCutoff: input.alphaCutoff,
-                frontFacing: logicalFrontFacing(
-                    readsFacing ? input.frontFacing : facing,
-                    input.material,
-                ),
-                fragCoord: input.pos,
-                prepass: true,
-            });
-            const color = fragment(ctx);
-            const cutoff = input.alphaCutoff;
-            if (color.a < cutoff) std.discard();
-        })
-        .$name(`${surface.name}ClipShadowFs`);
-}
-
 /**
  * Compile a `MaterialType`'s point and cascade shadow-atlas pipelines when its depth settings enable
  * them. Opaque types share {@link shadowFs}, behind the clipped vertex stage when a vertex function
@@ -2110,11 +1919,7 @@ function compileShadow(
                 : surface.vertex
                   ? clipShadowVs(surface, pointLayout, false, capacity)
                   : shadowVs(surface, pointLayout, false, capacity),
-            fragment: clip
-                ? ((varying
-                      ? varyingShadowFs(surface, cullMode)
-                      : clipShadowFs(surface, cullMode)) as never)
-                : shadowFs,
+            fragment: clip ? (clipShadowFs(surface, cullMode) as never) : shadowFs,
             primitive,
             depthStencil,
             multisample: { count: 1 },
@@ -2129,11 +1934,7 @@ function compileShadow(
                 : surface.vertex
                   ? clipShadowVs(surface, cascadeLayout, true, capacity)
                   : shadowVs(surface, cascadeLayout, true, capacity),
-            fragment: clip
-                ? ((varying
-                      ? varyingShadowFs(surface, cullMode)
-                      : clipShadowFs(surface, cullMode)) as never)
-                : shadowFs,
+            fragment: clip ? (clipShadowFs(surface, cullMode) as never) : shadowFs,
             primitive,
             depthStencil,
             multisample: { count: 1 },
