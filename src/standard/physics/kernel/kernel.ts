@@ -468,6 +468,21 @@ export type Kernel = {
         ud: number,
         udh: number,
     ): number;
+    standaloneTreeCreate(capacity: number): number;
+    standaloneTreeDestroy(pointer: number): void;
+    standaloneTreeWords(pointer: number): number;
+    standaloneTreePool(pointer: number): number;
+    standaloneTreeCall(
+        pointer: number,
+        op: number,
+        id: number,
+        maskHi: number,
+        maskLo: number,
+        all: number,
+        userLow: number,
+        userHigh: number,
+        limit: number,
+    ): number;
     treeQuery(
         ptr: number,
         cap: number,

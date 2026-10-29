@@ -171,6 +171,8 @@ mod solve;
 #[cfg(target_arch = "wasm32")]
 mod standalone_manifold;
 #[cfg(target_arch = "wasm32")]
+mod standalone_tree;
+#[cfg(target_arch = "wasm32")]
 mod treework;
 #[cfg(target_arch = "wasm32")]
 mod wind;

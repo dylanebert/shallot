@@ -131,6 +131,30 @@ export {
 export type { Capsule, MassData } from "./shapes/geometry";
 export type { HullData } from "./shapes/hull";
 export { computeCapsuleMass, computeHullMass } from "./shapes/mass";
+export {
+    createPhysicsTree,
+    createPhysicsTreeProxy,
+    destroyPhysicsTree,
+    destroyPhysicsTreeProxy,
+    getPhysicsTreeNode,
+    getPhysicsTreeStats,
+    loadPhysicsTree,
+    movePhysicsTreeProxy,
+    type PhysicsTree,
+    type PhysicsTreeClosestHit,
+    type PhysicsTreeClosestResult,
+    type PhysicsTreeFilter,
+    type PhysicsTreeNode,
+    type PhysicsTreeQueryResult,
+    type PhysicsTreeRayHit,
+    type PhysicsTreeStats,
+    queryClosestPhysicsTree,
+    queryPhysicsTree,
+    rayCastPhysicsTree,
+    rebuildPhysicsTree,
+    savePhysicsTree,
+    validatePhysicsTree,
+} from "./tree";
 export type { PhysicsWorldCounters } from "./world/counters";
 export type { StepProfile } from "./world/profile";
 export {

@@ -72,7 +72,7 @@ fn is_leaf(pool: &[u32], i: i32) -> bool {
     pool[i as usize * STRIDE + 11] & LEAF != 0
 }
 
-fn perimeter(pool: &[u32], i: i32) -> f32 {
+pub(crate) fn perimeter(pool: &[u32], i: i32) -> f32 {
     let (lo, hi) = node_aabb(pool, i);
     let x = hi[0] - lo[0];
     let y = hi[1] - lo[1];
