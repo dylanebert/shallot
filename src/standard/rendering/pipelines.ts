@@ -776,34 +776,7 @@ function colorFs(
         })((input: any) => {
             "use gpu";
             const worldNormal = std.normalize(input.worldNormal);
-            sunVisibility.$ = sampleSunShadow(
-                input.world,
-                worldNormal,
-                d.u32(engineLayout.$.view.shadowFilteringMethod),
-            );
-            fragWorld.$ = d.vec3f(input.world);
-            fragCoord.$ = d.vec4f(input.pos);
-            pointScale.$ = 1;
-            // Shadow receivers read free WGSL names that TypeGPU's call graph cannot discover.
-            // Touch their layout bindings in the returned value: the transpiler removes an unused
-            // touch as dead code. Multiplying by zero preserves the fragment color.
-            const forcedZero =
-                (shadowLayout.$.pointShadows.casters[0].pos.x +
-                    shadowLayout.$.tileRects.rects[0].x +
-                    shadowLayout.$.sunShadow.enabled +
-                    std.textureSampleCompareLevel(
-                        shadowLayout.$.pointAtlas,
-                        shadowLayout.$.shadowSamp,
-                        d.vec2f(0, 0),
-                        0,
-                    ) +
-                    std.textureSampleCompareLevel(
-                        shadowLayout.$.shadowMap,
-                        shadowLayout.$.shadowSamp,
-                        d.vec2f(0, 0),
-                        0,
-                    )) *
-                0;
+            receiveLighting(input.world, worldNormal, input.pos);
             // The no-varyings default adds a Record<string, never> index signature that rejects
             // these known fields in TypeScript; the cast does not change the actual WGSL context schema.
             const ctx = CtxSchema({
@@ -823,7 +796,7 @@ function colorFs(
                 fragCoord: input.pos,
                 prepass: false,
             } as any);
-            const col = d.vec4f(std.add(fragment(ctx), d.vec4f(forcedZero)));
+            const col = d.vec4f(std.add(fragment(ctx), d.vec4f(shadowForce())));
             const output = alphaColorOutput(
                 fogColor(col, input.world, input.alphaMode),
                 input.alphaMode,
@@ -1159,6 +1132,20 @@ const shadowForce = tgpu
     })
     .$name("shadowForce");
 
+/** The color pass's receiver state, read by lit and applyPbrLighting: the sun's shadow visibility,
+ *  the fragment's world position and position builtin, and the point-light and SSAO enable. */
+const receiveLighting = tgpu.fn([d.vec3f, d.vec3f, d.vec4f])((world, normal, position) => {
+    "use gpu";
+    sunVisibility.$ = sampleSunShadow(
+        world,
+        normal,
+        d.u32(engineLayout.$.view.shadowFilteringMethod),
+    );
+    fragWorld.$ = d.vec3f(world);
+    fragCoord.$ = d.vec4f(position);
+    pointScale.$ = 1;
+});
+
 function varyingFs(
     surface: AnyMaterialType,
     alphaToCoverageFallback = false,
@@ -1199,6 +1186,7 @@ function varyingFs(
         .fragmentFn({ in: entryIn, out })((input: any) => {
             "use gpu";
             const worldNormal = std.normalize(input.worldNormal);
+            receiveLighting(input.world, worldNormal, input.pos);
             const ctx = Ctx();
             ctx.eid = input.eid;
             ctx.row = input.row;
