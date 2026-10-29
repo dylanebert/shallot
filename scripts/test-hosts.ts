@@ -41,6 +41,7 @@ export const ONLY: Readonly<Record<string, readonly NodeJS.Platform[]>> = {
     // On macOS's single browser shard it took 5.0 of 17.1 min (run 40757815928). A macOS-only label overflow
     // reopens it as a macOS label-fit subject, not the whole example.
     "examples/physics": ["linux", "win32"],
+    "examples/physics/tests/panels": ["linux", "win32"],
     "examples/physics/tests/stepped": ["linux", "win32"],
     // Its packaging classes are Windows paths and Linux case; macOS adds none, and there, on runners GitHub caps at
     // five, it is the costliest file (8 min). The packed CLI on macOS stays held by mac-native, packed-gpu and

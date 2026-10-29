@@ -23,7 +23,7 @@ for (const width of [1280, 390]) {
         });
         const page = await context.newPage();
         try {
-            await page.goto(`${info.project.use.baseURL}/tests/controls.html?capture`);
+            await page.goto(`${info.project.use.baseURL}/tests/controls.html`);
             await page.waitForFunction(() => "playerState" in window);
             await pointerControl(page, page.getByRole("button", { name: "Scene", exact: true }));
             await pointerControl(
@@ -105,7 +105,6 @@ for (const width of [1280, 390]) {
                 });
                 await state(1);
                 expect((await state()).keys.Shift).toBe(1);
-                await page.screenshot({ path: info.outputPath("phone-390x844.png") });
                 await session.send("Input.dispatchTouchEvent", {
                     type: "touchEnd",
                     touchPoints: [],
@@ -132,8 +131,6 @@ for (const width of [1280, 390]) {
                 ),
             ).toBeGreaterThan(0.1);
             expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
-            if (width === 1280)
-                await page.screenshot({ path: info.outputPath("desktop-1280x720.png") });
         } finally {
             await context.close();
         }

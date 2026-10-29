@@ -12,8 +12,8 @@ import { sceneSwitcher } from '../src/sample';
 import { changeControl } from '../src/scenes';
 import { BodySamplePlugin } from '../src/bodies';
 import { ShapesSamplePlugin } from '../src/shapes';
-import { createViewer, setSceneCamera } from '../src/view';
-import { VillagePlugin, VillageState } from '../src/village';
+import { createViewer } from '../src/view';
+import { VillagePlugin } from '../src/village';
 import { GeometricMoverPlugin, GeometricMoverState } from '../src/geometric-mover';
 import { RigidBodyPlugin } from '../src/rigid-body';
 import { MeshSamplePlugin } from '../src/mesh';
@@ -28,16 +28,14 @@ import { TreeBenchmarkPlugin } from '../src/tree';
 import { Grab, GrabPlugin } from '../src/grab';
 // The checks read game state and the DOM; a low pixel ratio keeps each stepped draw cheap.
 const Viewer={create:createViewer};
-const app = await createApp({plugins:[StandardPhysicsPlugin,GrabPlugin,VillagePlugin,TreeBenchmarkPlugin,DeterminismPlugin,WorldSamplePlugin,RobustnessSamplePlugin,ManifoldPlugin,GeometryPlugin,CollisionPlugin,CollisionDebugPlugin,MeshSamplePlugin,ShapesSamplePlugin,BodySamplePlugin,GeometricMoverPlugin,RigidBodyPlugin,EventSamplePlugin,SampleInputPlugin,TextPlugin,OrbitPlugin,LinesPlugin,{name:'SampleViewer',dependencies:[OrbitPlugin],initialize(world){world.resource(Viewer);}}],pixelRatio:new URLSearchParams(location.search).has('capture') ? 1 : 0.05,setup(world){world.resource(PhysicsWorldDefinition).workerCount=1;}});
+const app = await createApp({plugins:[StandardPhysicsPlugin,GrabPlugin,VillagePlugin,TreeBenchmarkPlugin,DeterminismPlugin,WorldSamplePlugin,RobustnessSamplePlugin,ManifoldPlugin,GeometryPlugin,CollisionPlugin,CollisionDebugPlugin,MeshSamplePlugin,ShapesSamplePlugin,BodySamplePlugin,GeometricMoverPlugin,RigidBodyPlugin,EventSamplePlugin,SampleInputPlugin,TextPlugin,OrbitPlugin,LinesPlugin,{name:'SampleViewer',dependencies:[OrbitPlugin],initialize(world){world.resource(Viewer);}}],pixelRatio:0.05,setup(world){world.resource(PhysicsWorldDefinition).workerCount=1;}});
 const world=app.world;
 const container=mountOverlay(document.querySelector('canvas'),world);
 const replace=sceneSwitcher(world,world.resource(Viewer));
 let component;
-let currentScene;
 function select(scene){
- currentScene=scene;
  const bodies=replace(scene);
- if(!new URLSearchParams(location.search).has('capture'))for(const eid of world.query([DirectionalLight]))world.storage(DirectionalLight).shadowMapsEnabled.set(eid,0);
+ for(const eid of world.query([DirectionalLight]))world.storage(DirectionalLight).shadowMapsEnabled.set(eid,0);
  if(component) void unmount(component);
  component=mount(Hud,{target:container,props:{world,scene,select,change:(name,value,values)=>changeControl(world,scene,bodies,values,name,value)}});
  flushSync();
@@ -49,23 +47,9 @@ window.actionSpeed=()=>{
 };
 window.playerState=(steps=0)=>{
  for(let i=0;i<steps;i++)world.step(1/60);
- const state=world.resource(currentScene==='village' ? VillageState : GeometricMoverState);
+ const state=world.resource(GeometricMoverState);
  const camera=[...world.query([Orbit])][0];
  return {grabbed:world.resource(Grab).body,position:{...state.mover.position},keys:{...state.keys},yaw:world.storage(Orbit).yaw.get(camera),pan:world.get(camera,Orbit).pan,distance:world.storage(Orbit).distance.get(camera)};
-};
-window.prepareMoverCapture=async(scene)=>{
- select(scene);
- world.step(1/60);
- await world.frameFence;
- for(let i=0;i<180;i++)world.tick();
-};
-window.drawMoverCapture=async()=>{
- const camera=[...world.query([Orbit])][0];
- setSceneCamera(world,currentScene,camera);
- world.step(0);
- await world.frameFence;
- const mover=world.resource(currentScene==='village' ? VillageState : GeometricMoverState).mover;
- return {onGround:mover.onGround,ray:mover.pogoRay,bottom:mover.position.y+mover.capsule.center1.y-mover.capsule.radius};
 };
 window.controlsKey=()=>{
  world.step(1/60);

@@ -5,6 +5,7 @@ import { drawingHistory } from "../src/drawing-history";
 import { GeometricMoverPlugin, GeometricMoverState } from "../src/geometric-mover";
 import { drawPogoRay, pogoDrawing } from "../src/mover-presentation";
 import { createScene } from "../src/scenes";
+import { VillagePlugin, VillageState } from "../src/village";
 
 setDefaultTimeout(TIMEOUT.node);
 
@@ -63,6 +64,26 @@ test("CharacterMover records its native pogo hit, draws only the support ray, an
         expect(calls).toHaveLength(1);
         expect(calls[0]!.color).toBe(0x797369);
         expect(calls[0]!.options).toEqual({ width: 1, depthBias: -1 });
+    } finally {
+        app.dispose();
+    }
+});
+
+test("Village's CharacterMover settles grounded on its pogo support gap", async () => {
+    const app = await createApp({ defaults: false, plugins: [VillagePlugin] });
+    try {
+        const world = app.world;
+        createScene(world, "village");
+        const mover = world.resource(VillageState).mover;
+        for (let i = 0; i < 180; i++) world.tick();
+        expect(mover.onGround).toBe(true);
+        const gap =
+            mover.position.y +
+            mover.capsule.center1.y -
+            mover.capsule.radius -
+            mover.pogoRay!.end.y;
+        expect(gap).toBeGreaterThan(0.55);
+        expect(gap).toBeLessThan(0.65);
     } finally {
         app.dispose();
     }
