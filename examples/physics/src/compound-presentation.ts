@@ -15,9 +15,9 @@ export type CompoundChild = {
     bounds: Bounds;
 };
 export function largeCompound(world: World, eid: number): boolean {
-    const shape = world.get(eid, Shape)!;
-    if (shape.kind !== ShapeKind.Compound) return false;
-    const c = world.resource(Compounds).get(shape.geometry)!;
+    const shape = world.storage(Shape);
+    if (shape.kind.get(eid) !== ShapeKind.Compound) return false;
+    const c = world.resource(Compounds).get(shape.geometry.get(eid))!;
     return (
         (c.capsules?.length ?? 0) +
             (c.hulls?.length ?? 0) +
