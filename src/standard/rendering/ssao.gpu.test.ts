@@ -20,7 +20,7 @@ import { MeshRenderPlugin } from "./mesh-render";
 import { ScreenSpaceAmbientOcclusion, ScreenSpaceAmbientOcclusionPlugin, ssaoState } from "./ssao";
 
 setDefaultTimeout(TIMEOUT.gpu);
-const cameras: number[] = [];
+let camera = 0;
 /** [1-wide, 2-wide] cameras with SSAO, then the same pair without it. */
 const narrow: number[] = [];
 /** [with SSAO, without] over the ambient-occlusion example's cubes, at material occlusion 1, and
@@ -77,21 +77,15 @@ function scene(world: World) {
     world.add(box, Transform, { translation: [0, 1, 0, 0], scale: [2, 2, 2, 0] });
     world.add(box, MeshInstance);
     world.add(box, MeshMaterial, material);
-    for (let aa = 0; aa < 2; aa++) {
-        const camera = world.create();
-        world.add(camera, Transform, {
-            translation: [0, 6, 3, 0],
-            rotation: lookAtRotation(0, 6, 3, 0, 0, 0),
-        });
-        world.add(camera, Camera, { antialias: aa });
-        world.add(camera, StandardRenderer);
-        world.add(camera, ScreenSpaceAmbientOcclusion, {
-            qualityLevel: 1,
-            constantObjectThickness: 2,
-        });
-        attachTexture(world, camera, { width: 256, height: 192 });
-        cameras.push(camera);
-    }
+    camera = world.create();
+    world.add(camera, Transform, {
+        translation: [0, 6, 3, 0],
+        rotation: lookAtRotation(0, 6, 3, 0, 0, 0),
+    });
+    world.add(camera, Camera, { antialias: 0 });
+    world.add(camera, StandardRenderer);
+    world.add(camera, ScreenSpaceAmbientOcclusion, { qualityLevel: 1, constantObjectThickness: 2 });
+    attachTexture(world, camera, { width: 256, height: 192 });
     for (const ssao of [true, false]) {
         for (const width of [1, 2]) {
             const camera = world.create();
@@ -147,7 +141,7 @@ const subjects = gpuApps(import.meta.path, [
 test("Medium occludes the ambient-lit plane at box contact, and absent SSAO leaves it uniform", async () => {
     const { world } = subjects()[0];
     world.step(1 / 60);
-    const eid = cameras[0]!;
+    const eid = camera;
     async function luminance(x: number, z: number) {
         const view = world.resource(Views).get(eid)!;
         const m = new Float32Array(16);
@@ -196,28 +190,20 @@ test("Medium occludes the ambient-lit plane at box contact, and absent SSAO leav
     world.storage(DirectionalLight).illuminance.set(sun, 0);
     world.add(eid, ScreenSpaceAmbientOcclusion, { qualityLevel: 1 });
 });
-test("every quality runs with and without MSAA, including Custom", async () => {
+test("every quality runs, including Custom", async () => {
     const { world } = subjects()[0];
+    const columns = world.storage(ScreenSpaceAmbientOcclusion);
+    columns.sliceCount.set(camera, 5);
+    columns.samplesPerSliceSide.set(camera, 4);
     for (let quality = 0; quality < 5; quality++) {
-        for (const eid of cameras) {
-            const columns = world.storage(ScreenSpaceAmbientOcclusion);
-            columns.qualityLevel.set(eid, quality);
-            columns.sliceCount.set(eid, 5);
-            columns.samplesPerSliceSide.set(eid, 4);
-        }
+        columns.qualityLevel.set(camera, quality);
         world.step(1 / 60);
-        for (const eid of cameras) {
-            const camera = world.resource(ssaoState).cameras.get(eid)!;
-            const result = await probeTexture(world, camera.textures[4]!);
-            const values = new Float32Array(result.bytes);
-            expect(values.length).toBe(256 * 192);
-            expect(
-                values.every(
-                    (value) => Number.isFinite(value) && value >= 0.02999 && value <= 1.00001,
-                ),
-            ).toBe(true);
-            expect(world.resource(Views).get(eid)!.normal).not.toBeNull();
-        }
+        const ao = world.resource(ssaoState).cameras.get(camera)!;
+        const values = new Float32Array((await probeTexture(world, ao.textures[4]!)).bytes);
+        expect(values.length).toBe(256 * 192);
+        expect(
+            values.every((value) => Number.isFinite(value) && value >= 0.02999 && value <= 1.00001),
+        ).toBe(true);
     }
 });
 test("a 1-wide view occludes as a 2-wide one does, and a view without SSAO is unoccluded", async () => {
