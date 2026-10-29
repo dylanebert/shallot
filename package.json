@@ -1,6 +1,6 @@
 {
     "name": "@dylanebert/shallot",
-    "version": "0.10.2-next.0",
+    "version": "0.10.2-next.1",
     "description": "WebGPU game engine for TypeScript: component data and plugins, web and native desktop builds.",
     "sideEffects": [
         "./src/standard/index.ts"

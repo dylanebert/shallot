@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.10.2
+
+### highlights
+
+- added screen-space ambient occlusion (`ambient-occlusion`)
+- added camera rectangles and sampleable camera texture targets (`minimap`)
+- added `isometric`, `low-res` and `snow-trails` examples
+- the `physics` example now holds every registered box3d sample
+- added plain-data resource recovery (`recoverResource`) and public membership observation (`World.observeMembership`)
+- added physics contact and sensor reads, mass overrides, manual stepping, body queries, standalone collision and geometry functions, mesh builds and dynamic trees
+- added material extension parameters, bindings and vertex functions, more texture and sampler binding options, per-row cull modes and double-sided standard materials
+- various bugfixes, including late body-scale writes, query callbacks throwing, orthographic lighting, distant affine inversion, material depth passes and sprite shadows
+
+### changes
+
+- material texture and sampler binding kinds take options instead of names such as `"texture-2d"` and `"sampler-comparison"`
+- material shaders lose the constant `color`; fragment contexts gain `prepass` and `frontFacing`, and lighting is stubbed in depth passes
+- `MaterialSource.alphaKeys` becomes `pipelineKeys`; material and instance rows gain cull-mode fields
+- `ViewUniforms.viewProj` and `invViewProj` become `clipFromWorld` and `worldFromClip`; `computeViewProj` becomes `computeClipFromWorld`
+- view uniforms gain view and projection matrices; renderer bindings gain prepass and ambient-occlusion textures, with complete binding-budget checks
+- camera producers run before `PrepareViewsSystem`, ahead of `BeginFrameSystem`
+- physics mesh and height-field definitions become unions with generated forms
+- cpu-only `World.tick` clears field marks on successful return; gpu worlds keep them for the next frame upload
+- immediate lines sort as one item; retained gizmos draw after sorted transparency and use interpolated placement
+- orbit cameras follow interpolated fixed targets
+- readbacks reject after a gpu error, naming the first error that stopped the device
+
+to update a 0.10.1 app, run `bunx shallot migrate` or read [`MIGRATION.md`](https://github.com/dylanebert/shallot/blob/v0.10.2/MIGRATION.md).
+
 ## 0.10.1
 
 ### highlights
