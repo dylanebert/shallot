@@ -56,8 +56,8 @@ const COMPUTED = `${COMPUTED_NAME}()`;
 
 /**
  * The CSS a source writes, as stylelint reads it: a stylesheet, a page's `<style>` text and style
- * attributes, and cssText strings. Scripts are never read; Svelte `style:` directives and DOM
- * `.style` properties set colors from script and are outside this check.
+ * attributes, and cssText strings. Svelte `style:` directives and DOM `.style.<property>`
+ * assignments, including colors and edge offsets, are outside this check.
  */
 type Css = { sheets: string[]; lists: string[] };
 
@@ -356,6 +356,58 @@ function boxValues(value: string): string[] {
     return [top!, right!, bottom!, left!].map((v) => (v === "0" ? "0px" : v));
 }
 
+function edgeOffsets(property: string, value: string): [string, string][] {
+    if (/^(top|right|bottom|left)$/.test(property)) return [[property, value]];
+    if (!/^inset(?:-(?:block|inline)(?:-(?:start|end))?)?$/.test(property)) return [];
+    const values: string[] = [];
+    let depth = 0;
+    let start = 0;
+    for (let i = 0; i <= value.length; i++) {
+        const char = value[i];
+        if (char === "(") depth++;
+        else if (char === ")") depth--;
+        if (i === value.length || (depth === 0 && /\s/.test(char!))) {
+            if (i > start) values.push(value.slice(start, i));
+            start = i + 1;
+        }
+    }
+    const [first = "", second = first, third = first, fourth = second] = values;
+    // Logical sides use the examples' horizontal-tb, left-to-right writing mode.
+    const sides: Record<string, string[]> = {
+        inset: ["top", "right", "bottom", "left"],
+        "inset-block": ["top", "bottom"],
+        "inset-inline": ["left", "right"],
+        "inset-block-start": ["top"],
+        "inset-block-end": ["bottom"],
+        "inset-inline-start": ["left"],
+        "inset-inline-end": ["right"],
+    };
+    return sides[property]!.map((side, i) => [side, [first, second, third, fourth][i]!]);
+}
+
+function selectorCovers(base: string, target: string): boolean {
+    function parts(selector: string): { combinator: string; selectors: string[] }[] {
+        const sheet = `${selector}{}`;
+        const rule = parseCss(sheet).children[0] as any;
+        return rule.prelude.children[0].children.map((part: any) => ({
+            combinator: part.combinator?.name ?? "",
+            selectors: part.selectors.map((node: any) => sheet.slice(node.start, node.end)),
+        }));
+    }
+    const a = parts(base);
+    const b = parts(target);
+    if (a.length > b.length) return false;
+    return a.every((part, i) => {
+        const other = b[b.length - a.length + i]!;
+        return (
+            (i === 0 || part.combinator === other.combinator) &&
+            part.selectors.every(
+                (selector) => selector === "*" || other.selectors.includes(selector),
+            )
+        );
+    });
+}
+
 function spacingMatches(property: string, value: string, expected: string): boolean {
     if (/gap$/.test(property)) return value === expected;
     const sides: Record<string, number[]> = {
@@ -586,6 +638,15 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
                 s,
             );
         const passive = page || (gameplay && !/\bbutton\b/.test(s));
+        const positioned = rules.some(
+            (candidate) =>
+                candidate.declarations.some(
+                    (d) =>
+                        decodeEscapes(d.property).toLowerCase() === "position" &&
+                        /^(absolute|fixed)$/i.test(expand(d.value).trim()),
+                ) &&
+                (selectorCovers(candidate.selector, s) || selectorCovers(s, candidate.selector)),
+        );
         const modes = mediaModes(media);
         const touch = modes.includes("coarse") || modes.includes("phone");
         if (
@@ -621,24 +682,24 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
             const text = decodeEscapes(unquoted(v));
             if (/(?<![\w.-])[+-]?(?:\d*\.)?\d+(?:e[+-]?\d+)?vh\b/i.test(text))
                 fail("large viewport unit");
-            // Percent offsets center gameplay feedback or place a popup relative to its owner.
-            // Page surfaces fill their parent; they are not edge-anchored controls.
-            const positioned = rules.some(
-                (candidate) =>
-                    candidate.selector === s &&
-                    candidate.declarations.some(
-                        (d) => d.property === "position" && /^(absolute|fixed)$/.test(d.value),
-                    ),
-            );
-            if (
-                positioned &&
-                !page &&
-                /^(top|right|bottom|left)$/.test(p) &&
-                v !== "auto" &&
-                !/^(?:50%|calc\(50%\s*[+-]|calc\(100%\s*\+)/.test(v) &&
-                !new RegExp(`env\\(\\s*safe-area-inset-${p}\\s*(?:,[^)]*)?\\)`, "i").test(v)
-            )
-                fail("safe-area inset missing");
+            // Zero fills the parent; percentages place an overlay relative to its owner.
+            if (positioned && !page) {
+                for (const [side, offset] of edgeOffsets(p, v)) {
+                    if (
+                        offset === "auto" ||
+                        /^[+-]?0(?:\.0+)?(?:[a-z]+|%)?$/i.test(offset) ||
+                        offset.includes("%")
+                    )
+                        continue;
+                    if (
+                        !new RegExp(
+                            `env\\(\\s*safe-area-inset-${side}\\s*(?:,[^)]*)?\\)`,
+                            "i",
+                        ).test(offset)
+                    )
+                        fail("safe-area inset missing");
+                }
+            }
             const colors = `${text} ${decodeEscapes(unquoted(raw))}`;
             for (const match of colors.matchAll(HEX))
                 if (
@@ -736,9 +797,13 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
                 )
                     fail("spacing role");
             }
-            if (!passive && /^(?:top|right|bottom|left|inset)$/.test(p)) {
+            if (!passive && /^(?:top|right|bottom|left|inset(?:-.+)?)$/.test(p)) {
                 const lengths = [...v.matchAll(/([+-]?\d*\.?\d+)px/g)].map((m) => m[1]);
-                if (lengths.some((n) => n !== (touch ? "16" : "24")) && !/\.scenes\b/.test(s))
+                if (
+                    lengths.some((n) => Number(n) !== 0 && n !== (touch ? "16" : "24")) &&
+                    !v.includes("%") &&
+                    !/\.scenes\b/.test(s)
+                )
                     fail("inset role");
             }
             // State roles are independent of token membership.
@@ -898,7 +963,9 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
                       ? ["144px", "8px", "1px"]
                       : ["144px"];
             else if (
-                /font|line-height|letter-spacing|padding|margin|gap|top|right|bottom|left/.test(p)
+                /font|line-height|letter-spacing|padding|margin|gap|top|right|bottom|left|inset/.test(
+                    p,
+                )
             )
                 continue;
             for (const m of text.matchAll(
@@ -1071,6 +1138,84 @@ for (const side of ["top", "right", "bottom", "left"]) {
         }
     });
 }
+
+for (const property of [
+    "inset",
+    "inset-block",
+    "inset-inline",
+    "inset-block-start",
+    "inset-block-end",
+    "inset-inline-start",
+    "inset-inline-end",
+]) {
+    test(`positioned overlays cannot hide edge offsets in ${property}`, () => {
+        expect(
+            controlViolations({
+                sheets: [`.hint { position:absolute; ${property}:24px; }`],
+                lists: [],
+            }).some((f) => f.startsWith("safe-area inset missing:")),
+        ).toBe(true);
+    });
+}
+
+test("inset shorthand preserves each side's safe area and calc expressions", () => {
+    for (const offsets of [
+        "inset:calc(24px + env(safe-area-inset-top)) calc(24px + env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) calc(24px + env(safe-area-inset-left))",
+        "inset-block:calc(24px + env(safe-area-inset-top)) calc(24px + env(safe-area-inset-bottom));inset-inline:calc(24px + env(safe-area-inset-left)) calc(24px + env(safe-area-inset-right))",
+    ]) {
+        expect(
+            controlViolations({
+                sheets: [`.ec.anchor { position:absolute;${offsets} }`],
+                lists: [],
+            }),
+        ).toEqual([]);
+    }
+});
+
+test("position follows matching selectors and variables across stylesheets", () => {
+    expect(
+        controlViolations({
+            sheets: [
+                ":root { --placement:absolute; } .hint, .other { position:var(--placement); }",
+                ".hint.action { bottom:24px; }",
+            ],
+            lists: [],
+        }).some((f) => f.startsWith("safe-area inset missing:")),
+    ).toBe(true);
+});
+
+test("zero and percentage offsets remain owner-relative in every spelling", () => {
+    for (const offsets of [
+        "top:0;right:0;bottom:0;left:0",
+        "inset:0",
+        "inset:0px 0% 0 0px",
+        "inset-block:0;inset-inline:0",
+        "top:25%;left:50%",
+    ]) {
+        expect(
+            controlViolations({
+                sheets: [`.ec.anchor { position:absolute;${offsets} }`],
+                lists: [],
+            }),
+        ).toEqual([]);
+    }
+});
+
+test("script side assignments and Svelte style directives are outside the CSS check", async () => {
+    expect(await cssOf("controls.ts", 'button.style.bottom = "24px";')).toEqual({
+        sheets: [],
+        lists: [],
+    });
+    expect(
+        await cssOf(
+            "Controls.svelte",
+            '<button style:position="absolute" style:bottom="24px">Jump</button>',
+        ),
+    ).toEqual({
+        sheets: [],
+        lists: [],
+    });
+});
 
 for (const value of ["100vh", "calc(100vh - 24px)", "100VH", "-100vh", ".5vh", "1e2vh"]) {
     test(`example styles reject the large viewport height ${value}`, () => {
