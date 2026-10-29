@@ -1,7 +1,7 @@
 @font-face { font-family: 'IBM Plex Sans'; font-weight: 400; font-style: normal; font-display: swap; src: url('/fonts/plex/IBMPlexSans-Regular-Latin1.woff2') format('woff2'); }
 @font-face { font-family: 'JetBrains Mono'; font-weight: 400; font-style: normal; font-display: swap; src: url('/fonts/mono/JetBrainsMono-Regular.woff2') format('woff2'); }
 .save-hud { position: absolute; inset: 0; color: #f0e6d6; font: 400 13px/20px 'IBM Plex Sans', system-ui, sans-serif; text-align: left; }
-.save-hud h1 { position: absolute; top: calc(24px + env(safe-area-inset-top)); left: 0; right: 0; text-align: center; margin: 0; }
+.save-hud h1 { position: absolute; top: calc(24px + env(safe-area-inset-top)); left: env(safe-area-inset-left); right: env(safe-area-inset-right); text-align: center; margin: 0; }
 h1 { font: 400 24px/20px 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
 .save-hud .hud { position: absolute; bottom: calc(24px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; pointer-events: auto; }
 .save-hud button { box-sizing: border-box; display: flex; align-items: center; gap: 8px; width: 144px; min-height: 32px; color: #f0e6d6; background: #3c322c; border: 1px solid #2a2420; border-radius: 2px; padding: 4px 8px; font: inherit; cursor: default; white-space: nowrap; text-align: left; }

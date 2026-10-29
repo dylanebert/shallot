@@ -116,7 +116,7 @@ export function mountPlayerControls(world: World): () => void {
             button.onfocus = () => button.blur();
             button.textContent = label;
             button.dataset.touchAction = "";
-            button.style.cssText = `display:none;position:absolute;right:24px;bottom:${bottom}px;width:64px;height:64px;border-radius:50%;pointer-events:auto;touch-action:none`;
+            button.style.cssText = `display:none;position:absolute;right:calc(24px + env(safe-area-inset-right));bottom:calc(${bottom}px + env(safe-area-inset-bottom));width:64px;height:64px;border-radius:50%;pointer-events:auto;touch-action:none`;
             button.addEventListener("pointerdown", (event) => {
                 event.preventDefault();
                 pressKey(world, key);

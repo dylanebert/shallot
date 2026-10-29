@@ -619,6 +619,26 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
                     .replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, "")
                     .replace(/url\([^)]*\)/gi, "");
             const text = decodeEscapes(unquoted(v));
+            if (/(?<![\w.-])[+-]?(?:\d*\.)?\d+(?:e[+-]?\d+)?vh\b/i.test(text))
+                fail("large viewport unit");
+            // Percent offsets center gameplay feedback or place a popup relative to its owner.
+            // Page surfaces fill their parent; they are not edge-anchored controls.
+            const positioned = rules.some(
+                (candidate) =>
+                    candidate.selector === s &&
+                    candidate.declarations.some(
+                        (d) => d.property === "position" && /^(absolute|fixed)$/.test(d.value),
+                    ),
+            );
+            if (
+                positioned &&
+                !page &&
+                /^(top|right|bottom|left)$/.test(p) &&
+                v !== "auto" &&
+                !/^(?:50%|calc\(50%\s*[+-]|calc\(100%\s*\+)/.test(v) &&
+                !new RegExp(`env\\(\\s*safe-area-inset-${p}\\s*(?:,[^)]*)?\\)`, "i").test(v)
+            )
+                fail("safe-area inset missing");
             const colors = `${text} ${decodeEscapes(unquoted(raw))}`;
             for (const match of colors.matchAll(HEX))
                 if (
@@ -1032,6 +1052,48 @@ async function exampleControls(root: string, light = false): Promise<string[]> {
 
 const controlFixture = await readFile("scripts/fixtures/example-controls/controls.css", "utf8");
 
+for (const side of ["top", "right", "bottom", "left"]) {
+    test(`edge-anchored overlays require their ${side} safe-area inset`, async () => {
+        const css = await cssOf(
+            "controls.ts",
+            `button.style.cssText = 'position:absolute;${side}:24px';`,
+        );
+        const failures = controlViolations(css);
+        expect(failures.some((f) => f.startsWith("safe-area inset missing:"))).toBe(true);
+        for (const inset of [side, side === "top" ? "bottom" : "top"]) {
+            const safe = await cssOf(
+                "controls.ts",
+                `button.style.cssText = 'position:absolute;${side}:calc(24px + env(safe-area-inset-${inset}))';`,
+            );
+            expect(
+                controlViolations(safe).some((f) => f.startsWith("safe-area inset missing:")),
+            ).toBe(inset !== side);
+        }
+    });
+}
+
+for (const value of ["100vh", "calc(100vh - 24px)", "100VH", "-100vh", ".5vh", "1e2vh"]) {
+    test(`example styles reject the large viewport height ${value}`, () => {
+        expect(
+            controlViolations({ sheets: [`canvas { height: ${value}; }`], lists: [] }).some((f) =>
+                f.startsWith("large viewport unit:"),
+            ),
+        ).toBe(true);
+    });
+}
+
+test("centering, owner-relative popups and full-parent surfaces need no edge inset", () => {
+    const failures = controlViolations({
+        sheets: [
+            ".reticle { position:absolute;top:50%;left:50%; }",
+            ".ec .scenes { position:absolute;bottom:calc(100% + 8px);left:50%; }",
+            ".interact-hud { position:absolute;inset:0; }",
+        ],
+        lists: [],
+    });
+    expect(failures.filter((f) => f.startsWith("safe-area inset missing:"))).toEqual([]);
+});
+
 test("example-controls candidate holds color, type, spacing, rows, states and geometry roles", () => {
     expect(controlViolations({ sheets: [controlFixture], lists: [] })).toEqual([]);
 });
@@ -1242,7 +1304,7 @@ const controlMutations: [string, string, string][] = [
     ["9: unknown dimension unit", "width: var(--panel); max-width", "width: 1in; max-width"],
     ["9: independent rotation", "box-sizing: border-box", "rotate: 1turn; box-sizing: border-box"],
     ["9: independent scaling", "box-sizing: border-box", "scale: 2; box-sizing: border-box"],
-    ["3: negative desktop inset", "top: var(--s5)", "top: -24px"],
+    ["3: negative desktop inset", "top: calc(var(--s5)", "top: calc(-24px"],
     ["1: off-site chrome", "--bg: #141210", "--bg: #191816"],
     ["1: scene color is not chrome", "--ink: #f0e6d6", "--ink: #ddaa3f"],
     ["1: alpha surface", "--bg: #141210", "--bg: #141210cc"],
@@ -1294,7 +1356,7 @@ const controlMutations: [string, string, string][] = [
     ["3: dependency indent", "padding-left: var(--s2)", "padding-left: var(--s4)"],
     ["3: title padding", "padding: var(--s3) var(--s4)", "padding: var(--s2) var(--s4)"],
     ["3: heading padding", "padding: var(--zero) var(--s2)", "padding: var(--zero) var(--s4)"],
-    ["3: desktop inset", "top: var(--s5)", "top: var(--s4)"],
+    ["3: desktop inset", "top: calc(var(--s5)", "top: calc(var(--s4)"],
     ["3: phone inset", "top: calc(var(--s4)", "top: calc(var(--s5)"],
     ["4: fine row", "min-height: var(--row)", "min-height: var(--touch)"],
     ["4: coarse row", "min-height: var(--touch)", "min-height: var(--row)"],

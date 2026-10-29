@@ -58,7 +58,7 @@
 .ec .categories section { display: grid; align-content: start; gap: var(--s1); }
 .ec .categories h2 { font: var(--regular) var(--small)/var(--leading) var(--mono); letter-spacing: var(--tracking); text-transform: uppercase; color: var(--muted); margin: var(--zero) var(--zero) var(--s2); }
 .ec .categories button { text-align: left; white-space: nowrap; }
-.ec.input-help { position: absolute; top: var(--s5); left: var(--s5); pointer-events: none; }
+.ec.input-help { position: absolute; top: calc(var(--s5) + env(safe-area-inset-top)); left: calc(var(--s5) + env(safe-area-inset-left)); pointer-events: none; }
 @media (pointer: coarse) {
  .ec .row, .ec .toggle, .ec .section-title, .ec button, .ec select, .ec input[type='range'], .ec .panel-title { min-height: var(--touch); }
  .ec input[type='range'] { height: var(--touch); }

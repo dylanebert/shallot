@@ -27,7 +27,7 @@ export async function capture(page: Page, name: string): Promise<void> {
     await page.evaluate(async (src) => {
         const img = new Image();
         img.id = "capture";
-        img.style.cssText = "position:absolute;left:0;top:0;pointer-events:none";
+        img.style.cssText = "position:absolute;inset:0;pointer-events:none";
         img.src = src;
         await img.decode();
         document.body.insertBefore(img, document.querySelector("canvas")!.nextSibling);
