@@ -219,9 +219,6 @@ function bounds(value: AABB): void {
     )
         throw new Error("physics tree bounds must be finite and ordered");
 }
-function proxy(state: TreeState, id: number): void {
-    if (!state.users.has(id)) throw new Error("physics tree proxy is not live");
-}
 /** Box3D's dynamic tree. Capacity is the initial leaf capacity; growth preserves proxy IDs. */
 export function createPhysicsTree(world: World, capacity = 16): PhysicsTree {
     uint(capacity);
@@ -236,7 +233,7 @@ export function destroyPhysicsTree(world: World, tree: PhysicsTree): void {
     kernel(world).standaloneTreeDestroy(state.pointer);
     world.resource(trees).delete(tree);
 }
-/** Bounds are exact, not fattened. Proxy IDs may be reused after destruction. */
+/** Bounds are exact, not fattened. Proxies live until the tree is destroyed. */
 export function createPhysicsTreeProxy(
     world: World,
     tree: PhysicsTree,
@@ -252,19 +249,6 @@ export function createPhysicsTreeProxy(
     const id = state.call(0, 0, categoryBits, userData);
     state.users.set(id, userData);
     return id;
-}
-export function movePhysicsTreeProxy(world: World, tree: PhysicsTree, id: number, box: AABB): void {
-    const state = stateFor(world, tree);
-    proxy(state, id);
-    bounds(box);
-    state.input(box.lowerBound, box.upperBound);
-    state.call(1, id);
-}
-export function destroyPhysicsTreeProxy(world: World, tree: PhysicsTree, id: number): void {
-    const state = stateFor(world, tree);
-    proxy(state, id);
-    state.call(2, id);
-    state.users.delete(id);
 }
 /** A full rebuild also rebuilds unchanged subtrees. Proxy IDs and user data are preserved. */
 export function rebuildPhysicsTree(world: World, tree: PhysicsTree, fullBuild = true): void {

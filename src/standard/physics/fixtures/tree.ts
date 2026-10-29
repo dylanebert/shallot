@@ -3,11 +3,9 @@ import {
     createPhysicsTree,
     createPhysicsTreeProxy,
     destroyPhysicsTree,
-    destroyPhysicsTreeProxy,
     getPhysicsTreeNode,
     getPhysicsTreeStats,
     loadPhysicsTree,
-    movePhysicsTreeProxy,
     type PhysicsTree,
     queryClosestPhysicsTree,
     queryPhysicsTree,
@@ -17,8 +15,8 @@ import {
     validatePhysicsTree,
 } from "../index";
 
-export function treeBox(i: number, move = false) {
-    const x = move ? 30 + i : (i * 7) % 19,
+export function treeBox(i: number) {
+    const x = (i * 7) % 19,
         y = i % 5,
         z = (i * 3) % 11,
         s = (i % 3) + 1;
@@ -128,21 +126,14 @@ export function treeSweep(world: World): string {
     try {
         report(tree);
         queries(tree);
-        const ids: number[] = [];
         for (let i = 0; i < 48; i++)
-            ids.push(
-                createPhysicsTreeProxy(
-                    world,
-                    tree,
-                    treeBox(i),
-                    (1n << BigInt(i % 3)) | (i % 2 ? 0x100000000n : 0n),
-                    0x1234567800000000n + BigInt(i),
-                ),
+            createPhysicsTreeProxy(
+                world,
+                tree,
+                treeBox(i),
+                (1n << BigInt(i % 3)) | (i % 2 ? 0x100000000n : 0n),
+                0x1234567800000000n + BigInt(i),
             );
-        report(tree);
-        queries(tree);
-        for (let i = 0; i < 12; i += 2) movePhysicsTreeProxy(world, tree, ids[i], treeBox(i, true));
-        for (let i = 13; i <= 20; i++) destroyPhysicsTreeProxy(world, tree, ids[i]);
         report(tree);
         queries(tree);
         rebuildPhysicsTree(world, tree, true);

@@ -223,19 +223,6 @@ pub unsafe extern "C" fn call(
             );
             t.proxies += 1;
         }
-        1 => tree::move_proxy(
-            &mut t.pool,
-            &mut t.root,
-            &mut t.count,
-            &mut t.free,
-            id,
-            lo,
-            hi,
-        ),
-        2 => {
-            tree::destroy_proxy(&mut t.pool, &mut t.root, &mut t.count, &mut t.free, id);
-            t.proxies -= 1;
-        }
         3 => {
             let n = t.proxies.max(1);
             t.indices.resize(n, 0);

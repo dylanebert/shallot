@@ -7,11 +7,9 @@ import {
     createPhysicsTree,
     createPhysicsTreeProxy,
     destroyPhysicsTree,
-    destroyPhysicsTreeProxy,
     getPhysicsTreeNode,
     getPhysicsTreeStats,
     loadPhysicsTree,
-    movePhysicsTreeProxy,
     type PhysicsTreeRayHit,
     queryPhysicsTree,
     rayCastPhysicsTree,
@@ -32,14 +30,14 @@ async function subject(run: (world: World) => void): Promise<void> {
         world.dispose();
     }
 }
-test("independent tree mutations, nodes, statistics, filtered callbacks and scaled save/load equal native Box3D", async () => {
+test("independent tree construction, rebuilds, nodes, statistics, filtered callbacks and scaled save/load equal native Box3D", async () => {
     await subject((world) => {
         expect(treeSweep(world)).toBe(
             readFileSync(new URL("./tree.gold.txt", import.meta.url), "utf8"),
         );
     });
 });
-test("tree ownership, proxy reuse and borrowed records are explicit", async () => {
+test("tree ownership and borrowed records are explicit", async () => {
     await subject((world) => {
         const a = createPhysicsTree(world),
             b = createPhysicsTree(world);
@@ -52,9 +50,6 @@ test("tree ownership, proxy reuse and borrowed records are explicit", async () =
         const callback = () => true;
         const result = queryPhysicsTree(world, a, treeBox(0), callback);
         expect(queryPhysicsTree(world, a, treeBox(0), callback)).toBe(result);
-        destroyPhysicsTreeProxy(world, a, id);
-        expect(() => movePhysicsTreeProxy(world, a, id, treeBox(1))).toThrow("proxy is not live");
-        expect(createPhysicsTreeProxy(world, a, treeBox(0))).toBe(id);
         destroyPhysicsTree(world, a);
         expect(() => destroyPhysicsTree(world, a)).toThrow("not live");
         const foreign = new World();

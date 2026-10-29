@@ -8,8 +8,8 @@
 static b3DynamicTree* current;
 static int mode;
 static uint32_t bits(float x) { uint32_t u; memcpy(&u, &x, 4); return u; }
-static b3AABB box(int i, int move) {
-    float x = move ? 30 + i : (i * 7) % 19;
+static b3AABB box(int i) {
+    float x = (i * 7) % 19;
     float y = i % 5, z = (i * 3) % 11, s = i % 3 + 1;
     return (b3AABB){{x,y,z},{x+s,y+s,z+s}};
 }
@@ -60,11 +60,7 @@ static void queries(b3DynamicTree* t) {
 int main(void) {
     b3DynamicTree t=b3DynamicTree_Create(16);
     report(&t); queries(&t);
-    int ids[48];
-    for(int i=0;i<48;i++) ids[i]=b3DynamicTree_CreateProxy(&t,box(i,0),UINT64_C(1)<<(i%3) | (i%2 ? UINT64_C(0x100000000):0),UINT64_C(0x1234567800000000)+i);
-    report(&t); queries(&t);
-    for(int i=0;i<12;i+=2) b3DynamicTree_MoveProxy(&t,ids[i],box(i,1));
-    for(int i=13;i<=20;i++) b3DynamicTree_DestroyProxy(&t,ids[i]);
+    for(int i=0;i<48;i++) b3DynamicTree_CreateProxy(&t,box(i),UINT64_C(1)<<(i%3) | (i%2 ? UINT64_C(0x100000000):0),UINT64_C(0x1234567800000000)+i);
     report(&t); queries(&t);
     b3DynamicTree_Rebuild(&t,true); report(&t); queries(&t);
     b3DynamicTree_Rebuild(&t,false); report(&t); queries(&t);
