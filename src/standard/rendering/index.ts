@@ -70,7 +70,7 @@ export type {
     MaterialType,
     MaterialVertexFn,
 } from "./material-type";
-export { MaterialAssets, materialLayout } from "./material-type";
+export { alphaPipelineKey, MaterialAssets, materialLayout, pipelineKey } from "./material-type";
 export { MeshRenderPlugin } from "./mesh-render";
 export { MeshPreprocessSystem, meshInstanceTable } from "./preprocess";
 export { type ProducerTable, registerProducerTable } from "./producer-table";

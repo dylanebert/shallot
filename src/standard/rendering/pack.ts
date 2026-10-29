@@ -10,6 +10,7 @@ import {
 } from "../../core/rendering";
 import { HANDLE_INDEX_MASK } from "../../engine/utils";
 import { EntityMeshInstanceInput } from "./material-data";
+import { ALPHA_PIPELINE_KEY_COUNT, AlphaModeCode, AlphaPipelineKey } from "./material-type";
 import { DrawIndexedIndirect } from "./registry";
 
 // Raw compute passes bind by index, so layouts pin their group indices rather than relying on resolve order.
@@ -141,8 +142,8 @@ function pairFactory(materialTypeCount: number) {
             const cullMode = instance.cullMode;
             if (
                 materialType >= materialTypeCount ||
-                alphaMode > 6 ||
-                cullMode >= d.u32(cullLayout.$.params.keyCount / 6) ||
+                alphaMode > AlphaModeCode.AlphaToCoverage ||
+                cullMode >= d.u32(cullLayout.$.params.keyCount / ALPHA_PIPELINE_KEY_COUNT) ||
                 mid >= cullLayout.$.params.meshCount ||
                 cullLayout.$.meshBounds[mid].handle !== instance.mesh ||
                 encodedGlobalTransform === 0
@@ -156,12 +157,16 @@ function pairFactory(materialTypeCount: number) {
                 });
             }
             let alphaKey = alphaMode;
-            if (alphaMode === 3 || alphaMode === 4) alphaKey = 3;
-            else if (alphaMode === 5) alphaKey = 4;
-            else if (alphaMode === 6) alphaKey = 5;
+            if (alphaMode === AlphaModeCode.Premultiplied || alphaMode === AlphaModeCode.Add)
+                alphaKey = AlphaPipelineKey.Premultiplied;
+            else if (alphaMode === AlphaModeCode.Multiply) alphaKey = AlphaPipelineKey.Multiply;
+            else if (alphaMode === AlphaModeCode.AlphaToCoverage)
+                alphaKey = AlphaPipelineKey.AlphaToCoverage;
             return Pair({
                 pair:
-                    (materialType * cullLayout.$.params.keyCount + alphaKey + cullMode * 6) *
+                    (materialType * cullLayout.$.params.keyCount +
+                        alphaKey +
+                        cullMode * ALPHA_PIPELINE_KEY_COUNT) *
                         cullLayout.$.params.meshCount +
                     mid,
                 mid,

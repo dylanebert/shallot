@@ -556,7 +556,8 @@ export function cullModeCode(mode: GPUCullMode): CullModeCode {
     }
 }
 
-/** One pipeline variant: its alpha pipeline key within the band of its CullModeCode. */
+/** The pipeline variant of an AlphaPipelineKey and a CullModeCode. A MaterialSource sets bit
+ * `1 << pipelineKey(alphaPipelineKey, cullMode)` in `pipelineKeys` for each pair its rows hold. */
 export function pipelineKey(alphaPipelineKey: number, cullMode: number): number {
     return alphaPipelineKey + ALPHA_PIPELINE_KEY_COUNT * cullMode;
 }
@@ -592,6 +593,7 @@ export function alphaModeFields(mode: AlphaMode): { alphaMode: number; alphaCuto
     }
 }
 
+/** The AlphaPipelineKey of an AlphaModeCode: Premultiplied and Add share one. Refuses other values. */
 export function alphaPipelineKey(alphaMode: number): number {
     switch (alphaMode) {
         case AlphaModeCode.Opaque:

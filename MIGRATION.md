@@ -69,7 +69,7 @@ A material row takes `cullMode` beside `alphaMode`, as a `GPUCullMode` (`"back"`
 materials.add(StandardMaterial({ doubleSided: true }), { cullMode: "none" });
 ```
 
-- `MaterialSource.alphaKeys` is renamed `pipelineKeys`: its bit for a row's pair is `1 << (alphaPipelineKey + 6 * cullMode)`, so an existing source that held only back-culled keys keeps its value. An optional `cullMode(row)` reports a row's code for CPU transparent sorting.
+- `MaterialSource.alphaKeys` is renamed `pipelineKeys`. For each row it holds, a source sets bit `1 << pipelineKey(alphaPipelineKey(alphaMode), cullMode)`, where `alphaMode` is the row's `AlphaModeCode` and `cullMode` its `CullModeCode`; both functions come from `@dylanebert/shallot/standard/rendering`. A source holding only back-culled rows keeps its value. An optional `cullMode(row)` reports a row's code for CPU transparent sorting.
 - `MeshInstanceInput` gains `cullMode: u32` in existing padding; stride and the other offsets are unchanged. A producer row writes its handle's `cullMode`, `0` for back; the entity table's `layers` moves to the next word.
 - `StandardMaterialInput` gains `doubleSided: u32`; `StandardMaterial()` fills it, and a hand-built row writes `0`.
 - A hand-built `Draw` may set `cullMode`; omitted, it culls back faces.
