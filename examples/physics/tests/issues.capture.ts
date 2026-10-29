@@ -9,11 +9,22 @@ for (const width of [1280, 390])
                 throw error;
             });
             await page.setViewportSize({ width, height: width === 390 ? 844 : 720 });
-            await page.goto(`/?scene=${id}`);
-            await page.getByRole("button", { name: "Scene", exact: true }).waitFor();
-            await page.waitForTimeout(2000);
-            await capture(page, `${id}-${width}-default`);
-            await page.waitForTimeout(10000);
-            await capture(page, `${id}-${width}-settled`);
+            await page.goto(`/tests/issues-capture.html?scene=${id}`);
+            await page.waitForFunction(() => "issuesCaptureReady" in window);
+            const frames = {
+                run: () =>
+                    page.evaluate(async () => {
+                        await (
+                            window as unknown as { drawIssuesCapture(): Promise<void> }
+                        ).drawIssuesCapture();
+                    }),
+            };
+            await capture(page, `${id}-${width}-default`, frames);
+            await page.evaluate(async () => {
+                await (
+                    window as unknown as { advanceIssuesCapture(): Promise<void> }
+                ).advanceIssuesCapture();
+            });
+            await capture(page, `${id}-${width}-step-120`, frames);
         });
     }

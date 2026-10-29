@@ -40,7 +40,7 @@ for (const width of [1280, 390])
         await expect(
             panel.getByRole("region", { name: "Ghost launches", exact: true }),
         ).toBeVisible();
-        for (const label of ["Walk Speed X (inch/s)", "Walk Speed Z (inch/s)"]) {
+        for (const label of ["Walk speed X, in/s", "Walk speed Z, in/s"]) {
             const slider = panel.getByRole("slider", { name: label, exact: true });
             await slider.scrollIntoViewIfNeeded();
             await pointerControl(page, slider);

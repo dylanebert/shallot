@@ -442,10 +442,17 @@ export const issueScenes = {
         gridExtentZ: 1.6256,
         gridSpacing: 0.8128,
         gridCenter: [0, 0],
-        camera: { yaw: 20, pitch: 30, distance: 15, phoneDistance: 23, target: [0, 0.5, 0] },
+        camera: {
+            yaw: 20,
+            pitch: 30,
+            distance: 15,
+            phoneDistance: 28,
+            target: [0, 0.5, 0],
+            phoneTarget: [0, 5.5, 0],
+        },
         controls: {
             "Walk Speed X (inch/s)": {
-                label: "Walk Speed X (inch/s)",
+                label: "Walk speed X, in/s",
                 value: 350,
                 min: 100,
                 max: 400,
@@ -456,7 +463,7 @@ export const issueScenes = {
                 },
             },
             "Walk Speed Z (inch/s)": {
-                label: "Walk Speed Z (inch/s)",
+                label: "Walk speed Z, in/s",
                 value: 20,
                 min: 10,
                 max: 100,
@@ -508,7 +515,14 @@ export const issueScenes = {
         construct: restitutionOvershoot,
         gridExtent: 0.375,
         gridSpacing: 0.75,
-        camera: { yaw: 25, pitch: 10, distance: 18, phoneDistance: 23, target: [0, 5, 0] },
+        camera: {
+            yaw: 20,
+            pitch: 10,
+            distance: 28,
+            phoneDistance: 28,
+            target: [0, 5, 0],
+            phoneTarget: [0, 9, 0],
+        },
         controls: {
             Drop: {
                 label: "Drop height, m",
