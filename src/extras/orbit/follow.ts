@@ -71,13 +71,28 @@ export const OrbitFollowPlugin: Plugin = {
 
 export function followPosition(world: World, camera: number, target: number, axis: number): number {
     const offset = target * 4 + axis;
-    const position = world.storage(GlobalTransform).translation.column[offset];
+    const positions = world.storage(GlobalTransform).translation;
+    const position = positions.column[offset];
     if (!world.has(camera, Follow)) return position;
     const history = world.storage(Follow);
-    const i = camera * 4 + axis;
-    // A replaced target or frame-authored pose has no matching fixed history.
-    if (history.target.get(camera) !== target || history.current.column[i] !== position)
+    if (history.target.get(camera) !== target) return position;
+    const discontinuities = world.resource(TransformRuntime).discontinuities;
+    if (discontinuities[target >>> 5] & (1 << (target & 31))) {
+        const x = positions.x.get(target),
+            y = positions.y.get(target),
+            z = positions.z.get(target);
+        history.previous.set(camera, x, y, z);
+        history.current.set(camera, x, y, z);
         return position;
+    }
+    // A frame-authored pose has no matching fixed history on any coordinate.
+    if (
+        history.current.x.get(camera) !== positions.x.get(target) ||
+        history.current.y.get(camera) !== positions.y.get(target) ||
+        history.current.z.get(camera) !== positions.z.get(target)
+    )
+        return position;
+    const i = camera * 4 + axis;
     const previous = history.previous.column[i];
     return previous + (position - previous) * world.time.fixedAlpha;
 }

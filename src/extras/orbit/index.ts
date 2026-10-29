@@ -1,6 +1,11 @@
 import { Devices, InputPlugin, type Pointer } from "../../core/input";
 import { Camera, CameraMode } from "../../core/rendering";
-import { GlobalTransform, Transform, TransformPlugin } from "../../core/transform";
+import {
+    deriveTransforms,
+    GlobalTransform,
+    Transform,
+    TransformPlugin,
+} from "../../core/transform";
 import {
     component,
     entity,
@@ -177,6 +182,7 @@ const OrbitSystem: System = {
     group: "simulation",
 
     update(world: World) {
+        deriveTransforms(world);
         const input = world.resource(Devices);
         const orbit = world.storage(Orbit);
         const smooth = world.storage(OrbitSmooth);
