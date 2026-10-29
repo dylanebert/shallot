@@ -84,6 +84,7 @@ export {
     emptyQueryHit,
     explode,
     getAngularVelocity,
+    getBodyTransform,
     getContactData,
     getInverseMass,
     getJointLinearSeparation,

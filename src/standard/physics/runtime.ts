@@ -208,6 +208,7 @@ interface PhysicsRuntime {
     bodyTOI: PhysicsBodyTOI;
     moverCast: { fraction: number };
     inverseMass: { inverseMass: number };
+    bodyTransform: WorldTransform;
     planes: { records: PhysicsBodyPlaneHit[]; count: number };
     planeCapacity: number;
     /** Each attached shape's EntityRef at its first attachment. */
@@ -289,6 +290,7 @@ function newRuntime(): PhysicsRuntime {
         bodyPlanes: { records: [], count: 0 },
         moverCast: { fraction: 1 },
         inverseMass: { inverseMass: 0 },
+        bodyTransform: { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } },
         bodyTOI: {
             shape: 0,
             body: 0,
@@ -1603,6 +1605,18 @@ export function getJointLinearSeparation(world: World, eid: number): number | nu
             return jointLinearSeparation(state, id.index1 - 1);
     }
     return null;
+}
+
+/** Current solver position in meters and rotation (b3Body_GetTransform), rather than
+ * published GlobalTransform. Null for a body not held by the solver.
+ * The borrowed record belongs to this World and is overwritten by its next getBodyTransform call;
+ * copy both position and rotation to retain them. Calls allocate nothing. */
+export function getBodyTransform(world: World, eid: number): WorldTransform | null {
+    const runtime = runtimeFor(world);
+    const body = boundBody(world, runtime, eid);
+    return runtime.physicsWorld && body
+        ? bodyGetTransform(runtime.physicsWorld, body.index1 - 1, runtime.bodyTransform)
+        : null;
 }
 
 /** Reads the solver's current angular velocity in rad/s (b3Body_GetAngularVelocity),
