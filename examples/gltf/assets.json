@@ -1,0 +1,280 @@
+{
+    "source": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/",
+    "commit": "2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf",
+    "models": [
+        {
+            "name": "Box",
+            "license": "Models/Box/LICENSE.md",
+            "files": [
+                {
+                    "path": "Models/Box/LICENSE.md",
+                    "sha256": "634623c7bef43aa4b16a3556ac55ae71b671daf4509437d403e4f2a0273928dc"
+                },
+                {
+                    "path": "Models/Box/glTF/Box.gltf",
+                    "sha256": "4a0d69eecfce0672a50b71dc218cbacec6c53fe2445040c235c6314b1b2c41b9"
+                },
+                {
+                    "path": "Models/Box/glTF/Box0.bin",
+                    "sha256": "3266a8e39b9f425b3341cbe5eec7849f44310256bfa651e6b8b40c85ce0ccafb"
+                },
+                {
+                    "path": "LICENSES/CC-BY-4.0.txt",
+                    "sha256": "c8041334a99cb48852b2139253cbde5f8ac87e27f124aed51223e0d5bf0080eb"
+                }
+            ]
+        },
+        {
+            "name": "BoxTextured",
+            "license": "Models/BoxTextured/LICENSE.md",
+            "files": [
+                {
+                    "path": "Models/BoxTextured/LICENSE.md",
+                    "sha256": "d1dd37789acabde1b950a2b84273ca34ecd9afd9bce49f1334eeb12cd3389e0f"
+                },
+                {
+                    "path": "Models/BoxTextured/glTF/BoxTextured.gltf",
+                    "sha256": "1e9003a4a2a8822ff60da529357bd8e4dec4a59b1a479017993e7e2ad5fcebef"
+                },
+                {
+                    "path": "Models/BoxTextured/glTF/BoxTextured0.bin",
+                    "sha256": "2e8c0483fa6665c686ec345f89dcbb2a694a587442584d09f8a83a59633327bc"
+                },
+                {
+                    "path": "Models/BoxTextured/glTF/CesiumLogoFlat.png",
+                    "sha256": "9c22b05c5b136d03c5621a8765e50a8322be6c35b9de53e9fe22685840d7f469"
+                },
+                {
+                    "path": "LICENSES/LicenseRef-CC-BY-TM.txt",
+                    "sha256": "7a0eedc807b6a5674247e2760be7cc1b62ec1c66ba6bb7cbed2c2cfcd4269e88"
+                },
+                {
+                    "path": "LICENSES/LicenseRef-LegalMark-Cesium.txt",
+                    "sha256": "b6fc08fa37e5ca7894a5f2e9e7c4d1da7b01f40b031bd9573e7fd415292d10c4"
+                },
+                {
+                    "path": "LICENSES/CC-BY-4.0.txt",
+                    "sha256": "c8041334a99cb48852b2139253cbde5f8ac87e27f124aed51223e0d5bf0080eb"
+                }
+            ]
+        },
+        {
+            "name": "TextureSettingsTest",
+            "license": "Models/TextureSettingsTest/LICENSE.md",
+            "files": [
+                {
+                    "path": "Models/TextureSettingsTest/LICENSE.md",
+                    "sha256": "3e78efcec06f0ac4789f10b1287e464bfd73d2dc1ef09d828da51d6a0c43633e"
+                },
+                {
+                    "path": "Models/TextureSettingsTest/glTF/CheckAndX.png",
+                    "sha256": "19da9a7f987b9a64684500c1de49293c0922f1840f13ce5d38505b8b5fe1c001"
+                },
+                {
+                    "path": "Models/TextureSettingsTest/glTF/CheckAndX_V.png",
+                    "sha256": "4f8ea98d173360c29275e04cac8d1d05004b1605d818e6f143aca8f31e4f302d"
+                },
+                {
+                    "path": "Models/TextureSettingsTest/glTF/TextureSettingsTest.gltf",
+                    "sha256": "dd1f85b4638ffc72f1e09e19b101b7a05d94a0353facced8f59c16a2d9c09447"
+                },
+                {
+                    "path": "Models/TextureSettingsTest/glTF/TextureSettingsTest0.bin",
+                    "sha256": "1aa2e5e31ae08179eea355945b6fd5d84bd5ffd62a50b93a68c2368d9f345cbe"
+                },
+                {
+                    "path": "Models/TextureSettingsTest/glTF/TextureTestLabels.png",
+                    "sha256": "14b29323950f10cacfbc4160ea8982aaac6bdea21cf4ec5e8c1589917266415a"
+                },
+                {
+                    "path": "LICENSES/CC-BY-4.0.txt",
+                    "sha256": "c8041334a99cb48852b2139253cbde5f8ac87e27f124aed51223e0d5bf0080eb"
+                }
+            ]
+        },
+        {
+            "name": "AlphaBlendModeTest",
+            "license": "Models/AlphaBlendModeTest/LICENSE.md",
+            "files": [
+                {
+                    "path": "Models/AlphaBlendModeTest/LICENSE.md",
+                    "sha256": "bcb192b4857fb212ca10c2853e44f7917e38494826c53b23a2e1478631448e95"
+                },
+                {
+                    "path": "Models/AlphaBlendModeTest/glTF/AlphaBlendLabels.png",
+                    "sha256": "19c705f7e207384ca1ab01e0665601c051ca33c5848c03ce4fffad625b416b53"
+                },
+                {
+                    "path": "Models/AlphaBlendModeTest/glTF/AlphaBlendModeTest.bin",
+                    "sha256": "bb89ab8d9ac0cfbc168e5d552e3ec2fe1285fd01bacb65c863d838b3db025c85"
+                },
+                {
+                    "path": "Models/AlphaBlendModeTest/glTF/AlphaBlendModeTest.gltf",
+                    "sha256": "49e06672900df95593040d35bbc7a2ee5921ae8d46edc44b64ccf2df65e64849"
+                },
+                {
+                    "path": "Models/AlphaBlendModeTest/glTF/MatBed_baseColor.jpg",
+                    "sha256": "71571cce0d86c7c5ed4ac73d852ec34e72e7234a2f905f2758e118519c950bcf"
+                },
+                {
+                    "path": "Models/AlphaBlendModeTest/glTF/MatBed_normal.jpg",
+                    "sha256": "d8891a9c08e375507ac8f1fb260577bda5e90506e79db92ebbfb5caa9216be49"
+                },
+                {
+                    "path": "Models/AlphaBlendModeTest/glTF/MatBed_occlusionRoughnessMetallic.jpg",
+                    "sha256": "e1472454ad6be574c3a418985f06a8ba36877108a94f61590f01e118804379b4"
+                },
+                {
+                    "path": "LICENSES/CC-BY-4.0.txt",
+                    "sha256": "c8041334a99cb48852b2139253cbde5f8ac87e27f124aed51223e0d5bf0080eb"
+                }
+            ]
+        },
+        {
+            "name": "TwoSidedPlane",
+            "license": "Models/TwoSidedPlane/LICENSE.md",
+            "files": [
+                {
+                    "path": "Models/TwoSidedPlane/LICENSE.md",
+                    "sha256": "fdc8d82484c188686be30e4b735bf9239e4ce00be74509ef12418926807f94e6"
+                },
+                {
+                    "path": "Models/TwoSidedPlane/glTF/TwoSidedPlane.bin",
+                    "sha256": "b5773c232084d848db9087978e97ca1ea4ffc1e955bd39c5bfc523c3fa577bc9"
+                },
+                {
+                    "path": "Models/TwoSidedPlane/glTF/TwoSidedPlane.gltf",
+                    "sha256": "0aafbfd9713131f7e477739a98e643f16a61248aa06ed7212db34516c7309d12"
+                },
+                {
+                    "path": "Models/TwoSidedPlane/glTF/TwoSidedPlane_BaseColor.png",
+                    "sha256": "7587c655a189fc1078fb19e05703cf9e44000d5181f592d958be23600eff36bc"
+                },
+                {
+                    "path": "Models/TwoSidedPlane/glTF/TwoSidedPlane_MetallicRoughness.png",
+                    "sha256": "66b22936f67e0dfa53bca026f191a5cd2d1a585341d481b88104d0010dd4e3ae"
+                },
+                {
+                    "path": "Models/TwoSidedPlane/glTF/TwoSidedPlane_Normal.png",
+                    "sha256": "8cdd7cd63dbfb2834b72e2420cfa47f6f4c84039635ef9abe3d1a1cb58fa5e51"
+                },
+                {
+                    "path": "LICENSES/CC0-1.0.txt",
+                    "sha256": "a43fc2004d1e073f1107a1f6146664d08dae6cea93cb828742a4bec6da828e91"
+                },
+                {
+                    "path": "LICENSES/CC-BY-4.0.txt",
+                    "sha256": "c8041334a99cb48852b2139253cbde5f8ac87e27f124aed51223e0d5bf0080eb"
+                }
+            ]
+        },
+        {
+            "name": "OrientationTest",
+            "license": "Models/OrientationTest/LICENSE.md",
+            "files": [
+                {
+                    "path": "Models/OrientationTest/LICENSE.md",
+                    "sha256": "f2865aa5e71314104b5f6296ab77cdd9367831f1753b6a588556665a80f4ffbe"
+                },
+                {
+                    "path": "Models/OrientationTest/glTF/OrientationTest.bin",
+                    "sha256": "cf7ec4fbad3bb386ccfd9dea15f35d8dbf1f7848d48ec4c315816b98b67fbd49"
+                },
+                {
+                    "path": "Models/OrientationTest/glTF/OrientationTest.gltf",
+                    "sha256": "a3e358daf54b9535c221a5376dd3df91a881e306e65086419a8aa08122209f7b"
+                },
+                {
+                    "path": "LICENSES/CC-BY-4.0.txt",
+                    "sha256": "c8041334a99cb48852b2139253cbde5f8ac87e27f124aed51223e0d5bf0080eb"
+                }
+            ]
+        },
+        {
+            "name": "SimpleMeshes",
+            "license": "Models/SimpleMeshes/LICENSE.md",
+            "files": [
+                {
+                    "path": "Models/SimpleMeshes/LICENSE.md",
+                    "sha256": "ed2807c412ee047adebf9f523922e51c3771cb245b5514af768a359c9daeb4af"
+                },
+                {
+                    "path": "Models/SimpleMeshes/glTF/SimpleMeshes.bin",
+                    "sha256": "63b006e58bdbc47206ea303ef2f630139e39a0c52a8454745ff6eb4f32df8365"
+                },
+                {
+                    "path": "Models/SimpleMeshes/glTF/SimpleMeshes.gltf",
+                    "sha256": "9c750a9e6a9ed3ba782b99c733a8280e57e45299b37627c16e9270705aa58342"
+                },
+                {
+                    "path": "LICENSES/CC0-1.0.txt",
+                    "sha256": "a43fc2004d1e073f1107a1f6146664d08dae6cea93cb828742a4bec6da828e91"
+                },
+                {
+                    "path": "LICENSES/CC-BY-4.0.txt",
+                    "sha256": "c8041334a99cb48852b2139253cbde5f8ac87e27f124aed51223e0d5bf0080eb"
+                }
+            ]
+        },
+        {
+            "name": "TriangleWithoutIndices",
+            "license": "Models/TriangleWithoutIndices/LICENSE.md",
+            "files": [
+                {
+                    "path": "Models/TriangleWithoutIndices/LICENSE.md",
+                    "sha256": "ba5a20c573eb3462e0eed53738fdc2407aac8f3bd6a8ff5fabfb79aacab69ff3"
+                },
+                {
+                    "path": "Models/TriangleWithoutIndices/glTF/TriangleWithoutIndices.bin",
+                    "sha256": "d8b87038ed2ace74ed183166f6b0a541eab77f7184d50e65edc4bca5ccb5445a"
+                },
+                {
+                    "path": "Models/TriangleWithoutIndices/glTF/TriangleWithoutIndices.gltf",
+                    "sha256": "b273d61fdbde2b2cd3aeadaae524776a9703c8354d5dfb5fd0da636724c4a62c"
+                },
+                {
+                    "path": "LICENSES/CC0-1.0.txt",
+                    "sha256": "a43fc2004d1e073f1107a1f6146664d08dae6cea93cb828742a4bec6da828e91"
+                },
+                {
+                    "path": "LICENSES/CC-BY-4.0.txt",
+                    "sha256": "c8041334a99cb48852b2139253cbde5f8ac87e27f124aed51223e0d5bf0080eb"
+                }
+            ]
+        },
+        {
+            "name": "CesiumMilkTruck",
+            "license": "Models/CesiumMilkTruck/LICENSE.md",
+            "files": [
+                {
+                    "path": "Models/CesiumMilkTruck/LICENSE.md",
+                    "sha256": "2706e1f1df6be804a83ac7a108d2bf1b11d4fcdc5ec1c821ba725a659ccdebbd"
+                },
+                {
+                    "path": "Models/CesiumMilkTruck/glTF/CesiumMilkTruck.gltf",
+                    "sha256": "28cb3b0da68a88aa8c5852e616a3feb4983f0a7e96c3f291a585d0698e34f2d4"
+                },
+                {
+                    "path": "Models/CesiumMilkTruck/glTF/CesiumMilkTruck.jpg",
+                    "sha256": "5041b9dcdc5c1587648d829fee1f2e4df373befb29aaf15742d39f83d64e7e2e"
+                },
+                {
+                    "path": "Models/CesiumMilkTruck/glTF/CesiumMilkTruck_data.bin",
+                    "sha256": "6783d6e3151b9ca72c64cf694cdb6964de3a2cffcf62015c1d91e358df434046"
+                },
+                {
+                    "path": "LICENSES/LicenseRef-CC-BY-TM.txt",
+                    "sha256": "7a0eedc807b6a5674247e2760be7cc1b62ec1c66ba6bb7cbed2c2cfcd4269e88"
+                },
+                {
+                    "path": "LICENSES/LicenseRef-LegalMark-Cesium.txt",
+                    "sha256": "b6fc08fa37e5ca7894a5f2e9e7c4d1da7b01f40b031bd9573e7fd415292d10c4"
+                },
+                {
+                    "path": "LICENSES/CC-BY-4.0.txt",
+                    "sha256": "c8041334a99cb48852b2139253cbde5f8ac87e27f124aed51223e0d5bf0080eb"
+                }
+            ]
+        }
+    ]
+}
