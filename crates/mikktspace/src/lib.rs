@@ -25,15 +25,16 @@ impl Geometry for Mesh<'_> {
         std::array::from_fn(|j| f32::from_bits(self.vertices[i + j]))
     }
     fn normal(&self, face: usize, corner: usize) -> [f32; 3] {
-        let i = self.index(face, corner) * 8 + 3;
+        let i = self.index(face, corner) * 8 + 4;
         std::array::from_fn(|j| f32::from_bits(self.vertices[i + j]))
     }
     fn tex_coord(&self, face: usize, corner: usize) -> [f32; 2] {
         let vertex = self.index(face, corner);
-        let (data, i) = self
-            .uv
-            .map_or((self.vertices, vertex * 8 + 6), |uv| (uv, vertex * 2));
-        std::array::from_fn(|j| f32::from_bits(data[i + j]))
+        if let Some(uv) = self.uv {
+            std::array::from_fn(|j| f32::from_bits(uv[vertex * 2 + j]))
+        } else {
+            [3, 7].map(|lane| f32::from_bits(self.vertices[vertex * 8 + lane]))
+        }
     }
     fn set_tangent(&mut self, tangent: Option<TangentSpace>, face: usize, corner: usize) {
         let mut tangent = tangent.unwrap_or_default().tangent_encoded();
@@ -62,7 +63,7 @@ pub unsafe extern "C" fn free_words(ptr: *mut u32, words: usize) {
 /// # Safety
 /// Input is [vertex count, corner count, stream count, UV stream index, stream widths...,
 /// streams..., indices...], all u32 words. Stream zero is eight f32s per vertex; UV index
-/// zero selects its final two lanes, otherwise a two-f32 stream. Indices must be in range.
+/// zero selects its UV lanes (3 and 7), otherwise a two-f32 stream. Indices must be in range.
 /// Returns [allocation length, vertex count, streams..., indices..., four-f32 tangents...].
 /// A null result means MikkTSpace refused the geometry. The caller frees input and output.
 #[no_mangle]

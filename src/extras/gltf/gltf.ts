@@ -1,3 +1,4 @@
+import { generateTangents } from "../../core/mesh";
 import {
     ImageAddressMode,
     ImageFilterMode,
@@ -92,7 +93,7 @@ interface Material {
         roughnessFactor?: number;
         metallicRoughnessTexture?: { index: number };
     };
-    normalTexture?: { index: number; scale?: number };
+    normalTexture?: { index: number; scale?: number; texCoord?: number };
     occlusionTexture?: { index: number; strength?: number };
     emissiveFactor?: number[];
     emissiveTexture?: { index: number };
@@ -117,6 +118,9 @@ export interface GltfMesh {
     /** Packed (px py pz u)(nx ny nz v), eight floats per vertex. */
     vertices: Float32Array;
     indices: Uint32Array;
+    uv1?: Float32Array;
+    color?: Float32Array;
+    tangent?: Float32Array;
     material: number;
 }
 
@@ -308,6 +312,33 @@ function packVertices(
     return vertices;
 }
 
+function expandCorners(values: Float32Array, indices: Uint32Array, width: number): Float32Array {
+    const result = new Float32Array(indices.length * width);
+    for (let i = 0; i < indices.length; i++)
+        result.set(values.subarray(indices[i] * width, (indices[i] + 1) * width), i * width);
+    return result;
+}
+
+function triangleIndices(gltf: GltfJson, buffers: ArrayBuffer[], prim: Primitive): Uint32Array {
+    let indices =
+        prim.indices !== undefined
+            ? readAccessor(gltf, buffers, prim.indices, true)
+            : Uint32Array.from(
+                  { length: gltf.accessors![prim.attributes.POSITION].count },
+                  (_, i) => i,
+              );
+    if (prim.mode === 5 || prim.mode === 6) {
+        const source = indices;
+        indices = new Uint32Array((source.length - 2) * 3);
+        for (let i = 0; i < source.length - 2; i++) {
+            const triangle =
+                prim.mode === 5 ? [i, i + 1 + (i % 2), i + 2 - (i % 2)] : [i + 1, i + 2, 0];
+            for (let c = 0; c < 3; c++) indices[i * 3 + c] = source[triangle[c]];
+        }
+    }
+    return indices;
+}
+
 function decodeMesh(
     gltf: GltfJson,
     buffers: ArrayBuffer[],
@@ -319,31 +350,31 @@ function decodeMesh(
         prim.attributes.TEXCOORD_0 !== undefined
             ? readAccessor(gltf, buffers, prim.attributes.TEXCOORD_0)
             : null;
-    let indices =
-        prim.indices !== undefined
-            ? readAccessor(gltf, buffers, prim.indices, true)
-            : Uint32Array.from({ length: pos.length / 3 }, (_, i) => i);
-
-    if (prim.mode === 5 || prim.mode === 6) {
-        const source = indices;
-        indices = new Uint32Array((source.length - 2) * 3);
-        for (let i = 0; i < source.length - 2; i++) {
-            const triangle =
-                prim.mode === 5 ? [i, i + 1 + (i % 2), i + 2 - (i % 2)] : [i + 1, i + 2, 0];
-            for (let c = 0; c < 3; c++) indices[i * 3 + c] = source[triangle[c]];
-        }
+    let indices = triangleIndices(gltf, buffers, prim);
+    const stream = (accessor: number | undefined) =>
+        accessor === undefined ? undefined : readAccessor(gltf, buffers, accessor);
+    let uv1 = stream(prim.attributes.TEXCOORD_1);
+    let color = stream(prim.attributes.COLOR_0);
+    if (color && gltf.accessors![prim.attributes.COLOR_0!].type === "VEC3") {
+        const rgb = color;
+        color = Float32Array.from({ length: (rgb.length / 3) * 4 }, (_, i) =>
+            i % 4 === 3 ? 1 : rgb[Math.floor(i / 4) * 3 + (i % 4)],
+        );
+    }
+    const tangent =
+        prim.attributes.NORMAL === undefined ? undefined : stream(prim.attributes.TANGENT);
+    const normalTexture =
+        prim.material === undefined ? undefined : gltf.materials?.[prim.material]?.normalTexture;
+    if (normalTexture) {
+        const semantic = `TEXCOORD_${normalTexture.texCoord ?? 0}`;
+        if (!(semantic in prim.attributes))
+            throw new Error(`glTF ${name}: normalTexture names missing ${semantic}`);
     }
     if (prim.attributes.NORMAL === undefined) {
-        const source = pos;
-        pos = Float32Array.from(
-            Array.from(indices, (i) => Array.from(source.slice(i * 3, i * 3 + 3))).flat(),
-        );
-        if (uv) {
-            const sourceUv = uv;
-            uv = Float32Array.from(
-                Array.from(indices, (i) => Array.from(sourceUv.slice(i * 2, i * 2 + 2))).flat(),
-            );
-        }
+        if (uv1) uv1 = expandCorners(uv1, indices, 2);
+        if (color) color = expandCorners(color, indices, 4);
+        pos = expandCorners(pos, indices, 3);
+        if (uv) uv = expandCorners(uv, indices, 2);
         indices = Uint32Array.from({ length: indices.length }, (_, i) => i);
     }
     const normal =
@@ -354,8 +385,57 @@ function decodeMesh(
         name,
         vertices: packVertices(pos, normal, uv),
         indices,
+        ...(uv1 ? { uv1 } : {}),
+        ...(color ? { color } : {}),
+        ...(tangent ? { tangent } : {}),
         material: prim.material ?? -1,
     };
+}
+
+/** Completes normal-textured primitives after synchronous accessor decoding. */
+export async function generateSceneTangents(
+    scene: GltfScene,
+    gltf: GltfJson,
+    buffers: ArrayBuffer[],
+): Promise<void> {
+    let index = 0;
+    for (const source of gltf.meshes ?? [])
+        for (const prim of source.primitives) {
+            if ((prim.mode ?? TRIANGLES) < TRIANGLES) continue;
+            const mesh = scene.meshes[index++];
+            const texture =
+                prim.material === undefined
+                    ? undefined
+                    : gltf.materials?.[prim.material]?.normalTexture;
+            if (mesh.tangent || !texture) continue;
+            const set = texture.texCoord ?? 0;
+            let uv =
+                set === 0
+                    ? undefined
+                    : set === 1
+                      ? mesh.uv1
+                      : readAccessor(
+                            gltf,
+                            buffers,
+                            (prim.attributes as Record<string, number>)[`TEXCOORD_${set}`],
+                        );
+            if (uv && set > 1 && prim.attributes.NORMAL === undefined)
+                uv = expandCorners(uv, triangleIndices(gltf, buffers, prim), 2);
+            const generated = await generateTangents(uv ? { ...mesh, uv1: uv } : mesh, uv ? 1 : 0);
+            if (set > 1) {
+                if (mesh.uv1) {
+                    const remapped = new Float32Array(generated.vertices.length / 4);
+                    remapped.set(mesh.uv1);
+                    for (let corner = 0; corner < generated.indices.length; corner++) {
+                        const dest = generated.indices[corner];
+                        const src = mesh.indices[corner];
+                        remapped.set(mesh.uv1.subarray(src * 2, src * 2 + 2), dest * 2);
+                    }
+                    generated.uv1 = remapped;
+                } else delete generated.uv1;
+            }
+            scene.meshes[index - 1] = { ...mesh, ...generated };
+        }
 }
 
 function supportedExtension(name: string): boolean {
@@ -452,7 +532,17 @@ export function parse(gltf: GltfJson, buffers: ArrayBuffer[]): GltfScene {
         const entries: number[] = [];
         for (const [primitiveIndex, prim] of mesh.primitives.entries()) {
             for (const semantic of Object.keys(prim.attributes)) {
-                if (!["POSITION", "NORMAL", "TEXCOORD_0"].includes(semantic)) ignored.add(semantic);
+                if (
+                    ![
+                        "POSITION",
+                        "NORMAL",
+                        "TEXCOORD_0",
+                        "TEXCOORD_1",
+                        "COLOR_0",
+                        "TANGENT",
+                    ].includes(semantic)
+                )
+                    ignored.add(semantic);
             }
             if (prim.targets?.length) ignored.add("morph");
             if ((prim.mode ?? TRIANGLES) < TRIANGLES) {

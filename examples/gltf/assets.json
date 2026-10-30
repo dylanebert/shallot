@@ -425,6 +425,100 @@
                     "sha256": "c8041334a99cb48852b2139253cbde5f8ac87e27f124aed51223e0d5bf0080eb"
                 }
             ]
+        },
+        {
+            "name": "VertexColorTest",
+            "license": "Models/VertexColorTest/LICENSE.md",
+            "files": [
+                {
+                    "path": "Models/VertexColorTest/LICENSE.md",
+                    "sha256": "86aa24e5a9af3eee8a42829f89d2a3b63283538157086c3f9119f5f4c7b3b1eb"
+                },
+                {
+                    "path": "Models/VertexColorTest/glTF/VertexColorTest.gltf",
+                    "sha256": "cfa41dcbf220eee5cde1a83e5cedf6e5e962f8947e80f7d95ada589a829f78c4"
+                },
+                {
+                    "path": "Models/VertexColorTest/glTF/VertexColorTest.bin",
+                    "sha256": "6db785f1fb513441354b543619bc6fc72798b6f4295034a45a41480662f625a9"
+                },
+                {
+                    "path": "Models/VertexColorTest/glTF/VertexColorTestLabels.png",
+                    "sha256": "f2446c642ff49c1a1377ca6a955dbe3e0f4d1bb01035739e7f122e8a9ff74852"
+                },
+                {
+                    "path": "Models/VertexColorTest/glTF/VertexColorChecks.png",
+                    "sha256": "51911f1787fa12bf373828804df0cf8f4279a8c1b5e0f6046f5f4b425ad5337a"
+                },
+                {
+                    "path": "LICENSES/CC-BY-4.0.txt",
+                    "sha256": "c8041334a99cb48852b2139253cbde5f8ac87e27f124aed51223e0d5bf0080eb"
+                }
+            ]
+        },
+        {
+            "name": "TextureCoordinateTest",
+            "license": "Models/TextureCoordinateTest/LICENSE.md",
+            "files": [
+                {
+                    "path": "Models/TextureCoordinateTest/LICENSE.md",
+                    "sha256": "9423067cbfd96555202e8b72710ad522a2647f254ad15e4b920a33b88c98d09b"
+                },
+                {
+                    "path": "Models/TextureCoordinateTest/glTF/TextureCoordinateTest.gltf",
+                    "sha256": "424f373518a4451c612d952290dc3aa217de8f17008c4030e378da0d582ab1da"
+                },
+                {
+                    "path": "Models/TextureCoordinateTest/glTF/TextureCoordinateTest.bin",
+                    "sha256": "428cf36c6431d3252568295ea9bd5301813c96bb9cdd0f141de7a40a5abc9858"
+                },
+                {
+                    "path": "Models/TextureCoordinateTest/glTF/TextureCoordinateTemplate.png",
+                    "sha256": "07728c817d1f3d0b86d1fcc4610ed5ae4cf5064cb7f245bb891e84fb95fe28c8"
+                },
+                {
+                    "path": "LICENSES/CC-BY-4.0.txt",
+                    "sha256": "c8041334a99cb48852b2139253cbde5f8ac87e27f124aed51223e0d5bf0080eb"
+                },
+                {
+                    "path": "LICENSES/CC0-1.0.txt",
+                    "sha256": "a43fc2004d1e073f1107a1f6146664d08dae6cea93cb828742a4bec6da828e91"
+                }
+            ]
+        },
+        {
+            "name": "MultiUVTest",
+            "license": "Models/MultiUVTest/LICENSE.md",
+            "files": [
+                {
+                    "path": "Models/MultiUVTest/LICENSE.md",
+                    "sha256": "1adc5bca7030326731f4f1a9ed1f56c5c479335cab10839b6358157729b6935a"
+                },
+                {
+                    "path": "Models/MultiUVTest/glTF/MultiUVTest.gltf",
+                    "sha256": "d22a984388457f00da6dc6f6ff1bee6d7828ed3c8e7e7236d5698411cd1cf806"
+                },
+                {
+                    "path": "Models/MultiUVTest/glTF/MultiUVTest.bin",
+                    "sha256": "952adeb8026481be255ccfb4fa8c410b7f847c0fcfc71fac5ca6bb1905ca69fc"
+                },
+                {
+                    "path": "Models/MultiUVTest/glTF/uv0.png",
+                    "sha256": "c6a1c9390a73f59b4cd67d24c1a02f21020b4d033ffe311e29b9c29579e63c7c"
+                },
+                {
+                    "path": "Models/MultiUVTest/glTF/uv1.png",
+                    "sha256": "be9bbbfecd86e6ea366dbfc0430e10b6ab1e8e5ad46b95a6c28d25f9f8b1740e"
+                },
+                {
+                    "path": "LICENSES/LicenseRef-LegalMark-Khronos.txt",
+                    "sha256": "169fcb347ab3b6f61c48e2fe315b52eba61dffb039e6494da325913bbbdf872c"
+                },
+                {
+                    "path": "LICENSES/CC-BY-4.0.txt",
+                    "sha256": "c8041334a99cb48852b2139253cbde5f8ac87e27f124aed51223e0d5bf0080eb"
+                }
+            ]
         }
     ]
 }

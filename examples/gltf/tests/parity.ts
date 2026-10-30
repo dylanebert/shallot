@@ -1,4 +1,5 @@
 import { beforeAll, expect, setDefaultTimeout, spyOn, test } from "bun:test";
+import { readFile } from "node:fs/promises";
 import {
     composeMat4,
     createApp,
@@ -27,6 +28,31 @@ function near(actual: ArrayLike<number>, expected: ArrayLike<number>, tolerance:
     expect(actual.length).toBe(expected.length);
     for (let i = 0; i < actual.length; i++)
         expect(Math.abs(actual[i] - expected[i])).toBeLessThanOrEqual(tolerance);
+}
+function tangent(word: number, expected: ArrayLike<number>) {
+    const signedX = (word << 16) >> 16;
+    const signedY = word >> 16;
+    let x = Math.max(-1, signedX / 32767);
+    let y = Math.abs(Math.max(-1, signedY / 32767)) * 2 - 1;
+    const z = 1 - Math.abs(x) - Math.abs(y);
+    if (z < 0) {
+        const oldX = x;
+        x = (1 - Math.abs(y)) * (x >= 0 ? 1 : -1);
+        y = (1 - Math.abs(oldX)) * (y >= 0 ? 1 : -1);
+    }
+    const length = Math.hypot(x, y, z);
+    // With h = 1/(2*32767), oct x errs by h, oct y by at most 4h:
+    // y is half-scaled, and its positive sign-preserving floor can move -1 by 4h.
+    // Each unfolded component errs by at most |dx|+|dy| <= 5h. Its length
+    // error is <= sqrt(3)*5h; normalization magnifies by at most 2*sqrt(3).
+    // Allow eight f32 epsilons per unfolded component for the encoding's
+    // rounding; normalization plus the reference's unit-length rounding fits 64 epsilons.
+    near(
+        [x / length, y / length, z / length],
+        Array.from(expected).slice(0, 3),
+        15 / 32767 + 64 * 2 ** -23,
+    );
+    expect(signedY >= 0 ? 1 : -1).toBe(expected[3]);
 }
 function materialValues(actual: ArrayLike<number>, expected: number[]) {
     expect(Array.from(actual)).toEqual(expected.map(Math.fround));
@@ -95,11 +121,89 @@ export function parity(category: string) {
                     );
                     const meshId = vertices[indices[0]].y >>> 16;
                     const vertexBase = vertices.findIndex((vertex) => vertex.y >>> 16 === meshId);
-                    const localVertices = vertices.filter((vertex) => vertex.y >>> 16 === meshId);
-                    expect(localVertices.length * 3).toBe(ref.positions.length);
-                    expect(Array.from(indices, (index) => index - vertexBase)).toEqual(ref.indices);
-                    for (const [source, v] of localVertices.entries()) {
-                        const q = quant[meshId];
+                    const q = quant[meshId];
+                    const localVertices = vertices
+                        .slice(0, q.streams || vertices.length)
+                        .filter((vertex) => vertex.y >>> 16 === meshId);
+                    const sources = Array.from({ length: localVertices.length }, (_, i) => i);
+                    const generated = id === "NormalTangentTest";
+                    if (generated) {
+                        expect(indices.length).toBe(ref.indices.length);
+                        for (let corner = 0; corner < indices.length; corner++) {
+                            const local = indices[corner] - vertexBase;
+                            if (local < ref.positions.length / 3)
+                                expect(local).toBe(ref.indices[corner]);
+                            sources[local] = ref.indices[corner];
+                        }
+                    } else {
+                        expect(localVertices.length * 3).toBe(ref.positions.length);
+                        expect(Array.from(indices, (index) => index - vertexBase)).toEqual(
+                            ref.indices,
+                        );
+                    }
+                    const expectedStreams: typeof mesh.streams = {
+                        ...(ref.uv1 ? { uv1: true } : {}),
+                        ...(ref.color ? { color: true } : {}),
+                        ...(ref.tangent || generated ? { tangent: true } : {}),
+                    };
+                    expect(mesh.streams).toEqual(
+                        Object.keys(expectedStreams).length ? expectedStreams : undefined,
+                    );
+                    const words = Uint32Array.from(vertices.flatMap((v) => [v.x, v.y, v.z, v.w]));
+                    const floats = new Float32Array(words.buffer);
+                    const stride =
+                        (ref.uv1 ? 2 : 0) +
+                        (ref.tangent || generated ? 1 : 0) +
+                        (ref.color ? 2 : 0);
+                    const tangentAt = (vertex: number) =>
+                        q.streams * 4 + vertex * stride + (ref.uv1 ? 2 : 0);
+                    if (generated) {
+                        const bytes = await readFile(
+                            new URL(
+                                "../../../src/core/mesh/fixtures/NormalTangentTest-0-0.bin",
+                                import.meta.url,
+                            ),
+                        );
+                        const tangents = new Float32Array(
+                            bytes.buffer.slice(
+                                bytes.byteOffset,
+                                bytes.byteOffset + bytes.byteLength,
+                            ),
+                        );
+                        expect(tangents.length).toBe(indices.length * 4);
+                        for (let corner = 0; corner < indices.length; corner++) {
+                            const t = tangents.subarray(corner * 4, corner * 4 + 4);
+                            tangent(words[tangentAt(indices[corner])], t);
+                        }
+                    }
+                    for (const [local, v] of localVertices.entries()) {
+                        const source = sources[local];
+                        let at = q.streams * 4 + (vertexBase + local) * stride;
+                        if (ref.uv1) {
+                            expect(Array.from(floats.subarray(at, at + 2))).toEqual(
+                                ref.uv1.slice(source * 2, source * 2 + 2).map(Math.fround),
+                            );
+                            at += 2;
+                        }
+                        if (ref.tangent) {
+                            const t = ref.tangent.slice(source * 4, source * 4 + 4);
+                            tangent(words[at], t);
+                        }
+                        if (ref.tangent || generated) at++;
+                        if (ref.color) {
+                            const c = ref.color.slice(source * 4, source * 4 + 4);
+                            // Half a unorm16 step plus absolute f32 rounding on [0,1].
+                            near(
+                                [
+                                    (words[at] & 65535) / 65535,
+                                    (words[at] >>> 16) / 65535,
+                                    (words[at + 1] & 65535) / 65535,
+                                    (words[at + 1] >>> 16) / 65535,
+                                ],
+                                c,
+                                0.5 / 65535 + 2 ** -24,
+                            );
+                        }
                         const position = [v.x & 65535, v.x >>> 16, v.y & 65535];
                         const offset = [q.posOffset.x, q.posOffset.y, q.posOffset.z];
                         const extent = [q.posScale.x, q.posScale.y, q.posScale.z];

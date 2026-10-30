@@ -34,7 +34,7 @@ export function primitives(name: string): { mesh: number; primitive: number; ver
             const uv = accessor(p.attributes.TEXCOORD_0);
             const count = positions.length / 3;
             const vertices = new Float32Array(count * 8);
-            for (let i = 0; i < count; i++) vertices.set([...positions.slice(i * 3, i * 3 + 3), ...normals.slice(i * 3, i * 3 + 3), ...uv.slice(i * 2, i * 2 + 2)], i * 8);
+            for (let i = 0; i < count; i++) vertices.set([...positions.slice(i * 3, i * 3 + 3), uv[i * 2], ...normals.slice(i * 3, i * 3 + 3), uv[i * 2 + 1]], i * 8);
             const indices = Uint32Array.from(p.indices === undefined ? Array.from({ length: count }, (_, i) => i) : accessor(p.indices));
             result.push({ mesh, primitive, vertices, indices });
         }

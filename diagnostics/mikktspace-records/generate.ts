@@ -28,8 +28,8 @@ try {
         const positions = new Float32Array(count * 3), normals = new Float32Array(count * 3), uv = new Float32Array(count * 2);
         for (let i = 0; i < count; i++) {
             positions.set(p.vertices.subarray(i * 8, i * 8 + 3), i * 3);
-            normals.set(p.vertices.subarray(i * 8 + 3, i * 8 + 6), i * 3);
-            uv.set(p.vertices.subarray(i * 8 + 6, i * 8 + 8), i * 2);
+            normals.set(p.vertices.subarray(i * 8 + 4, i * 8 + 7), i * 3);
+            uv.set([p.vertices[i * 8 + 3], p.vertices[i * 8 + 7]], i * 2);
         }
         const input = resolve(temporary, "input"), output = resolve(temporary, "output");
         writeFileSync(input, Buffer.concat([Buffer.from(new Uint32Array([count, p.indices.length]).buffer), ...[positions, normals, uv, p.indices].map(array => Buffer.from(array.buffer))]));

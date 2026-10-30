@@ -91,6 +91,24 @@ for (const fixture of subjects) {
             normals.push(normal.getX(i), normal.getY(i), normal.getZ(i));
             uvs.push(uv ? uv.getX(i) : 0, uv ? uv.getY(i) : 0);
         }
+        const stream = (name: string, width: number) => {
+            const attribute = geometry.getAttribute(name);
+            if (!attribute) return null;
+            const values: number[] = [];
+            for (let i = 0; i < position.count; i++)
+                for (let c = 0; c < width; c++) values.push(c < attribute.itemSize ? attribute.getComponent(i, c) : 1);
+            return array(values, width);
+        };
+        let tangent = stream("tangent", 4);
+        if (implicitNormals && tangent) {
+            divergences.push({
+                field: `instances[${instances.indexOf(object)}].tangent`,
+                clause: "meshes-usage: provided tangents are ignored when normals are not specified",
+                reason: "GLTFLoader retains the tangent attribute without NORMAL; the record omits it.",
+                loader: tangent, specified: null,
+            });
+            tangent = null;
+        }
         const ref = object.material;
         const unlit = ref instanceof MeshBasicMaterial;
         const materialIndex = reference.parser.associations.get(ref)?.materials;
@@ -115,6 +133,7 @@ for (const fixture of subjects) {
         }
         return { frontFace: object.matrixWorld.determinant() < 0 ? "cw" : "ccw", matrix: object.matrixWorld.elements, ...(example ? { nodePath } : {}), implicitNormals,
             positions: array(positions, 3), normals: array(normals, 3), uvs: array(uvs, 2),
+            uv1: stream("uv1", 2), color: stream("color", 4), tangent,
             indices: array(geometry.index?.array ?? Array.from({ length: position.count }, (_, i) => i), 1, true),
             material,
         };
@@ -134,6 +153,9 @@ writeFileSync(resolve(import.meta.dir, example ? "../../examples/gltf/tests/mode
         positions: "accessors-overview (bufferView undefined: elements initialized with zeros; sparse MAY override); accessor-data-types; sparse-accessors (replacements over base values); meshes-attributes (POSITION)",
         normals: "meshes-attributes (NORMAL); meshes-usage (implicit flat normals)",
         uvs: "accessors-overview; accessor-data-types; meshes-attributes (TEXCOORD_0); absent UVs use Shallot's zero placeholder",
+        uv1: "accessors-overview; accessor-data-types (normalized unsigned integers); meshes-attributes (TEXCOORD_1); null means absent",
+        vertexColor: "meshes-attributes (COLOR_0, linear RGB/RGBA); meshes-usage (VEC3 alpha is 1); accessor-data-types (normalized unsigned integers); null means absent",
+        tangent: "meshes-attributes (authored TANGENT xyzw, w unchanged); meshes-usage (ignored without NORMAL); null means absent, generated tangents are checked against the separate MikkTSpace reference",
         indices: "meshes-topology (indexed order; sequential vertices if indices absent); meshes-usage (split corners for flat normals)",
         matrix: "transformations (TRS; parent global times local)",
         frontFace: "instantiation (negative global determinant makes front faces clockwise)",

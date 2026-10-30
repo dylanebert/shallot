@@ -17,7 +17,7 @@ async function load(): Promise<Kernel> {
 }
 
 /** Generates MikkTSpace tangents with glTF handedness (w negated), without a GPU.
- * Input is eight interleaved f32 lanes per vertex: position, normal, UV. uvSet selects
+ * Input is eight interleaved f32 lanes per vertex: (px py pz u)(nx ny nz v). uvSet selects
  * the base UV (0) or uv1 (1), which must be present. Indices must describe triangles.
  * Returns owned arrays; input arrays are unchanged. Only vertices whose corners have
  * different tangent bit patterns are split, duplicating every supplied stream, including
