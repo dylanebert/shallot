@@ -249,7 +249,10 @@ export async function imageArray(
     // straight (non-premultiplied) alpha: the MASK cutout compares `tex.a` and the shader multiplies the
     // straight rgb, so premultiplying (the browser default) would darken cutout edges and the factor blend
     const native = await Promise.all(
-        blobs.map((b) => createImageBitmap(b, { premultiplyAlpha: "none" })),
+        // glTF Images requires ignoring embedded color profiles; texture bytes define the values.
+        blobs.map((b) =>
+            createImageBitmap(b, { premultiplyAlpha: "none", colorSpaceConversion: "none" }),
+        ),
     );
     return arrayFromBitmaps(world, device, native, cap, format);
 }
@@ -306,6 +309,7 @@ export async function uploadLayer(
                   resizeHeight: size,
                   resizeQuality: "high",
                   premultiplyAlpha: "none",
+                  colorSpaceConversion: "none",
               });
     device.queue.copyExternalImageToTexture(
         { source: sized },
