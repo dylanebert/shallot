@@ -275,6 +275,84 @@
                     "sha256": "c8041334a99cb48852b2139253cbde5f8ac87e27f124aed51223e0d5bf0080eb"
                 }
             ]
+        },
+        {
+            "name": "SimpleSparseAccessor",
+            "license": "Models/SimpleSparseAccessor/LICENSE.md",
+            "files": [
+                {
+                    "path": "Models/SimpleSparseAccessor/LICENSE.md",
+                    "sha256": "484c4e950b4741b3cbf8d146187c4a9f0b60cc1e5ae4ade688b84fd659163220"
+                },
+                {
+                    "path": "Models/SimpleSparseAccessor/glTF/SimpleSparseAccessor.gltf",
+                    "sha256": "852cea1ab8665caca6bee912422ed246feb42819c9905ba17a542937e058825a"
+                },
+                {
+                    "path": "Models/SimpleSparseAccessor/glTF/SimpleSparseAccessor.bin",
+                    "sha256": "8b01fde2d485b480626115ff804f972edb4ef87f23d2600054bcc859cee38f92"
+                },
+                {
+                    "path": "LICENSES/CC-BY-4.0.txt",
+                    "sha256": "c8041334a99cb48852b2139253cbde5f8ac87e27f124aed51223e0d5bf0080eb"
+                }
+            ]
+        },
+        {
+            "name": "NegativeScaleTest",
+            "license": "Models/NegativeScaleTest/LICENSE.md",
+            "files": [
+                {
+                    "path": "Models/NegativeScaleTest/LICENSE.md",
+                    "sha256": "f3a5807437e6710247babbc22e1b8cfb9d2a73eb7b8fe8b6b757dae3898d594b"
+                },
+                {
+                    "path": "Models/NegativeScaleTest/glTF/NegativeScaleTest.gltf",
+                    "sha256": "b534c320b19f7b9a3ddaf12db4fa1da3182ca8ddf9bc61aa7b0a5a5f3b100f18"
+                },
+                {
+                    "path": "Models/NegativeScaleTest/glTF/NegativeScaleTest.bin",
+                    "sha256": "671826651d22463a9d830dc1b9c0ff3d17b2812e06b43466861eac2a7c5211f1"
+                },
+                {
+                    "path": "Models/NegativeScaleTest/glTF/CheckAndX.png",
+                    "sha256": "19da9a7f987b9a64684500c1de49293c0922f1840f13ce5d38505b8b5fe1c001"
+                },
+                {
+                    "path": "Models/NegativeScaleTest/glTF/NegativeScaleLabels2.png",
+                    "sha256": "71a79de243ebdd640fb90dba1ba250632de1343537ae86f7e95379fe2da50725"
+                },
+                {
+                    "path": "LICENSES/CC-BY-4.0.txt",
+                    "sha256": "c8041334a99cb48852b2139253cbde5f8ac87e27f124aed51223e0d5bf0080eb"
+                }
+            ]
+        },
+        {
+            "name": "MeshPrimitiveModes",
+            "license": "Models/MeshPrimitiveModes/LICENSE.md",
+            "files": [
+                {
+                    "path": "Models/MeshPrimitiveModes/LICENSE.md",
+                    "sha256": "2f2c2f74ab238e71353260b5018fa44acfb856b5708346d92d1c64933bfb8edd"
+                },
+                {
+                    "path": "Models/MeshPrimitiveModes/glTF/MeshPrimitiveModes.gltf",
+                    "sha256": "2a8b3209c25e2fca5105539136a05f42d170767f0eb16148cd3825758e5ee977"
+                },
+                {
+                    "path": "Models/MeshPrimitiveModes/glTF/buffer.bin",
+                    "sha256": "4369522e5929bed650242fea069c687aa2ea1230caa61c378610b2154c1048d7"
+                },
+                {
+                    "path": "LICENSES/CC-BY-4.0.txt",
+                    "sha256": "c8041334a99cb48852b2139253cbde5f8ac87e27f124aed51223e0d5bf0080eb"
+                },
+                {
+                    "path": "LICENSES/CC0-1.0.txt",
+                    "sha256": "a43fc2004d1e073f1107a1f6146664d08dae6cea93cb828742a4bec6da828e91"
+                }
+            ]
         }
     ]
 }

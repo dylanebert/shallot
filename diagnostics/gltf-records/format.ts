@@ -21,6 +21,7 @@ export function recordArray(values: ArrayLike<number>, width: number, integer = 
 export const fixtures = [
     "default-sampler.gltf",
     "double-sided.gltf",
+    "SparseAccessorWithoutBufferView/SparseAccessorWithoutBufferView.gltf",
     "BoxInterleaved/glTF/BoxInterleaved.gltf",
     "BoxTextured/glTF/BoxTextured.gltf",
     "BoxTextured/glTF-Binary/BoxTextured.glb",

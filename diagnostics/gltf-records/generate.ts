@@ -50,8 +50,31 @@ for (const fixture of subjects) {
             mipmapFilter: [1003, 1004, 1006, 1007].includes(texture.minFilter) ? 0 : 1,
         } });
     }
-    records.push({ fixture, textures, ...(example ? { images: (reference.parser.json.images ?? []).map((image: any) => image.uri) } : {}), instances: instances.map((object) => {
+    const divergences: any[] = [];
+    const decodedInstances = await Promise.all(instances.map(async (object) => {
         let geometry = object.geometry;
+        const association = reference.parser.associations.get(object);
+        const primitive = reference.parser.json.meshes[association.meshes].primitives[association.primitives];
+        if (primitive.mode === 5 || primitive.mode === 6) {
+            const source = primitive.indices === undefined
+                ? Array.from({ length: geometry.getAttribute("position").count }, (_, i) => i)
+                : Array.from((await reference.parser.getDependency("accessor", primitive.indices)).array) as number[];
+            const specified: number[] = [];
+            for (let i = 0; i < source.length - 2; i++) {
+                const triangle = primitive.mode === 5
+                    ? [i, i + 1 + i % 2, i + 2 - i % 2]
+                    : [i + 1, i + 2, 0];
+                specified.push(...triangle.map(index => source[index]));
+            }
+            divergences.push({
+                field: `instances[${instances.indexOf(object)}].indices`,
+                clause: "meshes-topology: Triangle Strips / Triangle Fans (ordered vertex equations)",
+                reason: "GLTFLoader cyclically rotates odd strip triangles and every fan triangle. Winding agrees, but the specification's vertex order is retained in this record.",
+                loader: Array.from(geometry.index.array), specified,
+            });
+            geometry = geometry.clone();
+            geometry.setIndex(specified);
+        }
         const implicitNormals = !geometry.getAttribute("normal");
         if (implicitNormals) {
             // meshes-usage: one normal per triangle. GLTFLoader leaves these implicit
@@ -90,12 +113,13 @@ for (const fixture of subjects) {
                 }
             }
         }
-        return { matrix: object.matrixWorld.elements, ...(example ? { nodePath } : {}), implicitNormals,
+        return { frontFace: object.matrixWorld.determinant() < 0 ? "cw" : "ccw", matrix: object.matrixWorld.elements, ...(example ? { nodePath } : {}), implicitNormals,
             positions: array(positions, 3), normals: array(normals, 3), uvs: array(uvs, 2),
             indices: array(geometry.index?.array ?? Array.from({ length: position.count }, (_, i) => i), 1, true),
             material,
         };
-    }), divergences: [] });
+    }));
+    records.push({ fixture, textures, ...(example ? { images: (reference.parser.json.images ?? []).map((image: any) => image.uri) } : {}), instances: decodedInstances, divergences });
 }
 writeFileSync(resolve(import.meta.dir, example ? "../../examples/gltf/tests/models.gold.json" : "../../src/extras/gltf/fixtures/records.json"), `${JSON.stringify({
     specification: "a55d8458c1e82720413acd3b420fd09e73b8e40b", generator: revision,
@@ -107,11 +131,12 @@ writeFileSync(resolve(import.meta.dir, example ? "../../examples/gltf/tests/mode
         instances: "scenes-overview; nodes-and-hierarchy; geometry-overview; meshes-overview (one record per instantiated primitive; depth-first order is a comparison convention)",
         material: "meshes-overview; default-material (null denotes no authored material)",
         implicitNormals: "meshes-usage (NORMAL absent)",
-        positions: "accessors-overview; accessor-data-types; meshes-attributes (POSITION)",
+        positions: "accessors-overview (bufferView undefined: elements initialized with zeros; sparse MAY override); accessor-data-types; sparse-accessors (replacements over base values); meshes-attributes (POSITION)",
         normals: "meshes-attributes (NORMAL); meshes-usage (implicit flat normals)",
         uvs: "accessors-overview; accessor-data-types; meshes-attributes (TEXCOORD_0); absent UVs use Shallot's zero placeholder",
         indices: "meshes-topology (indexed order; sequential vertices if indices absent); meshes-usage (split corners for flat normals)",
         matrix: "transformations (TRS; parent global times local)",
+        frontFace: "instantiation (negative global determinant makes front faces clockwise)",
         ...(example ? { nodePath: "transformations; nodes-and-hierarchy (authored local matrices or TRS, root to instance, for evaluation at the client's float32 storage boundaries)" } : {}),
         color: "metallic-roughness-material (linear baseColorFactor); alpha-coverage (fourth component)",
         metallic: "metallic-roughness-material (metallicFactor)", roughness: "metallic-roughness-material (roughnessFactor)",

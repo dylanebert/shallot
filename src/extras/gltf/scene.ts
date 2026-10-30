@@ -53,7 +53,7 @@ export async function loadGltfScene(
         );
     });
     const materials = world.resource(Materials);
-    const handles = scene.materials.map((material) =>
+    const addMaterial = (material: (typeof scene.materials)[number], inverted = false) =>
         materials.add(
             StandardMaterial({
                 baseColor: material.color,
@@ -66,7 +66,7 @@ export async function loadGltfScene(
                 doubleSided: material.doubleSided,
             }),
             {
-                cullMode: material.doubleSided ? "none" : "back",
+                cullMode: material.doubleSided ? "none" : inverted ? "front" : "back",
                 alphaMode:
                     material.alphaMode === "MASK"
                         ? AlphaMode.Mask(material.cutoff)
@@ -74,19 +74,41 @@ export async function loadGltfScene(
                           ? AlphaMode.Blend
                           : AlphaMode.Opaque,
             },
-        ),
-    );
+        );
+    const handles = scene.materials.map((material) => addMaterial(material));
+    const invertedHandles = new Map<number, MaterialHandle>();
+    const defaultValues = {
+        color: [1, 1, 1, 1],
+        metallic: 1,
+        roughness: 1,
+        emissive: [0, 0, 0],
+        alphaMode: "OPAQUE",
+        cutoff: 0.5,
+        unlit: false,
+        doubleSided: false,
+    } satisfies (typeof scene.materials)[number];
     let defaultMaterial: MaterialHandle | undefined;
     const meshes = scene.meshes.map((mesh) => world.resource(Meshes).add(mesh));
     const primitives = scene.instances.map((instance) => {
         const materialIndex = scene.meshes[instance.mesh].material;
-        if (materialIndex < 0)
-            defaultMaterial ??= materials.add(
-                StandardMaterial({ metallic: 1, perceptualRoughness: 1 }),
-            );
+        if (materialIndex < 0) defaultMaterial ??= addMaterial(defaultValues);
+        let material = handles[materialIndex] ?? defaultMaterial!;
+        const m = instance.matrix;
+        const determinant =
+            m[0] * (m[5] * m[10] - m[6] * m[9]) -
+            m[4] * (m[1] * m[10] - m[2] * m[9]) +
+            m[8] * (m[1] * m[6] - m[2] * m[5]);
+        if (determinant < 0 && material.cullMode !== 1) {
+            if (!invertedHandles.has(materialIndex))
+                invertedHandles.set(
+                    materialIndex,
+                    addMaterial(scene.materials[materialIndex] ?? defaultValues, true),
+                );
+            material = invertedHandles.get(materialIndex)!;
+        }
         return {
             mesh: meshes[instance.mesh],
-            material: handles[materialIndex] ?? defaultMaterial!,
+            material,
             node: instance.node,
             matrix: instance.matrix,
         };

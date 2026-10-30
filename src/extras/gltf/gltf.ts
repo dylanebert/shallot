@@ -8,6 +8,7 @@ import { composeMat4 as compose, multiplyMat4 as multiply } from "../../engine/u
 const VERTEX_FLOATS = 8;
 
 export interface GltfJson {
+    asset?: { version: string; minVersion?: string };
     accessors?: Accessor[];
     bufferViews?: BufferView[];
     meshes?: GltfJsonMesh[];
@@ -34,7 +35,11 @@ interface Accessor {
     normalized?: boolean;
     count: number;
     type: "SCALAR" | "VEC2" | "VEC3" | "VEC4" | "MAT2" | "MAT3" | "MAT4";
-    sparse?: object;
+    sparse?: {
+        count: number;
+        indices: { bufferView: number; byteOffset?: number; componentType: number };
+        values: { bufferView: number; byteOffset?: number };
+    };
 }
 
 interface BufferView {
@@ -190,46 +195,60 @@ function readComponent(
             const v = view.getUint16(o, true);
             return normalized ? v / 65535 : v;
         }
+        case UNSIGNED_INT:
+            return view.getUint32(o, true);
         default:
             return view.getFloat32(o, true);
     }
 }
 
-function readFloats(gltf: GltfJson, buffers: ArrayBuffer[], index: number): Float32Array {
+function readAccessor(gltf: GltfJson, buffers: ArrayBuffer[], index: number): Float32Array;
+function readAccessor(
+    gltf: GltfJson,
+    buffers: ArrayBuffer[],
+    index: number,
+    indices: true,
+): Uint32Array;
+function readAccessor(
+    gltf: GltfJson,
+    buffers: ArrayBuffer[],
+    index: number,
+    indices = false,
+): Float32Array | Uint32Array {
     const acc = gltf.accessors![index];
-    const bv = gltf.bufferViews![acc.bufferView!];
     const comps = COMPONENTS[acc.type];
     const size = compSize(acc.componentType);
-    const stride = bv.byteStride ?? comps * size;
-    const base = (bv.byteOffset ?? 0) + (acc.byteOffset ?? 0);
-    const norm = acc.normalized ?? false;
-    const view = new DataView(buffers[bv.buffer]);
-    const out = new Float32Array(acc.count * comps);
-    for (let i = 0; i < acc.count; i++) {
-        const o = base + i * stride;
-        for (let c = 0; c < comps; c++)
-            out[i * comps + c] = readComponent(view, o + c * size, acc.componentType, norm);
-    }
-    return out;
-}
-
-function readIndices(gltf: GltfJson, buffers: ArrayBuffer[], index: number): Uint32Array {
-    const acc = gltf.accessors![index];
-    const bv = gltf.bufferViews![acc.bufferView!];
-    const size =
-        acc.componentType === UNSIGNED_INT ? 4 : acc.componentType === UNSIGNED_SHORT ? 2 : 1;
-    const stride = bv.byteStride ?? size;
-    const base = (bv.byteOffset ?? 0) + (acc.byteOffset ?? 0);
-    const view = new DataView(buffers[bv.buffer]);
-    const out = new Uint32Array(acc.count);
-    for (let i = 0; i < acc.count; i++) {
-        const o = base + i * stride;
-        out[i] =
-            acc.componentType === UNSIGNED_INT
-                ? view.getUint32(o, true)
-                : acc.componentType === UNSIGNED_SHORT
-                  ? view.getUint16(o, true)
-                  : view.getUint8(o);
+    const out = indices ? new Uint32Array(acc.count * comps) : new Float32Array(acc.count * comps);
+    const read = (
+        bufferView: number,
+        byteOffset: number,
+        count: number,
+        destinations?: Uint32Array,
+    ) => {
+        const bv = gltf.bufferViews![bufferView];
+        const view = new DataView(buffers[bv.buffer]);
+        const base = (bv.byteOffset ?? 0) + byteOffset;
+        const stride = bv.byteStride ?? comps * size;
+        for (let i = 0; i < count; i++)
+            for (let c = 0; c < comps; c++)
+                out[(destinations ? destinations[i] : i) * comps + c] = readComponent(
+                    view,
+                    base + i * stride + c * size,
+                    acc.componentType,
+                    acc.normalized ?? false,
+                );
+    };
+    if (acc.bufferView !== undefined) read(acc.bufferView, acc.byteOffset ?? 0, acc.count);
+    if (acc.sparse) {
+        const sparse = acc.sparse;
+        const bv = gltf.bufferViews![sparse.indices.bufferView];
+        const view = new DataView(buffers[bv.buffer]);
+        const base = (bv.byteOffset ?? 0) + (sparse.indices.byteOffset ?? 0);
+        const size = compSize(sparse.indices.componentType);
+        const destinations = Uint32Array.from({ length: sparse.count }, (_, i) =>
+            readComponent(view, base + i * size, sparse.indices.componentType, false),
+        );
+        read(sparse.values.bufferView, sparse.values.byteOffset ?? 0, sparse.count, destinations);
     }
     return out;
 }
@@ -295,16 +314,25 @@ function decodeMesh(
     prim: Primitive,
     name: string,
 ): GltfMesh {
-    let pos = readFloats(gltf, buffers, prim.attributes.POSITION);
+    let pos = readAccessor(gltf, buffers, prim.attributes.POSITION);
     let uv =
         prim.attributes.TEXCOORD_0 !== undefined
-            ? readFloats(gltf, buffers, prim.attributes.TEXCOORD_0)
+            ? readAccessor(gltf, buffers, prim.attributes.TEXCOORD_0)
             : null;
     let indices =
         prim.indices !== undefined
-            ? readIndices(gltf, buffers, prim.indices)
+            ? readAccessor(gltf, buffers, prim.indices, true)
             : Uint32Array.from({ length: pos.length / 3 }, (_, i) => i);
 
+    if (prim.mode === 5 || prim.mode === 6) {
+        const source = indices;
+        indices = new Uint32Array((source.length - 2) * 3);
+        for (let i = 0; i < source.length - 2; i++) {
+            const triangle =
+                prim.mode === 5 ? [i, i + 1 + (i % 2), i + 2 - (i % 2)] : [i + 1, i + 2, 0];
+            for (let c = 0; c < 3; c++) indices[i * 3 + c] = source[triangle[c]];
+        }
+    }
     if (prim.attributes.NORMAL === undefined) {
         const source = pos;
         pos = Float32Array.from(
@@ -320,7 +348,7 @@ function decodeMesh(
     }
     const normal =
         prim.attributes.NORMAL !== undefined
-            ? readFloats(gltf, buffers, prim.attributes.NORMAL)
+            ? readAccessor(gltf, buffers, prim.attributes.NORMAL)
             : computeNormals(pos, indices);
     return {
         name,
@@ -334,8 +362,15 @@ function supportedExtension(name: string): boolean {
     return name === "KHR_materials_unlit";
 }
 
-/** Refuses unsupported required extensions before their resources are read. */
-export function validateRequiredExtensions(gltf: GltfJson): void {
+/** Refuses versions beyond 2.0 and unsupported required extensions before reading resources. */
+export function validateAsset(gltf: GltfJson): void {
+    for (const field of ["minVersion", "version"] as const) {
+        const version = gltf.asset?.[field];
+        if (version === undefined) continue;
+        const [major, minor] = version.split(".").map(Number);
+        if (major > 2 || (major === 2 && minor > 0))
+            throw new Error(`Unsupported glTF asset.${field}: ${version}; supports 2.0`);
+    }
     for (const name of gltf.extensionsRequired ?? []) {
         if (!supportedExtension(name))
             throw new Error(`Unsupported required glTF extension: ${name}`);
@@ -346,7 +381,7 @@ export function validateRequiredExtensions(gltf: GltfJson): void {
  * Instances retain column-major world matrices, including shear; geometry stays mesh-local.
  */
 export function parse(gltf: GltfJson, buffers: ArrayBuffer[]): GltfScene {
-    validateRequiredExtensions(gltf);
+    validateAsset(gltf);
     const ignored = new Set<string>();
     const scan = (value: unknown): void => {
         if (!value || typeof value !== "object") return;
@@ -420,24 +455,8 @@ export function parse(gltf: GltfJson, buffers: ArrayBuffer[]): GltfScene {
                 if (!["POSITION", "NORMAL", "TEXCOORD_0"].includes(semantic)) ignored.add(semantic);
             }
             if (prim.targets?.length) ignored.add("morph");
-            if ((prim.mode ?? TRIANGLES) !== TRIANGLES) {
-                ignored.add("primitive-mode");
-                continue;
-            }
-            const accessors = [
-                prim.attributes.POSITION,
-                prim.attributes.NORMAL,
-                prim.attributes.TEXCOORD_0,
-                prim.indices,
-            ].filter((a): a is number => a !== undefined);
-            if (
-                accessors.some(
-                    (a) =>
-                        gltf.accessors?.[a]?.sparse ||
-                        gltf.accessors?.[a]?.bufferView === undefined,
-                )
-            ) {
-                ignored.add("sparse-accessor");
+            if ((prim.mode ?? TRIANGLES) < TRIANGLES) {
+                ignored.add(["POINTS", "LINES", "LINE_LOOP", "LINE_STRIP"][prim.mode!]);
                 continue;
             }
             entries.push(meshes.length);

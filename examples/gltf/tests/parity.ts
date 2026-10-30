@@ -204,7 +204,9 @@ export function parity(category: string) {
                         }
                         expect(material.unlit).toBe(Number(refMaterial.unlit));
                         expect(material.doubleSided).toBe(Number(refMaterial.doubleSided));
-                        expect(primitive.material.cullMode).toBe(refMaterial.doubleSided ? 1 : 0);
+                        expect(primitive.material.cullMode).toBe(
+                            refMaterial.doubleSided ? 1 : ref.frontFace === "cw" ? 2 : 0,
+                        );
                         expect(primitive.material.alphaMode).toBe(
                             ({ OPAQUE: 0, MASK: 1, BLEND: 2 } as Record<string, number>)[
                                 refMaterial.alphaMode
@@ -237,7 +239,7 @@ export function parity(category: string) {
                         expect(material.doubleSided).toBe(0);
                         expect(material.baseColorTexture).toBe(-1);
                         expect(primitive.material.alphaMode).toBe(0);
-                        expect(primitive.material.cullMode).toBe(0);
+                        expect(primitive.material.cullMode).toBe(ref.frontFace === "cw" ? 2 : 0);
                     }
                 }
             } finally {

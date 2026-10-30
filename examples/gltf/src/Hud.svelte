@@ -4,7 +4,7 @@
     let { scene, select }: { scene: Scene; select: (scene: Scene) => void } = $props();
     let open = $state(false);
     let picker: HTMLElement;
-    const samples = categories[0].scenes;
+    const samples = [...new Map(categories.flatMap(category => category.scenes).map(sample => [sample.id, sample])).values()];
     function step(direction: number) {
         open = false;
         select(samples[(samples.findIndex(sample => sample.id === scene) + direction + samples.length) % samples.length].id);

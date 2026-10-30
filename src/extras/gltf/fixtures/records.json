@@ -9,11 +9,12 @@
     "instances": "scenes-overview; nodes-and-hierarchy; geometry-overview; meshes-overview (one record per instantiated primitive; depth-first order is a comparison convention)",
     "material": "meshes-overview; default-material (null denotes no authored material)",
     "implicitNormals": "meshes-usage (NORMAL absent)",
-    "positions": "accessors-overview; accessor-data-types; meshes-attributes (POSITION)",
+    "positions": "accessors-overview (bufferView undefined: elements initialized with zeros; sparse MAY override); accessor-data-types; sparse-accessors (replacements over base values); meshes-attributes (POSITION)",
     "normals": "meshes-attributes (NORMAL); meshes-usage (implicit flat normals)",
     "uvs": "accessors-overview; accessor-data-types; meshes-attributes (TEXCOORD_0); absent UVs use Shallot's zero placeholder",
     "indices": "meshes-topology (indexed order; sequential vertices if indices absent); meshes-usage (split corners for flat normals)",
     "matrix": "transformations (TRS; parent global times local)",
+    "frontFace": "instantiation (negative global determinant makes front faces clockwise)",
     "color": "metallic-roughness-material (linear baseColorFactor); alpha-coverage (fourth component)",
     "metallic": "metallic-roughness-material (metallicFactor)",
     "roughness": "metallic-roughness-material (roughnessFactor)",
@@ -42,6 +43,7 @@
       ],
       "instances": [
         {
+          "frontFace": "ccw",
           "matrix": [
             1,
             0,
@@ -318,6 +320,7 @@
       "textures": [],
       "instances": [
         {
+          "frontFace": "ccw",
           "matrix": [
             1,
             0,
@@ -393,6 +396,7 @@
           }
         },
         {
+          "frontFace": "ccw",
           "matrix": [
             1,
             0,
@@ -471,10 +475,103 @@
       "divergences": []
     },
     {
+      "fixture": "SparseAccessorWithoutBufferView/SparseAccessorWithoutBufferView.gltf",
+      "textures": [],
+      "instances": [
+        {
+          "frontFace": "ccw",
+          "matrix": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "implicitNormals": true,
+          "positions": [
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            1,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            1,
+            0,
+            0,
+            1,
+            0
+          ],
+          "normals": [
+            0,
+            0,
+            1,
+            0,
+            0,
+            1,
+            0,
+            0,
+            1,
+            0,
+            0,
+            1,
+            0,
+            0,
+            1,
+            0,
+            0,
+            1
+          ],
+          "uvs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "indices": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "material": null
+        }
+      ],
+      "divergences": []
+    },
+    {
       "fixture": "BoxInterleaved/glTF/BoxInterleaved.gltf",
       "textures": [],
       "instances": [
         {
+          "frontFace": "ccw",
           "matrix": [
             1,
             0,
@@ -769,6 +866,7 @@
       ],
       "instances": [
         {
+          "frontFace": "ccw",
           "matrix": [
             1,
             0,
@@ -1063,6 +1161,7 @@
       ],
       "instances": [
         {
+          "frontFace": "ccw",
           "matrix": [
             1,
             0,
@@ -1357,6 +1456,7 @@
       ],
       "instances": [
         {
+          "frontFace": "ccw",
           "matrix": [
             1,
             0,
@@ -1681,6 +1781,7 @@
       ],
       "instances": [
         {
+          "frontFace": "ccw",
           "matrix": [
             1,
             0,
@@ -1810,6 +1911,7 @@
           }
         },
         {
+          "frontFace": "ccw",
           "matrix": [
             1,
             0,
@@ -1896,6 +1998,7 @@
           }
         },
         {
+          "frontFace": "ccw",
           "matrix": [
             1,
             0,
@@ -2248,6 +2351,7 @@
           }
         },
         {
+          "frontFace": "ccw",
           "matrix": [
             1,
             0,
@@ -2335,6 +2439,7 @@
           }
         },
         {
+          "frontFace": "ccw",
           "matrix": [
             1,
             0,
@@ -2422,6 +2527,7 @@
           }
         },
         {
+          "frontFace": "ccw",
           "matrix": [
             1,
             0,
@@ -2509,6 +2615,7 @@
           }
         },
         {
+          "frontFace": "ccw",
           "matrix": [
             1,
             0,
@@ -2595,6 +2702,7 @@
           }
         },
         {
+          "frontFace": "ccw",
           "matrix": [
             1,
             0,
@@ -2681,6 +2789,7 @@
           }
         },
         {
+          "frontFace": "ccw",
           "matrix": [
             1,
             0,
@@ -2860,6 +2969,7 @@
       "textures": [],
       "instances": [
         {
+          "frontFace": "ccw",
           "matrix": [
             1,
             0,
@@ -2917,6 +3027,7 @@
           "material": null
         },
         {
+          "frontFace": "ccw",
           "matrix": [
             1,
             0,
@@ -3002,6 +3113,7 @@
       ],
       "instances": [
         {
+          "frontFace": "ccw",
           "matrix": [
             0,
             0,
@@ -3092,6 +3204,7 @@
           }
         },
         {
+          "frontFace": "ccw",
           "matrix": [
             0,
             0,
@@ -3182,6 +3295,7 @@
           }
         },
         {
+          "frontFace": "ccw",
           "matrix": [
             0,
             0,
@@ -3272,6 +3386,7 @@
           }
         },
         {
+          "frontFace": "ccw",
           "matrix": [
             0,
             -0.17627758151258402,
@@ -3362,6 +3477,7 @@
           }
         },
         {
+          "frontFace": "ccw",
           "matrix": [
             0,
             -0.17627758151258402,
@@ -3459,6 +3575,7 @@
       "textures": [],
       "instances": [
         {
+          "frontFace": "ccw",
           "matrix": [
             1,
             0,
@@ -3542,6 +3659,7 @@
           }
         },
         {
+          "frontFace": "ccw",
           "matrix": [
             1,
             0,
