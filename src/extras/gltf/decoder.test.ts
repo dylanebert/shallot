@@ -1,130 +1,76 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-    DoubleSide,
-    LoadingManager,
-    Mesh,
-    MeshBasicMaterial,
-    type MeshStandardMaterial,
-} from "three";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { recordArray } from "../../../diagnostics/gltf-records/format";
+import records from "./fixtures/records.json";
 import { loadGltf, parse } from "./index";
 
-// Image pixels are outside the deviceless claim; GLTFLoader still resolves texture objects and UVs.
-globalThis.self = globalThis as typeof self;
-globalThis.ProgressEvent = class extends Event {} as unknown as typeof ProgressEvent;
-globalThis.createImageBitmap = (async () => ({
-    width: 1,
-    height: 1,
-    close() {},
-})) as typeof createImageBitmap;
 const localFetch: typeof fetch = (async (input: URL | string) => {
     const url = new URL(String(input));
     return url.protocol === "file:" ? new Response(readFileSync(fileURLToPath(url))) : fetch(url);
 }) as typeof fetch;
-const fixtures = [
-    "default-sampler.gltf",
-    "double-sided.gltf",
-    "BoxInterleaved/glTF/BoxInterleaved.gltf",
-    "BoxTextured/glTF/BoxTextured.gltf",
-    "BoxTextured/glTF-Binary/BoxTextured.glb",
-    "BoxTextured/glTF-Embedded/BoxTextured.gltf",
-    "AlphaBlendModeTest/glTF/AlphaBlendModeTest.gltf",
-    "SimpleMeshes/glTF/SimpleMeshes.gltf",
-    "CesiumMilkTruck/glTF/CesiumMilkTruck.gltf",
-    "UnlitTest/glTF/UnlitTest.gltf",
-];
 function near(actual: ArrayLike<number>, expected: ArrayLike<number>) {
     expect(actual.length).toBe(expected.length);
     for (let i = 0; i < actual.length; i++) expect(actual[i]).toBeCloseTo(expected[i], 5);
 }
-for (const fixture of fixtures) {
-    test(`${fixture}: geometry, world placement and mapped material match GLTFLoader`, async () => {
+function array(
+    actual: number[] | Uint32Array,
+    expected: ReturnType<typeof recordArray>,
+    width: number,
+    integer = false,
+) {
+    if (Array.isArray(expected)) near(actual, expected);
+    else expect(recordArray(actual, width, integer)).toEqual(expected);
+}
+for (const { fixture, textures, instances } of records.records) {
+    test(`${fixture}: geometry, world placement and mapped material match specification records`, async () => {
         const path = resolve(import.meta.dir, "fixtures", fixture);
-        const manager = new LoadingManager();
-        manager.setURLModifier((url) => {
-            if (url.startsWith("data:") || url.startsWith("blob:")) return url;
-            return `data:application/octet-stream;base64,${readFileSync(resolve(dirname(path), url)).toString("base64")}`;
-        });
-        const bytes = readFileSync(path);
-        const reference = await new GLTFLoader(manager).parseAsync(
-            bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
-            "",
-        );
-        reference.scene.updateMatrixWorld(true);
-        const expected: Mesh[] = [];
-        reference.scene.traverse((object) => {
-            if (object instanceof Mesh) expected.push(object);
-        });
         const result = await loadGltf(new URL(`file://${path}`), localFetch);
-        const wrap = (value: number) =>
-            (({ 1000: 1, 1001: 0, 1002: 2 }) as const)[value as 1000 | 1001 | 1002];
-        const filter = (value: number) => ([1003, 1004, 1005].includes(value) ? 0 : 1);
-        for (const [index, texture] of result.textures.entries()) {
-            const ref = await reference.parser.getDependency("texture", index);
-            expect(texture.image).toBe(reference.parser.json.textures[index].source);
-            expect(texture.sampler).toEqual({
-                addressModeU: wrap(ref.wrapS),
-                addressModeV: wrap(ref.wrapT),
-                magFilter: filter(ref.magFilter),
-                minFilter: filter(ref.minFilter),
-                mipmapFilter: [1003, 1004, 1006, 1007].includes(ref.minFilter) ? 0 : 1,
-            });
-        }
-        expect(result.instances.length).toBe(expected.length);
+        expect<unknown>(result.textures).toEqual(textures);
+        expect(result.instances.length).toBe(instances.length);
         for (const [i, instance] of result.instances.entries()) {
             const mesh = result.meshes[instance.mesh];
-            const other = expected[i];
-            near(instance.matrix, other.matrixWorld.elements);
-            // glTF mandates flat normals for missing NORMAL; three.js computes smooth normals.
-            // Deindex the reference before computing that specification-required fallback.
-            let geometry = other.geometry;
-            const normalMissing = !geometry.getAttribute("normal");
-            if (normalMissing) {
-                geometry = geometry.index ? geometry.toNonIndexed() : geometry.clone();
-                geometry.computeVertexNormals();
+            const expected = instances[i];
+            near(instance.matrix, expected.matrix);
+            const positions: number[] = [],
+                normals: number[] = [],
+                uvs: number[] = [];
+            for (let v = 0; v < mesh.vertices.length; v += 8) {
+                positions.push(...mesh.vertices.slice(v, v + 3));
+                normals.push(...mesh.vertices.slice(v + 4, v + 7));
+                uvs.push(mesh.vertices[v + 3], mesh.vertices[v + 7]);
             }
-            const count = geometry.getAttribute("position").count;
-            expect(mesh.vertices.length).toBe(count * 8);
-            for (let v = 0; v < count; v++) {
-                const p = geometry.getAttribute("position");
-                near(mesh.vertices.slice(v * 8, v * 8 + 3), [p.getX(v), p.getY(v), p.getZ(v)]);
-                const n = geometry.getAttribute("normal");
-                near(mesh.vertices.slice(v * 8 + 4, v * 8 + 7), [n.getX(v), n.getY(v), n.getZ(v)]);
-                const uv = geometry.getAttribute("uv");
-                near(
-                    [mesh.vertices[v * 8 + 3], mesh.vertices[v * 8 + 7]],
-                    uv ? [uv.getX(v), uv.getY(v)] : [0, 0],
-                );
-            }
-            near(
-                mesh.indices,
-                geometry.index?.array ?? Uint32Array.from({ length: count }, (_, i) => i),
-            );
+            array(positions, expected.positions, 3);
+            array(normals, expected.normals, 3);
+            array(uvs, expected.uvs, 2);
+            array(mesh.indices, expected.indices, 1, true);
             if (mesh.material < 0) continue;
             const material = result.materials[mesh.material];
-            const ref = other.material as MeshStandardMaterial;
-            near(material.color, [...ref.color.toArray(), ref.opacity]);
-            const unlit = other.material instanceof MeshBasicMaterial;
-            if (!unlit) {
-                near([material.metallic, material.roughness], [ref.metalness, ref.roughness]);
-                near(material.emissive, ref.emissive.toArray());
+            const ref = expected.material as {
+                color: number[];
+                metallic?: number;
+                roughness?: number;
+                emissive?: number[];
+                alphaMode: string;
+                cutoff?: number;
+                textureImage: number | null;
+                unlit: boolean;
+                doubleSided: boolean;
+            };
+            near(material.color, ref.color);
+            if (!ref.unlit) {
+                near([material.metallic, material.roughness], [ref.metallic!, ref.roughness!]);
+                near(material.emissive, ref.emissive!);
             }
-            expect(material.alphaMode).toBe(
-                ref.transparent ? "BLEND" : ref.alphaTest > 0 ? "MASK" : "OPAQUE",
-            );
-            if (material.alphaMode === "MASK") expect(material.cutoff).toBe(ref.alphaTest);
-            expect(material.texture !== undefined).toBe(ref.map !== null);
-            if (ref.map) {
-                const texture = reference.parser.associations.get(ref.map)!.textures!;
-                expect(result.textures[material.texture!].image).toBe(
-                    reference.parser.json.textures[texture].source,
-                );
+            expect<string>(material.alphaMode).toBe(ref.alphaMode);
+            if (material.alphaMode === "MASK") expect(material.cutoff).toBe(ref.cutoff!);
+            expect(material.texture !== undefined).toBe(ref.textureImage !== null);
+            if (ref.textureImage !== null) {
+                expect(result.textures[material.texture!].image).toBe(ref.textureImage);
             }
-            expect(material.unlit).toBe(unlit);
-            expect(material.doubleSided).toBe(ref.side === DoubleSide);
+            expect(material.unlit).toBe(ref.unlit);
+            expect(material.doubleSided).toBe(ref.doubleSided);
             expect(result.unsupported).not.toContain("doubleSided");
         }
     });
