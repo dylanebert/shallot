@@ -260,7 +260,7 @@ test("default light values match Bevy's photometric and shadow defaults", () => 
     const sunDisk = world.storage(SunDisk);
     expect(sunDisk.angularSize.get(directionalEid)).toBeCloseTo(0.00930842, 7);
     expect(sunDisk.intensity.get(directionalEid)).toBe(1);
-    expect(sunDisk.glow.get(directionalEid)).toBe(0);
+    expect(sunDisk.glow.get(directionalEid)).toBe(0.5);
 
     const point = world.storage(PointLight);
     expect(point.color.get(pointEid)).toBe(0xffffff);

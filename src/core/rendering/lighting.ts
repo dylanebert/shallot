@@ -135,7 +135,7 @@ export const SunDisk = component(
         glow: f32,
     },
     {
-        defaults: () => ({ angularSize: SUN_DISK_EARTH_ANGULAR_SIZE, intensity: 1, glow: 0 }),
+        defaults: () => ({ angularSize: SUN_DISK_EARTH_ANGULAR_SIZE, intensity: 1, glow: 0.5 }),
         requires: [DirectionalLight],
     },
 );
