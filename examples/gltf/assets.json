@@ -353,6 +353,78 @@
                     "sha256": "a43fc2004d1e073f1107a1f6146664d08dae6cea93cb828742a4bec6da828e91"
                 }
             ]
+        },
+        {
+            "name": "NormalTangentTest",
+            "license": "Models/NormalTangentTest/LICENSE.md",
+            "files": [
+                {
+                    "path": "Models/NormalTangentTest/LICENSE.md",
+                    "sha256": "db12791120efa80eb35549b70dcf0caa5f3a45038edb2c4f094b80768ab211a1"
+                },
+                {
+                    "path": "Models/NormalTangentTest/glTF/NormalTangentTest.gltf",
+                    "sha256": "ef2b152063304ebb0314646d3d1610cdc680e131d2cbfef10972dc6120d4dd18"
+                },
+                {
+                    "path": "Models/NormalTangentTest/glTF/NormalTangentTest0.bin",
+                    "sha256": "2d0fc6d43cb11b61a746bc80218b5e9e6c60dcc40f86d4a3f4fdbf11909cd990"
+                },
+                {
+                    "path": "Models/NormalTangentTest/glTF/NormalTangentTest_BaseColor.png",
+                    "sha256": "4182902c6dc833b48c0325568c2c5bd3e2d5fc04e27a8dc1917ced2818e1fac1"
+                },
+                {
+                    "path": "Models/NormalTangentTest/glTF/NormalTangentTest_OcclusionRoughnessMetallic.png",
+                    "sha256": "3fff511720bea1fd8590ddb7b62090700e812e39ca71dd3200493093ad704399"
+                },
+                {
+                    "path": "Models/NormalTangentTest/glTF/NormalTangentTest_Normal.png",
+                    "sha256": "9cebea6c513ddfb1f5f5c761c08bca1468d2283a3cd9772bba3a57e484862ead"
+                },
+                {
+                    "path": "LICENSES/CC0-1.0.txt",
+                    "sha256": "a43fc2004d1e073f1107a1f6146664d08dae6cea93cb828742a4bec6da828e91"
+                },
+                {
+                    "path": "LICENSES/CC-BY-4.0.txt",
+                    "sha256": "c8041334a99cb48852b2139253cbde5f8ac87e27f124aed51223e0d5bf0080eb"
+                }
+            ]
+        },
+        {
+            "name": "NormalTangentMirrorTest",
+            "license": "Models/NormalTangentMirrorTest/LICENSE.md",
+            "files": [
+                {
+                    "path": "Models/NormalTangentMirrorTest/LICENSE.md",
+                    "sha256": "5bb9cf407c5e40c8e378e926f5110a17dc97b1662ebb2a660048ec2c0727dfb0"
+                },
+                {
+                    "path": "Models/NormalTangentMirrorTest/glTF/NormalTangentMirrorTest.gltf",
+                    "sha256": "2da070d2036a51cf645c40a2ded94c1c72cc38de94039a321257610bfdd2e163"
+                },
+                {
+                    "path": "Models/NormalTangentMirrorTest/glTF/NormalTangentMirrorTest.bin",
+                    "sha256": "4cc94ba24a39bdf34f5db6c1b38a8423ff4bd33a5b2d6f52db7959c6021273b7"
+                },
+                {
+                    "path": "Models/NormalTangentMirrorTest/glTF/NormalTangentMirrorTest_OcclusionRoughnessMetallic.png",
+                    "sha256": "4edb5c336d3d7b2c131d6aee925b967c2ae15ca8c011823bb17551c75d060ee8"
+                },
+                {
+                    "path": "Models/NormalTangentMirrorTest/glTF/NormalTangentMirrorTest_Normal.png",
+                    "sha256": "95b14c4a91309fc5834e30030dfb8898297b96754a05733d37e6c04f2e45a6fb"
+                },
+                {
+                    "path": "Models/NormalTangentMirrorTest/glTF/NormalTangentMirrorTest_BaseColor.png",
+                    "sha256": "879c6296d80189e4d1a871d8cbf788e087d2f6b1a822647b449348dc1734934f"
+                },
+                {
+                    "path": "LICENSES/CC-BY-4.0.txt",
+                    "sha256": "c8041334a99cb48852b2139253cbde5f8ac87e27f124aed51223e0d5bf0080eb"
+                }
+            ]
         }
     ]
 }

@@ -1,0 +1,11 @@
+[package]
+name = "shallot-mikktspace"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+bevy_mikktspace = "=1.0.0"

@@ -25,7 +25,7 @@ function hash(cargoLock: string, lockRoot: string): string {
 
 test("a Cargo.lock edit outside a WASM crate's dependency closure leaves its build inputs unchanged", () => {
     expect(unrelated).not.toBe(lock);
-    for (const crate of ["shallot-physics", "shallot-audio"])
+    for (const crate of ["shallot-physics", "shallot-audio", "shallot-mikktspace"])
         expect(hash(unrelated, crate)).toBe(hash(lock, crate));
 });
 

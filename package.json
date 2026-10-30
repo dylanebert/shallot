@@ -68,6 +68,7 @@
         "MIGRATION.md",
         "LICENSE-BOX3D",
         "crates/audio/pkg",
+        "crates/mikktspace/licenses",
         "crates/native",
         "assets/icon-1024.png",
         "!assets/branding/**",

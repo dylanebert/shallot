@@ -3,6 +3,7 @@ import { MeshInstance } from "./instance";
 
 export { MeshInstance } from "./instance";
 export { capsule, cube, sphere } from "./primitives";
+export { generateTangents } from "./tangents";
 export {
     decodeColor,
     decodePos,
@@ -28,7 +29,7 @@ import {
 } from "./mesh";
 import { initMeshes } from "./primitives";
 
-export type { Mesh, MeshBinding, MeshHandle, MeshIndex } from "./mesh";
+export type { Mesh, MeshBinding, MeshData, MeshHandle, MeshIndex } from "./mesh";
 export { Meshes, meshResourcesKey } from "./mesh";
 
 /**

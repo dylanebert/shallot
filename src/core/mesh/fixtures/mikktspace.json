@@ -1,0 +1,21 @@
+{
+    "revision": "3e895b49d05ea07e4c2133156cfa94369e19e409",
+    "assetsCommit": "2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf",
+    "format": "Little-endian float32 xyzw per triangle corner; MikkTSpace w negated for glTF.",
+    "records": [
+        {
+            "name": "NormalTangentTest",
+            "mesh": 0,
+            "primitive": 0,
+            "corners": 23322,
+            "file": "NormalTangentTest-0-0.bin"
+        },
+        {
+            "name": "NormalTangentMirrorTest",
+            "mesh": 0,
+            "primitive": 0,
+            "corners": 15720,
+            "file": "NormalTangentMirrorTest-0-0.bin"
+        }
+    ]
+}
