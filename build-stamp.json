@@ -1,0 +1,147 @@
+{
+    "recipe": 2,
+    "buildId": "1518082335052771576e9934201b5fbb681e09f5a3f18b333ee6886273b04783",
+    "mode": {
+        "kind": "prod",
+        "version": "0.10.2"
+    },
+    "demos": {
+        "ambient-occlusion": "6b758310a2a834409aebbb04e31564a3",
+        "bloom": "f4a99e9e08e94fcb62a1592764d39a79",
+        "city": "8de738be9dd0d8d871f1a520492f575e",
+        "color-grading": "695d04349255e4511cd6071f5fa3c2ab",
+        "day-night-cycle": "176ebdb61e1a7097d42119f6340b30fe",
+        "embedded-scene": "d2d25ec0daf91d7f02c80f979da10909",
+        "first-person": "e3dfea651bfc8d23c5abe1bbe498eb6f",
+        "hud": "6d798ec42ba997f2b1c27591921a10ce",
+        "interact": "98b6fb9f929432325411d19b70a0ddd5",
+        "isometric": "aed1b63e74bfc8995aff58c53ac01de8",
+        "lit-interior": "81bce665868b6b0d20e575507d42e4b7",
+        "loading-screen": "30412e3fa96d833fed255b79390d799e",
+        "low-res": "0297b0099f1c82643393c6f6c3af6e14",
+        "materials": "8d60095b2ae4ed128cf71ca409487f9d",
+        "minimal": "7fddb487eb3bc2a2e305387f6c3dcd83",
+        "minimap": "78bcbccfcbdbfa2e9055583c7e0921fa",
+        "particles": "9cb7aa98e918d75457f3302976043974",
+        "physics": "8ad2fb75e362071d9305630d30069602",
+        "post-processing": "46b876f8bf2ad56abb14938c6fa73d65",
+        "save-and-load": "95d3ee801eeac4ab08cafe813377b3c7",
+        "snow-trails": "ac13c3415113be47a468051311304924",
+        "sound": "5aa168b38e75940d5727213c65f3edcc",
+        "tonemapping": "cd14dfe6ec9dcd630e717525c7c07bdd",
+        "view-model": "677d12f15bf4272bf2a87bdce7f34cba",
+        "volumetric-fog": "5862f713a8ced5b5bc65a2987fec9557",
+        "voxel": "e6413b48ee5a47ae2ff2c5296ee4528f",
+        "world-ui": "5c614fa4bfd6d81aeeb3c92ebcf8f256"
+    },
+    "shallot": {
+        "ambient-occlusion": {
+            "version": "0.10.2",
+            "contentHash": "f298188d1a362ef930c879237df87cc24bb83cec0a58296f7c6944f31f21f910"
+        },
+        "bloom": {
+            "version": "0.10.2",
+            "contentHash": "f298188d1a362ef930c879237df87cc24bb83cec0a58296f7c6944f31f21f910"
+        },
+        "city": {
+            "version": "0.10.2",
+            "contentHash": "f298188d1a362ef930c879237df87cc24bb83cec0a58296f7c6944f31f21f910"
+        },
+        "color-grading": {
+            "version": "0.10.2",
+            "contentHash": "f298188d1a362ef930c879237df87cc24bb83cec0a58296f7c6944f31f21f910"
+        },
+        "day-night-cycle": {
+            "version": "0.10.2",
+            "contentHash": "f298188d1a362ef930c879237df87cc24bb83cec0a58296f7c6944f31f21f910"
+        },
+        "embedded-scene": {
+            "version": "0.10.2",
+            "contentHash": "f298188d1a362ef930c879237df87cc24bb83cec0a58296f7c6944f31f21f910"
+        },
+        "first-person": {
+            "version": "0.10.2",
+            "contentHash": "f298188d1a362ef930c879237df87cc24bb83cec0a58296f7c6944f31f21f910"
+        },
+        "hud": {
+            "version": "0.10.2",
+            "contentHash": "f298188d1a362ef930c879237df87cc24bb83cec0a58296f7c6944f31f21f910"
+        },
+        "interact": {
+            "version": "0.10.2",
+            "contentHash": "f298188d1a362ef930c879237df87cc24bb83cec0a58296f7c6944f31f21f910"
+        },
+        "isometric": {
+            "version": "0.10.2",
+            "contentHash": "f298188d1a362ef930c879237df87cc24bb83cec0a58296f7c6944f31f21f910"
+        },
+        "lit-interior": {
+            "version": "0.10.2",
+            "contentHash": "f298188d1a362ef930c879237df87cc24bb83cec0a58296f7c6944f31f21f910"
+        },
+        "loading-screen": {
+            "version": "0.10.2",
+            "contentHash": "f298188d1a362ef930c879237df87cc24bb83cec0a58296f7c6944f31f21f910"
+        },
+        "low-res": {
+            "version": "0.10.2",
+            "contentHash": "f298188d1a362ef930c879237df87cc24bb83cec0a58296f7c6944f31f21f910"
+        },
+        "materials": {
+            "version": "0.10.2",
+            "contentHash": "f298188d1a362ef930c879237df87cc24bb83cec0a58296f7c6944f31f21f910"
+        },
+        "minimal": {
+            "version": "0.10.2",
+            "contentHash": "f298188d1a362ef930c879237df87cc24bb83cec0a58296f7c6944f31f21f910"
+        },
+        "minimap": {
+            "version": "0.10.2",
+            "contentHash": "f298188d1a362ef930c879237df87cc24bb83cec0a58296f7c6944f31f21f910"
+        },
+        "particles": {
+            "version": "0.10.2",
+            "contentHash": "f298188d1a362ef930c879237df87cc24bb83cec0a58296f7c6944f31f21f910"
+        },
+        "physics": {
+            "version": "0.10.2",
+            "contentHash": "f298188d1a362ef930c879237df87cc24bb83cec0a58296f7c6944f31f21f910"
+        },
+        "post-processing": {
+            "version": "0.10.2",
+            "contentHash": "f298188d1a362ef930c879237df87cc24bb83cec0a58296f7c6944f31f21f910"
+        },
+        "save-and-load": {
+            "version": "0.10.2",
+            "contentHash": "f298188d1a362ef930c879237df87cc24bb83cec0a58296f7c6944f31f21f910"
+        },
+        "snow-trails": {
+            "version": "0.10.2",
+            "contentHash": "f298188d1a362ef930c879237df87cc24bb83cec0a58296f7c6944f31f21f910"
+        },
+        "sound": {
+            "version": "0.10.2",
+            "contentHash": "f298188d1a362ef930c879237df87cc24bb83cec0a58296f7c6944f31f21f910"
+        },
+        "tonemapping": {
+            "version": "0.10.2",
+            "contentHash": "f298188d1a362ef930c879237df87cc24bb83cec0a58296f7c6944f31f21f910"
+        },
+        "view-model": {
+            "version": "0.10.2",
+            "contentHash": "f298188d1a362ef930c879237df87cc24bb83cec0a58296f7c6944f31f21f910"
+        },
+        "volumetric-fog": {
+            "version": "0.10.2",
+            "contentHash": "f298188d1a362ef930c879237df87cc24bb83cec0a58296f7c6944f31f21f910"
+        },
+        "voxel": {
+            "version": "0.10.2",
+            "contentHash": "f298188d1a362ef930c879237df87cc24bb83cec0a58296f7c6944f31f21f910"
+        },
+        "world-ui": {
+            "version": "0.10.2",
+            "contentHash": "f298188d1a362ef930c879237df87cc24bb83cec0a58296f7c6944f31f21f910"
+        }
+    }
+}
