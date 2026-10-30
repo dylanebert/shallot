@@ -11,7 +11,7 @@
 - added plain-data resource recovery (`recoverResource`) and public membership observation (`World.observeMembership`)
 - added physics contact and sensor reads, mass overrides, manual stepping, body queries, standalone collision and geometry functions, mesh builds and dynamic trees
 - added material extension parameters, bindings and vertex functions, more texture and sampler binding options, per-row cull modes and double-sided standard materials
-- various bugfixes, including late body-scale writes, query callbacks throwing, orthographic lighting, distant affine inversion, material depth passes and sprite shadows
+- various bugfixes, including late body-scale writes, query callbacks throwing, orthographic lighting, distant affine inversion, material depth passes, sprite shadows and touch buttons behind phone browser toolbars
 
 ### changes
 
