@@ -1,17 +1,29 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
-import { clamp, pack2x16unorm, round, select, unpack2x16unorm } from "typegpu/std";
+import {
+    bitcast,
+    clamp,
+    max,
+    normalize,
+    pack2x16snorm,
+    pack2x16unorm,
+    round,
+    select,
+    unpack2x16snorm,
+    unpack2x16unorm,
+} from "typegpu/std";
 import { chunk } from "../../engine/utils";
 
 const quantNs = tgpu["~unstable"].namespace({ names: "strict" });
 
 /** the per-mesh position + uv AABB the quantized vertex stream dequantizes against: `posOffset` =
- *  (posMin.xyz, uvMin.x), `posScale` = (posExt.xyz, uvMin.y), `uvScale` = (uvExt.xy, _, _). AABB-relative
+ *  (posMin.xyz, uvMin.x), `posScale` = (posExt.xyz, uvMin.y), `uvScale` = uvExt.xy. `streams` is the family's appended stream base in vec4u units. AABB-relative
  *  with no per-draw uniform, so it works unchanged in render bundles. */
 export const MeshQuant = d.struct({
     posOffset: d.vec4f,
     posScale: d.vec4f,
-    uvScale: d.vec4f,
+    uvScale: d.vec2f,
+    streams: d.u32,
 });
 
 /** the per-mesh dequant table selector: a quantized vertex's `w1` carries `meshId` in its high 16 bits. */
@@ -51,6 +63,75 @@ export const decodeUv = tgpu.fn(
     const uv = unpack2x16unorm(w3);
     return d.vec2f(q.posOffset.w + uv.x * q.uvScale.x, q.posScale.w + uv.y * q.uvScale.y);
 });
+
+/** Exact f32 UV_1 words; unlike the base UV these are not AABB-quantized. */
+export const decodeUv1 = tgpu.fn(
+    [d.vec2u],
+    d.vec2f,
+)((words) => {
+    "use gpu";
+    return bitcast(d.vec2u, d.vec2f)(words);
+});
+
+/** RGBA on the unorm16 lattice, preserving glTF's unorm8 and unorm16 colors. */
+export const decodeColor = tgpu.fn(
+    [d.vec2u],
+    d.vec4f,
+)((words) => {
+    "use gpu";
+    return d.vec4f(unpack2x16unorm(words.x), unpack2x16unorm(words.y));
+});
+
+/** Bevy's octahedral tangent: signed oct x, oct y mapped positive with handedness in its sign. */
+export const encodeTangent = tgpu.fn(
+    [d.vec4f],
+    d.u32,
+)((v) => {
+    "use gpu";
+    const inv = 1 / (Math.abs(v.x) + Math.abs(v.y) + Math.abs(v.z));
+    const p = d.vec2f(v.x * inv, v.y * inv);
+    const folded = d.vec2f(
+        (1 - Math.abs(p.y)) * select(-1, 1, p.x >= 0),
+        (1 - Math.abs(p.x)) * select(-1, 1, p.y >= 0),
+    );
+    const oct = select(p, folded, v.z < 0);
+    return pack2x16snorm(d.vec2f(oct.x, max(oct.y * 0.5 + 0.5, 1 / 32767) * v.w));
+});
+
+/** Decode before interpolation: octahedral coordinates cannot cross the rasterizer's seam. */
+export const decodeTangent = tgpu.fn(
+    [d.u32],
+    d.vec4f,
+)((word) => {
+    "use gpu";
+    const p = unpack2x16snorm(word);
+    const f = d.vec2f(p.x, Math.abs(p.y) * 2 - 1);
+    const z = 1 - Math.abs(f.x) - Math.abs(f.y);
+    const t = clamp(-z, 0, 1);
+    return d.vec4f(
+        normalize(d.vec3f(f.x + select(t, -t, f.x >= 0), f.y + select(t, -t, f.y >= 0), z)),
+        select(-1, 1, p.y >= 0),
+    );
+});
+
+/** Loose-lane CPU mirror of encodeTangent, rounding vector construction to f32. */
+export function packTangent(x: number, y: number, z: number, w: number): number {
+    const f = Math.fround;
+    x = f(x);
+    y = f(y);
+    z = f(z);
+    w = f(w);
+    const inv = 1 / (Math.abs(x) + Math.abs(y) + Math.abs(z));
+    let px = f(x * inv);
+    let py = f(y * inv);
+    if (z < 0) {
+        const ox = px;
+        px = f((1 - Math.abs(py)) * (px >= 0 ? 1 : -1));
+        py = f((1 - Math.abs(ox)) * (py >= 0 ? 1 : -1));
+    }
+    const snorm = (v: number) => Math.round(Math.max(-1, Math.min(1, f(v))) * 32767) & 0xffff;
+    return (snorm(px) | (snorm(f(Math.max(py * 0.5 + 0.5, 1 / 32767) * w)) << 16)) >>> 0;
+}
 
 /** WGSL `MeshQuant` + `meshIdOf` / `decodePos` / `decodeUv`: the quantized-vertex decode.
  *  A vertex packs into a 16 B `vec4<u32>`: w0 = unorm16 pos.xy, w1 = unorm16 pos.z | (meshId << 16),

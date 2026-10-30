@@ -4,7 +4,7 @@ import * as d from "typegpu/data";
 import type { System, World } from "../../engine";
 
 import { HandleAllocator, octEncode, packUnorm2 } from "../../engine/utils";
-import { MeshQuant } from "./vertex";
+import { MeshQuant, packTangent } from "./vertex";
 
 export type MeshStorage<T extends AnyWgslData> = TgpuBuffer<WgslArray<T>> & StorageFlag;
 export type MeshIndex = MeshStorage<d.U32> & IndexFlag;
@@ -28,6 +28,11 @@ const DEFAULT_MESH_HANDLE = 0 as MeshHandle;
 export interface Mesh {
     /** Display label; mesh identity is its {@link MeshHandle}. */
     name: string;
+    /** Optional appended streams. GPU producers use absolute vertex indices: after the base vec4u
+     * vertices, interleave uv1 (two f32 words), tangent (one oct snorm16 word), color (two unorm16x2
+     * words), in that order, present streams only. Pad the family's end to vec4u; quant.streams
+     * points to its first vec4u. Material vertex functions cannot read or patch these streams. */
+    streams?: { uv1?: true; tangent?: true; color?: true };
     vertices: MeshStorage<d.Vec4u>;
     /** the 8 B/vertex position-only stream the depth + shadow passes pull (standard binds this in the prepass group) */
     position?: MeshStorage<d.Vec2u>;
@@ -66,6 +71,9 @@ interface MeshData {
     vertices: Float32Array;
     indices: Uint32Array;
     attributes?: PendingMesh["attributes"];
+    uv1?: Float32Array;
+    tangent?: Float32Array;
+    color?: Float32Array;
 }
 
 /**
@@ -81,6 +89,9 @@ interface MeshRegistry extends Iterable<Mesh> {
      * addition in a draw-group system draws a frame later. Refuses before `MeshPlugin`
      * initializes (`AppConfig.setup`), whose initialize would drop it. Requires
      * `world.gpu.device`; it refuses without one. `name` is a display label, so duplicate labels are valid.
+     * Optional uv1 has two f32 lanes per vertex; color has four RGBA lanes in [0, 1]; tangent
+     * has unit xyz and handedness w ±1. A wrong length refuses naming mesh and stream.
+     * UV_1 is exact f32, colors use unorm16x4 and tangents use octahedral snorm16x2.
      * Optional named attributes contain raw storage bytes:
      * each byte length must equal vertex count times the element's storage-array stride
      * (including padding), otherwise it refuses naming mesh and stream. A batch splits
@@ -234,6 +245,9 @@ interface PendingMesh {
     vertices: Float32Array;
     indices: Uint32Array;
     bounds: [number, number, number, number];
+    uv1?: Float32Array;
+    tangent?: Float32Array;
+    color?: Float32Array;
     attributes?: Record<string, { element: AnyWgslData; data: ArrayBufferView }>;
 }
 interface MeshResources {
@@ -321,6 +335,18 @@ function addMesh(world: World, spec: MeshData): MeshHandle {
         throw new Error(
             `mesh "${spec.name}": vertices length ${spec.vertices.length} is not a multiple of ${VERTEX_FLOATS} (one Vertex = posU + normalV)`,
         );
+    }
+    for (const [name, lanes] of [
+        ["uv1", 2],
+        ["tangent", 4],
+        ["color", 4],
+    ] as const) {
+        const stream = spec[name];
+        const expected = (spec.vertices.length / VERTEX_FLOATS) * lanes;
+        if (stream && stream.length !== expected)
+            throw new Error(
+                `mesh "${spec.name}": stream "${name}" has ${stream.length} floats; expected ${expected}`,
+            );
     }
     for (const [name, stream] of Object.entries(spec.attributes ?? {})) {
         const stride = d.sizeOf(d.arrayOf(stream.element, 1));
@@ -410,7 +436,7 @@ function packMeshes(staged: PendingMesh[]): {
     return { vertices, indices, slices };
 }
 
-// f32 lanes per mesh in a quant table — the `MeshQuant` record (3 × `vec4<f32>`)
+// Twelve 32-bit lanes per MeshQuant; the streams lane is written through a u32 view.
 const MESH_QUANT_FLOATS = 12;
 
 /**
@@ -526,6 +552,9 @@ export function flushMeshes(world: World): void {
             const other = group[0].attributes ?? {};
             const keys = Object.keys(other).sort();
             return (
+                !!mesh.uv1 === !!group[0].uv1 &&
+                !!mesh.tangent === !!group[0].tangent &&
+                !!mesh.color === !!group[0].color &&
                 names.length === keys.length &&
                 names.every(
                     (name, i) =>
@@ -541,10 +570,59 @@ export function flushMeshes(world: World): void {
     resetStaging(world);
 }
 
+/** Append a single physical stream family's words to its base vertices. @internal */
+export function packMeshStreams(
+    staged: readonly Pick<MeshData, "vertices" | "uv1" | "tangent" | "color">[],
+    q: QuantStreams,
+): Mesh["streams"] {
+    const first = staged[0];
+    const words = Number(!!first.uv1) * 2 + Number(!!first.tangent) + Number(!!first.color) * 2;
+    if (words) {
+        const count = q.main.length / 4;
+        const base = q.main.length;
+        const main = new Uint32Array(base + Math.ceil((count * words) / 4) * 4);
+        main.set(q.main);
+        const floats = new Float32Array(main.buffer);
+        const header = new Uint32Array(q.quant.buffer);
+        let vi = 0;
+        for (let m = 0; m < staged.length; m++) {
+            const mesh = staged[m];
+            header[m * MESH_QUANT_FLOATS + 10] = base / 4;
+            for (let v = 0; v < mesh.vertices.length / VERTEX_FLOATS; v++, vi++) {
+                let at = base + vi * words;
+                if (mesh.uv1) {
+                    floats[at++] = mesh.uv1[v * 2];
+                    floats[at++] = mesh.uv1[v * 2 + 1];
+                }
+                if (mesh.tangent)
+                    main[at++] = packTangent(
+                        mesh.tangent[v * 4],
+                        mesh.tangent[v * 4 + 1],
+                        mesh.tangent[v * 4 + 2],
+                        mesh.tangent[v * 4 + 3],
+                    );
+                if (mesh.color) {
+                    main[at++] = packUnorm2(mesh.color[v * 4], mesh.color[v * 4 + 1]);
+                    main[at++] = packUnorm2(mesh.color[v * 4 + 2], mesh.color[v * 4 + 3]);
+                }
+            }
+        }
+        q.main = main;
+    }
+    return words
+        ? {
+              ...(first.uv1 ? { uv1: true as const } : {}),
+              ...(first.tangent ? { tangent: true as const } : {}),
+              ...(first.color ? { color: true as const } : {}),
+          }
+        : undefined;
+}
+
 function packFamily(world: World, staged: PendingMesh[]): void {
     const resources = meshResources(world);
     const packed = packMeshes(staged);
     const q = quantizeMeshes(packed.vertices, packed.slices);
+    const streams = packMeshStreams(staged, q);
     const vertices = world.gpu.root
         .createBuffer(d.arrayOf(d.vec4u, q.main.length / 4))
         .$usage("storage")
@@ -588,6 +666,7 @@ function packFamily(world: World, staged: PendingMesh[]): void {
     for (const s of packed.slices) {
         resources.meshes.replace(s.handle, {
             name: s.name,
+            ...(streams ? { streams } : {}),
             vertices,
             position,
             quant,

@@ -181,7 +181,7 @@ export function terrainPlugin(config: TerrainConfig): Plugin {
             });
             world.own(s.counts);
             const q = device.createBuffer({
-                size: 48,
+                size: d.sizeOf(MeshQuant),
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
             });
             world.own(q);

@@ -109,6 +109,7 @@ import {
     getGroup,
     initializePipelineState,
     type MaterialGroupEntry,
+    meshStreamMask,
     preparePipelines,
     resetPipelineCaches,
     setGroup,
@@ -505,14 +506,16 @@ function recordMaterial(
     }
     const prev = getGroup(world, draw.name, surface);
     const cullMode = draw.cullMode ?? CullModeCode.Back;
-    let t =
-        prev?.item.r.t ?? getCompiledMaterial(world, surface.name, draw.alphaPipelineKey, cullMode);
+    const mask = meshStreamMask(surface, mesh);
+    let t = prev?.item.r.t;
+    if (t?.args.mask !== mask) t = undefined;
+    t ??= getCompiledMaterial(world, surface.name, draw.alphaPipelineKey, cullMode, mask);
     if (!t || t.owner !== surface || t.layout !== surface.layout) {
         // registered after warm (`preparePipelines` compiles the rest) — sync, so no skip frame; a
         // throwing compile (a contract guard, or shader/device validation) must not take down the frame
         // loop, so it degrades to the warn-once skip
         try {
-            t = compileMaterial(world, surface, capacity, draw.alphaPipelineKey, cullMode);
+            t = compileMaterial(world, surface, capacity, draw.alphaPipelineKey, cullMode, mask);
         } catch (e) {
             return warnSkip(
                 world,

@@ -26,7 +26,8 @@ export function mesher(config: TerrainConfig) {
     const quant: d.Infer<typeof MeshQuant> = {
         posOffset: d.vec4f(0),
         posScale: d.vec4f(Chunk, Height, Chunk, 0),
-        uvScale: d.vec4f(1, 1, 0, 0),
+        uvScale: d.vec2f(1, 1),
+        streams: 0,
     };
     const quad = tgpu.fn(
         [d.vec3f, d.vec3f, d.vec3f],

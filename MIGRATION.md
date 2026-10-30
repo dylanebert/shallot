@@ -59,9 +59,11 @@ A material's fragment also runs in the depth prepass, the normal prepass and sha
 
 `lit` now returns zero radiance in every depth pass, and `applyPbrLighting` returns emissive alone. An alpha cutoff derived from lit color therefore sees those values there. Derive coverage from material data rather than scene lighting when it must agree across passes. The normal prepass writes the normal of the fragment's last lighting call, or the interpolated normal if there is none.
 
-## Material shaders lose the constant color
+## Optional mesh streams and material color
 
-`color` is removed from the material vertex input and fragment context; it was always `vec4f(1)`. Write `1`, or read a mesh attribute: declare `{ type: "attribute", element: d.vec4f }` in `materialLayout`, add the stream under the same name in the mesh's `attributes`, and pass `layout.$.<name>[input.vidx]` from the vertex function to the fragment as a varying.
+`color` is removed from the material vertex input. Fragment `ctx.color` now reads optional mesh RGBA when the material declares `fragmentInputs: { color: true }`; otherwise it remains white. `Meshes.add` accepts `color` (four floats per vertex), `uv1` (two) and `tangent` (four, unit xyz and w ±1) beside the base `vertices`. Materials request the latter with `fragmentInputs.uv1` and `.tangent`; absent values are `ctx.uv` and `vec4f(0)`. Tangents reach fragments in world space, with handedness corrected for mirrored instances. Material vertex functions cannot read or patch these streams. `Materials` and `extendedMaterial(Materials, ...)` declare all three inputs.
+
+GPU producers writing `MeshQuant` change `uvScale` from `vec4f` to `vec2f` and add `streams: u32`, zero when there are no optional streams. Stride stays 48 bytes; position and UV lane offsets are unchanged. Raw writers put `streams` at byte 40 as a u32, leaving byte 44 as padding. For meshes declaring `Mesh.streams`, this is the vec4u index in `vertices` where the family's optional words begin; the layout is documented on `Mesh.streams`.
 
 ## Material rows choose their cull mode
 

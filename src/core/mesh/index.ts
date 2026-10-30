@@ -4,12 +4,17 @@ import { MeshInstance } from "./instance";
 export { MeshInstance } from "./instance";
 export { capsule, cube, sphere } from "./primitives";
 export {
+    decodeColor,
     decodePos,
+    decodeTangent,
     decodeUv,
+    decodeUv1,
     encodePos,
+    encodeTangent,
     encodeUv,
     MeshQuant,
     meshIdOf,
+    packTangent,
     posQuantPackWgsl,
     posQuantWgsl,
 } from "./vertex";

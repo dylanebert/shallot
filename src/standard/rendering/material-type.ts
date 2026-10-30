@@ -458,6 +458,9 @@ function materialFragmentContext<
         world: d.vec3f,
         worldNormal: d.vec3f,
         uv: d.vec2f,
+        uv1: d.vec2f,
+        color: d.vec4f,
+        tangent: d.vec4f,
         localPos: d.vec3f,
         material: d.u32,
         alphaMode: d.u32,
@@ -658,7 +661,16 @@ export interface MaterialType<
      * A camera without the prepass this frame and depth passes read 0 / vec3f(0).
      * At 4x antialiasing both reads use sample 0. */
     readonly readsPrepass?: { depth?: true; normal?: true };
-    readonly fragmentInputs?: { uv?: true; localPos?: true };
+    /** Optional mesh streams reach only the fragment stage; vertex functions cannot read or patch
+     * them. Undeclared or absent uv1 falls back to uv, color to white, tangent to zero.
+     * Tangents are world-space, with handedness corrected for mirrored instance scale. */
+    readonly fragmentInputs?: {
+        uv?: true;
+        localPos?: true;
+        uv1?: true;
+        color?: true;
+        tangent?: true;
+    };
     /** Each varying takes one inter-stage variable after seven engine variables and uv/localPos
      * when declared. Pipelines exceeding the device's maxInterStageShaderVariables are refused
      * when prepared. */

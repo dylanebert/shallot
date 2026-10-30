@@ -37,7 +37,7 @@ export const Materials = materialType({
     name: "StandardMaterial",
     layout: standardLayout,
     bindings: (world) => world.resource(ImageBindings),
-    fragmentInputs: { uv: true },
+    fragmentInputs: { uv: true, uv1: true, color: true, tangent: true },
     defaults: StandardMaterial(),
     depthPass: { prepass: true, shadows: true },
     fragment: (ctx): d.v4f => {

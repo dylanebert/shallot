@@ -8,7 +8,17 @@ import tgpu from "typegpu";
 import type { AnyData, AnyWgslData, AnyWgslStruct } from "typegpu/data";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { decodePos, decodeUv, MeshQuant, meshIdOf } from "../../core/mesh";
+import {
+    decodeColor,
+    decodePos,
+    decodeTangent,
+    decodeUv,
+    decodeUv1,
+    type Mesh,
+    Meshes,
+    MeshQuant,
+    meshIdOf,
+} from "../../core/mesh";
 import {
     Camera,
     DEPTH_FORMAT,
@@ -23,6 +33,7 @@ import {
     Xform,
     xformNormal,
     xformPoint,
+    xformQuat,
 } from "../../core/rendering";
 import { precompile, precompileScope, type World } from "../../engine";
 import { octDecodeNormal } from "../../engine/utils";
@@ -207,6 +218,7 @@ export interface CompiledMaterial {
         cullMode: number;
         primitive: GPUPrimitiveState;
         name: string;
+        mask: number;
     };
 }
 
@@ -419,11 +431,64 @@ const logicalFrontFacing = tgpu.fn(
 // Reserve locations after the fixed fragment fields to prevent custom varying collisions.
 const VARYING_BASE = 7;
 
-function fragmentInterstage(surface: AnyMaterialType): Record<string, AnyWgslData> {
+const STREAM_FIELDS = { uv1: d.vec2f, tangent: d.vec4f, color: d.vec4f };
+const STREAM_BITS = { uv1: 1, tangent: 2, color: 4 };
+
+/** Physical layout is part of specialization, as in Bevy's mesh vertex-layout key. */
+export function meshStreamMask(surface: AnyMaterialType, mesh: Mesh): number {
+    const streams = mesh.streams;
+    if (!streams) return 0;
+    const inputs = surface.fragmentInputs;
+    const physical =
+        Number(!!streams.uv1) | (Number(!!streams.tangent) << 1) | (Number(!!streams.color) << 2);
+    const declared =
+        Number(!!inputs?.uv1) | (Number(!!inputs?.tangent) << 1) | (Number(!!inputs?.color) << 2);
+    return physical & declared ? physical : 0;
+}
+
+function streamFields(surface: AnyMaterialType, mask: number): Record<string, AnyWgslData> {
+    return Object.fromEntries(
+        Object.entries(STREAM_FIELDS).filter(
+            ([key]) =>
+                surface.fragmentInputs?.[key as keyof typeof STREAM_BITS] &&
+                mask & STREAM_BITS[key as keyof typeof STREAM_BITS],
+        ),
+    );
+}
+
+function fragmentInterstage(surface: AnyMaterialType, mask = 0): Record<string, AnyWgslData> {
     return {
         ...(surface.fragmentInputs?.uv ? { uv: d.vec2f } : {}),
         ...(surface.fragmentInputs?.localPos ? { localPos: d.vec3f } : {}),
+        ...streamFields(surface, mask),
     };
+}
+
+function streamAssignments(surface: AnyMaterialType, mask: number, vidx: string): string {
+    if (!mask) return "";
+    const stride = Number(!!(mask & 1)) * 2 + Number(!!(mask & 2)) + Number(!!(mask & 4)) * 2;
+    const word = (offset: number) =>
+        `bound.vertices[(mq.streams * 4u + ${vidx} * ${stride}u + ${offset}u) / 4u][(mq.streams * 4u + ${vidx} * ${stride}u + ${offset}u) % 4u]`;
+    let offset = 0;
+    const lines: string[] = [];
+    for (const key of Object.keys(STREAM_BITS) as (keyof typeof STREAM_BITS)[]) {
+        if (!(mask & STREAM_BITS[key])) continue;
+        if (surface.fragmentInputs?.[key]) {
+            if (key === "tangent") {
+                lines.push(
+                    `    let tangent = decodeTangent(${word(offset)});`,
+                    `    var tangentWorld = xformQuat(xform.quat, tangent.xyz * xform.scale);`,
+                    `    if (any(tangentWorld != vec3f(0.0))) { tangentWorld = normalize(tangentWorld); }`,
+                    `    out.tangent = vec4f(tangentWorld, select(tangent.w, -tangent.w, out.material >= 0x80000000u));`,
+                );
+            } else
+                lines.push(
+                    `    out.${key} = ${key === "uv1" ? "decodeUv1" : "decodeColor"}(vec2u(${word(offset)}, ${word(offset + 1)}));`,
+                );
+        }
+        offset += key === "tangent" ? 1 : 2;
+    }
+    return lines.join("\n");
 }
 
 const CULL_FACES: readonly GPUCullMode[] = ["back", "none", "front"];
@@ -793,9 +858,11 @@ function clipFs(
     normals = false,
     clip = true,
     cullMode: number = CullModeCode.Back,
+    mask = 0,
 ) {
     const readsFacing = cullMode === CullModeCode.None;
     const facing = cullMode === CullModeCode.Back;
+    const present = streamFields(surface, mask);
     const needUv = !!surface.fragmentInputs?.uv;
     const needLocalPos = !!surface.fragmentInputs?.localPos;
     const varyings = surface.varyings ?? {};
@@ -815,7 +882,7 @@ function clipFs(
         world: d.vec3f,
         material: d.interpolate("flat", d.u32),
         alphaCutoff: d.interpolate("flat", d.f32),
-        ...fragmentInterstage(surface),
+        ...fragmentInterstage(surface, mask),
         ...facingInput(cullMode),
         ...located,
     };
@@ -844,6 +911,9 @@ function clipFs(
             for (const i of tgpu.unroll(std.range(keys.length))) {
                 (ctx as any)[keys[i]] = (schemas[i] as any)((input as any)[slots[i]]);
             }
+            ctx.uv1 = present.uv1 ? d.vec2f(input.uv1) : d.vec2f(ctx.uv);
+            ctx.color = present.color ? d.vec4f(input.color) : d.vec4f(1);
+            ctx.tangent = present.tangent ? d.vec4f(input.tangent) : d.vec4f(0);
             const color = fragment(ctx);
             const cutoff = input.alphaCutoff;
             if (clip && color.a < cutoff) std.discard();
@@ -853,21 +923,21 @@ function clipFs(
 }
 
 // TGSL cannot construct dynamically named varying fields; generate the per-surface WGSL entry.
-function varyingVs(surface: AnyMaterialType, clip = false, suffix = clip ? "Clip" : "") {
+function varyingVs(surface: AnyMaterialType, clip = false, suffix = clip ? "Clip" : "", mask = 0) {
     const varyings = surface.varyings ?? {};
     const vsFn = materialVertexFunction(surface);
-    if (Object.keys(varyings).length === 0) {
+    if (!mask && Object.keys(varyings).length === 0) {
         throw new Error(
             `standard: surface "${surface.name}" reached the raw varying copier without a custom varying`,
         );
     }
-    if (!vsFn) {
+    if (!vsFn && Object.keys(varyings).length) {
         throw new Error(
             `standard: surface "${surface.name}" declares varyings with no vs — a varying can only be written by the surface's own vs chunk`,
         );
     }
     const hasVs = !!vsFn;
-    const fragmentFields = fragmentInterstage(surface);
+    const fragmentFields = fragmentInterstage(surface, mask);
     const instanced = isInstanced(surface);
     const layout = surface.layout;
     // The FS calls custom fields v0..v3, so TypeGPU cannot match them to author-named VS fields.
@@ -897,6 +967,7 @@ function varyingVs(surface: AnyMaterialType, clip = false, suffix = clip ? "Clip
         Xform,
         producerRow,
     };
+    if (mask) Object.assign(uses, { decodeUv1, decodeColor, decodeTangent, xformQuat });
     if (hasVs) {
         uses.MaterialVertexInput = MaterialVertexInput;
         uses.vs = vsFn;
@@ -974,7 +1045,7 @@ ${
     out.material = mirroredMaterial(material, xform.scale);
     out.alphaMode = alphaMode;
     out.alphaCutoff = alphaCutoff;
-${fragmentAssigns}
+${fragmentAssigns}${mask ? `${streamAssignments(surface, mask, "in.vidx")}\n` : ""}
 ${assigns}
     return out;
 }`)
@@ -1032,9 +1103,11 @@ function colorFs(
     fogged = false,
     coverage = false,
     cullMode: number = CullModeCode.Back,
+    mask = 0,
 ) {
     const readsFacing = cullMode === CullModeCode.None;
     const facing = cullMode === CullModeCode.Back;
+    const present = streamFields(surface, mask);
     const out = (coverage ? coverageOutput : colorOutput) as typeof colorOutput;
     const fogColor = fogged ? foggedColor : unfoggedColor;
     const varyings = surface.varyings ?? {};
@@ -1057,7 +1130,7 @@ function colorFs(
         material: d.interpolate("flat", d.u32),
         alphaMode: d.interpolate("flat", d.u32),
         alphaCutoff: d.interpolate("flat", d.f32),
-        ...fragmentInterstage(surface),
+        ...fragmentInterstage(surface, mask),
         ...facingInput(cullMode),
     };
     const name = `${surface.name}${alphaToCoverageFallback ? "Single" : ""}Fs`;
@@ -1083,6 +1156,9 @@ function colorFs(
             );
             ctx.fragCoord = d.vec4f(input.pos);
             ctx.prepass = false;
+            ctx.uv1 = present.uv1 ? d.vec2f(input.uv1) : d.vec2f(ctx.uv);
+            ctx.color = present.color ? d.vec4f(input.color) : d.vec4f(1);
+            ctx.tangent = present.tangent ? d.vec4f(input.tangent) : d.vec4f(0);
             for (const i of tgpu.unroll(std.range(varyingKeys.length))) {
                 (ctx as any)[varyingKeys[i]] = (schemas[i] as any)((input as any)[slots[i]]);
             }
@@ -1150,6 +1226,7 @@ export function compileMaterial<
     capacity: number,
     alphaPipelineKey: number,
     cullMode: number = CullModeCode.Back,
+    mask = 0,
 ): CompiledMaterial {
     const varyingCount = Object.keys(surface.varyings ?? {}).length;
     const uv = !!surface.fragmentInputs?.uv;
@@ -1157,13 +1234,19 @@ export function compileMaterial<
     // WebGPU counts @builtin(front_facing) against the fragment stage's inter-stage variables.
     const frontFacing = cullMode === CullModeCode.None;
     const interstageCount =
-        VARYING_BASE + Number(uv) + Number(localPos) + varyingCount + Number(frontFacing);
+        VARYING_BASE +
+        Number(uv) +
+        Number(localPos) +
+        varyingCount +
+        Number(frontFacing) +
+        Object.keys(streamFields(surface, mask)).length;
     const limit = world.gpu.device.limits.maxInterStageShaderVariables;
     if (interstageCount > limit) {
         const fields = [
             `${VARYING_BASE} engine`,
             ...(uv ? ["uv"] : []),
             ...(localPos ? ["localPos"] : []),
+            ...Object.keys(streamFields(surface, mask)),
             `${varyingCount} varyings`,
             ...(frontFacing ? ["frontFacing"] : []),
         ];
@@ -1172,19 +1255,22 @@ export function compileMaterial<
         );
     }
     const _render = world.resource(RenderContext);
-    const cacheKey = `${surface.name}:${alphaPipelineKey}:${cullMode}`;
+    const cacheKey = `${surface.name}:${alphaPipelineKey}:${cullMode}${mask ? `:streams${mask}` : ""}`;
     const cached = pipelineState(world).compiledMaterials.get(cacheKey);
     if (cached?.owner === surface && cached.layout === surface.layout) return cached;
     const hasVaryings = !!surface.varyings && Object.keys(surface.varyings).length > 0;
-    const vertex = hasVaryings ? varyingVs(surface) : colorVs(surface);
+    const vertex = hasVaryings || mask ? varyingVs(surface, false, "", mask) : colorVs(surface);
     const fogged =
         !!fogSource(world) &&
         (alphaPipelineKey === AlphaPipelineKey.Blend ||
             alphaPipelineKey === AlphaPipelineKey.Premultiplied ||
             alphaPipelineKey === AlphaPipelineKey.Multiply);
-    const fragment = colorFs(surface, false, fogged, false, cullMode);
-    const singleFragment = colorFs(surface, true, fogged, false, cullMode);
-    const name = variantName(surface, alphaPipelineKey, cullMode);
+    const fragment = colorFs(surface, false, fogged, false, cullMode, mask);
+    const singleFragment = colorFs(surface, true, fogged, false, cullMode, mask);
+    const name = variantName(surface, alphaPipelineKey, cullMode) + (mask ? `-streams${mask}` : "");
+    const base = mask
+        ? compileMaterial(world, surface, capacity, alphaPipelineKey, cullMode)
+        : null;
     const primitive = materialPrimitive(cullMode);
     const args: CompiledMaterial["args"] = {
         vertex,
@@ -1194,6 +1280,7 @@ export function compileMaterial<
         cullMode,
         primitive,
         name,
+        mask,
     };
     const transparent =
         alphaPipelineKey === AlphaPipelineKey.Blend ||
@@ -1234,7 +1321,17 @@ export function compileMaterial<
         prepass:
             surface.depthPass?.prepass === false
                 ? null
-                : compilePrepass(world, surface, alphaPipelineKey, cullMode),
+                : base && alphaPipelineKey === AlphaPipelineKey.Opaque
+                  ? base.prepass
+                  : compilePrepass(
+                        world,
+                        surface,
+                        alphaPipelineKey,
+                        cullMode,
+                        SAMPLE_COUNT,
+                        false,
+                        mask,
+                    ),
         prepassSingle: null,
         normal: null,
         normalSingle: null,
@@ -1245,7 +1342,10 @@ export function compileMaterial<
         args,
     };
     if (surface.depthPass?.shadows !== false && !transparent) {
-        const shadows = compileShadow(world, surface, capacity, alphaPipelineKey, cullMode);
+        const shadows =
+            base && alphaPipelineKey === AlphaPipelineKey.Opaque
+                ? base
+                : compileShadow(world, surface, capacity, alphaPipelineKey, cullMode, mask);
         compiled.point = shadows.point;
         compiled.cascade = shadows.cascade;
     }
@@ -1269,6 +1369,8 @@ export function ensureSingle(world: World, t: CompiledMaterial): void {
                 t.args.alphaPipelineKey,
                 t.args.cullMode,
                 1,
+                false,
+                t.args.mask,
             );
         return;
     }
@@ -1301,7 +1403,22 @@ export function ensureSingle(world: World, t: CompiledMaterial): void {
         })
         .$name(`standard-${name}-1x`);
     t.single = { color: transparent ? null : pipeline, transparent: transparent ? pipeline : null };
-    if (t.prepass) t.prepassSingle = compilePrepass(world, t.owner, alphaPipelineKey, cullMode, 1);
+    if (t.prepass) {
+        if (t.args.mask && alphaPipelineKey === AlphaPipelineKey.Opaque) {
+            const base = getCompiledMaterial(world, t.owner.name, alphaPipelineKey, cullMode)!;
+            ensureSingle(world, base);
+            t.prepassSingle = base.prepassSingle;
+        } else
+            t.prepassSingle = compilePrepass(
+                world,
+                t.owner,
+                alphaPipelineKey,
+                cullMode,
+                1,
+                false,
+                t.args.mask,
+            );
+    }
 }
 
 /**
@@ -1313,7 +1430,7 @@ export function ensureStacked(world: World, t: CompiledMaterial): TgpuRenderPipe
     if (t.stacked) return t.stacked;
     const { vertex, primitive, name, cullMode } = t.args;
     const surface = t.owner;
-    const fragment = colorFs(surface, false, false, true, cullMode);
+    const fragment = colorFs(surface, false, false, true, cullMode, t.args.mask);
     t.stacked = materialRoot(world, surface)
         .createRenderPipeline({
             vertex,
@@ -1349,6 +1466,7 @@ function compilePrepass(
     cullMode: number,
     sampleCount = SAMPLE_COUNT,
     normals = false,
+    mask = 0,
 ): TgpuRenderPipeline<any> | null {
     if (
         alphaPipelineKey === AlphaPipelineKey.Blend ||
@@ -1371,16 +1489,16 @@ function compilePrepass(
             // stream without them.
             vertex:
                 clip || normals
-                    ? varying
-                        ? varyingVs(surface, true)
+                    ? varying || mask
+                        ? varyingVs(surface, true, "Clip", mask)
                         : colorVs(surface, true)
                     : surface.vertex
                       ? colorVs(surface, true)
                       : prepassVs(surface),
             fragment: clip
-                ? (clipFs(surface, normals, true, cullMode) as never)
+                ? (clipFs(surface, normals, true, cullMode, mask) as never)
                 : normals
-                  ? (clipFs(surface, true, false, cullMode) as never)
+                  ? (clipFs(surface, true, false, cullMode, mask) as never)
                   : depthOnlyFs,
             targets: (normals ? { color: { format: NORMAL_FORMAT } } : undefined) as never,
             primitive,
@@ -1388,7 +1506,7 @@ function compilePrepass(
             multisample: { count: sampleCount },
         })
         .$name(
-            `standard-prepass-${variantName(surface, alphaPipelineKey, cullMode)}-${sampleCount}x`,
+            `standard-prepass-${variantName(surface, alphaPipelineKey, cullMode)}-${sampleCount}x${mask ? `-streams${mask}` : ""}`,
         );
     return depthOnly;
 }
@@ -1661,16 +1779,17 @@ function varyingShadowVs(
     shadowGroup: TgpuBindGroupLayout<any>,
     cascade: boolean,
     _capacity: number,
+    mask = 0,
 ) {
     const varyings = surface.varyings ?? {};
     const keys = Object.keys(varyings);
-    if (!surface.vertex) {
+    if (!surface.vertex && keys.length) {
         throw new Error(
             `standard: surface "${surface.name}" declares varyings with no vertex function`,
         );
     }
     const hasVs = !!surface.vertex;
-    const fragmentFields = fragmentInterstage(surface);
+    const fragmentFields = fragmentInterstage(surface, mask);
     const layout = surface.layout;
     // see varyingVs's why: `layout.$.x` throws outside codegen mode (including inside `tgpu.lazy`),
     // so the whole `$` proxy rides as one external and the WGSL text's own dot chain defers the field read.
@@ -1737,7 +1856,7 @@ ${
     out.world = world.xyz;
     out.material = mirroredMaterial(material, xform.scale);
     out.alphaCutoff = alphaCutoff;
-${fragmentAssigns}
+${fragmentAssigns}${mask ? `${streamAssignments(surface, mask, "vidx")}\n` : ""}
 ${assigns}
     return out;
 }`)
@@ -1754,6 +1873,7 @@ ${assigns}
             xformNormal,
             producerRow,
             mirroredMaterial,
+            ...(mask ? { decodeUv1, decodeColor, decodeTangent, xformQuat } : {}),
             ...(hasVs ? { MaterialVertexInput, vs: materialVertexFunction(surface) } : {}),
         })
         .$name(`${surface.name}${cascade ? "Cascade" : "Point"}ClipCopier`);
@@ -1805,7 +1925,8 @@ ${outputAssignments}
 
 /** The clipped atlas fragment: the tile-seam discard, then the surface fragment for its cutoff discard
  * alone; this depth-only pipeline ignores its color. */
-function clipShadowFs(surface: AnyMaterialType, cullMode: number) {
+function clipShadowFs(surface: AnyMaterialType, cullMode: number, mask = 0) {
+    const present = streamFields(surface, mask);
     const readsFacing = cullMode === CullModeCode.None;
     const facing = cullMode === CullModeCode.Back;
     const varyings = surface.varyings ?? {};
@@ -1828,7 +1949,7 @@ function clipShadowFs(surface: AnyMaterialType, cullMode: number) {
         world: d.vec3f,
         material: d.interpolate("flat", d.u32),
         alphaCutoff: d.interpolate("flat", d.f32),
-        ...fragmentInterstage(surface),
+        ...fragmentInterstage(surface, mask),
         ...facingInput(cullMode),
         ...located,
     };
@@ -1863,6 +1984,9 @@ function clipShadowFs(surface: AnyMaterialType, cullMode: number) {
             for (const i of tgpu.unroll(std.range(keys.length))) {
                 (ctx as any)[keys[i]] = (schemas[i] as any)((input as any)[slots[i]]);
             }
+            ctx.uv1 = present.uv1 ? d.vec2f(input.uv1) : d.vec2f(ctx.uv);
+            ctx.color = present.color ? d.vec4f(input.color) : d.vec4f(1);
+            ctx.tangent = present.tangent ? d.vec4f(input.tangent) : d.vec4f(0);
             const color = fragment(ctx);
             const cutoff = input.alphaCutoff;
             if (color.a < cutoff) std.discard();
@@ -1882,6 +2006,7 @@ function compileShadow(
     capacity: number,
     alphaPipelineKey: number,
     cullMode: number,
+    mask = 0,
 ): {
     point: TgpuRenderPipeline<any> | null;
     cascade: TgpuRenderPipeline<any> | null;
@@ -1913,33 +2038,37 @@ function compileShadow(
     const point = root
         .createRenderPipeline({
             vertex: clip
-                ? varying
-                    ? varyingShadowVs(surface, pointLayout, false, capacity)
+                ? varying || mask
+                    ? varyingShadowVs(surface, pointLayout, false, capacity, mask)
                     : clipShadowVs(surface, pointLayout, false, capacity)
                 : surface.vertex
                   ? clipShadowVs(surface, pointLayout, false, capacity)
                   : shadowVs(surface, pointLayout, false, capacity),
-            fragment: clip ? (clipShadowFs(surface, cullMode) as never) : shadowFs,
+            fragment: clip ? (clipShadowFs(surface, cullMode, mask) as never) : shadowFs,
             primitive,
             depthStencil,
             multisample: { count: 1 },
         })
-        .$name(`standard-point-${variantName(surface, alphaPipelineKey, cullMode)}`);
+        .$name(
+            `standard-point-${variantName(surface, alphaPipelineKey, cullMode)}${mask ? `-streams${mask}` : ""}`,
+        );
     const cascade = root
         .createRenderPipeline({
             vertex: clip
-                ? varying
-                    ? varyingShadowVs(surface, cascadeLayout, true, capacity)
+                ? varying || mask
+                    ? varyingShadowVs(surface, cascadeLayout, true, capacity, mask)
                     : clipShadowVs(surface, cascadeLayout, true, capacity)
                 : surface.vertex
                   ? clipShadowVs(surface, cascadeLayout, true, capacity)
                   : shadowVs(surface, cascadeLayout, true, capacity),
-            fragment: clip ? (clipShadowFs(surface, cullMode) as never) : shadowFs,
+            fragment: clip ? (clipShadowFs(surface, cullMode, mask) as never) : shadowFs,
             primitive,
             depthStencil,
             multisample: { count: 1 },
         })
-        .$name(`standard-cascade-${variantName(surface, alphaPipelineKey, cullMode)}`);
+        .$name(
+            `standard-cascade-${variantName(surface, alphaPipelineKey, cullMode)}${mask ? `-streams${mask}` : ""}`,
+        );
     return { point, cascade };
 }
 
@@ -1950,8 +2079,11 @@ export function getCompiledMaterial(
     name: string,
     alphaPipelineKey: number = AlphaPipelineKey.Opaque,
     cullMode: number = CullModeCode.Back,
+    mask = 0,
 ): CompiledMaterial | undefined {
-    return pipelineState(world).compiledMaterials.get(`${name}:${alphaPipelineKey}:${cullMode}`);
+    return pipelineState(world).compiledMaterials.get(
+        `${name}:${alphaPipelineKey}:${cullMode}${mask ? `:streams${mask}` : ""}`,
+    );
 }
 
 // A background with only group 0 would drop group 1 when switching pipelines in the same pass.
@@ -2074,6 +2206,7 @@ export function ensureNormalPrepass(
             t.args.cullMode,
             1,
             true,
+            t.args.mask,
         ));
     return (t.normal ??= compilePrepass(
         world,
@@ -2082,6 +2215,7 @@ export function ensureNormalPrepass(
         t.args.cullMode,
         SAMPLE_COUNT,
         true,
+        t.args.mask,
     ));
 }
 
@@ -2116,37 +2250,48 @@ export async function preparePipelines(
         const source = materialSource(world, type);
         source.table;
         const pipelineKeys = source.pipelineKeys;
-        for (let key = 0; key < 32; key++) {
-            if (!(pipelineKeys & (1 << key))) continue;
-            const alphaPipelineKey = key % ALPHA_PIPELINE_KEY_COUNT;
-            const cullMode = (key - alphaPipelineKey) / ALPHA_PIPELINE_KEY_COUNT;
-            const compiled = compileMaterial(world, type, capacity, alphaPipelineKey, cullMode);
-            if (singleSample) ensureSingle(world, compiled);
-            for (const samples of normalSamples) {
-                const pipeline = ensureNormalPrepass(world, compiled, samples === 1);
-                if (pipeline)
-                    precompile(world, precompileScope(world, "standard-normal-prepass"), () =>
+        const masks = new Set([0]);
+        for (const mesh of world.resource(Meshes)) masks.add(meshStreamMask(type, mesh));
+        for (const mask of masks) {
+            for (let key = 0; key < 32; key++) {
+                if (!(pipelineKeys & (1 << key))) continue;
+                const alphaPipelineKey = key % ALPHA_PIPELINE_KEY_COUNT;
+                const cullMode = (key - alphaPipelineKey) / ALPHA_PIPELINE_KEY_COUNT;
+                const compiled = compileMaterial(
+                    world,
+                    type,
+                    capacity,
+                    alphaPipelineKey,
+                    cullMode,
+                    mask,
+                );
+                if (singleSample) ensureSingle(world, compiled);
+                for (const samples of normalSamples) {
+                    const pipeline = ensureNormalPrepass(world, compiled, samples === 1);
+                    if (pipeline)
+                        precompile(world, precompileScope(world, "standard-normal-prepass"), () =>
+                            prepareMaterialPipeline(world, type.name, pipeline),
+                        );
+                }
+                if (stacked && alphaPipelineKey === AlphaPipelineKey.AlphaToCoverage) {
+                    const pipeline = ensureStacked(world, compiled);
+                    precompile(world, precompileScope(world, "standard-stacked"), () =>
                         prepareMaterialPipeline(world, type.name, pipeline),
                     );
-            }
-            if (stacked && alphaPipelineKey === AlphaPipelineKey.AlphaToCoverage) {
-                const pipeline = ensureStacked(world, compiled);
-                precompile(world, precompileScope(world, "standard-stacked"), () =>
-                    prepareMaterialPipeline(world, type.name, pipeline),
-                );
-            }
-            for (const p of [
-                compiled.color,
-                compiled.transparent,
-                compiled.point,
-                compiled.cascade,
-                compiled.prepass,
-                compiled.single?.color,
-                compiled.single?.transparent,
-                compiled.prepassSingle,
-                compiled.stacked,
-            ]) {
-                if (p) prepareMaterialPipeline(world, type.name, p);
+                }
+                for (const p of [
+                    compiled.color,
+                    compiled.transparent,
+                    compiled.point,
+                    compiled.cascade,
+                    compiled.prepass,
+                    compiled.single?.color,
+                    compiled.single?.transparent,
+                    compiled.prepassSingle,
+                    compiled.stacked,
+                ]) {
+                    if (p) prepareMaterialPipeline(world, type.name, p);
+                }
             }
         }
     }

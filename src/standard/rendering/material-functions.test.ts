@@ -81,7 +81,7 @@ test("material registration refuses a prebuilt TypeGPU vertex and names the plai
     );
 });
 
-test("a material's vertex input and fragment context carry no color", () => {
+test("mesh color belongs to the fragment context, not the vertex input", () => {
     const Parameters = d.struct({ tint: d.vec4f });
     const material = materialType({
         name: "Colorless",
@@ -96,7 +96,7 @@ test("a material's vertex input and fragment context carry no color", () => {
         fragment: (ctx) => {
             "use gpu";
             expectTypeOf(ctx.shade).toEqualTypeOf<number>();
-            expectTypeOf(ctx).not.toHaveProperty("color");
+            expectTypeOf(ctx.color).toEqualTypeOf<d.v4f>();
             return d.vec4f(ctx.parameters.tint);
         },
     });
@@ -105,5 +105,5 @@ test("a material's vertex input and fragment context carry no color", () => {
             (fn as { shell: { argTypes: [{ propTypes: object }] } }).shell.argTypes[0].propTypes,
         );
     expect(fields(material.vertex)).not.toContain("color");
-    expect(fields(material.fragment)).not.toContain("color");
+    expect(fields(material.fragment)).toContain("color");
 });

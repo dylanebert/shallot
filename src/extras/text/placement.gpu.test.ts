@@ -110,7 +110,12 @@ const subject = compileGpuFile(import.meta.path, async () => {
     buffer("glyphs", new Uint8Array(glyph));
     buffer("glyphIndices", new Uint32Array([0]));
     buffer("maskEids", new Uint32Array([eid]));
-    const quant = { posOffset: d.vec4f(0), posScale: d.vec4f(0.5, 0.5, 1, 0), uvScale: d.vec4f(0) };
+    const quant = {
+        posOffset: d.vec4f(0),
+        posScale: d.vec4f(0.5, 0.5, 1, 0),
+        uvScale: d.vec2f(0),
+        streams: 0,
+    };
     buffer("meshQuant", new Float32Array([0, 0, 0, 0, 0.5, 0.5, 1, 0, 0, 0, 0, 0]));
     const positions = [d.vec3f(0), d.vec3f(0.5, 0, 0), d.vec3f(0, 0.5, 0)].flatMap((p) => [
         ...encodePos(p, 0, quant),

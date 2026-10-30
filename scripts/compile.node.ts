@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { RenderingPlugin } from "@dylanebert/shallot";
+import { Meshes, MeshPlugin, RenderingPlugin, type World } from "@dylanebert/shallot";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { compileSubjects, initialSsaoCamera, measureCompile } from "./compile.fixture";
 
@@ -39,6 +39,36 @@ for (const subject of compileSubjects) {
         );
     });
 }
+
+test("an optional stream mesh adds one opaque color pipeline and shares depth and shadow pipelines", async () => {
+    const labels: string[] = [];
+    const result = await measureCompile(
+        {
+            plugins: [
+                {
+                    name: "StreamMesh",
+                    dependencies: [MeshPlugin],
+                    initialize(world: World) {
+                        world.resource(Meshes).add({
+                            name: "stream",
+                            vertices: new Float32Array([
+                                -1, -1, 0, 0, 0, 0, 1, 0, 1, -1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0,
+                                1, 1,
+                            ]),
+                            indices: new Uint32Array([0, 1, 2]),
+                            uv1: new Float32Array(6),
+                        });
+                    },
+                },
+            ],
+        },
+        (label) => labels.push(label),
+    );
+    expect(result.pipelines).toBe(pipelineCounts["default plugins"] + 1);
+    expect(labels.filter((label) => label.includes("streams1"))).toEqual([
+        "standard-StandardMaterial-0-streams1",
+    ]);
+});
 
 for (const antialias of [0, 1]) {
     test(`an initial SSAO camera (${antialias ? "4x" : "1x"}) compiles no pipeline after the drain`, async () => {
