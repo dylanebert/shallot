@@ -488,31 +488,31 @@ function quantizeMeshes(
             umin.fill(0);
             umax.fill(0);
         }
-        const pext = [pmax[0] - pmin[0], pmax[1] - pmin[1], pmax[2] - pmin[2]];
-        const uext = [umax[0] - umin[0], umax[1] - umin[1]];
+        const pext = [pmax[0] - pmin[0], pmax[1] - pmin[1], pmax[2] - pmin[2]].map(Math.fround);
+        const uext = [umax[0] - umin[0], umax[1] - umin[1]].map(Math.fround);
         const q = meshId * MESH_QUANT_FLOATS;
         quant.set([pmin[0], pmin[1], pmin[2], umin[0]], q);
         quant.set([pext[0], pext[1], pext[2], umin[1]], q + 4);
         quant.set([uext[0], uext[1], 0, 0], q + 8);
         // a degenerate axis (extent 0 — a flat quad's z) writes 0 → decode returns the offset
-        const norm = (val: number, lo: number, ext: number) => (ext === 0 ? 0 : (val - lo) / ext);
+        // Round once to the nearest lattice point against the stored f32 extent. Rounding the
+        // normalized input to f32 first can select a point beyond half a quantization step.
+        const lane = (val: number, lo: number, ext: number) =>
+            Math.round(Math.max(0, Math.min(1, ext === 0 ? 0 : (val - lo) / ext)) * 65535);
         for (let v = 0; v < s.vertexCount; v++) {
             const i = (s.vertexBase + v) * VERTEX_FLOATS;
             const vi = s.vertexBase + v;
-            const w0 = packUnorm2(
-                norm(vertices[i], pmin[0], pext[0]),
-                norm(vertices[i + 1], pmin[1], pext[1]),
-            );
-            // the z lane rides the same unorm16 lattice as w0's x/y — pack it as a lane and keep the
-            // low half, so all three position lanes round on one lattice (a bare f64 round here lands
-            // on the other lattice point wherever the f32 product straddles a midpoint)
-            const z16 = packUnorm2(norm(vertices[i + 2], pmin[2], pext[2]), 0) & 0xffff;
+            const w0 =
+                (lane(vertices[i], pmin[0], pext[0]) |
+                    (lane(vertices[i + 1], pmin[1], pext[1]) << 16)) >>>
+                0;
+            const z16 = lane(vertices[i + 2], pmin[2], pext[2]);
             const w1 = (z16 | (meshId << 16)) >>> 0;
             const w2 = octEncode(vertices[i + 4], vertices[i + 5], vertices[i + 6]);
-            const w3 = packUnorm2(
-                norm(vertices[i + 3], umin[0], uext[0]),
-                norm(vertices[i + 7], umin[1], uext[1]),
-            );
+            const w3 =
+                (lane(vertices[i + 3], umin[0], uext[0]) |
+                    (lane(vertices[i + 7], umin[1], uext[1]) << 16)) >>>
+                0;
             main[vi * 4] = w0;
             main[vi * 4 + 1] = w1;
             main[vi * 4 + 2] = w2;
