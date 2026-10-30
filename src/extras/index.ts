@@ -20,6 +20,13 @@ export {
     readFogInScatter,
 } from "./fog";
 export {
+    type Gltf,
+    type GltfPlacement,
+    type GltfPrimitive,
+    loadGltfScene,
+    spawnGltfScene,
+} from "./gltf";
+export {
     drawArrow,
     drawLine,
     drawWireBox,

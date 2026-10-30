@@ -67,7 +67,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 ## Layout
 
 - Layers run from `engine` outward through `core`, `standard` and `extras`; dependencies point inward, and outer layers make more choices a game can replace
-- An extra is a mechanism that carries no game's choices, that the field's engines ship in-engine or as official add-ons, and that a game cannot write well over public seams
+- An extra is a mechanism that carries no game's choices, that the field's engines ship in-engine or as official add-ons, and that a game cannot write well over public seams; or a mechanism whose conformance to an open standard the engine guarantees, as `bevy_gltf` is a Bevy crate
 - A game's choices, what the player may do and how it feels, live in the game: an example writes its own gameplay over published mechanisms
 - Each module owns one useful responsibility completely; split, fix or remove one that doesn't
 - Engine owns domain-free storage and scheduling; it neither imports nor names placement code
