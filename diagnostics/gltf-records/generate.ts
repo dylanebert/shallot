@@ -7,13 +7,14 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { fixtures, recordArray } from "./format";
+import { fixtures } from "./fixtures";
+import { recordArray } from "../../examples/gltf/tests/records";
 import manifest from "../../examples/gltf/assets.json";
 import { syncFiles } from "../../examples/gltf/sync";
 
 const example = process.argv.includes("--example");
 const subjects = example ? manifest.models.map(model => `Models/${model.name}/glTF/${model.name}.gltf`) : fixtures;
-const array = example ? (values: ArrayLike<number>, _width: number, _integer = false) => Array.from(values) : recordArray;
+const array = example ? (values: ArrayLike<number>, width: number, integer = false) => recordArray(integer ? values : new Float32Array(values), width, integer) : recordArray;
 
 const revision = "1e7e3cff304a05416a54343e7ce273c709bccefe";
 const checkout = process.env.THREE;
@@ -70,7 +71,7 @@ for (const fixture of subjects) {
                 field: `instances[${instances.indexOf(object)}].indices`,
                 clause: "meshes-topology: Triangle Strips / Triangle Fans (ordered vertex equations)",
                 reason: "GLTFLoader cyclically rotates odd strip triangles and every fan triangle. Winding agrees, but the specification's vertex order is retained in this record.",
-                loader: Array.from(geometry.index.array), specified,
+                loader: array(geometry.index.array, 1, true), specified: array(specified, 1, true),
             });
             geometry = geometry.clone();
             geometry.setIndex(specified);
@@ -88,7 +89,7 @@ for (const fixture of subjects) {
         const positions = [], normals = [], uvs = [];
         for (let i = 0; i < position.count; i++) {
             positions.push(position.getX(i), position.getY(i), position.getZ(i));
-            normals.push(normal.getX(i), normal.getY(i), normal.getZ(i));
+            normals.push(...[normal.getX(i), normal.getY(i), normal.getZ(i)].map(value => example && implicitNormals && value === 0 ? 0 : value));
             uvs.push(uv ? uv.getX(i) : 0, uv ? uv.getY(i) : 0);
         }
         const stream = (name: string, width: number) => {
@@ -140,9 +141,12 @@ for (const fixture of subjects) {
     }));
     records.push({ fixture, textures, ...(example ? { images: (reference.parser.json.images ?? []).map((image: any) => image.uri) } : {}), instances: decodedInstances, divergences });
 }
+// JSON's -0 number retains the float32 sign bit in small exact arrays.
+const json = JSON as typeof JSON & { rawJSON(text: string): unknown };
 writeFileSync(resolve(import.meta.dir, example ? "../../examples/gltf/tests/models.gold.json" : "../../src/extras/gltf/fixtures/records.json"), `${JSON.stringify({
     specification: "a55d8458c1e82720413acd3b420fd09e73b8e40b", generator: revision,
-    arrayFormat: example ? "Exact JSON arrays, before mesh registration and quantization." : "At most 128 components: exact JSON values. Otherwise: element count, per-component min/max, SHA-256 of little-endian float32 attributes or uint32 indices, without rounding.",
+    arrayFormat: example ? "At most 128 components: exact JSON values. Otherwise: element count, per-component min/max, SHA-256 of little-endian float32 attributes or uint32 indices. Attributes are stored as float32 after the clause's arithmetic, before mesh registration." : "At most 128 components: exact JSON values. Otherwise: element count, per-component min/max, SHA-256 of little-endian float32 attributes or uint32 indices, without rounding.",
+    ...(example ? { generatedNormalZeros: "Generated flat-normal zeros use +0: the specification leaves their zero sign unspecified. Authored float32 bits are retained." } : {}),
     defaults: "material.schema.json; material.pbrMetallicRoughness.schema.json; sampler.schema.json; texture.schema.json; node.schema.json at specification revision",
     samplerEnums: "address modes: clamp=0, repeat=1, mirror=2; filters: nearest=0, linear=1",
     scope: example ? "Mapped static fields only; image pixels excluded. Null material denotes the specification's default material; lighting factors omitted for unlit. UV zero is a storage placeholder, not a specification default." : "Mapped static fields only; image pixels excluded. Null material means no authored material (not asserted); lighting factors omitted for unlit. UV zero is a storage placeholder, not a specification default.",
@@ -168,5 +172,5 @@ writeFileSync(resolve(import.meta.dir, example ? "../../examples/gltf/tests/mode
         unlit: "KHR_materials_unlit: Extending Materials (at specification revision)", doubleSided: "double-sided",
         textures: "textures (source); samplers (Filtering; Wrapping); absent filters choose linear / linear-mipmap-linear, permitted by Samplers Overview",
     }, records,
-}, null, 2)}\n`);
+}, example ? (_key, value) => Object.is(value, -0) ? json.rawJSON("-0") : value : undefined, 2)}\n`);
 console.log(`Recorded ${records.length} fixtures from ${head}`);

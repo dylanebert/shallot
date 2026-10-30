@@ -19,17 +19,23 @@ import { loadGltf, loadGltfScene, spawnGltfScene } from "@dylanebert/shallot/glt
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { categories, modelPath } from "../src/scenes";
+import { decodeConformance } from "./arrays";
 import gold from "./models.gold.json";
 import { decodeQuantized } from "./quantization";
 import { assets, fileFetch, syncAssets } from "./setup";
 
 setDefaultTimeout(TIMEOUT.node);
-function near(actual: ArrayLike<number>, expected: ArrayLike<number>, tolerance: number) {
-    expect(actual.length).toBe(expected.length);
+function near(
+    actual: ArrayLike<number>,
+    expected: ArrayLike<number>,
+    tolerance: number,
+    label: string,
+) {
+    expect(actual.length, label).toBe(expected.length);
     for (let i = 0; i < actual.length; i++)
-        expect(Math.abs(actual[i] - expected[i])).toBeLessThanOrEqual(tolerance);
+        expect(Math.abs(actual[i] - expected[i]), label).toBeLessThanOrEqual(tolerance);
 }
-function tangent(word: number, expected: ArrayLike<number>) {
+function tangent(word: number, expected: ArrayLike<number>, label: string) {
     const signedX = (word << 16) >> 16;
     const signedY = word >> 16;
     let x = Math.max(-1, signedX / 32767);
@@ -51,15 +57,16 @@ function tangent(word: number, expected: ArrayLike<number>) {
         [x / length, y / length, z / length],
         Array.from(expected).slice(0, 3),
         15 / 32767 + 64 * 2 ** -23,
+        label,
     );
-    expect(signedY >= 0 ? 1 : -1).toBe(expected[3]);
+    expect(signedY >= 0 ? 1 : -1, label).toBe(expected[3]);
 }
 function materialValues(actual: ArrayLike<number>, expected: number[]) {
     expect(Array.from(actual)).toEqual(expected.map(Math.fround));
 }
-function quantized(code: number, offset: number, extent: number, expected: number) {
+function quantized(code: number, offset: number, extent: number, expected: number, label: string) {
     const { value, bound } = decodeQuantized(code, offset, extent);
-    expect(Math.abs(value - expected)).toBeLessThanOrEqual(bound);
+    expect(Math.abs(value - expected), label).toBeLessThanOrEqual(bound);
 }
 function recordedMatrix(
     path: { matrix?: number[]; translation?: number[]; rotation?: number[]; scale?: number[] }[],
@@ -82,15 +89,39 @@ export function parity(category: string) {
         await setupGlobals();
     });
     for (const { id } of categories.find((entry) => entry.name === category)!.scenes) {
-        test(`${category}/${id}: registered geometry, materials, samplers and node worlds equal the specification records`, async () => {
+        test(`${category}/${id}: decoded arrays equal records; registered streams meet storage bounds and scene records`, async () => {
             const reference = gold.records.find(
                 (record) => record.fixture === `Models/${id}/glTF/${id}.gltf`,
             )!;
-            const fetch = spyOn(globalThis, "fetch").mockImplementation(fileFetch);
             let model: Awaited<ReturnType<typeof loadGltfScene>>;
             let entities: number[];
             const url = new URL(modelPath(id).slice("assets/".length), assets);
-            const decoded = await loadGltf(url);
+            const decoded = await loadGltf(url, fileFetch);
+            expect(decoded.instances.length, `${category}/${id} instances`).toBe(
+                reference.instances.length,
+            );
+            const generated = id === "NormalTangentTest";
+            let generatedTangents: Float32Array | undefined;
+            if (generated) {
+                const bytes = await readFile(
+                    new URL(
+                        "../../../src/core/mesh/fixtures/NormalTangentTest-0-0.bin",
+                        import.meta.url,
+                    ),
+                );
+                generatedTangents = new Float32Array(
+                    bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+                );
+            }
+            const geometry = decoded.instances.map((instance, i) =>
+                decodeConformance(
+                    decoded.meshes[instance.mesh],
+                    reference.instances[i],
+                    `${category}/${id} primitive ${i}`,
+                    generatedTangents,
+                ),
+            );
+            const fetch = spyOn(globalThis, "fetch").mockImplementation(fileFetch);
             const app = await createApp({
                 defaults: false,
                 plugins: [
@@ -111,6 +142,8 @@ export function parity(category: string) {
                 expect<unknown>(decoded.textures).toEqual(reference.textures);
                 for (const [i, primitive] of model!.primitives.entries()) {
                     const ref = reference.instances[i];
+                    const label = `${category}/${id} primitive ${i}`;
+                    const arrays = geometry[i];
                     const mesh = app.world.resource(Meshes).get(primitive.mesh)!;
                     expect(mesh.pending).toBeUndefined();
                     const vertices = await mesh.vertices.read();
@@ -125,26 +158,17 @@ export function parity(category: string) {
                     const localVertices = vertices
                         .slice(0, q.streams || vertices.length)
                         .filter((vertex) => vertex.y >>> 16 === meshId);
-                    const sources = Array.from({ length: localVertices.length }, (_, i) => i);
-                    const generated = id === "NormalTangentTest";
-                    if (generated) {
-                        expect(indices.length).toBe(ref.indices.length);
-                        for (let corner = 0; corner < indices.length; corner++) {
-                            const local = indices[corner] - vertexBase;
-                            if (local < ref.positions.length / 3)
-                                expect(local).toBe(ref.indices[corner]);
-                            sources[local] = ref.indices[corner];
-                        }
-                    } else {
-                        expect(localVertices.length * 3).toBe(ref.positions.length);
-                        expect(Array.from(indices, (index) => index - vertexBase)).toEqual(
-                            ref.indices,
-                        );
-                    }
+                    expect(localVertices.length * 3, `${label} positions`).toBe(
+                        arrays.positions.length,
+                    );
+                    expect(
+                        Array.from(indices, (index) => index - vertexBase),
+                        `${label} indices`,
+                    ).toEqual(Array.from(arrays.indices));
                     const expectedStreams: typeof mesh.streams = {
-                        ...(ref.uv1 ? { uv1: true } : {}),
-                        ...(ref.color ? { color: true } : {}),
-                        ...(ref.tangent || generated ? { tangent: true } : {}),
+                        ...(arrays.uv1 ? { uv1: true } : {}),
+                        ...(arrays.color ? { color: true } : {}),
+                        ...(arrays.tangent || generated ? { tangent: true } : {}),
                     };
                     expect(mesh.streams).toEqual(
                         Object.keys(expectedStreams).length ? expectedStreams : undefined,
@@ -152,46 +176,38 @@ export function parity(category: string) {
                     const words = Uint32Array.from(vertices.flatMap((v) => [v.x, v.y, v.z, v.w]));
                     const floats = new Float32Array(words.buffer);
                     const stride =
-                        (ref.uv1 ? 2 : 0) +
-                        (ref.tangent || generated ? 1 : 0) +
-                        (ref.color ? 2 : 0);
+                        (arrays.uv1 ? 2 : 0) +
+                        (arrays.tangent || generated ? 1 : 0) +
+                        (arrays.color ? 2 : 0);
                     const tangentAt = (vertex: number) =>
-                        q.streams * 4 + vertex * stride + (ref.uv1 ? 2 : 0);
+                        q.streams * 4 + vertex * stride + (arrays.uv1 ? 2 : 0);
                     if (generated) {
-                        const bytes = await readFile(
-                            new URL(
-                                "../../../src/core/mesh/fixtures/NormalTangentTest-0-0.bin",
-                                import.meta.url,
-                            ),
-                        );
-                        const tangents = new Float32Array(
-                            bytes.buffer.slice(
-                                bytes.byteOffset,
-                                bytes.byteOffset + bytes.byteLength,
-                            ),
-                        );
+                        const tangents = generatedTangents!;
                         expect(tangents.length).toBe(indices.length * 4);
                         for (let corner = 0; corner < indices.length; corner++) {
                             const t = tangents.subarray(corner * 4, corner * 4 + 4);
-                            tangent(words[tangentAt(indices[corner])], t);
+                            tangent(
+                                words[tangentAt(indices[corner])],
+                                t,
+                                `${label} generated tangent`,
+                            );
                         }
                     }
-                    for (const [local, v] of localVertices.entries()) {
-                        const source = sources[local];
-                        let at = q.streams * 4 + (vertexBase + local) * stride;
-                        if (ref.uv1) {
-                            expect(Array.from(floats.subarray(at, at + 2))).toEqual(
-                                ref.uv1.slice(source * 2, source * 2 + 2).map(Math.fround),
+                    for (const [source, v] of localVertices.entries()) {
+                        let at = q.streams * 4 + (vertexBase + source) * stride;
+                        if (arrays.uv1) {
+                            expect(Array.from(floats.subarray(at, at + 2)), `${label} uv1`).toEqual(
+                                Array.from(arrays.uv1.subarray(source * 2, source * 2 + 2)),
                             );
                             at += 2;
                         }
-                        if (ref.tangent) {
-                            const t = ref.tangent.slice(source * 4, source * 4 + 4);
-                            tangent(words[at], t);
+                        if (arrays.tangent) {
+                            const t = arrays.tangent.subarray(source * 4, source * 4 + 4);
+                            tangent(words[at], t, `${label} tangent`);
                         }
-                        if (ref.tangent || generated) at++;
-                        if (ref.color) {
-                            const c = ref.color.slice(source * 4, source * 4 + 4);
+                        if (arrays.tangent || generated) at++;
+                        if (arrays.color) {
+                            const c = arrays.color.subarray(source * 4, source * 4 + 4);
                             // Half a unorm16 step plus absolute f32 rounding on [0,1].
                             near(
                                 [
@@ -202,6 +218,7 @@ export function parity(category: string) {
                                 ],
                                 c,
                                 0.5 / 65535 + 2 ** -24,
+                                `${label} color`,
                             );
                         }
                         const position = [v.x & 65535, v.x >>> 16, v.y & 65535];
@@ -212,13 +229,26 @@ export function parity(category: string) {
                                 position[axis],
                                 offset[axis],
                                 extent[axis],
-                                ref.positions[source * 3 + axis],
+                                arrays.positions[source * 3 + axis],
+                                `${label} positions axis ${axis}`,
                             );
                         }
-                        quantized(v.w & 65535, q.posOffset.w, q.uvScale.x, ref.uvs[source * 2]);
-                        quantized(v.w >>> 16, q.posScale.w, q.uvScale.y, ref.uvs[source * 2 + 1]);
-                        let x = ((v.z << 16) >> 16) / 32767;
-                        let y = (v.z >> 16) / 32767;
+                        quantized(
+                            v.w & 65535,
+                            q.posOffset.w,
+                            q.uvScale.x,
+                            arrays.uvs[source * 2],
+                            `${label} uvs axis 0`,
+                        );
+                        quantized(
+                            v.w >>> 16,
+                            q.posScale.w,
+                            q.uvScale.y,
+                            arrays.uvs[source * 2 + 1],
+                            `${label} uvs axis 1`,
+                        );
+                        let x = Math.max(-1, ((v.z << 16) >> 16) / 32767);
+                        let y = Math.max(-1, (v.z >> 16) / 32767);
                         const z = 1 - Math.abs(x) - Math.abs(y);
                         if (z < 0) {
                             const old = x;
@@ -231,8 +261,9 @@ export function parity(category: string) {
                         // it by at most 2*sqrt(3), since an oct surface vector has length >= 1/sqrt(3).
                         near(
                             [x / length, y / length, z / length],
-                            ref.normals.slice(source * 3, source * 3 + 3),
+                            arrays.normals.subarray(source * 3, source * 3 + 3),
                             Math.sqrt(18) / 32767,
+                            `${label} normals`,
                         );
                     }
                     // Evaluate the recorded authored node path at the client's storage boundaries:

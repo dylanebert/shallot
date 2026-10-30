@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { recordArray } from "../../../diagnostics/gltf-records/format";
+import { recordArray } from "../../../examples/gltf/tests/records";
 import records from "./fixtures/records.json";
 import { loadGltf, parse } from "./index";
 

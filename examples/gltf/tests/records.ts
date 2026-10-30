@@ -15,19 +15,10 @@ export function recordArray(values: ArrayLike<number>, width: number, integer = 
         min[i % width] = Math.min(min[i % width], array[i]);
         max[i % width] = Math.max(max[i % width], array[i]);
     }
-    return { count: array.length / width, min, max, sha256: createHash("sha256").update(bytes).digest("hex") };
+    return {
+        count: array.length / width,
+        min,
+        max,
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+    };
 }
-
-export const fixtures = [
-    "default-sampler.gltf",
-    "double-sided.gltf",
-    "SparseAccessorWithoutBufferView/SparseAccessorWithoutBufferView.gltf",
-    "BoxInterleaved/glTF/BoxInterleaved.gltf",
-    "BoxTextured/glTF/BoxTextured.gltf",
-    "BoxTextured/glTF-Binary/BoxTextured.glb",
-    "BoxTextured/glTF-Embedded/BoxTextured.gltf",
-    "AlphaBlendModeTest/glTF/AlphaBlendModeTest.gltf",
-    "SimpleMeshes/glTF/SimpleMeshes.gltf",
-    "CesiumMilkTruck/glTF/CesiumMilkTruck.gltf",
-    "UnlitTest/glTF/UnlitTest.gltf",
-];
