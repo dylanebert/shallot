@@ -1,7 +1,7 @@
 import tgpu, { type TgpuFn } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { ImageBindings, sampleImage } from "../../core/rendering";
+import { ImageBindings, sampleImage, sampleImageAt } from "../../core/rendering";
 import type { World } from "../../engine";
 import { engineLayout, litPbr } from "./engine";
 import { StandardMaterial, StandardMaterialInput } from "./material-data";
@@ -25,8 +25,13 @@ const standardLayout = materialLayout(StandardMaterialInput, {
     images: { type: "texture", dimension: "2d-array" },
     imageSampler: { type: "sampler" },
     imageSettings: { type: "texture" },
+    dataImages: { type: "texture", dimension: "2d-array" },
 });
 const standardImages = tgpu.accessor(d.texture2dArray(d.f32), () => standardLayout.$.images);
+const standardDataImages = tgpu.accessor(
+    d.texture2dArray(d.f32),
+    () => standardLayout.$.dataImages,
+);
 const standardSampler = tgpu.accessor(d.sampler(), () => standardLayout.$.imageSampler);
 const standardImageSettings = tgpu.accessor(
     d.texture2d(d.f32),
@@ -95,9 +100,23 @@ export const pbrInputFromStandardMaterial = tgpu.fn(
 )((ctx) => {
     "use gpu";
     const material = ctx.parameters;
-    let baseColor = d.vec4f(material.baseColor);
-    const uvDx = std.dpdx(ctx.uv);
-    const uvDy = std.dpdy(ctx.uv);
+    let baseColor = std.mul(material.baseColor, ctx.color);
+    const baseUv = std.select(ctx.uv, ctx.uv1, material.baseColorChannel === 1);
+    const normalUv = std.select(ctx.uv, ctx.uv1, material.normalMapChannel === 1);
+    const metalUv = std.select(ctx.uv, ctx.uv1, material.metallicRoughnessChannel === 1);
+    const occlusionUv = std.select(ctx.uv, ctx.uv1, material.occlusionChannel === 1);
+    const emissiveUv = std.select(ctx.uv, ctx.uv1, material.emissiveChannel === 1);
+    const uvDx = std.dpdx(baseUv);
+    const uvDy = std.dpdy(baseUv);
+    const normalDx = std.dpdx(normalUv);
+    const normalDy = std.dpdy(normalUv);
+    const metalDx = std.dpdx(metalUv);
+    const metalDy = std.dpdy(metalUv);
+    const occlusionDx = std.dpdx(occlusionUv);
+    const occlusionDy = std.dpdy(occlusionUv);
+    const emissiveDx = std.dpdx(emissiveUv);
+    const emissiveDy = std.dpdy(emissiveUv);
+    const settingsOffset = d.i32(std.textureNumLayers(standardImages.$));
     if (material.baseColorTexture >= 0) {
         baseColor = std.mul(
             baseColor,
@@ -105,7 +124,7 @@ export const pbrInputFromStandardMaterial = tgpu.fn(
                 standardImages.$,
                 standardSampler.$,
                 standardImageSettings.$,
-                ctx.uv,
+                baseUv,
                 material.baseColorTexture,
                 uvDx,
                 uvDy,
@@ -117,15 +136,78 @@ export const pbrInputFromStandardMaterial = tgpu.fn(
         baseColor.a = (baseColor.a - ctx.alphaCutoff) / std.max(alphaWidth, 0.0001) + 0.5;
     }
     const input = pbrInputFromMaterial(ctx);
-    // glTF doubleSided: a back face shades with the reversed normal.
-    if (material.doubleSided !== 0 && !ctx.frontFacing)
-        input.worldNormal = std.mul(input.worldNormal, -1);
     input.baseColor = d.vec4f(baseColor);
     input.metallic = material.metallic;
     input.perceptualRoughness = material.perceptualRoughness;
     input.occlusion = material.occlusion;
     input.emissive = d.vec3f(material.emissive);
     input.unlit = material.unlit;
+    if (material.normalMapTexture >= 0 && ctx.tangent.w !== 0) {
+        const tex = sampleImageAt(
+            standardDataImages.$,
+            standardSampler.$,
+            standardImageSettings.$,
+            normalUv,
+            material.normalMapTexture,
+            normalDx,
+            normalDy,
+            settingsOffset,
+        );
+        const normal = ctx.rawWorldNormal;
+        const tangent = ctx.tangent.xyz;
+        const bitangent = std.mul(std.cross(normal, tangent), ctx.tangent.w);
+        const mapped = std.sub(std.mul(tex.xyz, 2), d.vec3f(1));
+        mapped.x *= material.normalMapScale;
+        mapped.y *= material.normalMapScale;
+        input.worldNormal = std.normalize(
+            std.add(
+                std.add(std.mul(tangent, mapped.x), std.mul(bitangent, mapped.y)),
+                std.mul(normal, mapped.z),
+            ),
+        );
+    }
+    // glTF doubleSided reverses the complete mapped normal on back faces.
+    if (material.doubleSided !== 0 && !ctx.frontFacing)
+        input.worldNormal = std.mul(input.worldNormal, -1);
+    if (material.metallicRoughnessTexture >= 0) {
+        const tex = sampleImageAt(
+            standardDataImages.$,
+            standardSampler.$,
+            standardImageSettings.$,
+            metalUv,
+            material.metallicRoughnessTexture,
+            metalDx,
+            metalDy,
+            settingsOffset,
+        );
+        input.perceptualRoughness *= tex.g;
+        input.metallic *= tex.b;
+    }
+    if (material.occlusionTexture >= 0) {
+        const tex = sampleImageAt(
+            standardDataImages.$,
+            standardSampler.$,
+            standardImageSettings.$,
+            occlusionUv,
+            material.occlusionTexture,
+            occlusionDx,
+            occlusionDy,
+            settingsOffset,
+        );
+        input.occlusion *= 1 + material.occlusionStrength * (tex.r - 1);
+    }
+    if (material.emissiveTexture >= 0) {
+        const tex = sampleImage(
+            standardImages.$,
+            standardSampler.$,
+            standardImageSettings.$,
+            emissiveUv,
+            material.emissiveTexture,
+            emissiveDx,
+            emissiveDy,
+        );
+        input.emissive = std.mul(input.emissive, tex.xyz);
+    }
     return input;
 });
 
@@ -281,6 +363,7 @@ export function extendedMaterial<
             : base.bindings,
         slots: [
             [standardImages, () => layout.$.images],
+            [standardDataImages, () => layout.$.dataImages],
             [standardSampler, () => layout.$.imageSampler],
             [standardImageSettings, () => layout.$.imageSettings],
         ],

@@ -113,13 +113,26 @@ for (const fixture of subjects) {
         const ref = object.material;
         const unlit = ref instanceof MeshBasicMaterial;
         const materialIndex = reference.parser.associations.get(ref)?.materials;
+        const sourceMaterial = reference.parser.json.materials?.[materialIndex];
+        const textureInfo = (info: any) => info ? { index: info.index, texCoord: info.texCoord ?? 0 } : null;
         const material = materialIndex === undefined ? null : {
             color: [...ref.color.toArray(), ref.opacity],
             ...(!unlit ? { metallic: ref.metalness, roughness: ref.roughness, emissive: ref.emissive.toArray() } : {}),
             alphaMode: reference.parser.json.materials[materialIndex].alphaMode ?? "OPAQUE",
             ...(reference.parser.json.materials[materialIndex].alphaMode === "MASK" ? { cutoff: ref.alphaTest } : {}),
             textureImage: ref.map ? reference.parser.json.textures[reference.parser.associations.get(ref.map).textures].source : null,
-            ...(example ? { textureIndex: reference.parser.json.materials[materialIndex].pbrMetallicRoughness?.baseColorTexture?.index ?? null } : {}),
+            ...(example ? {
+                textureIndex: sourceMaterial.pbrMetallicRoughness?.baseColorTexture?.index ?? null,
+                textureSlots: {
+                    baseColor: textureInfo(sourceMaterial.pbrMetallicRoughness?.baseColorTexture),
+                    normalMap: textureInfo(sourceMaterial.normalTexture),
+                    metallicRoughness: textureInfo(sourceMaterial.pbrMetallicRoughness?.metallicRoughnessTexture),
+                    occlusion: textureInfo(sourceMaterial.occlusionTexture),
+                    emissive: textureInfo(sourceMaterial.emissiveTexture),
+                },
+                normalMapScale: sourceMaterial.normalTexture?.scale ?? 1,
+                occlusionStrength: sourceMaterial.occlusionTexture?.strength ?? 1,
+            } : {}),
             unlit, doubleSided: ref.side === DoubleSide,
         };
         const nodePath = [];
@@ -169,6 +182,7 @@ writeFileSync(resolve(import.meta.dir, example ? "../../examples/gltf/tests/mode
         emissive: "emissive (linear emissiveFactor)", alphaMode: "alpha-coverage", cutoff: "alpha-coverage (MASK only)",
         textureImage: "materials-overview (texture index); textures (source image)",
         ...(example ? { textureIndex: "material.pbrMetallicRoughness.schema.json (baseColorTexture.index); read from JSON because GLTFLoader's shared texture associations may name the last equivalent texture index", images: "images (uri relative to the glTF asset)" } : {}),
+        ...(example ? { textureSlots: "material.schema.json; textureInfo.schema.json: texture index and texCoord (default 0), read from JSON to preserve texture identity; material.normalTextureInfo.schema.json: scale (default 1); material.occlusionTextureInfo.schema.json: strength (default 1)" } : {}),
         unlit: "KHR_materials_unlit: Extending Materials (at specification revision)", doubleSided: "double-sided",
         textures: "textures (source); samplers (Filtering; Wrapping); absent filters choose linear / linear-mipmap-linear, permitted by Samplers Overview",
     }, records,

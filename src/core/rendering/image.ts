@@ -12,6 +12,7 @@ import { fullscreenVertex } from "./tonemapping";
 export const ImageBindings = {
     create: () => ({
         images: null! as GPUTexture,
+        dataImages: null! as GPUTexture,
         imageSampler: null! as GPUSampler,
         imageSettings: null! as GPUTexture,
     }),
@@ -35,8 +36,10 @@ export interface ImageSamplerDescriptor {
     mipmapFilter?: ImageFilterMode;
 }
 
-/** Registration settings, matching the sampler field of Bevy's ImageLoaderSettings. */
+/** Color interpretation and sampling, matching Bevy's ImageLoaderSettings. */
 export interface ImageLoaderSettings {
+    /** False registers a linear data image; its id belongs to the data array, not the color array. */
+    isSrgb?: boolean;
     sampler?: ImageSamplerDescriptor;
 }
 
@@ -44,11 +47,14 @@ export interface ImageLoaderSettings {
 export const Images = {
     create: () => new Registry<{ name: string; source: string | Blob; sampler: number[] }>(),
 };
+/** World-local linear images; ids occupy an independent array from color images. */
+export const DataImages = { create: Images.create };
 
 /**
  * Register before warm, normally in a plugin's initialize. The returned id selects a layer of the
- * world's shared sRGB image array, used by Sprite and StandardMaterial.baseColorTexture.
- * URLs with the same effective sampler return the same id; different samplers return distinct ids.
+ * world's shared sRGB image array, or its linear data array when isSrgb is false. Color and data ids
+ * are independent; a consumer must sample the array matching the registration's role.
+ * Within one role, URLs with the same effective sampler return the same id; different samplers return distinct ids.
  * Each Blob registration returns a new id, distinct from all URLs. Omitted sampler fields take
  * Bevy's ImagePlugin default, ImageSamplerDescriptor::linear(): clamp-to-edge, linear texel filters
  * and linear filtering between levels of the full mip chain.
@@ -58,7 +64,7 @@ export function registerImage(
     source: string | Blob,
     settings: ImageLoaderSettings = {},
 ): number {
-    const images = world.resource(Images);
+    const images = world.resource(settings.isSrgb === false ? DataImages : Images);
     const s = settings.sampler;
     // One settings texel per image; the alpha byte packs the min filter with the mipmap filter.
     const sampler = [
@@ -89,50 +95,64 @@ function transparentPixel(): Blob {
 
 export async function warmImages(world: World): Promise<void> {
     const images = world.resource(Images);
+    const dataImages = world.resource(DataImages);
     const device = world.gpu.device;
-    let texture: GPUTexture;
-    if (images.size > 0 && typeof createImageBitmap !== "undefined") {
-        const blobs = await Promise.all(
-            Array.from({ length: images.size }, async (_, id) => {
-                const source = images.get(images.name(id)!)!.source;
-                if (typeof source !== "string") return source;
-                try {
-                    const response = await fetch(source);
-                    if (!response.ok) throw new Error(`${response.status}`);
-                    return await response.blob();
-                } catch (error) {
-                    console.warn(`[Rendering] image ${id} (${source}) failed to load:`, error);
-                    return transparentPixel();
-                }
-            }),
-        );
-        texture = await imageArray(world, device, blobs);
-    } else {
-        texture = device.createTexture({
-            label: "images-fallback",
-            size: [1, 1, 1],
-            format: "rgba8unorm-srgb",
-            usage: GPUTextureUsage.TEXTURE_BINDING,
-        });
-    }
-    world.own(texture);
+    const loadArray = async (
+        images: ReturnType<typeof Images.create>,
+        format: GPUTextureFormat,
+    ) => {
+        let texture: GPUTexture;
+        if (images.size > 0 && typeof createImageBitmap !== "undefined") {
+            const blobs = await Promise.all(
+                Array.from({ length: images.size }, async (_, id) => {
+                    const source = images.get(images.name(id)!)!.source;
+                    if (typeof source !== "string") return source;
+                    try {
+                        const response = await fetch(source);
+                        if (!response.ok) throw new Error(`${response.status}`);
+                        return await response.blob();
+                    } catch (error) {
+                        console.warn(`[Rendering] image ${id} (${source}) failed to load:`, error);
+                        return transparentPixel();
+                    }
+                }),
+            );
+            texture = await imageArray(world, device, blobs, 2048, format);
+        } else {
+            texture = device.createTexture({
+                label: "images-fallback",
+                size: [1, 1, 1],
+                format,
+                usage: GPUTextureUsage.TEXTURE_BINDING,
+            });
+        }
+        world.own(texture);
+        return texture;
+    };
     const bindings = world.resource(ImageBindings);
-    bindings.images = texture;
+    bindings.images = await loadArray(images, "rgba8unorm-srgb");
+    bindings.dataImages = await loadArray(dataImages, "rgba8unorm");
+    const colorCount = Math.max(1, images.size);
+    const settingsCount = colorCount + Math.max(1, dataImages.size);
     // A sampled texture keeps sampler metadata out of the storage-buffer binding floor.
     const imageSettings = device.createTexture({
         label: "image-settings",
-        size: [1, Math.max(1, images.size)],
+        size: [1, settingsCount],
         format: "rgba8unorm",
         usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
     });
-    const data = new Uint8Array(Math.max(1, images.size) * 4);
+    const data = new Uint8Array(settingsCount * 4);
     data.set([0, 0, 1, 3]);
     for (let id = 0; id < images.size; id++) {
         data.set(images.get(images.name(id)!)!.sampler, id * 4);
     }
+    data.set([0, 0, 1, 3], colorCount * 4);
+    for (let id = 0; id < dataImages.size; id++) {
+        data.set(dataImages.get(dataImages.name(id)!)!.sampler, (colorCount + id) * 4);
+    }
     device.queue.writeTexture({ texture: imageSettings }, data, { bytesPerRow: 4 }, [
         1,
-        Math.max(1, images.size),
+        settingsCount,
     ]);
     world.own(imageSettings);
     bindings.imageSettings = imageSettings;

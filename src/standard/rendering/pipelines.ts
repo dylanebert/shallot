@@ -893,6 +893,7 @@ function clipFs(
         })((input: any) => {
             "use gpu";
             const ctx = Ctx();
+            ctx.rawWorldNormal = d.vec3f(input.worldNormal);
             ctx.eid = input.eid;
             ctx.row = input.row;
             ctx.world = d.vec3f(input.world);
@@ -1145,6 +1146,7 @@ function colorFs(
             ctx.row = input.row;
             ctx.world = d.vec3f(input.world);
             ctx.worldNormal = d.vec3f(worldNormal);
+            ctx.rawWorldNormal = d.vec3f(input.worldNormal);
             ctx.uv = needUv ? d.vec2f((input as any).uv) : d.vec2f(0);
             ctx.localPos = needLocalPos ? d.vec3f((input as any).localPos) : d.vec3f(0);
             ctx.material = materialRow(input.material);
@@ -1966,6 +1968,7 @@ function clipShadowFs(surface: AnyMaterialType, cullMode: number, mask = 0) {
                 std.discard();
             }
             const ctx = Ctx();
+            ctx.rawWorldNormal = d.vec3f(input.worldNormal);
             ctx.eid = input.eid;
             ctx.row = input.row;
             ctx.world = d.vec3f(input.world);

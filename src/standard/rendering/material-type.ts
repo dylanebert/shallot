@@ -456,7 +456,11 @@ function materialFragmentContext<
         eid: d.u32,
         row: d.u32,
         world: d.vec3f,
+        /** Normalized interpolated world normal, Bevy's PbrInput.N. */
         worldNormal: d.vec3f,
+        /** Unnormalized interpolated world normal, Bevy's PbrInput.world_normal. MikkTSpace
+         * builds its tangent basis from this value and tangent, normalizing only the mapped result. */
+        rawWorldNormal: d.vec3f,
         uv: d.vec2f,
         uv1: d.vec2f,
         color: d.vec4f,

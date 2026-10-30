@@ -91,12 +91,12 @@ interface Material {
         baseColorTexture?: { index: number; texCoord?: number };
         metallicFactor?: number;
         roughnessFactor?: number;
-        metallicRoughnessTexture?: { index: number };
+        metallicRoughnessTexture?: { index: number; texCoord?: number };
     };
     normalTexture?: { index: number; scale?: number; texCoord?: number };
-    occlusionTexture?: { index: number; strength?: number };
+    occlusionTexture?: { index: number; strength?: number; texCoord?: number };
     emissiveFactor?: number[];
-    emissiveTexture?: { index: number };
+    emissiveTexture?: { index: number; texCoord?: number };
     alphaMode?: "OPAQUE" | "MASK" | "BLEND";
     alphaCutoff?: number;
     extensions?: Extensions;
@@ -127,6 +127,17 @@ export interface GltfMesh {
 export interface GltfMaterial {
     color: [number, number, number, number];
     texture?: number;
+    baseColorChannel?: 0 | 1;
+    normalMapTexture?: number;
+    normalMapChannel?: 0 | 1;
+    normalMapScale?: number;
+    metallicRoughnessTexture?: number;
+    metallicRoughnessChannel?: 0 | 1;
+    occlusionTexture?: number;
+    occlusionChannel?: 0 | 1;
+    occlusionStrength?: number;
+    emissiveTexture?: number;
+    emissiveChannel?: 0 | 1;
     metallic: number;
     roughness: number;
     emissive: [number, number, number];
@@ -479,19 +490,32 @@ export function parse(gltf: GltfJson, buffers: ArrayBuffer[]): GltfScene {
     if ("cameras" in gltf) ignored.add("camera");
     const materials = (gltf.materials ?? []).map((m): GltfMaterial => {
         const pbr = m.pbrMetallicRoughness;
-        if ((pbr?.baseColorTexture?.texCoord ?? 0) !== 0) ignored.add("baseColorTexture.texCoord");
-        const texture = pbr?.baseColorTexture;
-        const textureIndex = (texture?.texCoord ?? 0) === 0 ? texture?.index : undefined;
-        for (const [name, value] of Object.entries({
-            metallicRoughnessTexture: pbr?.metallicRoughnessTexture,
-            normalTexture: m.normalTexture,
-            occlusionTexture: m.occlusionTexture,
-            emissiveTexture: m.emissiveTexture,
-        }))
-            if (value) ignored.add(name);
+        const channel = (texture?: { texCoord?: number }): 0 | 1 =>
+            texture?.texCoord === 1 ? 1 : 0;
+        const textureIndex = (name: string, texture?: { index: number; texCoord?: number }) => {
+            if ((texture?.texCoord ?? 0) > 1) {
+                ignored.add(`${name}.texCoord`);
+                return undefined;
+            }
+            return texture?.index;
+        };
         return {
             color: (pbr?.baseColorFactor ?? [1, 1, 1, 1]) as GltfMaterial["color"],
-            texture: textureIndex,
+            texture: textureIndex("baseColorTexture", pbr?.baseColorTexture),
+            baseColorChannel: channel(pbr?.baseColorTexture),
+            normalMapTexture: textureIndex("normalTexture", m.normalTexture),
+            normalMapChannel: channel(m.normalTexture),
+            normalMapScale: m.normalTexture?.scale ?? 1,
+            metallicRoughnessTexture: textureIndex(
+                "metallicRoughnessTexture",
+                pbr?.metallicRoughnessTexture,
+            ),
+            metallicRoughnessChannel: channel(pbr?.metallicRoughnessTexture),
+            occlusionTexture: textureIndex("occlusionTexture", m.occlusionTexture),
+            occlusionChannel: channel(m.occlusionTexture),
+            occlusionStrength: m.occlusionTexture?.strength ?? 1,
+            emissiveTexture: textureIndex("emissiveTexture", m.emissiveTexture),
+            emissiveChannel: channel(m.emissiveTexture),
             metallic: pbr?.metallicFactor ?? 1,
             roughness: pbr?.roughnessFactor ?? 1,
             emissive: (m.emissiveFactor ?? [0, 0, 0]) as GltfMaterial["emissive"],

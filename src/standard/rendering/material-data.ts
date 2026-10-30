@@ -61,6 +61,17 @@ export const StandardMaterialInput = d
     .struct({
         baseColor: d.vec4f,
         baseColorTexture: d.i32,
+        baseColorChannel: d.u32,
+        normalMapTexture: d.i32,
+        normalMapChannel: d.u32,
+        normalMapScale: d.f32,
+        metallicRoughnessTexture: d.i32,
+        metallicRoughnessChannel: d.u32,
+        occlusionTexture: d.i32,
+        occlusionChannel: d.u32,
+        occlusionStrength: d.f32,
+        emissiveTexture: d.i32,
+        emissiveChannel: d.u32,
         metallic: d.f32,
         perceptualRoughness: d.f32,
         emissive: d.vec3f,
@@ -75,6 +86,24 @@ type StandardMaterialOptions = {
     baseColor?: readonly [number, number, number, number];
     /** Image id from registerImage, registered before warm; multiplies baseColor RGBA at mesh UVs. */
     baseColorTexture?: number;
+    /** UV set: 0 uses uv, 1 uses uv1 (which falls back to uv when absent). */
+    baseColorChannel?: 0 | 1;
+    /** Linear data image id; tangent-space RGB normal, +Y, with tangent.w handedness. */
+    normalMapTexture?: number;
+    normalMapChannel?: 0 | 1;
+    /** Multiplies tangent-space normal X and Y before normalization. */
+    normalMapScale?: number;
+    /** Linear data image id; G multiplies roughness, B multiplies metallic. */
+    metallicRoughnessTexture?: number;
+    metallicRoughnessChannel?: 0 | 1;
+    /** Linear data image id; R supplies ambient occlusion. */
+    occlusionTexture?: number;
+    occlusionChannel?: 0 | 1;
+    /** Mixes unoccluded (0) with sampled occlusion (1). */
+    occlusionStrength?: number;
+    /** Color image id; linearized RGB multiplies emissive. */
+    emissiveTexture?: number;
+    emissiveChannel?: 0 | 1;
     metallic?: number;
     perceptualRoughness?: number;
     emissive?: readonly [number, number, number];
@@ -94,6 +123,17 @@ export function StandardMaterial(values: StandardMaterialOptions = {}): Standard
     return {
         baseColor: d.vec4f(...(values.baseColor ?? [1, 1, 1, 1])),
         baseColorTexture: values.baseColorTexture ?? -1,
+        baseColorChannel: values.baseColorChannel ?? 0,
+        normalMapTexture: values.normalMapTexture ?? -1,
+        normalMapChannel: values.normalMapChannel ?? 0,
+        normalMapScale: values.normalMapScale ?? 1,
+        metallicRoughnessTexture: values.metallicRoughnessTexture ?? -1,
+        metallicRoughnessChannel: values.metallicRoughnessChannel ?? 0,
+        occlusionTexture: values.occlusionTexture ?? -1,
+        occlusionChannel: values.occlusionChannel ?? 0,
+        occlusionStrength: values.occlusionStrength ?? 1,
+        emissiveTexture: values.emissiveTexture ?? -1,
+        emissiveChannel: values.emissiveChannel ?? 0,
         metallic: values.metallic ?? 0,
         perceptualRoughness: values.perceptualRoughness ?? 0.5,
         emissive: d.vec3f(...(values.emissive ?? [0, 0, 0])),

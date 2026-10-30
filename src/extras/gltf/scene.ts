@@ -43,22 +43,40 @@ export async function loadGltfScene(
     onProgress?.(0);
     const scene = await loadGltf(url);
     onProgress?.(0.5);
-    const textures = scene.textures.map((texture) => {
+    const textures = new Map<string, number>();
+    const imageId = (index: number | undefined, isSrgb = true) => {
+        if (index === undefined) return undefined;
+        const key = `${index}:${isSrgb}`;
+        const previous = textures.get(key);
+        if (previous !== undefined) return previous;
+        const texture = scene.textures[index];
         if (texture.image === undefined) return undefined;
         const image = scene.images[texture.image];
-        return registerImage(
+        const id = registerImage(
             world,
             image.uri ?? new Blob([image.bytes!.slice().buffer], { type: image.mimeType }),
-            { sampler: texture.sampler },
+            { sampler: texture.sampler, isSrgb },
         );
-    });
+        textures.set(key, id);
+        return id;
+    };
     const materials = world.resource(Materials);
     const addMaterial = (material: (typeof scene.materials)[number], inverted = false) =>
         materials.add(
             StandardMaterial({
                 baseColor: material.color,
-                baseColorTexture:
-                    material.texture === undefined ? undefined : textures[material.texture],
+                baseColorTexture: imageId(material.texture),
+                baseColorChannel: material.baseColorChannel,
+                normalMapTexture: imageId(material.normalMapTexture, false),
+                normalMapChannel: material.normalMapChannel,
+                normalMapScale: material.normalMapScale,
+                metallicRoughnessTexture: imageId(material.metallicRoughnessTexture, false),
+                metallicRoughnessChannel: material.metallicRoughnessChannel,
+                occlusionTexture: imageId(material.occlusionTexture, false),
+                occlusionChannel: material.occlusionChannel,
+                occlusionStrength: material.occlusionStrength,
+                emissiveTexture: imageId(material.emissiveTexture),
+                emissiveChannel: material.emissiveChannel,
                 metallic: material.metallic,
                 perceptualRoughness: material.roughness,
                 emissive: material.emissive,

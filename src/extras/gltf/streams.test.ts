@@ -30,7 +30,7 @@ test("normalTexture.texCoord selects UV_1 for MikkTSpace, not UV_0", async () =>
     const scene = await load(json);
     expect(scene.meshes[0].tangent).toEqual(expected.tangent);
     expect(scene.meshes[0].uv1).toEqual(source.uv1);
-    expect(scene.unsupported).toEqual(["normalTexture"]);
+    expect(scene.unsupported).toEqual([]);
 });
 
 test("normal textures default to UV_0 and generate tangents with flat normals when NORMAL is absent", async () => {
@@ -54,7 +54,7 @@ for (const flat of [false, true])
         const scene = await load(json);
         expect(scene.meshes[0].tangent).toEqual(expected.tangent);
         expect(scene.meshes[0].uv1).toEqual(source.uv1);
-        expect(scene.unsupported).toEqual(["TEXCOORD_2", "normalTexture"]);
+        expect(scene.unsupported).toEqual(["TEXCOORD_2", "normalTexture.texCoord"]);
     });
 
 for (const set of [0, 1, 2])

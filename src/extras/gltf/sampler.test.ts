@@ -24,13 +24,14 @@ for (const min of [9728, 9729, 9984, 9985, 9986, 9987, undefined]) {
     });
 }
 
-test("unused textures and unsupported UV sets do not report mip selection", () => {
+test("unused textures and the second UV set do not report mip selection", () => {
     const json = model();
     json.materials = [];
     expect(parse(json, []).unsupported).toEqual([]);
     const extraUv = model();
     extraUv.materials![0].pbrMetallicRoughness!.baseColorTexture!.texCoord = 1;
-    expect(parse(extraUv, []).unsupported).toEqual(["baseColorTexture.texCoord"]);
+    expect(parse(extraUv, []).unsupported).toEqual([]);
+    expect(parse(extraUv, []).materials[0].baseColorChannel).toBe(1);
 });
 
 test("two textures sharing one image retain distinct effective samplers", () => {

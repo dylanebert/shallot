@@ -14,7 +14,7 @@ export {
     type ImageLoaderSettings,
     type ImageSamplerDescriptor,
 } from "./image";
-export { sampleImage } from "./image-sampling";
+export { sampleImage, sampleImageAt } from "./image-sampling";
 export {
     CorePipelinePlugin,
     MainPassSystem,

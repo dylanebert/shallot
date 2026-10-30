@@ -75,7 +75,7 @@ for (const { fixture, textures, instances } of records.records) {
         }
     });
 }
-test("required cut extension refuses by name; optional cuts and ignored maps are listed", () => {
+test("required cut extension refuses by name; optional cuts are listed and normal maps are supported", () => {
     const required = JSON.parse(
         readFileSync(resolve(import.meta.dir, "fixtures/required-draco.gltf"), "utf8"),
     );
@@ -88,7 +88,7 @@ test("required cut extension refuses by name; optional cuts and ignored maps are
         },
         [],
     );
-    expect(scene.unsupported).toEqual(["KHR_materials_clearcoat", "normalTexture"]);
+    expect(scene.unsupported).toEqual(["KHR_materials_clearcoat"]);
     expect(scene.materials[0].unlit).toBe(true);
 });
 

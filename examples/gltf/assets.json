@@ -355,6 +355,18 @@
             ]
         },
         {
+            "name": "MetalRoughSpheres",
+            "license": "Models/MetalRoughSpheres/LICENSE.md",
+            "files": [
+                { "path": "Models/MetalRoughSpheres/LICENSE.md", "sha256": "77aa36355a1228cacf20e354ac73752318df5fc671b599ae306acdeadf258680" },
+                { "path": "Models/MetalRoughSpheres/glTF/MetalRoughSpheres.gltf", "sha256": "a24fd6fd24b2baef80a5d56b465a55635f7ec79039414e25c341d1402cc28048" },
+                { "path": "Models/MetalRoughSpheres/glTF/MetalRoughSpheres0.bin", "sha256": "f35a1caf37837b2987e24859d812a23e40ca37e1f741782e2a754961250e8c36" },
+                { "path": "Models/MetalRoughSpheres/glTF/Spheres_BaseColor.png", "sha256": "7327b8de2ce91d0ca4fdefcf28fdc58cb555e885a8e5f3b3cfab867c3f349efc" },
+                { "path": "Models/MetalRoughSpheres/glTF/Spheres_MetalRough.png", "sha256": "7b352787106705789df0e025a8ea2209074569cd87029369bc66080dfca78e5a" },
+                { "path": "LICENSES/CC-BY-4.0.txt", "sha256": "c8041334a99cb48852b2139253cbde5f8ac87e27f124aed51223e0d5bf0080eb" }
+            ]
+        },
+        {
             "name": "NormalTangentTest",
             "license": "Models/NormalTangentTest/LICENSE.md",
             "files": [

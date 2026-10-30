@@ -114,6 +114,14 @@ export const scenes = {
         pitch: 0,
         tags: ["core", "testing"],
     },
+    MetalRoughSpheres: {
+        target: [0, 4, 0],
+        distance: 40,
+        ground: -1.01,
+        yaw: 0.7,
+        pitch: 0.65,
+        tags: ["core", "testing"],
+    },
     NormalTangentTest: {
         target: [0, 0, 0],
         distance: 5,

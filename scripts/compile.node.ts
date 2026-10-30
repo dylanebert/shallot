@@ -1,5 +1,13 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { Meshes, MeshPlugin, RenderingPlugin, type World } from "@dylanebert/shallot";
+import {
+    Materials,
+    Meshes,
+    MeshPlugin,
+    RenderingPlugin,
+    registerImage,
+    StandardMaterial,
+    type World,
+} from "@dylanebert/shallot";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { compileSubjects, initialSsaoCamera, measureCompile } from "./compile.fixture";
 
@@ -68,6 +76,34 @@ test("an optional stream mesh adds one opaque color pipeline and shares depth an
     expect(labels.filter((label) => label.includes("streams1"))).toEqual([
         "standard-StandardMaterial-0-streams1",
     ]);
+});
+
+test("texture presence and UV channel rows add no native pipelines", async () => {
+    const result = await measureCompile({
+        plugins: [
+            {
+                name: "TextureRows",
+                dependencies: [MeshPlugin],
+                initialize(world: World) {
+                    const color = registerImage(world, "color.png");
+                    const data = registerImage(world, "data.png", { isSrgb: false });
+                    world.resource(Materials).add(
+                        StandardMaterial({
+                            normalMapTexture: data,
+                            normalMapChannel: 1,
+                            metallicRoughnessTexture: data,
+                            metallicRoughnessChannel: 1,
+                            occlusionTexture: data,
+                            occlusionChannel: 1,
+                            emissiveTexture: color,
+                            emissiveChannel: 1,
+                        }),
+                    );
+                },
+            },
+        ],
+    });
+    expect(result.pipelines).toBe(25);
 });
 
 for (const antialias of [0, 1]) {

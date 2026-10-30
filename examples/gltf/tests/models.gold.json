@@ -29,6 +29,7 @@
     "textureImage": "materials-overview (texture index); textures (source image)",
     "textureIndex": "material.pbrMetallicRoughness.schema.json (baseColorTexture.index); read from JSON because GLTFLoader's shared texture associations may name the last equivalent texture index",
     "images": "images (uri relative to the glTF asset)",
+    "textureSlots": "material.schema.json; textureInfo.schema.json: texture index and texCoord (default 0), read from JSON to preserve texture identity; material.normalTextureInfo.schema.json: scale (default 1); material.occlusionTextureInfo.schema.json: strength (default 1)",
     "unlit": "KHR_materials_unlit: Extending Materials (at specification revision)",
     "doubleSided": "double-sided",
     "textures": "textures (source); samplers (Filtering; Wrapping); absent filters choose linear / linear-mipmap-linear, permitted by Samplers Overview"
@@ -339,6 +340,15 @@
             "alphaMode": "OPAQUE",
             "textureImage": null,
             "textureIndex": null,
+            "textureSlots": {
+              "baseColor": null,
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -664,6 +674,18 @@
             "alphaMode": "OPAQUE",
             "textureImage": 0,
             "textureIndex": 0,
+            "textureSlots": {
+              "baseColor": {
+                "index": 0,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -1091,6 +1113,18 @@
             "alphaMode": "OPAQUE",
             "textureImage": 2,
             "textureIndex": 8,
+            "textureSlots": {
+              "baseColor": {
+                "index": 8,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -1281,6 +1315,18 @@
             "alphaMode": "OPAQUE",
             "textureImage": 1,
             "textureIndex": 7,
+            "textureSlots": {
+              "baseColor": {
+                "index": 7,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -1471,6 +1517,18 @@
             "alphaMode": "OPAQUE",
             "textureImage": 1,
             "textureIndex": 6,
+            "textureSlots": {
+              "baseColor": {
+                "index": 6,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": true
           }
@@ -1623,6 +1681,18 @@
             "alphaMode": "OPAQUE",
             "textureImage": 1,
             "textureIndex": 5,
+            "textureSlots": {
+              "baseColor": {
+                "index": 5,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -1775,6 +1845,18 @@
             "alphaMode": "OPAQUE",
             "textureImage": 1,
             "textureIndex": 4,
+            "textureSlots": {
+              "baseColor": {
+                "index": 4,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -1927,6 +2009,15 @@
             "alphaMode": "OPAQUE",
             "textureImage": null,
             "textureIndex": null,
+            "textureSlots": {
+              "baseColor": null,
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -2079,6 +2170,18 @@
             "alphaMode": "OPAQUE",
             "textureImage": 0,
             "textureIndex": 3,
+            "textureSlots": {
+              "baseColor": {
+                "index": 3,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -2231,6 +2334,18 @@
             "alphaMode": "OPAQUE",
             "textureImage": 0,
             "textureIndex": 2,
+            "textureSlots": {
+              "baseColor": {
+                "index": 2,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -2383,6 +2498,18 @@
             "alphaMode": "OPAQUE",
             "textureImage": 1,
             "textureIndex": 1,
+            "textureSlots": {
+              "baseColor": {
+                "index": 1,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -2535,6 +2662,18 @@
             "alphaMode": "OPAQUE",
             "textureImage": 0,
             "textureIndex": 0,
+            "textureSlots": {
+              "baseColor": {
+                "index": 0,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -2769,6 +2908,18 @@
             "alphaMode": "OPAQUE",
             "textureImage": 3,
             "textureIndex": 3,
+            "textureSlots": {
+              "baseColor": {
+                "index": 3,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": true
           }
@@ -2892,6 +3043,18 @@
             "alphaMode": "BLEND",
             "textureImage": 3,
             "textureIndex": 3,
+            "textureSlots": {
+              "baseColor": {
+                "index": 3,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": true
           }
@@ -3393,6 +3556,18 @@
             "alphaMode": "OPAQUE",
             "textureImage": 3,
             "textureIndex": 3,
+            "textureSlots": {
+              "baseColor": {
+                "index": 3,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": true
           }
@@ -3511,6 +3686,18 @@
             "cutoff": 0.75,
             "textureImage": 3,
             "textureIndex": 3,
+            "textureSlots": {
+              "baseColor": {
+                "index": 3,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": true
           }
@@ -3629,6 +3816,18 @@
             "cutoff": 0.5,
             "textureImage": 3,
             "textureIndex": 3,
+            "textureSlots": {
+              "baseColor": {
+                "index": 3,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": true
           }
@@ -3741,6 +3940,18 @@
             "cutoff": 0.25,
             "textureImage": 3,
             "textureIndex": 3,
+            "textureSlots": {
+              "baseColor": {
+                "index": 3,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": true
           }
@@ -3858,6 +4069,18 @@
             "alphaMode": "BLEND",
             "textureImage": 3,
             "textureIndex": 3,
+            "textureSlots": {
+              "baseColor": {
+                "index": 3,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": true
           }
@@ -3975,6 +4198,18 @@
             "alphaMode": "OPAQUE",
             "textureImage": 3,
             "textureIndex": 3,
+            "textureSlots": {
+              "baseColor": {
+                "index": 3,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": true
           }
@@ -4170,6 +4405,27 @@
             "alphaMode": "OPAQUE",
             "textureImage": 2,
             "textureIndex": 2,
+            "textureSlots": {
+              "baseColor": {
+                "index": 2,
+                "texCoord": 0
+              },
+              "normalMap": {
+                "index": 0,
+                "texCoord": 0
+              },
+              "metallicRoughness": {
+                "index": 1,
+                "texCoord": 0
+              },
+              "occlusion": {
+                "index": 1,
+                "texCoord": 0
+              },
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -4348,6 +4604,24 @@
             "alphaMode": "OPAQUE",
             "textureImage": 0,
             "textureIndex": 0,
+            "textureSlots": {
+              "baseColor": {
+                "index": 0,
+                "texCoord": 0
+              },
+              "normalMap": {
+                "index": 2,
+                "texCoord": 0
+              },
+              "metallicRoughness": {
+                "index": 1,
+                "texCoord": 0
+              },
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": true
           }
@@ -4579,6 +4853,15 @@
             "alphaMode": "OPAQUE",
             "textureImage": null,
             "textureIndex": null,
+            "textureSlots": {
+              "baseColor": null,
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -4837,6 +5120,15 @@
             "alphaMode": "OPAQUE",
             "textureImage": null,
             "textureIndex": null,
+            "textureSlots": {
+              "baseColor": null,
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -5095,6 +5387,15 @@
             "alphaMode": "OPAQUE",
             "textureImage": null,
             "textureIndex": null,
+            "textureSlots": {
+              "baseColor": null,
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -5318,6 +5619,15 @@
             "alphaMode": "OPAQUE",
             "textureImage": null,
             "textureIndex": null,
+            "textureSlots": {
+              "baseColor": null,
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -5541,6 +5851,15 @@
             "alphaMode": "OPAQUE",
             "textureImage": null,
             "textureIndex": null,
+            "textureSlots": {
+              "baseColor": null,
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -5807,6 +6126,15 @@
             "alphaMode": "OPAQUE",
             "textureImage": null,
             "textureIndex": null,
+            "textureSlots": {
+              "baseColor": null,
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -6069,6 +6397,15 @@
             "alphaMode": "OPAQUE",
             "textureImage": null,
             "textureIndex": null,
+            "textureSlots": {
+              "baseColor": null,
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -6290,6 +6627,15 @@
             "alphaMode": "OPAQUE",
             "textureImage": null,
             "textureIndex": null,
+            "textureSlots": {
+              "baseColor": null,
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -6556,6 +6902,15 @@
             "alphaMode": "OPAQUE",
             "textureImage": null,
             "textureIndex": null,
+            "textureSlots": {
+              "baseColor": null,
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -6777,6 +7132,15 @@
             "alphaMode": "OPAQUE",
             "textureImage": null,
             "textureIndex": null,
+            "textureSlots": {
+              "baseColor": null,
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -7039,6 +7403,15 @@
             "alphaMode": "OPAQUE",
             "textureImage": null,
             "textureIndex": null,
+            "textureSlots": {
+              "baseColor": null,
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -7255,6 +7628,15 @@
             "alphaMode": "OPAQUE",
             "textureImage": null,
             "textureIndex": null,
+            "textureSlots": {
+              "baseColor": null,
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -7353,6 +7735,15 @@
             "alphaMode": "OPAQUE",
             "textureImage": null,
             "textureIndex": null,
+            "textureSlots": {
+              "baseColor": null,
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -7704,6 +8095,18 @@
             "alphaMode": "OPAQUE",
             "textureImage": 0,
             "textureIndex": 1,
+            "textureSlots": {
+              "baseColor": {
+                "index": 1,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -7810,6 +8213,15 @@
             "alphaMode": "OPAQUE",
             "textureImage": null,
             "textureIndex": null,
+            "textureSlots": {
+              "baseColor": null,
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -7916,6 +8328,15 @@
             "alphaMode": "OPAQUE",
             "textureImage": null,
             "textureIndex": null,
+            "textureSlots": {
+              "baseColor": null,
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -8037,6 +8458,18 @@
             "alphaMode": "OPAQUE",
             "textureImage": 0,
             "textureIndex": 0,
+            "textureSlots": {
+              "baseColor": {
+                "index": 0,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -8158,6 +8591,18 @@
             "alphaMode": "OPAQUE",
             "textureImage": 0,
             "textureIndex": 0,
+            "textureSlots": {
+              "baseColor": {
+                "index": 0,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -8777,6 +9222,18 @@
             "alphaMode": "OPAQUE",
             "textureImage": 0,
             "textureIndex": 0,
+            "textureSlots": {
+              "baseColor": {
+                "index": 0,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -8925,6 +9382,15 @@
             "alphaMode": "OPAQUE",
             "textureImage": null,
             "textureIndex": null,
+            "textureSlots": {
+              "baseColor": null,
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -9361,6 +9827,18 @@
             "alphaMode": "OPAQUE",
             "textureImage": 1,
             "textureIndex": 1,
+            "textureSlots": {
+              "baseColor": {
+                "index": 1,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -9687,6 +10165,18 @@
             "alphaMode": "OPAQUE",
             "textureImage": 0,
             "textureIndex": 0,
+            "textureSlots": {
+              "baseColor": {
+                "index": 0,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -9836,6 +10326,18 @@
             "alphaMode": "OPAQUE",
             "textureImage": 0,
             "textureIndex": 0,
+            "textureSlots": {
+              "baseColor": {
+                "index": 0,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -9941,6 +10443,15 @@
             "alphaMode": "OPAQUE",
             "textureImage": null,
             "textureIndex": null,
+            "textureSlots": {
+              "baseColor": null,
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": true
           }
@@ -10063,6 +10574,15 @@
             "alphaMode": "OPAQUE",
             "textureImage": null,
             "textureIndex": null,
+            "textureSlots": {
+              "baseColor": null,
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": true
           }
@@ -10179,6 +10699,15 @@
             "alphaMode": "OPAQUE",
             "textureImage": null,
             "textureIndex": null,
+            "textureSlots": {
+              "baseColor": null,
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": true
           }
@@ -10312,6 +10841,15 @@
             "alphaMode": "OPAQUE",
             "textureImage": null,
             "textureIndex": null,
+            "textureSlots": {
+              "baseColor": null,
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": true
           }
@@ -10428,6 +10966,15 @@
             "alphaMode": "OPAQUE",
             "textureImage": null,
             "textureIndex": null,
+            "textureSlots": {
+              "baseColor": null,
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": true
           }
@@ -10561,6 +11108,15 @@
             "alphaMode": "OPAQUE",
             "textureImage": null,
             "textureIndex": null,
+            "textureSlots": {
+              "baseColor": null,
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": true
           }
@@ -11217,6 +11773,703 @@
       ]
     },
     {
+      "fixture": "Models/MetalRoughSpheres/glTF/MetalRoughSpheres.gltf",
+      "textures": [
+        {
+          "image": 0,
+          "sampler": {
+            "addressModeU": 0,
+            "addressModeV": 0,
+            "magFilter": 1,
+            "minFilter": 0,
+            "mipmapFilter": 1
+          }
+        },
+        {
+          "image": 1,
+          "sampler": {
+            "addressModeU": 0,
+            "addressModeV": 0,
+            "magFilter": 1,
+            "minFilter": 0,
+            "mipmapFilter": 1
+          }
+        }
+      ],
+      "images": [
+        "Spheres_BaseColor.png",
+        "Spheres_MetalRough.png"
+      ],
+      "instances": [
+        {
+          "frontFace": "ccw",
+          "matrix": [
+            0.4,
+            0,
+            0,
+            0,
+            0,
+            8.881784197001253e-17,
+            -0.4,
+            0,
+            0,
+            0.4,
+            8.881784197001253e-17,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "nodePath": [
+            {
+              "matrix": [
+                0.4,
+                0,
+                0,
+                0,
+                0,
+                0,
+                -0.4,
+                0,
+                0,
+                0.4,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1
+              ]
+            },
+            {}
+          ],
+          "implicitNormals": false,
+          "positions": {
+            "count": 36590,
+            "min": [
+              -12.186589241027832,
+              -1,
+              -12.35944938659668
+            ],
+            "max": [
+              11.874730110168457,
+              9,
+              10.969940185546875
+            ],
+            "sha256": "cf5435beea9b36e1e076ae53631be47889776b7bf0766d540464583d0c9c3566"
+          },
+          "normals": {
+            "count": 36590,
+            "min": [
+              -0.9999999403953552,
+              -1,
+              -1
+            ],
+            "max": [
+              0.9999999403953552,
+              1,
+              1
+            ],
+            "sha256": "770981bfcafc7f9c85f6524dc58433cb139d6f9f9c8e0a7cff0a9c14a9889bd4"
+          },
+          "uvs": {
+            "count": 36590,
+            "min": [
+              0.0013856289442628622,
+              0.016568005084991455
+            ],
+            "max": [
+              0.9869875311851501,
+              0.9988328814506531
+            ],
+            "sha256": "7588aeec34868523ed5505195a94d659683332715edc89f19b364dc74b9bb919"
+          },
+          "uv1": null,
+          "color": null,
+          "tangent": null,
+          "indices": {
+            "count": 215088,
+            "min": [
+              0
+            ],
+            "max": [
+              36589
+            ],
+            "sha256": "9c89bbae7894965a62459e27a20f0400e91a488da1f1456949ed3dbdf657e8e1"
+          },
+          "material": {
+            "color": [
+              1,
+              1,
+              1,
+              1
+            ],
+            "metallic": 1,
+            "roughness": 1,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "alphaMode": "OPAQUE",
+            "textureImage": 0,
+            "textureIndex": 0,
+            "textureSlots": {
+              "baseColor": {
+                "index": 0,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": {
+                "index": 1,
+                "texCoord": 0
+              },
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
+            "unlit": false,
+            "doubleSided": false
+          }
+        },
+        {
+          "frontFace": "ccw",
+          "matrix": [
+            0.4,
+            0,
+            0,
+            0,
+            0,
+            8.881784197001253e-17,
+            -0.4,
+            0,
+            0,
+            0.4,
+            8.881784197001253e-17,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "nodePath": [
+            {
+              "matrix": [
+                0.4,
+                0,
+                0,
+                0,
+                0,
+                0,
+                -0.4,
+                0,
+                0,
+                0.4,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1
+              ]
+            },
+            {}
+          ],
+          "implicitNormals": false,
+          "positions": {
+            "count": 62664,
+            "min": [
+              5,
+              -1,
+              -7
+            ],
+            "max": [
+              10,
+              9,
+              10
+            ],
+            "sha256": "2aa677c688d771d22f1875cdf7843559cda16fa51a94c2093a2a58b17ee430cc"
+          },
+          "normals": {
+            "count": 62664,
+            "min": [
+              -0.9999999403953552,
+              -1,
+              -1
+            ],
+            "max": [
+              0.9999999403953552,
+              1,
+              1
+            ],
+            "sha256": "c3f2c4dbab1bfe8f50ac36326e34e34c9394da761bc95af454f5834496bd7b07"
+          },
+          "uvs": {
+            "count": 62664,
+            "min": [
+              0.7233805060386658,
+              0.016381680965423584
+            ],
+            "max": [
+              0.9852716326713562,
+              0.7671433687210083
+            ],
+            "sha256": "a85901a5ed247f44dc61807d1e66709815f47d991b6588dbd19975baf45cd820"
+          },
+          "uv1": null,
+          "color": null,
+          "tangent": null,
+          "indices": {
+            "count": 368640,
+            "min": [
+              0
+            ],
+            "max": [
+              62663
+            ],
+            "sha256": "179c5219ddc5de04119ce355d852ebdd2e40cb442bef723a772536f38a6df502"
+          },
+          "material": {
+            "color": [
+              1,
+              1,
+              1,
+              1
+            ],
+            "metallic": 1,
+            "roughness": 1,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "alphaMode": "OPAQUE",
+            "textureImage": 0,
+            "textureIndex": 0,
+            "textureSlots": {
+              "baseColor": {
+                "index": 0,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": {
+                "index": 1,
+                "texCoord": 0
+              },
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
+            "unlit": false,
+            "doubleSided": false
+          }
+        },
+        {
+          "frontFace": "ccw",
+          "matrix": [
+            0.4,
+            0,
+            0,
+            0,
+            0,
+            8.881784197001253e-17,
+            -0.4,
+            0,
+            0,
+            0.4,
+            8.881784197001253e-17,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "nodePath": [
+            {
+              "matrix": [
+                0.4,
+                0,
+                0,
+                0,
+                0,
+                0,
+                -0.4,
+                0,
+                0,
+                0.4,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1
+              ]
+            },
+            {}
+          ],
+          "implicitNormals": false,
+          "positions": {
+            "count": 62664,
+            "min": [
+              -1,
+              -1,
+              -7
+            ],
+            "max": [
+              4,
+              9,
+              10
+            ],
+            "sha256": "d5011cb41c66989b5611d7906dd2d6f2df52ceec9bb6dad9f78e7c4a877dfa73"
+          },
+          "normals": {
+            "count": 62664,
+            "min": [
+              -0.9999999403953552,
+              -1,
+              -1
+            ],
+            "max": [
+              0.9999999403953552,
+              1,
+              1
+            ],
+            "sha256": "19721d15f2e93d6c4c8e9f6893a1b5f7834cd075df9697579f37817c34167224"
+          },
+          "uvs": {
+            "count": 62664,
+            "min": [
+              0.4482637047767639,
+              0.015471160411834717
+            ],
+            "max": [
+              0.7028239369392395,
+              0.7636672854423523
+            ],
+            "sha256": "8e6daec5f38d5e32f5f7d99423419387be81dffeb4e3b9e7d96c51b8cdce0668"
+          },
+          "uv1": null,
+          "color": null,
+          "tangent": null,
+          "indices": {
+            "count": 368640,
+            "min": [
+              0
+            ],
+            "max": [
+              62663
+            ],
+            "sha256": "179c5219ddc5de04119ce355d852ebdd2e40cb442bef723a772536f38a6df502"
+          },
+          "material": {
+            "color": [
+              1,
+              1,
+              1,
+              1
+            ],
+            "metallic": 1,
+            "roughness": 1,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "alphaMode": "OPAQUE",
+            "textureImage": 0,
+            "textureIndex": 0,
+            "textureSlots": {
+              "baseColor": {
+                "index": 0,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": {
+                "index": 1,
+                "texCoord": 0
+              },
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
+            "unlit": false,
+            "doubleSided": false
+          }
+        },
+        {
+          "frontFace": "ccw",
+          "matrix": [
+            0.4,
+            0,
+            0,
+            0,
+            0,
+            8.881784197001253e-17,
+            -0.4,
+            0,
+            0,
+            0.4,
+            8.881784197001253e-17,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "nodePath": [
+            {
+              "matrix": [
+                0.4,
+                0,
+                0,
+                0,
+                0,
+                0,
+                -0.4,
+                0,
+                0,
+                0.4,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1
+              ]
+            },
+            {}
+          ],
+          "implicitNormals": false,
+          "positions": {
+            "count": 62664,
+            "min": [
+              -7,
+              -1,
+              -7
+            ],
+            "max": [
+              -2,
+              9,
+              10
+            ],
+            "sha256": "32faa81d5e9df4182575330533be4ee55f0bb3aef9796cfbae771bf1ce5ac64f"
+          },
+          "normals": {
+            "count": 62664,
+            "min": [
+              -0.9999999403953552,
+              -1,
+              -1
+            ],
+            "max": [
+              0.9999999403953552,
+              1,
+              1
+            ],
+            "sha256": "cd087371812cc6c155c625099b2956ec0d007a0658fe5e44af061ffde93a7a78"
+          },
+          "uvs": {
+            "count": 62664,
+            "min": [
+              0.15740810334682465,
+              0.012456059455871582
+            ],
+            "max": [
+              0.41614970564842224,
+              0.7597609758377075
+            ],
+            "sha256": "e6d16e24bc90e57097243e5bb868c864433aeba2049cd502ad7f6b767a26ccda"
+          },
+          "uv1": null,
+          "color": null,
+          "tangent": null,
+          "indices": {
+            "count": 368640,
+            "min": [
+              0
+            ],
+            "max": [
+              62663
+            ],
+            "sha256": "179c5219ddc5de04119ce355d852ebdd2e40cb442bef723a772536f38a6df502"
+          },
+          "material": {
+            "color": [
+              1,
+              1,
+              1,
+              1
+            ],
+            "metallic": 1,
+            "roughness": 1,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "alphaMode": "OPAQUE",
+            "textureImage": 0,
+            "textureIndex": 0,
+            "textureSlots": {
+              "baseColor": {
+                "index": 0,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": {
+                "index": 1,
+                "texCoord": 0
+              },
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
+            "unlit": false,
+            "doubleSided": false
+          }
+        },
+        {
+          "frontFace": "ccw",
+          "matrix": [
+            0.4,
+            0,
+            0,
+            0,
+            0,
+            8.881784197001253e-17,
+            -0.4,
+            0,
+            0,
+            0.4,
+            8.881784197001253e-17,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "nodePath": [
+            {
+              "matrix": [
+                0.4,
+                0,
+                0,
+                0,
+                0,
+                0,
+                -0.4,
+                0,
+                0,
+                0.4,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1
+              ]
+            },
+            {}
+          ],
+          "implicitNormals": false,
+          "positions": {
+            "count": 31332,
+            "min": [
+              -10,
+              -1,
+              -7
+            ],
+            "max": [
+              -8,
+              9,
+              10
+            ],
+            "sha256": "d75675bb308cd268055772180f6b24fdfb2cb014295a8937cae070b6bffb61ed"
+          },
+          "normals": {
+            "count": 31332,
+            "min": [
+              -0.9999999403953552,
+              -1,
+              -1
+            ],
+            "max": [
+              0.9999999403953552,
+              1,
+              1
+            ],
+            "sha256": "e4273d5e4e300e538b90c143fd0bad0f41167694af006d4b4fa8f0a9bcbd2985"
+          },
+          "uvs": {
+            "count": 31332,
+            "min": [
+              0.03436123952269554,
+              0.013921022415161133
+            ],
+            "max": [
+              0.1278132051229477,
+              0.7597609758377075
+            ],
+            "sha256": "4a7fcf06788f4eb00bbdc130dc2d89979c24f6dc9c0dcbfe60237c99719a1010"
+          },
+          "uv1": null,
+          "color": null,
+          "tangent": null,
+          "indices": {
+            "count": 184320,
+            "min": [
+              0
+            ],
+            "max": [
+              31331
+            ],
+            "sha256": "4013c18e6ae056274bd1006024c077bc74fd868158ea02cbc6fa9b769351f6ef"
+          },
+          "material": {
+            "color": [
+              1,
+              1,
+              1,
+              1
+            ],
+            "metallic": 1,
+            "roughness": 1,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "alphaMode": "OPAQUE",
+            "textureImage": 0,
+            "textureIndex": 0,
+            "textureSlots": {
+              "baseColor": {
+                "index": 0,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": {
+                "index": 1,
+                "texCoord": 0
+              },
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
+            "unlit": false,
+            "doubleSided": false
+          }
+        }
+      ],
+      "divergences": []
+    },
+    {
       "fixture": "Models/NormalTangentTest/glTF/NormalTangentTest.gltf",
       "textures": [
         {
@@ -11351,6 +12604,27 @@
             "alphaMode": "OPAQUE",
             "textureImage": 0,
             "textureIndex": 0,
+            "textureSlots": {
+              "baseColor": {
+                "index": 0,
+                "texCoord": 0
+              },
+              "normalMap": {
+                "index": 2,
+                "texCoord": 0
+              },
+              "metallicRoughness": {
+                "index": 1,
+                "texCoord": 0
+              },
+              "occlusion": {
+                "index": 1,
+                "texCoord": 0
+              },
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": true
           }
@@ -11507,6 +12781,27 @@
             "alphaMode": "OPAQUE",
             "textureImage": 2,
             "textureIndex": 2,
+            "textureSlots": {
+              "baseColor": {
+                "index": 2,
+                "texCoord": 0
+              },
+              "normalMap": {
+                "index": 1,
+                "texCoord": 0
+              },
+              "metallicRoughness": {
+                "index": 0,
+                "texCoord": 0
+              },
+              "occlusion": {
+                "index": 0,
+                "texCoord": 0
+              },
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": true
           }
@@ -11932,6 +13227,18 @@
             "alphaMode": "OPAQUE",
             "textureImage": 0,
             "textureIndex": 0,
+            "textureSlots": {
+              "baseColor": {
+                "index": 0,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": true
           }
@@ -12216,6 +13523,18 @@
             "alphaMode": "OPAQUE",
             "textureImage": 1,
             "textureIndex": 1,
+            "textureSlots": {
+              "baseColor": {
+                "index": 1,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }
@@ -12331,6 +13650,15 @@
             "alphaMode": "OPAQUE",
             "textureImage": null,
             "textureIndex": null,
+            "textureSlots": {
+              "baseColor": null,
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": true
           }
@@ -12425,6 +13753,18 @@
             "alphaMode": "OPAQUE",
             "textureImage": 0,
             "textureIndex": 0,
+            "textureSlots": {
+              "baseColor": {
+                "index": 0,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": true
           }
@@ -12519,6 +13859,18 @@
             "alphaMode": "OPAQUE",
             "textureImage": 0,
             "textureIndex": 0,
+            "textureSlots": {
+              "baseColor": {
+                "index": 0,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": true
           }
@@ -12613,6 +13965,18 @@
             "alphaMode": "OPAQUE",
             "textureImage": 0,
             "textureIndex": 0,
+            "textureSlots": {
+              "baseColor": {
+                "index": 0,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": true
           }
@@ -12707,6 +14071,18 @@
             "alphaMode": "OPAQUE",
             "textureImage": 0,
             "textureIndex": 0,
+            "textureSlots": {
+              "baseColor": {
+                "index": 0,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": true
           }
@@ -13169,6 +14545,21 @@
             "alphaMode": "OPAQUE",
             "textureImage": 0,
             "textureIndex": 0,
+            "textureSlots": {
+              "baseColor": {
+                "index": 0,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": {
+                "index": 1,
+                "texCoord": 1
+              }
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
             "unlit": false,
             "doubleSided": false
           }

@@ -1,36 +1,6 @@
 import { pipelineWarnings } from "@dylanebert/shallot/testing";
-import { expect, type Page, test } from "playwright/test";
-
-async function texturePixels(page: Page, blue = false, bright = false) {
-    const png = await page.locator("canvas").screenshot();
-    return page.evaluate(
-        async ({ data, blue, bright }) => {
-            const image = await createImageBitmap(
-                await (await fetch(`data:image/png;base64,${data}`)).blob(),
-            );
-            const canvas = document.createElement("canvas");
-            canvas.width = image.width;
-            canvas.height = image.height;
-            const context = canvas.getContext("2d")!;
-            context.drawImage(image, 0, 0);
-            image.close();
-            const rgba = context.getImageData(0, 0, canvas.width, canvas.height).data;
-            let colored = 0;
-            for (let i = 0; i < rgba.length; i += 4) {
-                if (
-                    bright
-                        ? i < rgba.length / 2 && Math.max(rgba[i], rgba[i + 1], rgba[i + 2]) > 100
-                        : blue
-                          ? rgba[i + 2] > rgba[i] * 1.3 && rgba[i + 2] > rgba[i + 1] * 1.1
-                          : rgba[i + 1] > rgba[i] * 1.3 && rgba[i + 1] > rgba[i + 2] * 1.3
-                )
-                    colored++;
-            }
-            return colored;
-        },
-        { data: png.toString("base64"), blue, bright },
-    );
-}
+import { expect, test } from "playwright/test";
+import { sceneTests, texturePixels } from "./scenes";
 
 test.use(pipelineWarnings);
 for (const phone of [false, true]) {
@@ -46,6 +16,7 @@ for (const phone of [false, true]) {
             page.on("pageerror", (error) => errors.push(error.message));
             await page.goto("/");
             const picker = page.getByRole("button", { name: "Scene", exact: true });
+            await picker.waitFor();
             await expect(picker).toHaveText("CesiumMilkTruck");
             const canvas = await page.locator("canvas").elementHandle();
             // The accepted truck's green texture, not its silhouette or page chrome.
@@ -83,25 +54,6 @@ for (const phone of [false, true]) {
             await expect(page.getByRole("slider")).toHaveCount(0);
             expect(errors).toEqual([]);
         });
-        for (const name of ["SimpleSparseAccessor", "NegativeScaleTest", "MeshPrimitiveModes"])
-            test(`${name} draws from its scene URL and remains selected in the catalog`, async ({
-                page,
-            }, info) => {
-                await page.goto(`/?scene=${name}`);
-                const picker = page.getByRole("button", { name: "Scene", exact: true });
-                await expect(picker).toHaveText(name);
-                await expect.poll(() => texturePixels(page, false, true)).toBeGreaterThan(100);
-                await info.attach(name, {
-                    body: await page.locator("canvas").screenshot(),
-                    contentType: "image/png",
-                });
-                if (phone) await picker.tap();
-                else await picker.click();
-                await expect(
-                    page
-                        .getByRole("region", { name: "testing", exact: true })
-                        .getByRole("button", { name, exact: true }),
-                ).toHaveAttribute("aria-current", "true");
-            });
     });
 }
+sceneTests(["SimpleSparseAccessor", "NegativeScaleTest", "MeshPrimitiveModes"]);

@@ -4,6 +4,18 @@ Start with the compiler errors in your app. Search this guide for the old symbol
 
 Code fragments assume an owning `world`, an existing entity `eid`, and the imports named in the surrounding text.
 
+## Standard material texture roles and vertex color
+
+`StandardMaterial` now multiplies base color by the mesh's `color` stream, including alpha; an absent stream remains white. It accepts `normalMapTexture`, `metallicRoughnessTexture`, `occlusionTexture` and `emissiveTexture`, with `normalMapChannel`, `metallicRoughnessChannel`, `occlusionChannel` and `emissiveChannel`. `baseColorChannel` also selects the base-color UV set. Channels are `0` (UV) or `1` (UV_1, falling back to UV when absent).
+
+Register normal, metallic-roughness and occlusion images with `registerImage(world, source, { isSrgb: false })`. Their ids belong to a separate linear array; do not use a color-image id for a data texture. Base color and emissive keep the default sRGB registration. Metallic-roughness uses G for roughness and B for metallic; occlusion uses R. `normalMapScale` scales normal X/Y, and `occlusionStrength` mixes unoccluded with sampled occlusion. Both default to `1`. A normal map needs the mesh's tangent stream; without it the geometric normal is retained.
+
+Use `StandardMaterial()` to fill new row fields. Hand-built `StandardMaterialInput` rows write `-1` for absent texture ids, `0` for all channels, and `1` for `normalMapScale` and `occlusionStrength`. Recompute row strides and binding numbers from their schemas. `ImageBindings` gains `dataImages`; custom replacements supply a linear `rgba8unorm` array alongside the existing sRGB `images`. Data-image sampler settings follow the color array's layer count in `imageSettings`.
+
+Fragment contexts gain `rawWorldNormal`, the unnormalized interpolated world normal (Bevy's `PbrInput.world_normal`). `worldNormal` remains normalized (Bevy's `N`). Use the raw normal with the interpolated tangent for a MikkTSpace normal-map basis, normalizing only the mapped result. Both values come from the existing normal varying.
+
+The glTF importer now maps these textures, their UV sets, normal scale and occlusion strength, and applies vertex color instead of reporting the textures unsupported. UV sets above 1 remain reported by name.
+
 ## Captures use the rendered target's own size
 
 `captureFrame` now accepts any canvas backing size instead of refusing sizes other than 1280×720. Remove capture-only resizes or writes to `CAPTURE_CONTRACT`; read the actual size from the returned capture. `CAPTURE_CONTRACT` still declares the fixed viewport size and device scale for fixtures.

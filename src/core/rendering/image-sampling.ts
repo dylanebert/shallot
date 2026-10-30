@@ -69,18 +69,23 @@ const filtered = tgpu.fn(
 // Derivatives precede addressing so wrap boundaries cannot spuriously select coarser mips.
 /**
  * @internal Shared fragment sampling for the built-in image consumers; dx/dy are unwrapped UV
- * derivatives. Level of detail is isotropic, from the larger footprint axis, as with anisotropy 1.
+ * derivatives. settingsOffset selects the array's first sampler-settings row. Level of detail is
+ * isotropic, from the larger footprint axis, as with anisotropy 1.
  */
-export const sampleImage = tgpu.fn(
-    [d.texture2dArray(), d.sampler(), d.texture2d(), d.vec2f, d.i32, d.vec2f, d.vec2f],
+export const sampleImageAt = tgpu.fn(
+    [d.texture2dArray(), d.sampler(), d.texture2d(), d.vec2f, d.i32, d.vec2f, d.vec2f, d.i32],
     d.vec4f,
-)((images, sampler, settings, uv, layer, dx, dy) => {
+)((images, sampler, settings, uv, layer, dx, dy, settingsOffset) => {
     "use gpu";
     const settingsHeight = d.i32(std.textureDimensions(settings).y);
     const s = d.vec4u(
         std.round(
             std.mul(
-                std.textureLoad(settings, d.vec2i(0, std.min(layer, settingsHeight - 1)), 0),
+                std.textureLoad(
+                    settings,
+                    d.vec2i(0, std.min(layer + settingsOffset, settingsHeight - 1)),
+                    0,
+                ),
                 255,
             ),
         ),
@@ -111,4 +116,13 @@ export const sampleImage = tgpu.fn(
         s.xy,
     );
     return std.mix(finer, coarser, std.fract(clamped));
+});
+
+/** Sample a color image, whose sampler settings begin at row zero. */
+export const sampleImage = tgpu.fn(
+    [d.texture2dArray(), d.sampler(), d.texture2d(), d.vec2f, d.i32, d.vec2f, d.vec2f],
+    d.vec4f,
+)((images, sampler, settings, uv, layer, dx, dy) => {
+    "use gpu";
+    return sampleImageAt(images, sampler, settings, uv, layer, dx, dy, 0);
 });

@@ -325,6 +325,16 @@ export function parity(category: string) {
                         cutoff?: number;
                         textureImage: number | null;
                         textureIndex: number | null;
+                        textureSlots: Record<
+                            | "baseColor"
+                            | "normalMap"
+                            | "metallicRoughness"
+                            | "occlusion"
+                            | "emissive",
+                            { index: number; texCoord: number } | null
+                        >;
+                        normalMapScale: number;
+                        occlusionStrength: number;
                         unlit: boolean;
                         doubleSided: boolean;
                     } | null;
@@ -355,6 +365,41 @@ export function parity(category: string) {
                         const parsedMaterial =
                             decoded.materials[decoded.meshes[decoded.instances[i].mesh].material];
                         expect(parsedMaterial.texture ?? null).toBe(refMaterial.textureIndex);
+                        materialValues(
+                            [material.normalMapScale, material.occlusionStrength],
+                            [refMaterial.normalMapScale, refMaterial.occlusionStrength],
+                        );
+                        for (const slot of [
+                            "baseColor",
+                            "normalMap",
+                            "metallicRoughness",
+                            "occlusion",
+                            "emissive",
+                        ] as const) {
+                            const info = refMaterial.textureSlots[slot];
+                            const textureField = `${slot}Texture` as const;
+                            const channelField = `${slot}Channel` as const;
+                            const parsedIndex =
+                                parsedMaterial[
+                                    slot === "baseColor" ? "texture" : (`${slot}Texture` as const)
+                                ];
+                            expect(parsedIndex ?? null).toBe(info?.index ?? null);
+                            expect(material[channelField]).toBe(info?.texCoord ?? 0);
+                            expect<number | undefined>(parsedMaterial[channelField]).toBe(
+                                info?.texCoord ?? 0,
+                            );
+                            if (info === null) {
+                                expect(material[textureField]).toBe(-1);
+                            } else {
+                                const texture = reference.textures[info.index];
+                                const source = new URL(reference.images[texture.image], url).href;
+                                const registered = registerImage(app.world, source, {
+                                    sampler: texture.sampler as ImageSamplerDescriptor,
+                                    isSrgb: slot === "baseColor" || slot === "emissive",
+                                });
+                                expect(material[textureField]).toBe(registered);
+                            }
+                        }
                         if (refMaterial.textureIndex !== null) {
                             const texture = reference.textures[refMaterial.textureIndex];
                             expect(decoded.textures[parsedMaterial.texture!].image).toBe(

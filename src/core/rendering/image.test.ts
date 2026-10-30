@@ -1,11 +1,25 @@
 import { expect, test } from "bun:test";
 import { World } from "../../engine";
-import { ImageAddressMode, ImageFilterMode, registerImage } from "./image";
+import { DataImages, ImageAddressMode, ImageFilterMode, Images, registerImage } from "./image";
 
 test("image registration accepts a source without a name", () => {
     const world = new World();
     // @ts-expect-error Images are identified by source, not an alias.
     registerImage(world, "image.png", "alias");
+    world.dispose();
+});
+
+test("one source registered in both roles has independent color and linear array ids", () => {
+    const world = new World();
+    registerImage(world, "color-only.png");
+    const color = registerImage(world, "shared.png");
+    const data = registerImage(world, "shared.png", { isSrgb: false });
+    expect(color).toBe(1);
+    expect(data).toBe(0);
+    expect(registerImage(world, "shared.png", { isSrgb: true })).toBe(color);
+    expect(registerImage(world, "shared.png", { isSrgb: false })).toBe(data);
+    expect(world.resource(Images).size).toBe(2);
+    expect(world.resource(DataImages).size).toBe(1);
     world.dispose();
 });
 
