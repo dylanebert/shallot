@@ -1,5 +1,6 @@
 // Regenerate with THREE=/path/to/three.js bun diagnostics/gltf-records/generate.ts;
 // THREE must be a checkout at 1e7e3cff304a05416a54343e7ce273c709bccefe.
+// With --example, sync examples/gltf/assets.json and write its models.gold.json instead.
 // Audit values against the record's named glTF clauses before accepting a changed record.
 // For a clause-versus-loader divergence, add the field, clause, loader value and specified
 // replacement to that fixture's divergences, and implement the replacement here.
@@ -7,12 +8,19 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { fixtures, recordArray } from "./format";
+import manifest from "../../examples/gltf/assets.json";
+import { syncFiles } from "../../examples/gltf/sync";
+
+const example = process.argv.includes("--example");
+const subjects = example ? manifest.models.map(model => `Models/${model.name}/glTF/${model.name}.gltf`) : fixtures;
+const array = example ? (values: ArrayLike<number>, _width: number, _integer = false) => Array.from(values) : recordArray;
 
 const revision = "1e7e3cff304a05416a54343e7ce273c709bccefe";
 const checkout = process.env.THREE;
 if (!checkout) throw new Error(`set THREE to a three.js checkout at ${revision}`);
 const head = Bun.spawnSync(["git", "-C", checkout, "rev-parse", "HEAD"]).stdout.toString().trim();
 if (head !== revision) throw new Error(`THREE is at ${head || "no git revision"}, not ${revision}`);
+if (example) await syncFiles(manifest.models.flatMap(model => model.files), new URL(`${manifest.commit}/`, manifest.source), resolve(import.meta.dir, "../../examples/gltf/public/assets"));
 const { GLTFLoader } = await import(pathToFileURL(resolve(checkout, "examples/jsm/loaders/GLTFLoader.js")).href);
 const { LoadingManager, Mesh, MeshBasicMaterial, DoubleSide } = await import(pathToFileURL(resolve(checkout, "build/three.module.js")).href);
 
@@ -23,8 +31,8 @@ globalThis.createImageBitmap = (async () => ({ width: 1, height: 1, close() {} }
 const wrap = (value: number) => ({ 1000: 1, 1001: 0, 1002: 2 })[value];
 const filter = (value: number) => [1003, 1004, 1005].includes(value) ? 0 : 1;
 const records = [];
-for (const fixture of fixtures) {
-    const path = resolve(import.meta.dir, "../../src/extras/gltf/fixtures", fixture);
+for (const fixture of subjects) {
+    const path = resolve(import.meta.dir, example ? "../../examples/gltf/public/assets" : "../../src/extras/gltf/fixtures", fixture);
     const manager = new LoadingManager();
     manager.setURLModifier((url: string) => url.startsWith("data:") || url.startsWith("blob:") ? url :
         `data:application/octet-stream;base64,${readFileSync(resolve(dirname(path), url)).toString("base64")}`);
@@ -42,7 +50,7 @@ for (const fixture of fixtures) {
             mipmapFilter: [1003, 1004, 1006, 1007].includes(texture.minFilter) ? 0 : 1,
         } });
     }
-    records.push({ fixture, textures, instances: instances.map((object) => {
+    records.push({ fixture, textures, ...(example ? { images: (reference.parser.json.images ?? []).map((image: any) => image.uri) } : {}), instances: instances.map((object) => {
         let geometry = object.geometry;
         const implicitNormals = !geometry.getAttribute("normal");
         if (implicitNormals) {
@@ -69,21 +77,32 @@ for (const fixture of fixtures) {
             alphaMode: reference.parser.json.materials[materialIndex].alphaMode ?? "OPAQUE",
             ...(reference.parser.json.materials[materialIndex].alphaMode === "MASK" ? { cutoff: ref.alphaTest } : {}),
             textureImage: ref.map ? reference.parser.json.textures[reference.parser.associations.get(ref.map).textures].source : null,
+            ...(example ? { textureIndex: reference.parser.json.materials[materialIndex].pbrMetallicRoughness?.baseColorTexture?.index ?? null } : {}),
             unlit, doubleSided: ref.side === DoubleSide,
         };
-        return { matrix: object.matrixWorld.elements, implicitNormals,
-            positions: recordArray(positions, 3), normals: recordArray(normals, 3), uvs: recordArray(uvs, 2),
-            indices: recordArray(geometry.index?.array ?? Array.from({ length: position.count }, (_, i) => i), 1, true),
+        const nodePath = [];
+        if (example) {
+            for (let node = object; node; node = node.parent) {
+                const index = reference.parser.associations.get(node)?.nodes;
+                if (index !== undefined) {
+                    const { matrix, translation, rotation, scale } = reference.parser.json.nodes[index];
+                    nodePath.unshift({ ...(matrix ? { matrix } : {}), ...(translation ? { translation } : {}), ...(rotation ? { rotation } : {}), ...(scale ? { scale } : {}) });
+                }
+            }
+        }
+        return { matrix: object.matrixWorld.elements, ...(example ? { nodePath } : {}), implicitNormals,
+            positions: array(positions, 3), normals: array(normals, 3), uvs: array(uvs, 2),
+            indices: array(geometry.index?.array ?? Array.from({ length: position.count }, (_, i) => i), 1, true),
             material,
         };
     }), divergences: [] });
 }
-writeFileSync(resolve(import.meta.dir, "../../src/extras/gltf/fixtures/records.json"), `${JSON.stringify({
+writeFileSync(resolve(import.meta.dir, example ? "../../examples/gltf/tests/models.gold.json" : "../../src/extras/gltf/fixtures/records.json"), `${JSON.stringify({
     specification: "a55d8458c1e82720413acd3b420fd09e73b8e40b", generator: revision,
-    arrayFormat: "At most 128 components: exact JSON values. Otherwise: element count, per-component min/max, SHA-256 of little-endian float32 attributes or uint32 indices, without rounding.",
+    arrayFormat: example ? "Exact JSON arrays, before mesh registration and quantization." : "At most 128 components: exact JSON values. Otherwise: element count, per-component min/max, SHA-256 of little-endian float32 attributes or uint32 indices, without rounding.",
     defaults: "material.schema.json; material.pbrMetallicRoughness.schema.json; sampler.schema.json; texture.schema.json; node.schema.json at specification revision",
     samplerEnums: "address modes: clamp=0, repeat=1, mirror=2; filters: nearest=0, linear=1",
-    scope: "Mapped static fields only; image pixels excluded. Null material means no authored material (not asserted); lighting factors omitted for unlit. UV zero is a storage placeholder, not a specification default.",
+    scope: example ? "Mapped static fields only; image pixels excluded. Null material denotes the specification's default material; lighting factors omitted for unlit. UV zero is a storage placeholder, not a specification default." : "Mapped static fields only; image pixels excluded. Null material means no authored material (not asserted); lighting factors omitted for unlit. UV zero is a storage placeholder, not a specification default.",
     clauses: {
         instances: "scenes-overview; nodes-and-hierarchy; geometry-overview; meshes-overview (one record per instantiated primitive; depth-first order is a comparison convention)",
         material: "meshes-overview; default-material (null denotes no authored material)",
@@ -93,10 +112,12 @@ writeFileSync(resolve(import.meta.dir, "../../src/extras/gltf/fixtures/records.j
         uvs: "accessors-overview; accessor-data-types; meshes-attributes (TEXCOORD_0); absent UVs use Shallot's zero placeholder",
         indices: "meshes-topology (indexed order; sequential vertices if indices absent); meshes-usage (split corners for flat normals)",
         matrix: "transformations (TRS; parent global times local)",
+        ...(example ? { nodePath: "transformations; nodes-and-hierarchy (authored local matrices or TRS, root to instance, for evaluation at the client's float32 storage boundaries)" } : {}),
         color: "metallic-roughness-material (linear baseColorFactor); alpha-coverage (fourth component)",
         metallic: "metallic-roughness-material (metallicFactor)", roughness: "metallic-roughness-material (roughnessFactor)",
         emissive: "emissive (linear emissiveFactor)", alphaMode: "alpha-coverage", cutoff: "alpha-coverage (MASK only)",
         textureImage: "materials-overview (texture index); textures (source image)",
+        ...(example ? { textureIndex: "material.pbrMetallicRoughness.schema.json (baseColorTexture.index); read from JSON because GLTFLoader's shared texture associations may name the last equivalent texture index", images: "images (uri relative to the glTF asset)" } : {}),
         unlit: "KHR_materials_unlit: Extending Materials (at specification revision)", doubleSided: "double-sided",
         textures: "textures (source); samplers (Filtering; Wrapping); absent filters choose linear / linear-mipmap-linear, permitted by Samplers Overview",
     }, records,

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="description" content="Khronos glTF sample models, switched by their catalog tags in Shallot." />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <title>glTF</title>
+    <style>
+        body, body * { user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; -webkit-user-drag: none; cursor: default; }
+        * { box-sizing: border-box; margin: 0; }
+        html, body, canvas { width: 100%; height: 100%; }
+        body { overflow: hidden; background: #141210; }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <script src="/startup.js"></script>
+    <script type="module">
+        import { runApp } from "@dylanebert/shallot";
+        import { flushSync, mount, unmount } from "svelte";
+        import { AppPlugin, selectScene } from "./src/app";
+        import Hud from "./src/Hud.svelte";
+        import { scenes } from "./src/scenes";
+        await runApp({
+            plugins: [AppPlugin],
+            ui(container, world) {
+                let component;
+                function select(scene) {
+                    if (component) void unmount(component);
+                    selectScene(world, scene, matchMedia("(max-width: 480px)").matches);
+                    const url = new URL(location.href);
+                    url.searchParams.set("scene", scene);
+                    history.replaceState(null, "", url);
+                    flushSync(() => { component = mount(Hud, { target: container, props: { scene, select } }); });
+                }
+                const requested = new URL(location.href).searchParams.get("scene");
+                select(requested && Object.hasOwn(scenes, requested) ? requested : "CesiumMilkTruck");
+                return () => void unmount(component);
+            },
+        });
+    </script>
+</body>
+</html>

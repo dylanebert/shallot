@@ -92,6 +92,7 @@
         "examples/particles",
         "examples/volumetric-fog",
         "examples/physics",
+        "examples/gltf",
         "examples/city",
         "examples/isometric",
         "examples/snow-trails",
@@ -119,6 +120,9 @@
         "!**/*.gold.json",
         "!**/*.gold.txt",
         "!examples/physics/tests/*.parity.node.ts",
+        "!examples/gltf/tests/*.parity.node.ts",
+        "!examples/gltf/tests/parity.ts",
+        "!examples/gltf/public/assets",
         "!examples/physics/tests/issues/**",
         "!**/fixtures",
         "!**/target/**"
