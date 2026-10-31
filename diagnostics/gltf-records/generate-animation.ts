@@ -82,7 +82,7 @@ for (const fixture of [...animationFixtures.map(name => `../../examples/gltf/pub
     }
     records.push({ fixture, nodes: nodes.map(({ object, ...node }) => node), animations });
 }
-writeFileSync(resolve(import.meta.dir, "animations.gold.json"), `${JSON.stringify({
+writeFileSync(resolve(import.meta.dir, "../../examples/gltf/tests/animations.gold.json"), `${JSON.stringify({
     specification: "a55d8458c1e82720413acd3b420fd09e73b8e40b", generator: revision,
     clauses: { values: "animations (independent sampler clamping; unchanged non-animated properties); appendix-c-interpolation (exact keys, STEP, lerp, shortest-path slerp, Hermite with duration-scaled tangents, normalized interpolated cubic quaternions); accessor-data-types; sparse-accessors",
         nodes: "nodes-and-hierarchy; transformations (default scene, authored local TRS and morph defaults)",
