@@ -1,16 +1,16 @@
 {
   "schema": "box3d-oracle/manifest-v3",
   "bundle": {
-    "upstreamSha": "51f056e0a9d299326b10f10a63270c81d901df21",
+    "upstreamSha": "e77352cd606dc1a34209094076199549a52ea0a1",
     "schema": "v3",
-    "identity": "51f056e0a9d299326b10f10a63270c81d901df21/v3"
+    "identity": "e77352cd606dc1a34209094076199549a52ea0a1/v3"
   },
   "upstream": {
     "url": "https://github.com/erincatto/box3d.git",
     "ref": "refs/heads/main",
     "channel": "official-main",
-    "sha": "51f056e0a9d299326b10f10a63270c81d901df21",
-    "tree": "3e5b839113240f0480782d4ec3a71e5afb78fc67",
+    "sha": "e77352cd606dc1a34209094076199549a52ea0a1",
+    "tree": "47ba8433186a4ca2155317b67e9e9572a6a1209e",
     "reachableFromChannel": true
   },
   "oracle": {
@@ -155,9 +155,9 @@
         },
         "cmake": [
           "-S",
-          "/var/folders/24/2ff01nsx7cs9005l3jbptw8c0000gp/T/box3d-oracle-cache/checkouts/51f056e0a9d299326b10f10a63270c81d901df21-patched-o4",
+          "/var/folders/24/2ff01nsx7cs9005l3jbptw8c0000gp/T/box3d-oracle-cache/checkouts/e77352cd606dc1a34209094076199549a52ea0a1-patched-o4",
           "-B",
-          "/var/folders/24/2ff01nsx7cs9005l3jbptw8c0000gp/T/box3d-oracle-cache/whitebox-builds/51f056e0a9d299326b10f10a63270c81d901df21-o4-scalar",
+          "/var/folders/24/2ff01nsx7cs9005l3jbptw8c0000gp/T/box3d-oracle-cache/whitebox-builds/e77352cd606dc1a34209094076199549a52ea0a1-o4-scalar",
           "-G",
           "Ninja",
           "-DCMAKE_BUILD_TYPE=Release",
@@ -169,8 +169,8 @@
           "-DBOX3D_VALIDATE=ON",
           "-DCMAKE_C_FLAGS=-DB3_ORACLE_HOOKS -DB3_ORACLE_SENTINELS"
         ],
-        "executableSha256": "42d1c27059bf7105b02110deee43330a78c4f57ce0d58f73937ebe7400f10e02",
-        "publicExecutableSha256": "d40a545a8bcb660f32e1aefa90fe0e12d310e508f114ee9633ddc8491213e61c",
+        "executableSha256": "15f6708c6a9648d7654b8b4535d4e41c5ea5b3a8508b63c5983738d3add49317",
+        "publicExecutableSha256": "5866461343bfe09fb95c99572ff86a60a4f4e8ee9f7d8010cf9bad481dbbc42f",
         "patchDigest": "f1b2a82ab3b80aab9e1cea4bab9f0527168e79f7665ad90f2544651004353279",
         "cases": [
           "math.add.v1.scalar",
@@ -214,9 +214,9 @@
         },
         "cmake": [
           "-S",
-          "/var/folders/24/2ff01nsx7cs9005l3jbptw8c0000gp/T/box3d-oracle-cache/checkouts/51f056e0a9d299326b10f10a63270c81d901df21-patched-o4",
+          "/var/folders/24/2ff01nsx7cs9005l3jbptw8c0000gp/T/box3d-oracle-cache/checkouts/e77352cd606dc1a34209094076199549a52ea0a1-patched-o4",
           "-B",
-          "/var/folders/24/2ff01nsx7cs9005l3jbptw8c0000gp/T/box3d-oracle-cache/whitebox-builds/51f056e0a9d299326b10f10a63270c81d901df21-o4-simd",
+          "/var/folders/24/2ff01nsx7cs9005l3jbptw8c0000gp/T/box3d-oracle-cache/whitebox-builds/e77352cd606dc1a34209094076199549a52ea0a1-o4-simd",
           "-G",
           "Ninja",
           "-DCMAKE_BUILD_TYPE=Release",
@@ -227,8 +227,8 @@
           "-DBOX3D_VALIDATE=ON",
           "-DCMAKE_C_FLAGS=-DB3_ORACLE_HOOKS -DB3_ORACLE_SENTINELS"
         ],
-        "executableSha256": "62d08032ed522a61286e0f8b8eabc0517f0c8d8ebef58bddf64c43363f9ef05b",
-        "publicExecutableSha256": "4f4473308e6fc0f57ba34344c1faada70aa32dd22a2222b6bddd079a354895d0",
+        "executableSha256": "6b1fc9ac56d8f0da038cdea5fe938286c7ff855bf13ccfc5e2f7ea844e3cd774",
+        "publicExecutableSha256": "1986b4946910f4d86afaab74b5bc26d7135f629a8dd2ab916249b2696e681b79",
         "patchDigest": "f1b2a82ab3b80aab9e1cea4bab9f0527168e79f7665ad90f2544651004353279",
         "cases": [
           "math.add.v1.simd",
@@ -274,7 +274,7 @@
   "fileDigests": {
     "schema.json": "277b6b593869c53424a6ad16aa8bd7952e88141ac6190519f3520692d7a09298",
     "membership.json": "6e25b4c781f999b43718289eb2aa019db083b6d4624b7e2066e7d7c316cb80c9",
-    "provenance.json": "b54d1c3b5d0bf76eb3a645fb7e0db1eb8a53e9b86f59ca709443578e4328058d",
+    "provenance.json": "63462ed78dbec856d4a867e1324090dbc3da5dd118752ad4c56d60ea59f26401",
     "cases.json": "9aa3a5d3b90d22b8baf501444567781ff6e7b75abe5b24766365ebe75f10b0db"
   },
   "fileDigestScope": "Generated evidence files only; manifest is the receipt and is intentionally excluded from its own digest map.",

@@ -1,10 +1,11 @@
 #define NDEBUG
 #include "box3d/math_functions.h"
 #include "box3d/collision.h"
-#include "simd.h"
+#define B3_SIMD_WIDTH 4
+#include "simd_wide.h"
 #include "manifold.h"
 // The support helper is file-local; include its owner to call the native boundary.
-#include "convex_manifold.c"
+#include "convex_manifold_wide.inl"
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -137,7 +138,7 @@ int main(void) {
                     b3HullHalfEdge edges[130];
                     b3Plane planes[2];
                     b3HullFace faces[2];
-                    float soa[3 * 68];
+                    float soa[3 * 72];
                 } image = {0};
                 b3HullData* hull = &image.base;
                 int n = r[0];
@@ -153,7 +154,7 @@ int main(void) {
                 image.planes[0].normal = (b3Vec3){0,-1,0};
                 image.planes[1].normal = (b3Vec3){0,1,0};
                 image.faces[1].edge = n;
-                int padded = (n + 3) & ~3;
+                int padded = b3GetHullSoaStride(n);
                 for (int i = 0; i < n; ++i) {
                     float angle = 2 * B3_PI * i / n;
                     image.points[i] = (b3Vec3){b3Cos(angle),0,b3Sin(angle)};

@@ -3,6 +3,7 @@
 #include "body.h"
 #include "contact.h"
 #include "contact_solver.h"
+#define B3_SIMD_WIDTH 4
 #include "core.h"
 #if !defined(B3_SIMD_SSE2)
 #error Contact phase authority requires SSE2.
@@ -185,7 +186,7 @@ static void capture_wide(b3StepContext *context) {
   b3WidePrepareSpan spans[2] = {{.start = 0, .count = 4, .contacts = ids},
                                 {.start = INT_MAX}};
   context->widePrepareSpans = spans;
-  context->wideConstraints = calloc(1, b3GetWideContactConstraintByteCount());
+  context->wideConstraints = calloc(1, b3GetWideContactConstraintByteCount(4));
   context->graph->colors[0].wideConstraints = context->wideConstraints;
   b3SolverBlock block = {.startIndex = 0,
                          .count = 1,

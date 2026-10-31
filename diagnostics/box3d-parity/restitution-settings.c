@@ -2,6 +2,7 @@
 #include "box3d/box3d.h"
 #include "core.h"
 #include "physics_world.h"
+#define B3_SIMD_WIDTH 4
 #if !defined(B3_SIMD_SSE2)
 #error Restitution authority requires SSE2.
 #endif

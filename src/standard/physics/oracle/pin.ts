@@ -12,6 +12,6 @@
  * which no oracle here measures.
  */
 export const BOX3D_PIN = {
-    revision: "51f056e0a9d299326b10f10a63270c81d901df21",
-    tree: "3e5b839113240f0480782d4ec3a71e5afb78fc67",
+    revision: "e77352cd606dc1a34209094076199549a52ea0a1",
+    tree: "47ba8433186a4ca2155317b67e9e9572a6a1209e",
 } as const;
