@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Movement phase from Box3D samples/mover.cpp at the revision src/standard/physics/oracle/pin.ts pins.
+// Movement phase from Box3D samples/geometric_mover.cpp at the revision src/standard/physics/oracle/pin.ts pins.
 // Velocity replaces input policy.
 #include "box3d/box3d.h"
 #include <float.h>
@@ -87,9 +87,8 @@ static Output move(Input in) {
     if(!hit || b3Dot(b3Sub(in.velocity,out.groundVelocity),in.up)>0.0f) { out.pogo=0.0f; out.groundVelocity=b3Vec3_zero; }
     else {
         out.normal=ray.normal; out.groundState=b3Dot(ray.normal,in.up)<cos(in.maxSlope)?2:1;
-        float omega=2.0f*B3_PI*4.0f, omegaH=omega*in.dt;
         float length=ray.fraction*rayLength;
-        out.pogo=(out.pogo-omega*omegaH*(length-rest))/(1.0f+2.0f*0.7f*omegaH+omegaH*omegaH);
+        out.pogo=b3SpringDamper(4.0f,0.7f,length-rest,out.pogo,in.dt);
     }
     b3Pos target=b3OffsetPos(b3OffsetPos(in.position,b3MulSV(in.dt,in.velocity)),b3MulSV(in.dt*out.pogo,in.up));
     b3CollisionPlane collision[8]={0};

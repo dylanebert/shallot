@@ -1,15 +1,15 @@
 {
   "schema": "box3d-oracle/manifest-v7",
   "bundle": {
-    "upstreamSha": "f36d061ba26998c87cb7dc593a4065aaa03fb7eb",
+    "upstreamSha": "336263320469e5e9febfe18697ab562488f7e97a",
     "schema": "v7",
-    "identity": "f36d061ba26998c87cb7dc593a4065aaa03fb7eb/v7"
+    "identity": "336263320469e5e9febfe18697ab562488f7e97a/v7"
   },
   "upstream": {
     "url": "https://github.com/erincatto/box3d.git",
     "ref": "refs/heads/main",
-    "sha": "f36d061ba26998c87cb7dc593a4065aaa03fb7eb",
-    "tree": "7e74dc2998e82058627ca8407e41547f6e987034"
+    "sha": "336263320469e5e9febfe18697ab562488f7e97a",
+    "tree": "50877041b7e4de95ff0b6c194182aa50d453b736"
   },
   "oracle": {
     "memberCommit": "b2945a9be6a34de91723f9f552df5160aab769db",
@@ -20,7 +20,7 @@
     "schema.json": "6d5fd51bbc2340c2f9a235903df36303f861ba7e6d6952b7063a6963c2b90e73",
     "cases.json": "288ad457844df4bc9875743b8e6ef82a8c8359a2e73363e22e7bf7901fc60ecb",
     "membership.json": "d0c348eee5c23bc0a0b0f69fad1cf86146ecd104af9e85b819272278f3f9b3c8",
-    "provenance.json": "1edc3cbf4620cbb272f4cf7ac5335b9516b616babaefbf039c0bbe15c937d3c1"
+    "provenance.json": "6930c21829d10683f104c2e0fc964530689760e2365219b5492d4212d58cb8b3"
   },
   "generation": {
     "readsShallot": false,

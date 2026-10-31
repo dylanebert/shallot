@@ -61,7 +61,7 @@ export const moverState = () => ({
 export type Mover = ReturnType<typeof moverState>;
 export type MoverShape = { maxPush: number; clipVelocity: boolean; canMoverPush: boolean };
 
-// samples/mover.cpp CharacterMover; input and the three shape policies belong to this scene.
+// samples/geometric_mover.cpp GeometricMover; input and the three shape policies belong to this scene.
 export function move(
     world: World,
     s: Mover,
@@ -103,11 +103,11 @@ export function move(
     if (addSpeed > 0)
         s.velocity = add(s.velocity, mul(Math.min(f(f(30 * maxSpeed) * dt), addSpeed), direction));
     s.velocity.y = f(s.velocity.y - f(15 * dt));
-    const rest = f(3 * s.capsule.radius),
+    const rest = f(0.9),
         rayLength = f(rest + s.capsule.radius);
     const rayOrigin = add(s.position, s.capsule.center1);
     const ray = emptyQueryHit();
-    const skipTeam = { categoryBits: 1n, maskBits: 0xfffffffdn };
+    const skipTeam = { categoryBits: 1n, maskBits: 0xfffffffffffffffdn };
     const hit = castRayClosest(world, rayOrigin, v(0, -rayLength, 0), ray, skipTeam);
     if (!hit || s.velocity.y > 0) {
         s.onGround = false;
@@ -138,7 +138,7 @@ export function move(
     for (let iteration = 0; iteration < 5; iteration++) {
         const hits = collideMover(world, s.position, s.capsule, 64, {
             categoryBits: 1n,
-            maskBits: 0xffffffffn,
+            maskBits: 0xffffffffffffffffn,
         });
         s.planes = [];
         s.extras = [];

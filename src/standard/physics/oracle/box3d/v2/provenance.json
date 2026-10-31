@@ -28,13 +28,13 @@
     }
   ],
   "nm": [
-    "0000000100052adc t _b3CollideTask",
-    "000000010008eca0 t _b3FinalizeBodiesTask",
-    "00000001000701c0 t _b3HashWorldState",
-    "000000010008e8fc t _b3IntegratePositionsTask",
-    "000000010008e218 t _b3IntegrateVelocitiesTask"
+    "0000000100053a6c t _b3CollideTask",
+    "0000000100093724 t _b3FinalizeBodiesTask",
+    "000000010007427c t _b3HashWorldState",
+    "0000000100093380 t _b3IntegratePositionsTask",
+    "0000000100092c9c t _b3IntegrateVelocitiesTask"
   ],
-  "linkMapSha256": "61a7c8e071c0d277d8bc077670c26d0024c2363be4c792cfa5b26342003c288c",
+  "linkMapSha256": "6e0daba73d117438cf65489797901a935bf73d6ea4f009c4fba2adf81ed9ee27",
   "linkMap": "<whitebox-build>/o3-adapter/box3d-o3-adapter.map",
   "sentinelMutations": [
     {

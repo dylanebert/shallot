@@ -71,13 +71,14 @@ void DrawTransformGizmo(const Camera*, b3WorldTransform* transform, bool) {
     }
 }
 constexpr int KEY_SPACE = 8, KEY_LEFT_SHIFT = 9, KEY_V = 10, KEY_G = 11;
+constexpr int KEY_RIGHT_SHIFT = 12, KEY_LEFT_CONTROL = 13, KEY_RIGHT_CONTROL = 14;
 constexpr int MOUSE_LEFT = 0;
 constexpr int ACTION_PRESS = 1, MOD_SHIFT = 1, MOD_ALT = 2, MOD_CTRL = 4;
 constexpr int ImGuiSliderFlags_Logarithmic = 1;
 void sapp_lock_mouse( bool ) {}
 bool IsKeyDown( int key ) {
 	float value = 0;
-	const char* names[] = { "", "W", "S", "A", "D", "L", "T", "B", "Space", "Shift" };
+	const char* names[] = { "", "W", "S", "A", "D", "L", "T", "B", "Space", "Shift", "V", "G", "Shift", "Control", "Control" };
 	for ( const Change& change : changes )
 		if ( change.step <= currentStep && change.name == names[key] ) value = change.value;
 	return value != 0;
@@ -325,9 +326,15 @@ struct SampleContext
 
 // SAMPLE_EVENTS
 
+struct MoverInput {
+    b3Vec3 forward, right;
+    b3Vec2 throttle;
+    bool jump, sprint, walk;
+};
 class Sample
 {
 public:
+    MoverInput GetMoverInput() const;
     float m_launchSpeedScale = 1.0f;
     uint64_t m_userMaterialId = 0;
 	explicit Sample( SampleContext* context ) : m_context( context ), m_camera( &context->camera )
@@ -499,7 +506,7 @@ int main( int argc, char** argv )
         { "slideTwist", SlideTwist::Create }, { "conveyorBelt", ConveyorBelt::Create },
         { "restitution", VaryingRestitution::Create }, { "staticInvoke", StaticInvoke::Create }, { "wind", Wind::Create },
         { "conveyorMesh", ConveyorMesh::Create }, { "windDrop", WindDrop::Create }, { "windFlap", WindFlap::Create },
-        { "rigidBody", RigidBodyCharacter::Create }, { "geometricMover", GeometricMover::Create }, { "capsulePlane", CapsulePlane::Create }, { "moverOverlap", MoverOverlap::Create },
+        { "rigidBody", RigidBodyCharacter::Create }, { "geometricMover", GeometricMoverSample::Create }, { "capsulePlane", CapsulePlane::Create }, { "moverOverlap", MoverOverlap::Create },
         { "classRing", ClassRing::Create }, { "cast", BodyCast::Create },
         { "bodyType", BodyType::Create }, { "weeble", Weeble::Create }, { "disable", DisableBody::Create },
         { "gyroscopicPrecession", GyroscopicPrecession::Create },
@@ -670,6 +677,12 @@ int main( int argc, char** argv )
             sample->DrawSampleWindows();
             assert(pendingGizmoPose == nullptr);
         }
+        bool moverSprint = false;
+        if (villageReadouts || moverReadouts) {
+            auto& mover = villageReadouts ? static_cast<Village*>(sample)->m_mover : static_cast<GeometricMoverSample*>(sample)->m_mover;
+            auto input = sample->GetMoverInput();
+            moverSprint = mover.m_onGround && !input.jump && !input.walk && input.sprint;
+        }
         contactMarks.clear();
         characterMarks.clear();
         meshBuildCount = 0;
@@ -749,7 +762,7 @@ int main( int argc, char** argv )
         }
         if (villageReadouts) {
             auto& m = static_cast<Village*>(sample)->m_mover;
-            fprintf(villageReadouts, "[%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%d,%d,%d,%d]\n", m.m_transform.p.x,m.m_transform.p.y,m.m_transform.p.z,m.m_velocity.x,m.m_velocity.y,m.m_velocity.z,m.m_pogoVelocity,m.m_onGround,m.m_sprint,m.m_planeCount,m.m_totalIterations);
+            fprintf(villageReadouts, "[%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%d,%d,%d,%d]\n", m.m_position.x,m.m_position.y,m.m_position.z,m.m_velocity.x,m.m_velocity.y,m.m_velocity.z,m.m_pogoVelocity,m.m_onGround,moverSprint,m.m_planeCount,m.m_totalIterations);
         }
         if (rigidReadouts) {
             auto& c = static_cast<RigidBodyCharacter*>(sample)->m_character;
@@ -757,9 +770,9 @@ int main( int argc, char** argv )
             fprintf(rigidReadouts, "[%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%d,%d,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%d,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g]\n", p.x,p.y,p.z,vel.x,vel.y,vel.z,c.m_onGround,c.m_sprint,c.m_jumpCooldown,c.m_groundNormal.x,c.m_groundNormal.y,c.m_groundNormal.z,c.m_groundVelocity.x,c.m_groundVelocity.y,c.m_groundVelocity.z,c.m_didStep,c.m_stepPosition.x,c.m_stepPosition.y,c.m_stepPosition.z,c.m_lastWishVelocity.x,c.m_lastWishVelocity.y,c.m_lastWishVelocity.z);
         }
         if (moverReadouts) {
-            auto* scene = static_cast<GeometricMover*>(sample);
+            auto* scene = static_cast<GeometricMoverSample*>(sample);
             auto& m = scene->m_mover;
-            fprintf(moverReadouts, "[%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%d,%d,%d,%d,%.9g,%.9g", m.m_transform.p.x,m.m_transform.p.y,m.m_transform.p.z,m.m_velocity.x,m.m_velocity.y,m.m_velocity.z,m.m_pogoVelocity,m.m_onGround,m.m_sprint,m.m_planeCount,m.m_totalIterations,scene->m_treeTimer,scene->m_respawnTimer);
+            fprintf(moverReadouts, "[%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%d,%d,%d,%d,%.9g,%.9g", m.m_position.x,m.m_position.y,m.m_position.z,m.m_velocity.x,m.m_velocity.y,m.m_velocity.z,m.m_pogoVelocity,m.m_onGround,moverSprint,m.m_planeCount,m.m_totalIterations,scene->m_treeTimer,scene->m_respawnTimer);
             for (const auto* impact : {&scene->m_boxImpact, &scene->m_treeImpact})
                 fprintf(moverReadouts, ",%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%d", impact->point.x,impact->point.y,impact->point.z,impact->normal.x,impact->normal.y,impact->normal.z,impact->speed,impact->valid);
             const auto& t = scene->m_impactTransform;
