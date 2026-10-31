@@ -684,10 +684,11 @@ export const issueScenes = {
                     label,
                     value,
                 })),
-                set(world, _bodies, value) {
+                set(world, _bodies, value, values) {
                     const state = world.resource(IssueState);
                     state.hullSource = value;
                     state.maxVertices = Math.min(128, Math.max(4, hullSources[value]!.length));
+                    values["Max Vertices"] = state.maxVertices;
                     rebuildHullCrash(world);
                     frameHullCrash(world);
                 },
@@ -698,9 +699,6 @@ export const issueScenes = {
                 min: 4,
                 max: 128,
                 step: 1,
-                read(world) {
-                    return world.resource(IssueState).maxVertices;
-                },
                 set(world, _bodies, value) {
                     world.resource(IssueState).maxVertices = value;
                     rebuildHullCrash(world);

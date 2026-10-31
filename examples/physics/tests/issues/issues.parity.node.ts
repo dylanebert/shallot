@@ -32,7 +32,7 @@ function readouts(world: World, scene: "ghostCollisions" | "restitutionOvershoot
               ];
     return JSON.parse(
         JSON.stringify(row, (_key, value) =>
-            typeof value === "number" ? Number(value.toPrecision(9)) : value,
+            typeof value === "number" ? Math.fround(value) : value,
         ),
     );
 }
@@ -52,7 +52,12 @@ for (const scene of Object.keys(issueScenes) as (keyof typeof issueScenes)[]) {
                 ? (await Bun.file(new URL(`./${scene}.readouts.gold.txt`, import.meta.url)).text())
                       .trim()
                       .split("\n")
-                      .map((line) => JSON.parse(line))
+                      // Native %.9g records round-trip f32; compare values, not printf/JS tie-breaking.
+                      .map((line) =>
+                          JSON.parse(line, (_key, value) =>
+                              typeof value === "number" ? Math.fround(value) : value,
+                          ),
+                      )
                 : [];
         const start = performance.now();
         const app = await createApp({ defaults: false, plugins: [GeometryPlugin, IssuesPlugin] });
@@ -136,7 +141,11 @@ for (const scene of ["crash", "ghostCollisions", "hullCrash"] as const)
                       )
                           .trim()
                           .split("\n")
-                          .map((line) => JSON.parse(line))
+                          .map((line) =>
+                              JSON.parse(line, (_key, value) =>
+                                  typeof value === "number" ? Math.fround(value) : value,
+                              ),
+                          )
                     : [];
             const geometry =
                 scene === "hullCrash"
