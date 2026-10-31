@@ -10,13 +10,9 @@ import {
     MeshMaterial,
     StandardMaterial,
 } from "../../standard/rendering";
-import {
-    evaluateGltfAnimation,
-    type GltfAnimation,
-    type GltfNode,
-    type GltfNodePose,
-} from "./animation";
+import type { GltfAnimation, GltfNode, GltfNodePose } from "./animation";
 import type { GltfSkeleton, GltfSkin } from "./gltf";
+import { poseKernel, registerGltfKernel, writeKernelPose } from "./kernel";
 import { loadGltf } from "./load";
 import {
     MorphedMesh,
@@ -64,6 +60,9 @@ export interface GltfPlacement {
 
 /** Registers the default scene before warm, from the game's async initialize.
  * The handle and its mesh, image and material registrations belong to this world until disposal.
+ * Decoded nodes, skins and primitive data are immutable and copied to the kernel once at load.
+ * Animations passed to poseGltfScene are copied on first use per handle, keyed by identity;
+ * treat their channels and samplers as immutable. All kernel data is freed when the world disposes.
  */
 export async function loadGltfScene(
     world: World,
@@ -315,7 +314,7 @@ export async function loadGltfScene(
         max.fill(0);
     }
     onProgress?.(1);
-    return {
+    const handle: Gltf = {
         world,
         primitives,
         nodes: scene.nodes,
@@ -325,6 +324,8 @@ export async function loadGltfScene(
         bounds: { min, max },
         unsupported: scene.unsupported,
     };
+    registerGltfKernel(handle);
+    return handle;
 }
 
 /** Spawns one entity per primitive instance. Skinned entities use placement alone; others compose the node's world transform.
@@ -379,11 +380,8 @@ export function spawnGltfScene(
         composed: new Float32Array(16),
         recomposed: new Float32Array(16),
     };
-    composeGlobals(instance);
-    for (let i = 0; i < gltf.primitives.length; i++) {
-        const reach = writeMorphPose(world, instance, i);
-        if (gltf.primitives[i].skin >= 0) writeSkinPose(world, instance, i, reach);
-    }
+    poseKernel(world, instance);
+    for (let i = 0; i < gltf.primitives.length; i++) writeKernelPose(world, instance, i);
     return instance;
 }
 
@@ -439,10 +437,9 @@ export function poseGltfScene(
     animation: GltfAnimation,
     time: number,
 ): void {
-    const { entities, gltf, poses, globals, transforms, composed, recomposed } = instance;
+    const { entities, gltf, globals, transforms, composed, recomposed } = instance;
     if (gltf.world !== world) throw new Error("glTF handle belongs to another world");
-    evaluateGltfAnimation(gltf.nodes, animation, time, poses);
-    composeGlobals(instance);
+    poseKernel(world, instance, animation, time);
     for (let i = 0; i < entities.length; i++) {
         const primitive = gltf.primitives[i];
         if (primitive.skin >= 0) continue;
@@ -457,129 +454,6 @@ export function poseGltfScene(
         storage.translation.set(eid, t[0], t[1], t[2]);
         storage.rotation.set(eid, t[3], t[4], t[5], t[6]);
         storage.scale.set(eid, t[7], t[8], t[9]);
-        const reach = writeMorphPose(world, instance, i);
-        if (gltf.primitives[i].skin >= 0) writeSkinPose(world, instance, i, reach);
+        writeKernelPose(world, instance, i);
     }
-}
-
-function composeGlobals(instance: GltfSceneInstance): void {
-    const { gltf, poses, globals, composed } = instance;
-    for (let i = 0; i < poses.length; i++) {
-        const { translation: t, rotation: r, scale: s } = poses[i];
-        const local = composeMat4(
-            t[0],
-            t[1],
-            t[2],
-            r[0],
-            r[1],
-            r[2],
-            r[3],
-            s[0],
-            s[1],
-            s[2],
-            composed,
-        );
-        const parent = gltf.nodes[i].parent;
-        if (parent !== -1) multiplyMat4(globals[parent], local, globals[i]);
-        else globals[i].set(local);
-    }
-}
-
-function writeMorphPose(world: World, instance: GltfSceneInstance, primitiveIndex: number): number {
-    const primitive = instance.gltf.primitives[primitiveIndex];
-    const eid = instance.entities[primitiveIndex];
-    if (!primitive.morphReach || !world.has(eid, MorphedMesh)) return 0;
-    const storage = world.storage(MorphedMesh);
-    const first = storage.firstWeight.get(eid);
-    const count = Math.min(storage.weightCount.get(eid), primitive.morphReach.length);
-    const weights = world.resource(SkinPalette).morph.weights;
-    const pose = instance.poses[primitive.nodeIndex].weights;
-    let reach = 0;
-    for (let m = 0; m < count; m++) {
-        weights[first + m] = pose[m];
-        reach += Math.abs(weights[first + m]) * primitive.morphReach[m];
-    }
-    if (primitive.skin < 0) {
-        const bounds = world.resource(Meshes).get(primitive.mesh)!.bounds!;
-        world
-            .storage(MeshInstance)
-            .cullBounds.set(eid, bounds[0], bounds[1], bounds[2], bounds[3] + reach);
-    }
-    return reach;
-}
-
-function writeSkinPose(
-    world: World,
-    instance: GltfSceneInstance,
-    primitiveIndex: number,
-    reach = 0,
-): void {
-    const primitive = instance.gltf.primitives[primitiveIndex];
-    const skin = instance.gltf.skins[primitive.skin];
-    const eid = instance.entities[primitiveIndex];
-    if (!world.has(eid, SkinnedMesh)) return;
-    const palette = world.resource(SkinPalette).matrices;
-    const first = world.storage(SkinnedMesh).firstJoint.get(eid);
-    const boxes = primitive.jointBounds!;
-    let x0 = Infinity,
-        y0 = Infinity,
-        z0 = Infinity,
-        x1 = -Infinity,
-        y1 = -Infinity,
-        z1 = -Infinity;
-    for (let j = 0; j < skin.joints.length; j++) {
-        const global = instance.globals[skin.joints[j]];
-        const o = (first + j) * 16,
-            b = j * 16;
-        for (let c = 0; c < 4; c++)
-            for (let r = 0; r < 4; r++)
-                palette[o + c * 4 + r] =
-                    global[r] * skin.inverseBindMatrices[b + c * 4] +
-                    global[4 + r] * skin.inverseBindMatrices[b + c * 4 + 1] +
-                    global[8 + r] * skin.inverseBindMatrices[b + c * 4 + 2] +
-                    global[12 + r] * skin.inverseBindMatrices[b + c * 4 + 3];
-        const q = j * 6;
-        if (boxes[q] === Infinity) continue;
-        const cx = (boxes[q] + boxes[q + 3]) / 2,
-            cy = (boxes[q + 1] + boxes[q + 4]) / 2,
-            cz = (boxes[q + 2] + boxes[q + 5]) / 2;
-        const hx = (boxes[q + 3] - boxes[q]) / 2 + reach,
-            hy = (boxes[q + 4] - boxes[q + 1]) / 2 + reach,
-            hz = (boxes[q + 5] - boxes[q + 2]) / 2 + reach;
-        const tx = palette[o] * cx + palette[o + 4] * cy + palette[o + 8] * cz + palette[o + 12];
-        const ty =
-            palette[o + 1] * cx + palette[o + 5] * cy + palette[o + 9] * cz + palette[o + 13];
-        const tz =
-            palette[o + 2] * cx + palette[o + 6] * cy + palette[o + 10] * cz + palette[o + 14];
-        const sx =
-            Math.abs(palette[o]) * hx +
-            Math.abs(palette[o + 4]) * hy +
-            Math.abs(palette[o + 8]) * hz;
-        const sy =
-            Math.abs(palette[o + 1]) * hx +
-            Math.abs(palette[o + 5]) * hy +
-            Math.abs(palette[o + 9]) * hz;
-        const sz =
-            Math.abs(palette[o + 2]) * hx +
-            Math.abs(palette[o + 6]) * hy +
-            Math.abs(palette[o + 10]) * hz;
-        x0 = Math.min(x0, tx - sx);
-        y0 = Math.min(y0, ty - sy);
-        z0 = Math.min(z0, tz - sz);
-        x1 = Math.max(x1, tx + sx);
-        y1 = Math.max(y1, ty + sy);
-        z1 = Math.max(z1, tz + sz);
-    }
-    const dx = x1 - x0,
-        dy = y1 - y0,
-        dz = z1 - z0;
-    world
-        .storage(MeshInstance)
-        .cullBounds.set(
-            eid,
-            (x0 + x1) / 2,
-            (y0 + y1) / 2,
-            (z0 + z1) / 2,
-            Math.sqrt(dx * dx + dy * dy + dz * dz) / 2,
-        );
 }
