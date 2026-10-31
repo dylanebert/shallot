@@ -140,7 +140,7 @@ class TreeState {
         this.refreshWords();
         const memory = this.kernel.memory.buffer;
         const pool = this.kernel.standaloneTreePool(this.pointer) >>> 0;
-        const length = this.words[10] * 12;
+        const length = Math.max(this.words[10], this.words[18]) * 20;
         if (
             this.nodes.buffer !== memory ||
             this.nodes.byteOffset !== pool ||
@@ -280,7 +280,7 @@ export function getPhysicsTreeNode(
     const s = stateFor(world, tree);
     if (!Number.isInteger(id) || id < 0 || id >= s.words[10])
         throw new Error("physics tree node index out of range");
-    const n = id * 12,
+    const n = id * 20,
         flags = s.nodes[n + 11];
     if (!(flags & 1)) return null;
     const out = s.node;
@@ -295,7 +295,9 @@ export function getPhysicsTreeNode(
     out.leaf = !!(flags & 4);
     out.child1 = out.leaf ? -1 : s.nodes[n + 8] | 0;
     out.child2 = out.leaf ? -1 : s.nodes[n + 9] | 0;
-    out.userData = out.leaf ? s.users.get(id)! : 0n;
+    s.bits.setUint32(0, s.nodes[n + 8], true);
+    s.bits.setUint32(4, s.nodes[n + 9], true);
+    out.userData = out.leaf ? s.bits.getBigUint64(0, true) : 0n;
     return out;
 }
 function query(
@@ -373,40 +375,43 @@ export function queryClosestPhysicsTree(
 export function savePhysicsTree(world: World, tree: PhysicsTree): Uint8Array {
     const s = stateFor(world, tree);
     s.call(10);
-    const bytes = new Uint8Array(32 + s.nodes.byteLength),
+    const length = Math.max(s.words[9], s.words[18]) * 20;
+    const bytes = new Uint8Array(64 + length * 4),
         view = new DataView(bytes.buffer);
-    view.setUint32(0, 0x31543342, true);
-    for (let i = 0; i < 6; i++) view.setUint32(4 + i * 4, s.words[8 + i], true);
-    view.setInt32(28, s.words[17], true);
-    for (let i = 0; i < s.nodes.length; i++) view.setUint32(32 + i * 4, s.nodes[i], true);
+    view.setUint32(0, 0x32543342, true);
+    for (let i = 0; i < 13; i++) view.setUint32(4 + i * 4, s.words[8 + i], true);
+    view.setUint32(12, s.words[9], true);
+    for (let i = 0; i < length; i++) view.setUint32(64 + i * 4, s.nodes[i], true);
     return bytes;
 }
 /** Restores an owned image. Scale must be positive and finite. Malformed or incompatible images throw. */
 export function loadPhysicsTree(world: World, image: Uint8Array, scale = 1): PhysicsTree {
-    if (!Number.isFinite(Math.fround(scale)) || Math.fround(scale) <= 0 || image.byteLength < 32)
+    if (!Number.isFinite(Math.fround(scale)) || Math.fround(scale) <= 0 || image.byteLength < 64)
         throw new Error("invalid physics tree image or scale");
     const view = new DataView(image.buffer, image.byteOffset, image.byteLength),
-        capacity = view.getUint32(12, true);
+        capacity = view.getUint32(12, true),
+        proxyCapacity = view.getUint32(44, true);
     if (
-        view.getUint32(0, true) !== 0x31543342 ||
-        capacity < 31 ||
-        image.byteLength !== 32 + capacity * 48
+        view.getUint32(0, true) !== 0x32543342 ||
+        capacity < 2 ||
+        proxyCapacity < 1 ||
+        image.byteLength !== 64 + Math.max(capacity, proxyCapacity) * 80
     )
         throw new Error("invalid physics tree image");
     // Reproduce the exact node capacity, including pools that grew by 50 percent.
     const tree = createPhysicsTree(world, 16),
         s = stateFor(world, tree);
     try {
+        s.words[18] = proxyCapacity;
         s.call(9, capacity);
         s.users.clear();
-        for (let i = 0; i < 6; i++) s.words[8 + i] = view.getUint32(4 + i * 4, true);
-        s.words[17] = view.getUint32(28, true);
-        for (let i = 0; i < s.nodes.length; i++) s.nodes[i] = view.getUint32(32 + i * 4, true);
-        for (let i = 0; i < s.words[10]; i++) {
-            const n = i * 12;
-            if ((s.nodes[n + 11] & 5) !== 5) continue;
-            s.bits.setUint32(0, s.nodes[n + 8], true);
-            s.bits.setUint32(4, s.nodes[n + 9], true);
+        for (let i = 0; i < 13; i++) s.words[8 + i] = view.getUint32(4 + i * 4, true);
+        for (let i = 0; i < s.nodes.length; i++) s.nodes[i] = view.getUint32(64 + i * 4, true);
+        for (let i = 0; i < s.words[18]; i++) {
+            const n = i * 20;
+            if ((s.nodes[n + 16] | 0) === -1) continue;
+            s.bits.setUint32(0, s.nodes[n + 12], true);
+            s.bits.setUint32(4, s.nodes[n + 13], true);
             s.users.set(i, s.bits.getBigUint64(0, true));
         }
         if (!s.call(8, 0, 0n, 0n, scale)) throw new Error("invalid physics tree image");

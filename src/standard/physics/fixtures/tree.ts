@@ -64,7 +64,8 @@ export function treeSweep(world: World): string {
         const capacity = getPhysicsTreeStats(world, tree).nodeCapacity;
         for (let i = 0; i < capacity; i++) {
             const n = getPhysicsTreeNode(world, tree, i);
-            if (n?.leaf) boxes.set(i, structuredClone(n.bounds));
+            if (n?.leaf)
+                boxes.set(Number(n.userData - 0x1234567800000000n), structuredClone(n.bounds));
         }
         for (let mode = 0; mode < 4; mode++) {
             const filter = {

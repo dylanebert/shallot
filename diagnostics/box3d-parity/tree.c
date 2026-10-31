@@ -15,12 +15,13 @@ static b3AABB box(int i) {
 }
 static void report(b3DynamicTree* t) {
     b3DynamicTree_Validate(t);
-    printf("tree %d %d %d %d %d %u\n", t->root, t->nodeCount, t->nodeCapacity, t->proxyCount, b3DynamicTree_GetHeight(t), bits(b3DynamicTree_GetAreaRatio(t)));
-    for(int i=0;i<t->nodeCapacity;i++) {
+    printf("tree %d %d %d %d %d %u\n", 0, t->nodeEnd, t->nodeCapacity, t->proxyCount, b3DynamicTree_GetHeight(t), bits(b3DynamicTree_GetAreaRatio(t)));
+    for(int i=0;i<t->nodeEnd;i++) {
         b3TreeNode* n=t->nodes+i;
-        if (!(n->flags & b3_allocatedNode)) continue;
-        bool leaf = (n->flags & b3_leafNode) != 0;
-        printf("node %d %d %d %d %d %d %llu", i,n->parent,leaf?-1:n->children.child1,leaf?-1:n->children.child2,n->height,leaf, (unsigned long long)(leaf?n->userData:0));
+        if (n->flagIndex == UINT32_MAX - (1u << 30)) continue;
+        bool leaf = (n->flagIndex & (1u << 31)) != 0;
+        int index = (int)(n->flagIndex & ((1u << 30) - 1));
+        printf("node %d %d %d %d %d %d %llu", i,t->parents[i],leaf?-1:index,leaf?-1:index+1,leaf?0:n->height,leaf, (unsigned long long)(leaf?t->proxies[index].userData:0));
         printf(" %u %u %u %u %u %u\n",bits(n->aabb.lowerBound.x),bits(n->aabb.lowerBound.y),bits(n->aabb.lowerBound.z),bits(n->aabb.upperBound.x),bits(n->aabb.upperBound.y),bits(n->aabb.upperBound.z));
     }
 }
@@ -33,7 +34,7 @@ static float ray(const b3RayCastInput* input,int id,uint64_t user,void* context)
 }
 static float closest(float limit,int id,uint64_t user,void* context) {
     (void)context; printf("closest %d %llu %u\n",id,(unsigned long long)user,bits(limit));
-    b3Vec3 p={24,10,3}, q=b3ClosestPointToAABB(p,current->nodes[id].aabb);
+    b3Vec3 p={24,10,3}, q=b3ClosestPointToAABB(p,b3DynamicTree_GetAABB(current,id));
     return b3DistanceSquared(p,q);
 }
 static float tiny(float limit,int id,uint64_t user,void* context) {

@@ -37,6 +37,7 @@ pub mod contact_wide;
 pub mod continuous;
 pub mod continuous_shape;
 pub mod distance;
+pub mod dynamic_tree;
 pub mod finalize;
 #[cfg(target_arch = "wasm32")]
 mod geometry_database;
