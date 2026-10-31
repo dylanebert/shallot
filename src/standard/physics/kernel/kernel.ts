@@ -1200,6 +1200,8 @@ function host(): Host {
 }
 
 /** The host functions every kernel instance imports, reading `memory` lazily. */
+export class KernelAllocationError extends Error {}
+
 function kernelImports(runtime: KernelState, memory: () => WebAssembly.Memory) {
     return {
         solverPause,
@@ -1209,7 +1211,7 @@ function kernelImports(runtime: KernelState, memory: () => WebAssembly.Memory) {
         now: clockImport(memory),
         kernelPanic: panicImport(memory),
         allocationFailed: () => {
-            throw new Error(
+            throw new KernelAllocationError(
                 `physics: shared kernel allocation failed at the ${runtime.maximumMemory} byte ceiling; increase PhysicsWorldDefinition.maximumMemory (up to 4294967296 bytes).`,
             );
         },

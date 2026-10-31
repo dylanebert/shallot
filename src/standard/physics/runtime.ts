@@ -82,6 +82,7 @@ import { EventKind, eventCount } from "./kernel/eventbuffers";
 import { readJointEventUserData } from "./kernel/jointcolumns";
 import {
     artifact,
+    KernelAllocationError,
     kernel,
     kernelState,
     type QueryCallback,
@@ -2649,6 +2650,7 @@ function markBodyDependents(runtime: PhysicsRuntime, body: number): void {
 }
 
 function warnShape(runtime: PhysicsRuntime, eid: number, error: unknown): void {
+    if (error instanceof KernelAllocationError) throw error;
     if (runtime.warnedShapes.has(eid)) return;
     runtime.warnedShapes.add(eid);
     console.warn(`[physics] Shape ${eid} was not attached: ${String(error)}`);
