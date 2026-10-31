@@ -59,13 +59,13 @@ try {
             if (!existsSync(join(artifacts, file))) throw new Error(`missing artifact: ${join(artifacts, file)}`);
         const outdir = join(dir, String(i));
         const built = await Bun.build({
-            entrypoints: [join(import.meta.dir, "scenes.ts")], outdir, target: "node", format: "esm",
+            entrypoints: [join(import.meta.dir, scene === "village" ? "village-ab.ts" : "scenes.ts")], outdir, target: "node", format: "esm",
             plugins: [{ name: "kernel-variant", setup(build) {
                 build.onResolve({ filter: /kernel\.(shared\.)?wasm$/ }, args => ({ path: join(artifacts, `${args.path.split("/").at(-1)}.ts`) }));
             } }],
         });
         if (!built.success) throw new Error(built.logs.join("\n"));
-        return { label, bundle: join(outdir, "scenes.js") };
+        return { label, bundle: join(outdir, scene === "village" ? "village-ab.js" : "scenes.js") };
     }));
     if (new Set(variants.map(v => v.label)).size !== variants.length) throw new Error("variant labels must be unique");
     for (const thread of threads) {
