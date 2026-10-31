@@ -326,6 +326,7 @@ A choice the pillars leave open is taste, and goes to the person.
 
 - A pin is the last verified version; until the release-candidate bump, it moves only for a named defect
 - Source and examples self-reference the package name without a dependency entry
+- A runtime dependency is added only for what Shallot cannot reasonably carry itself; a table or helper of a few dozen lines is carried in the module that uses it, naming its source
 - `@types/node` and `@webgpu/types` stay runtime dependencies because public types point at source
 - A link cannot prove what ships: CLI, manifest, dependency, runtime or native-shell changes require a packed tarball installed in a scratch project
 - Package-test fixtures use [the frozen, offline installer](scripts/packed-install-spawn.ts) in independent scratch roots

@@ -4,8 +4,6 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { detectAgenticEnvironment } from "am-i-vibing";
-import ci from "ci-info";
 import type { Browser } from "playwright";
 import { buildWeb, CROSS_ORIGIN_ISOLATION } from "../project";
 import {
@@ -80,12 +78,47 @@ export function validWorkerName(name: string): boolean {
     return /^[a-z0-9][a-z0-9-]{0,62}$/.test(name);
 }
 
+/**
+ * Coding agents that can run commands in a real terminal, by the environment they set: the agent rows
+ * of am-i-vibing 0.5.0 (MIT), without its process-tree checks.
+ */
+const AGENT_SIGNATURES: readonly ((env: NodeJS.ProcessEnv) => boolean)[] = [
+    (env) =>
+        [
+            "OPENCODE",
+            "OPENCODE_BIN_PATH",
+            "OPENCODE_SERVER",
+            "OPENCODE_APP_INFO",
+            "OPENCODE_MODES",
+            "CLAUDECODE",
+            "ANTIGRAVITY_AGENT",
+            "ANTIGRAVITY_PROJECT_ID",
+            "CODEX_THREAD_ID",
+            "REPL_ID",
+            "AIDER_API_KEY",
+            "CODEIUM_EDITOR_APP_ROOT",
+            "AMP_CURRENT_THREAD_ID",
+        ].some((name) => env[name]),
+    (env) => env.HOME === "/home/jules" && env.USER === "swebot",
+    (env) => !!env.CURSOR_TRACE_ID && env.PAGER === "head -n 10000 | cat",
+    (env) => env.SHELL === "/bin/jsh" && !!env.npm_config_yes,
+    (env) => env.TERM_PROGRAM === "zed" && env.PAGER === "cat",
+    (env) => env.TERM_PROGRAM === "vscode" && env.GIT_PAGER === "cat",
+    (env) =>
+        env.GEMINI_CLI === "1" ||
+        env.CRUSH === "1" ||
+        env.AUGMENT_AGENT === "1" ||
+        env.QWEN_CODE === "1" ||
+        env.PI_CODING_AGENT === "true",
+    (env) => ["crush", "amp"].includes(env.AGENT ?? "") || env.AI_AGENT === "crush",
+];
+
+/** A prompt waits for a person: only in a terminal that is neither CI nor a coding agent's. */
 export function publishInteraction(env: NodeJS.ProcessEnv, tty: boolean): boolean {
     return (
         tty &&
-        !ci.isCI &&
         (!env.CI || env.CI === "false") &&
-        detectAgenticEnvironment({ env, processAncestry: [] }).type !== "agent"
+        !AGENT_SIGNATURES.some((signature) => signature(env))
     );
 }
 

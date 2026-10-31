@@ -156,8 +156,6 @@
     "dependencies": {
         "@types/node": "^26.6.5",
         "@webgpu/types": "^0.1.74",
-        "am-i-vibing": "0.5.0",
-        "ci-info": "4.4.0",
         "unplugin-typegpu": "~0.12.6"
     },
     "devDependencies": {

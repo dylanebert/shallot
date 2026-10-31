@@ -90,7 +90,28 @@ test("only the structured Worker-not-found answer permits first-link creation", 
 test("no TTY, CI and agent sessions cannot prompt", () => {
     expect(publishInteraction({}, false)).toBe(false);
     expect(publishInteraction({ CI: "true" }, true)).toBe(false);
-    expect(publishInteraction({ CLAUDECODE: "1" }, true)).toBe(false);
+    for (const env of [
+        { CLAUDECODE: "1" },
+        { CODEX_THREAD_ID: "t" },
+        { PI_CODING_AGENT: "true" },
+        { AGENT: "amp" },
+        { CURSOR_TRACE_ID: "t", PAGER: "head -n 10000 | cat" },
+        { TERM_PROGRAM: "zed", PAGER: "cat" },
+        { TERM_PROGRAM: "vscode", GIT_PAGER: "cat" },
+    ])
+        expect(publishInteraction(env, true)).toBe(false);
+});
+
+test("a person in an editor's terminal can prompt", () => {
+    for (const env of [
+        {},
+        { CI: "false" },
+        { CURSOR_TRACE_ID: "t" },
+        { TERM_PROGRAM: "zed" },
+        { TERM_PROGRAM: "vscode" },
+        { TERM_PROGRAM: "WarpTerminal" },
+    ])
+        expect(publishInteraction(env, true)).toBe(true);
 });
 
 test("preflight names the file and limit, including the first file over the count", () => {
