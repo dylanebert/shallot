@@ -494,20 +494,16 @@ pub unsafe extern "C" fn create_contact(world: usize, a: usize, b: usize, child:
 }
 unsafe fn create_pairs(world_index: usize) {
     let world = world_index;
-    let heads = crate::pairwork::pairs_cand_end_ptr();
-    let pairs = crate::pairwork::pairs_cand_ptr();
-    for i in 0..crate::broad::move_count(world_index) {
-        let mut entry = *heads.add(i);
-        while entry != u32::MAX {
-            let p = pairs.add(entry as usize * 4);
-            let child = *p;
-            let a = *p.add(1) as usize;
-            let b = *p.add(2) as usize;
-            entry = *p.add(3);
-            crate::contact_lifecycle::create(world, a, b, child as i32);
+    let keys = core::slice::from_raw_parts(crate::pairwork::keys(), crate::pairwork::key_count());
+    for (i, &key) in keys.iter().enumerate() {
+        if i > 0 && key == keys[i - 1] {
+            continue;
         }
+        let a = ((key >> 42) & ((1 << 22) - 1)) as usize;
+        let b = ((key >> 20) & ((1 << 22) - 1)) as usize;
+        let child = (key & ((1 << 20) - 1)) as i32;
+        crate::contact_lifecycle::create(world, a, b, child);
     }
-    crate::broad::clear_moves_in_world(world_index);
 }
 unsafe fn sleep_islands(world_index: usize) {
     for index in (0..solver_set::array_count_in_world(
@@ -619,9 +615,8 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
         match DRIVER.phase {
             0 => return 0,
             1 => {
-                if crate::broad::move_count(world_index) == 0 {
-                    crate::pairwork::reserve_rebuild_in_world(world_index);
-                    crate::pairwork::schedule_rebuild();
+                if !crate::pairwork::needs_update(world_index) {
+                    crate::pairwork::schedule_rebuild(world_index);
                     TREE_TASK = crate::solve::SCHEDULER.enqueue(rebuild_task, world_index, 0);
                     DRIVER.phase = 3;
                     continue;
@@ -634,7 +629,7 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                 parallel(
                     world_index,
                     4,
-                    crate::broad::move_count(world_index),
+                    crate::pairwork::job_count(),
                     crate::broad::set_cap(world_index) as f32,
                 );
             }
@@ -643,13 +638,12 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                     parallel(
                         world_index,
                         4,
-                        crate::broad::move_count(world_index),
+                        crate::pairwork::job_count(),
                         crate::broad::set_cap(world_index) as f32,
                     );
                     continue;
                 }
-                crate::pairwork::reserve_rebuild_in_world(world_index);
-                crate::pairwork::schedule_rebuild();
+                crate::pairwork::schedule_rebuild(world_index);
                 TREE_TASK = crate::solve::SCHEDULER.enqueue(rebuild_task, world_index, 0);
                 create_pairs(world_index);
                 crate::arena::free_scratch(world_index);

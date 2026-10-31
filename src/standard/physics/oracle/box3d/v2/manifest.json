@@ -1,16 +1,16 @@
 {
   "schema": "box3d-oracle/manifest-v2",
   "bundle": {
-    "upstreamSha": "954cf879e717334eb96da9a5c255788fdc9f5f87",
+    "upstreamSha": "f555ee42084e0b43cbffa863f40bff8117c08896",
     "schema": "v2",
-    "identity": "954cf879e717334eb96da9a5c255788fdc9f5f87/v2"
+    "identity": "f555ee42084e0b43cbffa863f40bff8117c08896/v2"
   },
   "upstream": {
     "url": "https://github.com/erincatto/box3d.git",
     "ref": "refs/heads/main",
     "channel": "official-main",
-    "sha": "954cf879e717334eb96da9a5c255788fdc9f5f87",
-    "tree": "f112da807e8a98f64339d1456b04ffcdf65a083f",
+    "sha": "f555ee42084e0b43cbffa863f40bff8117c08896",
+    "tree": "5d3aee146ace7022293cead1e5918e17123355a1",
     "reachableFromChannel": true
   },
   "oracle": {
@@ -166,9 +166,9 @@
     ],
     "library": "patched disposable official libbox3.a",
     "privateIncludeRoot": "official src/ in disposable patched checkout",
-    "linkMapSha256": "72f5f6f333ca9d63d636ca5c20f74097fb680cd4d82490799374df7d9c0663fc",
-    "nmEvidenceSha256": "b7a0c67f0ff14f28befd6fb4b56fd356d451c77e9807724e9b3b9a6ee4ecbe58",
-    "executableSha256": "d672def6855dd99edd7b9ff30741ddf1266e0e30dbb22941f73b32299d88b42a"
+    "linkMapSha256": "df83cb5f4b4c1343a58bf1611828bb67725560e5bf780658d19e3b3625d80188",
+    "nmEvidenceSha256": "188cdac25c7019ce0e2991d96ca3df5f99a97a2e642daab7ad9a529b6132b5e3",
+    "executableSha256": "148c7f2ddb382bf25b99a93ede7dfe41b21cd9ef032940dadd978dd66c0ac4e2"
   },
   "schemaDefinition": "schema.json",
   "membership": "membership.json",
@@ -178,8 +178,8 @@
   "fileDigests": {
     "schema.json": "9997df52f73a03d82c831bfbb20a640d8a28dadf16672f6842ca3f3af415c02f",
     "membership.json": "dcf7c6ce77167ad0ca4c7392273f04efba329d8b1795a1ce08b3720b22dfd1f9",
-    "provenance.json": "7552c9e585059117853535d24b3ddb8e8a1712cb970a23f6dd14668cfb64aa8e",
-    "cases.json": "53ccc4757a99b70c1b650a8ea4ad7f0ddba526e2022e619014e3ff4b84c49c58"
+    "provenance.json": "cf04e8a5c9650317da15942715cb066113b2a0166d56f739d647008cc5d6ab38",
+    "cases.json": "378a8a33cae0e1281c2969d198016cd2423ed7137e027be6b287c2ad1eacc64a"
   },
   "fileDigestScope": "Generated evidence files only; manifest is the receipt and is intentionally excluded from its own digest map.",
   "generation": {

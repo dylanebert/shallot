@@ -153,6 +153,9 @@ function mutation(
     lo = 0,
     user: number | bigint = 0,
 ): number {
+    const userLow = typeof user === "bigint" ? Number(user & 0xffffffffn) : user;
+    const userHigh =
+        typeof user === "bigint" ? Number(user >> 32n) : Math.floor(user / 0x100000000);
     if (t.store) {
         t.store.refreshIfStale();
         return kernel(t.store.ecsState).treeMutateResident(
@@ -167,8 +170,8 @@ function mutation(
             box?.upperBound.z ?? 0,
             hi,
             lo,
-            Number(BigInt(user) & 0xffffffffn),
-            Number(BigInt(user) >> 32n),
+            userLow,
+            userHigh,
         );
     }
     const k = kernel(undefined),
@@ -189,8 +192,8 @@ function mutation(
         hi,
         lo,
         0,
-        Number(BigInt(user) & 0xffffffffn),
-        Number(BigInt(user) >> 32n),
+        userLow,
+        userHigh,
         0,
     );
     publish(t);
@@ -212,10 +215,14 @@ export function buildTree(boxes: readonly AABB[], hi: number, lo: number): Dynam
                 b.upperBound.y,
                 b.upperBound.z,
             ]);
-            k.standaloneTreeCall(h, 0, 0, hi, lo, 0, i, 0, 0);
+            k.standaloneTreeCall(h, 14, 0, hi, lo, 0, i, 0, 0);
         }
         k.standaloneTreeCall(h, 3, 1, 0, 0, 0, 0, 0, 0);
         publish(t);
+        // Baked compounds retain the immutable node/proxy prefixes, not the mutable pool capacity.
+        t.nodeCapacity = t.nodeCount;
+        t.nf = t.nf.subarray(0, t.nodeCount * STRIDE);
+        t.ni = t.ni.subarray(0, t.nodeCount * STRIDE);
         return t;
     } finally {
         destroyTree(t);

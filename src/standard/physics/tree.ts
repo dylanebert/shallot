@@ -52,8 +52,10 @@ export interface PhysicsTreeStats {
     /** Internal-node surface areas, excluding the root, divided by root surface area; zero for an empty tree. */
     areaRatio: number;
 }
-/** Borrowed until the next node read on this tree. Bounds are in meters; root depth is zero. */
+/** Borrowed until the next node read on this tree. Bounds are in meters. */
 export interface PhysicsTreeNode {
+    /** Leaf proxy ID; -1 on internal nodes. */
+    proxyId: number;
     bounds: AABB;
     parent: number;
     child1: number;
@@ -99,6 +101,7 @@ class TreeState {
         minDistanceSquared: 0,
     };
     readonly node: PhysicsTreeNode = {
+        proxyId: -1,
         bounds: { lowerBound: { x: 0, y: 0, z: 0 }, upperBound: { x: 0, y: 0, z: 0 } },
         parent: -1,
         child1: -1,
@@ -271,16 +274,19 @@ export function getPhysicsTreeStats(world: World, tree: PhysicsTree): PhysicsTre
 export function validatePhysicsTree(world: World, tree: PhysicsTree): void {
     if (!stateFor(world, tree).call(7)) throw new Error("invalid physics tree");
 }
-/** Returns null for a free slot; internal nodes have no user data. Child IDs are -1 on leaves. */
+/**
+ * Node indices describe the current topology, not proxy IDs; mutations can relocate nodes.
+ * Returns null for a free slot; internal nodes have no user data. Child indices are -1 on leaves.
+ */
 export function getPhysicsTreeNode(
     world: World,
     tree: PhysicsTree,
-    id: number,
+    index: number,
 ): PhysicsTreeNode | null {
     const s = stateFor(world, tree);
-    if (!Number.isInteger(id) || id < 0 || id >= s.words[10])
+    if (!Number.isInteger(index) || index < 0 || index >= s.words[10])
         throw new Error("physics tree node index out of range");
-    const n = id * 20,
+    const n = index * 20,
         flags = s.nodes[n + 11];
     if (!(flags & 1)) return null;
     const out = s.node;
@@ -293,6 +299,7 @@ export function getPhysicsTreeNode(
     out.parent = s.nodes[n + 10] | 0;
     out.height = flags >>> 16;
     out.leaf = !!(flags & 4);
+    out.proxyId = out.leaf ? s.nodes[n + 18]! : -1;
     out.child1 = out.leaf ? -1 : s.nodes[n + 8] | 0;
     out.child2 = out.leaf ? -1 : s.nodes[n + 9] | 0;
     s.bits.setUint32(0, s.nodes[n + 8], true);

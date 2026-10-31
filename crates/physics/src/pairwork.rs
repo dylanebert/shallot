@@ -1,509 +1,381 @@
-//! Box3D broad_phase.c: parallel pair queries and the serial tree rebuild.
-//! After the join, create contacts in move-buffer order, walking each proxy's
-//! prepended survivor list in place. Task allocation order must not affect that order.
-
+//! Box3D broad_phase.c: moved sibling cross traversals and globally sorted shape-pair keys.
 use crate::broad;
-use core::sync::atomic::{AtomicUsize, Ordering};
-
-static CAND_COUNT: AtomicUsize = AtomicUsize::new(0);
+use crate::dynamic_tree::{Node, MOVED, STACK_SIZE};
+use crate::math::Vec3;
+use crate::mesh_query::aabb_overlaps;
 use crate::shapes::{col_slice as shape_col, SHAPE_STRIDE, S_TYPE};
 use crate::table;
-use crate::tree;
 
-/// Body types, packed into a proxy key's low 2 bits.
-const KINEMATIC: u32 = crate::body::body_type::KINEMATIC as u32;
-const DYNAMIC: u32 = crate::body::body_type::DYNAMIC as u32;
-
-/// u32 slots per survivor: childIndex, shapeA, shapeB, next.
-/// Each proxy owns a LIFO list; allocation order across proxies is immaterial.
-const CAND_STRIDE: usize = 4;
-
-// Slab pointers (byte offsets) in the shared per-step arena.
-static mut MOVE_PTR: u32 = 0;
-static mut MOVED_PTR: u32 = 0;
-static mut CANDEND_PTR: u32 = 0;
-static mut CAND_PTR: u32 = 0;
-
-static mut MOVE_COUNT: usize = 0;
-static mut MOVED_WORDS: usize = 0;
-static mut CAND_CAP: usize = 0;
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct Job {
+    a: Node,
+    b: Node,
+    tree_b: usize,
+}
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct Candidate {
+    child: u32,
+    a: u32,
+    b: u32,
+}
+static mut JOB_PTR: usize = 0;
+static mut JOB_COUNT: usize = 0;
+static mut COUNT_PTR: usize = 0;
+static mut OFFSET_PTR: usize = 0;
+static mut INPUT_PTR: usize = 0;
+static mut KEY_PTR: usize = 0;
+static mut KEY_COUNT: usize = 0;
+static mut COLLECT: bool = false;
 static mut REBUILD_PENDING: bool = false;
-const INPUT_STRIDE: usize = 3;
-static mut INPUT_PTR: u32 = 0;
-static mut INPUT_COUNT_PTR: u32 = 0;
-static mut INPUT_OFFSET_PTR: u32 = 0;
 static mut SCRATCH_BYTES: usize = 0;
-#[derive(Clone, Copy, PartialEq)]
-enum QueryMode {
-    Parallel,
-    Count,
-    Collect,
-    Serial,
-}
-static mut MODE: QueryMode = QueryMode::Parallel;
-
-/// Return true only when a fitted count pass needs its parallel collection pass.
-pub(crate) unsafe fn finish_queries(world: usize) -> bool {
-    if MODE == QueryMode::Count {
-        let mut total = 0usize;
-        for i in 0..MOVE_COUNT {
-            *(INPUT_OFFSET_PTR as *mut u32).add(i) = total as u32;
-            total = total.saturating_add(*(INPUT_COUNT_PTR as *const u32).add(i) as usize);
-            if total > CAND_CAP {
-                break;
-            }
-        }
-        if total <= CAND_CAP {
-            let bytes = total * INPUT_STRIDE * 4;
-            INPUT_PTR = crate::arena::extend_scratch(world, bytes) as u32;
-            crate::callback_work::pair_scratch(world, SCRATCH_BYTES + bytes.next_multiple_of(16));
-            MODE = QueryMode::Collect;
-            return true;
-        }
-        MODE = QueryMode::Serial;
-    } else if MODE == QueryMode::Parallel && CAND_COUNT.load(Ordering::Relaxed) > CAND_CAP {
-        MODE = QueryMode::Serial;
+pub unsafe fn schedule_rebuild(world: usize) {
+    for i in [1, 2] {
+        broad::tree_mut(world, i).reserve_rebuild();
     }
-    if MODE == QueryMode::Serial {
-        CAND_COUNT.store(0, Ordering::Relaxed);
-        query_block(world, 0, MOVE_COUNT, broad::set_cap(world));
-    } else if MODE == QueryMode::Collect {
-        for i in 0..MOVE_COUNT {
-            let count = *(INPUT_COUNT_PTR as *const u32).add(i) as usize;
-            let offset = *(INPUT_OFFSET_PTR as *const u32).add(i) as usize;
-            let inputs = (INPUT_PTR as *const u32).add(offset * INPUT_STRIDE);
-            let mut head = u32::MAX;
-            for j in 0..count {
-                let p = inputs.add(j * INPUT_STRIDE);
-                let (child, a, b) = (*p, *p.add(1), *p.add(2));
-                if accept(world, a, b) {
-                    head = emit(child, a, b, head);
-                }
-            }
-            *(CANDEND_PTR as *mut u32).add(i) = head;
-        }
-    }
-    false
-}
-
-unsafe fn accept(world: usize, a: u32, b: u32) -> bool {
-    let shapes = shape_col(world);
-    if crate::callbacks::filter_enabled(world)
-        && (shapes[a as usize * SHAPE_STRIDE + crate::shapes::S_FLAGS]
-            | shapes[b as usize * SHAPE_STRIDE + crate::shapes::S_FLAGS])
-            & crate::shapes::CUSTOM_FILTERING_FLAG
-            != 0
-    {
-        crate::callback_work::note(world, crate::callback_work::Work::PairSerial);
-    }
-    crate::callbacks::filter(world, a as usize, b as usize)
-}
-
-pub unsafe fn schedule_rebuild() {
     REBUILD_PENDING = true;
 }
-
 pub unsafe fn rebuild_pending() -> bool {
     REBUILD_PENDING
 }
-
-/// Reserve shared pair-finding scratch, consumed before dispatch, recycle or solve reserves it.
-pub extern "C" fn reserve_pairs_in_world(world_index: usize) {
-    unsafe {
-        let collect = crate::callbacks::filter_enabled(world_index);
-        let move_count = broad::move_count(world_index);
-        INPUT_PTR = 0;
-        MODE = if collect {
-            QueryMode::Count
-        } else {
-            QueryMode::Parallel
+pub unsafe fn job_count() -> usize {
+    JOB_COUNT
+}
+pub unsafe fn key_count() -> usize {
+    KEY_COUNT
+}
+pub unsafe fn keys() -> *const u64 {
+    KEY_PTR as *const u64
+}
+fn test(a: Node, b: Node) -> bool {
+    (a.flags | b.flags) & MOVED != 0 && aabb_overlaps(a.lo, a.hi, b.lo, b.hi)
+}
+unsafe fn seeds(world: usize, tree_b: usize, out: &mut [Job]) -> usize {
+    let a = &broad::tree(world, 2).nodes;
+    let b = &broad::tree(world, tree_b).nodes;
+    let empty = Job {
+        a: Node::empty(),
+        b: Node::empty(),
+        tree_b,
+    };
+    let mut queue = [empty; 128];
+    let mut head = 0;
+    let mut tail = 0;
+    if test(a[0], b[0]) {
+        queue[0] = Job {
+            a: a[0],
+            b: b[0],
+            tree_b,
         };
-        let cand_cap = 16 * move_count;
-        CAND_CAP = cand_cap;
-        CAND_COUNT.store(0, Ordering::Relaxed);
-        MOVE_COUNT = broad::move_count(world_index);
-        MOVED_WORDS = broad::bits_words(world_index, DYNAMIC as usize);
-
-        let mut off = 0;
-        MOVE_PTR = broad::move_ptr(world_index) as u32;
-        MOVED_PTR = broad::bits_ptr(world_index, DYNAMIC as usize) as u32;
-        CANDEND_PTR = off as u32;
-        off += move_count * 4;
-        CAND_PTR = off as u32;
-        off += cand_cap * CAND_STRIDE * 4;
-        if collect {
-            INPUT_COUNT_PTR = off as u32;
-            off += move_count * 4;
-            INPUT_OFFSET_PTR = off as u32;
-            off += move_count * 4;
+        tail = 1;
+    }
+    let mut count = 0;
+    while head < tail && count + (tail - head) + 3 < 64 {
+        let pair = queue[head & 127];
+        head += 1;
+        if pair.a.leaf() || pair.b.leaf() {
+            out[count] = pair;
+            count += 1;
+            continue;
         }
-        SCRATCH_BYTES = off.next_multiple_of(16);
-        crate::callback_work::pair_scratch(world_index, SCRATCH_BYTES);
-        let base = crate::arena::reserve_scratch(world_index, off) as u32;
-        CANDEND_PTR += base;
-        CAND_PTR += base;
-        if collect {
-            INPUT_COUNT_PTR += base;
-            INPUT_OFFSET_PTR += base;
-        }
-    }
-}
-
-pub extern "C" fn pairs_cand_end_ptr() -> *const u32 {
-    unsafe { CANDEND_PTR as *const u32 }
-}
-
-pub extern "C" fn pairs_cand_ptr() -> *const u32 {
-    unsafe { CAND_PTR as *const u32 }
-}
-
-/// One tree pool as a `[u32]` of `cap * STRIDE` slots.
-#[inline]
-unsafe fn pool_slice(world_index: usize, tree_index: usize) -> &'static [u32] {
-    core::slice::from_raw_parts(
-        broad::tree_ptr(world_index, tree_index),
-        broad::tree_cap(world_index, tree_index) * tree::STRIDE,
-    )
-}
-
-/// b3QueryPairContext over the resident columns and this proxy's move-result list.
-struct Emitter<'a> {
-    world: usize,
-    shape: &'a [u32],
-    moved: &'a [u64],
-    items: &'a [table::Item],
-    head: u32,
-    lower: crate::math::Vec3,
-    upper: crate::math::Vec3,
-    query_shape: u32,
-    query_key: u32,
-    query_dynamic: bool,
-    tree_type: u32,
-    inputs: *mut u32,
-    input_count: usize,
-    expected_count: usize,
-}
-
-impl<'a> Emitter<'a> {
-    #[inline]
-    fn moved_bit(&self, id: i32) -> bool {
-        let block = (id >> 6) as usize;
-        block < self.moved.len() && (self.moved[block] >> (id & 63)) & 1 != 0
-    }
-
-    /// b3PairQueryCallback's moved-proxy dedup: when both proxies moved, only the lower-keyed proxy's
-    /// query creates the pair (dynamic case), and a non-dynamic query skips any moved found proxy.
-    #[inline]
-    fn dedup_reject(&self, other: i32) -> bool {
-        if self.query_dynamic {
-            self.tree_type == DYNAMIC
-                && (((other as u32) << 2) | DYNAMIC) < self.query_key
-                && self.moved_bit(other)
-        } else {
-            self.moved_bit(other)
-        }
-    }
-
-    #[inline]
-    fn emit(&mut self, child: u32, a: u32, b: u32) {
-        self.head = unsafe { emit(child, a, b, self.head) };
-    }
-
-    fn record(&mut self, other: i32, found_shape: u32) -> bool {
-        unsafe {
-            if MODE == QueryMode::Count && self.input_count > CAND_CAP
-                || MODE == QueryMode::Serial
-                    && !crate::callbacks::filter_enabled(self.world)
-                    && CAND_COUNT.load(Ordering::Relaxed) >= CAND_CAP
-            {
-                return false;
+        for i in 0..2 {
+            for j in 0..2 {
+                let na = a[pair.a.index() + i];
+                let nb = b[pair.b.index() + j];
+                if test(na, nb) {
+                    queue[tail & 127] = Job {
+                        a: na,
+                        b: nb,
+                        tree_b,
+                    };
+                    tail += 1;
+                }
             }
         }
-        if found_shape == self.query_shape {
-            return true;
-        }
-        let sty = self.shape[found_shape as usize * SHAPE_STRIDE + S_TYPE];
-        if sty == crate::finalize::TY_COMPOUND {
-            unsafe {
-                let (geometry, _) =
-                    crate::query_abi::active_shape(self.world, found_shape as usize);
-                let crate::query::Shape::Compound(compound) = geometry else {
-                    unreachable!()
+    }
+    while head < tail {
+        out[count] = queue[head & 127];
+        count += 1;
+        head += 1;
+    }
+    count
+}
+pub unsafe fn needs_update(world: usize) -> bool {
+    (0..3).any(|i| {
+        let t = broad::tree(world, i);
+        t.nodes[0].flags & MOVED != 0 || i != 0 && !t.ordered
+    })
+}
+pub extern "C" fn reserve_pairs_in_world(world: usize) {
+    unsafe {
+        let empty = Job {
+            a: Node::empty(),
+            b: Node::empty(),
+            tree_b: 0,
+        };
+        let mut cross = [empty; 128];
+        let s = seeds(world, 0, &mut cross);
+        let k = seeds(world, 1, &mut cross[s..]);
+        let t = broad::tree(world, 2);
+        let self_count = (2..t.end)
+            .step_by(2)
+            .filter(|&p| (t.nodes[p].flags | t.nodes[p + 1].flags) & MOVED != 0)
+            .count();
+        JOB_COUNT = s + k + self_count;
+        COLLECT = false;
+        KEY_COUNT = 0;
+        let job_bytes = JOB_COUNT * core::mem::size_of::<Job>();
+        SCRATCH_BYTES = (job_bytes + JOB_COUNT * 8).next_multiple_of(16);
+        let base = crate::arena::reserve_scratch(world, SCRATCH_BYTES);
+        crate::callback_work::pair_scratch(world, SCRATCH_BYTES);
+        JOB_PTR = base;
+        COUNT_PTR = base + job_bytes;
+        OFFSET_PTR = COUNT_PTR + JOB_COUNT * 4;
+        let jobs = core::slice::from_raw_parts_mut(JOB_PTR as *mut Job, JOB_COUNT);
+        jobs[..s + k].copy_from_slice(&cross[..s + k]);
+        let mut n = s + k;
+        for p in (2..t.end).step_by(2) {
+            if (t.nodes[p].flags | t.nodes[p + 1].flags) & MOVED != 0 {
+                jobs[n] = Job {
+                    a: t.nodes[p],
+                    b: t.nodes[p + 1],
+                    tree_b: 2,
                 };
-                let transform = crate::world_query::pose(
-                    self.world,
-                    found_shape as usize,
-                    crate::math::Vec3::ZERO,
-                )
-                .invert();
-                let center = transform.point(self.lower.add(self.upper).scale(0.5));
-                let extent = crate::math::Mat3::from_quat(transform.q)
-                    .abs()
-                    .mul_v(self.upper.sub(self.lower).scale(0.5));
-                crate::compound_query::query(
-                    compound,
-                    center.sub(extent),
-                    center.add(extent),
-                    |_, child| self.record_child(other, found_shape, child),
-                );
-            }
-            return true;
-        }
-        self.record_child(other, found_shape, 0)
-    }
-
-    fn record_child(&mut self, other: i32, found_shape: u32, child: u32) -> bool {
-        if self.dedup_reject(other) {
-            return true;
-        }
-        if table::contains_item(self.items, found_shape, self.query_shape, child) {
-            return true;
-        }
-        let a = &self.shape[found_shape as usize * SHAPE_STRIDE..][..SHAPE_STRIDE];
-        let b = &self.shape[self.query_shape as usize * SHAPE_STRIDE..][..SHAPE_STRIDE];
-        if a[1] == b[1] {
-            return true;
-        }
-        if a[4] != u32::MAX || b[4] != u32::MAX {
-            return true;
-        }
-        if !crate::shapes::should_shapes_collide(
-            crate::shapes::Filter::read(a),
-            crate::shapes::Filter::read(b),
-        ) {
-            return true;
-        }
-        if !unsafe { crate::bodies::should_collide(a[1], b[1]) } {
-            return true;
-        }
-        unsafe {
-            match MODE {
-                QueryMode::Count => {
-                    crate::callback_work::note(
-                        self.world,
-                        crate::callback_work::Work::PairParallel,
-                    );
-                    self.input_count += 1;
-                    self.input_count <= CAND_CAP
-                }
-                QueryMode::Collect => {
-                    assert!(
-                        self.input_count < self.expected_count,
-                        "physics: pair collection exceeded its count pass"
-                    );
-                    let p = self.inputs.add(self.input_count * INPUT_STRIDE);
-                    *p = child;
-                    *p.add(1) = found_shape;
-                    *p.add(2) = self.query_shape;
-                    self.input_count += 1;
-                    true
-                }
-                QueryMode::Serial => {
-                    if accept(self.world, found_shape, self.query_shape)
-                        && CAND_COUNT.load(Ordering::Relaxed) < CAND_CAP
-                    {
-                        self.emit(child, found_shape, self.query_shape);
-                    }
-                    // Native filters precede the capacity check; keep calling them even when full.
-                    crate::callbacks::filter_enabled(self.world)
-                        || CAND_COUNT.load(Ordering::Relaxed) < CAND_CAP
-                }
-                QueryMode::Parallel => {
-                    crate::callback_work::note(
-                        self.world,
-                        crate::callback_work::Work::PairParallel,
-                    );
-                    self.emit(child, found_shape, self.query_shape);
-                    true
-                }
+                n += 1;
             }
         }
     }
 }
-
-unsafe fn emit(child: u32, a: u32, b: u32, next: u32) -> u32 {
-    let index = CAND_COUNT.fetch_add(1, Ordering::Relaxed);
-    if index >= CAND_CAP {
-        return next;
-    }
-    let entry = (CAND_PTR as *mut u32).add(index * CAND_STRIDE);
-    *entry = child;
-    *entry.add(1) = a;
-    *entry.add(2) = b;
-    *entry.add(3) = next;
-    index as u32
+unsafe fn accepts(world: usize, a: u32, b: u32) -> bool {
+    let shapes = shape_col(world);
+    let sa = &shapes[a as usize * SHAPE_STRIDE..][..SHAPE_STRIDE];
+    let sb = &shapes[b as usize * SHAPE_STRIDE..][..SHAPE_STRIDE];
+    sa[1] != sb[1]
+        && sa[4] == u32::MAX
+        && sb[4] == u32::MAX
+        && crate::shapes::should_shapes_collide(
+            crate::shapes::Filter::read(sa),
+            crate::shapes::Filter::read(sb),
+        )
+        && crate::bodies::should_collide_in_world(world, sa[1], sb[1])
 }
-
-/// b3UpdateBroadPhasePairs. Each task exclusively owns its moved-proxy heads
-/// and traversal stack; the candidate allocator assigns shared storage.
-///
-/// # Safety
-/// `reserve_pairs_in_world` precedes the round; trees, shapes and membership stay fixed until its
-/// join.
-pub unsafe fn query_block(world_index: usize, start: usize, end: usize, set_cap: usize) {
-    unsafe {
-        let move_count = MOVE_COUNT;
-        let move_buf = core::slice::from_raw_parts(MOVE_PTR as *const u32, move_count);
-        let moved = core::slice::from_raw_parts(MOVED_PTR as *const u64, MOVED_WORDS);
-        let cand_end = CANDEND_PTR as *mut u32;
-        let items = core::slice::from_raw_parts(broad::set_items(world_index), set_cap);
-        let shape = shape_col(world_index);
-        let stack = &mut [0i32; tree::STACK_SIZE];
-
-        let pools = [
-            pool_slice(world_index, 0),
-            pool_slice(world_index, 1),
-            pool_slice(world_index, 2),
-        ];
-        let roots = core::array::from_fn::<_, 3, _>(|i| {
-            if broad::tree_cap(world_index, i) == 0 {
-                -1
-            } else {
-                *broad::tree_state(world_index, i) as i32
+struct Emitter {
+    world: usize,
+    count: usize,
+    output: *mut Candidate,
+    capacity: usize,
+}
+impl Emitter {
+    unsafe fn emit(&mut self, child: u32, a: u32, b: u32) {
+        if COLLECT {
+            assert!(
+                self.count < self.capacity,
+                "physics: pair collection exceeded its count pass"
+            );
+            *self.output.add(self.count) = Candidate { child, a, b };
+            if !crate::callbacks::filter_needed(self.world, a as usize, b as usize) {
+                crate::callback_work::note(self.world, crate::callback_work::Work::PairParallel);
             }
-        });
-        let counts = core::array::from_fn::<_, 3, _>(|i| {
-            if broad::tree_cap(world_index, i) == 0 {
-                0
-            } else {
-                *broad::tree_state(world_index, i).add(1) as usize
-            }
-        });
-
-        let mut em = Emitter {
-            world: world_index,
-            shape,
-            moved,
-            items,
-            head: u32::MAX,
-            lower: crate::math::Vec3::ZERO,
-            upper: crate::math::Vec3::ZERO,
-            query_shape: 0,
-            query_key: 0,
-            query_dynamic: false,
-            tree_type: 0,
-            inputs: core::ptr::null_mut(),
-            input_count: 0,
-            expected_count: 0,
+        }
+        self.count += 1;
+    }
+    unsafe fn candidate(&mut self, a: u32, b: u32) {
+        let (a, b) = (a.min(b), a.max(b));
+        let shapes = shape_col(self.world);
+        let compound = if shapes[a as usize * SHAPE_STRIDE + S_TYPE] == crate::finalize::TY_COMPOUND
+        {
+            Some((a, b))
+        } else if shapes[b as usize * SHAPE_STRIDE + S_TYPE] == crate::finalize::TY_COMPOUND {
+            Some((b, a))
+        } else {
+            None
         };
-
-        for i in start..end {
-            em.head = u32::MAX;
-            *cand_end.add(i) = u32::MAX;
-            if MODE == QueryMode::Serial
-                && !crate::callbacks::filter_enabled(world_index)
-                && CAND_COUNT.load(Ordering::Relaxed) >= CAND_CAP
-            {
-                continue;
+        let items =
+            core::slice::from_raw_parts(broad::set_items(self.world), broad::set_cap(self.world));
+        if let Some((c, other)) = compound {
+            if !accepts(self.world, c, other) {
+                return;
             }
-            em.inputs = if MODE == QueryMode::Collect {
-                em.expected_count = *(INPUT_COUNT_PTR as *const u32).add(i) as usize;
-                let offset = *(INPUT_OFFSET_PTR as *const u32).add(i) as usize;
-                (INPUT_PTR as *mut u32).add(offset * INPUT_STRIDE)
-            } else {
-                core::ptr::null_mut()
+            let (geometry, _) = crate::query_abi::active_shape(self.world, c as usize);
+            let crate::query::Shape::Compound(compound) = geometry else {
+                unreachable!()
             };
-            em.input_count = 0;
-            let query_key = move_buf[i];
-            let proxy_type = (query_key & 3) as usize;
-            let proxy_id = (query_key >> 2) as i32;
-            let query_dynamic = proxy_type as u32 == DYNAMIC;
-
-            let base = pools[proxy_type];
-            let (lo, hi) = tree::node_aabb(base, proxy_id);
-            let query_shape = tree::user_data(base, proxy_id);
-
-            em.lower = crate::math::Vec3::new(lo[0], lo[1], lo[2]);
-            em.upper = crate::math::Vec3::new(hi[0], hi[1], hi[2]);
-            em.query_shape = query_shape;
-            em.query_key = query_key;
-            em.query_dynamic = query_dynamic;
-
-            // Dynamic proxies test kinematic then static; every proxy tests the dynamic tree.
-            if query_dynamic {
-                let k = KINEMATIC as usize;
-                run_query(
-                    pools[k], roots[k], counts[k], lo, hi, stack, &mut em, KINEMATIC,
-                );
-                run_query(pools[0], roots[0], counts[0], lo, hi, stack, &mut em, 0);
-            }
-            let d = DYNAMIC as usize;
-            run_query(
-                pools[d], roots[d], counts[d], lo, hi, stack, &mut em, DYNAMIC,
+            let key = shapes[other as usize * SHAPE_STRIDE + crate::shapes::S_PROXY_KEY];
+            let t = broad::tree(self.world, (key & 3) as usize);
+            let node = t.nodes[t.proxies[(key >> 2) as usize].node as usize];
+            let transform = crate::world_query::pose(self.world, c as usize, Vec3::ZERO).invert();
+            let center = transform.point(node.lo.add(node.hi).scale(0.5));
+            let extent = crate::math::Mat3::from_quat(transform.q)
+                .abs()
+                .mul_v(node.hi.sub(node.lo).scale(0.5));
+            crate::compound_query::query(
+                compound,
+                center.sub(extent),
+                center.add(extent),
+                |_, child| {
+                    if !table::contains_item(items, c, other, child) {
+                        self.emit(child, c, other);
+                    }
+                    true
+                },
             );
-
-            *cand_end.add(i) = em.head;
-            if MODE == QueryMode::Count {
-                *(INPUT_COUNT_PTR as *mut u32).add(i) = em.input_count as u32;
-            } else if MODE == QueryMode::Collect {
-                assert_eq!(
-                    em.input_count, em.expected_count,
-                    "physics: pair count changed before collection"
-                );
+        } else if !table::contains_item(items, a, b, 0) && accepts(self.world, a, b) {
+            self.emit(0, a, b);
+        }
+    }
+    unsafe fn proxy_subtree(&mut self, proxy: Node, nodes: &[Node], pair: usize) {
+        let mut stack = [0; STACK_SIZE];
+        stack[0] = pair;
+        let mut count = 1;
+        while count > 0 {
+            count -= 1;
+            let p = stack[count];
+            for n in &nodes[p..p + 2] {
+                if !test(proxy, *n) {
+                    continue;
+                }
+                if n.leaf() {
+                    self.candidate(proxy.height as u32, n.height as u32);
+                } else {
+                    assert!(count < STACK_SIZE);
+                    stack[count] = n.index();
+                    count += 1;
+                }
+            }
+        }
+    }
+    unsafe fn visit(
+        &mut self,
+        array_a: &[Node],
+        array_b: &[Node],
+        a: Node,
+        b: Node,
+        stack: &mut [(usize, usize)],
+        count: &mut usize,
+    ) {
+        if !test(a, b) {
+            return;
+        }
+        match (a.leaf(), b.leaf()) {
+            (true, true) => self.candidate(a.height as u32, b.height as u32),
+            (true, false) => self.proxy_subtree(a, array_b, b.index()),
+            (false, true) => self.proxy_subtree(b, array_a, a.index()),
+            (false, false) => {
+                assert!(*count < STACK_SIZE);
+                stack[*count] = (a.index(), b.index());
+                *count += 1;
+            }
+        }
+    }
+    unsafe fn cross(&mut self, array_a: &[Node], array_b: &[Node], a: Node, b: Node) {
+        let mut stack = [(0, 0); STACK_SIZE];
+        let mut count = 0;
+        self.visit(array_a, array_b, a, b, &mut stack, &mut count);
+        while count > 0 {
+            count -= 1;
+            let (a, b) = stack[count];
+            for i in 0..2 {
+                for j in 0..2 {
+                    self.visit(
+                        array_a,
+                        array_b,
+                        array_a[a + i],
+                        array_b[b + j],
+                        &mut stack,
+                        &mut count,
+                    );
+                }
             }
         }
     }
 }
-
-#[inline]
-fn run_query(
-    pool: &[u32],
-    root: i32,
-    node_count: usize,
-    lo: [f32; 3],
-    hi: [f32; 3],
-    stack: &mut [i32],
-    em: &mut Emitter,
-    tree_type: u32,
-) {
-    em.tree_type = tree_type;
-    tree::query(
-        pool,
-        root,
-        node_count,
-        lo,
-        hi,
-        tree::QUERY_MASK_HI,
-        tree::QUERY_MASK_LO,
-        false,
-        stack,
-        |other, found_shape| em.record(other, found_shape),
-    );
-}
-
-pub unsafe fn reserve_rebuild_in_world(world_index: usize) {
-    for ti in [DYNAMIC as usize, KINEMATIC as usize] {
-        if broad::tree_cap(world_index, ti) != 0 {
-            let count = *broad::tree_state(world_index, ti).add(3) as usize;
-            if count != 0 {
-                broad::rebuild_scratch(world_index, ti, count);
-            }
+pub unsafe fn query_block(world: usize, start: usize, end: usize, _set_cap: usize) {
+    let jobs = core::slice::from_raw_parts(JOB_PTR as *const Job, JOB_COUNT);
+    let nodes = &broad::tree(world, 2).nodes;
+    for (i, job) in jobs.iter().enumerate().take(end).skip(start) {
+        let expected = if COLLECT {
+            *(COUNT_PTR as *const u32).add(i) as usize
+        } else {
+            0
+        };
+        let output = if COLLECT {
+            (INPUT_PTR as *mut Candidate).add(*(OFFSET_PTR as *const u32).add(i) as usize)
+        } else {
+            core::ptr::null_mut()
+        };
+        let mut emitter = Emitter {
+            world,
+            count: 0,
+            output,
+            capacity: expected,
+        };
+        emitter.cross(nodes, &broad::tree(world, job.tree_b).nodes, job.a, job.b);
+        if COLLECT {
+            assert_eq!(
+                emitter.count, expected,
+                "physics: pair count changed before collection"
+            );
+        } else {
+            *(COUNT_PTR as *mut u32).add(i) = emitter.count as u32;
         }
     }
 }
-
-pub extern "C" fn rebuild_trees_in_world(world_index: usize) {
+pub(crate) unsafe fn finish_queries(world: usize) -> bool {
+    if !COLLECT {
+        let mut count = 0;
+        for i in 0..JOB_COUNT {
+            *(OFFSET_PTR as *mut u32).add(i) = count as u32;
+            count += *(COUNT_PTR as *const u32).add(i) as usize;
+        }
+        let input_bytes = (count * core::mem::size_of::<Candidate>()).next_multiple_of(8);
+        let bytes = input_bytes + count * 8;
+        INPUT_PTR = crate::arena::extend_scratch(world, bytes);
+        KEY_PTR = INPUT_PTR + input_bytes;
+        crate::callback_work::pair_scratch(world, SCRATCH_BYTES + bytes.next_multiple_of(16));
+        KEY_COUNT = 0;
+        COLLECT = true;
+        return true;
+    }
+    let mut offset = 0;
+    for i in 0..JOB_COUNT {
+        let count = *(COUNT_PTR as *const u32).add(i) as usize;
+        let input = core::slice::from_raw_parts((INPUT_PTR as *const Candidate).add(offset), count);
+        let mut previous = None;
+        let mut accepted = false;
+        for c in input {
+            let pair = (c.a, c.b);
+            if previous != Some(pair) {
+                previous = Some(pair);
+                accepted = if crate::callbacks::filter_needed(world, c.a as usize, c.b as usize) {
+                    crate::callback_work::note(world, crate::callback_work::Work::PairSerial);
+                    crate::callbacks::filter(world, c.a as usize, c.b as usize)
+                } else {
+                    true
+                };
+            }
+            if accepted {
+                *(KEY_PTR as *mut u64).add(KEY_COUNT) = ((table::pair_key_hi(c.a, c.b) as u64)
+                    << 32)
+                    | table::pair_key_lo(c.a, c.b, c.child) as u64;
+                KEY_COUNT += 1;
+            }
+        }
+        offset += count;
+    }
+    let keys = core::slice::from_raw_parts_mut(KEY_PTR as *mut u64, KEY_COUNT);
+    keys.sort_unstable();
+    for i in 1..keys.len() {
+        debug_assert_ne!(keys[i - 1], keys[i], "physics: duplicate broad-phase pair");
+    }
+    broad::tree_mut(world, 0).clear_moved();
+    false
+}
+pub extern "C" fn rebuild_trees_in_world(world: usize) {
     unsafe {
-        for ti in [DYNAMIC as usize, KINEMATIC as usize] {
-            if broad::tree_cap(world_index, ti) == 0 {
-                continue;
-            }
-            crate::treework::mutate_resident_in_world(
-                world_index,
-                ti,
-                4,
-                0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0,
-                0,
-                0,
-                0,
-            );
+        for i in [2, 1] {
+            broad::tree_mut(world, i).rebuild(false);
+            broad::sync_tree(world, i);
         }
         REBUILD_PENDING = false;
     }

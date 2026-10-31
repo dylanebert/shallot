@@ -15,13 +15,7 @@ pub(crate) unsafe fn finish_tasks(world: usize) {
 }
 
 fn tree_height(world: usize, kind: usize) -> i32 {
-    let (root, _) = broad::tree_root(world, kind);
-    if root == -1 {
-        return 0;
-    }
-    unsafe {
-        (*broad::tree_ptr(world, kind).add(root as usize * crate::tree::STRIDE + 11) >> 16) as i32
-    }
+    unsafe { broad::tree(world, kind).nodes[0].height() }
 }
 
 #[export_name = "worldCounters"]

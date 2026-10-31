@@ -1,18 +1,15 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import type { AABB } from "../common/records";
 import { BodyType } from "../common/types";
+import { rebuild } from "../kernel/treecolumns";
+import { createTestWorld, destroyTestWorld } from "../testing";
+import type { WorldState } from "../world/world";
 import {
-    type BroadPhase,
     bufferMove,
-    clearMoved,
-    clearMoves,
-    createBroadPhase,
     createProxy,
     destroyProxy,
     enlargeProxy,
     isMoved,
-    moveCount,
-    moveKey,
     moveProxy,
     proxyId,
     proxyKey,
@@ -20,127 +17,89 @@ import {
     testOverlap,
 } from "./broadphase";
 
-// The move buffer is what turns a changed proxy into a new contact pair, so its ordering and its
-// bit-set mirror are the defects these checks are aimed at.
-
+const worlds: WorldState[] = [];
+afterEach(() => {
+    for (const world of worlds) destroyTestWorld(world);
+    worlds.length = 0;
+});
+const fresh = () => {
+    const world = createTestWorld();
+    worlds.push(world);
+    return world.broadPhase;
+};
 const box = (c: number, h: number): AABB => ({
     lowerBound: { x: c - h, y: c - h, z: c - h },
     upperBound: { x: c + h, y: c + h, z: c + h },
 });
-
-const DEFAULT_HI = 0xffffffff;
-const DEFAULT_LO = 0xffffffff;
-
-const fresh = () => createBroadPhase(undefined, { staticShapeCount: 8, dynamicShapeCount: 8 });
-
-function moveKeys(bp: BroadPhase): number[] {
-    const out: number[] = [];
-    for (let i = 0; i < moveCount(bp); ++i) out.push(moveKey(bp, i));
-    return out;
-}
-
-/** A bit is set in movedProxies[type] iff its key sits in moveArray exactly once. */
-function assertMoveInvariant(bp: BroadPhase, where: string) {
-    const keys = moveKeys(bp);
-    for (const key of keys) {
-        expect(
-            isMoved(bp, proxyType(key), proxyId(key)),
-            `${where}: key ${key} is in moveArray with no moved bit`,
-        ).toBe(true);
-    }
-    expect(new Set(keys).size, `${where}: moveArray holds a duplicate key`).toBe(keys.length);
-}
-
+const HI = 0xffffffff,
+    LO = 0xffffffff;
 test("the broad-phase proxy key round-trips its id and body type through pack and unpack", () => {
-    const types: BodyType[] = [BodyType.Static, BodyType.Kinematic, BodyType.Dynamic];
-    for (const type of types) {
+    for (const type of [BodyType.Static, BodyType.Kinematic, BodyType.Dynamic])
         for (const id of [0, 1, 7, 42, 1000, 1 << 20]) {
-            const vector = `id ${id}, type ${type}`;
             const key = proxyKey(id, type);
-            expect(proxyType(key), `${vector}: type did not round-trip`).toBe(type);
-            expect(proxyId(key), `${vector}: id did not round-trip`).toBe(id);
+            expect(proxyType(key)).toBe(type);
+            expect(proxyId(key)).toBe(id);
         }
-    }
 });
-
-test("the broad-phase move buffer records dynamic and forced-static proxies on create, in order, and leaves a plain static proxy unmoved", () => {
+test("dynamic and forced-static creates mark leaves, while a plain static create stays unmoved", () => {
     const bp = fresh();
-    const dyn = createProxy(bp, BodyType.Dynamic, box(0, 0.5), DEFAULT_HI, DEFAULT_LO, 0, false);
-    const stat = createProxy(bp, BodyType.Static, box(5, 0.5), DEFAULT_HI, DEFAULT_LO, 1, false);
-    const forced = createProxy(bp, BodyType.Static, box(9, 0.5), DEFAULT_HI, DEFAULT_LO, 2, true);
-
-    expect(moveKeys(bp), "dynamic and forced-static creates should buffer, in order").toEqual([
-        dyn,
-        forced,
-    ]);
-    expect(
-        isMoved(bp, BodyType.Static, proxyId(stat)),
-        "unforced static create left a moved bit",
-    ).toBe(false);
-    assertMoveInvariant(bp, "static/dynamic create");
+    const dynamic = createProxy(bp, BodyType.Dynamic, box(0, 0.5), HI, LO, 0, false);
+    const forced = createProxy(bp, BodyType.Static, box(4, 0.5), HI, LO, 1, true);
+    const plain = createProxy(bp, BodyType.Static, box(8, 0.5), HI, LO, 2, false);
+    expect(isMoved(bp, proxyType(dynamic), proxyId(dynamic))).toBe(true);
+    expect(isMoved(bp, proxyType(forced), proxyId(forced))).toBe(true);
+    expect(isMoved(bp, proxyType(plain), proxyId(plain))).toBe(false);
 });
-
-test("the broad-phase move buffer holds a proxy moved twice once", () => {
+test("repeated marking preserves proxy identity and a rebuild clears moved leaves", () => {
     const bp = fresh();
-    const key = createProxy(bp, BodyType.Dynamic, box(0, 0.5), DEFAULT_HI, DEFAULT_LO, 0, false);
+    const key = createProxy(bp, BodyType.Dynamic, box(0, 0.5), HI, LO, 0, false);
     bufferMove(bp, key);
     bufferMove(bp, key);
-    expect(moveKeys(bp), "repeated bufferMove should not append").toEqual([key]);
-    assertMoveInvariant(bp, "repeated bufferMove");
+    expect(isMoved(bp, BodyType.Dynamic, proxyId(key))).toBe(true);
+    rebuild(bp.trees[BodyType.Dynamic], false);
+    expect(isMoved(bp, BodyType.Dynamic, proxyId(key))).toBe(false);
+    expect(bp.trees[BodyType.Dynamic].proxyCount).toBe(1);
 });
-
-test("the broad-phase move buffer keeps buffered keys in creation order", () => {
+test("sibling relocation keeps every moved proxy's identity", () => {
     const bp = fresh();
-    const keys: number[] = [];
-    for (let i = 0; i < 6; ++i) {
-        keys.push(
-            createProxy(bp, BodyType.Dynamic, box(i * 2, 0.5), DEFAULT_HI, DEFAULT_LO, i, false),
-        );
-    }
-    expect(moveKeys(bp), "insertion order should survive six creates").toEqual(keys);
-    assertMoveInvariant(bp, "six creates");
+    const keys = Array.from({ length: 6 }, (_, i) =>
+        createProxy(bp, BodyType.Dynamic, box(i * 2, 0.5), HI, LO, i, false),
+    );
+    expect(new Set(keys).size).toBe(6);
+    for (const key of keys) expect(isMoved(bp, BodyType.Dynamic, proxyId(key))).toBe(true);
+    expect(bp.trees[BodyType.Dynamic].proxyCount).toBe(6);
 });
-
-test("destroying a buffered proxy drops its key and moved bit and keeps the other keys", () => {
+test("destroying a moved proxy leaves surviving markers intact and reuses its proxy slot", () => {
     const bp = fresh();
-    const a = createProxy(bp, BodyType.Dynamic, box(0, 0.5), DEFAULT_HI, DEFAULT_LO, 0, false);
-    const b = createProxy(bp, BodyType.Dynamic, box(2, 0.5), DEFAULT_HI, DEFAULT_LO, 1, false);
-    const c = createProxy(bp, BodyType.Dynamic, box(4, 0.5), DEFAULT_HI, DEFAULT_LO, 2, false);
-
-    // the middle one: swap-removed from the move array, bit cleared.
+    const a = createProxy(bp, BodyType.Dynamic, box(0, 0.5), HI, LO, 0, false),
+        b = createProxy(bp, BodyType.Dynamic, box(2, 0.5), HI, LO, 1, false),
+        c = createProxy(bp, BodyType.Dynamic, box(4, 0.5), HI, LO, 2, false);
     destroyProxy(bp, b);
-    const keys = moveKeys(bp);
-    expect(keys, "destroyed key b still buffered").not.toContain(b);
-    expect(keys, "surviving key a was dropped").toContain(a);
-    expect(keys, "surviving key c was dropped").toContain(c);
-    expect(isMoved(bp, proxyType(b), proxyId(b)), "destroyed key b kept its moved bit").toBe(false);
-    assertMoveInvariant(bp, "destroy middle");
+    expect(isMoved(bp, BodyType.Dynamic, proxyId(b))).toBe(false);
+    for (const key of [a, c]) expect(isMoved(bp, BodyType.Dynamic, proxyId(key))).toBe(true);
+    expect(createProxy(bp, BodyType.Dynamic, box(6, 0.5), HI, LO, 3, false)).toBe(b);
 });
-
-test("the broad-phase move buffer re-buffers a proxy moved after the per-step clear", () => {
+test("moving after a rebuild marks the leaf again without marking its sibling", () => {
     const bp = fresh();
-    const key = createProxy(bp, BodyType.Dynamic, box(0, 0.5), DEFAULT_HI, DEFAULT_LO, 0, false);
-    // mirror the reset done at the end of each step, then move it.
-    clearMoves(bp);
-    clearMoved(bp, proxyType(key), proxyId(key));
-    expect(moveKeys(bp), "the step reset should empty the buffer").toEqual([]);
-
-    moveProxy(bp, key, box(3, 0.5));
-    expect(moveKeys(bp), "moveProxy did not re-buffer the key").toEqual([key]);
-    assertMoveInvariant(bp, "moveProxy after reset");
+    const a = createProxy(bp, BodyType.Dynamic, box(0, 0.5), HI, LO, 0, false),
+        b = createProxy(bp, BodyType.Dynamic, box(8, 0.5), HI, LO, 1, false);
+    rebuild(bp.trees[BodyType.Dynamic], false);
+    expect(isMoved(bp, BodyType.Dynamic, proxyId(a))).toBe(false);
+    moveProxy(bp, a, box(8, 0.5));
+    expect(isMoved(bp, BodyType.Dynamic, proxyId(a))).toBe(true);
+    expect(isMoved(bp, BodyType.Dynamic, proxyId(b))).toBe(false);
+    expect(testOverlap(bp, a, b)).toBe(true);
 });
-
 test("the broad-phase overlap test reports touching proxies overlapping and distant ones separated", () => {
     const bp = fresh();
-    const a = createProxy(bp, BodyType.Dynamic, box(0, 1), DEFAULT_HI, DEFAULT_LO, 0, false);
-    const b = createProxy(bp, BodyType.Dynamic, box(1.5, 1), DEFAULT_HI, DEFAULT_LO, 1, false);
-    const c = createProxy(bp, BodyType.Dynamic, box(10, 1), DEFAULT_HI, DEFAULT_LO, 2, false);
-    expect(testOverlap(bp, a, b), "touching proxies reported separated").toBe(true);
-    expect(testOverlap(bp, a, c), "distant proxies reported overlapping").toBe(false);
+    const a = createProxy(bp, BodyType.Dynamic, box(0, 0.5), HI, LO, 0, false),
+        b = createProxy(bp, BodyType.Dynamic, box(1, 0.5), HI, LO, 1, false),
+        c = createProxy(bp, BodyType.Static, box(4, 0.5), HI, LO, 2, false);
+    expect(testOverlap(bp, a, b)).toBe(true);
+    expect(testOverlap(bp, a, c)).toBe(false);
 });
-
 test("enlarging a static proxy throws", () => {
     const bp = fresh();
-    const stat = createProxy(bp, BodyType.Static, box(0, 0.5), DEFAULT_HI, DEFAULT_LO, 0, false);
-    expect(() => enlargeProxy(bp, stat, box(0, 2))).toThrow();
+    const key = createProxy(bp, BodyType.Static, box(0, 0.5), HI, LO, 0, false);
+    expect(() => enlargeProxy(bp, key, box(0, 1))).toThrow();
 });

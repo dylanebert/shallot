@@ -1,7 +1,7 @@
 import type { World } from "../../../engine";
 // Broad-phase — a port of Box3D's src/broad_phase.c (Erin Catto, MIT), the container over three
-// dynamic trees (static / kinematic / dynamic) plus the move buffer that records which proxies
-// changed this step, in deterministic insertion order.
+// dynamic trees (static / kinematic / dynamic). Moved leaves mark their ancestors; candidate shape
+// pairs are traversed in tasks and globally sorted before contacts are created.
 
 import type { AABB } from "../common/records";
 import { BodyType } from "../common/types";
@@ -23,28 +23,15 @@ export type BroadPhase = {
     // Hash set of active shape pairs (b3ShapePairKey), so a pair isn't turned into a second
     // contact. Written by contact create/destroy; read by pair finding (solver stage).
     pairSet: HashSet;
-    // Re-derives tree and move views after a kernel memory grow.
+    // Re-derives tree inspection views after a kernel memory grow.
     store: BroadStore;
     captureCheckpoint(): unknown;
     restoreCheckpoint(state: unknown): void;
 };
 
-export function moveCount(bp: BroadPhase): number {
-    bp.store.refreshIfStale();
-    return bp.store.moveState[0] ?? 0;
-}
-export function moveKey(bp: BroadPhase, index: number): number {
-    bp.store.refreshIfStale();
-    return bp.store.moveData[index];
-}
-export function clearMoves(bp: BroadPhase): void {
-    bp.store.refreshIfStale();
-    kernel(bp.store.ecsState).broadClearMoves();
-}
 export function isMoved(bp: BroadPhase, type: BodyType, id: number): boolean {
     bp.store.refreshIfStale();
-    const bits = bp.store.movedBits[type];
-    return ((bits[id >>> 5] ?? 0) & (1 << (id & 31))) !== 0;
+    return kernel(bp.store.ecsState).broadIsMoved(proxyKey(id, type)) !== 0;
 }
 
 const maxInt = (a: number, b: number): number => (a > b ? a : b);
@@ -105,6 +92,7 @@ export function createProxy(
     shapeIndex: number,
     forcePairCreation: boolean,
 ): number {
+    bp.store.initialize();
     // The resident tree views may have been detached by a `memory.grow` since the last broad-phase op
     // (a sibling region reserve, or a shape/body create). Re-derive if so — O(1) when still fresh.
     bp.store.refreshIfStale();
@@ -159,10 +147,4 @@ export function enlargeProxy(bp: BroadPhase, key: number, box: AABB): void {
 export function testOverlap(bp: BroadPhase, keyA: number, keyB: number): boolean {
     bp.store.refreshIfStale();
     return kernel(bp.store.ecsState).broadTestOverlap(keyA, keyB) !== 0;
-}
-
-/** Clear a proxy's moved flag (b3ClearBit on movedProxies). */
-export function clearMoved(bp: BroadPhase, type: BodyType, id: number): void {
-    bp.store.refreshIfStale();
-    kernel(bp.store.ecsState).broadClearMoved(type, id);
 }

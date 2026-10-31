@@ -146,15 +146,16 @@ test("compound uploads use Box3D header, tree, material and child-blob offsets",
         const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
         const u = (word: number) => v.getUint32(word * 4, true);
         expect(v.getBigUint64(0, true)).toBe(
-            0xb11dce70fad5622bn ^ 0x93edaf889fd30b4an ^ 0xaaab9a00f1a8aaf7n ^ 0x4a4c9587de57485cn,
+            0xb11dce70fad5622bn ^ 0x1d6f4c2a73b80e91n ^ 0xaaab9a00f1a8aaf7n ^ 0x4a4c9587de57485cn,
         );
         expect(u(2)).toBe(bytes.length);
         expect(u(3)).toBe(120);
-        expect(v.getBigUint64(16, true)).toBe(0x93edaf889fd30b4an);
-        expect(u(6)).toBe(0);
+        expect(v.getBigUint64(16, true)).toBe(0x1d6f4c2a73b80e91n);
+        expect(u(6)).toBe(120 + compound.tree.nodeCount * 32);
         expect(u(7)).toBe(compound.tree.root);
         expect(u(9)).toBe(compound.tree.nodeCapacity);
-        expect(u(17)).toBe(120 + compound.tree.nodeCapacity * 48);
+        expect(u(9)).toBe(compound.tree.nodeCount);
+        expect(u(17)).toBe(u(6) + compound.tree.proxyCount * 24);
         expect(u(18)).toBe(compound.materialCount);
         expect(u(19)).toBe(u(17) + compound.materialCount * 40);
         expect(u(21) % 8).toBe(0);

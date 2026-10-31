@@ -1,9 +1,7 @@
-//! Serial tree operations over resident or caller-uploaded columns.
+//! Serial authoring and post-solve tree updates over world-owned trees.
 use crate::body::flags::{ENLARGE_BOUNDS, IS_BULLET, IS_FAST};
 use crate::body::{BODY_ID, FLAGS, SIM_STRIDE};
 use crate::regions::Buffer;
-use crate::tree::{self, Rebuild, STACK_SIZE, STRIDE};
-use std::slice;
 static mut SCRATCH: [Buffer; 64] = [Buffer::EMPTY; 64];
 #[link(wasm_import_module = "env")]
 extern "C" {
@@ -16,84 +14,6 @@ pub extern "C" fn reserve(depth: usize, words: usize) -> *mut u32 {
         SCRATCH[depth].reserve(words * 4);
         SCRATCH[depth].ptr as *mut u32
     }
-}
-#[export_name = "treeMutate"]
-pub unsafe extern "C" fn mutate(
-    ptr: *mut u32,
-    cap: usize,
-    state: *mut u32,
-    op: u32,
-    id: i32,
-    lx: f32,
-    ly: f32,
-    lz: f32,
-    hx: f32,
-    hy: f32,
-    hz: f32,
-    ch: u32,
-    cl: u32,
-    ud: u32,
-    udh: u32,
-) -> i32 {
-    let pool = slice::from_raw_parts_mut(ptr, cap * STRIDE);
-    let root = &mut *(state as *mut i32);
-    let count = &mut *(state.add(1) as *mut usize);
-    let free = &mut *(state.add(2) as *mut i32);
-    let lo = [lx, ly, lz];
-    let hi = [hx, hy, hz];
-    let result = match op {
-        0 => {
-            *state.add(3) += 1;
-            tree::create_proxy(
-                pool,
-                root,
-                count,
-                free,
-                lo,
-                hi,
-                ch,
-                cl,
-                (ud as u64) | ((udh as u64) << 32),
-            )
-        }
-        1 => {
-            tree::move_proxy(pool, root, count, free, id, lo, hi);
-            id
-        }
-        2 => {
-            tree::enlarge_proxy(pool, id, lo, hi);
-            id
-        }
-        3 => {
-            tree::destroy_proxy(pool, root, count, free, id);
-            *state.add(3) -= 1;
-            id
-        }
-        4 => {
-            let n = (*state.add(3) as usize).max(1);
-            let scratch = if ptr == state.add(6) {
-                ptr.add(cap * STRIDE)
-            } else {
-                state.add(6)
-            };
-            let indices = slice::from_raw_parts_mut(scratch as *mut i32, n);
-            let centers = slice::from_raw_parts_mut(scratch.add(n) as *mut f32, n * 3);
-            let mut gather = [0; STACK_SIZE];
-            let mut build = [0; STACK_SIZE * 5];
-            let mut rb = Rebuild {
-                node_count: count,
-                free_list: free,
-                leaf_indices: indices,
-                leaf_centers: centers,
-                gather_stack: &mut gather,
-                build_stack: &mut build,
-            };
-            *root = tree::rebuild(pool, *root, *state.add(3) as usize, id != 0, &mut rb);
-            *root
-        }
-        _ => unreachable!(),
-    };
-    result
 }
 #[export_name = "treeMutateResident"]
 pub unsafe extern "C" fn mutate_resident(
@@ -147,7 +67,7 @@ pub unsafe extern "C" fn mutate_resident_in_world(
     ud: u32,
     udh: u32,
 ) -> i32 {
-    let t = crate::broad::tree(world_index, index);
+    let t = crate::broad::tree_mut(world_index, index);
     let lo = crate::math::Vec3::new(lx, ly, lz);
     let hi = crate::math::Vec3::new(hx, hy, hz);
     let result = match op {
@@ -373,12 +293,12 @@ pub unsafe extern "C" fn enlarge_pass_in_world(world_index: usize, count: usize,
                 let o = id as usize * crate::shapes::SHAPE_STRIDE;
                 let key = shapes.get(o + crate::shapes::S_PROXY_KEY);
                 if bullets == 0 && bullet {
-                    crate::broad::buffer_move_in_world(world_index, key);
+                    // Bullets acquire their final bounds after the regular tree refit.
                 } else if shapes.get(o + crate::shapes::S_FLAGS) & crate::shapes::ENLARGED_FLAG != 0
                 {
                     let index = (key & 3) as usize;
                     let b = o + crate::shapes::S_FAT_AABB;
-                    crate::broad::tree(world_index, index).enlarge(
+                    crate::broad::tree_mut(world_index, index).enlarge(
                         (key >> 2) as usize,
                         crate::math::Vec3::new(fat.get(b), fat.get(b + 1), fat.get(b + 2)),
                         crate::math::Vec3::new(fat.get(b + 3), fat.get(b + 4), fat.get(b + 5)),
@@ -397,6 +317,11 @@ pub unsafe extern "C" fn enlarge_pass_in_world(world_index: usize, count: usize,
             if bullets != 0 {
                 *row.add(FLAGS) &= !ENLARGE_BOUNDS;
             }
+        }
+    }
+    if bullets == 0 {
+        for i in [1, 2] {
+            crate::broad::tree_mut(world_index, i).refit();
         }
     }
 }

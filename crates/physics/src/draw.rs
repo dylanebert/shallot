@@ -6,7 +6,7 @@ use crate::{
     joint_abi::*,
     joint_record,
     math::{Quat, Transform, Vec3},
-    shapes, tree,
+    shapes,
 };
 static mut BUFFER: Vec<u32> = Vec::new();
 static mut VISITED: Vec<u64> = Vec::new();
@@ -245,23 +245,12 @@ pub unsafe extern "C" fn run_in_world(
         f32::from_bits(header[17]),
         f32::from_bits(header[18]),
     ];
-    let mut stack = [0; tree::STACK_SIZE];
     for i in 0..3 {
-        let pool = core::slice::from_raw_parts(
-            broad::tree_ptr(world, i),
-            broad::tree_cap(world, i) * tree::STRIDE,
-        );
-        let (root, count) = broad::tree_root(world, i);
-        tree::query(
-            pool,
-            root,
-            count,
-            lo,
-            hi,
-            mask_hi,
-            mask_lo,
+        broad::tree(world, i).query(
+            Vec3::new(lo[0], lo[1], lo[2]),
+            Vec3::new(hi[0], hi[1], hi[2]),
+            ((mask_hi as u64) << 32) | mask_lo as u64,
             false,
-            &mut stack,
             |_, id| {
                 let id = id as usize;
                 let r = shapes::col_slice(world);

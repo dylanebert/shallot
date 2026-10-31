@@ -448,7 +448,9 @@ pub extern "C" fn solve_build_in_world(
         let (color_count, wide_total, mesh_total, joint_total) =
             crate::constraint_graph::solver_colors(world_index, &mut span_storage, &mut color_keys);
         let mesh_start = 0;
-        let overflow_count = crate::constraint_graph::overflow_contact_count(world_index);
+        // Box3D contact_solver.c's *_Overflow entry points use a wrapping uint16_t contact count.
+        let overflow_count =
+            crate::constraint_graph::overflow_contact_count(world_index) as u16 as usize;
         let overflow_joint_count = crate::joints::count_in_world(world_index, MAX_COLORS - 1);
         let out = &mut span_storage;
 

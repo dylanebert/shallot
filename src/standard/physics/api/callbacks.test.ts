@@ -128,7 +128,7 @@ test("custom filter rejects new pairs and clearing it restores default filtering
     }
 });
 
-describe("first-shape filtering under contact capacity pressure", () => {
+describe("first-shape filtering over the complete overlapping pair set", () => {
     let control: WorldState | undefined;
     let filtered: WorldState | undefined;
 
@@ -157,12 +157,12 @@ describe("first-shape filtering under contact capacity pressure", () => {
         if (filtered) destroyTestWorld(filtered);
     });
 
-    test("preserves native survivor identities at capacity", () => {
+    test("preserves all native pair identities without the former 16-per-proxy cap", () => {
         if (!control || !filtered) throw new Error("capacity fixtures did not initialize");
         stepTestWorld(control, 1 / 60);
         stepTestWorld(filtered, 1 / 60);
-        expect(worldCounters(control).contactCount).toBe(1600);
-        expect(worldCounters(filtered).contactCount).toBe(1600);
+        expect(worldCounters(control).contactCount).toBe(4950);
+        expect(worldCounters(filtered).contactCount).toBe(4950);
         expect(contactIdentities(filtered)).toEqual(contactIdentities(control));
         expect(hashWorldState(filtered)).toBe(hashWorldState(control));
     });

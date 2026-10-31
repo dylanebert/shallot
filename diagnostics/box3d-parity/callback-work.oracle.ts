@@ -30,7 +30,7 @@ function createSphere(world: WorldState, definition: Parameters<typeof testShape
     });
 }
 
-test("fitted filtered collection adds only the counted candidate bytes to capacity-sized scratch", async () => {
+test("filtered collection reserves fitted job, candidate and sorted-key scratch", async () => {
     await assertPublicOracleKernel();
     const world = createTestWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
     try {
@@ -39,7 +39,7 @@ test("fitted filtered collection adds only the counted candidate bytes to capaci
         worldSetCustomFilterCallback(world, () => { ++calls; return true; });
         stepTestWorld(world, 1 / 60);
         const k = kernel(world.ecsState) as unknown as { box3dPairScratchBytes(world: number): number };
-        expect(k.box3dPairScratchBytes(world.worldId)).toBe(544 + 16);
+        expect(k.box3dPairScratchBytes(world.worldId)).toBe(112);
         expect(worldCounters(world).contactCount).toBe(1);
         expect(calls).toBe(1);
     } finally {
@@ -47,7 +47,7 @@ test("fitted filtered collection adds only the counted candidate bytes to capaci
     }
 });
 
-test("a saturated serial walk keeps native filter-before-capacity invocation semantics", async () => {
+test("all 100-sphere pairs retain native custom-filter invocation semantics", async () => {
     await assertPublicOracleKernel();
     const world = createTestWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
     try {
@@ -55,7 +55,7 @@ test("a saturated serial walk keeps native filter-before-capacity invocation sem
         let calls = 0;
         worldSetCustomFilterCallback(world, () => { ++calls; return true; });
         stepTestWorld(world, 1 / 60);
-        expect(worldCounters(world).contactCount).toBe(1600);
+        expect(worldCounters(world).contactCount).toBe(4950);
         expect(calls).toBe(4950);
     } finally {
         destroyTestWorld(world);
@@ -63,19 +63,19 @@ test("a saturated serial walk keeps native filter-before-capacity invocation sem
 });
 
 for (const filtered of [false, true])
-    test(`${filtered ? "filtered" : "no-callback"} 1000-sphere overflow reserves at most 32 bytes per survivor slot`, async () => {
+    test(`${filtered ? "filtered" : "no-callback"} 1000-sphere collection retains every pair within 32 scratch bytes per pair`, async () => {
         await assertPublicOracleKernel();
         const world = createTestWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
         try {
             for (let i = 0; i < 1000; ++i)
                 createSphere(world, { enableCustomFiltering: i === 0 });
             if (filtered) worldSetCustomFilterCallback(world, () => true);
-            stepTestWorld(world, 1 / 60);
-            expect(worldCounters(world).contactCount).toBe(16000);
+            stepTestWorld(world, 0);
+            expect(worldCounters(world).contactCount).toBe(499500);
             const k = kernel(world.ecsState) as unknown as {
                 box3dPairScratchBytes(world: number): number;
             };
-            expect(k.box3dPairScratchBytes(world.worldId)).toBeLessThanOrEqual(32 * 16000);
+            expect(k.box3dPairScratchBytes(world.worldId)).toBeLessThanOrEqual(32 * 499500);
         } finally {
             destroyTestWorld(world);
         }

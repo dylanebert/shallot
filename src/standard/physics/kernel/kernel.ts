@@ -409,7 +409,6 @@ export type Kernel = {
     bodyShouldBodiesCollide(bodyA: number, bodyB: number): number;
     broadLayoutPtr(): number;
     broadTreeCap(i: number): number;
-    broadBitsCapacity(i: number): number;
     reserveTreeWork(depth: number, words: number): number;
     treeCreateProxy(
         index: number,
@@ -435,26 +434,9 @@ export type Kernel = {
         hz: number,
     ): void;
     broadBufferMove(key: number): void;
-    broadClearMoves(): void;
+    broadIsMoved(key: number): number;
     treeMutateResident(
         index: number,
-        op: number,
-        id: number,
-        lx: number,
-        ly: number,
-        lz: number,
-        hx: number,
-        hy: number,
-        hz: number,
-        ch: number,
-        cl: number,
-        ud: number,
-        udh: number,
-    ): number;
-    treeMutate(
-        ptr: number,
-        cap: number,
-        state: number,
         op: number,
         id: number,
         lx: number,
@@ -532,7 +514,6 @@ export type Kernel = {
         hy: number,
         hz: number,
     ): void;
-    broadClearMoved(type: number, id: number): void;
     broadEnsureSet(capacity: number): void;
     broadAddPair(a: number, b: number, child: number): number;
     broadRemovePair(a: number, b: number, child: number): number;

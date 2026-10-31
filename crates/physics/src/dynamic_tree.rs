@@ -351,6 +351,73 @@ impl Tree {
             p = self.parents[n];
         }
     }
+    pub fn clear_moved(&mut self) {
+        if self.nodes[0].flags & MOVED == 0 {
+            return;
+        }
+        self.nodes[0].flags &= !MOVED;
+        if self.nodes[0].leaf() {
+            return;
+        }
+        let mut stack = [0; STACK_SIZE];
+        stack[0] = self.nodes[0].index();
+        let mut count = 1;
+        while count > 0 {
+            count -= 1;
+            let p = stack[count];
+            for i in p..p + 2 {
+                let n = &mut self.nodes[i];
+                if n.flags & MOVED != 0 {
+                    n.flags &= !MOVED;
+                    if !n.leaf() {
+                        assert!(count < STACK_SIZE);
+                        stack[count] = n.index();
+                        count += 1;
+                    }
+                }
+            }
+        }
+    }
+    pub fn refit(&mut self) {
+        if self.nodes[0].flags & MOVED == 0 {
+            return;
+        }
+        if self.ordered {
+            for i in (0..self.end).rev() {
+                let n = self.nodes[i];
+                if n.flags & (LEAF | MOVED) == MOVED {
+                    let union = self.nodes[n.index()].union(self.nodes[n.index() + 1]);
+                    self.nodes[i].lo = union.lo;
+                    self.nodes[i].hi = union.hi;
+                }
+            }
+        } else {
+            let mut stack = [0i32; STACK_SIZE];
+            stack[0] = 0;
+            let mut count = 1;
+            while count > 0 {
+                count -= 1;
+                let item = stack[count];
+                if item < 0 {
+                    let i = (!item) as usize;
+                    let p = self.nodes[i].index();
+                    let u = self.nodes[p].union(self.nodes[p + 1]);
+                    self.nodes[i].lo = u.lo;
+                    self.nodes[i].hi = u.hi;
+                    continue;
+                }
+                let n = self.nodes[item as usize];
+                if n.leaf() || n.flags & MOVED == 0 {
+                    continue;
+                }
+                assert!(count + 3 <= STACK_SIZE);
+                stack[count] = !item;
+                stack[count + 1] = n.index() as i32;
+                stack[count + 2] = (n.index() + 1) as i32;
+                count += 3;
+            }
+        }
+    }
     pub fn view(&self) -> TreeQuery<'_> {
         TreeQuery {
             nodes: &self.nodes,
@@ -898,11 +965,21 @@ impl Tree {
         }
         proxies.iter().all(|s| *s)
     }
+    // Reserve before scheduling a world rebuild: workers may not grow shared linear memory.
+    pub fn reserve_rebuild(&mut self) {
+        self.swap.resize(self.nodes.len(), Node::empty());
+        self.leaves
+            .reserve(self.count.saturating_sub(self.leaves.len()));
+        self.indices
+            .reserve(self.count.saturating_sub(self.indices.len()));
+        self.centers
+            .reserve(self.count.saturating_sub(self.centers.len()));
+    }
     pub fn rebuild(&mut self, full: bool) -> usize {
         if self.count == 0 || !full && self.nodes[0].flags & MOVED == 0 && self.ordered {
             return 0;
         }
-        self.swap.resize(self.nodes.len(), Node::empty());
+        self.reserve_rebuild();
         self.leaves.clear();
         self.indices.clear();
         self.centers.clear();

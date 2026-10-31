@@ -1,7 +1,7 @@
 // character mover bit-exact gold gate. Asserts the plane solver (solvePlanes), the
 // velocity clip (clipVector), and kernel mover queries over sphere, capsule, hull, mesh, height field
-// and compound shapes match the frozen historical oracle vectors bit-for-
-// bit, over the vectors in mover.gold.json. Current target evidence belongs to the standalone oracle;
+// and compound shapes match mover.gold.json bit-for-bit. Inputs remain frozen across pins;
+// compound-mover.oracle.ts checks the compound observations at the current pin.
 // equality, not tolerance (the README).
 
 import { expect, test } from "bun:test";
@@ -103,7 +103,7 @@ test("the mover velocity clip's bits equal the Box3D C reference", () => {
     expect(gold.clipVector.length).toBeGreaterThan(0);
 });
 
-// The box hull, baked identically to fixtures/mover_gold.c's b3CreateHull(boxCorners, 8, 8).
+// The box hull uses the frozen mover vectors' original vertex order.
 const boxCorners: Vec3[] = [
     v(-0.5, -0.5, -0.5),
     v(0.5, -0.5, -0.5),
@@ -116,7 +116,7 @@ const boxCorners: Vec3[] = [
 ];
 const box = createHull(boxCorners, 8) as HullData;
 
-// Mesh / height field / compound reconstructed with the same builders the C gold used.
+// Reconstruct the mesh, height field and compound inputs behind the frozen mover vectors.
 const gridMesh: Mesh = { data: createGridMesh(4, 4, 1, 0, true), scale: v(1, 1, 1) };
 const gridField = createGrid(8, 8, v(1, 1, 1), false);
 const slab = makeBoxHull(0.5, 0.5, 0.5);

@@ -138,11 +138,11 @@ test("PhysicsEvents order contact output across body type, disable, enable and d
             [
                 "static-to-dynamic",
                 {
-                    contactBegin: [["b", "a", 25132.740234375]],
+                    contactBegin: [["a", "b", 25132.740234375]],
                     contactEnd: [["a", "b", 0]],
                 },
             ],
-            ["disable", { contactEnd: [["b", "a", 0]] }],
+            ["disable", { contactEnd: [["a", "b", 0]] }],
             ["enable", { contactBegin: [["a", "b", 25132.7421875]] }],
             ["destroy", { contactEnd: [["a", "b", 0]] }],
         ]);
@@ -274,10 +274,10 @@ test("PhysicsEvents keep ordered contacts across repeated collideConnected toggl
         setAwake(world, b, true);
         tick("wake");
         expect(steps).toEqual([
-            ["collision-on", { contactBegin: [["b", "a", 1138877]] }],
-            ["collision-off", { contactEnd: [["b", "a", 0]] }],
+            ["collision-on", { contactBegin: [["a", "b", 1138877]] }],
+            ["collision-off", { contactEnd: [["a", "b", 0]] }],
             ["collision-off-again", {}],
-            ["collision-on-again", { contactBegin: [["b", "a", 228614.375]] }],
+            ["collision-on-again", { contactBegin: [["a", "b", 228614.375]] }],
             ["collision-on-repeat", {}],
             ["sleep", {}],
             ["wake", {}],

@@ -2,7 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { World } from "../../engine";
 import { restore, snapshot } from "./api/snapshot";
-import { moveCount } from "./collision/broadphase";
+import { isMoved } from "./collision/broadphase";
 import { BodyType, defaultQueryFilter } from "./common/types";
 import { EventKind, eventCount } from "./kernel/eventbuffers";
 import { queryColumns } from "./kernel/querycolumns";
@@ -161,9 +161,11 @@ for (const claimed of [false, true]) {
             }
             const saved = snapshot(source);
             const proxies = source.broadPhase.trees.map((tree) => tree.proxyCount);
-            const moves = moveCount(source.broadPhase);
+            const moved = Array.from({ length: proxies[2] }, (_, id) =>
+                isMoved(source.broadPhase, BodyType.Dynamic, id),
+            );
             expect(proxies).toEqual([0, 0, claimed ? 4 : 0]);
-            expect(moves).toBe(claimed ? 4 : 0);
+            expect(moved).toEqual(claimed ? [true, true, true, true] : []);
             const expectedRay = castRayClosest(source, 0);
             expect(expectedRay.hit).toBe(claimed);
             const expected: bigint[] = [];
@@ -181,7 +183,11 @@ for (const claimed of [false, true]) {
             try {
                 restore(target, saved);
                 expect(target.broadPhase.trees.map((tree) => tree.proxyCount)).toEqual(proxies);
-                expect(moveCount(target.broadPhase)).toBe(moves);
+                expect(
+                    Array.from({ length: proxies[2] }, (_, id) =>
+                        isMoved(target.broadPhase, BodyType.Dynamic, id),
+                    ),
+                ).toEqual(moved);
                 expect(castRayClosest(target, 0)).toEqual(expectedRay);
                 for (let tick = 0; tick < expected.length; tick++) {
                     stepTestWorld(target, 1 / 60);

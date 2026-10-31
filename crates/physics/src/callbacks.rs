@@ -41,17 +41,14 @@ extern "C" {
     fn collisionCallback(kind: u32, a: usize, b: usize, data: *const f32) -> bool;
 }
 
-pub unsafe fn filter(world: usize, a: usize, b: usize) -> bool {
-    if !FILTER[world] {
-        return true;
-    }
+pub unsafe fn filter_needed(world: usize, a: usize, b: usize) -> bool {
     let shapes = crate::shapes::col_slice(world);
-    if (shapes[a * crate::shapes::SHAPE_STRIDE + crate::shapes::S_FLAGS]
-        | shapes[b * crate::shapes::SHAPE_STRIDE + crate::shapes::S_FLAGS])
-        & crate::shapes::CUSTOM_FILTERING_FLAG
-        == 0
-    {
-        return true;
-    }
-    collisionCallback(0, a, b, core::ptr::null())
+    FILTER[world]
+        && (shapes[a * crate::shapes::SHAPE_STRIDE + crate::shapes::S_FLAGS]
+            | shapes[b * crate::shapes::SHAPE_STRIDE + crate::shapes::S_FLAGS])
+            & crate::shapes::CUSTOM_FILTERING_FLAG
+            != 0
+}
+pub unsafe fn filter(world: usize, a: usize, b: usize) -> bool {
+    !filter_needed(world, a, b) || collisionCallback(0, a, b, core::ptr::null())
 }

@@ -1,57 +1,38 @@
-//! Bit-exact dynamic-tree gate against the Box3D C operation stream.
-//! Replay starts with an empty pool; checkpoints compare allocated nodes and the free chain.
-//! Separate reconstructed-state gates isolate rebuild and traversal failures.
-
+//! Exact native checkpoints and traversal observations over the pinned operation stream.
 use serde_json::Value;
+use shallot_physics::dynamic_tree::{Node, Proxy, Tree, EMPTY, MOVED};
 use shallot_physics::math::Vec3;
-use shallot_physics::tree::{self, Rebuild, STACK_SIZE, STRIDE};
-
-fn empty_pool(capacity: usize) -> Pool {
-    let mut pool = Pool {
-        slots: vec![0; capacity * STRIDE],
-        root: -1,
-        node_count: 0,
-        free_list: 0,
-        proxy_count: 0,
-    };
-    for i in 0..capacity {
-        pool.slots[i * STRIDE + 10] = if i + 1 == capacity {
-            u32::MAX
-        } else {
-            (i + 1) as u32
-        };
-    }
-    pool
+fn load() -> Value {
+    serde_json::from_str(include_str!(
+        "../../../../src/standard/physics/collision/tree.gold.json"
+    ))
+    .unwrap()
 }
-fn insert_box(pool: &mut Pool, x: f32, hi: u32, lo: u32) -> i32 {
-    reserve_insert(pool);
-    let id = tree::create_proxy(
-        &mut pool.slots,
-        &mut pool.root,
-        &mut pool.node_count,
-        &mut pool.free_list,
-        [x, 0.0, 0.0],
-        [x + 1.0, 1.0, 1.0],
-        hi,
-        lo,
-        pool.proxy_count as u64,
-    );
-    pool.proxy_count += 1;
-    id
+fn bits(v: &Value) -> u32 {
+    u32::from_str_radix(v.as_str().unwrap().trim_start_matches("0x"), 16).unwrap()
 }
-fn filtered_hits(pool: &Pool, hi: u32, lo: u32, all: bool) -> Vec<i32> {
+fn float(v: &Value) -> f32 {
+    f32::from_bits(bits(v))
+}
+fn vector(v: &Value) -> Vec3 {
+    Vec3::new(float(&v[0]), float(&v[1]), float(&v[2]))
+}
+fn insert(tree: &mut Tree, x: f32, category: u64) -> usize {
+    tree.create(
+        Vec3::new(x, 0.0, 0.0),
+        Vec3::new(x + 1.0, 1.0, 1.0),
+        category,
+        tree.count as u64,
+        false,
+    )
+}
+fn hits(tree: &Tree, mask: u64, all: bool) -> Vec<usize> {
     let mut hits = Vec::new();
-    let mut stack = [0; STACK_SIZE];
-    tree::query(
-        &pool.slots,
-        pool.root,
-        pool.node_count,
-        [-100.0; 3],
-        [100.0; 3],
-        hi,
-        lo,
+    tree.query(
+        Vec3::new(-100.0, -100.0, -100.0),
+        Vec3::new(100.0, 100.0, 100.0),
+        mask,
         all,
-        &mut stack,
         |id, _| {
             hits.push(id);
             true
@@ -61,713 +42,362 @@ fn filtered_hits(pool: &Pool, hi: u32, lo: u32, all: bool) -> Vec<i32> {
 }
 #[test]
 fn empty_tree_has_no_visits() {
-    let pool = empty_pool(31);
-    let mut stack = [0; STACK_SIZE];
+    let t = Tree::new(16);
     assert_eq!(
-        tree::query(
-            &pool.slots,
-            pool.root,
-            pool.node_count,
-            [-1.0; 3],
-            [1.0; 3],
-            u32::MAX,
-            u32::MAX,
-            false,
-            &mut stack,
-            |_, _| panic!("empty tree hit")
-        ),
+        t.query(Vec3::ZERO, Vec3::ZERO, u64::MAX, false, |_, _| panic!(
+            "empty tree hit"
+        )),
         (0, 0)
     );
+    assert!(t.valid());
 }
 #[test]
 fn first_proxy_is_root_without_internal_parent() {
-    let mut pool = empty_pool(31);
-    let id = insert_box(&mut pool, 0.0, u32::MAX, u32::MAX);
-    assert_eq!(pool.root, id);
-    assert_eq!(pool.node_count, 1);
-    assert_eq!(pool.proxy_count, 1);
-    assert_eq!(pool.slots[id as usize * STRIDE + 11] >> 16, 0);
-    assert_eq!(pool.slots[id as usize * STRIDE + 10], u32::MAX);
+    let mut t = Tree::new(16);
+    let id = insert(&mut t, 0.0, u64::MAX);
+    assert_eq!(t.proxies[id].node, 0);
+    assert_eq!(t.end, 2);
+    assert_eq!(t.count, 1);
+    assert_eq!(t.nodes[0].height(), 0);
+    assert_eq!(t.parents[0], -1);
+    assert_eq!(t.nodes[1].flags, EMPTY);
+    assert!(t.valid());
 }
 #[test]
-fn destroying_all_proxies_frees_internal_parents() {
-    let mut pool = empty_pool(31);
+fn destroying_all_proxies_frees_sibling_pairs_and_proxies() {
+    let mut t = Tree::new(16);
     let ids: Vec<_> = (0..10)
-        .map(|i| insert_box(&mut pool, i as f32, u32::MAX, u32::MAX))
+        .map(|i| insert(&mut t, i as f32, u64::MAX))
         .collect();
     for id in ids {
-        tree::destroy_proxy(
-            &mut pool.slots,
-            &mut pool.root,
-            &mut pool.node_count,
-            &mut pool.free_list,
-            id,
-        );
-        pool.proxy_count -= 1;
+        t.destroy(id);
+        assert!(t.valid());
     }
-    assert_eq!(pool.root, -1);
-    assert_eq!(pool.proxy_count, 0);
-    assert_eq!(pool.node_count, 0);
-    let mut chain = Vec::new();
-    let mut i = pool.free_list;
+    assert_eq!(t.count, 0);
+    assert_eq!(t.nodes[0].flags, EMPTY);
+    let mut count = 0;
+    let mut i = t.pair_free;
     while i != -1 {
-        assert!(!chain.contains(&i));
-        chain.push(i);
-        i = pool.slots[i as usize * STRIDE + 10] as i32;
+        count += 2;
+        i = t.parents[i as usize];
     }
-    assert_eq!(chain.len(), 31);
+    assert_eq!(count, t.end - 2);
 }
 #[test]
-fn category_change_propagates_to_ancestors() {
-    let mut pool = empty_pool(31);
-    let a = insert_box(&mut pool, 0.0, 0, 1);
-    insert_box(&mut pool, 0.5, 0, 2);
-    insert_box(&mut pool, 10.0, 0, 4);
-    assert_eq!(pool.slots[pool.root as usize * STRIDE + 7], 7);
-    tree::set_category_bits(&mut pool.slots, a, 0, 16);
-    assert_eq!(pool.slots[a as usize * STRIDE + 7], 16);
-    assert_eq!(pool.slots[pool.root as usize * STRIDE + 7], 22);
-    assert_eq!(pool.slots[pool.root as usize * STRIDE + 6], 0);
-    assert_eq!(filtered_hits(&pool, 0, 16, false), vec![a]);
+fn category_changes_only_touch_proxy_storage() {
+    let mut t = Tree::new(16);
+    let a = insert(&mut t, 0.0, 1);
+    insert(&mut t, 0.5, 2);
+    insert(&mut t, 10.0, 4);
+    let root = t.nodes[0];
+    t.proxies[a].category = 16;
+    assert_eq!(t.nodes[0].flags, root.flags);
+    assert_eq!(hits(&t, 16, false), vec![a]);
+    assert!(t.valid());
 }
 #[test]
 fn any_bit_filter_keeps_high_and_low_words_distinct() {
-    for (ch, cl, mh, ml, want) in [
-        (256, 0, 256, 0, 1),
-        (0x80000000, 0, 0x80000000, 0, 1),
-        (0, 256, 256, 0, 0),
-        (256, 0, 0, 256, 0),
+    for (category, mask, want) in [
+        (256u64 << 32, 256u64 << 32, 1),
+        (1u64 << 63, 1u64 << 63, 1),
+        (256, 256u64 << 32, 0),
+        (256u64 << 32, 256, 0),
     ] {
-        let mut pool = empty_pool(31);
-        insert_box(&mut pool, 0.0, ch, cl);
-        assert_eq!(filtered_hits(&pool, mh, ml, false).len(), want);
+        let mut t = Tree::new(16);
+        insert(&mut t, 0.0, category);
+        assert_eq!(hits(&t, mask, false).len(), want);
     }
 }
 #[test]
-fn pool_growth_preserves_category_words_and_all_proxies() {
-    let mut pool = empty_pool(31);
-    let mut ids: Vec<_> = (0..20)
-        .map(|i| insert_box(&mut pool, i as f32, u32::MAX, u32::MAX))
+fn pool_growth_preserves_proxy_identity_and_categories() {
+    let mut t = Tree::new(16);
+    let mut ids: Vec<_> = (0..40)
+        .map(|i| insert(&mut t, i as f32, u64::MAX))
         .collect();
-    assert!(pool.slots.len() / STRIDE > 31);
-    let mut hits = filtered_hits(&pool, u32::MAX, u32::MAX, true);
-    ids.sort();
-    hits.sort();
-    assert_eq!(hits, ids);
+    assert!(t.nodes.len() > 32);
+    assert!(t.proxies.len() > 16);
+    let mut actual = hits(&t, u64::MAX, true);
+    ids.sort_unstable();
+    actual.sort_unstable();
+    assert_eq!(actual, ids);
+    assert!(t.valid());
 }
-
-fn load() -> Value {
-    let raw = include_str!("../../../../src/standard/physics/collision/tree.gold.json");
-    serde_json::from_str(raw).expect("parse tree.gold.json")
-}
-
-fn hex_bits(s: &str) -> u32 {
-    u32::from_str_radix(s.trim_start_matches("0x"), 16).expect("hex u32")
-}
-
 fn checkpoint<'a>(gold: &'a Value, name: &str) -> &'a Value {
-    for op in gold["ops"].as_array().unwrap() {
-        if op["op"] == "checkpoint" && op["name"] == name {
-            return &op["tree"];
-        }
-    }
-    panic!("checkpoint {name} not found");
-}
-
-struct Pool {
-    slots: Vec<u32>,
-    root: i32,
-    node_count: usize,
-    free_list: i32,
-    proxy_count: usize,
-}
-
-fn reserve_insert(pool: &mut Pool) {
-    let old = pool.slots.len() / STRIDE;
-    if old - pool.node_count >= 2 {
-        return;
-    }
-    let capacity = old + old / 2;
-    pool.slots.resize(capacity * STRIDE, 0);
-    for i in old..capacity {
-        pool.slots[i * STRIDE + 10] = if i + 1 == capacity {
-            u32::MAX
-        } else {
-            (i + 1) as u32
-        };
-    }
-    if pool.free_list == -1 {
-        pool.free_list = old as i32;
-    } else {
-        let mut i = pool.free_list;
-        while pool.slots[i as usize * STRIDE + 10] as i32 != -1 {
-            i = pool.slots[i as usize * STRIDE + 10] as i32;
-        }
-        pool.slots[i as usize * STRIDE + 10] = old as u32;
-    }
-}
-
-#[test]
-fn whole_operation_stream_matches_c() {
-    let gold = load();
-    let capacity = 2 * (gold["proxyCapacity"].as_u64().unwrap() as usize).max(16) - 1;
-    let mut pool = Pool {
-        slots: vec![0; capacity * STRIDE],
-        root: -1,
-        node_count: 0,
-        free_list: 0,
-        proxy_count: 0,
-    };
-    for i in 0..capacity {
-        pool.slots[i * STRIDE + 10] = if i + 1 == capacity {
-            -1i32 as u32
-        } else {
-            (i + 1) as u32
-        };
-    }
-    let mut handles = Vec::new();
-    let mut counts = [0; 8];
-    for (index, op) in gold["ops"].as_array().unwrap().iter().enumerate() {
-        let bounds = || {
-            let lo = vector(&op["aabb"]["lo"]);
-            let hi = vector(&op["aabb"]["hi"]);
-            ([lo.x, lo.y, lo.z], [hi.x, hi.y, hi.z])
-        };
-        match op["op"].as_str().unwrap() {
-            "create" => {
-                counts[0] += 1;
-                let (lo, hi) = bounds();
-                let category: u64 = op["category"].as_str().unwrap().parse().unwrap();
-                let user_data = op["userData"].as_str().unwrap().parse().unwrap();
-                reserve_insert(&mut pool);
-                handles.push(tree::create_proxy(
-                    &mut pool.slots,
-                    &mut pool.root,
-                    &mut pool.node_count,
-                    &mut pool.free_list,
-                    lo,
-                    hi,
-                    (category >> 32) as u32,
-                    category as u32,
-                    user_data,
-                ));
-                pool.proxy_count += 1;
-            }
-            "move" => {
-                counts[1] += 1;
-                let (lo, hi) = bounds();
-                tree::move_proxy(
-                    &mut pool.slots,
-                    &mut pool.root,
-                    &mut pool.node_count,
-                    &mut pool.free_list,
-                    handles[op["handle"].as_u64().unwrap() as usize],
-                    lo,
-                    hi,
-                );
-            }
-            "enlarge" => {
-                counts[2] += 1;
-                let (lo, hi) = bounds();
-                tree::enlarge_proxy(
-                    &mut pool.slots,
-                    handles[op["handle"].as_u64().unwrap() as usize],
-                    lo,
-                    hi,
-                );
-            }
-            "destroy" => {
-                counts[3] += 1;
-                tree::destroy_proxy(
-                    &mut pool.slots,
-                    &mut pool.root,
-                    &mut pool.node_count,
-                    &mut pool.free_list,
-                    handles[op["handle"].as_u64().unwrap() as usize],
-                );
-                pool.proxy_count -= 1;
-            }
-            "rebuild" => {
-                counts[4] += 1;
-                run_rebuild(&mut pool, op["full"].as_bool().unwrap());
-            }
-            "checkpoint" => {
-                counts[5] += 1;
-                assert_matches(&pool, &op["tree"], pool.root, op["name"].as_str().unwrap());
-                assert_invariants(&pool);
-            }
-            "query" => {
-                counts[6] += check_queries(&pool, std::slice::from_ref(op));
-            }
-            "raycast" | "boxcast" | "closest" => {
-                counts[7] += check_casts(&pool, std::slice::from_ref(op))
-                    .iter()
-                    .sum::<usize>();
-            }
-            other => panic!("operation {index}: unknown operation {other}"),
-        }
-    }
-    assert_eq!(counts, [24, 3, 2, 3, 2, 5, 5, 8]);
-    assert_invariants(&pool);
-    for node in pool.slots.as_chunks::<STRIDE>().0 {
-        assert_eq!(
-            node[11] & 3,
-            node[11] & 1,
-            "allocated node remains enlarged"
-        );
-    }
-}
-
-fn assert_invariants(pool: &Pool) {
-    fn walk(pool: &Pool, i: i32, parent: i32, seen: &mut Vec<i32>) -> u32 {
-        assert!(!seen.contains(&i), "cycle or shared child");
-        seen.push(i);
-        let n = i as usize * STRIDE;
-        let node = &pool.slots[n..n + STRIDE];
-        assert_eq!(node[10] as i32, parent);
-        assert_ne!(node[11] & 1, 0);
-        if node[11] & 4 != 0 {
-            assert_eq!(node[11] >> 16, 0);
-            return 0;
-        }
-        let a = node[8] as i32;
-        let b = node[9] as i32;
-        let height = 1 + walk(pool, a, i, seen).max(walk(pool, b, i, seen));
-        assert_eq!(node[11] >> 16, height);
-        for k in 6..8 {
-            assert_eq!(
-                node[k],
-                pool.slots[a as usize * STRIDE + k] | pool.slots[b as usize * STRIDE + k]
-            );
-        }
-        let (lo, hi) = tree::node_aabb(&pool.slots, i);
-        for child in [a, b] {
-            let (cl, ch) = tree::node_aabb(&pool.slots, child);
-            for k in 0..3 {
-                assert!(lo[k] <= cl[k] && hi[k] >= ch[k]);
-            }
-        }
-        if (pool.slots[a as usize * STRIDE + 11] | pool.slots[b as usize * STRIDE + 11]) & 2 != 0 {
-            assert_ne!(node[11] & 2, 0);
-        }
-        height
-    }
-    let mut seen = Vec::new();
-    if pool.root != -1 {
-        walk(pool, pool.root, -1, &mut seen);
-    }
-    assert_eq!(seen.len(), pool.node_count);
-}
-
-/// Reconstruct a node pool from a checkpoint's captured state — the exact C memory image (allocated
-/// records at their indices + the free-list chain), so a rebuild replays C's node-index allocation.
-fn reconstruct(tree_json: &Value) -> Pool {
-    let cap = tree_json["nodeCapacity"].as_u64().unwrap() as usize;
-    let mut slots = vec![0u32; cap * STRIDE];
-
-    for node in tree_json["nodes"].as_array().unwrap() {
-        let i = node["i"].as_u64().unwrap() as usize;
-        let n = i * STRIDE;
-        let aabb = &node["aabb"];
-        let lo = aabb["lo"].as_array().unwrap();
-        let hi = aabb["hi"].as_array().unwrap();
-        slots[n] = hex_bits(lo[0].as_str().unwrap());
-        slots[n + 1] = hex_bits(lo[1].as_str().unwrap());
-        slots[n + 2] = hex_bits(lo[2].as_str().unwrap());
-        slots[n + 3] = hex_bits(hi[0].as_str().unwrap());
-        slots[n + 4] = hex_bits(hi[1].as_str().unwrap());
-        slots[n + 5] = hex_bits(hi[2].as_str().unwrap());
-
-        let category: u64 = node["category"].as_str().unwrap().parse().unwrap();
-        slots[n + 6] = (category >> 32) as u32;
-        slots[n + 7] = (category & 0xffff_ffff) as u32;
-
-        let leaf = node["leaf"].as_bool().unwrap();
-        if leaf {
-            let ud: u32 = node["userData"].as_str().unwrap().parse().unwrap();
-            slots[n + 8] = ud;
-            slots[n + 9] = 0;
-        } else {
-            slots[n + 8] = node["child1"].as_i64().unwrap() as i32 as u32;
-            slots[n + 9] = node["child2"].as_i64().unwrap() as i32 as u32;
-        }
-        slots[n + 10] = node["parent"].as_i64().unwrap() as i32 as u32;
-        let height = node["height"].as_u64().unwrap() as u32;
-        let flags = node["flags"].as_u64().unwrap() as u32;
-        slots[n + 11] = (height << 16) | flags;
-    }
-
-    // Free chain: each free node's `next` (slot 10) points at the next, tail at -1. flags = 0.
-    let chain: Vec<i32> = tree_json["freeChain"]
+    &gold["ops"]
         .as_array()
         .unwrap()
         .iter()
-        .map(|v| v.as_i64().unwrap() as i32)
-        .collect();
-    for (k, &idx) in chain.iter().enumerate() {
-        let n = idx as usize * STRIDE;
-        let next = if k + 1 < chain.len() {
-            chain[k + 1]
-        } else {
-            -1
+        .find(|op| op["op"] == "checkpoint" && op["name"] == name)
+        .unwrap()["tree"]
+}
+fn compare(t: &Tree, g: &Value) {
+    assert_eq!(t.end, g["end"].as_u64().unwrap() as usize, "node end");
+    assert_eq!(
+        t.nodes.len(),
+        g["capacity"].as_u64().unwrap() as usize,
+        "node capacity"
+    );
+    assert_eq!(
+        t.count,
+        g["count"].as_u64().unwrap() as usize,
+        "proxy count"
+    );
+    assert_eq!(
+        t.proxies.len(),
+        g["proxyCapacity"].as_u64().unwrap() as usize
+    );
+    assert_eq!(t.pair_free, g["pairFree"].as_i64().unwrap() as i32);
+    assert_eq!(t.proxy_free, g["proxyFree"].as_i64().unwrap() as i32);
+    assert_eq!(t.ordered, g["ordered"].as_bool().unwrap());
+    for (i, expected) in g["nodes"].as_array().unwrap().iter().enumerate() {
+        let n = t.nodes[i];
+        let actual = [
+            n.lo.x.to_bits(),
+            n.lo.y.to_bits(),
+            n.lo.z.to_bits(),
+            n.hi.x.to_bits(),
+            n.hi.y.to_bits(),
+            n.hi.z.to_bits(),
+            n.flags,
+            n.height as u32,
+        ];
+        for (k, b) in actual.into_iter().enumerate() {
+            assert_eq!(b, expected[k].as_u64().unwrap() as u32, "node {i} word {k}");
+        }
+        assert_eq!(
+            t.parents[i],
+            expected[8].as_i64().unwrap() as i32,
+            "parent {i}"
+        );
+    }
+    for (i, expected) in g["proxies"].as_array().unwrap().iter().enumerate() {
+        let p = t.proxies[i];
+        assert_eq!(
+            p.user.to_string(),
+            expected[0].as_str().unwrap(),
+            "proxy {i} user"
+        );
+        assert_eq!(
+            p.category.to_string(),
+            expected[1].as_str().unwrap(),
+            "proxy {i} category"
+        );
+        assert_eq!(p.node, expected[2].as_i64().unwrap() as i32);
+        assert_eq!(p.next, expected[3].as_i64().unwrap() as i32);
+    }
+    assert!(t.valid());
+}
+fn reconstruct(g: &Value) -> Tree {
+    let mut t = Tree::new(16);
+    t.end = g["end"].as_u64().unwrap() as usize;
+    t.nodes
+        .resize(g["capacity"].as_u64().unwrap() as usize, Node::empty());
+    t.parents.resize(t.nodes.len(), -1);
+    t.pair_free = g["pairFree"].as_i64().unwrap() as i32;
+    t.count = g["count"].as_u64().unwrap() as usize;
+    t.proxy_free = g["proxyFree"].as_i64().unwrap() as i32;
+    t.ordered = g["ordered"].as_bool().unwrap();
+    for (i, n) in g["nodes"].as_array().unwrap().iter().enumerate() {
+        let f = |k: usize| f32::from_bits(n[k].as_u64().unwrap() as u32);
+        t.nodes[i] = Node {
+            lo: Vec3::new(f(0), f(1), f(2)),
+            hi: Vec3::new(f(3), f(4), f(5)),
+            flags: n[6].as_u64().unwrap() as u32,
+            height: n[7].as_u64().unwrap() as u32 as i32,
         };
-        slots[n + 10] = next as u32;
-        slots[n + 11] = 0;
+        t.parents[i] = n[8].as_i64().unwrap() as i32;
     }
-
-    Pool {
-        slots,
-        root: tree_json["root"].as_i64().unwrap() as i32,
-        node_count: tree_json["nodeCount"].as_u64().unwrap() as usize,
-        free_list: tree_json["freeList"].as_i64().unwrap() as i32,
-        proxy_count: tree_json["proxyCount"].as_u64().unwrap() as usize,
-    }
-}
-
-/// Assert a rebuilt pool matches the expected checkpoint node-for-node (structure, aabb, category,
-/// height, links) plus the tree scalars.
-fn assert_matches(pool: &Pool, expect: &Value, new_root: i32, label: &str) {
-    assert_eq!(
-        new_root,
-        expect["root"].as_i64().unwrap() as i32,
-        "{label}: root"
-    );
-    assert_eq!(
-        pool.node_count,
-        expect["nodeCount"].as_u64().unwrap() as usize,
-        "{label}: nodeCount"
-    );
-    assert_eq!(
-        pool.free_list,
-        expect["freeList"].as_i64().unwrap() as i32,
-        "{label}: freeList"
-    );
-
-    assert_eq!(
-        pool.slots.len() / STRIDE,
-        expect["nodeCapacity"].as_u64().unwrap() as usize,
-        "{label}: nodeCapacity"
-    );
-    assert_eq!(
-        pool.proxy_count,
-        expect["proxyCount"].as_u64().unwrap() as usize,
-        "{label}: proxyCount"
-    );
-    let mut chain = Vec::new();
-    let mut next = pool.free_list;
-    while next != -1 {
-        assert!(
-            chain.len() < pool.slots.len() / STRIDE,
-            "{label}: cyclic free chain"
-        );
-        chain.push(next);
-        next = pool.slots[next as usize * STRIDE + 10] as i32;
-    }
-    let expected_chain: Vec<i32> = expect["freeChain"]
+    t.proxies = g["proxies"]
         .as_array()
         .unwrap()
         .iter()
-        .map(|v| v.as_i64().unwrap() as i32)
+        .map(|p| Proxy {
+            user: p[0].as_str().unwrap().parse().unwrap(),
+            category: p[1].as_str().unwrap().parse().unwrap(),
+            node: p[2].as_i64().unwrap() as i32,
+            next: p[3].as_i64().unwrap() as i32,
+        })
         .collect();
-    assert_eq!(chain, expected_chain, "{label}: freeChain");
-    let allocated: Vec<usize> = (0..pool.slots.len() / STRIDE)
-        .filter(|&i| pool.slots[i * STRIDE + 11] & 1 != 0)
-        .collect();
-    let expected_allocated: Vec<usize> = expect["nodes"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|v| v["i"].as_u64().unwrap() as usize)
-        .collect();
-    assert_eq!(allocated, expected_allocated, "{label}: allocated nodes");
-    for node in expect["nodes"].as_array().unwrap() {
-        let i = node["i"].as_u64().unwrap() as usize;
-        let n = i * STRIDE;
-        let s = &pool.slots;
-        for (k, key) in ["lo", "hi"].iter().enumerate() {
-            let arr = node["aabb"][key].as_array().unwrap();
-            for c in 0..3 {
-                let got = s[n + k * 3 + c];
-                let want = hex_bits(arr[c].as_str().unwrap());
-                assert_eq!(got, want, "{label}: node {i} aabb {key}[{c}]");
-            }
-        }
-        let category: u64 = node["category"].as_str().unwrap().parse().unwrap();
-        assert_eq!(
-            s[n + 6],
-            (category >> 32) as u32,
-            "{label}: node {i} category hi"
-        );
-        assert_eq!(
-            s[n + 7],
-            (category & 0xffff_ffff) as u32,
-            "{label}: node {i} category lo"
-        );
-        assert_eq!(
-            s[n + 11] >> 16,
-            node["height"].as_u64().unwrap() as u32,
-            "{label}: node {i} height"
-        );
-        assert_eq!(
-            s[n + 11] & 0xffff,
-            node["flags"].as_u64().unwrap() as u32,
-            "{label}: node {i} flags"
-        );
-        assert_eq!(
-            s[n + 10] as i32,
-            node["parent"].as_i64().unwrap() as i32,
-            "{label}: node {i} parent"
-        );
-        if node["leaf"].as_bool().unwrap() {
-            let ud: u32 = node["userData"].as_str().unwrap().parse().unwrap();
-            assert_eq!(s[n + 8], ud, "{label}: node {i} userData");
-            assert_eq!(s[n + 9], 0, "{label}: node {i} userData high");
-        } else {
-            assert_eq!(
-                s[n + 8] as i32,
-                node["child1"].as_i64().unwrap() as i32,
-                "{label}: node {i} child1"
-            );
-            assert_eq!(
-                s[n + 9] as i32,
-                node["child2"].as_i64().unwrap() as i32,
-                "{label}: node {i} child2"
-            );
-        }
-    }
+    assert!(t.valid());
+    t
 }
-
-fn run_rebuild(pool: &mut Pool, full: bool) -> i32 {
-    let mut leaf_indices = vec![0i32; pool.proxy_count.max(1)];
-    let mut leaf_centers = vec![0f32; pool.proxy_count.max(1) * 3];
-    let mut gather = vec![0i32; STACK_SIZE];
-    let mut build = vec![0i32; STACK_SIZE * 5];
-    let mut rb = Rebuild {
-        node_count: &mut pool.node_count,
-        free_list: &mut pool.free_list,
-        leaf_indices: &mut leaf_indices,
-        leaf_centers: &mut leaf_centers,
-        gather_stack: &mut gather,
-        build_stack: &mut build,
-    };
-    let new_root = tree::rebuild(&mut pool.slots, pool.root, pool.proxy_count, full, &mut rb);
-    pool.root = new_root;
-    new_root
-}
-
-#[test]
-fn rebuild_partial_matches_c() {
-    let gold = load();
-    let mut pool = reconstruct(checkpoint(&gold, "afterDestroy"));
-    let new_root = run_rebuild(&mut pool, false);
-    assert_matches(
-        &pool,
-        checkpoint(&gold, "afterRebuild"),
-        new_root,
-        "afterRebuild",
-    );
-}
-
-#[test]
-fn rebuild_full_matches_c() {
-    let gold = load();
-    let mut pool = reconstruct(checkpoint(&gold, "afterRebuild"));
-    let new_root = run_rebuild(&mut pool, true);
-    assert_matches(
-        &pool,
-        checkpoint(&gold, "afterFullRebuild"),
-        new_root,
-        "afterFullRebuild",
-    );
-}
-
-fn vector(value: &Value) -> Vec3 {
-    let a = value.as_array().unwrap();
-    Vec3::new(float(&a[0]), float(&a[1]), float(&a[2]))
-}
-fn float(value: &Value) -> f32 {
-    f32::from_bits(hex_bits(value.as_str().unwrap()))
-}
-
-#[test]
-fn casts_and_closest_match_c() {
-    let gold = load();
-    let pool = reconstruct(checkpoint(&gold, "afterFullRebuild"));
-    assert_eq!(
-        check_casts(&pool, gold["ops"].as_array().unwrap()),
-        [3, 2, 3]
-    );
-}
-
-fn check_casts(pool: &Pool, ops: &[Value]) -> [usize; 3] {
-    let mut ran = [0; 3];
+fn queries(t: &Tree, ops: &[Value]) -> [usize; 4] {
+    let mut ran = [0; 4];
     for op in ops {
         let kind = op["op"].as_str().unwrap();
-        if !["raycast", "boxcast", "closest"].contains(&kind) {
-            continue;
-        }
-        let mask: u64 = op["mask"].as_str().unwrap().parse().unwrap();
-        let (hi, lo) = ((mask >> 32) as u32, mask as u32);
+        let index = match kind {
+            "query" => 0,
+            "raycast" => 1,
+            "boxcast" => 2,
+            "closest" => 3,
+            _ => continue,
+        };
+        ran[index] += 1;
+        let mask = op["mask"].as_str().unwrap().parse().unwrap();
         let all = op["requireAll"].as_bool().unwrap();
         let mut hits = Vec::new();
         let stats = match kind {
-            "raycast" => {
-                ran[0] += 1;
-                let shrink = float(&op["shrink"]);
-                tree::ray_cast(
-                    &pool.slots,
-                    pool.root,
-                    pool.node_count,
-                    vector(&op["origin"]),
+            "query" => t.query(
+                vector(&op["aabb"]["lo"]),
+                vector(&op["aabb"]["hi"]),
+                mask,
+                all,
+                |id, _| {
+                    hits.push(id as u64);
+                    true
+                },
+            ),
+            "raycast" | "boxcast" => {
+                let is_box = kind == "boxcast";
+                let lo = if is_box {
+                    vector(&op["box"]["lo"])
+                } else {
+                    vector(&op["origin"])
+                };
+                let hi = if is_box { vector(&op["box"]["hi"]) } else { lo };
+                t.cast(
+                    lo,
+                    hi,
                     vector(&op["translation"]),
                     float(&op["maxFraction"]),
-                    hi,
-                    lo,
+                    mask,
                     all,
+                    is_box,
                     |fraction, id, _| {
-                        hits.push(id as i64);
-                        if shrink < 0.0 {
-                            fraction
+                        hits.push(id as u64);
+                        if !is_box && float(&op["shrink"]) >= 0.0 {
+                            float(&op["shrink"])
                         } else {
-                            shrink
+                            fraction
                         }
-                    },
-                )
-            }
-            "boxcast" => {
-                ran[1] += 1;
-                tree::box_cast(
-                    &pool.slots,
-                    pool.root,
-                    pool.node_count,
-                    vector(&op["box"]["lo"]),
-                    vector(&op["box"]["hi"]),
-                    vector(&op["translation"]),
-                    float(&op["maxFraction"]),
-                    hi,
-                    lo,
-                    all,
-                    |fraction, id, _| {
-                        hits.push(id as i64);
-                        fraction
                     },
                 )
             }
             _ => {
-                ran[2] += 1;
                 let point = vector(&op["point"]);
-                let mut min_sqr = f32::MAX;
-                let stats = tree::query_closest(
-                    &pool.slots,
-                    pool.root,
-                    pool.node_count,
-                    point,
-                    hi,
-                    lo,
-                    all,
-                    &mut min_sqr,
-                    |distance, id, _| {
-                        hits.push(id as i64);
-                        if op["shrink"] == 0 {
-                            return distance;
-                        }
-                        let n = id as usize * STRIDE;
-                        let mut r = [0.0; 3];
-                        for (i, p) in [point.x, point.y, point.z].into_iter().enumerate() {
-                            let lower = f32::from_bits(pool.slots[n + i]);
-                            let upper = f32::from_bits(pool.slots[n + 3 + i]);
-                            r[i] = p - shallot_physics::math::clampf(p, lower, upper);
-                        }
-                        (r[0] * r[0] + r[1] * r[1]) + r[2] * r[2]
-                    },
-                );
-                assert_eq!(
-                    min_sqr.to_bits(),
-                    hex_bits(op["minDistanceSqr"].as_str().unwrap())
-                );
+                let mut distance = f32::MAX;
+                let stats = t.closest(point, mask, all, &mut distance, |limit, id, _| {
+                    hits.push(id as u64);
+                    if op["shrink"] == 0 {
+                        return limit;
+                    }
+                    let n = t.nodes[t.proxies[id].node as usize];
+                    let clamp = |p: f32, lo: f32, hi: f32| shallot_physics::math::clampf(p, lo, hi);
+                    let d = point.sub(Vec3::new(
+                        clamp(point.x, n.lo.x, n.hi.x),
+                        clamp(point.y, n.lo.y, n.hi.y),
+                        clamp(point.z, n.lo.z, n.hi.z),
+                    ));
+                    d.dot(d)
+                });
+                assert_eq!(distance.to_bits(), bits(&op["minDistanceSqr"]));
                 stats
             }
         };
-        let expected: Vec<i64> = op["hits"]
+        let expected: Vec<_> = op["hits"]
             .as_array()
             .unwrap()
             .iter()
-            .map(|v| v.as_i64().unwrap())
+            .map(|v| v.as_u64().unwrap())
             .collect();
         assert_eq!(hits, expected, "{kind} hits");
         assert_eq!(
             stats.0,
             op["nodeVisits"].as_u64().unwrap() as u32,
-            "{kind} nodeVisits"
+            "{kind} node visits"
         );
         assert_eq!(
             stats.1,
             op["leafVisits"].as_u64().unwrap() as u32,
-            "{kind} leafVisits"
+            "{kind} leaf visits"
         );
     }
     ran
 }
-
+#[test]
+fn whole_operation_stream_matches_c() {
+    let gold = load();
+    let mut t = Tree::new(gold["proxyCapacity"].as_u64().unwrap() as usize);
+    let mut handles = Vec::new();
+    let mut counts = [0; 8];
+    for op in gold["ops"].as_array().unwrap() {
+        let bounds = || (vector(&op["aabb"]["lo"]), vector(&op["aabb"]["hi"]));
+        match op["op"].as_str().unwrap() {
+            "create" => {
+                counts[0] += 1;
+                let (lo, hi) = bounds();
+                handles.push(t.create(
+                    lo,
+                    hi,
+                    op["category"].as_str().unwrap().parse().unwrap(),
+                    op["userData"].as_str().unwrap().parse().unwrap(),
+                    false,
+                ));
+            }
+            "move" => {
+                counts[1] += 1;
+                let (lo, hi) = bounds();
+                t.move_proxy(
+                    handles[op["handle"].as_u64().unwrap() as usize],
+                    lo,
+                    hi,
+                    false,
+                );
+            }
+            "enlarge" => {
+                counts[2] += 1;
+                let (lo, hi) = bounds();
+                t.enlarge(handles[op["handle"].as_u64().unwrap() as usize], lo, hi);
+            }
+            "destroy" => {
+                counts[3] += 1;
+                t.destroy(handles[op["handle"].as_u64().unwrap() as usize]);
+            }
+            "rebuild" => {
+                counts[4] += 1;
+                t.rebuild(op["full"].as_bool().unwrap());
+            }
+            "checkpoint" => {
+                counts[5] += 1;
+                compare(&t, &op["tree"]);
+            }
+            "query" => {
+                counts[6] += queries(&t, std::slice::from_ref(op))[0];
+            }
+            _ => {
+                counts[7] += queries(&t, std::slice::from_ref(op))[1..]
+                    .iter()
+                    .sum::<usize>();
+            }
+        }
+    }
+    assert_eq!(counts, [24, 3, 2, 3, 2, 5, 5, 8]);
+    assert!(t.valid());
+    assert!(t.nodes[..t.end].iter().all(|n| n.flags & MOVED == 0));
+}
+#[test]
+fn rebuild_partial_matches_c() {
+    let g = load();
+    let mut t = reconstruct(checkpoint(&g, "afterDestroy"));
+    t.rebuild(false);
+    compare(&t, checkpoint(&g, "afterRebuild"));
+}
+#[test]
+fn rebuild_full_matches_c() {
+    let g = load();
+    let mut t = reconstruct(checkpoint(&g, "afterRebuild"));
+    t.rebuild(true);
+    compare(&t, checkpoint(&g, "afterFullRebuild"));
+}
+#[test]
+fn casts_and_closest_match_c() {
+    let g = load();
+    let t = reconstruct(checkpoint(&g, "afterFullRebuild"));
+    assert_eq!(queries(&t, g["ops"].as_array().unwrap())[1..], [3, 2, 3]);
+}
 #[test]
 fn query_matches_c() {
-    let gold = load();
-    let pool = reconstruct(checkpoint(&gold, "afterFullRebuild"));
-    assert_eq!(check_queries(&pool, gold["ops"].as_array().unwrap()), 5);
-}
-
-fn check_queries(pool: &Pool, ops: &[Value]) -> usize {
-    let mut stack = vec![0i32; STACK_SIZE];
-    let mut ran = 0;
-    for op in ops {
-        if op["op"] != "query" {
-            continue;
-        }
-        ran += 1;
-        let aabb = &op["aabb"];
-        let lo_a = aabb["lo"].as_array().unwrap();
-        let hi_a = aabb["hi"].as_array().unwrap();
-        let lo = [
-            f32::from_bits(hex_bits(lo_a[0].as_str().unwrap())),
-            f32::from_bits(hex_bits(lo_a[1].as_str().unwrap())),
-            f32::from_bits(hex_bits(lo_a[2].as_str().unwrap())),
-        ];
-        let hi = [
-            f32::from_bits(hex_bits(hi_a[0].as_str().unwrap())),
-            f32::from_bits(hex_bits(hi_a[1].as_str().unwrap())),
-            f32::from_bits(hex_bits(hi_a[2].as_str().unwrap())),
-        ];
-        let mask: u64 = op["mask"].as_str().unwrap().parse().unwrap();
-        let mask_hi = (mask >> 32) as u32;
-        let mask_lo = (mask & 0xffff_ffff) as u32;
-        let require_all = op["requireAll"].as_bool().unwrap();
-
-        let mut hits: Vec<i64> = Vec::new();
-        let (nv, lv) = tree::query(
-            &pool.slots,
-            pool.root,
-            pool.node_count,
-            lo,
-            hi,
-            mask_hi,
-            mask_lo,
-            require_all,
-            &mut stack,
-            |node_id, _ud| {
-                hits.push(node_id as i64);
-                true
-            },
-        );
-
-        let want_hits: Vec<i64> = op["hits"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|v| v.as_i64().unwrap())
-            .collect();
-        assert_eq!(hits, want_hits, "query hits");
-        assert_eq!(nv, op["nodeVisits"].as_u64().unwrap() as u32, "nodeVisits");
-        assert_eq!(lv, op["leafVisits"].as_u64().unwrap() as u32, "leafVisits");
-    }
-    ran
+    let g = load();
+    let t = reconstruct(checkpoint(&g, "afterFullRebuild"));
+    assert_eq!(queries(&t, g["ops"].as_array().unwrap())[0], 5);
 }

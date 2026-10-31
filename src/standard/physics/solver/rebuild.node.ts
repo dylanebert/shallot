@@ -86,12 +86,14 @@ if (process.env.PHYSICS_REBUILD_BULLET) {
                 },
                 0.2,
             );
-            const root = state.broadPhase.trees[BodyType.Dynamic]!.root;
+            expect(state.broadPhase.trees[BodyType.Dynamic]!.root).toBe(0);
             const poses = [];
             for (let i = 0; i < 3; ++i) {
                 stepWorld(state, 1 / 60, 1);
                 expect(contactCount(state)).toBeLessThan(256 * 3);
-                if (i === 0) expect(state.broadPhase.trees[BodyType.Dynamic]!.root).not.toBe(root);
+                expect(state.broadPhase.trees[BodyType.Dynamic]!.root).toBe(0);
+                expect(state.broadPhase.trees[BodyType.Dynamic]!.proxyCount).toBe(41);
+                if (i === 0) expect(bodyTransform(state, bullet).p.x).toBeLessThan(position.x);
                 poses.push(bodyTransform(state, bullet), bodyTransform(state, target));
             }
             console.log(`BULLET_POSES=${JSON.stringify(poses)}`);
@@ -109,7 +111,7 @@ if (process.env.PHYSICS_REBUILD_BULLET) {
         });
         expect(await child.exited).toBe(0);
     });
-    test("an unforked four-thread bullet sweep uses the rebuilt dynamic root and equals one thread", async () => {
+    test("an unforked four-thread bullet sweep uses the rebuilt dynamic tree and equals one thread", async () => {
         const results = [];
         for (const count of [1, 4]) {
             const child = Bun.spawn({

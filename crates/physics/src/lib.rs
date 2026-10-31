@@ -78,7 +78,6 @@ pub mod stages;
 pub mod table;
 mod task_memory;
 mod toi;
-pub mod tree;
 pub mod triangle_manifold;
 pub mod wide;
 

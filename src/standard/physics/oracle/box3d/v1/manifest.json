@@ -1,16 +1,16 @@
 {
   "schema": "box3d-oracle/manifest-v1",
   "bundle": {
-    "upstreamSha": "954cf879e717334eb96da9a5c255788fdc9f5f87",
+    "upstreamSha": "f555ee42084e0b43cbffa863f40bff8117c08896",
     "schema": "v1",
-    "identity": "954cf879e717334eb96da9a5c255788fdc9f5f87/v1"
+    "identity": "f555ee42084e0b43cbffa863f40bff8117c08896/v1"
   },
   "upstream": {
     "url": "https://github.com/erincatto/box3d.git",
     "ref": "refs/heads/main",
     "channel": "official-main",
-    "sha": "954cf879e717334eb96da9a5c255788fdc9f5f87",
-    "tree": "f112da807e8a98f64339d1456b04ffcdf65a083f",
+    "sha": "f555ee42084e0b43cbffa863f40bff8117c08896",
+    "tree": "5d3aee146ace7022293cead1e5918e17123355a1",
     "reachableFromChannel": true
   },
   "oracle": {
@@ -80,7 +80,7 @@
     "library": "official libbox3.a",
     "publicIncludeRoot": "include/box3d",
     "privateIncludeFirewall": "depfiles reject upstream src/ and negative mutation must fail",
-    "executableSha256": "d51e943a6cd0637fe7daf5c5c8eeeec40a179eca9eba7c29b3e92fed5c44693c"
+    "executableSha256": "d7fe6c75b3946c3fbb17f97f66fff58db4a98645c44c935cd9758d83a605ebc5"
   },
   "schemaDefinition": "schema.json",
   "membership": "membership.json",
@@ -89,7 +89,7 @@
   "fileDigests": {
     "schema.json": "2fc485074e033ce42e2c29e2cc43bc0cb08b9d2bdf22254970f135025441f867",
     "membership.json": "fa91fe2cd77ae6d4148369746aef76d7ead4af13c3831b6445f53c9ac4831292",
-    "cases.json": "dbdd2d7c5a01a0de6b68c42a6e75ea7958cd45034257c7b94c679bfbd06fa6c7"
+    "cases.json": "88aa729a95b0d836bd424e421b947fdd5d218eb63efdfdd798e80ca7ff65949d"
   },
   "fileDigestScope": "Generated evidence files only; manifest is the receipt and is intentionally excluded from its own digest map.",
   "generation": {

@@ -7,10 +7,10 @@ import { kernel } from "./kernel";
 import type { DynamicTree } from "./treecolumns";
 import { KernelViews } from "./views";
 
-/** u32/f32 slots per dynamic-tree node — mirrors tree.rs and broad.rs. */
+/** Slots in broad.rs's derived inspection record, not a second simulation tree. */
 const TREE_STRIDE = 12;
-/** Three trees, three pair columns, moves and three moved bitsets. */
-const N_BROAD = 10;
+/** Three derived tree images and the pair-membership table. */
+const N_BROAD = 4;
 
 const EMPTY_F = new Float32Array(0);
 const EMPTY_I = new Int32Array(0);
@@ -32,10 +32,7 @@ export class BroadStore extends KernelViews {
     trees: DynamicTree[] = [];
     /** The owning world, set once the world is fully constructed (sibling-store refresh on a grow). */
     world: WorldState | null = null;
-    moveData = EMPTY_I;
-    moveState = EMPTY_U;
-    movedBits: Uint32Array[] = [EMPTY_U, EMPTY_U, EMPTY_U];
-    initialization = { claimed: false, movesInitialized: false };
+    initialization = { claimed: false };
     #layout = EMPTY_U;
 
     override captureCheckpoint() {
@@ -63,8 +60,8 @@ export class BroadStore extends KernelViews {
     protected deriveViews(): void {
         const k = kernel(this.ecsState);
         k.bodySetActiveWorld(this.worldId);
-        const buf = k.memory.buffer;
         const ptr = k.broadLayoutPtr();
+        const buf = k.memory.buffer;
         if (this.#layout.buffer !== buf || this.#layout.byteOffset !== ptr)
             this.#layout = new Uint32Array(buf, ptr, N_BROAD);
         const layout = this.#layout;
@@ -78,15 +75,12 @@ export class BroadStore extends KernelViews {
                 t.ni = EMPTY_I;
                 continue;
             }
-            const initial = this.initialization.claimed && !t.residentState && this.world === null;
             if (this.initialization.claimed) {
-                const previous = t.state;
                 if (t.state.buffer !== buf || t.state.byteOffset !== layout[i])
                     t.state = new Int32Array(buf, layout[i], 6);
-                if (initial) t.state.set(previous);
                 t.residentState = true;
             }
-            t.nodeCapacity = !this.initialization.claimed || initial ? 0 : cap;
+            t.nodeCapacity = this.initialization.claimed ? cap : 0;
             if (
                 t.nf.buffer !== buf ||
                 t.nf.byteOffset !== layout[i] + 24 ||
@@ -95,32 +89,6 @@ export class BroadStore extends KernelViews {
                 t.nf = new Float32Array(buf, layout[i] + 24, cap * TREE_STRIDE);
                 t.ni = new Int32Array(buf, layout[i] + 24, cap * TREE_STRIDE);
             }
-        }
-
-        const moveCapacity = k.broadTreeCap(0) + k.broadTreeCap(1) + k.broadTreeCap(2);
-        if (this.initialization.claimed && moveCapacity !== 0) {
-            if (this.moveState.buffer !== buf || this.moveState.byteOffset !== layout[6])
-                this.moveState = new Uint32Array(buf, layout[6], 1);
-            const initial = !this.initialization.movesInitialized && this.world === null;
-            if (initial) this.moveState[0] = 0;
-            this.initialization.movesInitialized = true;
-            if (
-                this.moveData.buffer !== buf ||
-                this.moveData.byteOffset !== layout[6] + 4 ||
-                this.moveData.length !== moveCapacity
-            )
-                this.moveData = new Int32Array(buf, layout[6] + 4, moveCapacity);
-            for (let i = 0; i < 3; i++) {
-                const old = this.movedBits[i];
-                const length = 2 * k.broadBitsCapacity(i);
-                if (old.buffer !== buf || old.byteOffset !== layout[7 + i] || old.length !== length)
-                    this.movedBits[i] = new Uint32Array(buf, layout[7 + i], length);
-                if (initial) this.movedBits[i].fill(0);
-            }
-        } else {
-            this.moveState = EMPTY_U;
-            this.moveData = EMPTY_I;
-            for (let i = 0; i < 3; i++) this.movedBits[i] = EMPTY_U;
         }
     }
 

@@ -115,7 +115,7 @@ test("a ray callback can query a sibling World without interrupting its outer hi
         });
         expect(fractions).toHaveLength(3);
         for (const [i, fraction] of fractions.entries())
-            expect(fraction).toBeCloseTo([0.15, 0.35, 0.55][i]!, 6);
+            expect(fraction).toBeCloseTo([0.55, 0.15, 0.35][i]!, 6);
         expect(closest(world, origin, translation).fraction).toBeCloseTo(0.15, 6);
         expect(closest(sibling, origin, { x: 110, y: 0, z: 0 }).fraction).toBeCloseTo(
             99.5 / 110,
@@ -138,7 +138,7 @@ test("same-world nested queries preserve all three outer ray hits", async () => 
         });
         expect(fractions).toHaveLength(3);
         for (const [i, fraction] of fractions.entries())
-            expect(fraction).toBeCloseTo([0.15, 0.35, 0.55][i]!, 6);
+            expect(fraction).toBeCloseTo([0.55, 0.15, 0.35][i]!, 6);
     } finally {
         await dispose(world);
     }

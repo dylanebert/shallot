@@ -30,6 +30,7 @@ type Point = { x: number; y: number; z: number };
 type Bounds = { lowerBound: Point; upperBound: Point };
 type Proxy = { bounds: Bounds; id: number; queryStamp: number; rayStamp: number };
 type Node = {
+    proxyId: number;
     bounds: Bounds;
     parent: number;
     child1: number;
@@ -124,6 +125,7 @@ function reports(world: World, s: State): void {
         const n = getPhysicsTreeNode(world, s.tree!, id);
         return n
             ? {
+                  proxyId: n.proxyId,
                   bounds: structuredClone(n.bounds),
                   parent: n.parent,
                   child1: n.child1,
@@ -231,8 +233,9 @@ function load(world: World): void {
     s.values.Level = -1;
     s.buildTime = 0;
     if (!s.leaves) return;
-    for (const [id, n] of s.nodes.entries())
-        if (n?.leaf) s.proxies[n.user] = { bounds: n.bounds, id, queryStamp: 0, rayStamp: 0 };
+    for (const n of s.nodes)
+        if (n?.leaf)
+            s.proxies[n.user] = { bounds: n.bounds, id: n.proxyId, queryStamp: 0, rayStamp: 0 };
     generate(s);
 }
 function closestQuery(world: World, s: State, i: number): void {

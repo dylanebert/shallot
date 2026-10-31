@@ -198,7 +198,7 @@ pub unsafe extern "C" fn call(
     let mask = ml as u64 | ((mh as u64) << 32);
     let mut result = id;
     match op {
-        0 => {
+        0 | 14 => {
             result = t
                 .tree
                 .create(lo, hi, mask, low as u64 | ((high as u64) << 32), false)
@@ -251,6 +251,9 @@ pub unsafe extern "C" fn call(
         13 => t.tree.enlarge(id as usize, lo, hi),
         _ => unreachable!(),
     }
-    t.report();
+    // Compound baking publishes its report after the final rebuild.
+    if op != 14 {
+        t.report();
+    }
     result
 }
