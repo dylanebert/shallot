@@ -2,6 +2,34 @@
     "source": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/",
     "commit": "2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf",
     "models": [
+        { "name": "InterpolationTest", "license": "Models/InterpolationTest/LICENSE.md", "files": [
+            { "path": "Models/InterpolationTest/LICENSE.md", "sha256": "3a3762ba63cc52e52bbaa65f8f187e02cf05d7256e750ede4c40db611169e7e7" },
+            { "path": "Models/InterpolationTest/glTF/InterpolationTest.gltf", "sha256": "4357b9e260f2e7ffb153255da37c20d6c20a03c76cbebf959a0a4f144a873028" },
+            { "path": "Models/InterpolationTest/glTF/InterpolationTest_data.bin", "sha256": "f4ab866b1b34a0b0ae345a4ac37f2b13b49f6f4e4068ef345880bfcdcdd4d961" },
+            { "path": "Models/InterpolationTest/glTF/InterpolationTest_img0.png", "sha256": "dc89eecc149440e13448baf1434b313b1c81ecd027f6f68f8ba20e32eefcc0b4" }
+        ] },
+        { "name": "AnimatedTriangle", "license": "Models/AnimatedTriangle/LICENSE.md", "files": [
+            { "path": "Models/AnimatedTriangle/LICENSE.md", "sha256": "5dde96e00f66d01505fdb036b21d0f1ed83990807ade96d211c42963b654980c" },
+            { "path": "Models/AnimatedTriangle/glTF/AnimatedTriangle.gltf", "sha256": "d326af21f8d2ae6b3853f1f3e4e0d673053b1c5938659dfefe5d28c7a9f42f76" },
+            { "path": "Models/AnimatedTriangle/glTF/AnimatedTriangle_animation.bin", "sha256": "ec3bdaac71a222034affffef8a9ec531563bc02a3720e513cd8bf852e270f99b" },
+            { "path": "Models/AnimatedTriangle/glTF/AnimatedTriangle_geometry.bin", "sha256": "898ed7f560dca9907a80c98be57fbbc0f3a092d2e3683b964ffcfa75c549ac62" }
+        ] },
+        { "name": "AnimatedCube", "license": "Models/AnimatedCube/LICENSE.md", "files": [
+            { "path": "Models/AnimatedCube/LICENSE.md", "sha256": "4197e9489628d7fcde13b8a875d89f49eebdf9ca8adb5998d48f91fbbf1fe2b9" },
+            { "path": "Models/AnimatedCube/glTF/AnimatedCube.bin", "sha256": "82de770fc82b48a77a33bb26abd4d7e75620491b36ddf98e8dca69fa73dd798c" },
+            { "path": "Models/AnimatedCube/glTF/AnimatedCube.gltf", "sha256": "59a3c451a5167b8ac4b59d61d4b94b2b7a215ee827efaed75629677a1217b552" },
+            { "path": "Models/AnimatedCube/glTF/AnimatedCube_BaseColor.png", "sha256": "0750d5a03c1bebc640571e309f66c6e88efbff2ef4c120619466a7014551bb9a" }
+        ] },
+        { "name": "BoxAnimated", "license": "Models/BoxAnimated/LICENSE.md", "files": [
+            { "path": "Models/BoxAnimated/LICENSE.md", "sha256": "c17eb3e366fdf3c9cfd23d37d5d5394ed0984e7b223eb400e924edfaeb892dee" },
+            { "path": "Models/BoxAnimated/glTF/BoxAnimated.gltf", "sha256": "bb97bd72afb27f46a63ae458c3f194e40f7e8a09aac1f5eb4cef3293c689ab0b" },
+            { "path": "Models/BoxAnimated/glTF/BoxAnimated0.bin", "sha256": "e976ed06d0fbb5b4e92a33ef264e78894cf9c8cdb8c5836e43ef92f4d968def4" }
+        ] },
+        { "name": "AnimatedMorphCube", "license": "Models/AnimatedMorphCube/LICENSE.md", "files": [
+            { "path": "Models/AnimatedMorphCube/LICENSE.md", "sha256": "f329408d3b37552eb0773907af5448a8aa1ae078c1c22c3e83e7ee5e10ec45bd" },
+            { "path": "Models/AnimatedMorphCube/glTF/AnimatedMorphCube.bin", "sha256": "4aba93918adba56c1cc688a38c527bc647e26f2c386802e119b4d01b7250dd23" },
+            { "path": "Models/AnimatedMorphCube/glTF/AnimatedMorphCube.gltf", "sha256": "0b910ed4b52fd9fbb565911fc7f9f285edb0f30fa4913a93143466d439d1092e" }
+        ] },
         {
             "name": "Box",
             "license": "Models/Box/LICENSE.md",

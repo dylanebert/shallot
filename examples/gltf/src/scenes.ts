@@ -14,13 +14,16 @@ export const scenes = {
     MetalRoughSpheres: { promise: "materials" },
     NormalTangentMirrorTest: { promise: "materials" },
     CesiumMilkTruck: { promise: "textures" },
+    AnimatedTriangle: { promise: "animation" },
 } as const;
 export type Scene = keyof typeof scenes;
-export const categories = ["geometry", "transforms", "materials", "textures"].map((name) => ({
-    name,
-    scenes: (Object.keys(scenes) as Scene[])
-        .filter((id) => scenes[id].promise === name)
-        .map((id) => ({ id, name: id })),
-}));
+export const categories = ["geometry", "transforms", "materials", "textures", "animation"].map(
+    (name) => ({
+        name,
+        scenes: (Object.keys(scenes) as Scene[])
+            .filter((id) => scenes[id].promise === name)
+            .map((id) => ({ id, name: id })),
+    }),
+);
 export const modelPath = (scene: Scene) => `assets/Models/${scene}/glTF/${scene}.gltf`;
 export const truckPlacement: GltfPlacement = { translation: [0, -0.5, 0], scale: [0.7, 0.7, 0.7] };

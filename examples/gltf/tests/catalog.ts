@@ -3,6 +3,11 @@ export const categories = [
     {
         name: "core",
         scenes: [
+            { id: "InterpolationTest" },
+            { id: "AnimatedTriangle" },
+            { id: "AnimatedCube" },
+            { id: "BoxAnimated" },
+            { id: "AnimatedMorphCube" },
             { id: "Box" },
             { id: "BoxTextured" },
             { id: "TextureSettingsTest" },

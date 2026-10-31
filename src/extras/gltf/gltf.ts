@@ -4,7 +4,12 @@ import {
     ImageFilterMode,
     type ImageSamplerDescriptor,
 } from "../../core/rendering";
-import { composeMat4 as compose, multiplyMat4 as multiply } from "../../engine/utils";
+import {
+    composeMat4 as compose,
+    decomposeMat4,
+    multiplyMat4 as multiply,
+} from "../../engine/utils";
+import type { GltfAnimation, GltfAnimationPath, GltfNode } from "./animation";
 
 const VERTEX_FLOATS = 8;
 
@@ -21,7 +26,15 @@ export interface GltfJson {
     scenes?: { nodes?: number[] }[];
     scene?: number;
     buffers?: { uri?: string; byteLength: number; extensions?: Record<string, unknown> }[];
-    animations?: object[];
+    animations?: {
+        name?: string;
+        channels: { sampler: number; target: { node?: number; path: GltfAnimationPath } }[];
+        samplers: {
+            input: number;
+            output: number;
+            interpolation?: "STEP" | "LINEAR" | "CUBICSPLINE";
+        }[];
+    }[];
     skins?: object[];
     extensionsRequired?: string[];
     extensionsUsed?: string[];
@@ -54,6 +67,7 @@ interface BufferView {
 interface GltfJsonMesh {
     name?: string;
     primitives: Primitive[];
+    weights?: number[];
 }
 
 interface Primitive {
@@ -103,6 +117,7 @@ interface Material {
 }
 
 interface Node {
+    weights?: number[];
     name?: string;
     mesh?: number;
     skin?: number;
@@ -147,8 +162,11 @@ export interface GltfMaterial {
     doubleSided: boolean;
 }
 export interface GltfScene {
+    /** Default scene, with parents before children. */
+    nodes: GltfNode[];
+    animations: GltfAnimation[];
     meshes: GltfMesh[];
-    instances: { mesh: number; node: string; matrix: Float32Array }[];
+    instances: { mesh: number; node: string; nodeIndex: number; matrix: Float32Array }[];
     materials: GltfMaterial[];
     images: { uri?: string; bytes?: Uint8Array; mimeType?: string }[];
     textures: { image?: number; sampler: ImageSamplerDescriptor }[];
@@ -486,7 +504,6 @@ export function parse(gltf: GltfJson, buffers: ArrayBuffer[]): GltfScene {
     scan(gltf);
     for (const name of gltf.extensionsUsed ?? []) if (!supportedExtension(name)) ignored.add(name);
     if (gltf.skins?.length) ignored.add("skin");
-    if (gltf.animations?.length) ignored.add("animation");
     if ("cameras" in gltf) ignored.add("camera");
     const materials = (gltf.materials ?? []).map((m): GltfMaterial => {
         const pbr = m.pbrMetallicRoughness;
@@ -585,25 +602,75 @@ export function parse(gltf: GltfJson, buffers: ArrayBuffer[]): GltfScene {
         }
         return entries;
     });
+    const animations = (gltf.animations ?? []).map(
+        (animation, index): GltfAnimation => ({
+            name: animation.name ?? `Animation${index}`,
+            channels: animation.channels
+                .filter((channel) => channel.target.node !== undefined)
+                .map((channel) => ({
+                    sampler: channel.sampler,
+                    node: channel.target.node!,
+                    path: channel.target.path,
+                })),
+            samplers: animation.samplers.map((sampler) => ({
+                input: readAccessor(gltf, buffers, sampler.input),
+                output: readAccessor(gltf, buffers, sampler.output),
+                interpolation: sampler.interpolation ?? "LINEAR",
+            })),
+        }),
+    );
+    const sceneNodes: GltfNode[] = [];
     const instances: GltfScene["instances"] = [];
     const nodes = gltf.nodes ?? [];
     const children = new Set(nodes.flatMap((n) => n.children ?? []));
     const roots =
         gltf.scenes?.[gltf.scene ?? 0]?.nodes ??
         nodes.map((_, i) => i).filter((i) => !children.has(i));
-    const walk = (index: number, parent: Float32Array, ancestors: Set<number>): void => {
+    const walk = (
+        index: number,
+        parent: Float32Array,
+        ancestors: Set<number>,
+        parentIndex = -1,
+    ): void => {
         if (ancestors.has(index)) throw new Error("Cyclic glTF node hierarchy");
         const node = nodes[index];
-        const matrix = multiply(parent, localMatrix(node, new Float32Array(16)));
+        const local = localMatrix(node, new Float32Array(16));
+        const trs = node.matrix ? decomposeMat4(local) : undefined;
+        const sceneIndex = sceneNodes.length;
+        sceneNodes.push({
+            index,
+            parent: parentIndex,
+            name: node.name ?? `Node${index}`,
+            translation: trs
+                ? Array.from(trs.subarray(0, 3))
+                : [...(node.translation ?? [0, 0, 0])],
+            rotation: trs ? Array.from(trs.subarray(3, 7)) : [...(node.rotation ?? [0, 0, 0, 1])],
+            scale: trs ? Array.from(trs.subarray(7, 10)) : [...(node.scale ?? [1, 1, 1])],
+            weights: [
+                ...(node.weights ??
+                    (node.mesh === undefined ? undefined : gltf.meshes?.[node.mesh].weights) ??
+                    Array(gltf.meshes?.[node.mesh ?? -1]?.primitives[0]?.targets?.length ?? 0).fill(
+                        0,
+                    )),
+            ],
+        });
+        const matrix = multiply(parent, local);
         if (node.mesh !== undefined)
             for (const mesh of meshEntries[node.mesh])
-                instances.push({ mesh, node: node.name ?? `Node${index}`, matrix });
+                instances.push({
+                    mesh,
+                    node: node.name ?? `Node${index}`,
+                    nodeIndex: index,
+                    matrix,
+                });
         for (const child of node.children ?? [])
-            walk(child, matrix, new Set([...ancestors, index]));
+            walk(child, matrix, new Set([...ancestors, index]), sceneIndex);
     };
     const identity = compose(0, 0, 0, 0, 0, 0, 1, 1, 1, 1);
     for (const root of roots) walk(root, identity, new Set());
     return {
+        nodes: sceneNodes,
+        animations,
         meshes,
         instances,
         materials,
