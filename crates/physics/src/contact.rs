@@ -497,22 +497,20 @@ pub fn solve(
                         vr_b.sub(vr_a).dot(normal)
                     };
 
-                    let mut delta_impulse = -normal_mass * (mass_scale * vn + velocity_bias)
-                        - impulse_scale * normal_impulse;
-
-                    let new_impulse = if wide_mesh {
-                        let neg_impulse = normal_mass * (mass_scale * vn + velocity_bias)
-                            + impulse_scale * normal_impulse;
-                        normal_impulse + maxf(-neg_impulse, -normal_impulse)
+                    let (new_impulse, delta_impulse) = if wide_mesh {
+                        let neg_impulse = if use_bias {
+                            normal_mass * (mass_scale * vn + velocity_bias)
+                                + impulse_scale * normal_impulse
+                        } else {
+                            normal_mass * (vn + velocity_bias)
+                        };
+                        let impulse = maxf(-neg_impulse, -normal_impulse);
+                        (normal_impulse + impulse, impulse)
                     } else {
-                        maxf(normal_impulse + delta_impulse, 0.0)
-                    };
-                    delta_impulse = if wide_mesh {
-                        let neg_impulse = normal_mass * (mass_scale * vn + velocity_bias)
-                            + impulse_scale * normal_impulse;
-                        maxf(-neg_impulse, -normal_impulse)
-                    } else {
-                        new_impulse - normal_impulse
+                        let impulse = -normal_mass * (mass_scale * vn + velocity_bias)
+                            - impulse_scale * normal_impulse;
+                        let new_impulse = maxf(normal_impulse + impulse, 0.0);
+                        (new_impulse, new_impulse - normal_impulse)
                     };
                     (*cp).normal_impulse = new_impulse;
                     if !use_bias {
