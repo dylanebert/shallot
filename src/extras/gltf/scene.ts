@@ -10,12 +10,19 @@ import {
     MeshMaterial,
     StandardMaterial,
 } from "../../standard/rendering";
+import {
+    evaluateGltfAnimation,
+    type GltfAnimation,
+    type GltfNode,
+    type GltfNodePose,
+} from "./animation";
 import { loadGltf } from "./load";
 
 export interface GltfPrimitive {
     readonly mesh: MeshHandle;
     readonly material: MaterialHandle;
     readonly node: string;
+    readonly nodeIndex: number;
     /** Node world transform in model space, before placement; treat its elements as immutable. */
     readonly matrix: Float32Array;
 }
@@ -23,6 +30,8 @@ export interface GltfPrimitive {
 export interface Gltf {
     readonly world: World;
     readonly primitives: readonly GltfPrimitive[];
+    readonly nodes: readonly GltfNode[];
+    readonly animations: readonly GltfAnimation[];
     /** Default scene's axis-aligned bounds, including node transforms, before spawn placement. */
     readonly bounds: {
         min: readonly [number, number, number];
@@ -133,6 +142,7 @@ export async function loadGltfScene(
             mesh: meshes[instance.mesh],
             material,
             node: instance.node,
+            nodeIndex: scene.nodes.findIndex((node) => node.index === instance.nodeIndex),
             matrix: instance.matrix,
         };
     });
@@ -158,13 +168,24 @@ export async function loadGltfScene(
         max.fill(0);
     }
     onProgress?.(1);
-    return { world, primitives, bounds: { min, max }, unsupported: scene.unsupported };
+    return {
+        world,
+        primitives,
+        nodes: scene.nodes,
+        animations: scene.animations,
+        bounds: { min, max },
+        unsupported: scene.unsupported,
+    };
 }
 
 /** Spawns one entity per primitive instance, composing placement onto the node's world transform.
  * Refuses a foreign-world handle or a non-TRS composition, naming the node, before spawning anything.
  */
-export function spawnGltfScene(world: World, gltf: Gltf, placement: GltfPlacement = {}): number[] {
+export function spawnGltfScene(
+    world: World,
+    gltf: Gltf,
+    placement: GltfPlacement = {},
+): GltfSceneInstance {
     if (gltf.world !== world) throw new Error("glTF handle belongs to another world");
     const matrix = composeMat4(
         ...(placement.translation ?? [0, 0, 0]),
@@ -174,28 +195,119 @@ export function spawnGltfScene(world: World, gltf: Gltf, placement: GltfPlacemen
     const transforms = gltf.primitives.map((primitive) => {
         const composed = multiplyMat4(matrix, primitive.matrix);
         const t = decomposeMat4(composed);
-        const recomposed = composeMat4(t[0], t[1], t[2], t[3], t[4], t[5], t[6], t[7], t[8], t[9]);
-        if (
-            composed.some(
-                (value, i) =>
-                    !Number.isFinite(value) ||
-                    Math.abs(value - recomposed[i]) > 1e-5 * Math.max(1, Math.abs(value)),
-            )
-        )
-            throw new Error(
-                `glTF node "${primitive.node}": composed transform has shear or cannot be represented as TRS`,
-            );
+        validateTransform(composed, t, new Float32Array(16), primitive.node);
         return {
             translation: [t[0], t[1], t[2]] as [number, number, number],
             rotation: [t[3], t[4], t[5], t[6]] as [number, number, number, number],
             scale: [t[7], t[8], t[9]] as [number, number, number],
         };
     });
-    return gltf.primitives.map((primitive, i) => {
+    const entities = gltf.primitives.map((primitive, i) => {
         const eid = world.create();
         world.add(eid, Transform, transforms[i]);
         world.add(eid, MeshInstance, { mesh: primitive.mesh });
         world.add(eid, MeshMaterial, primitive.material);
         return eid;
     });
+    return Object.assign(entities, {
+        [poseState]: {
+            gltf,
+            placement: matrix,
+            poses: gltf.nodes.map(({ translation, rotation, scale, weights }) => ({
+                translation: [...translation],
+                rotation: [...rotation],
+                scale: [...scale],
+                weights: [...weights],
+            })),
+            globals: gltf.nodes.map(() => new Float32Array(16)),
+            transforms: entities.map(() => new Float32Array(10)),
+            composed: new Float32Array(16),
+            recomposed: new Float32Array(16),
+        },
+    });
+}
+
+const poseState = Symbol("glTF pose");
+
+/** Primitive eids in spawn order, with independent pose storage and a captured spawn placement. */
+export interface GltfSceneInstance extends Array<number> {
+    readonly [poseState]: {
+        gltf: Gltf;
+        placement: Float32Array;
+        poses: GltfNodePose[];
+        globals: Float32Array[];
+        transforms: Float32Array[];
+        composed: Float32Array;
+        recomposed: Float32Array;
+    };
+}
+
+function validateTransform(
+    matrix: Float32Array,
+    t: Float32Array,
+    scratch: Float32Array,
+    node: string,
+) {
+    composeMat4(t[0], t[1], t[2], t[3], t[4], t[5], t[6], t[7], t[8], t[9], scratch);
+    const magnitude = Math.max(
+        1,
+        Math.hypot(matrix[0], matrix[1], matrix[2]),
+        Math.hypot(matrix[4], matrix[5], matrix[6]),
+        Math.hypot(matrix[8], matrix[9], matrix[10]),
+    );
+    for (let i = 0; i < 16; i++)
+        if (!Number.isFinite(matrix[i]) || Math.abs(matrix[i] - scratch[i]) > 1e-5 * magnitude)
+            throw new Error(
+                `glTF node "${node}": composed transform has shear or cannot be represented as TRS`,
+            );
+}
+
+/** Poses a spawned scene at time in seconds, clamped per sampler, without playback or blending.
+ * Writes authored Transform; GlobalTransform derives at the next placement boundary.
+ * Refuses foreign-world instances and names a sheared entity placement before writing any entity.
+ * The instance's eid order and length must remain unchanged and its entities must remain alive.
+ */
+export function poseGltfScene(
+    world: World,
+    instance: GltfSceneInstance,
+    animation: GltfAnimation,
+    time: number,
+): void {
+    const state = instance[poseState];
+    const { gltf, poses, globals, transforms, composed, recomposed } = state;
+    if (gltf.world !== world) throw new Error("glTF handle belongs to another world");
+    evaluateGltfAnimation(gltf.nodes, animation, time, poses);
+    for (let i = 0; i < poses.length; i++) {
+        const { translation: t, rotation: r, scale: s } = poses[i];
+        const local = composeMat4(
+            t[0],
+            t[1],
+            t[2],
+            r[0],
+            r[1],
+            r[2],
+            r[3],
+            s[0],
+            s[1],
+            s[2],
+            composed,
+        );
+        const parent = gltf.nodes[i].parent;
+        if (parent !== -1) multiplyMat4(globals[parent], local, globals[i]);
+        else globals[i].set(local);
+    }
+    for (let i = 0; i < instance.length; i++) {
+        const primitive = gltf.primitives[i];
+        multiplyMat4(state.placement, globals[primitive.nodeIndex], composed);
+        decomposeMat4(composed, transforms[i]);
+        validateTransform(composed, transforms[i], recomposed, primitive.node);
+    }
+    const storage = world.storage(Transform);
+    for (let i = 0; i < instance.length; i++) {
+        const eid = instance[i],
+            t = transforms[i];
+        storage.translation.set(eid, t[0], t[1], t[2]);
+        storage.rotation.set(eid, t[3], t[4], t[5], t[6]);
+        storage.scale.set(eid, t[7], t[8], t[9]);
+    }
 }

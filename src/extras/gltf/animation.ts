@@ -1,3 +1,5 @@
+const posePaths = ["translation", "rotation", "scale", "weights"] as const;
+
 export type GltfAnimationPath = "translation" | "rotation" | "scale" | "weights";
 
 export interface GltfNodePose {
@@ -29,21 +31,26 @@ export interface GltfAnimation {
 /** Evaluates local poses in scene-node order at time in seconds, without changing the scene.
  * Each sampler clamps independently; properties without a channel retain their authored values.
  * Channels outside the selected scene do not affect its poses. No looping or blending is applied.
+ * Optional output must have one independent pose per node with matching property lengths; it is reused.
  */
 export function evaluateGltfAnimation(
     nodes: readonly GltfNode[],
     animation: GltfAnimation,
     time: number,
-): GltfNodePose[] {
-    const poses = nodes.map(({ translation, rotation, scale, weights }) => ({
+    poses: GltfNodePose[] = nodes.map(({ translation, rotation, scale, weights }) => ({
         translation: [...translation],
         rotation: [...rotation],
         scale: [...scale],
         weights: [...weights],
-    }));
+    })),
+): GltfNodePose[] {
+    for (let i = 0; i < nodes.length; i++)
+        for (const path of posePaths)
+            for (let c = 0; c < nodes[i][path].length; c++) poses[i][path][c] = nodes[i][path][c];
     for (const channel of animation.channels) {
-        const index = nodes.findIndex((node) => node.index === channel.node);
-        if (index === -1) continue;
+        let index = 0;
+        while (index < nodes.length && nodes[index].index !== channel.node) index++;
+        if (index === nodes.length) continue;
         const { input, output, interpolation } = animation.samplers[channel.sampler];
         const cubic = interpolation === "CUBICSPLINE";
         const width = output.length / input.length / (cubic ? 3 : 1);
@@ -56,7 +63,8 @@ export function evaluateGltfAnimation(
         }
         const key = low;
         const offset = (key * (cubic ? 3 : 1) + (cubic ? 1 : 0)) * width;
-        let value = Array.from(output.subarray(offset, offset + width));
+        const value = poses[index][channel.path];
+        for (let c = 0; c < width; c++) value[c] = output[offset + c];
         if (
             time > input[0] &&
             time < input[input.length - 1] &&
@@ -69,27 +77,29 @@ export function evaluateGltfAnimation(
             if (cubic) {
                 const t2 = t * t,
                     t3 = t2 * t;
-                value = value.map(
-                    (v, c) =>
-                        (2 * t3 - 3 * t2 + 1) * v +
+                for (let c = 0; c < width; c++)
+                    value[c] =
+                        (2 * t3 - 3 * t2 + 1) * value[c] +
                         duration * (t3 - 2 * t2 + t) * output[offset + width + c] +
                         (-2 * t3 + 3 * t2) * output[next + c] +
-                        duration * (t3 - t2) * output[next - width + c],
-                );
+                        duration * (t3 - t2) * output[next - width + c];
                 if (channel.path === "rotation") {
                     const length = Math.hypot(...value);
-                    value = value.map((v) => v / length);
+                    for (let c = 0; c < width; c++) value[c] /= length;
                 }
             } else if (channel.path === "rotation") {
-                const dot = value.reduce((sum, v, c) => sum + v * output[next + c], 0);
+                let dot = 0;
+                for (let c = 0; c < width; c++) dot += value[c] * output[next + c];
                 const sign = dot < 0 ? -1 : 1;
                 const angle = Math.acos(Math.min(1, Math.abs(dot)));
                 const a = angle < 1e-6 ? 1 - t : Math.sin((1 - t) * angle) / Math.sin(angle);
                 const b = angle < 1e-6 ? t : Math.sin(t * angle) / Math.sin(angle);
-                value = value.map((v, c) => a * v + sign * b * output[next + c]);
-            } else value = value.map((v, c) => (1 - t) * v + t * output[next + c]);
+                for (let c = 0; c < width; c++)
+                    value[c] = a * value[c] + sign * b * output[next + c];
+            } else
+                for (let c = 0; c < width; c++)
+                    value[c] = (1 - t) * value[c] + t * output[next + c];
         }
-        poses[index][channel.path] = value;
     }
     return poses;
 }

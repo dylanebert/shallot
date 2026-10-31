@@ -1,11 +1,27 @@
-import { expect, setDefaultTimeout, test } from "bun:test";
+import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { composeMat4, multiplyMat4 } from "@dylanebert/shallot";
-import { evaluateGltfAnimation, type GltfJson, parse } from "@dylanebert/shallot/gltf";
+import {
+    composeMat4,
+    createApp,
+    GlobalTransform,
+    MeshPlugin,
+    multiplyMat4,
+    TransformPlugin,
+} from "@dylanebert/shallot";
+import {
+    evaluateGltfAnimation,
+    type GltfJson,
+    loadGltfScene,
+    parse,
+    poseGltfScene,
+    spawnGltfScene,
+} from "@dylanebert/shallot/gltf";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
+import { animateScene, Viewer } from "../src/app";
 import gold from "./animations.gold.json";
-import { syncAssets } from "./setup";
+import { fileFetch, syncAssets } from "./setup";
 
 setDefaultTimeout(TIMEOUT.node);
 await syncAssets();
@@ -20,7 +36,7 @@ const subjects = gold.records.map((record) => {
             : readFileSync(resolve(dirname(path), buffer.uri!));
         return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
     });
-    return { record, scene: parse(json, buffers) };
+    return { record, path, scene: parse(json, buffers) };
 });
 
 // Float32 accessor/interpolant storage and Float32 world composition, relative to magnitude.
@@ -117,3 +133,95 @@ test("sampled local poses compose to recorded node world matrices", () => {
         }
     }
 });
+
+await setupGlobals();
+for (const { record, path, scene } of subjects) {
+    test(`spawned animation ${record.fixture} matches recorded world transforms`, async () => {
+        const fetch = spyOn(globalThis, "fetch").mockImplementation(fileFetch);
+        const app = await createApp({ defaults: false, plugins: [MeshPlugin, TransformPlugin] });
+        try {
+            const gltf = await loadGltfScene(app.world, new URL(`file://${path}`));
+            const instance = spawnGltfScene(app.world, gltf);
+            if (record.fixture.includes("AnimatedTriangle")) {
+                const stretched = spawnGltfScene(app.world, gltf, { scale: [2, 1, 1] });
+                const before = app.world.storage(GlobalTransform);
+                app.world.tick();
+                const x = before.scale.x.get(stretched[0]);
+                expect(() =>
+                    poseGltfScene(app.world, stretched, gltf.animations[0], 0.125),
+                ).toThrow(/Node0.*shear/);
+                app.world.tick();
+                expect(before.scale.x.get(stretched[0])).toBe(x);
+                const foreign = await createApp({ defaults: false, plugins: [] });
+                try {
+                    expect(() =>
+                        poseGltfScene(foreign.world, instance, gltf.animations[0], 0),
+                    ).toThrow("another world");
+                } finally {
+                    foreign.dispose();
+                }
+                const viewer = app.world.resource(Viewer);
+                viewer.active = "AnimatedTriangle";
+                viewer.models.set("AnimatedTriangle", gltf);
+                viewer.instance = instance;
+                animateScene(app.world, 1.125);
+                expect(viewer.clocks.get("AnimatedTriangle")).toBe(0.125);
+                viewer.active = null;
+                animateScene(app.world, 0.5);
+                expect(viewer.clocks.get("AnimatedTriangle")).toBe(0.125);
+                viewer.active = "AnimatedTriangle";
+                animateScene(app.world, 0.125);
+                expect(viewer.clocks.get("AnimatedTriangle")).toBe(0.25);
+            }
+            const placed = spawnGltfScene(app.world, gltf, {
+                translation: [3, -2, 1],
+                scale: [2, 2, 2],
+                rotation: [0, 0, Math.SQRT1_2, Math.SQRT1_2],
+            });
+            const placement = composeMat4(3, -2, 1, 0, 0, Math.SQRT1_2, Math.SQRT1_2, 2, 2, 2);
+            for (const animation of record.animations) {
+                for (const sample of animation.samples) {
+                    poseGltfScene(
+                        app.world,
+                        instance,
+                        gltf.animations[animation.index],
+                        sample.time,
+                    );
+                    poseGltfScene(app.world, placed, gltf.animations[animation.index], sample.time);
+                    app.world.tick();
+                    const global = app.world.storage(GlobalTransform);
+                    for (const [entities, offset] of [
+                        [instance, null],
+                        [placed, placement],
+                    ] as const) {
+                        entities.forEach((eid, i) => {
+                            const t = global.translation,
+                                r = global.rotation,
+                                s = global.scale;
+                            const actual = composeMat4(
+                                t.x.get(eid),
+                                t.y.get(eid),
+                                t.z.get(eid),
+                                r.x.get(eid),
+                                r.y.get(eid),
+                                r.z.get(eid),
+                                r.w.get(eid),
+                                s.x.get(eid),
+                                s.y.get(eid),
+                                s.z.get(eid),
+                            );
+                            const index = scene.nodes.findIndex(
+                                (node) => node.index === scene.instances[i].nodeIndex,
+                            );
+                            const expected = new Float32Array(sample.worlds[index].matrix);
+                            close(actual, offset ? multiplyMat4(offset, expected) : expected);
+                        });
+                    }
+                }
+            }
+        } finally {
+            app.dispose();
+            fetch.mockRestore();
+        }
+    });
+}

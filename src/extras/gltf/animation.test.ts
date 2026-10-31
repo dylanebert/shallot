@@ -58,6 +58,21 @@ test("single-key and differently timed samplers clamp independently; off-scene c
     expect(poses[0].weights[1]).toBeCloseTo(0.6, 6);
 });
 
+test("caller-owned pose arrays are reused and reset when the animation changes", () => {
+    const clip = animation("translation", [0, 0, 0, 4, 8, 12]);
+    const poses = evaluateGltfAnimation(nodes, clip, 2);
+    const translation = poses[0].translation;
+    const weights = poses[0].weights;
+    expect(evaluateGltfAnimation(nodes, clip, 3, poses)).toBe(poses);
+    expect(poses[0].translation).toBe(translation);
+    expect(translation).toEqual([4, 8, 12]);
+    evaluateGltfAnimation(nodes, animation("weights", [0, 1, 1, 0]), 2, poses);
+    expect(poses[0].translation).toBe(translation);
+    expect(translation).toEqual(nodes[0].translation);
+    expect(poses[0].weights).toBe(weights);
+    expect(weights).toEqual([0.5, 0.5]);
+});
+
 test("STEP changes at the key itself", () => {
     const clip = animation("weights", [0, 1, 1, 0], "STEP");
     expect(evaluateGltfAnimation(nodes, clip, 2.99)[0].weights).toEqual([0, 1]);

@@ -11,7 +11,13 @@ import {
     type World,
 } from "@dylanebert/shallot";
 import { DiagnosticsOverlayPlugin, Orbit, OrbitPlugin } from "@dylanebert/shallot/extras";
-import { type Gltf, loadGltfScene, spawnGltfScene } from "@dylanebert/shallot/gltf";
+import {
+    type Gltf,
+    type GltfSceneInstance,
+    loadGltfScene,
+    poseGltfScene,
+    spawnGltfScene,
+} from "@dylanebert/shallot/gltf";
 import { fitBounds, sceneAngles, sceneBounds } from "./framing";
 import { modelPath, type Scene, scenes, truckPlacement } from "./scenes";
 
@@ -20,12 +26,18 @@ export const Viewer: Resource<{
     entities: number[];
     camera: number;
     bounds: Gltf["bounds"] | null;
+    active: Scene | null;
+    clocks: Map<Scene, number>;
+    instance: GltfSceneInstance | null;
 }> = {
     create: () => ({
         models: new Map(),
         entities: [],
         camera: 0,
         bounds: null,
+        active: null,
+        clocks: new Map(),
+        instance: null,
     }),
 };
 export function frameScene(world: World, aspect: number) {
@@ -36,11 +48,14 @@ export function frameScene(world: World, aspect: number) {
 export function selectScene(world: World, scene: Scene, aspect = 1) {
     const viewer = world.resource(Viewer);
     for (const eid of viewer.entities) world.destroy(eid);
-    viewer.entities = spawnGltfScene(
+    viewer.active = scene;
+    viewer.instance = spawnGltfScene(
         world,
         viewer.models.get(scene)!,
         scene === "CesiumMilkTruck" ? truckPlacement : {},
     );
+    viewer.entities = viewer.instance;
+    animateScene(world, 0);
     viewer.bounds = sceneBounds(viewer.models.get(scene)!, scene);
     const view = sceneAngles(scene);
     const orbit = world.storage(Orbit);
@@ -48,9 +63,31 @@ export function selectScene(world: World, scene: Scene, aspect = 1) {
     orbit.pitch.set(viewer.camera, view.pitch);
     frameScene(world, aspect);
 }
+export function animateScene(world: World, delta: number): void {
+    const viewer = world.resource(Viewer);
+    if (!viewer.active || !viewer.instance) return;
+    const animation = viewer.models.get(viewer.active)!.animations[0];
+    if (!animation) return;
+    let duration = 0;
+    for (const sampler of animation.samplers)
+        duration = Math.max(duration, sampler.input[sampler.input.length - 1]);
+    const time = duration > 0 ? ((viewer.clocks.get(viewer.active) ?? 0) + delta) % duration : 0;
+    viewer.clocks.set(viewer.active, time);
+    poseGltfScene(world, viewer.instance, animation, time);
+}
+
 export const AppPlugin: Plugin = {
     name: "GltfApp",
     dependencies: [OrbitPlugin, MeshPlugin, DiagnosticsOverlayPlugin],
+    systems: [
+        {
+            name: "Gltf/Animate",
+            group: "fixed",
+            update(world) {
+                animateScene(world, world.time.deltaTime);
+            },
+        },
+    ],
     async initialize(world, progress) {
         const viewer = world.resource(Viewer);
         const ambient = world.resource(GlobalAmbientLight);

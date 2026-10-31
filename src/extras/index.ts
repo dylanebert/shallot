@@ -23,7 +23,9 @@ export {
     type Gltf,
     type GltfPlacement,
     type GltfPrimitive,
+    type GltfSceneInstance,
     loadGltfScene,
+    poseGltfScene,
     spawnGltfScene,
 } from "./gltf";
 export {
