@@ -6,11 +6,12 @@ import {
     createApp,
     GlobalTransform,
     MeshPlugin,
+    multiplyMat4,
     Transform,
     TransformPlugin,
 } from "@dylanebert/shallot";
 import { Orbit } from "@dylanebert/shallot/extras";
-import { loadGltf, loadGltfScene } from "@dylanebert/shallot/gltf";
+import { GltfPlugin, loadGltf, loadGltfScene } from "@dylanebert/shallot/gltf";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { selectScene, Viewer } from "../src/app";
@@ -33,6 +34,7 @@ beforeAll(async () => {
                 TransformPlugin,
                 {
                     name: "Framing",
+                    dependencies: [GltfPlugin],
                     async initialize(world) {
                         const viewer = world.resource(Viewer);
                         viewer.camera = world.create();
@@ -68,8 +70,19 @@ for (const [width, height] of [
             const viewer = world.resource(Viewer);
             const global = world.storage(GlobalTransform);
             const points: number[][] = [];
-            // Observe the spawned placements, independently of the importer's bounds.
-            for (const [index, instance] of decoded.get(scene)!.instances.entries()) {
+            const model = decoded.get(scene)!;
+            const restGlobals: Float32Array[] = [];
+            for (const node of model.nodes) {
+                const [x, y, z] = node.translation;
+                const [qx, qy, qz, qw] = node.rotation;
+                const [sx, sy, sz] = node.scale;
+                const local = composeMat4(x, y, z, qx, qy, qz, qw, sx, sy, sz);
+                restGlobals.push(
+                    node.parent < 0 ? local : multiplyMat4(restGlobals[node.parent], local),
+                );
+            }
+            // Observe placements and independently blend decoded rest-pose skin influences.
+            for (const [index, instance] of model.instances.entries()) {
                 const eid = viewer.entities[index];
                 const matrix = composeMat4(
                     global.translation.x.get(eid),
@@ -83,8 +96,38 @@ for (const [width, height] of [
                     global.scale.y.get(eid),
                     global.scale.z.get(eid),
                 );
-                const vertices = decoded.get(scene)!.meshes[instance.mesh].vertices;
+                const mesh = model.meshes[instance.mesh];
+                const vertices = mesh.vertices;
                 for (let i = 0; i < vertices.length; i += 8) {
+                    if (instance.skin >= 0) {
+                        const skin = model.skins[instance.skin];
+                        const position = [0, 0, 0];
+                        for (let influence = 0; influence < 4; influence++) {
+                            const offset = (i / 8) * 4 + influence;
+                            const joint = mesh.joints![offset];
+                            const transform = multiplyMat4(
+                                restGlobals[skin.joints[joint]],
+                                skin.inverseBindMatrices.subarray(joint * 16, joint * 16 + 16),
+                            );
+                            for (let axis = 0; axis < 3; axis++)
+                                position[axis] +=
+                                    mesh.weights![offset] *
+                                    (transform[axis] * vertices[i] +
+                                        transform[axis + 4] * vertices[i + 1] +
+                                        transform[axis + 8] * vertices[i + 2] +
+                                        transform[axis + 12]);
+                        }
+                        points.push(
+                            [0, 1, 2].map(
+                                (axis) =>
+                                    matrix[axis] * position[0] +
+                                    matrix[axis + 4] * position[1] +
+                                    matrix[axis + 8] * position[2] +
+                                    matrix[axis + 12],
+                            ),
+                        );
+                        continue;
+                    }
                     points.push(
                         [0, 1, 2].map(
                             (axis) =>

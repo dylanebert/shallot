@@ -15,7 +15,13 @@ import {
     Transform,
     TransformPlugin,
 } from "@dylanebert/shallot";
-import { loadGltf, loadGltfScene, spawnGltfScene } from "@dylanebert/shallot/gltf";
+import {
+    GltfPlugin,
+    loadGltf,
+    loadGltfScene,
+    SkinnedMaterial,
+    spawnGltfScene,
+} from "@dylanebert/shallot/gltf";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { decodeConformance } from "./arrays";
@@ -129,6 +135,7 @@ export function parity(category: string) {
                     TransformPlugin,
                     {
                         name: "Parity",
+                        dependencies: [GltfPlugin],
                         async initialize(world) {
                             model = await loadGltfScene(world, url);
                             entities = spawnGltfScene(world, model).entities;
@@ -319,7 +326,9 @@ export function parity(category: string) {
                             ),
                         ),
                     ).toEqual(Array.from(expectedMatrix));
-                    const material = app.world.resource(Materials).get(primitive.material)!;
+                    const material = app.world
+                        .resource(primitive.skin >= 0 ? SkinnedMaterial : Materials)
+                        .get(primitive.material)!;
                     const refMaterial = ref.material as {
                         color: number[];
                         metallic?: number;

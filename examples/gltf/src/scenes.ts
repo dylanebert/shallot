@@ -15,6 +15,7 @@ export const scenes = {
     NormalTangentMirrorTest: { promise: "materials" },
     CesiumMilkTruck: { promise: "textures" },
     AnimatedTriangle: { promise: "animation" },
+    CesiumMan: { promise: "animation" },
 } as const;
 export type Scene = keyof typeof scenes;
 export const categories = ["geometry", "transforms", "materials", "textures", "animation"].map(

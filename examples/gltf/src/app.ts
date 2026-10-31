@@ -13,6 +13,7 @@ import {
 import { DiagnosticsOverlayPlugin, Orbit, OrbitPlugin } from "@dylanebert/shallot/extras";
 import {
     type Gltf,
+    GltfPlugin,
     type GltfSceneInstance,
     loadGltfScene,
     poseGltfScene,
@@ -78,7 +79,7 @@ export function animateScene(world: World, delta: number): void {
 
 export const AppPlugin: Plugin = {
     name: "GltfApp",
-    dependencies: [OrbitPlugin, MeshPlugin, DiagnosticsOverlayPlugin],
+    dependencies: [OrbitPlugin, MeshPlugin, GltfPlugin, DiagnosticsOverlayPlugin],
     systems: [
         {
             name: "Gltf/Animate",

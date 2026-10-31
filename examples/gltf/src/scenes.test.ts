@@ -4,7 +4,7 @@ import { categories, modelPath, type Scene, scenes, truckPlacement } from "./sce
 
 test("the picker demonstrates each promise once without shrinking the regression corpus", () => {
     const listed = categories.flatMap((category) => category.scenes.map((scene) => scene.id));
-    expect(listed.length).toBe(13);
+    expect(listed.length).toBe(14);
     expect(new Set(listed).size).toBe(listed.length);
     expect(manifest.models).toHaveLength(30);
     expect(
@@ -12,7 +12,7 @@ test("the picker demonstrates each promise once without shrinking the regression
             categories.map((category) => [category.name, category.scenes.map((scene) => scene.id)]),
         ),
     ).toEqual({
-        animation: ["AnimatedTriangle"],
+        animation: ["AnimatedTriangle", "CesiumMan"],
         geometry: ["MeshPrimitiveModes", "VertexColorTest"],
         transforms: ["OrientationTest", "NegativeScaleTest"],
         materials: [

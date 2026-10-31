@@ -71,7 +71,7 @@ for (const [width, height] of [
                     await expect(picker).toHaveText(scene.id);
                     await expect(picker).toHaveAttribute("aria-expanded", "false");
                     await frames.run(2);
-                    if (scene.id === "TextureCoordinateTest") {
+                    if (scene.id === "TextureCoordinateTest" || scene.id === "CesiumMan") {
                         await expect.poll(() => scenePixels(page, true)).toBeGreaterThan(100);
                     }
                 }
