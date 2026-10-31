@@ -14,10 +14,13 @@ export function manifoldPanelTests(stepped: boolean) {
                 : await holdFrames(page, "[aria-label='Scene navigation']");
             await page.goto(stepped ? "/tests/controls.html" : "/");
             if (stepped) await page.waitForFunction(() => "controlsKey" in window);
-            else
+            else {
                 await expect(
                     page.getByRole("button", { name: "Scene", exact: true }),
                 ).toBeEnabled();
+                // runApp mounts the enabled UI beneath its loading screen.
+                await expect(page.locator("[data-shallot-loading]")).toHaveCount(0);
+            }
             for (const [name, count] of [
                 ["Sphere vs Sphere", 1],
                 ["Capsule vs Sphere", 1],
