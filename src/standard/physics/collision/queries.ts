@@ -236,7 +236,8 @@ export function shapeDistance(
 }
 /**
  * Cast B against A. Point and normal are in A's frame; fraction is along translationB.
- * Initial overlap is a miss; canEncroach permits an initially touching rounded shape to advance.
+ * Initial overlap reports a hit at fraction zero. canEncroach permits advancement through a rounded
+ * shape's radius shell, or across a positive near-target box gap while retaining half a linear slop.
  * Borrowed until the next shapeCast on this world; allocates only on first use or memory growth.
  */
 export function shapeCast(world: World, input: ShapeCastPairInput): ShapeCastOutput {
