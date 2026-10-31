@@ -5,6 +5,7 @@ import { GlobalTransform, TransformPlugin } from "../../core/transform";
 import { openGpuApp as createApp } from "../../project/testing-gpu";
 import type { GltfJson } from "./gltf";
 import { loadGltfScene, poseGltfScene, spawnGltfScene } from "./scene";
+import { GltfPlugin } from "./skinning";
 
 function fixture(): GltfJson {
     return JSON.parse(
@@ -24,7 +25,10 @@ for (const shear of [false, true])
             String(input) === "https://fixture.test/skin.gltf"
                 ? Promise.resolve(Response.json(json))
                 : original(input, init)) as typeof globalThis.fetch);
-        const app = await createApp({ defaults: false, plugins: [MeshPlugin, TransformPlugin] });
+        const app = await createApp({
+            defaults: false,
+            plugins: [MeshPlugin, TransformPlugin, GltfPlugin],
+        });
         try {
             const gltf = await loadGltfScene(app.world, "https://fixture.test/skin.gltf");
             expect(gltf.skins).toHaveLength(4);

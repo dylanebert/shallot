@@ -18,6 +18,7 @@ import {
 } from "./animation";
 import type { GltfSkeleton, GltfSkin } from "./gltf";
 import { loadGltf } from "./load";
+import { SkinInfluences, SkinnedMaterial, SkinnedMesh, SkinPalette } from "./skinning";
 
 export interface GltfPrimitive {
     readonly mesh: MeshHandle;
@@ -26,6 +27,8 @@ export interface GltfPrimitive {
     readonly nodeIndex: number;
     /** Index into skins, or -1 for an unskinned primitive. */
     readonly skin: number;
+    /** Bind-space min/max boxes, six floats per skin-local joint; empty joints have infinite minima. */
+    readonly jointBounds?: Float32Array;
     /** Node world transform in model space, ignored for skinned placement; treat its elements as immutable. */
     readonly matrix: Float32Array;
 }
@@ -62,6 +65,11 @@ export async function loadGltfScene(
     onProgress?.(0);
     const scene = await loadGltf(url);
     onProgress?.(0.5);
+    if (
+        scene.instances.some((instance) => instance.skin >= 0) &&
+        !world.resource(SkinPalette).enabled
+    )
+        throw new Error(`glTF "${url}" requires GltfPlugin for skinning`);
     const textures = new Map<string, number>();
     const imageId = (index: number | undefined, isSrgb = true) => {
         if (index === undefined) return undefined;
@@ -80,8 +88,12 @@ export async function loadGltfScene(
         return id;
     };
     const materials = world.resource(Materials);
-    const addMaterial = (material: (typeof scene.materials)[number], inverted = false) =>
-        materials.add(
+    const addMaterial = (
+        material: (typeof scene.materials)[number],
+        inverted = false,
+        skinned = false,
+    ) =>
+        (skinned ? world.resource(SkinnedMaterial) : materials).add(
             StandardMaterial({
                 baseColor: material.color,
                 baseColorTexture: imageId(material.texture),
@@ -125,11 +137,62 @@ export async function loadGltfScene(
         doubleSided: false,
     } satisfies (typeof scene.materials)[number];
     let defaultMaterial: MaterialHandle | undefined;
-    const meshes = scene.meshes.map((mesh) => world.resource(Meshes).add(mesh));
+    const meshes = scene.meshes.map((mesh) => {
+        if (!mesh.joints || !mesh.weights) return world.resource(Meshes).add(mesh);
+        const data = new ArrayBuffer((mesh.vertices.length / 8) * 32);
+        const joints = new Uint32Array(data),
+            weights = new Float32Array(data);
+        for (let v = 0; v < mesh.vertices.length / 8; v++) {
+            joints[v * 8] = mesh.joints[v * 4] | (mesh.joints[v * 4 + 1] << 16);
+            joints[v * 8 + 1] = mesh.joints[v * 4 + 2] | (mesh.joints[v * 4 + 3] << 16);
+            for (let k = 0; k < 4; k++) weights[v * 8 + 4 + k] = mesh.weights[v * 4 + k];
+        }
+        return world.resource(Meshes).add({
+            ...mesh,
+            attributes: { skin: { element: SkinInfluences, data: new Uint8Array(data) } },
+        });
+    });
+    const skinnedHandles = new Map<number, MaterialHandle>();
+    const jointBoxes = new Map<string, Float32Array>();
     const primitives = scene.instances.map((instance) => {
         const materialIndex = scene.meshes[instance.mesh].material;
         if (materialIndex < 0) defaultMaterial ??= addMaterial(defaultValues);
         let material = handles[materialIndex] ?? defaultMaterial!;
+        let jointBounds: Float32Array | undefined;
+        if (instance.skin >= 0) {
+            if (!skinnedHandles.has(materialIndex))
+                skinnedHandles.set(
+                    materialIndex,
+                    addMaterial(scene.materials[materialIndex] ?? defaultValues, false, true),
+                );
+            material = skinnedHandles.get(materialIndex)!;
+            const key = `${instance.mesh}:${instance.skin}`;
+            jointBounds = jointBoxes.get(key);
+            if (!jointBounds) {
+                const mesh = scene.meshes[instance.mesh];
+                jointBounds = new Float32Array(scene.skins[instance.skin].joints.length * 6);
+                for (let j = 0; j < jointBounds.length; j += 6) {
+                    jointBounds.fill(Infinity, j, j + 3);
+                    jointBounds.fill(-Infinity, j + 3, j + 6);
+                }
+                for (let v = 0; v < mesh.vertices.length / 8; v++)
+                    for (let k = 0; k < 4; k++) {
+                        if (mesh.weights![v * 4 + k] <= 0) continue;
+                        const j = mesh.joints![v * 4 + k] * 6;
+                        for (let a = 0; a < 3; a++) {
+                            jointBounds[j + a] = Math.min(
+                                jointBounds[j + a],
+                                mesh.vertices[v * 8 + a],
+                            );
+                            jointBounds[j + 3 + a] = Math.max(
+                                jointBounds[j + 3 + a],
+                                mesh.vertices[v * 8 + a],
+                            );
+                        }
+                    }
+                jointBoxes.set(key, jointBounds);
+            }
+        }
         const m = instance.matrix;
         const determinant =
             m[0] * (m[5] * m[10] - m[6] * m[9]) -
@@ -148,6 +211,7 @@ export async function loadGltfScene(
             material,
             node: instance.node,
             skin: instance.skin,
+            jointBounds,
             nodeIndex: scene.nodes.findIndex((node) => node.index === instance.nodeIndex),
             matrix: instance.matrix,
         };
@@ -243,9 +307,11 @@ export function spawnGltfScene(
         world.add(eid, Transform, transforms[i]);
         world.add(eid, MeshInstance, { mesh: primitive.mesh });
         world.add(eid, MeshMaterial, primitive.material);
+        if (primitive.skin >= 0)
+            world.add(eid, SkinnedMesh, { jointCount: gltf.skins[primitive.skin].joints.length });
         return eid;
     });
-    return {
+    const instance: GltfSceneInstance = {
         entities,
         gltf,
         placement: matrix,
@@ -256,10 +322,14 @@ export function spawnGltfScene(
             weights: [...weights],
         })),
         globals: gltf.nodes.map(() => new Float32Array(16)),
-        transforms: entities.map(() => new Float32Array(10)),
+        transforms: transforms.map(
+            (t) => new Float32Array([...t.translation, ...t.rotation, ...t.scale]),
+        ),
         composed: new Float32Array(16),
         recomposed: new Float32Array(16),
     };
+    poseGltfScene(world, instance, { name: "rest", samplers: [], channels: [] }, 0);
+    return instance;
 }
 
 /** A spawn and its independent pose working storage, overwritten by poseGltfScene.
@@ -338,8 +408,8 @@ export function poseGltfScene(
     }
     for (let i = 0; i < entities.length; i++) {
         const primitive = gltf.primitives[i];
-        if (primitive.skin >= 0) composed.set(instance.placement);
-        else multiplyMat4(instance.placement, globals[primitive.nodeIndex], composed);
+        if (primitive.skin >= 0) continue;
+        multiplyMat4(instance.placement, globals[primitive.nodeIndex], composed);
         decomposeMat4(composed, transforms[i]);
         validateTransform(composed, transforms[i], recomposed, primitive.node);
     }
@@ -350,5 +420,76 @@ export function poseGltfScene(
         storage.translation.set(eid, t[0], t[1], t[2]);
         storage.rotation.set(eid, t[3], t[4], t[5], t[6]);
         storage.scale.set(eid, t[7], t[8], t[9]);
+        if (gltf.primitives[i].skin >= 0) writeSkinPose(world, instance, i);
     }
+}
+
+function writeSkinPose(world: World, instance: GltfSceneInstance, primitiveIndex: number): void {
+    const primitive = instance.gltf.primitives[primitiveIndex];
+    const skin = instance.gltf.skins[primitive.skin];
+    const eid = instance.entities[primitiveIndex];
+    const palette = world.resource(SkinPalette).matrices;
+    const first = world.storage(SkinnedMesh).firstJoint.get(eid);
+    const boxes = primitive.jointBounds!;
+    let x0 = Infinity,
+        y0 = Infinity,
+        z0 = Infinity,
+        x1 = -Infinity,
+        y1 = -Infinity,
+        z1 = -Infinity;
+    for (let j = 0; j < skin.joints.length; j++) {
+        const global = instance.globals[skin.joints[j]];
+        const o = (first + j) * 16,
+            b = j * 16;
+        for (let c = 0; c < 4; c++)
+            for (let r = 0; r < 4; r++)
+                palette[o + c * 4 + r] =
+                    global[r] * skin.inverseBindMatrices[b + c * 4] +
+                    global[4 + r] * skin.inverseBindMatrices[b + c * 4 + 1] +
+                    global[8 + r] * skin.inverseBindMatrices[b + c * 4 + 2] +
+                    global[12 + r] * skin.inverseBindMatrices[b + c * 4 + 3];
+        const q = j * 6;
+        if (boxes[q] === Infinity) continue;
+        const cx = (boxes[q] + boxes[q + 3]) / 2,
+            cy = (boxes[q + 1] + boxes[q + 4]) / 2,
+            cz = (boxes[q + 2] + boxes[q + 5]) / 2;
+        const hx = (boxes[q + 3] - boxes[q]) / 2,
+            hy = (boxes[q + 4] - boxes[q + 1]) / 2,
+            hz = (boxes[q + 5] - boxes[q + 2]) / 2;
+        const tx = palette[o] * cx + palette[o + 4] * cy + palette[o + 8] * cz + palette[o + 12];
+        const ty =
+            palette[o + 1] * cx + palette[o + 5] * cy + palette[o + 9] * cz + palette[o + 13];
+        const tz =
+            palette[o + 2] * cx + palette[o + 6] * cy + palette[o + 10] * cz + palette[o + 14];
+        const sx =
+            Math.abs(palette[o]) * hx +
+            Math.abs(palette[o + 4]) * hy +
+            Math.abs(palette[o + 8]) * hz;
+        const sy =
+            Math.abs(palette[o + 1]) * hx +
+            Math.abs(palette[o + 5]) * hy +
+            Math.abs(palette[o + 9]) * hz;
+        const sz =
+            Math.abs(palette[o + 2]) * hx +
+            Math.abs(palette[o + 6]) * hy +
+            Math.abs(palette[o + 10]) * hz;
+        x0 = Math.min(x0, tx - sx);
+        y0 = Math.min(y0, ty - sy);
+        z0 = Math.min(z0, tz - sz);
+        x1 = Math.max(x1, tx + sx);
+        y1 = Math.max(y1, ty + sy);
+        z1 = Math.max(z1, tz + sz);
+    }
+    const dx = x1 - x0,
+        dy = y1 - y0,
+        dz = z1 - z0;
+    world
+        .storage(MeshInstance)
+        .cullBounds.set(
+            eid,
+            (x0 + x1) / 2,
+            (y0 + y1) / 2,
+            (z0 + z1) / 2,
+            Math.sqrt(dx * dx + dy * dy + dz * dz) / 2,
+        );
 }

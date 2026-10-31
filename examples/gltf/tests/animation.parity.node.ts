@@ -12,6 +12,7 @@ import {
 import {
     evaluateGltfAnimation,
     type GltfJson,
+    GltfPlugin,
     loadGltfScene,
     parse,
     poseGltfScene,
@@ -159,7 +160,10 @@ await setupGlobals();
 for (const { record, path, scene } of subjects) {
     test(`spawned animation ${record.fixture} matches recorded world transforms`, async () => {
         const fetch = spyOn(globalThis, "fetch").mockImplementation(fileFetch);
-        const app = await createApp({ defaults: false, plugins: [MeshPlugin, TransformPlugin] });
+        const app = await createApp({
+            defaults: false,
+            plugins: [MeshPlugin, TransformPlugin, GltfPlugin],
+        });
         try {
             const gltf = await loadGltfScene(app.world, new URL(`file://${path}`));
             const instance = spawnGltfScene(app.world, gltf);

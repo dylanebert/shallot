@@ -22,10 +22,17 @@ export {
 export {
     type Gltf,
     type GltfPlacement,
+    GltfPlugin,
     type GltfPrimitive,
     type GltfSceneInstance,
     loadGltfScene,
     poseGltfScene,
+    SkinInfluences,
+    SkinnedMaterial,
+    SkinnedMesh,
+    SkinPalette,
+    skinningBindings,
+    skinningVertex,
     spawnGltfScene,
 } from "./gltf";
 export {

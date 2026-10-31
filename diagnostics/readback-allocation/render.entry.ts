@@ -3,6 +3,8 @@ import * as d from "typegpu/data";
 import { Meshes, createApp, Camera, StandardRenderer, Transform, AmbientLight, PointLight, MeshInstance, DirectionalLight, SpotLight, type World } from "../../src/index";
 import { LinesPlugin, drawLine, drawArrow, drawWireBox, GizmoAsset, Gizmo, registerGizmo } from "../../src/extras/lines";
 import { ProfilePlugin } from "../../src/extras/profile";
+import { GltfPlugin, loadGltfScene, poseGltfScene, spawnGltfScene } from "../../src/extras/gltf";
+import { skinningFixtureUrl } from "../../src/extras/gltf/skinning.fixture";
 import { BackgroundContext, backgroundLayout, CameraBackground, registerProducerTable, Materials, ScreenSpaceAmbientOcclusion, ScreenSpaceAmbientOcclusionPlugin, StandardMaterial, registerBackground } from "../../src/standard/rendering";
 import { RenderContext } from "../../src/core/rendering";
 import { attachCanvas } from "../../src/core/rendering/view";
@@ -42,7 +44,9 @@ export default async function create(input = "", device?: GPUDevice) {
     }
     const resizeObserver = Object.getOwnPropertyDescriptor(globalThis, "ResizeObserver");
     globalThis.ResizeObserver = class { observe() {} disconnect() {} unobserve() {} } as unknown as typeof ResizeObserver;
-    const initialize = (world: World) => {
+    const initialize = async (world: World) => {
+    const skinned = await loadGltfScene(world, skinningFixtureUrl());
+    const skinnedInstance = spawnGltfScene(world, skinned);
     let context: CanvasContext;
     const canvas = {
         width: 32, height: 24, style: { imageRendering: "auto" },
@@ -110,8 +114,13 @@ export default async function create(input = "", device?: GPUDevice) {
     const gizmo = world.create();
     world.add(gizmo, Transform);
     world.add(gizmo, Gizmo, { handle: registerGizmo(world, asset) });
+    // Generic elements reuse pre-boxed fractional times; computing the caller's double would
+    // measure V8 argument boxing rather than pose work, as in run.entry.ts's timestamps.
+    const times: (number | undefined)[] = [undefined];
+    for (let i = 0; i < 60; i++) times.push(i / 60);
     let frame = 0;
     const compose = () => {
+        poseGltfScene(world, skinnedInstance, skinned.animations[0], times[1 + frame % 60]!);
         materialValues.perceptualRoughness = 0.25 + (frame % 60) / 120;
         materials.update(material, materialValues);
         drawLine(world, a, b, 0xffaa55);
@@ -122,10 +131,10 @@ export default async function create(input = "", device?: GPUDevice) {
     compose();
     return { context, compose };
     };
-    let scene!: ReturnType<typeof initialize>;
-    const app = await createApp({ plugins: [LinesPlugin, ...(input === "ssao" ? [ScreenSpaceAmbientOcclusionPlugin] : []), {
-        name: "AllocationScene", dependencies: [LinesPlugin],
-        initialize(world) { scene = initialize(world); },
+    let scene!: Awaited<ReturnType<typeof initialize>>;
+    const app = await createApp({ plugins: [LinesPlugin, GltfPlugin, ...(input === "ssao" ? [ScreenSpaceAmbientOcclusionPlugin] : []), {
+        name: "AllocationScene", dependencies: [LinesPlugin, GltfPlugin],
+        async initialize(world) { scene = await initialize(world); },
     }], device });
     const world = app.world;
     const { context, compose } = scene;

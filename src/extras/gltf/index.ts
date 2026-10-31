@@ -25,3 +25,12 @@ export {
     poseGltfScene,
     spawnGltfScene,
 } from "./scene";
+export {
+    GltfPlugin,
+    SkinInfluences,
+    SkinnedMaterial,
+    SkinnedMesh,
+    SkinPalette,
+    skinningBindings,
+    skinningVertex,
+} from "./skinning";
