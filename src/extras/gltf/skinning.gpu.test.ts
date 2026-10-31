@@ -40,17 +40,23 @@ import {
     poseGltfScene,
     spawnGltfScene,
 } from "./scene";
-import { GltfPlugin, SkinnedMesh, SkinPalette, skinningBindings, skinningVertex } from "./skinning";
+import {
+    deformationBindings,
+    deformationVertex,
+    GltfPlugin,
+    SkinnedMesh,
+    SkinPalette,
+} from "./skinning";
 import { skinningFixtureUrl } from "./skinning.fixture";
 
 setDefaultTimeout(TIMEOUT.gpu);
 // The mesh layout already uses all eight fragment storage buffers after skin. A storage texture
 // keeps readback on the real draw path without requesting limits above the WebGPU floor.
 const layout = materialLayout(d.struct({ pad: d.u32 }), {
-    ...skinningBindings,
+    ...deformationBindings,
     results: { type: "storage-texture", format: "rgba32uint", access: "write" },
 });
-const skin = skinningVertex(layout);
+const skin = deformationVertex(layout);
 const Results = {
     create: (world: World) =>
         world.gpu.device.createTexture({
@@ -204,7 +210,7 @@ beforeAll(async () => {
     // same material callback, at an eid beyond the old map and a joint on a later texture row.
     const palette = world.resource(SkinPalette);
     const oldPalette = palette.jointPalette,
-        oldOffsets = palette.skinOffsets;
+        oldOffsets = palette.deformationOffsets;
     const reserved = world.create();
     world.add(reserved, SkinnedMesh, { jointCount: 65 });
     const columnLength = Math.max(
@@ -225,7 +231,7 @@ beforeAll(async () => {
     }
     world.step(1 / 60);
     expect(palette.jointPalette).not.toBe(oldPalette);
-    expect(palette.skinOffsets).not.toBe(oldOffsets);
+    expect(palette.deformationOffsets).not.toBe(oldOffsets);
     expect(
         world.storage(SkinnedMesh).firstJoint.get(second.instance.entities[0]),
     ).toBeGreaterThanOrEqual(64);
@@ -297,7 +303,7 @@ test("skinning through a game's materialLayout reads every family-absolute verte
     const a = meshes.get(scenes[0].gltf.primitives[0].mesh)!,
         b = meshes.get(scenes[1].gltf.primitives[0].mesh)!;
     expect(a.vertices).toBe(b.vertices);
-    expect(a.attributes!.skin).toBe(b.attributes!.skin);
+    expect(a.attributes!.deformation).toBe(b.attributes!.deformation);
     expect(
         app.world.storage(SkinnedMesh).firstJoint.get(scenes[1].instance.entities[0]),
     ).toBeGreaterThan(0);
@@ -311,6 +317,10 @@ test("skinning through a game's materialLayout reads every family-absolute verte
                     scene.gltf.animations[animation],
                     sample.time,
                 );
+                for (const skin of scene.gltf.skins)
+                    for (const joint of skin.joints)
+                        for (let c = 0; c < 16; c++)
+                            close(scene.instance.globals[joint][c], sample.worlds[joint].matrix[c]);
                 for (const eid of scene.instance.entities)
                     app.world.storage(MeshInstance).cullBounds.set(eid, 0, 0, 0, -1);
                 app.world.tick();

@@ -20,20 +20,21 @@ export {
     readFogInScatter,
 } from "./fog";
 export {
+    deformationBindings,
+    deformationVertex,
     type Gltf,
     type GltfPlacement,
     GltfPlugin,
     type GltfPrimitive,
     type GltfSceneInstance,
     loadGltfScene,
+    MorphedMesh,
     poseGltfScene,
-    SkinInfluences,
     SkinnedMaterial,
     SkinnedMesh,
     SkinPalette,
-    skinningBindings,
-    skinningVertex,
     spawnGltfScene,
+    VertexDeformation,
 } from "./gltf";
 export {
     drawArrow,

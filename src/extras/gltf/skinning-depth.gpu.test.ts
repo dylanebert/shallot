@@ -158,7 +158,7 @@ beforeAll(async () => {
     expect(Math.min(...indices.slice(mesh.indexBase, mesh.indexBase + mesh.indexCount))).toBe(160);
     const first = app.world.resource(Meshes).get(neighbor)!;
     expect(mesh.vertices).toBe(first.vertices);
-    expect(mesh.attributes!.skin).toBe(first.attributes!.skin);
+    expect(mesh.attributes!.deformation).toBe(first.attributes!.deformation);
 }, TIMEOUT.startup);
 afterAll(() => {
     app?.dispose();

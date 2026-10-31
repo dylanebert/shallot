@@ -93,7 +93,7 @@ interface Primitive {
     indices?: number;
     material?: number;
     mode?: number;
-    targets?: object[];
+    targets?: Record<string, number>[];
     extensions?: Extensions;
 }
 
@@ -140,7 +140,15 @@ export interface GltfMesh {
     weights?: Float32Array;
     color?: Float32Array;
     tangent?: Float32Array;
+    /** Mesh-local xyz deltas, in final vertex order; absent semantics are zero. */
+    morphTargets?: GltfMorphTarget[];
     material: number;
+}
+
+export interface GltfMorphTarget {
+    position?: Float32Array;
+    normal?: Float32Array;
+    tangent?: Float32Array;
 }
 
 export interface GltfMaterial {
@@ -415,6 +423,11 @@ function decodeMesh(
     let joints = stream(prim.attributes.JOINTS_0);
     let weights = stream(prim.attributes.WEIGHTS_0);
     let color = stream(prim.attributes.COLOR_0);
+    const morphTargets = prim.targets?.map((target) => ({
+        position: stream(target.POSITION),
+        normal: stream(target.NORMAL),
+        tangent: stream(target.TANGENT),
+    }));
     if (color && gltf.accessors![prim.attributes.COLOR_0!].type === "VEC3") {
         const rgb = color;
         color = Float32Array.from({ length: (rgb.length / 3) * 4 }, (_, i) =>
@@ -435,6 +448,11 @@ function decodeMesh(
         if (joints) joints = expandCorners(joints, indices, 4);
         if (weights) weights = expandCorners(weights, indices, 4);
         if (color) color = expandCorners(color, indices, 4);
+        for (const target of morphTargets ?? []) {
+            if (target.position) target.position = expandCorners(target.position, indices, 3);
+            if (target.normal) target.normal = expandCorners(target.normal, indices, 3);
+            if (target.tangent) target.tangent = expandCorners(target.tangent, indices, 3);
+        }
         pos = expandCorners(pos, indices, 3);
         if (uv) uv = expandCorners(uv, indices, 2);
         indices = Uint32Array.from({ length: indices.length }, (_, i) => i);
@@ -443,8 +461,14 @@ function decodeMesh(
         prim.attributes.NORMAL !== undefined
             ? readAccessor(gltf, buffers, prim.attributes.NORMAL)
             : computeNormals(pos, indices);
+    if (prim.attributes.NORMAL === undefined)
+        for (const target of morphTargets ?? []) {
+            const displaced = pos.map((v, i) => v + (target.position?.[i] ?? 0));
+            target.normal = computeNormals(displaced, indices).map((v, i) => v - normal[i]);
+        }
     return {
         name,
+        morphTargets,
         vertices: packVertices(pos, normal, uv),
         indices,
         ...(uv1 ? { uv1 } : {}),
@@ -485,6 +509,10 @@ export async function generateSceneTangents(
                         );
             if (uv && set > 1 && prim.attributes.NORMAL === undefined)
                 uv = expandCorners(uv, triangleIndices(gltf, buffers, prim), 2);
+            if (mesh.morphTargets?.length) {
+                scene.meshes[index - 1] = await generateMorphTangents(mesh, uv);
+                continue;
+            }
             const generated = await generateTangents(uv ? { ...mesh, uv1: uv } : mesh, uv ? 1 : 0);
             if (set > 1) {
                 if (mesh.uv1) {
@@ -513,6 +541,78 @@ export async function generateSceneTangents(
             }
             scene.meshes[index - 1] = { ...mesh, ...generated };
         }
+}
+
+async function generateMorphTangents(mesh: GltfMesh, uv?: Float32Array): Promise<GltfMesh> {
+    const input = uv ? { ...mesh, uv1: uv } : mesh;
+    const runs = [await generateTangents(input, uv ? 1 : 0)];
+    for (const target of mesh.morphTargets!) {
+        const vertices = mesh.vertices.slice();
+        for (let v = 0; v < vertices.length / 8; v++) {
+            for (let a = 0; a < 3; a++) {
+                vertices[v * 8 + a] += target.position?.[v * 3 + a] ?? 0;
+                vertices[v * 8 + 4 + a] += target.normal?.[v * 3 + a] ?? 0;
+            }
+            const length =
+                Math.hypot(vertices[v * 8 + 4], vertices[v * 8 + 5], vertices[v * 8 + 6]) || 1;
+            for (let a = 0; a < 3; a++) vertices[v * 8 + 4 + a] /= length;
+        }
+        runs.push(await generateTangents({ ...input, vertices }, uv ? 1 : 0));
+    }
+    const bits = runs.map(
+        (run) => new Uint32Array(run.tangent.buffer, run.tangent.byteOffset, run.tangent.length),
+    );
+    const keys = new Map<string, number>();
+    const originals: number[] = [],
+        corners: number[] = [];
+    const indices = mesh.indices.map((original, corner) => {
+        const key = [
+            original,
+            ...runs.flatMap((run, r) => [
+                ...bits[r].subarray(run.indices[corner] * 4, run.indices[corner] * 4 + 4),
+            ]),
+        ].join(":");
+        let vertex = keys.get(key);
+        if (vertex === undefined) {
+            vertex = originals.length;
+            keys.set(key, vertex);
+            originals.push(original);
+            corners.push(corner);
+        }
+        return vertex;
+    });
+    const remap = (stream: Float32Array, width: number) =>
+        Float32Array.from(
+            { length: originals.length * width },
+            (_, i) => stream[originals[Math.floor(i / width)] * width + (i % width)],
+        );
+    const tangent = Float32Array.from(
+        { length: originals.length * 4 },
+        (_, i) => runs[0].tangent[runs[0].indices[corners[Math.floor(i / 4)]] * 4 + (i % 4)],
+    );
+    const morphTargets = mesh.morphTargets!.map((target, r) => ({
+        position: target.position && remap(target.position, 3),
+        normal: target.normal && remap(target.normal, 3),
+        tangent: Float32Array.from({ length: originals.length * 3 }, (_, i) => {
+            const vertex = Math.floor(i / 3),
+                a = i % 3;
+            return (
+                runs[r + 1].tangent[runs[r + 1].indices[corners[vertex]] * 4 + a] -
+                tangent[vertex * 4 + a]
+            );
+        }),
+    }));
+    return {
+        ...mesh,
+        indices,
+        tangent,
+        morphTargets,
+        vertices: remap(mesh.vertices, 8),
+        uv1: mesh.uv1 && remap(mesh.uv1, 2),
+        color: mesh.color && remap(mesh.color, 4),
+        joints: mesh.joints && remap(mesh.joints, 4),
+        weights: mesh.weights && remap(mesh.weights, 4),
+    };
 }
 
 function mergeSkeletons(skins: GltfSkin[], nodes: GltfNode[]): GltfSkeleton[] {
@@ -687,7 +787,10 @@ export function parse(gltf: GltfJson, buffers: ArrayBuffer[]): GltfScene {
                 )
                     ignored.add(semantic);
             }
-            if (prim.targets?.length) ignored.add("morph");
+            for (const target of prim.targets ?? [])
+                for (const semantic of Object.keys(target))
+                    if (semantic.startsWith("TEXCOORD_") || semantic.startsWith("COLOR_"))
+                        ignored.add(`morph.${semantic}`);
             if ((prim.mode ?? TRIANGLES) < TRIANGLES) {
                 ignored.add(["POINTS", "LINES", "LINE_LOOP", "LINE_STRIP"][prim.mode!]);
                 continue;
@@ -751,9 +854,10 @@ export function parse(gltf: GltfJson, buffers: ArrayBuffer[]): GltfScene {
             weights: [
                 ...(node.weights ??
                     (node.mesh === undefined ? undefined : gltf.meshes?.[node.mesh].weights) ??
-                    Array(gltf.meshes?.[node.mesh ?? -1]?.primitives[0]?.targets?.length ?? 0).fill(
-                        0,
-                    )),
+                    Array(
+                        gltf.meshes?.[node.mesh ?? -1]?.primitives.find((p) => p.targets?.length)
+                            ?.targets?.length ?? 0,
+                    ).fill(0)),
             ],
         });
         const matrix = multiply(parent, local);

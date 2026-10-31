@@ -10,6 +10,7 @@ export {
     type GltfJson,
     type GltfMaterial,
     type GltfMesh,
+    type GltfMorphTarget,
     type GltfScene,
     type GltfSkeleton,
     type GltfSkin,
@@ -26,11 +27,12 @@ export {
     spawnGltfScene,
 } from "./scene";
 export {
+    deformationBindings,
+    deformationVertex,
     GltfPlugin,
-    SkinInfluences,
+    MorphedMesh,
     SkinnedMaterial,
     SkinnedMesh,
     SkinPalette,
-    skinningBindings,
-    skinningVertex,
+    VertexDeformation,
 } from "./skinning";
