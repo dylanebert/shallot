@@ -11,10 +11,11 @@ import { kernel } from "./kernel";
 import { KernelViews } from "./views";
 
 /** Word stride of one kernel shape record, mirroring `shapes.rs`. */
-export const SHAPE_STRIDE = 56;
+export const SHAPE_STRIDE = 50;
+const FAT_STRIDE = 6;
 /** b3Shape union: inline sphere or capsule, data reference plus mesh scale, or data reference. Its
  * first word is the retained hull pointer or non-convex pool word offset. */
-export const S_GEO_REFERENCE = 48;
+export const S_GEO_REFERENCE = 42;
 
 /** Surface material: friction, restitution, rolling, tangent xyz, u64 user id and color. */
 export const MATERIAL_STRIDE = 10;
@@ -61,6 +62,8 @@ export class ShapeStore extends KernelViews {
     shapeU = new Uint32Array(0);
     /** The same bytes as f32 — the geometry payload's natural type. */
     shapeF = new Float32Array(0);
+    /** Broad-phase bounds live in their own packed column, indexed by shape id. */
+    fatF = new Float32Array(0);
     /** Borrowed synchronous geometry result; copied before another kernel call. */
     geometryOutput = new Float32Array(0);
     /** Addressable memory for inline materials and owned contiguous material arrays. */
@@ -87,7 +90,7 @@ export class ShapeStore extends KernelViews {
         const buf = k.memory.buffer;
         const ptr = k.shapeLayoutPtr();
         if (this._layout.buffer !== buf || this._layout.byteOffset !== ptr)
-            this._layout = new Uint32Array(buf, ptr, 1);
+            this._layout = new Uint32Array(buf, ptr, 3);
         const layout = this._layout;
         if (
             this.shapeU.buffer !== buf ||
@@ -97,6 +100,12 @@ export class ShapeStore extends KernelViews {
             this.shapeU = new Uint32Array(buf, layout[0], cap * SHAPE_STRIDE);
             this.shapeF = new Float32Array(buf, layout[0], cap * SHAPE_STRIDE);
         }
+        if (
+            this.fatF.buffer !== buf ||
+            this.fatF.byteOffset !== layout[2] ||
+            this.fatF.length !== cap * FAT_STRIDE
+        )
+            this.fatF = new Float32Array(buf, layout[2], cap * FAT_STRIDE);
         if (this.geometryOutput.buffer !== buf)
             this.geometryOutput = new Float32Array(buf, k.shapeGeometryOutputPtr(), 13);
         if (this.materialU.buffer !== buf || this.materialU.byteLength !== buf.byteLength) {
@@ -228,7 +237,7 @@ export function readShapeAabb(world: WorldState, shapeId: number, out: AABB): AA
 /** Copy the kernel-owned fat bounds into caller-owned scratch. */
 export function readFatAabb(world: WorldState, shapeId: number, out: AABB): AABB {
     world.shapeStore.ensureViews();
-    return readBounds(world.shapeStore.shapeF, shapeId * SHAPE_STRIDE + 16, out);
+    return readBounds(world.shapeStore.fatF, shapeId * FAT_STRIDE, out);
 }
 
 function readBounds(f: Float32Array, o: number, out: AABB): AABB {

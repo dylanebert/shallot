@@ -722,7 +722,11 @@ unsafe fn dispatch_mesh(
     let context = &mut *task_context(world_index, thread);
     let dir = manifolds::dir_col(world_index);
     let entry = read_dir(dir, contact_id);
-    let shape = read_shape(shape_b[crate::shapes::S_TYPE], shape_b, 48);
+    let shape = read_shape(
+        shape_b[crate::shapes::S_TYPE],
+        shape_b,
+        crate::shapes::S_GEOM,
+    );
     let directory = manifolds::dir_col(world_index);
     let shape_a =
         directory.get(contact_id * DIR_STRIDE + crate::manifold_abi::DIR_SHAPE_A) as usize;
@@ -900,8 +904,8 @@ fn shape_radius(world_index: usize, shape: usize, full_hull: bool) -> f32 {
     let shapes = crate::shapes::col_slice(world_index);
     let s = shape * crate::shapes::SHAPE_STRIDE;
     match shapes[s + crate::shapes::S_TYPE] {
-        TY_SPHERE => f32::from_bits(shapes[s + 51]),
-        TY_CAPSULE => f32::from_bits(shapes[s + 54]),
+        TY_SPHERE => f32::from_bits(shapes[s + crate::shapes::S_GEOM + 3]),
+        TY_CAPSULE => f32::from_bits(shapes[s + crate::shapes::S_GEOM + 6]),
         TY_HULL => {
             (if full_hull { 1.0 } else { 0.25 })
                 * unsafe {
@@ -1102,7 +1106,7 @@ unsafe fn update_contact(
         let mut xf_a = parent_xf;
         let center_a = parent_xf.q.rotate(local_center_a);
         let center_b = xf_b.q.rotate(local_center_b);
-        let mut geom_a = &shape_a[48..55];
+        let mut geom_a = &shape_a[crate::shapes::S_GEOM..crate::shapes::S_GEOM + 7];
         let mut child_offset = Vec3::ZERO;
         let mut material_map = None;
         let mut child_radius = 0.0;
@@ -1171,7 +1175,7 @@ unsafe fn update_contact(
             return;
         }
         let mut shape_a = read_shape(type_a, geom_a, 0);
-        let mut shape_b = read_shape(type_b, shape_b, 48);
+        let mut shape_b = read_shape(type_b, shape_b, crate::shapes::S_GEOM);
         let flip = (type_a == TY_SPHERE && type_b != TY_SPHERE)
             || (type_a == TY_CAPSULE && type_b == TY_HULL);
         let (convex_xf_a, convex_xf_b) = if flip {
@@ -1293,7 +1297,7 @@ pub unsafe extern "C" fn mix_contacts(world_index: usize) {
         let mut radius = 0.0;
         if kind == TY_COMPOUND {
             let child = crate::compound_query::child_words(
-                a[48] as *const u32,
+                a[crate::shapes::S_GEOM] as *const u32,
                 dir.get(o + DIR_CHILD_INDEX) as usize,
             );
             kind = child[0];
@@ -1346,8 +1350,8 @@ pub extern "C" fn dispatch_contacts_in_world(world_index: usize, count: usize) {
 /// b3AABB_Overlaps over resident fat AABBs.
 #[inline]
 fn fat_overlap(fat: &[f32], sa: usize, sb: usize) -> bool {
-    let a = sa * crate::shapes::SHAPE_STRIDE + crate::shapes::S_FAT_AABB;
-    let b = sb * crate::shapes::SHAPE_STRIDE + crate::shapes::S_FAT_AABB;
+    let a = sa * crate::shapes::FAT_STRIDE;
+    let b = sb * crate::shapes::FAT_STRIDE;
     !(fat[a + 3] < fat[b]
         || fat[a] > fat[b + 3]
         || fat[a + 4] < fat[b + 1]
@@ -1455,7 +1459,7 @@ unsafe fn contact_block_impl(
         let contacts = core::slice::from_raw_parts(list as *const u32, total);
         let dir = manifolds::dir_col(world_index);
         let pool = manifolds::pool_col();
-        let fat = crate::shapes::col_f_slice(world_index);
+        let fat = crate::shapes::fat_slice(world_index);
         let shapes = crate::shapes::col_slice(world_index);
         let recycle_dist = RECYCLE_DISTANCE;
         let recycle_dist_non_touching = recycle_dist.min(0.02);
@@ -1485,30 +1489,16 @@ unsafe fn contact_block_impl(
 
             let sa = &shapes[sa * crate::shapes::SHAPE_STRIDE..][..crate::shapes::SHAPE_STRIDE];
             let sb = &shapes[sb * crate::shapes::SHAPE_STRIDE..][..crate::shapes::SHAPE_STRIDE];
-            let la = sa[crate::shapes::S_QUERY_BODY] as usize;
-            let lb = sb[crate::shapes::S_QUERY_BODY] as usize;
-            let body_a = crate::bodies::record(world_index, la);
-            let body_b = crate::bodies::record(world_index, lb);
-            let static_a = body_a.body_type == crate::body::body_type::STATIC;
-            let static_b = body_b.body_type == crate::body::body_type::STATIC;
-            dir.set(
-                o + DIR_INDEX_A,
-                if static_a {
-                    u32::MAX
-                } else {
-                    body_a.local_index as u32
-                },
-            );
-            dir.set(
-                o + DIR_INDEX_B,
-                if static_b {
-                    u32::MAX
-                } else {
-                    body_b.local_index as u32
-                },
-            );
-            let (xf_a, fin_a, flags_a) = crate::bodies::geometry(world_index, la);
-            let (xf_b, fin_b, flags_b) = crate::bodies::geometry(world_index, lb);
+            let la = dir.get(o + DIR_EDGE_A) as usize;
+            let lb = dir.get(o + DIR_EDGE_B) as usize;
+            let encoded_a = dir.get(o + DIR_INDEX_A) as i32;
+            let encoded_b = dir.get(o + DIR_INDEX_B) as i32;
+            let static_a = encoded_a < -1;
+            let static_b = encoded_b < -1;
+            let (xf_a, fin_a, flags_a) =
+                crate::bodies::contact_geometry(world_index, encoded_a, la);
+            let (xf_b, fin_b, flags_b) =
+                crate::bodies::contact_geometry(world_index, encoded_b, lb);
             let center_a = fin_a.center;
             let center_b = fin_b.center;
             let extent_a = if static_a {
@@ -1711,7 +1701,7 @@ pub(crate) unsafe fn refit_body(world_index: usize, worker: usize, sim: Col<f32>
         );
         let shape_u = crate::shapes::col(world_index);
         let shape_f = crate::shapes::col_f(world_index);
-        let fat = crate::shapes::col_f(world_index);
+        let fat = crate::shapes::fat_col(world_index);
         {
             if sim_u.atomic_get(i * SIM_STRIDE + crate::body::FLAGS) & crate::body::flags::IS_FAST
                 != 0
@@ -1740,7 +1730,7 @@ pub(crate) unsafe fn refit_body(world_index: usize, worker: usize, sim: Col<f32>
             while shape_id != crate::shapes::NULL_SHAPE {
                 let o = shape_id as usize * crate::shapes::SHAPE_STRIDE;
                 let bounds = crate::continuous::bounds(world_index, shape_id as usize, xf);
-                let fb = o + crate::shapes::S_FAT_AABB;
+                let fb = shape_id as usize * crate::shapes::FAT_STRIDE;
                 let fat_aabb = core::array::from_fn(|n| fat.get(fb + n));
                 let (cand, escaped) = finalize::refit_bounds(bounds, &fat_aabb);
                 for n in 0..6 {

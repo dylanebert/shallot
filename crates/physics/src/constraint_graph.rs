@@ -215,8 +215,22 @@ pub extern "C" fn add_contact_in_world(world_index: usize, id: usize, index_a: u
             o + DIR_LOCAL_INDEX,
             count_in_world(world_index, color, scalar) as u32,
         );
-        d.set(o + DIR_INDEX_A, if ta == 0 { u32::MAX } else { index_a });
-        d.set(o + DIR_INDEX_B, if tb == 0 { u32::MAX } else { index_b });
+        d.set(
+            o + DIR_INDEX_A,
+            if ta == 0 {
+                bodies::encoded_sim_index(world_index, a)
+            } else {
+                index_a
+            },
+        );
+        d.set(
+            o + DIR_INDEX_B,
+            if tb == 0 {
+                bodies::encoded_sim_index(world_index, b)
+            } else {
+                index_b
+            },
+        );
         let c = &mut colors(world_index)[color];
         if scalar {
             c.contacts.push(ContactSpec {

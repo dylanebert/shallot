@@ -111,9 +111,9 @@ export function getShapeFilter(world: WorldState, shape: Shape): Filter {
     const offset = shape * SHAPE_STRIDE;
     const words = world.shapeStore.shapeU;
     return {
-        categoryBits: (BigInt(words[offset + 39] >>> 0) << 32n) | BigInt(words[offset + 38] >>> 0),
-        maskBits: (BigInt(words[offset + 41] >>> 0) << 32n) | BigInt(words[offset + 40] >>> 0),
-        groupIndex: words[offset + 42] | 0,
+        categoryBits: (BigInt(words[offset + 33] >>> 0) << 32n) | BigInt(words[offset + 32] >>> 0),
+        maskBits: (BigInt(words[offset + 35] >>> 0) << 32n) | BigInt(words[offset + 34] >>> 0),
+        groupIndex: words[offset + 36] | 0,
     };
 }
 

@@ -66,8 +66,8 @@ pub unsafe extern "C" fn sync_body_bounds_in_world(world: usize, body_id: usize)
 unsafe fn body_record_bounds(world: usize, id: usize, shape: usize) {
     let pose = bodies::geometry(world, id).0;
     let tight = crate::continuous::bounds(world, shape, pose);
-    let fat = shapes::col_f(world);
-    let fat_offset = shape * shapes::SHAPE_STRIDE + shapes::S_FAT_AABB;
+    let fat = shapes::fat_col(world);
+    let fat_offset = shape * shapes::FAT_STRIDE;
     let mut previous = [0.0; 6];
     for lane in 0..6 {
         previous[lane] = fat.get(fat_offset + lane);
@@ -163,7 +163,7 @@ unsafe fn write_bounds(
     let o = id * shapes::SHAPE_STRIDE;
     let (bounds, _) = crate::finalize::refit_bounds(tight, &[0.0; 6]);
     let f = shapes::col_f(world_index);
-    let fat = shapes::col_f(world_index);
+    let fat = shapes::fat_col(world_index);
     let margin = if body_type == crate::body::body_type::STATIC as usize {
         0.02
     } else {
@@ -176,7 +176,7 @@ unsafe fn write_bounds(
     }
     for lane in 0..6 {
         f.set(o + shapes::S_AABB + lane, bounds[lane]);
-        fat.set(o + shapes::S_FAT_AABB + lane, enlarged[lane]);
+        fat.set(id * shapes::FAT_STRIDE + lane, enlarged[lane]);
     }
     enlarged
 }

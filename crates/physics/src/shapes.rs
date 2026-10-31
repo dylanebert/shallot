@@ -1,11 +1,12 @@
 //! World-local shape and material columns. A reachable shape is authored before it is queried.
 use crate::col::Col;
 use crate::regions::{self, Columns, MAX_WORLDS};
-pub const SHAPE_STRIDE: usize = 56;
+pub const SHAPE_STRIDE: usize = 50;
+pub const FAT_STRIDE: usize = 6;
 pub const S_ID: usize = 0;
 pub const S_PREV: usize = 2;
 pub const S_DENSITY: usize = 7;
-pub const S_GENERATION: usize = 47;
+pub const S_GENERATION: usize = 41;
 pub const S_FLAGS: usize = S_GENERATION;
 /// Box3D's b3ShapeFlags, stored in the third byte of the `S_FLAGS` word.
 pub const SENSOR_FLAG: u32 = 1 << 16;
@@ -15,28 +16,28 @@ pub const HIT_FLAG: u32 = 8 << 16;
 pub const PRE_SOLVE_FLAG: u32 = 16 << 16;
 pub const ENLARGED_FLAG: u32 = 32 << 16;
 pub const SPECULATIVE_FLAG: u32 = 64 << 16;
-pub const S_MATERIAL: usize = 26;
+pub const S_MATERIAL: usize = 20;
 pub const S_HIT_EVENTS: usize = S_FLAGS;
 pub const S_PROXY_KEY: usize = 5;
-pub const S_QUERY_CATEGORY: usize = 39;
-pub const S_QUERY_MASK: usize = 41;
+pub const S_QUERY_CATEGORY: usize = 33;
+pub const S_QUERY_MASK: usize = 35;
 pub const S_QUERY_BODY: usize = 1;
 pub const S_QUERY_SENSOR: usize = S_FLAGS;
-pub const S_QUERY_GROUP: usize = 42;
+pub const S_QUERY_GROUP: usize = 36;
 pub const S_TYPE: usize = 6;
 pub const S_NEXT: usize = 3;
-pub const S_GEOM: usize = 48;
+pub const S_GEOM: usize = 42;
 pub const S_AABB: usize = 10;
-pub const S_FAT_AABB: usize = 16;
 pub const S_MARGIN: usize = 9;
 pub const S_SENSOR_INDEX: usize = 4;
-pub const S_CENTROID: usize = 22;
+pub const S_CENTROID: usize = 16;
 pub const S_GEO_REFERENCE: usize = S_GEOM;
-pub const S_MATERIAL_HEAD: usize = 36;
-pub const S_MATERIAL_COUNT: usize = 25;
+pub const S_MATERIAL_HEAD: usize = 30;
+pub const S_MATERIAL_COUNT: usize = 19;
 pub const NULL_SHAPE: u32 = u32::MAX;
 const FREE_ARRAY: usize = 1;
-const N_SHAPE: usize = 2;
+const FAT_ARRAY: usize = 2;
+const N_SHAPE: usize = 3;
 pub const MATERIAL_STRIDE: usize = 10;
 
 #[derive(Clone, Copy)]
@@ -181,13 +182,17 @@ pub fn col_slice(world_index: usize) -> &'static [u32] {
         )
     }
 }
-pub fn col_f_slice(world_index: usize) -> &'static [f32] {
+pub fn fat_col(world_index: usize) -> Col<'static, f32> {
     unsafe {
-        core::slice::from_raw_parts(
-            base(world_index) as *const f32,
-            shape_cap_in_world(world_index) * SHAPE_STRIDE,
+        Col::new(
+            world(world_index).columns.layout[FAT_ARRAY] as *mut f32,
+            shape_cap_in_world(world_index) * FAT_STRIDE,
         )
     }
+}
+pub fn fat_slice(world_index: usize) -> &'static [f32] {
+    let col = fat_col(world_index);
+    unsafe { core::slice::from_raw_parts(col.ptr(), shape_cap_in_world(world_index) * FAT_STRIDE) }
 }
 #[export_name = "shapeSetActiveWorld"]
 pub extern "C" fn shape_set_active_world(id: u32) {
@@ -217,6 +222,7 @@ pub extern "C" fn reserve_shapes_in_world(world_index: usize, cap: usize) -> u32
         }
         w.columns.reserve(0, cap * SHAPE_STRIDE * 4);
         w.columns.reserve(FREE_ARRAY, cap.max(32) * 4);
+        w.columns.reserve(FAT_ARRAY, cap * FAT_STRIDE * 4);
         for id in w.shape.cap..cap {
             let p = record(world_index, id);
             p.write_bytes(0, SHAPE_STRIDE);
@@ -435,8 +441,14 @@ pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
             regions::write_word(out, value);
         }
     }
-    w.columns
-        .snapshot_prefix(out, [w.shape.next * SHAPE_STRIDE * 4, w.shape.free * 4]);
+    w.columns.snapshot_prefix(
+        out,
+        [
+            w.shape.next * SHAPE_STRIDE * 4,
+            w.shape.free * 4,
+            w.shape.next * FAT_STRIDE * 4,
+        ],
+    );
     for shape in 0..w.shape.next {
         let count = *record(id, shape).add(S_MATERIAL_COUNT) as usize;
         if *record(id, shape).add(S_MATERIAL_HEAD) != 0 {

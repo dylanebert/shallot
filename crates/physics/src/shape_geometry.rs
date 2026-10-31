@@ -93,12 +93,16 @@ mod wasm {
         let density = f.get(o + shapes::S_DENSITY);
         match kind(world_index, id) {
             TY_CAPSULE => capsule_mass(
-                vector(world_index, id, 48),
-                vector(world_index, id, 51),
-                f.get(o + 54),
+                vector(world_index, id, shapes::S_GEOM),
+                vector(world_index, id, shapes::S_GEOM + 3),
+                f.get(o + shapes::S_GEOM + 6),
                 density,
             ),
-            TY_SPHERE => sphere_mass(vector(world_index, id, 48), f.get(o + 51), density),
+            TY_SPHERE => sphere_mass(
+                vector(world_index, id, shapes::S_GEOM),
+                f.get(o + shapes::S_GEOM + 3),
+                density,
+            ),
             TY_HULL => {
                 let h = geo::hull_record(reference(world_index, id));
                 hull_mass(h.volume, h.center, h.central_inertia, density)
@@ -116,8 +120,9 @@ mod wasm {
     }
     pub(crate) unsafe fn centroid(world_index: usize, id: usize) -> Vec3 {
         match kind(world_index, id) {
-            TY_CAPSULE => vector(world_index, id, 48).lerp(vector(world_index, id, 51), 0.5),
-            TY_SPHERE => vector(world_index, id, 48),
+            TY_CAPSULE => vector(world_index, id, shapes::S_GEOM)
+                .lerp(vector(world_index, id, shapes::S_GEOM + 3), 0.5),
+            TY_SPHERE => vector(world_index, id, shapes::S_GEOM),
             TY_HULL => geo::hull_record(reference(world_index, id)).center,
             _ => {
                 let b = bounds(world_index, id, Transform::IDENTITY);
@@ -130,17 +135,19 @@ mod wasm {
         let f = shapes::col_f(world_index);
         match kind(world_index, id) {
             TY_CAPSULE => {
-                let r = f.get(o + 54);
-                let a = vector(world_index, id, 48).sub(center).abs();
-                let b = vector(world_index, id, 51).sub(center).abs();
+                let r = f.get(o + shapes::S_GEOM + 6);
+                let a = vector(world_index, id, shapes::S_GEOM).sub(center).abs();
+                let b = vector(world_index, id, shapes::S_GEOM + 3)
+                    .sub(center)
+                    .abs();
                 (
                     r,
                     Vec3::new(maxf(a.x, b.x) + r, maxf(a.y, b.y) + r, maxf(a.z, b.z) + r),
                 )
             }
             TY_SPHERE => {
-                let r = f.get(o + 51);
-                let h = vector(world_index, id, 48).sub(center).abs();
+                let r = f.get(o + shapes::S_GEOM + 3);
+                let h = vector(world_index, id, shapes::S_GEOM).sub(center).abs();
                 (r, h.add(Vec3::new(r, r, r)))
             }
             TY_HULL => {
@@ -191,10 +198,13 @@ mod wasm {
         let f = shapes::col_f(world_index);
         let radius = match kind(world_index, id) {
             TY_CAPSULE => {
-                0.5 * vector(world_index, id, 51).distance(vector(world_index, id, 48))
-                    + f.get(o + 54)
+                0.5 * vector(world_index, id, shapes::S_GEOM + 3).distance(vector(
+                    world_index,
+                    id,
+                    shapes::S_GEOM,
+                )) + f.get(o + shapes::S_GEOM + 6)
             }
-            TY_SPHERE => f.get(o + 51),
+            TY_SPHERE => f.get(o + shapes::S_GEOM + 3),
             TY_HULL => {
                 let h = geo::hull_view(reference(world_index, id));
                 let mut r = 0.0;
@@ -400,16 +410,16 @@ mod wasm {
             shapes::col(world).set(o + shapes::S_TYPE, t);
             let center = Vec3::new(a, b, c).lerp(Vec3::new(d, e, f), 0.5);
             for (lane, value) in [center.x, center.y, center.z, g].into_iter().enumerate() {
-                floats.set(o + 48 + lane, value);
+                floats.set(o + shapes::S_GEOM + lane, value);
             }
         } else if t == TY_MESH {
             let scale = Vec3::new(a, b, c).safe_scale();
             for (lane, value) in [scale.x, scale.y, scale.z].into_iter().enumerate() {
-                floats.set(o + 49 + lane, value);
+                floats.set(o + shapes::S_GEOM + 1 + lane, value);
             }
         } else {
             for (lane, value) in [a, b, c, d, e, f, g].into_iter().enumerate() {
-                floats.set(o + 48 + lane, value);
+                floats.set(o + shapes::S_GEOM + lane, value);
             }
         }
         t

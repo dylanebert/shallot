@@ -69,6 +69,7 @@ pub unsafe fn create(world: usize, mut shape_a: usize, mut shape_b: usize, child
         flags |= contact_flags::ENABLE_SPECULATIVE_POINTS;
     }
     for (side, body_id) in [a, b].into_iter().enumerate() {
+        let encoded = bodies::encoded_sim_index(world, body_id);
         let body = bodies::record_mut(world, body_id);
         let edge = o + DIR_EDGE_A + 3 * side;
         d.set(edge, body_id as u32);
@@ -83,14 +84,7 @@ pub unsafe fn create(world: usize, mut shape_a: usize, mut shape_b: usize, child
         }
         body.head_contact_key = key;
         body.contact_count += 1;
-        d.set(
-            o + DIR_INDEX_A + side,
-            if body.body_type == crate::body::body_type::STATIC {
-                u32::MAX
-            } else {
-                body.local_index as u32
-            },
-        );
+        d.set(o + DIR_INDEX_A + side, encoded);
     }
     crate::table::add_pair_in_world(world, shape_a as u32, shape_b as u32, child as u32);
     solver_set::array_push_in_world(world, set, solver_set::CONTACT_IDS, id as i32);

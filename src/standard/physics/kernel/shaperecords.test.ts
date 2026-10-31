@@ -105,6 +105,9 @@ test("shape records, links, proxies, filters, inline materials, u16 generations 
             ai * SHAPE_STRIDE,
             (ai + 1) * SHAPE_STRIDE,
         );
+        const fatWords = world.shapeStore.fatF.slice(ai * 6, (ai + 1) * 6);
+        expect(world.shapeStore.fatF.byteOffset).not.toBe(world.shapeStore.shapeF.byteOffset);
+        world.shapeStore.fatF[ai * 6] = 123;
         const otherBody = createTestBody(sibling, { type: BodyType.Static });
         const other = createSphereShape(sibling, otherBody, testShapeDef(), sphere)!;
         const otherBounds = readShapeAabb(sibling, other, {
@@ -127,6 +130,7 @@ test("shape records, links, proxies, filters, inline materials, u16 generations 
                 upperBound: { x: 0, y: 0, z: 0 },
             }),
         ).toEqual(otherBounds);
+        expect(world.shapeStore.fatF.slice(ai * 6, (ai + 1) * 6)).toEqual(fatWords);
         setShapeField(world, ai, ShapeField.generation, 0xffff);
         destroyShape(world, ai, false);
         const wrapped = createSphereShape(

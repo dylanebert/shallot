@@ -2,7 +2,7 @@ import type { WorldState } from "../world/world";
 import { kernel } from "./kernel";
 import { SHAPE_STRIDE } from "./shapecolumns";
 
-/** Nongeometry field codes; generation and flags share word 47. */
+/** Nongeometry field codes; generation and flags share word 41. */
 export const ShapeField = {
     type: 6,
     nextShapeId: 3,
@@ -13,9 +13,9 @@ export const ShapeField = {
     prevShapeId: 2,
     density: 7,
     explosionScale: 8,
-    localCentroid: 22,
-    generation: 47,
-    flags: 56,
+    localCentroid: 16,
+    generation: 41,
+    flags: 50,
     aabbMargin: 9,
 } as const;
 export const ShapeFlags = {
@@ -31,7 +31,7 @@ export function shapeField(world: WorldState, id: number, field: number): number
     const offset = id * SHAPE_STRIDE + field;
     if (field === ShapeField.generation) return world.shapeStore.shapeU[offset] & 0xffff;
     if (field === ShapeField.flags)
-        return (world.shapeStore.shapeU[id * SHAPE_STRIDE + 47] >>> 16) & 0xff;
+        return (world.shapeStore.shapeU[id * SHAPE_STRIDE + 41] >>> 16) & 0xff;
     return world.shapeStore.shapeU[offset] | 0;
 }
 /** Read a floating-point nongeometry field from its native f32 lane. */
@@ -46,11 +46,11 @@ export function setShapeField(world: WorldState, id: number, field: number, valu
         return;
     }
     if (field === ShapeField.flags) {
-        const packed = id * SHAPE_STRIDE + 47;
+        const packed = id * SHAPE_STRIDE + 41;
         u[packed] = (u[packed] & 0xff00ffff) | ((value & 0xff) << 16);
         return;
     }
-    if (field === 7 || field === 8 || field === 9 || (field >= 22 && field <= 24))
+    if (field === 7 || field === 8 || field === 9 || (field >= 16 && field <= 18))
         world.shapeStore.shapeF[offset] = value;
     else world.shapeStore.shapeU[offset] = value;
 }

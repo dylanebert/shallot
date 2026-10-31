@@ -258,7 +258,7 @@ pub unsafe extern "C" fn move_proxy_in_world(
 pub unsafe extern "C" fn enlarge_pass_in_world(world_index: usize, count: usize, bullets: u32) {
     let sim = crate::bodies::sim_base(world_index) as *mut u32;
     let shapes = crate::shapes::col(world_index);
-    let fat = crate::shapes::col_f(world_index);
+    let fat = crate::shapes::fat_col(world_index);
     let enlarged = crate::arena::enlarged_sims(world_index);
     let blocks = if bullets == 0 {
         count.div_ceil(64)
@@ -297,7 +297,7 @@ pub unsafe extern "C" fn enlarge_pass_in_world(world_index: usize, count: usize,
                 } else if shapes.get(o + crate::shapes::S_FLAGS) & crate::shapes::ENLARGED_FLAG != 0
                 {
                     let index = (key & 3) as usize;
-                    let b = o + crate::shapes::S_FAT_AABB;
+                    let b = id as usize * crate::shapes::FAT_STRIDE;
                     crate::broad::tree_mut(world_index, index).enlarge(
                         (key >> 2) as usize,
                         crate::math::Vec3::new(fat.get(b), fat.get(b + 1), fat.get(b + 2)),

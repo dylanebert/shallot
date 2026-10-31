@@ -39,7 +39,7 @@ for (const [index, [iterations, propagation, change]] of cases.entries()) {
             });
             try {
                 const world = app.world;
-                const box = world.resource(Hulls).add({ halfExtents: [1, 1, 1] });
+                const box = world.resource(Hulls).add({ name: "restitution box", halfExtents: [1, 1, 1] });
                 for (let i = 0; i < 5; i++) {
                     const eid = world.create();
                     world.add(eid, Transform, { translation: [i === 4 ? 0.25 : 0, i === 4 ? 11 : 2 * i, 0] });

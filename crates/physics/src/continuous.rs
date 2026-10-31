@@ -137,15 +137,7 @@ pub(crate) fn bounds(world_index: usize, id: usize, xf: Transform) -> [f32; 6] {
     if kind == crate::finalize::TY_HULL {
         return unsafe { crate::shape_geometry::bounds(world_index, id, xf) };
     }
-    let geom = [
-        r.get(o + 48),
-        r.get(o + 49),
-        r.get(o + 50),
-        r.get(o + 51),
-        r.get(o + 52),
-        r.get(o + 53),
-        r.get(o + 54),
-    ];
+    let geom: [f32; 7] = core::array::from_fn(|lane| r.get(o + shapes::S_GEOM + lane));
     if crate::finalize::is_convex_refit(kind) {
         return crate::finalize::convex_bounds(kind, &geom, xf);
     }
@@ -233,17 +225,25 @@ pub(crate) unsafe fn finish_bullets(world: usize) {
         }
     }
 }
-fn commit_bounds(u: Col<u32>, f: Col<f32>, su: Col<u32>, i: usize, o: usize, b: [f32; 6]) {
-    let fb = o + shapes::S_FAT_AABB;
-    let cached = core::array::from_fn(|n| f.get(fb + n));
+fn commit_bounds(
+    fat: Col<f32>,
+    u: Col<u32>,
+    f: Col<f32>,
+    su: Col<u32>,
+    i: usize,
+    o: usize,
+    b: [f32; 6],
+) {
+    let fb = (o / shapes::SHAPE_STRIDE) * shapes::FAT_STRIDE;
+    let cached = core::array::from_fn(|n| fat.get(fb + n));
     let escaped = !crate::finalize::aabb_contains(&cached, &b);
     if escaped {
         let flags = u.get(o + shapes::S_FLAGS);
         u.set(o + shapes::S_FLAGS, flags | shapes::ENLARGED_FLAG);
         let margin = f.get(o + shapes::S_MARGIN);
         for n in 0..3 {
-            f.set(fb + n, b[n] - margin);
-            f.set(fb + n + 3, b[n + 3] + margin);
+            fat.set(fb + n, b[n] - margin);
+            fat.set(fb + n + 3, b[n + 3] + margin);
         }
         if su.atomic_get(i * body::SIM_STRIDE + body::FLAGS) & IS_BULLET != 0 {
             su.atomic_or(i * body::SIM_STRIDE + body::FLAGS, ENLARGE_BOUNDS);
@@ -448,14 +448,14 @@ unsafe fn solve_impl(world_index: usize, worker: usize, i: usize, probe: bool) -
             for n in 0..6 {
                 f.set(o + shapes::S_AABB + n, b[n]);
             }
-            commit_bounds(u, f, su, i, o, b);
+            commit_bounds(shapes::fat_col(world_index), u, f, su, i, o, b);
             id = u.get(o + shapes::S_NEXT);
         }
     } else {
         while id != u32::MAX {
             let o = id as usize * shapes::SHAPE_STRIDE;
             let b = core::array::from_fn(|n| f.get(o + shapes::S_AABB + n));
-            commit_bounds(u, f, su, i, o, b);
+            commit_bounds(shapes::fat_col(world_index), u, f, su, i, o, b);
             id = u.get(o + shapes::S_NEXT);
         }
     }

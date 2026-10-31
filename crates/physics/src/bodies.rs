@@ -30,6 +30,7 @@ pub unsafe extern "C" fn should_collide_in_world(world_index: usize, a: u32, b: 
     true
 }
 use crate::body::{SIM_STRIDE, STATE_STRIDE};
+use crate::col::Col;
 use crate::regions::{self, Columns, MAX_WORLDS};
 
 pub const MOVE_STRIDE: usize = core::mem::size_of::<crate::events::BodyMove>() / 4;
@@ -109,7 +110,35 @@ pub unsafe fn geometry(
     world_index: usize,
     id: usize,
 ) -> (crate::math::Transform, crate::body::SimFinalize, u32) {
-    let sim = column(world_index, id, 1, SIM_STRIDE);
+    geometry_from_sim(column(world_index, id, 1, SIM_STRIDE))
+}
+
+pub(crate) unsafe fn contact_geometry(
+    world: usize,
+    encoded: i32,
+    body_id: usize,
+) -> (crate::math::Transform, crate::body::SimFinalize, u32) {
+    if encoded == -1 {
+        return geometry(world, body_id);
+    }
+    let (set, index) = if encoded >= 0 {
+        (crate::solver_set::AWAKE_SET as usize, encoded as usize)
+    } else {
+        (
+            crate::solver_set::STATIC_SET as usize,
+            (-encoded - 2) as usize,
+        )
+    };
+    let sim = Col::new(
+        crate::solver_set::body_ptr(world, set, index, 1) as *mut f32,
+        SIM_STRIDE,
+    );
+    geometry_from_sim(sim)
+}
+
+unsafe fn geometry_from_sim(
+    sim: Col<f32>,
+) -> (crate::math::Transform, crate::body::SimFinalize, u32) {
     let pose = crate::math::Transform {
         p: crate::math::Vec3::new(sim.get(0), sim.get(1), sim.get(2)),
         q: crate::math::Quat {
@@ -128,6 +157,30 @@ pub unsafe fn set_location(world_index: usize, id: usize, set: usize, index: usi
     let body = record_mut(world_index, id);
     body.set_index = set as i32;
     body.local_index = index as i32;
+    refresh_contact_indices(world_index, id);
+}
+
+pub(crate) unsafe fn encoded_sim_index(world: usize, id: usize) -> u32 {
+    let body = record(world, id);
+    match body.set_index {
+        crate::solver_set::AWAKE_SET => body.local_index as u32,
+        crate::solver_set::STATIC_SET => (-body.local_index - 2) as u32,
+        _ => u32::MAX,
+    }
+}
+
+unsafe fn refresh_contact_indices(world: usize, id: usize) {
+    use crate::manifold_abi::{DIR_EDGE_A, DIR_INDEX_A, DIR_STRIDE};
+    let encoded = encoded_sim_index(world, id);
+    let mut key = record(world, id).head_contact_key;
+    let dir = crate::manifolds::dir_col(world);
+    while key != -1 {
+        let contact = (key >> 1) as usize;
+        let side = (key & 1) as usize;
+        let o = contact * DIR_STRIDE;
+        dir.set(o + DIR_INDEX_A + side, encoded);
+        key = dir.get(o + DIR_EDGE_A + side * 3 + 2) as i32;
+    }
 }
 
 pub fn state_base(world_index: usize) -> usize {

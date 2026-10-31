@@ -35,8 +35,9 @@ pub struct ContactRecord {
     pub island_id: i32,
     pub island_index: i32,
     pub contact_id: i32,
-    pub body_sim_index_a: i32,
-    pub body_sim_index_b: i32,
+    /// Awake >= 0, static = -(index + 2), sleeping = -1 (body.h).
+    pub encoded_body_sim_a: i32,
+    pub encoded_body_sim_b: i32,
     pub flags: u32,
     pub manifolds: u32,
     pub manifold_count: i32,
@@ -129,8 +130,8 @@ pub mod contact_flags {
 }
 pub const DIR_MANIFOLD_COUNT: usize = offset_of!(ContactRecord, manifold_count) / 4;
 pub const DIR_MANIFOLD_BASE: usize = offset_of!(ContactRecord, manifolds) / 4;
-pub const DIR_INDEX_A: usize = offset_of!(ContactRecord, body_sim_index_a) / 4;
-pub const DIR_INDEX_B: usize = offset_of!(ContactRecord, body_sim_index_b) / 4;
+pub const DIR_INDEX_A: usize = offset_of!(ContactRecord, encoded_body_sim_a) / 4;
+pub const DIR_INDEX_B: usize = offset_of!(ContactRecord, encoded_body_sim_b) / 4;
 pub const DIR_CACHE: usize = offset_of!(ContactRecord, cache) / 4;
 pub const DIR_MESH_CACHE: usize = DIR_CACHE;
 pub const DIR_CACHED_ROT_A: usize = offset_of!(ContactRecord, cached_rotation_a) / 4;
@@ -184,8 +185,16 @@ pub fn read_dir(dir: Col<u32>, contact_id: usize) -> DirEntry {
         flags: dir.get(o + DIR_FLAGS),
         manifold_count: dir.get(o + DIR_MANIFOLD_COUNT) as usize,
         manifold_base: dir.get(o + DIR_MANIFOLD_BASE) as usize,
-        index_a: dir.get(o + DIR_INDEX_A),
-        index_b: dir.get(o + DIR_INDEX_B),
+        index_a: if (dir.get(o + DIR_INDEX_A) as i32) >= 0 {
+            dir.get(o + DIR_INDEX_A)
+        } else {
+            u32::MAX
+        },
+        index_b: if (dir.get(o + DIR_INDEX_B) as i32) >= 0 {
+            dir.get(o + DIR_INDEX_B)
+        } else {
+            u32::MAX
+        },
     }
 }
 

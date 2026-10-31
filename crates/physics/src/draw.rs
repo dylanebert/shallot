@@ -266,8 +266,12 @@ pub unsafe extern "C" fn run_in_world(
                 }
                 if flags & 2 != 0 {
                     let o = begin(out, 9, 0xffd700);
-                    let bounds = n + shapes::S_FAT_AABB;
-                    out.extend_from_slice(&r[bounds..bounds + 6]);
+                    let bounds = id * shapes::FAT_STRIDE;
+                    out.extend(
+                        shapes::fat_slice(world)[bounds..bounds + 6]
+                            .iter()
+                            .map(|v| v.to_bits()),
+                    );
                     end(out, o);
                 }
                 true
