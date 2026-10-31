@@ -1,7 +1,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { MeshPlugin } from "../../core/mesh";
+import { MeshInstance, MeshPlugin } from "../../core/mesh";
 import { Xform, xformNormal, xformPoint } from "../../core/rendering";
 import { component, type Plugin, type System, u32, type World } from "../../engine";
 import {
@@ -17,7 +17,8 @@ import {
 
 /** Four u16 joint indices and four float32 weights, addressed by family-absolute vidx. */
 export const SkinInfluences = d.struct({ joints: d.vec2u, weights: d.vec4f });
-/** Bindings required by skinningVertex, in both materialLayout and extensionLayout. */
+/** Bindings required by skinningVertex, in both materialLayout and extensionLayout.
+ * skinOffsets holds firstJoint + 1 by eid; zero means no allocation and draws bind pose. */
 export const skinningBindings = {
     skin: { type: "attribute", element: SkinInfluences },
     jointPalette: { type: "texture", filterable: false },
@@ -27,7 +28,8 @@ const PaletteWidth = 256;
 const JointsPerRow = PaletteWidth / 4;
 
 /** Palette allocation owned by this entity's membership. firstJoint is derived; jointCount is
- * supplied on attachment and must remain unchanged until removal. Removing or destroying the entity frees it. */
+ * supplied on attachment and must remain unchanged until removal. Removing or destroying the entity
+ * frees it. A retained skinning material then draws bind pose with the mesh's bind-pose bounds. */
 export const SkinnedMesh = component("SkinnedMesh", { firstJoint: u32, jointCount: u32 });
 
 /** CPU staging and world-owned textures. extent is the allocated joint high-water mark, including holes. */
@@ -130,7 +132,9 @@ class Palette {
             this.skinOffsets = this.texture("r32uint", height);
             this.bindings.skinOffsets = this._offsetTarget.texture = this.skinOffsets;
         }
-        this._offsets.set(column);
+        const counts = this._world.fieldStorage(SkinnedMesh, "jointCount").column;
+        for (let eid = 0; eid < column.length; eid++)
+            this._offsets[eid] = counts[eid] === 0 ? 0 : column[eid] + 1;
         this._paletteSize.height = Math.max(1, Math.ceil(this.extent / JointsPerRow));
         const queue = this._world.gpu.device.queue;
         queue.writeTexture(
@@ -172,11 +176,17 @@ export function skinningVertex(layout: SkinLayout) {
         SkinOutput,
     )((eid, vidx, position, sourceNormal, xform) => {
         "use gpu";
-        const first = std.textureLoad(
+        const allocation = std.textureLoad(
             layout.$.skinOffsets,
             d.vec2i(d.i32(eid % PaletteWidth), d.i32(eid / PaletteWidth)),
             0,
         ).x;
+        if (allocation === 0)
+            return {
+                world: d.vec4f(xformPoint(xform, position), 1),
+                worldNormal: xformNormal(xform, sourceNormal),
+            };
+        const first = allocation - 1;
         const influence = layout.$.skin[vidx];
         const j = influence.joints;
         const w = influence.weights;
@@ -252,7 +262,11 @@ export const GltfPlugin: Plugin = {
                 const storage = world.storage(SkinnedMesh);
                 const count = storage.jointCount.get(eid);
                 if (present) storage.firstJoint.set(eid, palette.allocate(count));
-                else palette.release(storage.firstJoint.get(eid), count);
+                else {
+                    palette.release(storage.firstJoint.get(eid), count);
+                    if (world.has(eid, MeshInstance))
+                        world.storage(MeshInstance).cullBounds.set(eid, 0, 0, 0, -1);
+                }
             }),
         );
         palette.upload();

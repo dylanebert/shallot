@@ -435,6 +435,7 @@ function writeSkinPose(world: World, instance: GltfSceneInstance, primitiveIndex
     const primitive = instance.gltf.primitives[primitiveIndex];
     const skin = instance.gltf.skins[primitive.skin];
     const eid = instance.entities[primitiveIndex];
+    if (!world.has(eid, SkinnedMesh)) return;
     const palette = world.resource(SkinPalette).matrices;
     const first = world.storage(SkinnedMesh).firstJoint.get(eid);
     const boxes = primitive.jointBounds!;

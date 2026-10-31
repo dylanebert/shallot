@@ -230,7 +230,7 @@ beforeAll(async () => {
                 dependencies: [StandardRenderingPlugin, MeshRenderPlugin, GltfPlugin],
                 async initialize(world) {
                     cullCamera = world.create();
-                    world.add(cullCamera, Transform, { translation: [0, 0, 5] });
+                    world.add(cullCamera, Transform, { translation: [20, 0, 5] });
                     world.add(cullCamera, Camera, { antialias: 0 });
                     world.add(cullCamera, StandardRenderer);
                     world.add(cullCamera, DepthPrepass);
@@ -240,7 +240,10 @@ beforeAll(async () => {
                     world.add(sun, Transform);
                     world.add(sun, DirectionalLight, { shadowMapsEnabled: 1 });
                     const gltf = await loadGltfScene(world, skinningFixtureUrl());
-                    cullScene = spawnGltfScene(world, gltf);
+                    cullScene = spawnGltfScene(world, gltf, {
+                        translation: [20, 0, 0],
+                        scale: [2, 3, 1],
+                    });
                 },
             },
         ],
@@ -344,6 +347,59 @@ test("skinning through a game's materialLayout reads every family-absolute verte
     }
 });
 
+function detachedInstances() {
+    const world = cullApp.world;
+    poseGltfScene(world, cullScene, cullScene.gltf.animations[0], 1);
+    const b = spawnGltfScene(world, cullScene.gltf, { translation: [-80, 0, 0], scale: [2, 3, 1] });
+    poseGltfScene(world, b, b.gltf.animations[0], 1);
+    const released = world.storage(SkinnedMesh).firstJoint.get(b.entities[0]);
+    world.remove(b.entities[0], SkinnedMesh);
+    const c = spawnGltfScene(world, cullScene.gltf, { translation: [200, 0, 0] });
+    poseGltfScene(world, c, c.gltf.animations[0], 0.5);
+    expect(world.storage(SkinnedMesh).firstJoint.get(c.entities[0])).toBe(released);
+    return { world, b, c };
+}
+
+test("posing a detached skin cannot write another entity's or its replacement's palette", () => {
+    const { world, b, c } = detachedInstances();
+    try {
+        const palette = world.resource(SkinPalette);
+        const firstA = world.storage(SkinnedMesh).firstJoint.get(cullScene.entities[0]);
+        expect(firstA).toBe(0);
+        const firstC = world.storage(SkinnedMesh).firstJoint.get(c.entities[0]);
+        const aRows = palette.matrices.slice(firstA * 16, firstA * 16 + 16);
+        const cRows = palette.matrices.slice(firstC * 16, firstC * 16 + 16);
+        poseGltfScene(world, b, b.gltf.animations[0], 0.25);
+        expect(palette.matrices.slice(firstA * 16, firstA * 16 + 16)).toEqual(aRows);
+        expect(palette.matrices.slice(firstC * 16, firstC * 16 + 16)).toEqual(cRows);
+    } finally {
+        for (const instance of [b, c]) for (const eid of instance.entities) world.destroy(eid);
+        poseGltfScene(world, cullScene, cullScene.gltf.animations[0], 0);
+    }
+});
+
+test("a detached skin retaining SkinnedMaterial renders its bind pose, not palette zero", async () => {
+    const { world, b, c } = detachedInstances();
+    const a = cullScene.entities[0];
+    world.remove(a, MeshInstance);
+    try {
+        expect(world.has(b.entities[0], SkinnedMesh)).toBe(false);
+        expect(world.has(b.entities[0], MeshMaterial)).toBe(true);
+        world.tick();
+        world.step(1 / 60);
+        world.step(1 / 60);
+        const frame = await captureTexture(world, cullCamera);
+        let white = 0;
+        for (let i = 0; i < frame.rgba.length; i += 4)
+            if (frame.rgba[i] > 200 && frame.rgba[i + 1] > 200 && frame.rgba[i + 2] > 200) white++;
+        expect(white).toBeGreaterThan(20);
+    } finally {
+        world.add(a, MeshInstance, { mesh: cullScene.gltf.primitives[0].mesh });
+        for (const instance of [b, c]) for (const eid of instance.entities) world.destroy(eid);
+        poseGltfScene(world, cullScene, cullScene.gltf.animations[0], 0);
+    }
+});
+
 test("a skinned asset refuses by name without GltfPlugin before registering its meshes", async () => {
     const absent = await openGpuApp({ defaults: false, plugins: [] });
     try {
@@ -374,7 +430,7 @@ test("destroy and respawn return palette allocation to its prior extent, includi
     for (const eid of again.entities) world.destroy(eid);
 });
 
-test("a posed limb outside bind-pose bounds remains visible", async () => {
+test("posed bounds stay entity-local under translated, nonuniformly scaled placement", async () => {
     const world = cullApp.world;
     world.tick();
     world.step(1 / 60);
@@ -392,13 +448,40 @@ test("a posed limb outside bind-pose bounds remains visible", async () => {
     for (let i = 0; i < frame.rgba.length; i += 4)
         if (frame.rgba[i] > 200 && frame.rgba[i + 1] > 200 && frame.rgba[i + 2] > 200) white++;
     expect(white).toBeGreaterThan(20);
+    // Placement maps the local sphere to center x=20, radius 3*sqrt(2). A world-space
+    // sphere would apply placement again and miss this view. At camera x=29 the correct
+    // sphere misses the frustum, but scaling its radius twice would admit an indirect instance.
+    try {
+        world.storage(Transform).translation.set(cullCamera, 29, 0, 5);
+        world.tick();
+        world.step(1 / 60);
+        world.step(1 / 60);
+        const draw = [...world.resource(Draws)].find(
+            (candidate) =>
+                candidate.mesh === cullScene.gltf.primitives[0].mesh &&
+                candidate.alphaPipelineKey === 0 &&
+                candidate.materialType === cullScene.gltf.primitives[0].material.type &&
+                candidate.cullMode === cullScene.gltf.primitives[0].material.cullMode,
+        )!;
+        const args = await probeBuffer(world, world.gpu.root.unwrap(draw.args.indirect), {
+            offset: draw.args.offset ?? 0,
+            size: 20,
+        });
+        expect(new Uint32Array(args.bytes)[1]).toBe(0);
+    } finally {
+        world.storage(Transform).translation.set(cullCamera, 20, 0, 5);
+        world.tick();
+        world.step(1 / 60);
+    }
 });
 
 test("skinned StandardMaterial fits floor color, prepass and shadow layouts and instances batch into one indirect draw", async () => {
     const world = cullApp.world;
     expect(world.gpu.device.limits.maxStorageBuffersPerShaderStage).toBe(8);
     expect(world.gpu.device.limits.maxTextureDimension2D).toBe(8192);
-    const extras = Array.from({ length: 4 }, () => spawnGltfScene(world, cullScene.gltf));
+    const extras = Array.from({ length: 4 }, () =>
+        spawnGltfScene(world, cullScene.gltf, { translation: [20, 0, 0], scale: [2, 3, 1] }),
+    );
     try {
         for (const instance of [cullScene, ...extras])
             poseGltfScene(world, instance, instance.gltf.animations[0], 1);
