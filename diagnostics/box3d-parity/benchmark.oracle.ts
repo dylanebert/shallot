@@ -95,7 +95,7 @@ test("fallingTrees grid-size sequence equals every recorded native step", async 
 });
 
 for (const scene of (Object.keys(benchmarkScenes) as (keyof typeof benchmarkScenes)[]).filter(scene => scene !== "heightField" && scene !== "hull")) {
-    test(`${scene} equals every recorded native step and rejects a ${scene === "benchmarkSensor" ? "velocity" : "density"} change`, async () => {
+    test(`${scene} equals every recorded native step and rejects a ${scene === "benchmarkSensor" || scene === "largeWorld" ? "velocity" : "density"} change`, async () => {
         const text = await Bun.file(new URL(`../../examples/physics/tests/${scene}.gold.txt`, import.meta.url)).text();
         const gold = scene === "benchmarkSensor" ? text.trimEnd().split("\n").map(digest => ({ hash: BigInt(`0x${digest}`), events: [] })) : sampleGold(text);
         expect(gold).toHaveLength(scene === "benchmarkSensor" ? 3000 : 600);
@@ -115,7 +115,7 @@ for (const scene of (Object.keys(benchmarkScenes) as (keyof typeof benchmarkScen
                     if (mutated && !changed && (scene !== "benchmarkSensor" || step >= 32)) {
                         const dynamic = [...app.world.query([Shape])].find(eid => app.world.storage(Body).type.get(app.world.storage(Shape).body.get(eid) || eid) === BodyType.Dynamic);
                         if (dynamic) {
-                            if (scene === "benchmarkSensor") setLinearVelocity(app.world, dynamic, { x: 1, y: -5, z: 0 });
+                            if (scene === "benchmarkSensor" || scene === "largeWorld") setLinearVelocity(app.world, dynamic, { x: 1, y: -5, z: 0 });
                             else app.world.storage(Shape).density.set(dynamic, 101);
                             changed = true;
                         }
@@ -127,7 +127,10 @@ for (const scene of (Object.keys(benchmarkScenes) as (keyof typeof benchmarkScen
                     }
                     else if ((scene === "benchmarkSensor" ? BigInt(`0x${recordDigest(eventRecord(hash, sensorEvents(app.world)))}`) : hash) !== expected.hash) { diverged = true; break; }
                 }
-                if (mutated) expect(diverged).toBe(true);
+                if (mutated) {
+                    expect(changed).toBe(true);
+                    expect(diverged).toBe(true);
+                }
             } finally { app.dispose(); }
         }
         console.log(`${scene}: ${(performance.now() - start).toFixed(0)} ms; ${gold.length} recorded steps; ${text.length} gold bytes; 1 solver thread`);

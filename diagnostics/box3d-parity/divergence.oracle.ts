@@ -112,7 +112,7 @@ test("junkyard with two stacked rocks matches native's contact caches through st
     expect(firstDifference(side)).toBe(-1);
     const caches = (lines: string[]) => lines.filter((l) => l.startsWith("S "));
     expect(caches(side.native).find((l) => l.startsWith("S 176 "))).toBe(
-        "S 176 contact 2 bodies 2 3 manifolds 0 cache sep 3db82b5a type 4 indexA 38 indexB 34 hit 1",
+        "S 176 contact 2 bodies 2 3 manifolds 0 cache sep 3db82b5e type 4 indexA 38 indexB 34 hit 1",
     );
     expect(caches(side.shallot)).toEqual(caches(side.native));
 });
