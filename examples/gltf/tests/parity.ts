@@ -273,7 +273,11 @@ export function parity(category: string) {
                     // translation, rather than a tolerance on the double-precision oracle matrix.
                     const expectedWorld = recordedMatrix(ref.nodePath);
                     expect(Array.from(primitive.matrix)).toEqual(Array.from(expectedWorld));
-                    const expectedTrs = decomposeMat4(expectedWorld);
+                    const expectedTrs = decomposeMat4(
+                        primitive.skin >= 0
+                            ? composeMat4(0, 0, 0, 0, 0, 0, 1, 1, 1, 1)
+                            : expectedWorld,
+                    );
                     const expectedMatrix = composeMat4(
                         expectedTrs[0],
                         expectedTrs[1],

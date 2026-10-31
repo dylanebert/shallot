@@ -35,7 +35,7 @@ export interface GltfJson {
             interpolation?: "STEP" | "LINEAR" | "CUBICSPLINE";
         }[];
     }[];
-    skins?: object[];
+    skins?: { joints: number[]; inverseBindMatrices?: number; skeleton?: number }[];
     extensionsRequired?: string[];
     extensionsUsed?: string[];
 }
@@ -134,6 +134,10 @@ export interface GltfMesh {
     vertices: Float32Array;
     indices: Uint32Array;
     uv1?: Float32Array;
+    /** Four skin-local joint indices per vertex, in packed vertex order. */
+    joints?: Float32Array;
+    /** Four dequantized linear blend weights per vertex, in packed vertex order. */
+    weights?: Float32Array;
     color?: Float32Array;
     tangent?: Float32Array;
     material: number;
@@ -161,12 +165,37 @@ export interface GltfMaterial {
     unlit: boolean;
     doubleSided: boolean;
 }
+export interface GltfSkin {
+    /** Source asset skin index; primitive skin indices instead address the decoded skins array. */
+    index: number;
+    /** Indices into the default scene's nodes, in skin joint order. */
+    joints: number[];
+    /** Column-major inverse bind matrices, sixteen floats per joint; identity when omitted. */
+    inverseBindMatrices: Float32Array;
+    /** Index into skeletons. Skins sharing or touching joints share a skeleton. */
+    skeleton: number;
+}
+
+export interface GltfSkeleton {
+    /** Scene-node indices, parents before children, including nodes between joints. */
+    bones: number[];
+}
+
 export interface GltfScene {
     /** Default scene, with parents before children. */
     nodes: GltfNode[];
     animations: GltfAnimation[];
     meshes: GltfMesh[];
-    instances: { mesh: number; node: string; nodeIndex: number; matrix: Float32Array }[];
+    /** Only skins referenced by default-scene nodes, in asset order. */
+    skins: GltfSkin[];
+    skeletons: GltfSkeleton[];
+    instances: {
+        mesh: number;
+        node: string;
+        nodeIndex: number;
+        matrix: Float32Array;
+        skin: number;
+    }[];
     materials: GltfMaterial[];
     images: { uri?: string; bytes?: Uint8Array; mimeType?: string }[];
     textures: { image?: number; sampler: ImageSamplerDescriptor }[];
@@ -383,6 +412,8 @@ function decodeMesh(
     const stream = (accessor: number | undefined) =>
         accessor === undefined ? undefined : readAccessor(gltf, buffers, accessor);
     let uv1 = stream(prim.attributes.TEXCOORD_1);
+    let joints = stream(prim.attributes.JOINTS_0);
+    let weights = stream(prim.attributes.WEIGHTS_0);
     let color = stream(prim.attributes.COLOR_0);
     if (color && gltf.accessors![prim.attributes.COLOR_0!].type === "VEC3") {
         const rgb = color;
@@ -401,6 +432,8 @@ function decodeMesh(
     }
     if (prim.attributes.NORMAL === undefined) {
         if (uv1) uv1 = expandCorners(uv1, indices, 2);
+        if (joints) joints = expandCorners(joints, indices, 4);
+        if (weights) weights = expandCorners(weights, indices, 4);
         if (color) color = expandCorners(color, indices, 4);
         pos = expandCorners(pos, indices, 3);
         if (uv) uv = expandCorners(uv, indices, 2);
@@ -415,6 +448,8 @@ function decodeMesh(
         vertices: packVertices(pos, normal, uv),
         indices,
         ...(uv1 ? { uv1 } : {}),
+        ...(joints ? { joints } : {}),
+        ...(weights ? { weights } : {}),
         ...(color ? { color } : {}),
         ...(tangent ? { tangent } : {}),
         material: prim.material ?? -1,
@@ -463,8 +498,74 @@ export async function generateSceneTangents(
                     generated.uv1 = remapped;
                 } else delete generated.uv1;
             }
+            for (const semantic of ["joints", "weights"] as const) {
+                const source = mesh[semantic];
+                if (!source) continue;
+                const remapped = new Float32Array((generated.vertices.length / 8) * 4);
+                for (let corner = 0; corner < generated.indices.length; corner++) {
+                    const src = mesh.indices[corner];
+                    remapped.set(
+                        source.subarray(src * 4, src * 4 + 4),
+                        generated.indices[corner] * 4,
+                    );
+                }
+                (generated as GltfMesh)[semantic] = remapped;
+            }
             scene.meshes[index - 1] = { ...mesh, ...generated };
         }
+}
+
+function mergeSkeletons(skins: GltfSkin[], nodes: GltfNode[]): GltfSkeleton[] {
+    const parents = skins.map((_, i) => i);
+    const root = (index: number): number => {
+        while (parents[index] !== index) index = parents[index];
+        return index;
+    };
+    const owners = new Map<number, number>();
+    for (const [index, skin] of skins.entries())
+        for (const joint of skin.joints) {
+            if (joint < 0) throw new Error("glTF skin joint is outside the default scene");
+            const owner = owners.get(joint);
+            if (owner !== undefined) parents[root(index)] = root(owner);
+            owners.set(joint, index);
+        }
+    for (const [joint, owner] of owners)
+        for (
+            let ancestor = nodes[joint].parent;
+            ancestor !== -1;
+            ancestor = nodes[ancestor].parent
+        ) {
+            const other = owners.get(ancestor);
+            if (other !== undefined) parents[root(owner)] = root(other);
+        }
+    const groups = new Map<number, Set<number>>();
+    for (const [index, skin] of skins.entries()) {
+        const group = root(index);
+        if (!groups.has(group)) groups.set(group, new Set());
+        for (const joint of skin.joints) groups.get(group)!.add(joint);
+    }
+    const skeletons: GltfSkeleton[] = [];
+    for (const [group, joints] of groups) {
+        const bones = new Set(joints);
+        for (const joint of joints) {
+            const path: number[] = [];
+            for (
+                let ancestor = nodes[joint].parent;
+                ancestor !== -1;
+                ancestor = nodes[ancestor].parent
+            ) {
+                if (joints.has(ancestor)) {
+                    for (const node of path) bones.add(node);
+                    break;
+                }
+                path.push(ancestor);
+            }
+        }
+        for (const [index, skin] of skins.entries())
+            if (root(index) === group) skin.skeleton = skeletons.length;
+        skeletons.push({ bones: [...bones].sort((a, b) => a - b) });
+    }
+    return skeletons;
 }
 
 function supportedExtension(name: string): boolean {
@@ -503,7 +604,6 @@ export function parse(gltf: GltfJson, buffers: ArrayBuffer[]): GltfScene {
     };
     scan(gltf);
     for (const name of gltf.extensionsUsed ?? []) if (!supportedExtension(name)) ignored.add(name);
-    if (gltf.skins?.length) ignored.add("skin");
     if ("cameras" in gltf) ignored.add("camera");
     const materials = (gltf.materials ?? []).map((m): GltfMaterial => {
         const pbr = m.pbrMetallicRoughness;
@@ -581,6 +681,8 @@ export function parse(gltf: GltfJson, buffers: ArrayBuffer[]): GltfScene {
                         "TEXCOORD_1",
                         "COLOR_0",
                         "TANGENT",
+                        "JOINTS_0",
+                        "WEIGHTS_0",
                     ].includes(semantic)
                 )
                     ignored.add(semantic);
@@ -662,14 +764,44 @@ export function parse(gltf: GltfJson, buffers: ArrayBuffer[]): GltfScene {
                     node: node.name ?? `Node${index}`,
                     nodeIndex: index,
                     matrix,
+                    skin: meshes[mesh].joints && meshes[mesh].weights ? (node.skin ?? -1) : -1,
                 });
         for (const child of node.children ?? [])
             walk(child, matrix, new Set([...ancestors, index]), sceneIndex);
     };
     const identity = compose(0, 0, 0, 0, 0, 0, 1, 1, 1, 1);
     for (const root of roots) walk(root, identity, new Set());
+    const referencedSkins = new Set(sceneNodes.map((node) => nodes[node.index].skin));
+    const skins: GltfSkin[] = (gltf.skins ?? []).flatMap((skin, index) =>
+        referencedSkins.has(index)
+            ? [
+                  {
+                      index,
+                      joints: skin.joints.map((joint) =>
+                          sceneNodes.findIndex((node) => node.index === joint),
+                      ),
+                      inverseBindMatrices:
+                          skin.inverseBindMatrices === undefined
+                              ? Float32Array.from({ length: skin.joints.length * 16 }, (_, i) =>
+                                    (i % 16) % 5 === 0 ? 1 : 0,
+                                )
+                              : readAccessor(gltf, buffers, skin.inverseBindMatrices).slice(
+                                    0,
+                                    skin.joints.length * 16,
+                                ),
+                      skeleton: -1,
+                  },
+              ]
+            : [],
+    );
+    for (const instance of instances)
+        if (instance.skin >= 0)
+            instance.skin = skins.findIndex((skin) => skin.index === instance.skin);
+    const skeletons = mergeSkeletons(skins, sceneNodes);
     return {
         nodes: sceneNodes,
+        skins,
+        skeletons,
         animations,
         meshes,
         instances,

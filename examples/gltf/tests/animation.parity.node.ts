@@ -36,7 +36,7 @@ const subjects = gold.records.map((record) => {
             : readFileSync(resolve(dirname(path), buffer.uri!));
         return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
     });
-    return { record, path, scene: parse(json, buffers) };
+    return { record, path, json, scene: parse(json, buffers) };
 });
 
 // Float32 accessor/interpolant storage and Float32 world composition, relative to magnitude.
@@ -91,6 +91,27 @@ test("recorded default-scene nodes retain authored local values and parent-first
         });
         expect(scene.unsupported).not.toContain("animation");
     }
+});
+
+test("skinned corpus joints name scene nodes and RecursiveSkeletons merges into four independent skeletons", () => {
+    for (const { json, scene } of subjects) {
+        expect(
+            scene.skins.map((skin) => skin.joints.map((joint) => scene.nodes[joint].index)),
+        ).toEqual((json.skins ?? []).map((skin) => skin.joints));
+        expect(scene.unsupported).not.toContain("skin");
+        expect(scene.unsupported).not.toContain("JOINTS_0");
+        expect(scene.unsupported).not.toContain("WEIGHTS_0");
+    }
+    const recursive = subjects.find((subject) =>
+        subject.record.fixture.includes("RecursiveSkeletons"),
+    )!.scene;
+    expect(recursive.skins).toHaveLength(84);
+    expect(recursive.skeletons.map((skeleton) => skeleton.bones.length)).toEqual([
+        210, 210, 210, 210,
+    ]);
+    expect(new Set(recursive.skins.map((skin) => skin.skeleton)).size).toBe(4);
+    for (const skeleton of recursive.skeletons)
+        expect(skeleton.bones).toEqual([...new Set(skeleton.bones)].sort((a, b) => a - b));
 });
 
 test("sampled local poses compose to recorded node world matrices", () => {
@@ -188,6 +209,9 @@ for (const { record, path, scene } of subjects) {
                         sample.time,
                     );
                     poseGltfScene(app.world, placed, gltf.animations[animation.index], sample.time);
+                    for (const skin of gltf.skins)
+                        for (const joint of skin.joints)
+                            close(instance.globals[joint], sample.worlds[joint].matrix);
                     app.world.tick();
                     const global = app.world.storage(GlobalTransform);
                     for (const [entities, offset] of [
@@ -213,7 +237,10 @@ for (const { record, path, scene } of subjects) {
                             const index = scene.nodes.findIndex(
                                 (node) => node.index === scene.instances[i].nodeIndex,
                             );
-                            const expected = new Float32Array(sample.worlds[index].matrix);
+                            const expected =
+                                gltf.primitives[i].skin >= 0
+                                    ? composeMat4(0, 0, 0, 0, 0, 0, 1, 1, 1, 1)
+                                    : new Float32Array(sample.worlds[index].matrix);
                             close(actual, offset ? multiplyMat4(offset, expected) : expected);
                         });
                     }

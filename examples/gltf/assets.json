@@ -2,6 +2,46 @@
     "source": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/",
     "commit": "2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf",
     "models": [
+        { "name": "SimpleSkin", "license": "Models/SimpleSkin/LICENSE.md", "files": [
+            { "path": "Models/SimpleSkin/LICENSE.md", "sha256": "88574262014bd515adb4b6d407da01c5f34d43aef24f5719ce55627c002f55a5" },
+            { "path": "Models/SimpleSkin/glTF/SimpleSkin.gltf", "sha256": "8d92e9888340eb98e82a65a1f8b037d9a1d9f09e5fd0b6ba6d40fd93700b3239" },
+            { "path": "Models/SimpleSkin/glTF/SimpleSkin_animation.bin", "sha256": "ff21b1bc3d0abbe53f7665060ec6c22d873b6e85a7669171a2b6b8ae01c39347" },
+            { "path": "Models/SimpleSkin/glTF/SimpleSkin_geometry.bin", "sha256": "35f0ca6bc07976c0aadc163d4737758989cfcc9870a99800004c4478fe698b63" },
+            { "path": "Models/SimpleSkin/glTF/SimpleSkin_inverseBindMatrices.bin", "sha256": "5844ab221cd2ad367420a248f6387b46e5f8498604427730a37ee96b4d4ec599" },
+            { "path": "Models/SimpleSkin/glTF/SimpleSkin_skinningData.bin", "sha256": "413bc8a8c0da673df767874e6f05f0b00c9261756a08586b9d555bd5535414b5" }
+        ] },
+        { "name": "RiggedSimple", "license": "Models/RiggedSimple/LICENSE.md", "files": [
+            { "path": "Models/RiggedSimple/LICENSE.md", "sha256": "4e6210accf90bdeaad0c18494410a99a34c1a6db7fcb681d7347f0c93f1e9f8b" },
+            { "path": "Models/RiggedSimple/glTF/RiggedSimple.gltf", "sha256": "18cd3e4d50ecadc93f6b6a720a4ee0d5154443c2fa331bc0dd3bef7499c02eb0" },
+            { "path": "Models/RiggedSimple/glTF/RiggedSimple0.bin", "sha256": "b18e39089acca03219a7a3aa4dd3f00eaedebf438bc3bd58fdcda855f64eafe6" }
+        ] },
+        { "name": "RiggedFigure", "license": "Models/RiggedFigure/LICENSE.md", "files": [
+            { "path": "Models/RiggedFigure/LICENSE.md", "sha256": "7e6c51b3129aafef4c626283fc18cab4298d73a7f3ee746058b5f211b6b95165" },
+            { "path": "Models/RiggedFigure/glTF/RiggedFigure.gltf", "sha256": "ca84ebbf6084d755ff7ac81b3b7c8bc388da68c8aa4b2cf236503b07d3858cc6" },
+            { "path": "Models/RiggedFigure/glTF/RiggedFigure0.bin", "sha256": "28baa193dbc2f8bfad9cb8c13ae16191c592725ea3b2b22b7f05ab701618ce27" }
+        ] },
+        { "name": "CesiumMan", "license": "Models/CesiumMan/LICENSE.md", "files": [
+            { "path": "Models/CesiumMan/LICENSE.md", "sha256": "6fc08173a20bf7843098948be999b0492db2f748c074cd1cc83bc15e95bac8a4" },
+            { "path": "Models/CesiumMan/glTF/CesiumMan.gltf", "sha256": "bbb66a129c906e015620197b683edbc6e7a27510169ffa5adec2114046f14919" },
+            { "path": "Models/CesiumMan/glTF/CesiumMan_data.bin", "sha256": "2115d3c8df0519cea62f7def76d66d2346c5ac2216319859d3c79e3784dafd3f" },
+            { "path": "Models/CesiumMan/glTF/CesiumMan_img0.jpg", "sha256": "35d278c7b7b0b9e22881b2c435e41ce8659f230c776ef8780b4a5087abbefaa1" }
+        ] },
+        { "name": "Fox", "license": "Models/Fox/LICENSE.md", "files": [
+            { "path": "Models/Fox/LICENSE.md", "sha256": "4fb16547e78b0358641d1bd6706b66318974396fd3d67cac41f4150b7cf42e5c" },
+            { "path": "Models/Fox/glTF/Fox.bin", "sha256": "c7d0d8de28a84d5b25623037f88e063e1502495a2ee6c55f182c61161ad12f80" },
+            { "path": "Models/Fox/glTF/Fox.gltf", "sha256": "6ddcabf511c0257b87dedf6ac51f1bdb6f21e570eee5fa7c4fa6162d055cb002" },
+            { "path": "Models/Fox/glTF/Texture.png", "sha256": "61c8b109ee7f8bf262791933380fafb1465f7b51cbe6472c2d21eff0b31f83a1" }
+        ] },
+        { "name": "RecursiveSkeletons", "license": "Models/RecursiveSkeletons/LICENSE.md", "files": [
+            { "path": "Models/RecursiveSkeletons/LICENSE.md", "sha256": "653d3375367e8fe80fa9c362c9e488f68f07ded635c700ac73f5ea84979ac0c0" },
+            { "path": "Models/RecursiveSkeletons/glTF/RecursiveSkeletons.bin", "sha256": "6523983aed9765e6b774c6e390f042c1bc2ca16e49e1e474dbbb899bc3473a34" },
+            { "path": "Models/RecursiveSkeletons/glTF/RecursiveSkeletons.gltf", "sha256": "9ebca751395f63359e7868d4a9b82ee1632c20680c5c05daa7f54a246eb9de85" }
+        ] },
+        { "name": "BrainStem", "license": "Models/BrainStem/LICENSE.md", "files": [
+            { "path": "Models/BrainStem/LICENSE.md", "sha256": "55b6fce3643e5a1101b7df76ae564f4c0b1de730e8189f4dc3fdcd311ed6f90d" },
+            { "path": "Models/BrainStem/glTF/BrainStem.gltf", "sha256": "8fc99ed74161aa79573236f9a457e238b0649993dfb41234fd7f6eafad696b75" },
+            { "path": "Models/BrainStem/glTF/BrainStem0.bin", "sha256": "1418d04d972655b9b1907d3d51438cd150e19016716e107bb949cd4379ac5cdb" }
+        ] },
         { "name": "InterpolationTest", "license": "Models/InterpolationTest/LICENSE.md", "files": [
             { "path": "Models/InterpolationTest/LICENSE.md", "sha256": "3a3762ba63cc52e52bbaa65f8f187e02cf05d7256e750ede4c40db611169e7e7" },
             { "path": "Models/InterpolationTest/glTF/InterpolationTest.gltf", "sha256": "4357b9e260f2e7ffb153255da37c20d6c20a03c76cbebf959a0a4f144a873028" },

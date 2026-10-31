@@ -16,6 +16,7 @@ import {
     type GltfNode,
     type GltfNodePose,
 } from "./animation";
+import type { GltfSkeleton, GltfSkin } from "./gltf";
 import { loadGltf } from "./load";
 
 export interface GltfPrimitive {
@@ -23,7 +24,9 @@ export interface GltfPrimitive {
     readonly material: MaterialHandle;
     readonly node: string;
     readonly nodeIndex: number;
-    /** Node world transform in model space, before placement; treat its elements as immutable. */
+    /** Index into skins, or -1 for an unskinned primitive. */
+    readonly skin: number;
+    /** Node world transform in model space, ignored for skinned placement; treat its elements as immutable. */
     readonly matrix: Float32Array;
 }
 
@@ -32,7 +35,9 @@ export interface Gltf {
     readonly primitives: readonly GltfPrimitive[];
     readonly nodes: readonly GltfNode[];
     readonly animations: readonly GltfAnimation[];
-    /** Default scene's axis-aligned bounds, including node transforms, before spawn placement. */
+    readonly skins: readonly GltfSkin[];
+    readonly skeletons: readonly GltfSkeleton[];
+    /** Default scene's rest-pose axis-aligned bounds before placement; skinned vertices use joint globals and inverse binds, not the mesh node transform. */
     readonly bounds: {
         min: readonly [number, number, number];
         max: readonly [number, number, number];
@@ -130,7 +135,7 @@ export async function loadGltfScene(
             m[0] * (m[5] * m[10] - m[6] * m[9]) -
             m[4] * (m[1] * m[10] - m[2] * m[9]) +
             m[8] * (m[1] * m[6] - m[2] * m[5]);
-        if (determinant < 0 && material.cullMode !== 1) {
+        if (instance.skin < 0 && determinant < 0 && material.cullMode !== 1) {
             if (!invertedHandles.has(materialIndex))
                 invertedHandles.set(
                     materialIndex,
@@ -142,16 +147,45 @@ export async function loadGltfScene(
             mesh: meshes[instance.mesh],
             material,
             node: instance.node,
+            skin: instance.skin,
             nodeIndex: scene.nodes.findIndex((node) => node.index === instance.nodeIndex),
             matrix: instance.matrix,
         };
     });
     const min: [number, number, number] = [Infinity, Infinity, Infinity];
     const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+    const globals: Float32Array[] = [];
+    for (const node of scene.nodes) {
+        const local = composeMat4(
+            ...(node.translation as [number, number, number]),
+            ...(node.rotation as [number, number, number, number]),
+            ...(node.scale as [number, number, number]),
+        );
+        globals.push(node.parent < 0 ? local : multiplyMat4(globals[node.parent], local));
+    }
     for (const instance of scene.instances) {
-        const vertices = scene.meshes[instance.mesh].vertices;
-        const m = instance.matrix;
+        const mesh = scene.meshes[instance.mesh];
+        const vertices = mesh.vertices;
+        const skin = scene.skins[instance.skin];
+        const palette = skin?.joints.map((node, joint) =>
+            multiplyMat4(
+                globals[node],
+                skin.inverseBindMatrices.subarray(joint * 16, joint * 16 + 16),
+            ),
+        );
+        const m = new Float32Array(16);
         for (let i = 0; i < vertices.length; i += 8) {
+            if (palette) {
+                m.fill(0);
+                for (let influence = 0; influence < 4; influence++) {
+                    const offset = i / 2 + influence;
+                    const weight = mesh.weights![offset];
+                    if (weight === 0) continue;
+                    const joint = palette[mesh.joints![offset]];
+                    for (let component = 0; component < 16; component++)
+                        m[component] += weight * joint[component];
+                }
+            } else m.set(instance.matrix);
             for (let axis = 0; axis < 3; axis++) {
                 const value =
                     m[axis] * vertices[i] +
@@ -173,12 +207,14 @@ export async function loadGltfScene(
         primitives,
         nodes: scene.nodes,
         animations: scene.animations,
+        skins: scene.skins,
+        skeletons: scene.skeletons,
         bounds: { min, max },
         unsupported: scene.unsupported,
     };
 }
 
-/** Spawns one entity per primitive instance, composing placement onto the node's world transform.
+/** Spawns one entity per primitive instance. Skinned entities use placement alone; others compose the node's world transform.
  * Refuses a foreign-world handle or a non-TRS composition, naming the node, before spawning anything.
  */
 export function spawnGltfScene(
@@ -193,7 +229,7 @@ export function spawnGltfScene(
         ...(placement.scale ?? [1, 1, 1]),
     );
     const transforms = gltf.primitives.map((primitive) => {
-        const composed = multiplyMat4(matrix, primitive.matrix);
+        const composed = primitive.skin >= 0 ? matrix : multiplyMat4(matrix, primitive.matrix);
         const t = decomposeMat4(composed);
         validateTransform(composed, t, new Float32Array(16), primitive.node);
         return {
@@ -233,7 +269,7 @@ export interface GltfSceneInstance {
     /** Primitive eids in spawn order. */
     entities: number[];
     gltf: Gltf;
-    /** Captured spawn placement, composed onto node globals. */
+    /** Captured spawn placement; composed onto node globals only for unskinned primitives. */
     placement: Float32Array;
     /** Local poses in scene-node order. */
     poses: GltfNodePose[];
@@ -302,7 +338,8 @@ export function poseGltfScene(
     }
     for (let i = 0; i < entities.length; i++) {
         const primitive = gltf.primitives[i];
-        multiplyMat4(instance.placement, globals[primitive.nodeIndex], composed);
+        if (primitive.skin >= 0) composed.set(instance.placement);
+        else multiplyMat4(instance.placement, globals[primitive.nodeIndex], composed);
         decomposeMat4(composed, transforms[i]);
         validateTransform(composed, transforms[i], recomposed, primitive.node);
     }

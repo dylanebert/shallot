@@ -65,7 +65,11 @@ for (const fixture of [...animationFixtures.map(name => `../../examples/gltf/pub
             times.add(input[0] - 1); times.add(input[input.length - 1] + 1);
             input.forEach((t, i) => { times.add(t); if (i) { times.add(input[i - 1] * .75 + t * .25); times.add((input[i - 1] + t) / 2); } });
         }
-        const samples = [...times].sort((a,b) => a-b).map(time => {
+        const bounded = json.skins?.length > 0;
+        const start = Math.min(...channels.map(channel => channel.input[0]));
+        const end = Math.max(...channels.map(channel => channel.input[channel.input.length - 1]));
+        const sampleTimes = bounded ? [start - 1, start, (start + end) / 2, end, end + 1] : [...times].sort((a,b) => a-b);
+        const samples = sampleTimes.map(time => {
             for (const node of nodes) {
                 node.object.position.fromArray(node.translation); node.object.quaternion.fromArray(node.rotation); node.object.scale.fromArray(node.scale);
             }
@@ -80,7 +84,7 @@ for (const fixture of [...animationFixtures.map(name => `../../examples/gltf/pub
         });
         animations.push({ index: animationIndex, name: animation.name ?? `Animation${animationIndex}`, channels: channels.map(({ node, path, interpolation }) => ({ node, path, interpolation })), divergences, samples });
     }
-    records.push({ fixture, nodes: nodes.map(({ object, ...node }) => node), animations });
+    records.push({ fixture, clauses: json.skins?.length ? "transformations; joint-hierarchy; skinned-mesh-primitives: joint globals use parent global * local T * R * S; mesh-node transform is not a skin placement. Sampling bounded to before/start/midpoint/end/after each animation, rather than every key, to bound record size." : "animations; transformations", nodes: nodes.map(({ object, ...node }) => node), animations });
 }
 writeFileSync(resolve(import.meta.dir, "../../examples/gltf/tests/animations.gold.json"), `${JSON.stringify({
     specification: "a55d8458c1e82720413acd3b420fd09e73b8e40b", generator: revision,
@@ -88,4 +92,4 @@ writeFileSync(resolve(import.meta.dir, "../../examples/gltf/tests/animations.gol
         nodes: "nodes-and-hierarchy; transformations (default scene, authored local TRS and morph defaults)",
         worlds: "transformations (column-major parent global times local T * R * S); three.js updateMatrixWorld after applying sampled local values; no playback or blending" },
     tolerance: "Samples are stored by three.js interpolants as float32; world matrices are composed as doubles. Consumers admit float32 arithmetic error, not changed formulas. Exact keys and clamped endpoints retain authored values.", records,
-}, null, 2)}\n`);
+}, null, 2).replace(/\[\n\s+[-\d.eE+,\s]+\n\s*\]/g, value => value.replace(/\s+/g, " "))}\n`);

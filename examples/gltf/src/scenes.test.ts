@@ -6,7 +6,7 @@ test("the picker demonstrates each promise once without shrinking the regression
     const listed = categories.flatMap((category) => category.scenes.map((scene) => scene.id));
     expect(listed.length).toBe(13);
     expect(new Set(listed).size).toBe(listed.length);
-    expect(manifest.models).toHaveLength(23);
+    expect(manifest.models).toHaveLength(30);
     expect(
         Object.fromEntries(
             categories.map((category) => [category.name, category.scenes.map((scene) => scene.id)]),

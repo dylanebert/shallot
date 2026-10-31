@@ -3,6 +3,13 @@ export const categories = [
     {
         name: "core",
         scenes: [
+            { id: "SimpleSkin" },
+            { id: "RiggedSimple" },
+            { id: "RiggedFigure" },
+            { id: "CesiumMan" },
+            { id: "Fox" },
+            { id: "RecursiveSkeletons" },
+            { id: "BrainStem" },
             { id: "InterpolationTest" },
             { id: "AnimatedTriangle" },
             { id: "AnimatedCube" },
