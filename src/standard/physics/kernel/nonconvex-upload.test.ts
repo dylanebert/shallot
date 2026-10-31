@@ -146,7 +146,7 @@ test("compound uploads use Box3D header, tree, material and child-blob offsets",
         const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
         const u = (word: number) => v.getUint32(word * 4, true);
         expect(v.getBigUint64(0, true)).toBe(
-            0xb11dce70fad5622bn ^ 0x1d6f4c2a73b80e91n ^ 0xaaab9a00f1a8aaf7n ^ 0x4a4c9587de57485cn,
+            0x7a2f41c9e6d0b358n ^ 0x1d6f4c2a73b80e91n ^ 0xaaab9a00f1a8aaf7n ^ 0x9d3e61b7c2a4f085n,
         );
         expect(u(2)).toBe(bytes.length);
         expect(u(3)).toBe(120);
@@ -163,7 +163,7 @@ test("compound uploads use Box3D header, tree, material and child-blob offsets",
         const hullData = u(u(21) / 4 + 7);
         expect(
             new DataView(bytes.buffer, bytes.byteOffset + hullData, 8).getBigUint64(0, true),
-        ).toBe(0x4a4c9587de57485cn);
+        ).toBe(0x9d3e61b7c2a4f085n);
         const meshInstance = u(24) / 4;
         const meshBlobOffset = u(meshInstance + 10);
         expect(

@@ -231,7 +231,7 @@ function compoundImage(c: CompoundData): Uint8Array {
                     x.capsule.radius,
                 ];
                 for (let i = 0; i < values.length; ++i) v.setFloat32(i * 4, values[i], true);
-                v.setUint32(28, x.materialIndex, true);
+                v.setUint16(28, x.materialIndex, true);
                 return b;
             }),
         ),
@@ -246,25 +246,33 @@ function compoundImage(c: CompoundData): Uint8Array {
     c.hulls.forEach((x, i) => {
         const o = i * 36;
         putTransform(hullView, o, x.transform);
-        hullView.setUint32(o + 32, x.materialIndex, true);
+        hullView.setUint16(o + 32, x.materialIndex, true);
         hullView.setUint32(o + 28, sharedHulls.offset(x.hull), true);
     });
-    const meshOffset = push(new Uint8Array(c.meshes.length * 60));
+    const meshOffset = push(new Uint8Array(c.meshes.length * 52));
     const meshView = new DataView(
         chunks.at(-1)!.buffer,
         chunks.at(-1)!.byteOffset,
         chunks.at(-1)!.byteLength,
     );
+    const meshMaterials = new Uint8Array(
+        c.meshes.reduce((n, x) => n + x.materialIndices.length, 0) * 2,
+    );
+    const meshMaterialView = new DataView(meshMaterials.buffer);
+    const meshMaterialOffset = push(meshMaterials);
+    let materialCursor = 0;
     const sharedMeshes = sharedImages(meshImage, push);
     c.meshes.forEach((x, i) => {
-        const o = i * 60;
+        const o = i * 52;
         putTransform(meshView, o, x.transform);
         meshView.setFloat32(o + 28, x.scale.x, true);
         meshView.setFloat32(o + 32, x.scale.y, true);
         meshView.setFloat32(o + 36, x.scale.z, true);
         meshView.setUint32(o + 40, sharedMeshes.offset(x.meshData), true);
-        for (let j = 0; j < x.materialIndices.length; ++j)
-            meshView.setUint32(o + 44 + j * 4, x.materialIndices[j], true);
+        meshView.setUint32(o + 44, meshMaterialOffset + materialCursor * 2, true);
+        meshView.setUint32(o + 48, x.materialIndices.length, true);
+        for (const index of x.materialIndices)
+            meshMaterialView.setUint16(materialCursor++ * 2, index, true);
     });
     const spheresOffset = push(
         concat(
@@ -275,7 +283,7 @@ function compoundImage(c: CompoundData): Uint8Array {
                 v.setFloat32(4, x.sphere.center.y, true);
                 v.setFloat32(8, x.sphere.center.z, true);
                 v.setFloat32(12, x.sphere.radius, true);
-                v.setUint32(16, x.materialIndex, true);
+                v.setUint16(16, x.materialIndex, true);
                 return b;
             }),
         ),
@@ -287,7 +295,7 @@ function compoundImage(c: CompoundData): Uint8Array {
     const u = (o: number, x: number) => v.setUint32(o, x, true);
     v.setBigUint64(
         0,
-        0xb11dce70fad5622bn ^ 0x1d6f4c2a73b80e91n ^ 0xaaab9a00f1a8aaf7n ^ 0x4a4c9587de57485cn,
+        0x7a2f41c9e6d0b358n ^ 0x1d6f4c2a73b80e91n ^ 0xaaab9a00f1a8aaf7n ^ 0x9d3e61b7c2a4f085n,
         true,
     );
     u(8, bytes.length);

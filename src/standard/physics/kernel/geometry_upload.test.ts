@@ -6,7 +6,7 @@ import {
     defaultSurfaceMaterial,
     defaultWorldDef,
 } from "../common/types";
-import { makeBoxHull } from "../shapes/build-hull";
+import { createCylinder, makeBoxHull } from "../shapes/build-hull";
 import { createCompound } from "../shapes/compound";
 import { createGrid } from "../shapes/heightfield";
 import { createGridMesh } from "../shapes/mesh";
@@ -39,14 +39,7 @@ const body = (world: WorldState) =>
     createBody(world, { ...defaultBodyDef(), position: { x: 100, y: 100, z: 100 } });
 
 test("hull upload derives padded SoA vertices and normals from authoring, without overlapping adjacent hulls", () => {
-    const box = makeBoxHull(1, 2, 3);
-    const hulls = [5, 8].map((count) => ({
-        ...box,
-        vertexCount: count,
-        faceCount: 5,
-        points: box.points.slice(0, count),
-        planes: box.planes.slice(0, 5),
-    }));
+    const hulls = [3, 5].map((sides) => createCylinder(4, 1, 0, sides)!);
     const world = getWorld(createWorld(undefined, defaultWorldDef())) as WorldState;
     const pointers = hulls.map((h) => addHullToDatabase(world, h));
     const k = kernel(world.ecsState);
@@ -54,13 +47,13 @@ test("hull upload derives padded SoA vertices and normals from authoring, withou
         const nv = (h.vertexCount + 3) & ~3;
         const nf = (h.faceCount + 3) & ~3;
         const base = pointers[i];
-        const record = new Uint32Array(k.memory.buffer, base, 36);
+        const record = new Uint32Array(k.memory.buffer, base, 38);
         const soa = new Float32Array(k.memory.buffer, base + record[33], 3 * (nv + nf));
         expect(record[34]).toBe(record[33] + 12 * nv);
         const floats = new Float32Array(k.memory.buffer, base, 36);
         expect(Array.from(record.slice(0, 4))).toEqual([
-            0xde57485c,
-            0x4a4c9587,
+            0xc2a4f085,
+            0x9d3e61b7,
             Number(h.hash & 0xffffffffn),
             Number(h.hash >> 32n),
         ]);
@@ -87,7 +80,7 @@ test("hull upload derives padded SoA vertices and normals from authoring, withou
             h.centralInertia.cz.y,
             h.centralInertia.cz.z,
         ]);
-        const bytes = new Uint8Array(k.memory.buffer, base, record[35]);
+        const bytes = new Uint8Array(k.memory.buffer, base, record[36]);
         expect(Array.from(bytes.slice(record[26], record[26] + h.vertexCount))).toEqual(
             h.vertices.slice(0, h.vertexCount).map((v) => v.edge),
         );

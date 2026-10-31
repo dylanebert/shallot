@@ -27,7 +27,9 @@ pub(crate) struct HullRecord {
     pub face_offset: i32,
     pub soa_vertex_offset: i32,
     pub soa_normal_offset: i32,
+    pub edge_cosine_offset: i32,
     pub byte_count: i32,
+    pub padding: i32,
 }
 #[inline(always)]
 pub(crate) unsafe fn hull_record(index: usize) -> &'static HullRecord {
@@ -91,6 +93,11 @@ pub(crate) unsafe fn hull_view(index: usize) -> HullData<'static> {
         soa_normals: core::slice::from_raw_parts(
             base.offset(rec.soa_normal_offset as isize) as *const f32,
             3 * nf,
+        )
+        .into(),
+        edge_cosines: core::slice::from_raw_parts(
+            base.offset(rec.edge_cosine_offset as isize) as *const f32,
+            edge_count / 2,
         )
         .into(),
         vertices,

@@ -56,7 +56,7 @@ pub(crate) unsafe fn pose(world_index: usize, id: usize) -> Transform {
 }
 unsafe fn image(out: &mut Vec<u32>, kind: u32, p: *const u32) {
     let words = if kind == TY_HULL {
-        *p.add(35)
+        *p.add(36)
     } else {
         *p.add(4)
     } as usize

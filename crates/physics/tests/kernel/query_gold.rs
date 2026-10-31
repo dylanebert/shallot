@@ -69,6 +69,7 @@ fn hull<'a>(g: &Value, points: &'a [Vec3], planes: &'a [Plane]) -> HullData<'a> 
             .into(),
         vertices: &[],
         edges: &[],
+        edge_cosines: Vec::new().into(),
         faces: &[],
         planes,
     }

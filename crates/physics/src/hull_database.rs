@@ -2,7 +2,7 @@
 //! retained b3HullData pointer; snapshot restore relocates these pointers in kernel records.
 
 unsafe fn image(key: usize) -> &'static [u64] {
-    let words = *((key as *const u32).add(35)) as usize / 8;
+    let words = *((key as *const u32).add(36)) as usize / 8;
     core::slice::from_raw_parts(key as *const u64, words)
 }
 unsafe fn release(key: usize) {
@@ -263,9 +263,10 @@ mod tests {
         let mut images = Vec::new();
         let mut handles = Vec::new();
         for i in 0..300u64 {
-            let mut image = vec![0u64; 18];
+            let mut image = vec![0u64; 19];
             image[1] = (i % 17) << 48;
-            image[17] = (144 << 32) | i;
+            image[17] = i;
+            image[18] = 152;
             let handle = db.add(&image);
             assert_eq!(db.add(&image), handle);
             images.push(image);

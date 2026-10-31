@@ -26,7 +26,18 @@ int main(void)
     child.scale = (b3Vec3){1,1,1}; child.materials = materials; child.materialCount = 6;
     b3CompoundDef def = {0}; def.meshes = &child; def.meshCount = 1;
     b3CompoundData* compound = b3CreateCompound(&def);
-    printf("%d\n", compound->materialCount);
+    printf("%d", compound->materialCount);
+    b3WorldDef wd = b3DefaultWorldDef(); b3WorldId world = b3CreateWorld(&wd);
+    b3BodyDef bd = b3DefaultBodyDef(); b3BodyId body = b3CreateBody(world, &bd);
+    b3ShapeDef sd = b3DefaultShapeDef(); b3CreateBakedCompoundShape(body, &sd, compound);
+    for (int i = 0; i < 6; ++i)
+    {
+        b3RayResult hit = b3World_CastRayClosest(world, (b3Pos){3.0*i+0.2, 1, 0.2}, (b3Vec3){0,-2,0}, b3DefaultQueryFilter());
+        if (!hit.hit) return 2;
+        printf(" %llu", (unsigned long long)hit.userMaterialId);
+    }
+    printf("\n");
+    b3DestroyWorld(world);
     b3DestroyCompound(compound); b3DestroyMesh(mesh);
     return 0;
 }

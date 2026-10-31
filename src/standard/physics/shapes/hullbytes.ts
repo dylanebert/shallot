@@ -5,14 +5,15 @@ const align8 = (n: number): number => (n + 7) & ~7;
 
 export function hullByteCount(h: HullData): number {
     return (
-        144 +
+        152 +
         align8(h.vertexCount) +
         align8(12 * h.vertexCount) +
         align8(4 * h.edgeCount) +
         align8(16 * h.faceCount) +
         align8(h.faceCount) +
         12 * ((h.vertexCount + 3) & ~3) +
-        12 * ((h.faceCount + 3) & ~3)
+        12 * ((h.faceCount + 3) & ~3) +
+        align8(2 * h.edgeCount)
     );
 }
 
@@ -34,8 +35,8 @@ export function writeHullImage(
     const size = hullByteCount(h);
     bytes.fill(0, base, base + size);
     const r = base >>> 2;
-    u[r] = 0xde57485c;
-    u[r + 1] = 0x4a4c9587;
+    u[r] = 0xc2a4f085;
+    u[r + 1] = 0x9d3e61b7;
     hashes[(base + 8) >>> 3] = h.hash;
     vector(f, r + 4, h.aabb.lowerBound);
     vector(f, r + 7, h.aabb.upperBound);
@@ -46,7 +47,7 @@ export function writeHullImage(
     vector(f, r + 16, h.centralInertia.cx);
     vector(f, r + 19, h.centralInertia.cy);
     vector(f, r + 22, h.centralInertia.cz);
-    let off = 144;
+    let off = 152;
     const vertices = base + off;
     u[r + 25] = h.vertexCount;
     u[r + 26] = off;
@@ -70,7 +71,11 @@ export function writeHullImage(
     const soa = (base + off) >>> 2;
     u[r + 33] = off;
     u[r + 34] = off + 12 * nv;
-    u[r + 35] = size;
+    const cosineOffset = off + 12 * (nv + nf);
+    u[r + 35] = cosineOffset;
+    u[r + 36] = size;
+    for (let i = 0; i < h.edgeCount / 2; ++i)
+        f[((base + cosineOffset) >>> 2) + i] = h.edgeCosines[i];
     for (let p = 0; p < nv; ++p) {
         const pt = h.points[p < h.vertexCount ? p : 0];
         f[soa + p] = pt.x;

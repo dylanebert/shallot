@@ -122,6 +122,7 @@ fn reflected_mesh_impacts_equal_native_box3d() {
         soa_normals: Vec::new().into(),
         vertices: &[],
         edges: &[],
+        edge_cosines: Vec::new().into(),
         faces: &[],
         planes: &[],
     });

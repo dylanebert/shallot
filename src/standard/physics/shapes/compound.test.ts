@@ -164,7 +164,13 @@ function assertCompound(c: CompoundData, g: CompoundGold) {
         expect(child.type).toBe(gc.type as ShapeType);
         vecEqual(child.transform.p, gc.transform.p, `${g.name} child[${i}].p`);
         quatEqual(child.transform.q, gc.transform.q, `${g.name} child[${i}].q`);
-        expect(child.materialIndices).toEqual(gc.materialIndices);
+        const materialCount =
+            child.type === ShapeType.Mesh
+                ? c.meshes[i - c.capsules.length - c.hulls.length].meshData.materialCount
+                : 1;
+        expect(child.materialIndices.length).toBe(materialCount);
+        // The recorded values include the former fixed-width accessor's unused zero slots.
+        expect(child.materialIndices).toEqual(gc.materialIndices.slice(0, materialCount));
     }
 }
 

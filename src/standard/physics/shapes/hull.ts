@@ -28,6 +28,7 @@ export type HullData = {
     edges: HullHalfEdge[];
     faces: HullFace[];
     planes: Plane[];
+    edgeCosines: number[];
     hash: bigint;
 };
 /** Independent hull geometry for a requested debug-draw callback. */
@@ -68,6 +69,7 @@ export function cloneHull(hull: HullData): HullData {
         edges: hull.edges.map((e) => ({ ...e })),
         faces: hull.faces.map((f) => ({ ...f })),
         planes: hull.planes.map((pl) => ({ normal: { ...pl.normal }, offset: pl.offset })),
+        edgeCosines: [...hull.edgeCosines],
         hash: hull.hash,
     };
 }

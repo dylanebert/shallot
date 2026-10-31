@@ -69,6 +69,9 @@ export function drawHull(v: DataView, p: number): HullData {
         edges,
         faces,
         planes,
+        edgeCosines: Array.from({ length: edgeCount / 2 }, (_, i) =>
+            v.getFloat32(p + v.getUint32(p + 140, true) + 4 * i, true),
+        ),
         hash: v.getBigUint64(p + 8, true),
     };
 }

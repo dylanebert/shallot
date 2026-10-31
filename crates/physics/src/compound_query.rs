@@ -38,6 +38,38 @@ fn vec(r: &[u32], i: usize) -> Vec3 {
         f32::from_bits(r[i + 2]),
     )
 }
+pub(crate) unsafe fn child_materials(pointer: *const u32, index: usize) -> &'static [u16] {
+    let c = Compound::from_pointer(pointer);
+    let capsules = c.data[20] as usize;
+    let hulls = c.data[22] as usize;
+    let meshes = c.data[25] as usize;
+    let (pointer, count) = if index < capsules {
+        (section(c, 19, 20, 8).as_ptr().add(index * 8 + 7).cast(), 1)
+    } else if index < capsules + hulls {
+        (
+            section(c, 21, 22, 9)
+                .as_ptr()
+                .add((index - capsules) * 9 + 8)
+                .cast(),
+            1,
+        )
+    } else if index < capsules + hulls + meshes {
+        let r = &section(c, 24, 25, 13)[(index - capsules - hulls) * 13..];
+        (
+            c.data.as_ptr().cast::<u8>().add(r[11] as usize).cast(),
+            r[12] as usize,
+        )
+    } else {
+        (
+            section(c, 27, 28, 5)
+                .as_ptr()
+                .add((index - capsules - hulls - meshes) * 5 + 4)
+                .cast(),
+            1,
+        )
+    };
+    core::slice::from_raw_parts(pointer, count)
+}
 fn section(c: Compound, offset_word: usize, count_word: usize, stride: usize) -> &'static [u32] {
     let offset = c.data[offset_word] as usize / 4;
     let count = c.data[count_word] as usize * stride;
@@ -57,7 +89,7 @@ pub(crate) unsafe fn child_material_index(
     } else if index < capsules + hulls {
         section(c, 21, 22, 9)[(index - capsules) * 9 + 8]
     } else if index < capsules + hulls + meshes {
-        let r = &section(c, 24, 25, 15)[(index - capsules - hulls) * 15..];
+        let r = &section(c, 24, 25, 13)[(index - capsules - hulls) * 13..];
         let mesh = c
             .data
             .as_ptr()
@@ -65,7 +97,7 @@ pub(crate) unsafe fn child_material_index(
             .add(r[10] as usize)
             .cast::<u32>();
         let triangle_material = crate::geo::mesh_view(mesh, vec(r, 7)).materials[triangle] as usize;
-        r[11 + triangle_material.min(3)]
+        child_materials(pointer, index)[triangle_material] as u32
     } else {
         section(c, 27, 28, 5)[(index - capsules - hulls - meshes) * 5 + 4]
     }
@@ -102,7 +134,7 @@ pub(crate) unsafe fn child_words(pointer: *const u32, index: usize) -> [u32; 19]
         out[12] = c.data.as_ptr().cast::<u8>().add(r[7] as usize) as u32;
         out[13] = *((out[12] as *const u32).add(12));
     } else if index < capsules + hulls + meshes {
-        let r = &section(c, 24, 25, 15)[(index - capsules - hulls) * 15..];
+        let r = &section(c, 24, 25, 13)[(index - capsules - hulls) * 13..];
         out[0] = 4;
         set_transform(
             &mut out,
@@ -112,7 +144,8 @@ pub(crate) unsafe fn child_words(pointer: *const u32, index: usize) -> [u32; 19]
                 s: f32::from_bits(r[6]),
             },
         );
-        out[8..12].copy_from_slice(&r[11..15]);
+        out[8] = r[11];
+        out[9] = r[12];
         out[12] = c.data.as_ptr().cast::<u8>().add(r[10] as usize) as u32;
         out[13..16].copy_from_slice(&r[7..10]);
     } else {
@@ -123,7 +156,7 @@ pub(crate) unsafe fn child_words(pointer: *const u32, index: usize) -> [u32; 19]
     }
     out
 }
-pub(crate) fn child(c: Compound, index: usize) -> (Shape<'static>, Transform, [i32; 4]) {
+pub(crate) fn child(c: Compound, index: usize) -> (Shape<'static>, Transform, &'static [u16]) {
     let capsules = c.data[20] as usize;
     let hulls = c.data[22] as usize;
     let meshes = c.data[25] as usize;
@@ -133,7 +166,7 @@ pub(crate) fn child(c: Compound, index: usize) -> (Shape<'static>, Transform, [i
             (
                 Shape::Capsule(&*r.as_ptr().cast::<Capsule>()),
                 Transform::IDENTITY,
-                [r[7] as i32, 0, 0, 0],
+                core::slice::from_raw_parts(r.as_ptr().add(7).cast(), 1),
             )
         } else if index < capsules + hulls {
             let r = &section(c, 21, 22, 9)[(index - capsules) * 9..];
@@ -153,10 +186,10 @@ pub(crate) fn child(c: Compound, index: usize) -> (Shape<'static>, Transform, [i
             (
                 Shape::Hull(crate::geo::hull_view(ptr as usize)),
                 xf,
-                [r[8] as i32, 0, 0, 0],
+                core::slice::from_raw_parts(r.as_ptr().add(8).cast(), 1),
             )
         } else if index < capsules + hulls + meshes {
-            let r = &section(c, 24, 25, 15)[(index - capsules - hulls) * 15..];
+            let r = &section(c, 24, 25, 13)[(index - capsules - hulls) * 13..];
             let xf = Transform {
                 p: vec(r, 0),
                 q: Quat {
@@ -174,14 +207,17 @@ pub(crate) fn child(c: Compound, index: usize) -> (Shape<'static>, Transform, [i
             (
                 Shape::Mesh(crate::geo::mesh_view(ptr, scale)),
                 xf,
-                [r[11] as i32, r[12] as i32, r[13] as i32, r[14] as i32],
+                core::slice::from_raw_parts(
+                    c.data.as_ptr().cast::<u8>().add(r[11] as usize).cast(),
+                    r[12] as usize,
+                ),
             )
         } else {
             let r = &section(c, 27, 28, 5)[(index - capsules - hulls - meshes) * 5..];
             (
                 Shape::Sphere(&*r.as_ptr().cast::<crate::manifold::Sphere>()),
                 Transform::IDENTITY,
-                [r[4] as i32, 0, 0, 0],
+                core::slice::from_raw_parts(r.as_ptr().add(4).cast(), 1),
             )
         }
     };
@@ -258,7 +294,7 @@ pub fn ray_cast_compound(c: Compound, input: &RayCastInput) -> CastOutput {
                 },
             );
             if out.hit {
-                out.material_index = materials[out.material_index.min(3) as usize];
+                out.material_index = materials[out.material_index as usize] as i32;
                 out.child_index = index as i32;
                 result = out;
                 out.fraction
@@ -311,7 +347,7 @@ pub fn shape_cast_compound(c: Compound, input: &ShapeCastInput) -> CastOutput {
             };
             let mut out = shape_cast_local(&shape, &local);
             if out.hit {
-                out.material_index = materials[out.material_index.min(3) as usize];
+                out.material_index = materials[out.material_index as usize] as i32;
                 out.point = xf.point(out.point);
                 out.normal = xf.q.rotate(out.normal);
                 out.child_index = index as i32;
@@ -369,7 +405,7 @@ pub fn collide_mover_compound(planes: &mut [PlaneResult], c: Compound, mover: &C
             p.plane.normal = xf.q.rotate(p.plane.normal);
             p.point = xf.point(p.point);
             p.child_index = index as i32;
-            p.material_index = materials[p.material_index.min(3) as usize];
+            p.material_index = materials[p.material_index as usize] as i32;
         }
         count += n;
         count < planes.len()

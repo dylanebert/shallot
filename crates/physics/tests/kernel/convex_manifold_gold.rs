@@ -124,6 +124,7 @@ impl HullStore {
             .into(),
             vertices: &self.vertices,
             edges: &self.edges,
+            edge_cosines: shallot_physics::hull::edge_cosines(&self.edges, &self.planes).into(),
             faces: &self.faces,
             planes: &self.planes,
         }

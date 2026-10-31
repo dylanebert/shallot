@@ -15,7 +15,7 @@ test("hull byte images and full 64-bit hashes equal direct native box constructi
             { x: 0, y: 1, z: 0 }, { x: 0, y: 0, z: 1 }], 4)!];
     let offset = 0;
     for (const hull of hulls) {
-        const byteCount = view.getUint32(offset + 140, true);
+        const byteCount = view.getUint32(offset + 144, true);
         const nativeHash = view.getBigUint64(offset + 8, true);
         const native = bytes.slice(offset, offset + byteCount);
         const image = hullImage(hull);

@@ -774,17 +774,18 @@ impl HullImage {
     fn new(v: usize, e: usize, f: usize) -> Self {
         let align = |n: usize| (n + 7) & !7;
         let offsets = [
-            144,
-            144 + align(v),
-            144 + align(v) + align(12 * v),
-            144 + align(v) + align(12 * v) + align(4 * e),
+            152,
+            152 + align(v),
+            152 + align(v) + align(12 * v),
+            152 + align(v) + align(12 * v) + align(4 * e),
         ];
         let face = offsets[3] + align(16 * f);
         let soa = face + align(f);
         let normals = soa + 12 * ((v + 3) & !3);
-        let bytes = normals + 12 * ((f + 3) & !3);
+        let cosines = normals + 12 * ((f + 3) & !3);
+        let bytes = cosines + align(2 * e);
         let mut h = Self(vec![0; bytes / 8]);
-        h.0[0] = 0x4a4c9587de57485c;
+        h.0[0] = 0x9d3e61b7c2a4f085;
         for (i, value) in [
             (25, v),
             (26, offsets[0]),
@@ -796,7 +797,8 @@ impl HullImage {
             (32, face),
             (33, soa),
             (34, normals),
-            (35, bytes),
+            (35, cosines),
+            (36, bytes),
         ] {
             h.u_mut()[i] = value as u32;
         }
@@ -873,6 +875,14 @@ impl HullImage {
             a[no + 2 * nf + i] = p.z;
         }
     }
+    fn update_edge_cosines(&mut self) {
+        let offset = self.u()[35] as usize / 4;
+        for i in 0..self.u()[28] as usize / 2 {
+            let a = self.plane(self.edge(2 * i)[3]).normal;
+            let b = self.plane(self.edge(2 * i + 1)[3]).normal;
+            self.f_mut()[offset + i] = a.dot(b);
+        }
+    }
     fn bulk(&mut self) -> bool {
         let mut area = 0.0;
         let mut volume = 0.0;
@@ -935,6 +945,7 @@ impl HullImage {
     }
     fn finish(&mut self) {
         self.soa();
+        self.update_edge_cosines();
         self.0[1] = 0;
         self.0[1] = hash(self.bytes());
     }
@@ -1337,7 +1348,9 @@ pub fn make_transformed_box(hx: f32, hy: f32, hz: f32, xf: Transform) -> HullIma
         out.vector(pl + 4 * i, n);
         out.f_mut()[pl + 4 * i + 3] = offset + n.dot(xf.p);
     }
-    out.finish();
+    // Box3D's transformed box keeps the template's exact right-angle edge cosines.
+    out.soa();
+    out.0[1] = hash(out.bytes());
     out
 }
 pub(crate) fn hash(bytes: &[u8]) -> u64 {

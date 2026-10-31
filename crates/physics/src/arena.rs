@@ -949,7 +949,7 @@ unsafe fn mix_surface(
     thread: usize,
     xf_a: Transform,
     xf_b: Transform,
-    map: Option<[u32; 4]>,
+    map: Option<&[u16]>,
     flip: bool,
     count: usize,
     mesh: bool,
@@ -959,7 +959,7 @@ unsafe fn mix_surface(
     if count == 0 || (!custom && DEFAULT_MIX == 0) {
         return;
     }
-    let a_index = |i: usize| map.map_or(i, |m| m[i.min(3)] as usize);
+    let a_index = |i: usize| map.map_or(i, |m| m[i] as usize);
     let mut a = surface(world_index, sa, a_index(0));
     let mut b = surface(world_index, sb, 0);
     let mut radius_a = if map.is_some() {
@@ -1121,12 +1121,10 @@ unsafe fn update_contact(
         };
         if let Some(compound_geometry) = &compound_geometry {
             type_a = compound_geometry[0];
-            material_map = Some([
-                compound_geometry[8],
-                compound_geometry[9],
-                compound_geometry[10],
-                compound_geometry[11],
-            ]);
+            material_map = Some(crate::compound_query::child_materials(
+                shape_a[crate::shapes::S_GEOM] as *const u32,
+                dir.get(o + DIR_CHILD_INDEX) as usize,
+            ));
             let local = read_xf(compound_geometry, 1);
             child_offset = parent_xf.q.rotate(local.p);
             if type_a == TY_HULL || type_a == TY_MESH {
@@ -1301,7 +1299,10 @@ pub unsafe extern "C" fn mix_contacts(world_index: usize) {
                 dir.get(o + DIR_CHILD_INDEX) as usize,
             );
             kind = child[0];
-            map = Some([child[8], child[9], child[10], child[11]]);
+            map = Some(crate::compound_query::child_materials(
+                a[crate::shapes::S_GEOM] as *const u32,
+                dir.get(o + DIR_CHILD_INDEX) as usize,
+            ));
             if kind == TY_HULL || kind == TY_MESH {
                 xf_a = xf_a.mul(read_xf(&child, 1));
             }

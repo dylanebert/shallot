@@ -19,8 +19,6 @@ import { computeMeshAABB, type Mesh, type MeshData } from "./mesh";
 
 const f32 = Math.fround;
 
-// A compound mesh child has a fixed number of material slots (B3_MAX_COMPOUND_MESH_MATERIALS); a
-// triangle's material index is clamped into this range, then remapped through the child's slots.
 export const MAX_COMPOUND_MESH_MATERIALS = 4;
 
 // B3_MAX_CHILD_SHAPES = 1 << B3_CHILD_POWER, B3_CHILD_POWER = 64 - 2 * B3_SHAPE_POWER (22) = 20.
@@ -75,7 +73,7 @@ export type CompoundData = {
 
 /**
  * A compound child resolved to a temporary shape (b3ChildShape). Convex children read material index
- * 0; a mesh child carries all its (up to 4) material indices for the per-triangle remap.
+ * 0; a mesh child carries all its material indices for the per-triangle remap.
  */
 export type ChildShape = {
     type: ShapeType;
@@ -174,7 +172,7 @@ export function getCompoundChild(compound: CompoundData, childIndex: number): Ch
         return {
             type: ShapeType.Capsule,
             transform: { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } },
-            materialIndices: [c.materialIndex, 0, 0, 0],
+            materialIndices: [c.materialIndex],
             capsule: c.capsule,
         };
     }
@@ -185,7 +183,7 @@ export function getCompoundChild(compound: CompoundData, childIndex: number): Ch
         return {
             type: ShapeType.Hull,
             transform: h.transform,
-            materialIndices: [h.materialIndex, 0, 0, 0],
+            materialIndices: [h.materialIndex],
             hull: h.hull,
         };
     }
@@ -206,7 +204,7 @@ export function getCompoundChild(compound: CompoundData, childIndex: number): Ch
     return {
         type: ShapeType.Sphere,
         transform: { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } },
-        materialIndices: [s.materialIndex, 0, 0, 0],
+        materialIndices: [s.materialIndex],
         sphere: s.sphere,
     };
 }
@@ -273,7 +271,7 @@ export function createCompound(def: CompoundDef): CompoundData | null {
     for (const md of meshDefs) {
         boxes.push(computeMeshAABB(md.meshData, md.transform, md.scale));
 
-        const materialIndices = new Array<number>(MAX_COMPOUND_MESH_MATERIALS).fill(0);
+        const materialIndices = new Array<number>(md.materialCount);
         for (let j = 0; j < md.materialCount; ++j) {
             materialIndices[j] = getOrInsertMaterial(md.materials[j]);
         }

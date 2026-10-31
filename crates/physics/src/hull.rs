@@ -1,7 +1,7 @@
 //! Box3D hull.c/collision.h support queries (Erin Catto, MIT).
 //! Narrowphase borrows topology; hull_build owns construction.
 
-use crate::math::{Plane, Vec3, FLT_MAX, HUGE};
+use crate::math::{Plane, Vec3, FLT_MAX};
 use crate::simd::FloatW;
 use std::borrow::Cow;
 
@@ -49,6 +49,19 @@ pub struct HullFace {
     pub edge: u8,
 }
 
+pub fn edge_cosines(edges: &[HullHalfEdge], planes: &[Plane]) -> Vec<f32> {
+    edges
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| {
+            planes[pair[0].face as usize]
+                .normal
+                .dot(planes[pair[1].face as usize].normal)
+        })
+        .collect()
+}
+
 /// Borrowed b3HullData view. The backing geometry must outlive this view.
 pub struct HullData<'a> {
     pub center: Vec3,
@@ -60,6 +73,7 @@ pub struct HullData<'a> {
     pub points: &'a [Vec3],
     pub soa_points: Cow<'a, [f32]>,
     pub soa_normals: Cow<'a, [f32]>,
+    pub edge_cosines: Cow<'a, [f32]>,
     pub vertices: &'a [HullVertex],
     pub edges: &'a [HullHalfEdge],
     pub faces: &'a [HullFace],
@@ -94,13 +108,12 @@ impl HullData<'_> {
         let ny = FloatW::splat(direction.y);
         let nz = FloatW::splat(direction.z);
         let bias = FloatW::splat(bias);
-        let mut minimum = FloatW::splat(HUGE);
+        let mut minimum = FloatW::splat(f32::INFINITY);
         for i in (0..soa_count).step_by(4) {
             let x = FloatW::load(&self.soa_points[i..]);
             let y = FloatW::load(&self.soa_points[soa_count + i..]);
             let z = FloatW::load(&self.soa_points[2 * soa_count + i..]);
-            // b3GetSupportWide deliberately differs from b3Dot3W's association.
-            let dot = nz.mul(z).add(ny.mul(y).add(nx.mul(x)));
+            let dot = nx.mul(x).add(ny.mul(y)).add(nz.mul(z));
             minimum = minimum.min(bias.sub(dot).embed_index(i));
         }
         minimum.min_index(7)
@@ -139,7 +152,7 @@ mod tests {
     }
 
     #[test]
-    fn wide_support_keeps_box3d_huge_sentinel_when_all_candidates_exceed_it() {
+    fn wide_support_reduces_candidates_above_the_former_huge_sentinel() {
         let points = [
             Vec3::new(0.0, 0.0, 0.0),
             Vec3::new(1.0, 0.0, 0.0),
@@ -156,6 +169,7 @@ mod tests {
             points: &points,
             soa_points: soa_vectors(points.iter().copied(), true).into(),
             soa_normals: Vec::new().into(),
+            edge_cosines: Vec::new().into(),
             vertices: &[],
             edges: &[],
             faces: &[],
@@ -163,7 +177,7 @@ mod tests {
         };
         assert_eq!(
             hull.support_vertex_wide(Vec3::new(1.0, 0.0, 0.0), 200_000.0),
-            0
+            1
         );
     }
 
@@ -183,6 +197,7 @@ mod tests {
                 points: &points,
                 soa_points: soa_vectors(points.iter().copied(), true).into(),
                 soa_normals: Vec::new().into(),
+                edge_cosines: Vec::new().into(),
                 vertices: &[],
                 edges: &[],
                 faces: &[],
@@ -197,7 +212,7 @@ mod tests {
                 let mut best = f32::INFINITY;
                 let mut index = 0;
                 for (i, p) in points.iter().enumerate() {
-                    let dot = direction.z * p.z + (direction.y * p.y + direction.x * p.x);
+                    let dot = (direction.x * p.x + direction.y * p.y) + direction.z * p.z;
                     let value = f32::from_bits(((bias - dot).to_bits() & !0x7f) | i as u32);
                     if value < best {
                         best = value;

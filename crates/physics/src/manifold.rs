@@ -1549,10 +1549,10 @@ impl<const N: usize> HullSoa3<N> {
     }
 }
 
-// b3Dot3W's association, x + (y + z), on every target (simd.h NEON, SSE2 and scalar).
+// b3DotW uses left-associated component sums on every target.
 #[inline]
 fn dot_wide(a: [crate::simd::FloatW; 3], b: [crate::simd::FloatW; 3]) -> crate::simd::FloatW {
-    a[0].mul(b[0]).add(a[1].mul(b[1]).add(a[2].mul(b[2])))
+    a[0].mul(b[0]).add(a[1].mul(b[1])).add(a[2].mul(b[2]))
 }
 
 #[inline]
@@ -1594,6 +1594,65 @@ fn negative_transform_from_soa<const N: usize>(
     }
 }
 
+fn face_dots(hull: &HullData, direction: Vec3) -> [f32; NF] {
+    let mut dots = [0.0; NF];
+    let n = (hull.face_count + 3) & !3;
+    let d = splat3(direction);
+    for i in (0..n).step_by(4) {
+        let v = core::array::from_fn(|k| crate::simd::FloatW::load(&hull.soa_normals[k * n + i..]));
+        dots[i..i + 4].copy_from_slice(&dot_wide(v, d).to_array());
+    }
+    dots
+}
+
+fn plane_separations(hull: &HullData, point: Vec3) -> [f32; NF] {
+    let mut dots = face_dots(hull, point);
+    for (i, plane) in hull.planes.iter().enumerate().take(hull.face_count) {
+        dots[i] -= plane.offset;
+    }
+    dots
+}
+
+fn test_edge_candidate(a: f32, b: f32, cosine: f32, bound: f32) -> bool {
+    let hi = maxf(a, b);
+    let lo = minf(a, b);
+    let u = lo - cosine * hi;
+    let s = 1.0 - cosine * cosine;
+    let bound_term = (bound - hi) * (bound + hi);
+    (hi >= bound) | ((u >= 0.0) & ((u * u >= bound_term * s) | (s < 1e-4)))
+}
+
+fn filter_edges(
+    hull: &HullData,
+    dots: &[f32; NF],
+    bound: f32,
+    indices: &mut [usize; NE],
+    count: usize,
+) -> usize {
+    let mut kept = 0;
+    for k in 0..count {
+        let i = indices[k];
+        let a = hull.edges[i].face as usize;
+        let b = hull.edges[i + 1].face as usize;
+        let cosine = hull.edge_cosines[i / 2];
+        indices[kept] = i;
+        kept += test_edge_candidate(dots[a], dots[b], cosine, bound) as usize;
+    }
+    kept
+}
+
+fn face_separation(
+    hull: &HullData,
+    direction: Vec3,
+    plane: f32,
+    center: Vec3,
+    extents: Vec3,
+) -> (f32, usize) {
+    let bias = direction.dot(center) + 1.0625 * direction.abs().dot(extents);
+    let vertex = hull.support_vertex_wide(direction, bias);
+    (plane - direction.dot(hull.points[vertex]), vertex)
+}
+
 fn compute_separating_axis(
     hull_a: &HullData,
     hull_b: &HullData,
@@ -1607,15 +1666,15 @@ fn compute_separating_axis(
         face_a: SeparatingAxis {
             normal: Vec3::ZERO,
             separation: -f32::INFINITY,
-            index_a: 0,
-            index_b: 0,
+            index_a: -1,
+            index_b: -1,
             ty: separating_feature::FACE_AXIS_A,
         },
         face_b: SeparatingAxis {
             normal: Vec3::ZERO,
             separation: -f32::INFINITY,
-            index_a: 0,
-            index_b: 0,
+            index_a: -1,
+            index_b: -1,
             ty: separating_feature::FACE_AXIS_B,
         },
         edge: SeparatingAxis {
@@ -1628,15 +1687,49 @@ fn compute_separating_axis(
         separated: separating_feature::INVALID,
     };
 
+    let delta_center = rotation
+        .mul_v(hull_b.center)
+        .add(transform_b_to_a.p)
+        .sub(hull_a.center);
+    let center_distance = delta_center.length();
+    let radius = hull_a.inner_radius + hull_b.inner_radius;
+    let radius_bound = radius - (LINEAR_SLOP + 0.001 * (center_distance + radius));
+    let dot_a = face_dots(hull_a, delta_center);
+    let mut seed_a = 0;
+    for i in 1..hull_a.face_count {
+        if dot_a[i] > dot_a[seed_a] {
+            seed_a = i;
+        }
+    }
+    let (seed_sep_a, seed_vertex_b) = if early_return {
+        let plane = hull_a.planes[seed_a];
+        face_separation(
+            hull_b,
+            inverse_rotation.mul_v(plane.normal).neg(),
+            plane.normal.dot(transform_b_to_a.p) - plane.offset,
+            center_b,
+            extent_b,
+        )
+    } else {
+        (-f32::INFINITY, 0)
+    };
+    let floor_a = minf(seed_sep_a, SPECULATIVE_DISTANCE);
     for i in 0..hull_a.face_count {
+        if dot_a[i] - radius_bound < maxf(floor_a, result.face_a.separation) {
+            continue;
+        }
         let plane = hull_a.planes[i];
-        let direction = inverse_rotation.mul_v(plane.normal).neg();
-        let plane_separation = plane.normal.dot(transform_b_to_a.p) - plane.offset;
-        let bias = direction.dot(center_b) + 1.0625 * direction.abs().dot(extent_b);
-        let vertex = hull_b.support_vertex_wide(direction, bias);
-        let p = hull_b.points[vertex];
-        let support = direction.dot(p);
-        let separation = plane_separation - support;
+        let (separation, vertex) = if early_return && i == seed_a {
+            (seed_sep_a, seed_vertex_b)
+        } else {
+            face_separation(
+                hull_b,
+                inverse_rotation.mul_v(plane.normal).neg(),
+                plane.normal.dot(transform_b_to_a.p) - plane.offset,
+                center_b,
+                extent_b,
+            )
+        };
         if separation > result.face_a.separation {
             result.face_a = SeparatingAxis {
                 normal: plane.normal,
@@ -1653,14 +1746,51 @@ fn compute_separating_axis(
     }
 
     let (center_a, extent_a) = hull_aabb_center_extents(hull_a);
+    let dot_b = face_dots(hull_b, inverse_rotation.mul_v(delta_center).neg());
+    let mut seed_b = 0;
+    for i in 1..hull_b.face_count {
+        if dot_b[i] > dot_b[seed_b] {
+            seed_b = i;
+        }
+    }
+    let (seed_sep_b, seed_vertex_a) = if early_return {
+        let plane = hull_b.planes[seed_b];
+        let direction = rotation.mul_v(plane.normal).neg();
+        face_separation(
+            hull_a,
+            direction,
+            direction.dot(transform_b_to_a.p) - plane.offset,
+            center_a,
+            extent_a,
+        )
+    } else {
+        (-f32::INFINITY, 0)
+    };
+    let floor_b = if early_return {
+        minf(
+            maxf(seed_sep_b, result.face_a.separation),
+            SPECULATIVE_DISTANCE,
+        )
+    } else {
+        -f32::INFINITY
+    };
     for i in 0..hull_b.face_count {
+        if dot_b[i] - radius_bound < maxf(floor_b, result.face_b.separation) {
+            continue;
+        }
         let plane = hull_b.planes[i];
         let direction = rotation.mul_v(plane.normal).neg();
-        let plane_separation = direction.dot(transform_b_to_a.p) - plane.offset;
-        let bias = direction.dot(center_a) + 1.0625 * direction.abs().dot(extent_a);
-        let vertex = hull_a.support_vertex_wide(direction, bias);
-        let support = direction.dot(hull_a.points[vertex]);
-        let separation = plane_separation - support;
+        let (separation, vertex) = if early_return && i == seed_b {
+            (seed_sep_b, seed_vertex_a)
+        } else {
+            face_separation(
+                hull_a,
+                direction,
+                direction.dot(transform_b_to_a.p) - plane.offset,
+                center_a,
+                extent_a,
+            )
+        };
         if separation > result.face_b.separation {
             result.face_b = SeparatingAxis {
                 normal: rotation.mul_v(plane.normal).neg(),
@@ -1674,6 +1804,82 @@ fn compute_separating_axis(
                 return result;
             }
         }
+    }
+
+    let max_face = maxf(result.face_a.separation, result.face_b.separation);
+    let slack = radius - radius_bound;
+    let threshold_a = if early_return {
+        max_face + hull_b.inner_radius - slack
+    } else {
+        -f32::INFINITY
+    };
+    let threshold_b = if early_return {
+        max_face + hull_a.inner_radius - slack
+    } else {
+        -f32::INFINITY
+    };
+    let mut indices_a = [0; NE];
+    let mut indices_b = [0; NE];
+    for (k, i) in (0..hull_a.edge_count).step_by(2).enumerate() {
+        indices_a[k] = i;
+    }
+    for (k, i) in (0..hull_b.edge_count).step_by(2).enumerate() {
+        indices_b[k] = i;
+    }
+    let mut na = filter_edges(
+        hull_a,
+        &plane_separations(
+            hull_a,
+            rotation.mul_v(hull_b.center).add(transform_b_to_a.p),
+        ),
+        threshold_a,
+        &mut indices_a,
+        hull_a.edge_count / 2,
+    );
+    let mut nb = filter_edges(
+        hull_b,
+        &plane_separations(
+            hull_b,
+            inverse_rotation.mul_v(hull_a.center.sub(transform_b_to_a.p)),
+        ),
+        threshold_b,
+        &mut indices_b,
+        hull_b.edge_count / 2,
+    );
+    if early_return && nb * ((na + 3) >> 2) >= 10 {
+        let bound = max_face - (0.1 * LINEAR_SLOP + 0.001 * (center_distance + radius).abs());
+        let vertex_b = if result.face_a.index_b != -1 {
+            result.face_a.index_b as usize
+        } else {
+            seed_vertex_b
+        };
+        na = filter_edges(
+            hull_a,
+            &plane_separations(
+                hull_a,
+                rotation
+                    .mul_v(hull_b.points[vertex_b])
+                    .add(transform_b_to_a.p),
+            ),
+            bound,
+            &mut indices_a,
+            na,
+        );
+        let vertex_a = if result.face_b.index_a != -1 {
+            result.face_b.index_a as usize
+        } else {
+            seed_vertex_a
+        };
+        nb = filter_edges(
+            hull_b,
+            &plane_separations(
+                hull_b,
+                inverse_rotation.mul_v(hull_a.points[vertex_a].sub(transform_b_to_a.p)),
+            ),
+            bound,
+            &mut indices_b,
+            nb,
+        );
     }
 
     use crate::simd::FloatW;
@@ -1697,10 +1903,9 @@ fn compute_separating_axis(
     let mut b_d = HullSoa3::<NE>::new();
     let mut b_v0 = HullSoa3::<NE>::new();
     let mut b_dc = HullSoa3::<NE>::new();
-    let nb = hull_b.edge_count / 2;
     for j in 0..nb {
-        let edge = hull_b.edges[2 * j];
-        let twin = hull_b.edges[2 * j + 1];
+        let edge = hull_b.edges[indices_b[j]];
+        let twin = hull_b.edges[indices_b[j] + 1];
         let v0 = b_points.get(edge.origin as usize);
         b_c.set(j, b_normals.get(edge.face as usize));
         b_d.set(j, b_normals.get(twin.face as usize));
@@ -1713,11 +1918,10 @@ fn compute_separating_axis(
     let mut a_dir = HullSoa3::<NE>::new();
     let mut a_v0 = HullSoa3::<NE>::new();
     let mut a_tol = SatScratch::<NE>::new();
-    let na = hull_a.edge_count / 2;
-    let squared_tol = 0.005 * 0.005;
+    let squared_tol = LINEAR_SLOP * LINEAR_SLOP;
     for i in 0..na {
-        let edge = hull_a.edges[2 * i];
-        let twin = hull_a.edges[2 * i + 1];
+        let edge = hull_a.edges[indices_a[i]];
+        let twin = hull_a.edges[indices_a[i] + 1];
         let v0 = hull_a.points[edge.origin as usize];
         let dir = hull_a.points[twin.origin as usize].sub(v0);
         a_n0.set(i, hull_a.planes[edge.face as usize].normal);
@@ -1738,7 +1942,7 @@ fn compute_separating_axis(
         a_tol.set(i, 0.0);
     }
     let zero = FloatW::zero();
-    let eps = FloatW::splat(-0.0001);
+    let eps = FloatW::splat(-LINEAR_SLOP * LINEAR_SLOP);
     let inf = FloatW::splat(f32::INFINITY);
     for j in 0..nb {
         let c = splat3(b_c.get(j));
@@ -1782,8 +1986,8 @@ fn compute_separating_axis(
                     result.edge = SeparatingAxis {
                         normal: Vec3::new(n[0][lane], n[1][lane], n[2][lane]),
                         separation: s[lane],
-                        index_a: (2 * (i + lane)) as i32,
-                        index_b: (2 * j) as i32,
+                        index_a: indices_a[i + lane] as i32,
+                        index_b: indices_b[j] as i32,
                         ty: separating_feature::EDGE_PAIR_AXIS,
                     };
                     if early_return && s[lane] > SPECULATIVE_DISTANCE {
@@ -2066,7 +2270,9 @@ pub fn collide_hulls(
     }
 
     let clipped_face_separation = cache.separation;
-    if manifold.point_count == 0
+    if (manifold.point_count == 0
+        && axis_query.edge.separation
+            > maxf(axis_query.face_a.separation, axis_query.face_b.separation))
         || axis_query.edge.separation > clipped_face_separation + linear_slop
     {
         let mut edge_points = [LocalManifoldPoint::ZERO; 32];

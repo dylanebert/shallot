@@ -70,6 +70,7 @@ pub unsafe extern "C" fn run(operation: u32) -> usize {
                     24,
                 )),
                 soa_normals: std::borrow::Cow::Borrowed(&[]),
+                edge_cosines: std::borrow::Cow::Borrowed(&[]),
                 vertices: &[],
                 edges: &[],
                 faces: &[],
