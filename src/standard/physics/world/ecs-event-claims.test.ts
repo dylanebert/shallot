@@ -11,6 +11,7 @@ import {
 import { GlobalTransform, Transform, TransformPlugin } from "../../../core/transform";
 import { type EntityRef, Time, World } from "../../../engine";
 import { PhysicsEvents, PhysicsWorldDefinition, StandardPhysicsPlugin, setAwake } from "../index";
+import claims from "./ecs-event-claims.gold.json";
 
 type Names = Map<EntityRef, string>;
 const zero = { x: 0, y: 0, z: 0 };
@@ -134,16 +135,16 @@ test("PhysicsEvents order contact output across body type, disable, enable and d
         world.destroy(b);
         tick("destroy");
         expect(steps).toEqual([
-            ["touch", { contactBegin: [["a", "b", 50265.484375]] }],
+            ["touch", { contactBegin: [["a", "b", claims.lifecycle[0]]] }],
             [
                 "static-to-dynamic",
                 {
-                    contactBegin: [["a", "b", 25132.740234375]],
+                    contactBegin: [["a", "b", claims.lifecycle[1]]],
                     contactEnd: [["a", "b", 0]],
                 },
             ],
             ["disable", { contactEnd: [["a", "b", 0]] }],
-            ["enable", { contactBegin: [["a", "b", 25132.7421875]] }],
+            ["enable", { contactBegin: [["a", "b", claims.lifecycle[2]]] }],
             ["destroy", { contactEnd: [["a", "b", 0]] }],
         ]);
     } finally {
@@ -211,7 +212,7 @@ test("PhysicsEvents preserve contact and sensor output across filter and event-f
             [
                 "touches",
                 {
-                    contactBegin: [["ground", "visitor", 50265.484375]],
+                    contactBegin: [["ground", "visitor", claims.filters[0]]],
                     sensorBegin: [["sensor", "visitor"]],
                 },
             ],
@@ -225,7 +226,7 @@ test("PhysicsEvents preserve contact and sensor output across filter and event-f
             [
                 "filter-on",
                 {
-                    contactBegin: [["ground", "visitor", 50265.48046875]],
+                    contactBegin: [["ground", "visitor", claims.filters[1]]],
                     sensorBegin: [["sensor", "visitor"]],
                 },
             ],
@@ -274,10 +275,10 @@ test("PhysicsEvents keep ordered contacts across repeated collideConnected toggl
         setAwake(world, b, true);
         tick("wake");
         expect(steps).toEqual([
-            ["collision-on", { contactBegin: [["a", "b", 1138877]] }],
+            ["collision-on", { contactBegin: [["a", "b", claims.collisionJoint[0]]] }],
             ["collision-off", { contactEnd: [["a", "b", 0]] }],
             ["collision-off-again", {}],
-            ["collision-on-again", { contactBegin: [["a", "b", 228614.375]] }],
+            ["collision-on-again", { contactBegin: [["a", "b", claims.collisionJoint[1]]] }],
             ["collision-on-repeat", {}],
             ["sleep", {}],
             ["wake", {}],
@@ -361,51 +362,7 @@ test("PhysicsEvents and GlobalTransform preserve the ordered contact, hit, joint
             }
             steps.push([tick, [...records, ...moves]]);
         }
-        expect(steps).toEqual([
-            [
-                0,
-                [
-                    ["joint", "weld"],
-                    ["move", "falling", [0, 0.6315972208976746, 0]],
-                    ["move", "bob", [5, 1.9999514818191528, 0]],
-                ],
-            ],
-            [
-                1,
-                [
-                    ["joint", "weld"],
-                    ["move", "falling", [0, 0.46041661500930786, 0]],
-                    ["move", "bob", [5, 1.9999364614486694, 0]],
-                ],
-            ],
-            [
-                2,
-                [
-                    ["contactBegin", "ground", "falling", 12.912276268005371],
-                    [
-                        "hit",
-                        "ground",
-                        "falling",
-                        { x: 0, y: -0.012165412306785583, z: 0 },
-                        { x: 0, y: 1, z: 0 },
-                        10.333335876464844,
-                        "0",
-                        "18364758544493064720",
-                    ],
-                    ["joint", "weld"],
-                    ["move", "falling", [0, 0.4756692349910736, 0]],
-                    ["move", "bob", [5, 1.999931812286377, 0]],
-                ],
-            ],
-            [
-                3,
-                [
-                    ["joint", "weld"],
-                    ["move", "falling", [0, 0.48594605922698975, 0]],
-                    ["move", "bob", [5, 1.9999302625656128, 0]],
-                ],
-            ],
-        ]);
+        expect(steps).toEqual(claims.trace);
     } finally {
         await dispose(world);
     }
@@ -513,11 +470,11 @@ test("PhysicsEvents retain the solved begin impulse after contact destruction be
             world.step(Time.FIXED_DT);
             tick++;
         }
-        expect(tick - 1).toBe(43);
+        expect(tick - 1).toBe(claims.retained[0]);
         world.destroy(falling);
         const begin = events.contactBegin.records[0];
         const impulse = begin?.normalImpulse;
-        expect(impulse).toBe(11963.703125);
+        expect(impulse).toBe(claims.retained[1]);
         expect(events.contactBegin.records[0]).toBe(begin);
         expect(events.contactBegin.records[0].normalImpulse).toBe(impulse);
         world.step(Time.FIXED_DT);

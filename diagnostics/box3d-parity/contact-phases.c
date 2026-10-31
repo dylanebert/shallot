@@ -3,6 +3,12 @@
 #include "body.h"
 #include "contact.h"
 #include "contact_solver.h"
+#include "core.h"
+#if !defined(B3_SIMD_SSE2)
+#error Contact phase authority requires SSE2.
+#endif
+_Static_assert(B3_SIMD_WIDTH == 4,
+               "Contact phase authority requires four lanes.");
 #include "physics_world.h"
 #include "solver.h"
 #include "solver_set.h"

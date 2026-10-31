@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: MIT
 #include "box3d/box3d.h"
+#include "core.h"
 #include "physics_world.h"
+#if !defined(B3_SIMD_SSE2)
+#error Restitution authority requires SSE2.
+#endif
+_Static_assert(B3_SIMD_WIDTH == 4,
+               "Restitution authority requires four lanes.");
 #include <stdio.h>
 #include <stdlib.h>
 

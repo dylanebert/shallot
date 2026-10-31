@@ -4,7 +4,6 @@ import { expect, test } from "bun:test";
 import gold from "../../../../crates/physics/tests/reader_regressions.gold.json";
 import { froundConfig } from "../common/config";
 import type { Vec3 } from "../common/records";
-
 import { BodyType, type WorldDef } from "../common/types";
 import { readStateAngularVelocity } from "../kernel/bodycolumns";
 import { JointField, jointField, setJointField } from "../kernel/jointrecords";
@@ -41,6 +40,7 @@ import {
     testShapeDef,
 } from "../testing";
 import { bodyGetTransform, bodyIsAwake, getBodyState } from "../world/body";
+import eventClaims from "../world/ecs-event-claims.gold.json";
 import type { WorldState } from "../world/world";
 import { worldCounters } from "../world/world";
 
@@ -483,7 +483,13 @@ test("mixed-joint island sleeps as one unit", () => {
             localFrameA: frame(0.25, -0.5),
             localFrameB: frame(0, 0.5),
         });
-        for (let i = 0; i < 300; ++i) stepTestWorld(world, 1 / 60, 4);
+        for (let i = 1; i <= eventClaims.mixedSleep.step; ++i) {
+            stepTestWorld(world, 1 / 60, 4);
+            const awake = [torso, armL, armR, legL, legR].map((id) => bodyIsAwake(world, id));
+            expect(awake.every((value) => value === awake[0])).toBe(true);
+            if (i === 300) expect(awake[0]).toBe(eventClaims.mixedSleep.awake300);
+            expect(awake[0], `step ${i}`).toBe(i < eventClaims.mixedSleep.step);
+        }
         expect(bodyIsAwake(world, torso)).toBe(false);
         expect(bodyIsAwake(world, armL)).toBe(false);
         expect(bodyIsAwake(world, legR)).toBe(false);
