@@ -22,7 +22,7 @@ test("all nine public manifolds, every field and warm cache equal native touchin
                 s.transform.p.y = boundary + delta;
                 for (const p of s.triangle) p.y = -s.transform.p.y;
                 const m = s.call(op);
-                if (delta === 4 || (op <= 11 && delta > 0)) expect(m.pointCount).toBe(0);
+                if (delta === 4) expect(m.pointCount).toBe(0);
                 else {
                     expect(m.pointCount).toBeGreaterThan(0);
                     expect(m.points[0].separation > 0).toBe(delta > 0);
