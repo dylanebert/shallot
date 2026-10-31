@@ -617,10 +617,6 @@ function forget(world: World, runtime: PhysicsRuntime, eid: number): void {
 
 function clearBodies(world: World, runtime: PhysicsRuntime): void {
     for (const eid of runtime.bodies.keys()) releaseTransformPose(world, eid);
-    const state = runtime.physicsWorld;
-    if (state)
-        for (const body of runtime.bodies.values())
-            if (bodyIsValid(state, body)) destroyBody(state, body.index1 - 1);
     runtime.bodies.clear();
     runtime.shapes.clear();
     runtime.shapeBodies.clear();
