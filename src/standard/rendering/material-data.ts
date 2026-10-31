@@ -56,6 +56,31 @@ export const MeshMaterial = component(
     { defaults: () => ({ type: 0, material: 0, alphaMode: 0, alphaCutoff: 0.5, cullMode: 0 }) },
 );
 
+/** Texture coordinates are scaled, rotated counter-clockwise in radians, then offset.
+ * Omitted members are identity. The channel is selected before this transform. */
+export interface TextureTransform {
+    offset?: readonly [number, number];
+    rotation?: number;
+    scale?: readonly [number, number];
+}
+
+const UvTransform = d.struct({
+    offsetX: d.f32,
+    offsetY: d.f32,
+    scaleX: d.f32,
+    scaleY: d.f32,
+    rotation: d.f32,
+});
+function uvTransform(value?: TextureTransform): d.Infer<typeof UvTransform> {
+    return {
+        offsetX: value?.offset?.[0] ?? 0,
+        offsetY: value?.offset?.[1] ?? 0,
+        scaleX: value?.scale?.[0] ?? 1,
+        scaleY: value?.scale?.[1] ?? 1,
+        rotation: value?.rotation ?? 0,
+    };
+}
+
 /** Standard forward PBR parameters, stored as one typed row per StandardMaterial instance. */
 export const StandardMaterialInput = d
     .struct({
@@ -78,6 +103,11 @@ export const StandardMaterialInput = d
         occlusion: d.f32,
         unlit: d.u32,
         doubleSided: d.u32,
+        baseColorTransform: UvTransform,
+        normalMapTransform: UvTransform,
+        metallicRoughnessTransform: UvTransform,
+        occlusionTransform: UvTransform,
+        emissiveTransform: UvTransform,
     })
     .$name("StandardMaterialInput");
 
@@ -88,22 +118,27 @@ type StandardMaterialOptions = {
     baseColorTexture?: number;
     /** UV set: 0 uses uv, 1 uses uv1 (which falls back to uv when absent). */
     baseColorChannel?: 0 | 1;
+    baseColorTransform?: TextureTransform;
     /** Linear data image id; tangent-space RGB normal, +Y, with tangent.w handedness. */
     normalMapTexture?: number;
     normalMapChannel?: 0 | 1;
+    normalMapTransform?: TextureTransform;
     /** Multiplies tangent-space normal X and Y before normalization. */
     normalMapScale?: number;
     /** Linear data image id; G multiplies roughness, B multiplies metallic. */
     metallicRoughnessTexture?: number;
     metallicRoughnessChannel?: 0 | 1;
+    metallicRoughnessTransform?: TextureTransform;
     /** Linear data image id; R supplies ambient occlusion. */
     occlusionTexture?: number;
     occlusionChannel?: 0 | 1;
+    occlusionTransform?: TextureTransform;
     /** Mixes unoccluded (0) with sampled occlusion (1). */
     occlusionStrength?: number;
     /** Color image id; linearized RGB multiplies emissive. */
     emissiveTexture?: number;
     emissiveChannel?: 0 | 1;
+    emissiveTransform?: TextureTransform;
     metallic?: number;
     perceptualRoughness?: number;
     emissive?: readonly [number, number, number];
@@ -140,5 +175,10 @@ export function StandardMaterial(values: StandardMaterialOptions = {}): Standard
         occlusion: values.occlusion ?? 1,
         unlit: values.unlit ? 1 : 0,
         doubleSided: values.doubleSided ? 1 : 0,
+        baseColorTransform: uvTransform(values.baseColorTransform),
+        normalMapTransform: uvTransform(values.normalMapTransform),
+        metallicRoughnessTransform: uvTransform(values.metallicRoughnessTransform),
+        occlusionTransform: uvTransform(values.occlusionTransform),
+        emissiveTransform: uvTransform(values.emissiveTransform),
     };
 }

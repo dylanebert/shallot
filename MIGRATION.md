@@ -10,11 +10,13 @@ Code fragments assume an owning `world`, an existing entity `eid`, and the impor
 
 Register normal, metallic-roughness and occlusion images with `registerImage(world, source, { isSrgb: false })`. Their ids belong to a separate linear array; do not use a color-image id for a data texture. Base color and emissive keep the default sRGB registration. Metallic-roughness uses G for roughness and B for metallic; occlusion uses R. `normalMapScale` scales normal X/Y, and `occlusionStrength` mixes unoccluded with sampled occlusion. Both default to `1`. A normal map needs the mesh's tangent stream; without it the geometric normal is retained.
 
-Use `StandardMaterial()` to fill new row fields. Hand-built `StandardMaterialInput` rows write `-1` for absent texture ids, `0` for all channels, and `1` for `normalMapScale` and `occlusionStrength`. Recompute row strides and binding numbers from their schemas. `ImageBindings` gains `dataImages`; custom replacements supply a linear `rgba8unorm` array alongside the existing sRGB `images`. Data-image sampler settings follow the color array's layer count in `imageSettings`.
+Each texture also accepts its own `baseColorTransform`, `normalMapTransform`, `metallicRoughnessTransform`, `occlusionTransform` or `emissiveTransform`: `{ offset, rotation, scale }`, with identity defaults. Coordinates are scaled, rotated counter-clockwise in radians around the origin, then offset, after selecting the channel.
+
+Use `StandardMaterial()` to fill new row fields. Hand-built `StandardMaterialInput` rows write `-1` for absent texture ids, `0` for all channels, and `1` for `normalMapScale` and `occlusionStrength`. Each transform row writes scalar `offsetX`, `offsetY` and `rotation` as `0`, and `scaleX` and `scaleY` as `1` for identity. Recompute row strides and binding numbers from their schemas. `ImageBindings` gains `dataImages`; custom replacements supply a linear `rgba8unorm` array alongside the existing sRGB `images`. Data-image sampler settings follow the color array's layer count in `imageSettings`.
 
 Fragment contexts gain `rawWorldNormal`, the unnormalized interpolated world normal (Bevy's `PbrInput.world_normal`). `worldNormal` remains normalized (Bevy's `N`). Use the raw normal with the interpolated tangent for a MikkTSpace normal-map basis, normalizing only the mapped result. Both values come from the existing normal varying.
 
-The glTF importer now maps these textures, their UV sets, normal scale and occlusion strength, and applies vertex color instead of reporting the textures unsupported. UV sets above 1 remain reported by name.
+The glTF importer now maps these textures, their UV sets, normal scale and occlusion strength, and applies vertex color instead of reporting the textures unsupported. It maps `KHR_texture_transform` independently on every texture, including the extension's `texCoord` override. UV sets above 1 remain reported by name.
 
 ## Captures use the rendered target's own size
 

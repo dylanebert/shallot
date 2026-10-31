@@ -1,6 +1,43 @@
 import { expect, test } from "bun:test";
 import { parse } from "./gltf";
 
+for (const slot of [
+    "baseColor",
+    "metallicRoughness",
+    "normalMap",
+    "occlusion",
+    "emissive",
+] as const)
+    test(`${slot} KHR_texture_transform retains its own transform and overrides texCoord`, () => {
+        const transform = {
+            offset: [0.2, 0.3],
+            rotation: 0.7,
+            scale: [-2, 3],
+            texCoord: 1,
+        } as const;
+        // biome-ignore lint/style/useNamingConvention: glTF owns its extension names.
+        const info = { index: 4, texCoord: 0, extensions: { KHR_texture_transform: transform } };
+        const source =
+            slot === "baseColor" || slot === "metallicRoughness"
+                ? { pbrMetallicRoughness: { [`${slot}Texture`]: info } }
+                : { [slot === "normalMap" ? "normalTexture" : `${slot}Texture`]: info };
+        const scene = parse(
+            { extensionsRequired: ["KHR_texture_transform"], materials: [source] },
+            [],
+        );
+        expect(scene.unsupported).toEqual([]);
+        expect(scene.materials[0][`${slot}Transform`]).toEqual(transform);
+        expect(scene.materials[0][`${slot}Channel`]).toBe(1);
+        for (const other of [
+            "baseColor",
+            "metallicRoughness",
+            "normalMap",
+            "occlusion",
+            "emissive",
+        ] as const)
+            if (other !== slot) expect(scene.materials[0][`${other}Transform`]).toBeUndefined();
+    });
+
 test("material textures retain their independent UV set, factors and scales without unsupported reports", () => {
     const scene = parse(
         {

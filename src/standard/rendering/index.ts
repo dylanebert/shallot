@@ -59,7 +59,7 @@ export {
     StandardMaterial,
     VertexMaterialType,
 } from "./material";
-export { MeshInstanceInput, StandardMaterialInput } from "./material-data";
+export { MeshInstanceInput, StandardMaterialInput, type TextureTransform } from "./material-data";
 export type {
     MaterialBinding,
     MaterialFragmentFn,

@@ -9,6 +9,7 @@ import {
     decomposeMat4,
     multiplyMat4 as multiply,
 } from "../../engine/utils";
+import type { TextureTransform } from "../../standard/rendering";
 import type { GltfAnimation, GltfAnimationPath, GltfNode } from "./animation";
 
 const VERTEX_FLOATS = 8;
@@ -97,20 +98,30 @@ interface Primitive {
     extensions?: Extensions;
 }
 
+interface TextureInfo {
+    index: number;
+    texCoord?: number;
+    // biome-ignore lint/style/useNamingConvention: glTF owns its extension names.
+    extensions?: { KHR_texture_transform?: TextureTransform & { texCoord?: number } };
+}
+function textureChannel(texture?: TextureInfo): number {
+    return texture?.extensions?.KHR_texture_transform?.texCoord ?? texture?.texCoord ?? 0;
+}
+
 interface Material {
     name?: string;
     doubleSided?: boolean;
     pbrMetallicRoughness?: {
         baseColorFactor?: number[];
-        baseColorTexture?: { index: number; texCoord?: number };
+        baseColorTexture?: TextureInfo;
         metallicFactor?: number;
         roughnessFactor?: number;
-        metallicRoughnessTexture?: { index: number; texCoord?: number };
+        metallicRoughnessTexture?: TextureInfo;
     };
-    normalTexture?: { index: number; scale?: number; texCoord?: number };
-    occlusionTexture?: { index: number; strength?: number; texCoord?: number };
+    normalTexture?: TextureInfo & { scale?: number };
+    occlusionTexture?: TextureInfo & { strength?: number };
     emissiveFactor?: number[];
-    emissiveTexture?: { index: number; texCoord?: number };
+    emissiveTexture?: TextureInfo;
     alphaMode?: "OPAQUE" | "MASK" | "BLEND";
     alphaCutoff?: number;
     extensions?: Extensions;
@@ -155,16 +166,21 @@ export interface GltfMaterial {
     color: [number, number, number, number];
     texture?: number;
     baseColorChannel?: 0 | 1;
+    baseColorTransform?: TextureTransform;
     normalMapTexture?: number;
     normalMapChannel?: 0 | 1;
+    normalMapTransform?: TextureTransform;
     normalMapScale?: number;
     metallicRoughnessTexture?: number;
     metallicRoughnessChannel?: 0 | 1;
+    metallicRoughnessTransform?: TextureTransform;
     occlusionTexture?: number;
     occlusionChannel?: 0 | 1;
+    occlusionTransform?: TextureTransform;
     occlusionStrength?: number;
     emissiveTexture?: number;
     emissiveChannel?: 0 | 1;
+    emissiveTransform?: TextureTransform;
     metallic: number;
     roughness: number;
     emissive: [number, number, number];
@@ -439,7 +455,7 @@ function decodeMesh(
     const normalTexture =
         prim.material === undefined ? undefined : gltf.materials?.[prim.material]?.normalTexture;
     if (normalTexture) {
-        const semantic = `TEXCOORD_${normalTexture.texCoord ?? 0}`;
+        const semantic = `TEXCOORD_${textureChannel(normalTexture)}`;
         if (!(semantic in prim.attributes))
             throw new Error(`glTF ${name}: normalTexture names missing ${semantic}`);
     }
@@ -496,7 +512,7 @@ export async function generateSceneTangents(
                     ? undefined
                     : gltf.materials?.[prim.material]?.normalTexture;
             if (mesh.tangent || !texture) continue;
-            const set = texture.texCoord ?? 0;
+            const set = textureChannel(texture);
             let uv =
                 set === 0
                     ? undefined
@@ -669,7 +685,11 @@ function mergeSkeletons(skins: GltfSkin[], nodes: GltfNode[]): GltfSkeleton[] {
 }
 
 function supportedExtension(name: string): boolean {
-    return name === "KHR_materials_unlit" || name === "KHR_mesh_quantization";
+    return (
+        name === "KHR_materials_unlit" ||
+        name === "KHR_mesh_quantization" ||
+        name === "KHR_texture_transform"
+    );
 }
 
 /** Refuses versions beyond 2.0 and unsupported required extensions before reading resources. */
@@ -707,10 +727,9 @@ export function parse(gltf: GltfJson, buffers: ArrayBuffer[]): GltfScene {
     if ("cameras" in gltf) ignored.add("camera");
     const materials = (gltf.materials ?? []).map((m): GltfMaterial => {
         const pbr = m.pbrMetallicRoughness;
-        const channel = (texture?: { texCoord?: number }): 0 | 1 =>
-            texture?.texCoord === 1 ? 1 : 0;
-        const textureIndex = (name: string, texture?: { index: number; texCoord?: number }) => {
-            if ((texture?.texCoord ?? 0) > 1) {
+        const channel = (texture?: TextureInfo): 0 | 1 => (textureChannel(texture) === 1 ? 1 : 0);
+        const textureIndex = (name: string, texture?: TextureInfo) => {
+            if (textureChannel(texture) > 1) {
                 ignored.add(`${name}.texCoord`);
                 return undefined;
             }
@@ -720,19 +739,25 @@ export function parse(gltf: GltfJson, buffers: ArrayBuffer[]): GltfScene {
             color: (pbr?.baseColorFactor ?? [1, 1, 1, 1]) as GltfMaterial["color"],
             texture: textureIndex("baseColorTexture", pbr?.baseColorTexture),
             baseColorChannel: channel(pbr?.baseColorTexture),
+            baseColorTransform: pbr?.baseColorTexture?.extensions?.KHR_texture_transform,
             normalMapTexture: textureIndex("normalTexture", m.normalTexture),
             normalMapChannel: channel(m.normalTexture),
+            normalMapTransform: m.normalTexture?.extensions?.KHR_texture_transform,
             normalMapScale: m.normalTexture?.scale ?? 1,
             metallicRoughnessTexture: textureIndex(
                 "metallicRoughnessTexture",
                 pbr?.metallicRoughnessTexture,
             ),
             metallicRoughnessChannel: channel(pbr?.metallicRoughnessTexture),
+            metallicRoughnessTransform:
+                pbr?.metallicRoughnessTexture?.extensions?.KHR_texture_transform,
             occlusionTexture: textureIndex("occlusionTexture", m.occlusionTexture),
             occlusionChannel: channel(m.occlusionTexture),
+            occlusionTransform: m.occlusionTexture?.extensions?.KHR_texture_transform,
             occlusionStrength: m.occlusionTexture?.strength ?? 1,
             emissiveTexture: textureIndex("emissiveTexture", m.emissiveTexture),
             emissiveChannel: channel(m.emissiveTexture),
+            emissiveTransform: m.emissiveTexture?.extensions?.KHR_texture_transform,
             metallic: pbr?.metallicFactor ?? 1,
             roughness: pbr?.roughnessFactor ?? 1,
             emissive: (m.emissiveFactor ?? [0, 0, 0]) as GltfMaterial["emissive"],

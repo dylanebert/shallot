@@ -92,6 +92,20 @@ export function pbrInputFromMaterial(ctx: { world: d.v3f; worldNormal: d.v3f }) 
     });
 }
 
+const transformUv = tgpu.fn(
+    [d.vec2f, StandardMaterialInput.propTypes.baseColorTransform],
+    d.vec2f,
+)((uv, transform) => {
+    "use gpu";
+    let result = std.mul(uv, d.vec2f(transform.scaleX, transform.scaleY));
+    if (transform.rotation !== 0) {
+        const c = std.cos(transform.rotation);
+        const s = std.sin(transform.rotation);
+        result = d.vec2f(c * result.x - s * result.y, s * result.x + c * result.y);
+    }
+    return std.add(result, d.vec2f(transform.offsetX, transform.offsetY));
+});
+
 /** Sample standard's parameters into mutable surface values before lighting; a doubleSided row's back
  * face takes the flipped normal. Does not change depth-pass coverage. */
 export const pbrInputFromStandardMaterial = tgpu.fn(
@@ -101,11 +115,26 @@ export const pbrInputFromStandardMaterial = tgpu.fn(
     "use gpu";
     const material = ctx.parameters;
     let baseColor = std.mul(material.baseColor, ctx.color);
-    const baseUv = std.select(ctx.uv, ctx.uv1, material.baseColorChannel === 1);
-    const normalUv = std.select(ctx.uv, ctx.uv1, material.normalMapChannel === 1);
-    const metalUv = std.select(ctx.uv, ctx.uv1, material.metallicRoughnessChannel === 1);
-    const occlusionUv = std.select(ctx.uv, ctx.uv1, material.occlusionChannel === 1);
-    const emissiveUv = std.select(ctx.uv, ctx.uv1, material.emissiveChannel === 1);
+    const baseUv = transformUv(
+        std.select(ctx.uv, ctx.uv1, material.baseColorChannel === 1),
+        material.baseColorTransform,
+    );
+    const normalUv = transformUv(
+        std.select(ctx.uv, ctx.uv1, material.normalMapChannel === 1),
+        material.normalMapTransform,
+    );
+    const metalUv = transformUv(
+        std.select(ctx.uv, ctx.uv1, material.metallicRoughnessChannel === 1),
+        material.metallicRoughnessTransform,
+    );
+    const occlusionUv = transformUv(
+        std.select(ctx.uv, ctx.uv1, material.occlusionChannel === 1),
+        material.occlusionTransform,
+    );
+    const emissiveUv = transformUv(
+        std.select(ctx.uv, ctx.uv1, material.emissiveChannel === 1),
+        material.emissiveTransform,
+    );
     const uvDx = std.dpdx(baseUv);
     const uvDy = std.dpdy(baseUv);
     const normalDx = std.dpdx(normalUv);

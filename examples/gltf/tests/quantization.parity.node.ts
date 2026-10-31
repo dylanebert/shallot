@@ -108,21 +108,30 @@ for (const record of gold.records) {
                 16 *
                 2 ** -23;
             const tolerance = positionStep + roundoff;
-            const material = json.materials?.[primitive.material];
-            const uvTransform =
-                material?.pbrMetallicRoughness?.baseColorTexture?.extensions?.KHR_texture_transform;
-            const uvScale: number[] = uvTransform?.scale ?? [1, 1];
-            const uvOffset: number[] = uvTransform?.offset ?? [0, 0];
+            const material = model.materials[mesh.material];
+            const uvTransform = material?.baseColorTransform;
+            const uvScale = uvTransform?.scale ?? [1, 1];
+            const uvOffset = uvTransform?.offset ?? [0, 0];
+            const rotation = uvTransform?.rotation ?? 0;
+            const mappedUv = (v: number) => {
+                const uv =
+                    material?.baseColorChannel === 1 && mesh.uv1
+                        ? mesh.uv1.subarray(v * 2, v * 2 + 2)
+                        : [mesh.vertices[v * 8 + 3], mesh.vertices[v * 8 + 7]];
+                const x = uv[0] * uvScale[0],
+                    y = uv[1] * uvScale[1];
+                return [
+                    Math.cos(rotation) * x - Math.sin(rotation) * y + uvOffset[0],
+                    Math.sin(rotation) * x + Math.cos(rotation) * y + uvOffset[1],
+                ];
+            };
             const uvStep = Math.max(...uvScale.map(Math.abs)) + 8 * 2 ** -23;
             const corners = Array.from(
                 mesh.indices,
                 (v): Corner => ({
                     p: transform(instance.matrix, mesh.vertices.subarray(v * 8, v * 8 + 3), 1),
                     n: direction(instance.matrix, mesh.vertices.subarray(v * 8 + 4, v * 8 + 7)),
-                    uv: [
-                        mesh.vertices[v * 8 + 3] * uvScale[0] + uvOffset[0],
-                        mesh.vertices[v * 8 + 7] * uvScale[1] + uvOffset[1],
-                    ],
+                    uv: mappedUv(v),
                     t: mesh.tangent
                         ? [
                               ...direction(

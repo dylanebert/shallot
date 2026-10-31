@@ -3,6 +3,7 @@ import type { GltfPlacement } from "@dylanebert/shallot/gltf";
 // The picker demonstrates promises; the full asset corpus remains in tests.
 export const scenes = {
     TextureSettingsTest: { promise: "textures" },
+    TextureTransformMultiTest: { promise: "textures" },
     AlphaBlendModeTest: { promise: "materials" },
     TwoSidedPlane: { promise: "materials" },
     OrientationTest: { promise: "transforms" },

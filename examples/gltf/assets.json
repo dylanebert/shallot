@@ -6,6 +6,25 @@
         { "name": "SkinnedNormal", "path": "models/SkinnedNormal.gltf", "license": "CC0-1.0", "sha256": "fa648612c0e8d4ca35b48ab8e0ada4abd5d063982278fd5ba43429c10a959678" }
     ],
     "models": [
+        { "name": "TextureTransformTest", "license": "Models/TextureTransformTest/LICENSE.md", "files": [
+            { "path": "Models/TextureTransformTest/LICENSE.md", "sha256": "2756f452c3dd14860ace0f63abc5899755a1efbd63d63671fd6eec16e5fce2c1" },
+            { "path": "Models/TextureTransformTest/glTF/Arrow.png", "sha256": "5df5b251fed0ac306cf859a30b59a4953d152483a4bed2b84e5bba1c667a1e64" },
+            { "path": "Models/TextureTransformTest/glTF/Correct.png", "sha256": "3a14b12635ebbcee3ea427fbdb4d20da73e4740ec7a51683d700a2d6b4b7861a" },
+            { "path": "Models/TextureTransformTest/glTF/Error.png", "sha256": "8d1032ef535a5c379bf78f9f565d3180ee3fc2d1cfef6892dee6e567728b619c" },
+            { "path": "Models/TextureTransformTest/glTF/NotSupported.png", "sha256": "1fbdeca7e5c105d677a39578e4bab82b89c8aa9f406ee681ede05635ea0f8c74" },
+            { "path": "Models/TextureTransformTest/glTF/TextureTransformTest.bin", "sha256": "d0cdd23f2fa0996a0db99d4932fb9912a51a34e27c8bf832d072dc856ee9a7af" },
+            { "path": "Models/TextureTransformTest/glTF/TextureTransformTest.gltf", "sha256": "c22c8c6c96c0ea4bcbb9b47ea245a093c5ef59acc5fd425effa4c00da4cdf164" },
+            { "path": "Models/TextureTransformTest/glTF/UV.png", "sha256": "ac37ff52fe06a4c8c35ad4e1e7e8da039dfa8afc9b629d40a44ca8b8cfe9d03d" }
+        ] },
+        { "name": "TextureTransformMultiTest", "license": "Models/TextureTransformMultiTest/LICENSE.md", "files": [
+            { "path": "Models/TextureTransformMultiTest/LICENSE.md", "sha256": "6ca5a443146e5012bdb86b20f23d591cbffec098ce32dbc7733705c32ad54e1f" },
+            { "path": "Models/TextureTransformMultiTest/glTF/TTMT_Labels.png", "sha256": "744109ace177c81063faf7540bdc9b029834076fe5058af5810159b97149873b" },
+            { "path": "Models/TextureTransformMultiTest/glTF/TestMap-1.png", "sha256": "e0d3820efacf8a37628e24f838016ad792391dc4b597ba5d9cc6fb34d0b66412" },
+            { "path": "Models/TextureTransformMultiTest/glTF/TestMap.png", "sha256": "29e88a0807288a7fe1fbad7b75eb920115f8850d3f28c53df9815ca83b9daa01" },
+            { "path": "Models/TextureTransformMultiTest/glTF/TestMap_Normal.png", "sha256": "7ab4b4ec2270dac1d5bebd76986b8734ab42908678c2e87509f8408689313e5b" },
+            { "path": "Models/TextureTransformMultiTest/glTF/TextureTransformMultiTest.bin", "sha256": "72a0dea23011275b1ee6891a2b2fc91925e3b0a83677b4ad278925db755a2575" },
+            { "path": "Models/TextureTransformMultiTest/glTF/TextureTransformMultiTest.gltf", "sha256": "088276b7f005109c94d22e3938f49bab20aeca675adc8be335ee3f6909a25d5a" }
+        ] },
         { "name": "MorphPrimitivesTest", "license": "Models/MorphPrimitivesTest/LICENSE.md", "files": [
             { "path": "Models/MorphPrimitivesTest/LICENSE.md", "sha256": "c5cb97e22a9ce3b298c9d7c4def7f4f40af73c52b69818a30f773e78c699bf54" },
             { "path": "Models/MorphPrimitivesTest/glTF/MorphPrimitivesTest.bin", "sha256": "59ec1d7ca5c8d7605b69aa57cee3da2994384831a290e5271ecd963002c31c76" },
