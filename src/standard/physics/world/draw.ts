@@ -87,7 +87,7 @@ export function defaultDebugDraw(): DebugDraw {
             upperBound: { x: 100, y: 100, z: 100 },
         },
         jointScale: 1,
-        forceScale: 1,
+        forceScale: 0.001,
         drawShapes: false,
         drawJoints: false,
         drawJointExtras: false,

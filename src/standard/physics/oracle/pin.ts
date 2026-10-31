@@ -5,7 +5,7 @@
  *
  * Authority: Box3D's CMake default build on x86_64, SSE2 at SIMD width 4, the path the kernel's wasm
  * simd128 follows (diagnostics/box3d-parity/native-evidence.ts). box3d-oracle generates the lanes scalar
- * (BOX3D_DISABLE_SIMD=ON) and the scene oracles build the host default, NEON on arm64. At 47d7f7cc and
+ * (BOX3D_DISABLE_SIMD=ON) and the scene oracles build the host default, NEON on arm64. At the original pin and
  * every re-pin stage's revision through 3362633, the scalar and default builds, arm64 and -arch x86_64,
  * hash native.c's scenes equal, so each measures the authority there; where builds differ, SSE2 decides.
  * Under Rosetta, runtime dispatch finds no AVX2 and keeps width 4; an AVX2 host would dispatch width 8,

@@ -110,6 +110,56 @@ export const MotorJoint = component(
     },
 );
 
+/** Moves a dynamic character through velocity commands in frame B's xz plane, without affecting rotation. */
+export const MoverJoint = component(
+    "MoverJoint",
+    {
+        ...base,
+        /** Desired relative linear velocity in world-space m/s. */
+        linearVelocity: vec3,
+        /** Maximum motor force in newtons. */
+        maxForce: f32,
+    },
+    { defaults: () => ({ ...baseDefaults(), linearVelocity: [0, 0, 0], maxForce: 0 }) },
+);
+
+/** Dynamic mover spring along frame B's y axis, applying force along the contact normal. */
+export const PogoJoint = component(
+    "PogoJoint",
+    {
+        ...base,
+        /** World-space unit normal at the contact. */
+        normal: vec3,
+        /** Spring stiffness in Hz, cycles per second. Zero disables the spring. */
+        hertz: f32,
+        /** Dimensionless spring damping ratio. */
+        dampingRatio: f32,
+        /** Spring rest length in meters. */
+        restLength: f32,
+        /** Maximum tension force in newtons, controlling adhesion to the ground. */
+        maxTensionForce: f32,
+        /** Maximum compression force in newtons, pushing the mover up from the ground. */
+        maxCompressionForce: f32,
+        /** Initial internal impulse in N·s, applied at spawn only. Carry the live impulse when recreating the joint each update for smoother spring behavior. */
+        impulse: f32,
+        /** Initial internal velocity in m/s, applied at spawn only. Carry the live speed when recreating the joint each update for smoother spring behavior. */
+        velocity: f32,
+    },
+    {
+        defaults: () => ({
+            ...baseDefaults(),
+            normal: [0, 1, 0],
+            hertz: 0,
+            dampingRatio: 0,
+            restLength: 0,
+            maxTensionForce: 0,
+            maxCompressionForce: 0,
+            impulse: 0,
+            velocity: 0,
+        }),
+    },
+);
+
 /** Aligns the local frame z axes; frequency in Hz, damping dimensionless and torque in N·m. */
 export const ParallelJoint = component(
     "ParallelJoint",

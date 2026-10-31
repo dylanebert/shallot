@@ -7,7 +7,7 @@ import { JointField, jointCapacity, jointField, jointViews } from "../kernel/joi
 import { kernel } from "../kernel/kernel";
 import type { WorldState } from "../world/world";
 
-/** Joint kind (b3JointType). Numeric values mirror the C enum order (parallel = 0 … wheel = 8). */
+/** Joint kind (b3JointType). Numeric values mirror the C enum order (parallel = 0 … pogo = 10). */
 export const JointType = {
     Parallel: 0,
     Distance: 1,
@@ -18,6 +18,8 @@ export const JointType = {
     Spherical: 6,
     Weld: 7,
     Wheel: 8,
+    Mover: 9,
+    Pogo: 10,
 } as const;
 export type JointType = (typeof JointType)[keyof typeof JointType];
 

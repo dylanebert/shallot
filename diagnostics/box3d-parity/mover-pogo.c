@@ -7,7 +7,8 @@
 #include <string.h>
 
 static uint32_t bits(float f) { uint32_t b; memcpy(&b, &f, 4); return b; }
-static void field(size_t offset, float value) { printf("[%zu,%u],", offset / 4, bits(value)); }
+static int first_field;
+static void field(size_t offset, float value) { printf("%s[%zu,%u]", first_field ? "" : ",", offset / 4, bits(value)); first_field=0; }
 #define FIELD(kind, member, value) field(offsetof(b3JointSim, kind) + offsetof(__typeof__(((b3JointSim*)0)->kind), member), value)
 static void vector(b3Vec3 v) { printf("%u,%u,%u", bits(v.x), bits(v.y), bits(v.z)); }
 int main(void) {
@@ -27,7 +28,7 @@ int main(void) {
         pd.restLength=1; pd.hertz=4; pd.dampingRatio=0.7f; pd.maxTensionForce=0.25f; pd.maxCompressionForce=0.75f;
         pd.impulse=mode==2?0.03125f:0; pd.velocity=mode==2?-0.875f:0;
         b3JointId joint=kind==9?b3CreateMoverJoint(world,&md):b3CreatePogoJoint(world,&pd);
-        printf("{\"kind\":%d,\"mode\":%d,\"fields\":[",kind,mode);
+        printf("{\"kind\":%d,\"mode\":%d,\"fields\":[",kind,mode); first_field=1;
         if(kind==9) {
             FIELD(moverJoint,linearVelocity.x,md.linearVelocity.x); FIELD(moverJoint,linearVelocity.y,md.linearVelocity.y); FIELD(moverJoint,linearVelocity.z,md.linearVelocity.z);
             FIELD(moverJoint,maxForce,md.maxForce);
@@ -37,7 +38,7 @@ int main(void) {
             FIELD(pogoJoint,maxTensionForce,pd.maxTensionForce); FIELD(pogoJoint,maxCompressionForce,pd.maxCompressionForce);
             FIELD(pogoJoint,impulse,pd.impulse); FIELD(pogoJoint,velocity,pd.velocity);
         }
-        printf("[0,0]],\"samples\":[");
+        printf("],\"samples\":[");
         for(int i=0;i<20;++i) {
             if(i && mode==2) {
                 if(kind==10) { pd.impulse=b3PogoJoint_GetImpulse(joint); pd.velocity=b3PogoJoint_GetCurrentSpeed(joint); }

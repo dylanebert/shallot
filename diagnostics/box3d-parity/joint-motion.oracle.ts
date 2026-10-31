@@ -6,5 +6,5 @@ test("joint translation, speed and length equal native Box3D with static, kinema
     const native=JSON.parse(run([nativeBinary("joint-motion.c")])) as typeof gold;
     expect(native).toEqual(gold);
     visitJointMotion(native,(actual,expected,label)=>expect(actual,label).toBe(expected));
-    console.log(JSON.stringify({cases:native.length,readers:4}));
+    console.log(JSON.stringify({cases:native.length,readers:5}));
 });

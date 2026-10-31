@@ -8,7 +8,9 @@ import {
     DistanceJoint,
     FilterJoint,
     MotorJoint,
+    MoverJoint,
     ParallelJoint,
+    PogoJoint,
     PrismaticJoint,
     RevoluteJoint,
     SphericalJoint,
@@ -23,7 +25,9 @@ export {
     DistanceJoint,
     FilterJoint,
     MotorJoint,
+    MoverJoint,
     ParallelJoint,
+    PogoJoint,
     PrismaticJoint,
     RevoluteJoint,
     SphericalJoint,
@@ -141,6 +145,8 @@ const components = [
     SphericalJoint,
     WeldJoint,
     WheelJoint,
+    MoverJoint,
+    PogoJoint,
 ];
 
 /** Registers shared physics authoring data without installing a simulation. */

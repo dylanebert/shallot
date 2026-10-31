@@ -756,6 +756,28 @@ export type Kernel = {
         angularHertz: number,
         angularDamping: number,
     ): number;
+    jointCreateMover(
+        world: number,
+        definition: number,
+        x: number,
+        y: number,
+        z: number,
+        maxForce: number,
+    ): number;
+    jointCreatePogo(
+        world: number,
+        definition: number,
+        nx: number,
+        ny: number,
+        nz: number,
+        restLength: number,
+        hertz: number,
+        dampingRatio: number,
+        maxTensionForce: number,
+        maxCompressionForce: number,
+        impulse: number,
+        velocity: number,
+    ): number;
     jointCreateMotor(
         world: number,
         definition: number,

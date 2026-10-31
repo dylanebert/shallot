@@ -11,7 +11,9 @@ import { defaultDistanceJointDef } from "./solver/distanceJoint";
 import { defaultJointDef, JointType } from "./solver/joint";
 import { jointIds } from "./solver/joint.fixture";
 import { defaultMotorJointDef } from "./solver/motorJoint";
+import { defaultMoverJointDef } from "./solver/moverJoint";
 import { defaultParallelJointDef } from "./solver/parallelJoint";
+import { defaultPogoJointDef } from "./solver/pogoJoint";
 import { defaultPrismaticJointDef } from "./solver/prismaticJoint";
 import { defaultRevoluteJointDef } from "./solver/revoluteJoint";
 import { defaultSphericalJointDef } from "./solver/sphericalJoint";
@@ -41,6 +43,8 @@ const kinds = [
     ["Spherical", defaultSphericalJointDef],
     ["Weld", defaultWeldJointDef],
     ["Wheel", defaultWheelJointDef],
+    ["Mover", defaultMoverJointDef],
+    ["Pogo", defaultPogoJointDef],
 ] as const;
 
 type Values = Record<string, number | readonly [number, number, number, number]>;
@@ -87,6 +91,19 @@ function kernelJointArguments(
         return [value.v.x, value.v.y, value.v.z, value.s];
     };
     switch (kind) {
+        case "Mover":
+            return [...vector("linearVelocity"), number("maxForce")];
+        case "Pogo":
+            return [
+                ...vector("normal"),
+                number("restLength"),
+                number("hertz"),
+                number("dampingRatio"),
+                number("maxTensionForce"),
+                number("maxCompressionForce"),
+                number("impulse"),
+                number("velocity"),
+            ];
         case "Distance":
             return [
                 number("length"),
@@ -274,6 +291,7 @@ for (const [kind, defaults] of kinds) {
                         p: { x: -1, y: -2, z: -3 },
                         q: { v: { x: 0.5, y: -0.5, z: 0.5 }, s: -0.5 },
                     };
+                else if (field === "normal") expected[field] = { x: 1, y: 0, z: 0 };
                 else if (field === "targetRotation")
                     expected[field] = { v: { x: -0.5, y: 0.5, z: 0.5 }, s: 0.5 };
                 else

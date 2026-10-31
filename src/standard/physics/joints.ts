@@ -55,7 +55,9 @@ import {
     wakeJointBodies,
 } from "./solver/joint";
 import { createMotorJoint, defaultMotorJointDef } from "./solver/motorJoint";
+import { createMoverJoint, defaultMoverJointDef } from "./solver/moverJoint";
 import { createParallelJoint, defaultParallelJointDef } from "./solver/parallelJoint";
+import { createPogoJoint, defaultPogoJointDef } from "./solver/pogoJoint";
 import { createPrismaticJoint, defaultPrismaticJointDef } from "./solver/prismaticJoint";
 import { createRevoluteJoint, defaultRevoluteJointDef } from "./solver/revoluteJoint";
 import { createSphericalJoint, defaultSphericalJointDef } from "./solver/sphericalJoint";
@@ -149,6 +151,15 @@ function endpoints(
 }
 const validQuat = (state: WorldState, q: Quat): boolean =>
     kernel(state.ecsState).mathQuatIsValid(q.v.x, q.v.y, q.v.z, q.s) !== 0;
+const validVector = (v: Vec3): boolean =>
+    Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
+const validNormal = (v: Vec3): boolean => {
+    const f = Math.fround;
+    return (
+        validVector(v) &&
+        Math.abs(f(1 - f(f(f(v.x * v.x) + f(v.y * v.y)) + f(v.z * v.z)))) < 100 * 2 ** -23
+    );
+};
 const validFrame = (state: WorldState, frame: Transform): boolean =>
     [frame.p.x, frame.p.y, frame.p.z].every(Number.isFinite) && validQuat(state, frame.q);
 
@@ -158,6 +169,23 @@ function invalidJointField(state: WorldState, def: JointDef): string | null {
     if (!validFrame(state, c.localFrameA)) return "localFrameA";
     if (!validFrame(state, c.localFrameB)) return "localFrameB";
     switch (def.kind) {
+        case "Mover":
+            if (!validVector(c.linearVelocity!)) return "linearVelocity";
+            if (!Number.isFinite(c.maxForce) || !(c.maxForce! >= 0)) return "maxForce";
+            break;
+        case "Pogo":
+            if (!validNormal(c.normal!)) return "normal";
+            for (const name of [
+                "restLength",
+                "hertz",
+                "dampingRatio",
+                "maxTensionForce",
+                "maxCompressionForce",
+            ] as const)
+                if (!Number.isFinite(c[name]) || !(c[name]! >= 0)) return name;
+            for (const name of ["impulse", "velocity"] as const)
+                if (!Number.isFinite(c[name])) return name;
+            break;
         case "Distance":
             if (!Number.isFinite(c.length) || !(c.length! > 0)) return "length";
             if (!(c.lowerSpringForce! <= c.upperSpringForce!))
@@ -225,6 +253,20 @@ function createJoint(
     };
     let joint: number;
     switch (def.kind) {
+        case "Mover":
+            joint = createMoverJoint(state, {
+                ...defaultMoverJointDef(base),
+                ...config,
+                base,
+            } as never).joint;
+            break;
+        case "Pogo":
+            joint = createPogoJoint(state, {
+                ...defaultPogoJointDef(base),
+                ...config,
+                base,
+            } as never).joint;
+            break;
         case "Distance":
             joint = createDistanceJoint(state, {
                 ...defaultDistanceJointDef(base),
@@ -315,6 +357,14 @@ const BASE_SCALAR_EDITS: readonly ScalarEdit[] = [
     ["torqueThreshold", "getTorqueThreshold", "setTorqueThreshold"],
 ];
 const JOINT_SCALAR_EDITS: Record<JointBinding["kind"], readonly ScalarEdit[]> = {
+    Mover: [["maxForce", "getMaxVelocityForce", "setMaxVelocityForce"]],
+    Pogo: [
+        ["restLength", "getRestLength", "setRestLength"],
+        ["hertz", "getSpringHertz", "setSpringHertz"],
+        ["dampingRatio", "getSpringDampingRatio", "setSpringDampingRatio"],
+        ["maxTensionForce", "getMaxTensionForce", "setMaxTensionForce"],
+        ["maxCompressionForce", "getMaxCompressionForce", "setMaxCompressionForce"],
+    ],
     Distance: [
         ["length", "getLength", "setLength"],
         ["enableSpring", "isSpringEnabled", "enableSpring"],
@@ -394,6 +444,14 @@ const JOINT_SCALAR_EDITS: Record<JointBinding["kind"], readonly ScalarEdit[]> = 
     ],
 };
 const JOINT_SCALAR_COLUMNS: Record<JointBinding["kind"], Record<string, number>> = {
+    Mover: { maxForce: C.MVJ_MAX_FORCE },
+    Pogo: {
+        restLength: C.PGJ_REST_LENGTH,
+        hertz: C.PGJ_HERTZ,
+        dampingRatio: C.PGJ_DAMPING_RATIO,
+        maxTensionForce: C.PGJ_MAX_TENSION_FORCE,
+        maxCompressionForce: C.PGJ_MAX_COMPRESSION_FORCE,
+    },
     Distance: {
         length: C.DJ_LENGTH,
         hertz: C.DJ_HERTZ,
@@ -553,6 +611,9 @@ function setterAccepts(kind: JointBinding["kind"], field: string, value: number)
     const nonnegative = finite && value >= 0;
     if (field === "forceThreshold" || field === "torqueThreshold") return nonnegative;
     switch (kind) {
+        case "Mover":
+        case "Pogo":
+            return nonnegative;
         case "Parallel":
             if (field === "hertz" || field === "dampingRatio" || field === "maxTorque")
                 return nonnegative;
@@ -786,6 +847,26 @@ function applyJointFields(
         case "Parallel":
         case "Weld":
             break;
+        case "Mover":
+        case "Pogo": {
+            const field = binding.kind === "Mover" ? "linearVelocity" : "normal";
+            if (!fieldMarked(binding, mask, field)) break;
+            const authored = storage[field] as Vector4Field;
+            vector.x = authored.x.get(eid);
+            vector.y = authored.y.get(eid);
+            vector.z = authored.z.get(eid);
+            const valid = binding.kind === "Mover" ? validVector(vector) : validNormal(vector);
+            if (!valid) {
+                rejectFieldEdit(warned, key, binding, eid, field);
+                break;
+            }
+            clearFieldWarning(warned, binding, key, field);
+            const column = binding.kind === "Mover" ? C.MVJ_LINEAR_VELOCITY : C.PGJ_NORMAL;
+            readJointVec3(state, id, column, kinVector);
+            if (vectorDiffers(vector.x, vector.y, vector.z, kinVector))
+                writeJointVec3(state, id, column, vector);
+            break;
+        }
         case "Motor": {
             if (fieldMarked(binding, mask, "linearVelocity")) {
                 const linear = storage.linearVelocity as Vector4Field;

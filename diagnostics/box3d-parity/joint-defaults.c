@@ -11,7 +11,7 @@
 #error This harness requires SSE2 (oracle authority) or NEON (native-only evidence).
 #endif
 
-enum Kind { PARALLEL, DISTANCE, FILTER, MOTOR, PRISMATIC, REVOLUTE, SPHERICAL, WELD, WHEEL, KIND_COUNT };
+enum Kind { PARALLEL, DISTANCE, FILTER, MOTOR, PRISMATIC, REVOLUTE, SPHERICAL, WELD, WHEEL, MOVER, POGO, KIND_COUNT };
 
 typedef struct Values
 {
@@ -95,6 +95,14 @@ static b3JointId create_joint(int kind, b3WorldId world, b3BodyId a, b3BodyId b)
         case WHEEL: {
             b3WheelJointDef d = b3DefaultWheelJointDef(); d.base.bodyIdA = a; d.base.bodyIdB = b;
             return b3CreateWheelJoint(world, &d);
+        }
+        case MOVER: {
+            b3MoverJointDef d = b3DefaultMoverJointDef(); d.base.bodyIdA = a; d.base.bodyIdB = b;
+            return b3CreateMoverJoint(world, &d);
+        }
+        case POGO: {
+            b3PogoJointDef d = b3DefaultPogoJointDef(); d.base.bodyIdA = a; d.base.bodyIdB = b;
+            return b3CreatePogoJoint(world, &d);
         }
         default: return b3_nullJointId;
     }
@@ -202,6 +210,18 @@ static void set_values(int kind, b3JointId joint, Values v)
             ordered(v.s[9] / 8.0f, v.s[10] / 8.0f, &lo, &hi); b3WheelJoint_SetSteeringLimits(joint, lo, hi);
             b3WheelJoint_SetTargetSteeringAngle(joint, v.s[11] / 8.0f);
             break;
+        case MOVER:
+            b3MoverJoint_SetLinearVelocity(joint, (b3Vec3){v.s[6], v.s[7], v.s[8]});
+            b3MoverJoint_SetMaxVelocityForce(joint, v.p[4]);
+            break;
+        case POGO:
+            b3PogoJoint_SetNormal(joint, (v.flags & 8u) ? b3Vec3_axisX : b3Vec3_axisZ);
+            b3PogoJoint_SetRestLength(joint, v.p[4]);
+            b3PogoJoint_SetSpringHertz(joint, v.p[5]);
+            b3PogoJoint_SetSpringDampingRatio(joint, v.p[6]);
+            b3PogoJoint_SetMaxTensionForce(joint, v.p[7]);
+            b3PogoJoint_SetMaxCompressionForce(joint, v.p[8]);
+            break;
     }
 }
 
@@ -260,6 +280,15 @@ static void dump(int kind, b3JointId joint)
             emit(b3WheelJoint_IsSpinMotorEnabled(joint) ? 1.0f : 0.0f); emit(b3WheelJoint_GetSpinMotorSpeed(joint)); emit(b3WheelJoint_GetMaxSpinTorque(joint));
             emit(b3WheelJoint_IsSteeringEnabled(joint) ? 1.0f : 0.0f); emit(b3WheelJoint_GetSteeringHertz(joint)); emit(b3WheelJoint_GetSteeringDampingRatio(joint)); emit(b3WheelJoint_GetMaxSteeringTorque(joint));
             emit(b3WheelJoint_IsSteeringLimitEnabled(joint) ? 1.0f : 0.0f); emit(b3WheelJoint_GetLowerSteeringLimit(joint)); emit(b3WheelJoint_GetUpperSteeringLimit(joint)); emit(b3WheelJoint_GetTargetSteeringAngle(joint));
+            break;
+        case MOVER:
+            emit_vec3(b3MoverJoint_GetLinearVelocity(joint)); emit(b3MoverJoint_GetMaxVelocityForce(joint));
+            break;
+        case POGO:
+            emit_vec3(b3PogoJoint_GetNormal(joint)); emit(b3PogoJoint_GetRestLength(joint));
+            emit(b3PogoJoint_GetSpringHertz(joint)); emit(b3PogoJoint_GetSpringDampingRatio(joint));
+            emit(b3PogoJoint_GetMaxTensionForce(joint)); emit(b3PogoJoint_GetMaxCompressionForce(joint));
+            emit(b3PogoJoint_GetImpulse(joint)); emit(b3PogoJoint_GetCurrentSpeed(joint));
             break;
     }
     b3JointSim* sim = b3GetJointSimCheckType(joint, b3Joint_GetType(joint));

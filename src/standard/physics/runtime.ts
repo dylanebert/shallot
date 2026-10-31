@@ -35,6 +35,11 @@ import type { EntityId } from "./common/ids";
 import { ContactDataBuffer, type PhysicsContactData } from "./contact";
 import { PhysicsCreationOrder, recordPhysicsMembership } from "./creation-order";
 import { jointIsValid, getJointLinearSeparation as jointLinearSeparation } from "./solver/joint";
+import {
+    pogoJointCurrentLength,
+    pogoJointCurrentSpeed,
+    pogoJointImpulse,
+} from "./solver/pogoJoint";
 
 const f32 = Math.fround;
 
@@ -1591,6 +1596,41 @@ export function getLocalPoint(world: World, eid: number, point: Pos): Vec3 | nul
     const ptr = k.bodyLocalPoint(state.worldId, body.index1 - 1, point.x, point.y, point.z);
     const p = new Float32Array(k.memory.buffer, ptr, 3);
     return { x: p[0], y: p[1], z: p[2] };
+}
+
+function readPogoJoint(
+    world: World,
+    eid: number,
+    read: (state: WorldState, joint: number) => number,
+): number | null {
+    const runtime = runtimeFor(world);
+    const state = runtime.physicsWorld;
+    if (!state) return null;
+    for (const binding of jointBindings(world)) {
+        if (binding.kind !== "Pogo" || !world.has(eid, binding.component)) continue;
+        const id = runtime.constraints.liveJoints.get(binding.index)?.get(eid);
+        if (id && jointIsValid(state, id) && state.jointUserData[id.index1 - 1] === world.ref(eid))
+            return read(state, id.index1 - 1);
+    }
+    return null;
+}
+
+/** Current pogo internal impulse in N·s, to carry into a recreated PogoJoint's spawn impulse.
+ * Returns null until the joint is held by the solver, or after its component is removed. */
+export function getPogoJointImpulse(world: World, eid: number): number | null {
+    return readPogoJoint(world, eid, pogoJointImpulse);
+}
+
+/** Current pogo internal spring speed in m/s, to carry into a recreated PogoJoint's spawn velocity.
+ * Returns null until the joint is held by the solver, or after its component is removed. */
+export function getPogoJointCurrentSpeed(world: World, eid: number): number | null {
+    return readPogoJoint(world, eid, pogoJointCurrentSpeed);
+}
+
+/** Current distance in meters between pogo anchors along frame B's y axis.
+ * Returns null until the joint is held by the solver, or after its component is removed. */
+export function getPogoJointCurrentLength(world: World, eid: number): number | null {
+    return readPogoJoint(world, eid, pogoJointCurrentLength);
 }
 
 /** Current joint linear constraint error in meters (Box3D's linear separation).

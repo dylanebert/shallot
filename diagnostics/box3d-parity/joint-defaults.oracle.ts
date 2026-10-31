@@ -20,6 +20,8 @@ import { createTestBody, createTestWorld, destroyTestWorld } from "../../src/sta
 import { createFilterJoint, defaultJointDef, destroyJointInternal } from "../../src/standard/physics/solver/joint";
 import { createDistanceJoint, defaultDistanceJointDef } from "../../src/standard/physics/solver/distanceJoint";
 import { createMotorJoint, defaultMotorJointDef } from "../../src/standard/physics/solver/motorJoint";
+import { createMoverJoint, defaultMoverJointDef } from "../../src/standard/physics/solver/moverJoint";
+import { createPogoJoint, defaultPogoJointDef } from "../../src/standard/physics/solver/pogoJoint";
 import { createParallelJoint, defaultParallelJointDef } from "../../src/standard/physics/solver/parallelJoint";
 import { createPrismaticJoint, defaultPrismaticJointDef } from "../../src/standard/physics/solver/prismaticJoint";
 import { createRevoluteJoint, defaultRevoluteJointDef } from "../../src/standard/physics/solver/revoluteJoint";
@@ -35,7 +37,7 @@ setDefaultTimeout(180_000);
 await init(undefined, { threads: 0 });
 await assertPublicOracleKernel();
 
-const kinds = ["parallel", "distance", "filter", "motor", "prismatic", "revolute", "spherical", "weld", "wheel"] as const;
+const kinds = ["parallel", "distance", "filter", "motor", "prismatic", "revolute", "spherical", "weld", "wheel", "mover", "pogo"] as const;
 type Kind = (typeof kinds)[number];
 type Values = { s: number[]; p: number[]; flags: number };
 
@@ -66,6 +68,8 @@ function jointBase(bodyIdA: number, bodyIdB: number) {
 function create(kind: Kind, world: WorldState, a: number, b: number): number {
     const base = jointBase(a, b);
     switch (kind) {
+        case "mover": return createMoverJoint(world, defaultMoverJointDef(base)).joint;
+        case "pogo": return createPogoJoint(world, defaultPogoJointDef(base)).joint;
         case "parallel":
             return createParallelJoint(world, defaultParallelJointDef(base)).joint;
         case "distance":
@@ -207,6 +211,18 @@ function setValues(kind: Kind, world: WorldState, joint: number, v: Values): voi
             writeJointFloat(world, joint, C.WHJ_TARGET_STEERING_ANGLE, v.s[11]! / 8);
             wakeJointBodies(world, joint);
             break;
+        case "mover":
+            writeJointVec3(world, joint, C.MVJ_LINEAR_VELOCITY, vec(v.s.slice(6, 9)));
+            set(C.MVJ_MAX_FORCE, v.p[4]!);
+            break;
+        case "pogo":
+            writeJointVec3(world, joint, C.PGJ_NORMAL, v.flags & 8 ? {x:1,y:0,z:0} : {x:0,y:0,z:1});
+            set(C.PGJ_REST_LENGTH, v.p[4]!);
+            set(C.PGJ_HERTZ, v.p[5]!);
+            set(C.PGJ_DAMPING_RATIO, v.p[6]!);
+            set(C.PGJ_MAX_TENSION_FORCE, v.p[7]!);
+            set(C.PGJ_MAX_COMPRESSION_FORCE, v.p[8]!);
+            break;
     }
 }
 
@@ -344,6 +360,12 @@ function dump(kind: Kind, world: WorldState, joint: number): number[] {
                 read(C.WHJ_UPPER_STEERING_LIMIT),
                 read(C.WHJ_TARGET_STEERING_ANGLE),
             );
+            break;
+        case "mover":
+            value.push(readJointVec3(world, joint, C.MVJ_LINEAR_VELOCITY), read(C.MVJ_MAX_FORCE));
+            break;
+        case "pogo":
+            value.push(readJointVec3(world, joint, C.PGJ_NORMAL), read(C.PGJ_REST_LENGTH), read(C.PGJ_HERTZ), read(C.PGJ_DAMPING_RATIO), read(C.PGJ_MAX_TENSION_FORCE), read(C.PGJ_MAX_COMPRESSION_FORCE), read(C.PGJ_IMPULSE), read(C.PGJ_VELOCITY));
             break;
     }
     value.push([

@@ -1,4 +1,5 @@
 import { BodyType, defaultShapeDef } from "../common/types";
+import { JOINT_STRIDE } from "../kernel/columns";
 import { kernel } from "../kernel/kernel";
 import { createSphereShape } from "../shapes/shape";
 import { createTestBody, createTestWorld, destroyTestWorld, stepTestWorld } from "../testing";
@@ -34,7 +35,7 @@ export function visitMoverPogo(
         let joint = createJoint(world, def, c.kind as JointType).joint;
         const words = () => {
             k.bodySetActiveWorld(world.worldId);
-            return new Uint32Array(k.memory.buffer, k.jointSimPtr(joint), k.jointLayoutOffset(0));
+            return new Uint32Array(k.memory.buffer, k.jointSimPtr(joint), JOINT_STRIDE);
         };
         const initialize = () => {
             const w = words();

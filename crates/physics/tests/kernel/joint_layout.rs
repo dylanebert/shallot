@@ -5,7 +5,15 @@ use shallot_physics::joint_sim::*;
 
 #[test]
 fn joint_sim_and_payloads_have_joint_h_sizes_and_index_offsets() {
-    // Measured with sizeof/offsetof against Box3D 47d7f7cc joint.h.
+    // Measured with sizeof/offsetof against joint.h at the oracle pin.
+    assert_eq!(
+        (size_of::<MoverJoint>(), offset_of!(MoverJoint, index_a)),
+        (60, 48)
+    );
+    assert_eq!(
+        (size_of::<PogoJoint>(), offset_of!(PogoJoint, index_a)),
+        (120, 36)
+    );
     assert_eq!(size_of::<JointSim>(), 444);
     assert_eq!(offset_of!(JointSim, payload), 184);
     assert_eq!(offset_of!(JointSim, fixed_rotation), 180);

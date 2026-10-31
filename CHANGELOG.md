@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.3
+
+### highlights
+
+- changed physics reference from box3d `47d7f7cc` to `3362633`, including upstream collision and solver fixes
+- added `Body.safetyFactor`, `PhysicsWorldDefinition.restitutionIterations`, `PhysicsWorldDefinition.enableRestitutionPropagation` and `PhysicsWorldDefinition.isotropicInertiaTolerance`
+- added `MoverJoint` and `PogoJoint`, including carried pogo impulse and velocity
+
 ## 0.10.2
 
 ### highlights

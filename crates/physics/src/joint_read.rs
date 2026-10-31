@@ -42,8 +42,16 @@ pub fn read(c: Col<f32>, a: Transform, b: Transform, operation: u32) -> f32 {
             let axis =
                 b.q.mul(get_quat(c, 0, J_LOCAL_FRAME_B + 3))
                     .rotate(Vec3::new(0.0, 1.0, 0.0));
-            let pa = a.point(get_vec3(c, 0, J_LOCAL_FRAME_A));
-            let pb = b.point(get_vec3(c, 0, J_LOCAL_FRAME_B));
+            let relative_a = Transform {
+                p: Vec3::ZERO,
+                q: a.q,
+            };
+            let relative_b = Transform {
+                p: b.p.sub(a.p),
+                q: b.q,
+            };
+            let pa = relative_a.point(get_vec3(c, 0, J_LOCAL_FRAME_A));
+            let pb = relative_b.point(get_vec3(c, 0, J_LOCAL_FRAME_B));
             pb.sub(pa).dot(axis)
         }
         7 => {

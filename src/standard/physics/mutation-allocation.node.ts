@@ -49,7 +49,7 @@ test("warmed type, filter, joint, event-flag and destroy/create mutations match 
         for (let i = 0; i < 1200; ++i) mutate();
         const before = k.allocationCount();
         for (let i = 0; i < 600; ++i) mutate();
-        // mutations.c at Box3D 47d7f7cc: island body/joint arrays allocate 1200 times for this sequence.
+        // mutations.c: island body/joint arrays allocate 1200 times for this sequence.
         expect(k.allocationCount() - before).toBe(1200);
         k.allocationControl();
         expect(k.allocationCount() - before).toBeGreaterThan(1200);

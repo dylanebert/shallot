@@ -3,7 +3,9 @@ import {
     DistanceJoint,
     FilterJoint,
     MotorJoint,
+    MoverJoint,
     ParallelJoint,
+    PogoJoint,
     PrismaticJoint,
     RevoluteJoint,
     Shape,
@@ -16,7 +18,9 @@ import type {
     BaseJointConfig,
     DistanceJointConfig,
     MotorJointConfig,
+    MoverJointConfig,
     ParallelJointConfig,
+    PogoJointConfig,
     PrismaticJointConfig,
     RevoluteJointConfig,
     SphericalJointConfig,
@@ -34,11 +38,15 @@ const entries = [
     ["Spherical", SphericalJoint],
     ["Weld", WeldJoint],
     ["Wheel", WheelJoint],
+    ["Mover", MoverJoint],
+    ["Pogo", PogoJoint],
 ] as const;
 export const JOINT_KIND_COUNT = entries.length;
 type Config = BaseJointConfig &
     Partial<
         DistanceJointConfig &
+            MoverJointConfig &
+            PogoJointConfig &
             MotorJointConfig &
             ParallelJointConfig &
             PrismaticJointConfig &

@@ -98,6 +98,21 @@ export type MotorJointConfig = BaseJointConfig & {
     maxSpringTorque: number;
 };
 
+/** Mover-specific options, on top of the shared base. */
+export type MoverJointConfig = BaseJointConfig & { linearVelocity: Vec3; maxForce: number };
+
+/** Pogo-specific options, on top of the shared base. */
+export type PogoJointConfig = BaseJointConfig & {
+    normal: Vec3;
+    hertz: number;
+    dampingRatio: number;
+    restLength: number;
+    maxTensionForce: number;
+    maxCompressionForce: number;
+    impulse: number;
+    velocity: number;
+};
+
 /** Distance-specific options, on top of the shared base. */
 export type DistanceJointConfig = BaseJointConfig & {
     length: number;

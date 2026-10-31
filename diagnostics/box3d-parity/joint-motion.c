@@ -16,16 +16,17 @@ static void motion(b3WorldId w,int id) {
 }
 int main(void) {
  puts("[");int first=1;
- for(int kind=0;kind<3;++kind)for(int mode=0;mode<6;++mode)for(int sample=0;sample<8;++sample) {
+ for(int kind=0;kind<4;++kind)for(int mode=0;mode<6;++mode)for(int sample=0;sample<8;++sample) {
   b3WorldDef wd=b3DefaultWorldDef();wd.gravity=b3Vec3_zero;b3WorldId w=b3CreateWorld(&wd);
-  b3BodyDef d=b3DefaultBodyDef();d.type=mode==1?b3_staticBody:mode==3?b3_kinematicBody:b3_dynamicBody;d.position=(b3Pos){0.3f,-1.7f,2.1f};d.rotation=b3MakeQuatFromAxisAngle(b3Normalize((b3Vec3){1,2,-3}),sample*0.7f);b3BodyId a=b3CreateBody(w,&d);
-  d.type=mode==2?b3_staticBody:mode==4?b3_kinematicBody:b3_dynamicBody;d.position=(b3Pos){-0.2f,0.4f,-1.3f};d.rotation=b3MakeQuatFromAxisAngle(b3Normalize((b3Vec3){-2,3,1}),sample*-0.31f);b3BodyId b=b3CreateBody(w,&d);
+  b3BodyDef d=b3DefaultBodyDef();d.type=mode==1?b3_staticBody:mode==3?b3_kinematicBody:b3_dynamicBody;d.position=(b3Pos){0.3f,kind==3?9998.3f:-1.7f,2.1f};d.rotation=b3MakeQuatFromAxisAngle(b3Normalize((b3Vec3){1,2,-3}),sample*0.7f);b3BodyId a=b3CreateBody(w,&d);
+  d.type=mode==2?b3_staticBody:mode==4?b3_kinematicBody:b3_dynamicBody;d.position=(b3Pos){-0.2f,kind==3?10000.4f:0.4f,-1.3f};d.rotation=b3MakeQuatFromAxisAngle(b3Normalize((b3Vec3){-2,3,1}),sample*-0.31f);b3BodyId b=b3CreateBody(w,&d);
   b3ShapeDef sd=b3DefaultShapeDef();b3Sphere sphere={{0.3f,-0.2f,0.1f},0.7f};b3CreateSphereShape(a,&sd,&sphere);sphere.center=(b3Vec3){-0.4f,0.5f,-0.6f};b3CreateSphereShape(b,&sd,&sphere);
   b3Body_SetLinearVelocity(a,(b3Vec3){1.3f,-0.7f,0.2f});b3Body_SetAngularVelocity(a,(b3Vec3){-0.2f,0.6f,-1.1f});
   b3Body_SetLinearVelocity(b,(b3Vec3){-1.7f,0.4f,-0.3f});b3Body_SetAngularVelocity(b,(b3Vec3){0.3f,-0.8f,1.2f});
   b3JointId j;
   if(kind==0){b3PrismaticJointDef def=b3DefaultPrismaticJointDef();def.base.bodyIdA=a;def.base.bodyIdB=b;j=b3CreatePrismaticJoint(w,&def);}
   else if(kind==1){b3DistanceJointDef def=b3DefaultDistanceJointDef();def.base.bodyIdA=a;def.base.bodyIdB=b;j=b3CreateDistanceJoint(w,&def);}
+  else if(kind==3){b3PogoJointDef def=b3DefaultPogoJointDef();def.base.bodyIdA=a;def.base.bodyIdB=b;j=b3CreatePogoJoint(w,&def);}
   else {b3WheelJointDef def=b3DefaultWheelJointDef();def.base.bodyIdA=a;def.base.bodyIdB=b;j=b3CreateWheelJoint(w,&def);}
   b3Joint_SetLocalFrameA(j,(b3Transform){{-0.4f,0.2f,-0.1f},b3MakeQuatFromAxisAngle(b3Vec3_axisX,sample*0.11f)});
   b3Joint_SetLocalFrameB(j,(b3Transform){{0.7f,-0.3f,0.9f},b3MakeQuatFromAxisAngle(b3Vec3_axisY,sample*-0.13f)});
@@ -37,7 +38,8 @@ int main(void) {
   if(kind==0)number(b3PrismaticJoint_GetTranslation(j));else printf("null");printf(",");
   if(kind==1)number(b3DistanceJoint_GetCurrentLength(j));else printf("null");printf(",");
   if(kind==0)number(b3PrismaticJoint_GetSpeed(j));else printf("null");printf(",");
-  if(kind==2)number(b3WheelJoint_GetSpinSpeed(j));else printf("null");printf("]}");
+  if(kind==2)number(b3WheelJoint_GetSpinSpeed(j));else printf("null");printf(",");
+  if(kind==3)number(b3PogoJoint_GetCurrentLength(j));else printf("null");printf("]}");
   b3DestroyWorld(w);
  }
  puts("\n]");

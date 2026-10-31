@@ -5,6 +5,7 @@ import { createTestBody, createTestWorld, destroyTestWorld } from "../testing";
 import { bodySetAngularVelocity, bodySetAwake, bodySetLinearVelocity } from "../world/body";
 import { distanceJointCurrentLength } from "./distanceJoint";
 import { createJoint, defaultJointDef, type JointType } from "./joint";
+import { pogoJointCurrentLength } from "./pogoJoint";
 import { prismaticJointSpeed, prismaticJointTranslation } from "./prismaticJoint";
 import { wheelJointSpinSpeed } from "./wheelJoint";
 export type JointMotionCase = {
@@ -25,6 +26,7 @@ export function visitJointMotion(
         distanceJointCurrentLength,
         prismaticJointSpeed,
         wheelJointSpinSpeed,
+        pogoJointCurrentLength,
     ];
     for (const c of cases) {
         const world = createTestWorld();
@@ -85,7 +87,7 @@ export function visitJointMotion(
             const k = kernel(world.ecsState);
             k.bodySetActiveWorld(world.worldId);
             new Uint32Array(k.memory.buffer, k.jointSimPtr(j), c.joint.length).set(c.joint);
-            for (let op = 0; op < 4; ++op) {
+            for (let op = 0; op < getters.length; ++op) {
                 const expected = c.output[op];
                 if (expected === null) continue;
                 const actual = new Uint32Array(new Float32Array([getters[op](world, j)]).buffer)[0];

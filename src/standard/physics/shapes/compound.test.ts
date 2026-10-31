@@ -753,7 +753,7 @@ test("the kernel compound mover query returns an up-facing plane from each strad
 });
 
 test("a compound mesh child keeps a scale below B3_MIN_SCALE, as b3CreateCompound copies it, and rays meet that surface or miss a zero axis as Box3D does", () => {
-    // Native rows from Box3D 47d7f7cc: b3GetCompoundChild(c, 0).mesh.scale.y, then
+    // Native rows: b3GetCompoundChild(c, 0).mesh.scale.y, then
     // b3World_CastRayClosest's fraction and point.y, for a box mesh child at scale (1, y, 1).
     const native = [
         { y: 0.005, scale: "3ba3d70a", fraction: "3effbe76", point: "3ba3d800" },
