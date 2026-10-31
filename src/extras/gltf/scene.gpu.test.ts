@@ -252,9 +252,14 @@ test("two placements reuse the load's exposed primitive handles and model-space 
     try {
         const first = spawnGltfScene(world, loaded, { translation: [3, 0, 0] });
         const second = spawnGltfScene(world, loaded, { translation: [-3, 0, 0] });
-        expect(first).not.toEqual(second);
-        expect(first.length).toBe(loaded.primitives.length);
-        expect(second.length).toBe(loaded.primitives.length);
+        expect(Object.getPrototypeOf(first)).toBe(Object.prototype);
+        expect(Object.getOwnPropertySymbols(first)).toEqual([]);
+        expect(first.entities).not.toEqual(second.entities);
+        expect(first.poses[0]).not.toBe(second.poses[0]);
+        expect(first.globals[0]).not.toBe(second.globals[0]);
+        expect(first.transforms[0]).not.toBe(second.transforms[0]);
+        expect(first.entities.length).toBe(loaded.primitives.length);
+        expect(second.entities.length).toBe(loaded.primitives.length);
         for (const [i, primitive] of loaded.primitives.entries()) {
             expect(world.resource(Meshes).has(primitive.mesh)).toBe(true);
             expect(Array.from(primitive.matrix)).toEqual(
@@ -279,7 +284,7 @@ test("two placements reuse the load's exposed primitive handles and model-space 
                     ]),
                 ),
             );
-            for (const eid of [first[i], second[i]]) {
+            for (const eid of [first.entities[i], second.entities[i]]) {
                 expect(world.storage(MeshInstance).mesh.get(eid)).toBe(primitive.mesh);
                 expect(world.storage(MeshMaterial).type.get(eid)).toBe(primitive.material.type);
                 expect(world.storage(MeshMaterial).material.get(eid)).toBe(

@@ -209,37 +209,42 @@ export function spawnGltfScene(
         world.add(eid, MeshMaterial, primitive.material);
         return eid;
     });
-    return Object.assign(entities, {
-        [poseState]: {
-            gltf,
-            placement: matrix,
-            poses: gltf.nodes.map(({ translation, rotation, scale, weights }) => ({
-                translation: [...translation],
-                rotation: [...rotation],
-                scale: [...scale],
-                weights: [...weights],
-            })),
-            globals: gltf.nodes.map(() => new Float32Array(16)),
-            transforms: entities.map(() => new Float32Array(10)),
-            composed: new Float32Array(16),
-            recomposed: new Float32Array(16),
-        },
-    });
+    return {
+        entities,
+        gltf,
+        placement: matrix,
+        poses: gltf.nodes.map(({ translation, rotation, scale, weights }) => ({
+            translation: [...translation],
+            rotation: [...rotation],
+            scale: [...scale],
+            weights: [...weights],
+        })),
+        globals: gltf.nodes.map(() => new Float32Array(16)),
+        transforms: entities.map(() => new Float32Array(10)),
+        composed: new Float32Array(16),
+        recomposed: new Float32Array(16),
+    };
 }
 
-const poseState = Symbol("glTF pose");
-
-/** Primitive eids in spawn order, with independent pose storage and a captured spawn placement. */
-export interface GltfSceneInstance extends Array<number> {
-    readonly [poseState]: {
-        gltf: Gltf;
-        placement: Float32Array;
-        poses: GltfNodePose[];
-        globals: Float32Array[];
-        transforms: Float32Array[];
-        composed: Float32Array;
-        recomposed: Float32Array;
-    };
+/** A spawn and its independent pose working storage, overwritten by poseGltfScene.
+ * Keep entity order, array lengths and storage references unchanged while posing.
+ */
+export interface GltfSceneInstance {
+    /** Primitive eids in spawn order. */
+    entities: number[];
+    gltf: Gltf;
+    /** Captured spawn placement, composed onto node globals. */
+    placement: Float32Array;
+    /** Local poses in scene-node order. */
+    poses: GltfNodePose[];
+    /** Model-space global matrices in scene-node order. */
+    globals: Float32Array[];
+    /** Entity TRS values in primitive order, validated before any entity write. */
+    transforms: Float32Array[];
+    /** Matrix multiplication scratch. */
+    composed: Float32Array;
+    /** TRS recomposition scratch for shear validation. */
+    recomposed: Float32Array;
 }
 
 function validateTransform(
@@ -273,8 +278,7 @@ export function poseGltfScene(
     animation: GltfAnimation,
     time: number,
 ): void {
-    const state = instance[poseState];
-    const { gltf, poses, globals, transforms, composed, recomposed } = state;
+    const { entities, gltf, poses, globals, transforms, composed, recomposed } = instance;
     if (gltf.world !== world) throw new Error("glTF handle belongs to another world");
     evaluateGltfAnimation(gltf.nodes, animation, time, poses);
     for (let i = 0; i < poses.length; i++) {
@@ -296,15 +300,15 @@ export function poseGltfScene(
         if (parent !== -1) multiplyMat4(globals[parent], local, globals[i]);
         else globals[i].set(local);
     }
-    for (let i = 0; i < instance.length; i++) {
+    for (let i = 0; i < entities.length; i++) {
         const primitive = gltf.primitives[i];
-        multiplyMat4(state.placement, globals[primitive.nodeIndex], composed);
+        multiplyMat4(instance.placement, globals[primitive.nodeIndex], composed);
         decomposeMat4(composed, transforms[i]);
         validateTransform(composed, transforms[i], recomposed, primitive.node);
     }
     const storage = world.storage(Transform);
-    for (let i = 0; i < instance.length; i++) {
-        const eid = instance[i],
+    for (let i = 0; i < entities.length; i++) {
+        const eid = entities[i],
             t = transforms[i];
         storage.translation.set(eid, t[0], t[1], t[2]);
         storage.rotation.set(eid, t[3], t[4], t[5], t[6]);

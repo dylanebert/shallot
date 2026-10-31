@@ -54,7 +54,7 @@ export function selectScene(world: World, scene: Scene, aspect = 1) {
         viewer.models.get(scene)!,
         scene === "CesiumMilkTruck" ? truckPlacement : {},
     );
-    viewer.entities = viewer.instance;
+    viewer.entities = viewer.instance.entities;
     animateScene(world, 0);
     viewer.bounds = sceneBounds(viewer.models.get(scene)!, scene);
     const view = sceneAngles(scene);

@@ -146,12 +146,12 @@ for (const { record, path, scene } of subjects) {
                 const stretched = spawnGltfScene(app.world, gltf, { scale: [2, 1, 1] });
                 const before = app.world.storage(GlobalTransform);
                 app.world.tick();
-                const x = before.scale.x.get(stretched[0]);
+                const x = before.scale.x.get(stretched.entities[0]);
                 expect(() =>
                     poseGltfScene(app.world, stretched, gltf.animations[0], 0.125),
                 ).toThrow(/Node0.*shear/);
                 app.world.tick();
-                expect(before.scale.x.get(stretched[0])).toBe(x);
+                expect(before.scale.x.get(stretched.entities[0])).toBe(x);
                 const foreign = await createApp({ defaults: false, plugins: [] });
                 try {
                     expect(() =>
@@ -191,8 +191,8 @@ for (const { record, path, scene } of subjects) {
                     app.world.tick();
                     const global = app.world.storage(GlobalTransform);
                     for (const [entities, offset] of [
-                        [instance, null],
-                        [placed, placement],
+                        [instance.entities, null],
+                        [placed.entities, placement],
                     ] as const) {
                         entities.forEach((eid, i) => {
                             const t = global.translation,

@@ -131,7 +131,7 @@ export function parity(category: string) {
                         name: "Parity",
                         async initialize(world) {
                             model = await loadGltfScene(world, url);
-                            entities = spawnGltfScene(world, model);
+                            entities = spawnGltfScene(world, model).entities;
                         },
                     },
                 ],
