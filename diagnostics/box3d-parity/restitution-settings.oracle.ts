@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { Body, BodyType, Shape, ShapeKind, Hulls } from "../../src/core/physics";
+import { Body, BodyType, Shape, ShapeKind, Hulls, PhysicsMeshes } from "../../src/core/physics";
 import { Transform } from "../../src/core/transform";
 import { createApp } from "../../src/engine";
 import { hashPhysics, PhysicsWorldDefinition, StandardPhysicsPlugin } from "../../src/standard/physics";
@@ -16,16 +16,20 @@ const cases = [
     [100, true, false],
     [2, false, true],
     [0, true, true],
+    [0, false, false, true],
+    [2, false, false, true],
+    [2, true, false, true],
+    [0, false, true, true],
 ] as const;
 const binary = nativeBinary("restitution-settings.c", "x86_64");
-const outputs = cases.map(([iterations, propagation, change]) =>
-    run([binary, String(iterations), String(Number(propagation)), String(Number(change))])
+const outputs = cases.map(([iterations, propagation, change, mesh = false]) =>
+    run([binary, String(iterations), String(Number(propagation)), String(Number(change)), String(Number(mesh))])
         .trim().split("\n").map((line) => line.split(" ")),
 );
 
-for (const [index, [iterations, propagation, change]] of cases.entries()) {
+for (const [index, [iterations, propagation, change, mesh = false]] of cases.entries()) {
     for (const workerCount of [1, 4]) {
-        test(`restitution ${iterations}/${propagation}, live change ${change}, ${workerCount} workers equals native`, async () => {
+        test(`restitution ${iterations}/${propagation}, live change ${change}, mesh floor ${mesh}, ${workerCount} workers equals native`, async () => {
             const app = await createApp({
                 defaults: false,
                 plugins: [StandardPhysicsPlugin],
@@ -40,15 +44,16 @@ for (const [index, [iterations, propagation, change]] of cases.entries()) {
             try {
                 const world = app.world;
                 const box = world.resource(Hulls).add({ name: "restitution box", halfExtents: [1, 1, 1] });
+                const floor = world.resource(PhysicsMeshes).add({ name: "restitution floor", grid: { xCount: 4, zCount: 4, cellWidth: 4, materialCount: 1, identifyEdges: true } });
                 for (let i = 0; i < 5; i++) {
                     const eid = world.create();
-                    world.add(eid, Transform, { translation: [i === 4 ? 0.25 : 0, i === 4 ? 11 : 2 * i, 0] });
+                    world.add(eid, Transform, { translation: [i === 4 ? 0.25 : 0, i === 4 ? 11 : i === 0 && mesh ? 1 : 2 * i, 0] });
                     world.add(eid, Body, {
                         type: i === 0 ? BodyType.Static : BodyType.Dynamic,
                         linearVelocity: [0, i === 4 ? -12 : 0, 0],
                         angularVelocity: [0, 0, i === 4 ? 0.3 : 0],
                     });
-                    world.add(eid, Shape, { kind: i === 4 ? ShapeKind.Hull : ShapeKind.Sphere, geometry: box, radius: 1, friction: 0, restitution: i === 4 ? 0.75 : 0, density: 1 });
+                    world.add(eid, Shape, { kind: i === 0 && mesh ? ShapeKind.Mesh : i === 4 ? ShapeKind.Hull : ShapeKind.Sphere, geometry: i === 0 && mesh ? floor : box, radius: 1, friction: 0, restitution: i === 4 ? 0.75 : 0, density: 1 });
                 }
                 for (let step = 0; step < 180; step++) {
                     if (change && step === 5) {
@@ -71,6 +76,9 @@ test("the fixture distinguishes iteration count, propagation and live changes", 
     expect(hashes[4]).not.toEqual(hashes[2]);
     expect(hashes[7]).not.toEqual(hashes[2]);
     expect(hashes[8]).not.toEqual(hashes[0]);
+    expect(hashes[9]).not.toEqual(hashes[10]);
+    expect(hashes[11]).not.toEqual(hashes[10]);
+    expect(hashes[12]).not.toEqual(hashes[9]);
     for (const [i, [iterations, propagation, change]] of cases.entries()) {
         for (const [step, row] of outputs[i]!.entries()) {
             const live = change && step >= 5;

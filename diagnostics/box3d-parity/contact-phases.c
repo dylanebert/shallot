@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Calls the pinned native contact phases over the historical gold inputs. No
-// solver transcription.
+// Capture native contact-phase outputs without reimplementing the solver.
 #include "body.h"
 #include "contact.h"
 #include "contact_solver.h"

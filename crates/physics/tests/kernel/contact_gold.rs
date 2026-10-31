@@ -1,7 +1,5 @@
-//! Bit-exact parity of the Rust scalar contact solver against frozen historical oracle vectors,
-//! read from the committed gold vectors (`src/contact.gold.json`). Current target evidence is
-//! produced by the standalone oracle; this drives the Rust port over the same shared columns and
-//! asserts every output float bit-for-bit.
+//! Rust scalar contact phases must match the native phase outputs in `contact.gold.json` bit for bit.
+//! `diagnostics/box3d-parity/contact-phases.oracle.ts` verifies those outputs against the pinned C functions.
 
 use serde_json::Value;
 use shallot_physics::body::{SIM_STRIDE, STATE_STRIDE};
@@ -20,7 +18,7 @@ fn col<T: Copy>(v: &mut [T]) -> Col<'_, T> {
     unsafe { Col::of(v) }
 }
 
-const GOLD: &str = include_str!("../../../../src/standard/physics/collision/contact.gold.json");
+const GOLD: &str = include_str!("contact.gold.json");
 
 fn from_bits(hex: &str) -> f32 {
     let bits = u32::from_str_radix(hex.trim_start_matches("0x"), 16).expect("hex");

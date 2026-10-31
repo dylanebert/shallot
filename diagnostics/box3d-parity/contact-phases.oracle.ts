@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { nativeBinary, run } from './native';
 
-const root = resolve('src/standard/physics/collision');
+const root = resolve('crates/physics/tests/kernel');
 const f = (bits: string) => `F(${bits})`;
 const fields = (name: string, values: string[]) => values.map((v, i) => `${name}[${i}]=${f(v)};`).join('\n');
 const vec = (name: string, values: string[]) => `${name}=(b3Vec3){${values.map(f).join(',')}};`;
@@ -13,7 +13,7 @@ const base = `b3World world={0};b3StepContext ctx={0};b3Contact contacts[4]={0};
 const setFloat = (name: string, value: string) => `${name}=${f(value)};`;
 const softness = (name: string, value: string[]) => `${name}=(b3Softness){${value.map(f).join(',')}};`;
 
-// Inputs stay in their historical JSON representation; only the native outputs are replaced.
+// Capture native phase outputs from the existing gold inputs.
 export function nativeContactPhases() {
     const scalarGold = JSON.parse(readFileSync(join(root, 'contact.gold.json'), 'utf8'));
     const wideGold = JSON.parse(readFileSync(join(root, 'contact_wide.gold.json'), 'utf8'));
