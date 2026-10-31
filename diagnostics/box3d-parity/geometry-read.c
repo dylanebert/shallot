@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// Inline geometry readers use the same assertion mode as the Release library.
+#define NDEBUG
 #include "box3d/collision.h"
 #include "shape.h"
 #include <stdio.h>
