@@ -44,7 +44,7 @@ fn prepare(jc: Col<f32>, slot: usize, h: f32, inv_h: f32, warm: bool) {
     ] {
         sim[i * SIM_STRIDE + 26] = get(jc, slot, mass);
         for k in 0..9 {
-            sim[i * SIM_STRIDE + 36 + k] = get(jc, slot, inertia + k);
+            sim[i * SIM_STRIDE + 45 + k] = get(jc, slot, inertia + k);
         }
         for k in 0..4 {
             sim[i * SIM_STRIDE + 3 + k] = get(jc, slot, rotation + k);

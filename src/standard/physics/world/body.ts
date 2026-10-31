@@ -38,6 +38,7 @@ export const BodyFlags = {
     dynamicFlag: 0x00001000,
     enableSleep: 0x00002000,
     enableContactRecycling: 0x00004000,
+    enableGyroscopicTorque: 0x00010000,
 } as const;
 export type BodySim = {
     readonly transform: WorldTransform;

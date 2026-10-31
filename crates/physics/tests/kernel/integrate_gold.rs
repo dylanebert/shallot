@@ -52,15 +52,32 @@ fn integrate_velocities_matches_c() {
 
         let mut sim_col = vec![0.0; SIM_STRIDE];
         let map: Vec<usize> = [
-            vec![26, 51, 49, 50, 20, 21, 22, 23, 24, 25],
-            (27..36).collect(),
+            vec![26, 60, 58, 59, 20, 21, 22, 23, 24, 25],
             (36..45).collect(),
+            (45..54).collect(),
             (3..7).collect(),
         ]
         .concat();
         for (i, offset) in map.into_iter().enumerate() {
             sim_col[offset] = input[i];
         }
+        // Frozen vectors supply inverse inertia; reconstruct their corresponding inertia and enable torque.
+        let inertia = shallot_physics::body::read_sim(col(&mut sim_col), 0)
+            .inv_inertia_local
+            .invert();
+        sim_col[27..36].copy_from_slice(&[
+            inertia.cx.x,
+            inertia.cx.y,
+            inertia.cx.z,
+            inertia.cy.x,
+            inertia.cy.y,
+            inertia.cy.z,
+            inertia.cz.x,
+            inertia.cz.y,
+            inertia.cz.z,
+        ]);
+        sim_col[shallot_physics::body::FLAGS] =
+            f32::from_bits(shallot_physics::body::flags::ENABLE_GYROSCOPIC_TORQUE);
         // Rebuild the full state column; deltaPosition (slots 6..9) is unused by this phase.
         let mut state_col = vec![0.0f32; STATE_STRIDE];
         state_col[0..3].copy_from_slice(&input[32..35]); // linearVelocity

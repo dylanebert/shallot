@@ -5,7 +5,7 @@ use crate::math::{Mat3, Quat, Vec3};
 pub const STATE_STRIDE: usize = 14;
 pub const STATE_LIVE: usize = 13;
 pub const STATE_FLAGS: usize = 13;
-pub const SIM_STRIDE: usize = 54;
+pub const SIM_STRIDE: usize = 63;
 pub const TRANSFORM_P: usize = 0;
 pub const ROTATION: usize = 3;
 pub const CENTER: usize = 7;
@@ -15,15 +15,16 @@ pub const LOCAL_CENTER: usize = 17;
 pub const FORCE: usize = 20;
 pub const TORQUE: usize = 23;
 pub const INV_MASS: usize = 26;
-pub const INV_INERTIA_LOCAL: usize = 27;
-pub const INV_INERTIA_WORLD: usize = 36;
-pub const MIN_EXTENT: usize = 45;
-pub const MAX_EXTENT: usize = 46;
-pub const LINEAR_DAMPING: usize = 49;
-pub const ANGULAR_DAMPING: usize = 50;
-pub const GRAVITY_SCALE: usize = 51;
-pub const BODY_ID: usize = 52;
-pub const FLAGS: usize = 53;
+pub const INERTIA: usize = 27;
+pub const INV_INERTIA_LOCAL: usize = 36;
+pub const INV_INERTIA_WORLD: usize = 45;
+pub const MIN_EXTENT: usize = 54;
+pub const MAX_EXTENT: usize = 55;
+pub const LINEAR_DAMPING: usize = 58;
+pub const ANGULAR_DAMPING: usize = 59;
+pub const GRAVITY_SCALE: usize = 60;
+pub const BODY_ID: usize = 61;
+pub const FLAGS: usize = 62;
 
 #[repr(C)]
 pub struct BodySim {
@@ -35,6 +36,7 @@ pub struct BodySim {
     pub force: Vec3,
     pub torque: Vec3,
     pub inv_mass: f32,
+    pub inertia: Mat3,
     pub inv_inertia_local: Mat3,
     pub inv_inertia_world: Mat3,
     pub min_extent: f32,
@@ -67,6 +69,7 @@ const _: () = {
     assert!(offset_of!(BodySim, force) == FORCE * 4);
     assert!(offset_of!(BodySim, torque) == TORQUE * 4);
     assert!(offset_of!(BodySim, inv_mass) == INV_MASS * 4);
+    assert!(offset_of!(BodySim, inertia) == INERTIA * 4);
     assert!(offset_of!(BodySim, inv_inertia_local) == INV_INERTIA_LOCAL * 4);
     assert!(offset_of!(BodySim, inv_inertia_world) == INV_INERTIA_WORLD * 4);
     assert!(offset_of!(BodySim, min_extent) == MIN_EXTENT * 4);
@@ -133,6 +136,8 @@ pub struct SimIntegrate {
     pub angular_damping: f32,
     pub force: Vec3,
     pub torque: Vec3,
+    pub inertia: Mat3,
+    pub flags: u32,
     pub inv_inertia_local: Mat3,
     pub inv_inertia_world: Mat3,
     pub rotation: Quat,
@@ -155,6 +160,8 @@ pub fn read_sim(col: Col<f32>, i: usize) -> SimIntegrate {
         angular_damping: col.get(o + ANGULAR_DAMPING),
         force: vec3(col, o + FORCE),
         torque: vec3(col, o + TORQUE),
+        inertia: mat3(col, o + INERTIA),
+        flags: col.get(o + FLAGS).to_bits(),
         inv_inertia_local: mat3(col, o + INV_INERTIA_LOCAL),
         inv_inertia_world: mat3(col, o + INV_INERTIA_WORLD),
         rotation: quat(col, o + ROTATION),
@@ -225,4 +232,5 @@ pub mod flags {
     pub const DYNAMIC: u32 = 0x0000_1000;
     pub const ENABLE_SLEEP: u32 = 0x0000_2000;
     pub const ENABLE_CONTACT_RECYCLING: u32 = 0x0000_4000;
+    pub const ENABLE_GYROSCOPIC_TORQUE: u32 = 0x0001_0000;
 }

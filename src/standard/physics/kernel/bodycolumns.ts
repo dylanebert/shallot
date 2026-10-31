@@ -221,7 +221,7 @@ export function setSimField<K extends keyof BodySim>(
         case "invInertiaLocal": {
             const m = value as Mat3;
             const f = store.memoryF;
-            const o = simOffset(world, ref) + 27;
+            const o = simOffset(world, ref) + 36;
             f[o] = m.cx.x;
             f[o + 1] = m.cx.y;
             f[o + 2] = m.cx.z;
@@ -236,7 +236,7 @@ export function setSimField<K extends keyof BodySim>(
         case "invInertiaWorld": {
             const m = value as Mat3;
             const f = store.memoryF;
-            const o = simOffset(world, ref) + 36;
+            const o = simOffset(world, ref) + 45;
             f[o] = m.cx.x;
             f[o + 1] = m.cx.y;
             f[o + 2] = m.cx.z;
@@ -257,24 +257,24 @@ export function setSimField<K extends keyof BodySim>(
             const v = value as Vec3;
             const f = store.memoryF;
             const o = simOffset(world, ref);
-            f[o + 46] = v.x;
-            f[o + 47] = v.y;
-            f[o + 48] = v.z;
+            f[o + 55] = v.x;
+            f[o + 56] = v.y;
+            f[o + 57] = v.z;
             return;
         }
         case "linearDamping": {
             const v = value as number;
-            store.memoryF[simOffset(world, ref) + 49] = v;
+            store.memoryF[simOffset(world, ref) + 58] = v;
             return;
         }
         case "angularDamping": {
             const v = value as number;
-            store.memoryF[simOffset(world, ref) + 50] = v;
+            store.memoryF[simOffset(world, ref) + 59] = v;
             return;
         }
         case "gravityScale": {
             const v = value as number;
-            store.memoryF[simOffset(world, ref) + 51] = v;
+            store.memoryF[simOffset(world, ref) + 60] = v;
             return;
         }
         case "bodyId": {
@@ -362,10 +362,10 @@ export function readSimInvMass(world: WorldState, ref: number): number {
 }
 
 export function readSimInvInertiaLocal(world: WorldState, ref: number, out: Mat3): Mat3 {
-    return readSimMatrix(world, ref, 27, out);
+    return readSimMatrix(world, ref, 36, out);
 }
 export function readSimInvInertiaWorld(world: WorldState, ref: number, out: Mat3): Mat3 {
-    return readSimMatrix(world, ref, 36, out);
+    return readSimMatrix(world, ref, 45, out);
 }
 function readSimMatrix(world: WorldState, ref: number, offset: number, out: Mat3): Mat3 {
     const f = world.bodyStore.memoryF,
@@ -394,7 +394,7 @@ export function simFlags(world: WorldState, ref: number): number {
     return store.memoryU[simOffset(world, ref) + FLAGS];
 }
 
-function simOffset(world: WorldState, ref: number): number {
+export function simOffset(world: WorldState, ref: number): number {
     const k = kernel(world.ecsState);
     return (
         (ref < 0

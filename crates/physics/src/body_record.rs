@@ -1,5 +1,3 @@
-use crate::math::Mat3;
-
 /// Body identity and topology, separate from its solver-set simulation.
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -19,7 +17,6 @@ pub struct BodyRecord {
     pub sleep_time: f32,
     pub sleep_velocity: f32,
     pub mass: f32,
-    pub inertia: Mat3,
     pub body_move_index: i32,
     pub id: i32,
     pub flags: u32,
@@ -46,11 +43,6 @@ impl BodyRecord {
         sleep_time: 0.0,
         sleep_velocity: 0.0,
         mass: 0.0,
-        inertia: Mat3 {
-            cx: crate::math::Vec3::ZERO,
-            cy: crate::math::Vec3::ZERO,
-            cz: crate::math::Vec3::ZERO,
-        },
         body_move_index: -1,
         id: -1,
         flags: 0,
@@ -67,7 +59,7 @@ mod tests {
     use std::mem::{offset_of, size_of};
     #[test]
     fn body_record_layout_matches_the_plain_word_bindings() {
-        assert_eq!(size_of::<BodyRecord>(), 30 * 4);
+        assert_eq!(size_of::<BodyRecord>(), 21 * 4);
         let offsets = [
             offset_of!(BodyRecord, set_index),
             offset_of!(BodyRecord, local_index),
@@ -84,17 +76,16 @@ mod tests {
             offset_of!(BodyRecord, sleep_time),
             offset_of!(BodyRecord, sleep_velocity),
             offset_of!(BodyRecord, mass),
-            offset_of!(BodyRecord, inertia),
         ];
         for (word, offset) in offsets.into_iter().enumerate() {
             assert_eq!(offset, word * 4);
         }
-        assert_eq!(offset_of!(BodyRecord, body_move_index), 24 * 4);
-        assert_eq!(offset_of!(BodyRecord, id), 25 * 4);
-        assert_eq!(offset_of!(BodyRecord, flags), 26 * 4);
-        assert_eq!(offset_of!(BodyRecord, body_type), 27 * 4);
-        assert_eq!(offset_of!(BodyRecord, generation), 28 * 4);
-        assert_eq!(offset_of!(BodyRecord, safety_factor), 29 * 4);
+        assert_eq!(offset_of!(BodyRecord, body_move_index), 15 * 4);
+        assert_eq!(offset_of!(BodyRecord, id), 16 * 4);
+        assert_eq!(offset_of!(BodyRecord, flags), 17 * 4);
+        assert_eq!(offset_of!(BodyRecord, body_type), 18 * 4);
+        assert_eq!(offset_of!(BodyRecord, generation), 19 * 4);
+        assert_eq!(offset_of!(BodyRecord, safety_factor), 20 * 4);
     }
 }
 
@@ -648,8 +639,12 @@ pub(crate) mod runtime {
     unsafe fn mass_begin(world: usize, id: usize) {
         let record = bodies::record_mut(world, id);
         record.mass = 0.0;
-        record.inertia = Mat3::ZERO;
+        record.flags &= !body::flags::ENABLE_GYROSCOPIC_TORQUE;
+        sync_flags_in_world(world, id);
         let sim = bodies::column(world, id, 1, body::SIM_STRIDE);
+        for lane in body::INERTIA..body::INV_INERTIA_LOCAL {
+            sim.set(lane, 0.0);
+        }
         sim.set(body::INV_MASS, 0.0);
         for lane in body::INV_INERTIA_LOCAL..body::MIN_EXTENT {
             sim.set(lane, 0.0);
@@ -690,6 +685,7 @@ pub(crate) mod runtime {
         let sim = bodies::column(world, id, 1, body::SIM_STRIDE);
         let pose = bodies::geometry(world, id).0;
         let mut center = Vec3::ZERO;
+        let mut inertia = Mat3::ZERO;
         if record.body_type == crate::body::body_type::DYNAMIC {
             let mut shape = record.head_shape_id;
             while shape != -1 {
@@ -733,10 +729,10 @@ pub(crate) mod runtime {
                     cy: Vec3::new(xy, entry.mass * (r.x * r.x + r.z * r.z), yz),
                     cz: Vec3::new(xz, yz, entry.mass * (r.x * r.x + r.y * r.y)),
                 };
-                record.inertia = record.inertia.add(entry.inertia.add(offset));
+                inertia = inertia.add(entry.inertia.add(offset));
             }
-            if record.inertia.det() > 0.0 {
-                let inverse = record.inertia.invert().transpose();
+            if inertia.det() > 0.0 {
+                let inverse = inertia.invert().transpose();
                 let values = [
                     inverse.cx.x,
                     inverse.cx.y,
@@ -781,11 +777,47 @@ pub(crate) mod runtime {
         sim.set(body::CENTER0 + 1, center.y);
         sim.set(body::CENTER0 + 2, center.z);
         if record.flags & 0x38 == 0x38 {
-            record.inertia = Mat3::ZERO;
+            inertia = Mat3::ZERO;
             for lane in body::INV_INERTIA_LOCAL..body::MIN_EXTENT {
                 sim.set(lane, 0.0);
             }
         }
+        update_isotropic_inertia(world, id, inertia);
+    }
+
+    unsafe fn update_isotropic_inertia(world: usize, id: usize, inertia: Mat3) {
+        let sim = bodies::column(world, id, 1, body::SIM_STRIDE);
+        for (lane, value) in [
+            inertia.cx.x,
+            inertia.cx.y,
+            inertia.cx.z,
+            inertia.cy.x,
+            inertia.cy.y,
+            inertia.cy.z,
+            inertia.cz.x,
+            inertia.cz.y,
+            inertia.cz.z,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            sim.set(body::INERTIA + lane, value);
+        }
+        let mean = (inertia.cx.x + inertia.cy.y + inertia.cz.z) / 3.0;
+        let dx = inertia.cx.x - mean;
+        let dy = inertia.cy.y - mean;
+        let dz = inertia.cz.z - mean;
+        let off_diagonal =
+            inertia.cy.x * inertia.cy.x + inertia.cz.x * inertia.cz.x + inertia.cz.y * inertia.cz.y;
+        let deviation = dx * dx + dy * dy + dz * dz + 2.0 * off_diagonal;
+        let tolerance = bodies::isotropic_inertia_tolerance(world);
+        let record = bodies::record_mut(world, id);
+        if 2.0 * deviation > 3.0 * tolerance * tolerance * mean * mean {
+            record.flags |= body::flags::ENABLE_GYROSCOPIC_TORQUE;
+        } else {
+            record.flags &= !body::flags::ENABLE_GYROSCOPIC_TORQUE;
+        }
+        sync_flags_in_world(world, id);
     }
 
     unsafe fn mass_extent(world: usize, id: usize, minimum: f32, x: f32, y: f32, z: f32) {
@@ -830,7 +862,6 @@ pub(crate) mod runtime {
         };
         let record = bodies::record_mut(world, id);
         record.mass = mass;
-        record.inertia = inertia;
         let sim = bodies::column(world, id, 1, body::SIM_STRIDE);
         let (pose, fin, _) = bodies::geometry(world, id);
         let next_center = pose.point(center);
@@ -859,9 +890,11 @@ pub(crate) mod runtime {
         } else {
             Mat3::ZERO
         };
-        if record.flags & 0x38 == 0x38 {
-            record.inertia = Mat3::ZERO;
-        }
+        let inertia = if record.flags & 0x38 == 0x38 {
+            Mat3::ZERO
+        } else {
+            inertia
+        };
         for (lane, value) in [
             inverse.cx.x,
             inverse.cx.y,
@@ -880,6 +913,7 @@ pub(crate) mod runtime {
         }
         let rotation = Mat3::from_quat(pose.q);
         body::write_sim_inv_inertia_world(sim, 0, rotation.mul(inverse).mul(rotation.transpose()));
+        update_isotropic_inertia(world, id, inertia);
         sim.set(body::MIN_EXTENT, 1.0e5);
         for lane in 0..3 {
             sim.set(body::MAX_EXTENT + lane, 0.0);

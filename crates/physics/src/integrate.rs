@@ -47,9 +47,9 @@ pub fn integrate_velocities(
         w = angular_velocity_delta.mul_add(angular_damping, w);
 
         // Gyroscopic torque via one Newton-Raphson step in local coordinates.
-        {
+        if sim.flags & crate::body::flags::ENABLE_GYROSCOPIC_TORQUE != 0 {
             let q = s.delta_rotation.mul(sim.rotation);
-            let inertia_local = sim.inv_inertia_local.invert();
+            let inertia_local = sim.inertia;
 
             let omega1 = q.inv_rotate(w);
             let mut omega2 = omega1;

@@ -151,8 +151,8 @@
     3839.72021484375
   ],
   "mixedSleep": {
-    "awake300": true,
-    "step": 459,
+    "awake300": false,
+    "step": 196,
     "together": true
   }
 }

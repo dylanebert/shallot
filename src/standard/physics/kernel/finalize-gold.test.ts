@@ -3,30 +3,30 @@ import { BodyType } from "../common/types";
 import { createTestBody, createTestWorld, destroyTestWorld, stepTestWorld } from "../testing";
 import { BodyFlags } from "../world/body";
 import { BodyField, bodyField } from "./bodyrecords";
-import { CENTER0, FLAGS, MIN_EXTENT, SIM_STRIDE, STATE_STRIDE } from "./columns";
+import { BODY_ID, CENTER0, FLAGS, MIN_EXTENT, SIM_STRIDE, STATE_STRIDE } from "./columns";
 import gold from "./finalize.gold.json";
 import { kernel } from "./kernel";
 
 const ROTATION0 = 10;
 const simMap = [
     26,
-    51,
-    49,
-    50,
+    60,
+    58,
+    59,
     20,
     21,
     22,
     23,
     24,
     25,
-    ...Array.from({ length: 9 }, (_, i) => 27 + i),
     ...Array.from({ length: 9 }, (_, i) => 36 + i),
+    ...Array.from({ length: 9 }, (_, i) => 45 + i),
     3,
     4,
     5,
     6,
 ];
-const finMap = [7, 8, 9, 17, 18, 19, 46, 47, 48, 0, 1, 2];
+const finMap = [7, 8, 9, 17, 18, 19, 55, 56, 57, 0, 1, 2];
 const bits = new Uint32Array(1);
 const float = new Float32Array(bits.buffer);
 function decode(hex: string): number {
@@ -115,7 +115,7 @@ for (const continuous of [true, false]) {
                 for (let i = 0; i < 2; ++i) {
                     const s = i * SIM_STRIDE,
                         t = i * STATE_STRIDE;
-                    store.simF.fill(0, s, s + 52);
+                    store.simF.fill(0, s, s + BODY_ID);
                     store.simF[s + 6] = 1;
                     store.simF.set([1, 2, 3], s + 7);
                     store.simF.fill(99, s + ROTATION0, s + CENTER0 + 3);

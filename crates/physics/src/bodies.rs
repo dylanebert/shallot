@@ -63,6 +63,7 @@ struct Bodies {
     cap: usize,
     next: usize,
     free: Vec<u32>,
+    isotropic_inertia_tolerance: f32,
 }
 impl Bodies {
     const EMPTY: Self = Self {
@@ -70,6 +71,7 @@ impl Bodies {
         cap: 0,
         next: 0,
         free: Vec::new(),
+        isotropic_inertia_tolerance: 0.2,
     };
 }
 static mut WORLDS: [Bodies; MAX_WORLDS] = [const { Bodies::EMPTY }; MAX_WORLDS];
@@ -79,6 +81,17 @@ unsafe fn world(id: usize) -> &'static Bodies {
 unsafe fn world_mut(id: usize) -> &'static mut Bodies {
     &mut WORLDS[id]
 }
+#[export_name = "worldGetIsotropicInertiaTolerance"]
+pub extern "C" fn isotropic_inertia_tolerance(id: usize) -> f32 {
+    unsafe { world(id).isotropic_inertia_tolerance }
+}
+#[export_name = "worldSetIsotropicInertiaTolerance"]
+pub extern "C" fn set_isotropic_inertia_tolerance(id: usize, tolerance: f32) {
+    unsafe {
+        world_mut(id).isotropic_inertia_tolerance = tolerance.clamp(0.0, 1.0);
+    }
+}
+
 fn base(world_index: usize, column: usize) -> usize {
     unsafe {
         if column < 6 {
@@ -452,6 +465,7 @@ pub fn active_generation(world_index: usize, id: u32) -> u32 {
 }
 pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
     let w = &WORLDS[id];
+    regions::write_word(out, w.isotropic_inertia_tolerance.to_bits() as usize);
     for value in [w.next, w.free.len()] {
         regions::write_word(out, value);
     }
@@ -471,6 +485,7 @@ pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
 }
 pub unsafe fn restore(id: usize, input: &mut &[u8]) {
     let w = &mut WORLDS[id];
+    w.isotropic_inertia_tolerance = f32::from_bits(regions::read_word(input) as u32);
     w.next = regions::read_word(input);
     w.cap = w.next;
     let count = regions::read_word(input);

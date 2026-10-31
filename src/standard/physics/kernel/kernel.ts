@@ -21,6 +21,8 @@ export type Kernel = {
     nonconvexBuild(operation: number): number;
     nonconvexRetain(): number;
     nonconvexDestroy(image: number): void;
+    worldSetIsotropicInertiaTolerance(world: number, tolerance: number): void;
+    worldGetIsotropicInertiaTolerance(world: number): number;
     worldSetCustomFilterCallback(world: number, enabled: boolean): void;
     worldSetPreSolveCallback(world: number, enabled: boolean): void;
     /** Present only in a checked build (`build-kernel.ts --checked`); routes panics to `kernelPanic`. */

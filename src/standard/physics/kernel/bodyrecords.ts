@@ -1,7 +1,8 @@
 import type { Mat3 } from "../common/records";
 import type { WorldState } from "../world/world";
+import { simOffset } from "./bodycolumns";
 
-export const BODY_RECORD_STRIDE = 30;
+export const BODY_RECORD_STRIDE = 21;
 export const BodyField = {
     setIndex: 0,
     localIndex: 1,
@@ -18,14 +19,14 @@ export const BodyField = {
     sleepTime: 12,
     sleepVelocity: 13,
     mass: 14,
-    bodyMoveIndex: 24,
-    id: 25,
-    flags: 26,
-    type: 27,
-    generation: 28,
-    safetyFactor: 29,
-    userData: 30,
-    name: 31,
+    bodyMoveIndex: 15,
+    id: 16,
+    flags: 17,
+    type: 18,
+    generation: 19,
+    safetyFactor: 20,
+    userData: 21,
+    name: 22,
 } as const;
 export type BodyField = (typeof BodyField)[keyof typeof BodyField];
 
@@ -73,8 +74,8 @@ export function setBodyField(
 }
 
 export function bodyInertia(world: WorldState, id: number, out: Mat3): Mat3 {
-    const f = world.bodyStore.recordF;
-    const o = id * BODY_RECORD_STRIDE + 15;
+    const o = simOffset(world, -id - 1) + 27;
+    const f = world.bodyStore.memoryF;
     out.cx.x = f[o];
     out.cx.y = f[o + 1];
     out.cx.z = f[o + 2];

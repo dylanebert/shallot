@@ -243,13 +243,14 @@ fn build_scene() -> Scene {
 
         let o = i * SIM_STRIDE;
         s.sim[o + 26] = 1.0; // inv mass
-        s.sim[o + 51] = 1.0; // gravity scale
-        s.sim[o + 49] = 0.1; // linear damping
-        s.sim[o + 50] = 0.1; // angular damping
+        s.sim[o + 60] = 1.0; // gravity scale
+        s.sim[o + 58] = 0.1; // linear damping
+        s.sim[o + 59] = 0.1; // angular damping
         for k in 0..3 {
             // inv inertia (local == world; the bodies start unrotated)
-            s.sim[o + 27 + 4 * k] = 5.0;
+            s.sim[o + 27 + 4 * k] = 0.2;
             s.sim[o + 36 + 4 * k] = 5.0;
+            s.sim[o + 45 + 4 * k] = 5.0;
         }
         s.sim[o + 6] = 1.0; // rotation = identity quat
     }

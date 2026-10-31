@@ -62,9 +62,9 @@ fn assert_bits(got: f32, want: f32, label: &str) {
 
 fn sim_map() -> Vec<usize> {
     [
-        vec![26, 51, 49, 50, 20, 21, 22, 23, 24, 25],
-        (27..36).collect(),
+        vec![26, 60, 58, 59, 20, 21, 22, 23, 24, 25],
         (36..45).collect(),
+        (45..54).collect(),
         (3..7).collect(),
     ]
     .concat()

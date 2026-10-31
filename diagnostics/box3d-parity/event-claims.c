@@ -263,6 +263,7 @@ static void mixed_sleep(void) {
   }
   printf(",\"mixedSleep\":{");
   bool allTogether = true;
+  int sleepTick = 0;
   for (int tick = 1; tick <= 3600; tick++) {
     step(w);
     bool awake = b3Body_IsAwake(torso);
@@ -270,13 +271,10 @@ static void mixed_sleep(void) {
       allTogether &= b3Body_IsAwake(limbs[i]) == awake;
     if (tick == 300)
       printf("\"awake300\":%s,", awake ? "true" : "false");
-    if (!awake) {
-      printf("\"step\":%d,\"together\":%s", tick,
-             allTogether ? "true" : "false");
-      break;
-    }
+    if (!awake && sleepTick == 0) sleepTick = tick;
   }
-  printf("}");
+  printf("\"step\":%d,\"together\":%s}", sleepTick,
+         allTogether ? "true" : "false");
   b3DestroyWorld(w);
 }
 int main(void) {

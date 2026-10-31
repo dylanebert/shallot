@@ -89,7 +89,7 @@ fn write_body(state: &mut [f32], sim: &mut [f32], b: &Body) {
     state[o + 9..o + 13].copy_from_slice(&b.dq);
     let so = b.idx * SIM_STRIDE;
     sim[so + 26] = b.inv_mass;
-    sim[so + 36..so + 45].copy_from_slice(&b.inv_i); // invInertiaWorld
+    sim[so + 45..so + 54].copy_from_slice(&b.inv_i); // invInertiaWorld
 }
 
 #[test]
