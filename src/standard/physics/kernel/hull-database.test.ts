@@ -47,7 +47,7 @@ test("compound hull images relocate with caller-owned compound identity and surv
         const pointer = compoundHullPointer(target, shape);
         expect(pointer).not.toBe(old);
         expect(new DataView(target.shapeStore.materialU.buffer).getBigUint64(pointer, true)).toBe(
-            0x9d3e61b7c2a4f085n,
+            0x6b1e39d4a87c25f3n,
         );
         expect([...target.geometryIdentityValues.values()][0]).toBe(data);
         destroyTestWorld(source);

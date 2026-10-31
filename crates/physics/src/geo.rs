@@ -57,8 +57,8 @@ pub(crate) unsafe fn hull_view(index: usize) -> HullData<'static> {
     let vertex_count = rec.vertex_count as usize;
     let edge_count = rec.edge_count as usize;
     let face_count = rec.face_count as usize;
-    let nv = (vertex_count + 3) & !3;
-    let nf = (face_count + 3) & !3;
+    let nv = (vertex_count + 7) & !7;
+    let nf = (face_count + 7) & !7;
     let soa = base.offset(rec.soa_vertex_offset as isize) as *const f32;
     let points = core::slice::from_raw_parts(
         base.offset(rec.point_offset as isize) as *const Vec3,

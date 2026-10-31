@@ -295,7 +295,7 @@ function compoundImage(c: CompoundData): Uint8Array {
     const u = (o: number, x: number) => v.setUint32(o, x, true);
     v.setBigUint64(
         0,
-        0x7a2f41c9e6d0b358n ^ 0x1d6f4c2a73b80e91n ^ 0xaaab9a00f1a8aaf7n ^ 0x9d3e61b7c2a4f085n,
+        0x7a2f41c9e6d0b358n ^ 0x1d6f4c2a73b80e91n ^ 0xaaab9a00f1a8aaf7n ^ 0x6b1e39d4a87c25f3n,
         true,
     );
     u(8, bytes.length);

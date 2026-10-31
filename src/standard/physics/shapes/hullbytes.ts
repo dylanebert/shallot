@@ -11,8 +11,8 @@ export function hullByteCount(h: HullData): number {
         align8(4 * h.edgeCount) +
         align8(16 * h.faceCount) +
         align8(h.faceCount) +
-        12 * ((h.vertexCount + 3) & ~3) +
-        12 * ((h.faceCount + 3) & ~3) +
+        12 * align8(h.vertexCount) +
+        12 * align8(h.faceCount) +
         align8(2 * h.edgeCount)
     );
 }
@@ -35,8 +35,8 @@ export function writeHullImage(
     const size = hullByteCount(h);
     bytes.fill(0, base, base + size);
     const r = base >>> 2;
-    u[r] = 0xc2a4f085;
-    u[r + 1] = 0x9d3e61b7;
+    u[r] = 0xa87c25f3;
+    u[r + 1] = 0x6b1e39d4;
     hashes[(base + 8) >>> 3] = h.hash;
     vector(f, r + 4, h.aabb.lowerBound);
     vector(f, r + 7, h.aabb.upperBound);
@@ -66,8 +66,8 @@ export function writeHullImage(
     const faces = base + off;
     u[r + 32] = off;
     off += align8(h.faceCount);
-    const nv = (h.vertexCount + 3) & ~3;
-    const nf = (h.faceCount + 3) & ~3;
+    const nv = align8(h.vertexCount);
+    const nf = align8(h.faceCount);
     const soa = (base + off) >>> 2;
     u[r + 33] = off;
     u[r + 34] = off + 12 * nv;

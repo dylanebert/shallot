@@ -920,10 +920,14 @@ pub fn solve(
                 let length_squared = dot_w(rolling, rolling);
                 let mask = length_squared.greater_than(eps.mul_add(max_impulse, max_impulse));
                 let normalize = max_impulse.div(length_squared.sqrt().add(eps));
-                let mut scale = FloatW::blend(one, normalize, mask);
+                let scale = FloatW::blend(one, normalize, mask);
                 let rolling_mask = rolling_resistance.greater_than(zero);
-                scale = FloatW::blend(zero, scale, rolling_mask);
-                rolling = mul_svw(scale, rolling);
+                let scaled = mul_svw(scale, rolling);
+                rolling = Vec3W {
+                    x: FloatW::blend(zero, scaled.x, rolling_mask),
+                    y: FloatW::blend(zero, scaled.y, rolling_mask),
+                    z: FloatW::blend(zero, scaled.z, rolling_mask),
+                };
                 st_v3(wide, wo + ROLLING_IMPULSE, rolling);
                 let d = sub_vw(rolling, old);
                 ba.w = mul_sub_mvw(ba.w, ia, d);

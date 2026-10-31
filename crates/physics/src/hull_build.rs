@@ -781,11 +781,11 @@ impl HullImage {
         ];
         let face = offsets[3] + align(16 * f);
         let soa = face + align(f);
-        let normals = soa + 12 * ((v + 3) & !3);
-        let cosines = normals + 12 * ((f + 3) & !3);
+        let normals = soa + 12 * ((v + 7) & !7);
+        let cosines = normals + 12 * ((f + 7) & !7);
         let bytes = cosines + align(2 * e);
         let mut h = Self(vec![0; bytes / 8]);
-        h.0[0] = 0x9d3e61b7c2a4f085;
+        h.0[0] = 0x6b1e39d4a87c25f3;
         for (i, value) in [
             (25, v),
             (26, offsets[0]),
@@ -856,8 +856,8 @@ impl HullImage {
     fn soa(&mut self) {
         let v = self.u()[25] as usize;
         let f = self.u()[30] as usize;
-        let nv = (v + 3) & !3;
-        let nf = (f + 3) & !3;
+        let nv = (v + 7) & !7;
+        let nf = (f + 7) & !7;
         let vo = self.u()[33] as usize / 4;
         let no = self.u()[34] as usize / 4;
         for i in 0..nv {
@@ -1042,7 +1042,7 @@ pub fn clone_and_transform(
     }
     // Box hull images have nonzero padding normals; the clone clears them before hashing.
     let normal_offset = hull.u()[34] as usize / 4;
-    let normal_count = (face_count + 3) & !3;
+    let normal_count = (face_count + 7) & !7;
     for i in face_count..normal_count {
         for axis in 0..3 {
             hull.f_mut()[normal_offset + axis * normal_count + i] = 0.0;

@@ -8,7 +8,7 @@ use std::borrow::Cow;
 /// Pad the SoA stream for wide loads; vertices repeat the first point, normals have zero tails.
 pub fn soa_vectors(points: impl ExactSizeIterator<Item = Vec3>, repeat_first: bool) -> Vec<f32> {
     let count = points.len();
-    let n = (count + 3) & !3;
+    let n = (count + 7) & !7;
     let mut out = vec![0.0; n * 3];
     for (i, p) in points.enumerate() {
         out[i] = p.x;
@@ -103,6 +103,7 @@ impl HullData<'_> {
     /// lane from winning.
     #[inline]
     pub fn support_vertex_wide(&self, direction: Vec3, bias: f32) -> usize {
+        let stride = (self.vertex_count + 7) & !7;
         let soa_count = (self.vertex_count + 3) & !3;
         let nx = FloatW::splat(direction.x);
         let ny = FloatW::splat(direction.y);
@@ -111,8 +112,8 @@ impl HullData<'_> {
         let mut minimum = FloatW::splat(f32::INFINITY);
         for i in (0..soa_count).step_by(4) {
             let x = FloatW::load(&self.soa_points[i..]);
-            let y = FloatW::load(&self.soa_points[soa_count + i..]);
-            let z = FloatW::load(&self.soa_points[2 * soa_count + i..]);
+            let y = FloatW::load(&self.soa_points[stride + i..]);
+            let z = FloatW::load(&self.soa_points[2 * stride + i..]);
             let dot = nx.mul(x).add(ny.mul(y)).add(nz.mul(z));
             minimum = minimum.min(bias.sub(dot).embed_index(i));
         }
@@ -143,11 +144,14 @@ mod tests {
         let vectors = [Vec3::new(1.0, 2.0, 3.0)];
         assert_eq!(
             soa_vectors(vectors.into_iter(), true),
-            vec![1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0]
+            [vec![1.0; 8], vec![2.0; 8], vec![3.0; 8]].concat()
         );
         assert_eq!(
             soa_vectors(vectors.into_iter(), false),
-            vec![1.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0]
+            vec![
+                1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+            ]
         );
     }
 

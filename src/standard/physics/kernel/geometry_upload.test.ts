@@ -44,16 +44,16 @@ test("hull upload derives padded SoA vertices and normals from authoring, withou
     const pointers = hulls.map((h) => addHullToDatabase(world, h));
     const k = kernel(world.ecsState);
     for (const [i, h] of hulls.entries()) {
-        const nv = (h.vertexCount + 3) & ~3;
-        const nf = (h.faceCount + 3) & ~3;
+        const nv = (h.vertexCount + 7) & ~7;
+        const nf = (h.faceCount + 7) & ~7;
         const base = pointers[i];
         const record = new Uint32Array(k.memory.buffer, base, 38);
         const soa = new Float32Array(k.memory.buffer, base + record[33], 3 * (nv + nf));
         expect(record[34]).toBe(record[33] + 12 * nv);
         const floats = new Float32Array(k.memory.buffer, base, 36);
         expect(Array.from(record.slice(0, 4))).toEqual([
-            0xc2a4f085,
-            0x9d3e61b7,
+            0xa87c25f3,
+            0x6b1e39d4,
             Number(h.hash & 0xffffffffn),
             Number(h.hash >> 32n),
         ]);

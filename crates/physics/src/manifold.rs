@@ -1565,6 +1565,7 @@ fn negative_transform_from_soa<const N: usize>(
     matrix: &Mat3,
     translation: Vec3,
     input: &[f32],
+    count: usize,
     point: bool,
     out: &mut HullSoa3<N>,
 ) {
@@ -1576,7 +1577,7 @@ fn negative_transform_from_soa<const N: usize>(
         splat3(Vec3::new(matrix.cx.z, matrix.cy.z, matrix.cz.z)),
     ];
     let t = splat3(translation);
-    for i in (0..n).step_by(4) {
+    for i in (0..((count + 3) & !3)).step_by(4) {
         let v = [
             FloatW::load(&input[i..]),
             FloatW::load(&input[n + i..]),
@@ -1596,10 +1597,13 @@ fn negative_transform_from_soa<const N: usize>(
 
 fn face_dots(hull: &HullData, direction: Vec3) -> [f32; NF] {
     let mut dots = [0.0; NF];
+    let stride = (hull.face_count + 7) & !7;
     let n = (hull.face_count + 3) & !3;
     let d = splat3(direction);
     for i in (0..n).step_by(4) {
-        let v = core::array::from_fn(|k| crate::simd::FloatW::load(&hull.soa_normals[k * n + i..]));
+        let v = core::array::from_fn(|k| {
+            crate::simd::FloatW::load(&hull.soa_normals[k * stride + i..])
+        });
         dots[i..i + 4].copy_from_slice(&dot_wide(v, d).to_array());
     }
     dots
@@ -1889,6 +1893,7 @@ fn compute_separating_axis(
         &rotation,
         transform_b_to_a.p,
         &hull_b.soa_normals,
+        hull_b.face_count,
         false,
         &mut b_normals,
     );
@@ -1896,6 +1901,7 @@ fn compute_separating_axis(
         &rotation,
         transform_b_to_a.p,
         &hull_b.soa_points,
+        hull_b.vertex_count,
         true,
         &mut b_points,
     );
