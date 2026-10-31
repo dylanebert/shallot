@@ -1,11 +1,14 @@
-import { expect, spyOn, test } from "bun:test";
+import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { MeshPlugin } from "../../core/mesh";
 import { GlobalTransform, TransformPlugin } from "../../core/transform";
 import { openGpuApp as createApp } from "../../project/testing-gpu";
 import type { GltfJson } from "./gltf";
 import { loadGltfScene, poseGltfScene, spawnGltfScene } from "./scene";
 import { GltfPlugin } from "./skinning";
+
+setDefaultTimeout(TIMEOUT.gpu);
 
 function fixture(): GltfJson {
     return JSON.parse(

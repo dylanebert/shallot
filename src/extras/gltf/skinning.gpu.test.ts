@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, spyOn, test } from "bun:test";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import gold from "../../../examples/gltf/tests/animations.gold.json";
@@ -17,7 +18,6 @@ import {
 import { Transform } from "../../core/transform";
 import type { App, World } from "../../engine";
 import { probeBuffer, probeTexture } from "../../engine/runtime";
-import { TIMEOUT } from "../../project/testing";
 import { openGpuApp } from "../../project/testing-gpu";
 import {
     AlphaMode,
