@@ -1,48 +1,5 @@
-use bevy_mikktspace::{Geometry, TangentSpace};
-
-struct Mesh<'a> {
-    vertices: &'a [u32],
-    uv: Option<&'a [u32]>,
-    indices: &'a [u32],
-    tangents: Vec<[f32; 4]>,
-}
-
-impl Mesh<'_> {
-    fn index(&self, face: usize, corner: usize) -> usize {
-        self.indices[face * 3 + corner] as usize
-    }
-}
-
-impl Geometry for Mesh<'_> {
-    fn num_faces(&self) -> usize {
-        self.indices.len() / 3
-    }
-    fn num_vertices_of_face(&self, _: usize) -> usize {
-        3
-    }
-    fn position(&self, face: usize, corner: usize) -> [f32; 3] {
-        let i = self.index(face, corner) * 8;
-        std::array::from_fn(|j| f32::from_bits(self.vertices[i + j]))
-    }
-    fn normal(&self, face: usize, corner: usize) -> [f32; 3] {
-        let i = self.index(face, corner) * 8 + 4;
-        std::array::from_fn(|j| f32::from_bits(self.vertices[i + j]))
-    }
-    fn tex_coord(&self, face: usize, corner: usize) -> [f32; 2] {
-        let vertex = self.index(face, corner);
-        if let Some(uv) = self.uv {
-            std::array::from_fn(|j| f32::from_bits(uv[vertex * 2 + j]))
-        } else {
-            [3, 7].map(|lane| f32::from_bits(self.vertices[vertex * 8 + lane]))
-        }
-    }
-    fn set_tangent(&mut self, tangent: Option<TangentSpace>, face: usize, corner: usize) {
-        let mut tangent = tangent.unwrap_or_default().tangent_encoded();
-        // Bevy's generate_tangents_for_mesh and glTF Sample Renderer negate MikkTSpace's w.
-        tangent[3] = -tangent[3];
-        self.tangents[face * 3 + corner] = tangent;
-    }
-}
+mod tangent;
+use tangent::Mesh;
 
 fn boxed_words(words: Vec<u32>) -> *mut u32 {
     Box::into_raw(words.into_boxed_slice()) as *mut u32
@@ -87,15 +44,14 @@ pub unsafe extern "C" fn generate(input: *const u32, words: usize) -> *mut u32 {
         })
         .collect();
     let indices = &input[offset..offset + nc];
-    let mut mesh = Mesh {
+    let mesh = Mesh {
         vertices: streams[0],
         uv: (uv != 0).then(|| streams[uv]),
         indices,
-        tangents: vec![[0.; 4]; nc],
     };
-    if bevy_mikktspace::generate_tangents(&mut mesh).is_err() {
+    let Some(corner_tangents) = tangent::generate(&mesh) else {
         return std::ptr::null_mut();
-    }
+    };
 
     // MikkTSpace defines corner results. Keep each original vertex for its first tangent,
     // and append only distinct bit patterns, never overwrite a previous corner's tangent.
@@ -103,7 +59,7 @@ pub unsafe extern "C" fn generate(input: *const u32, words: usize) -> *mut u32 {
     let mut source: Vec<usize> = (0..nv).collect();
     let mut tangents = vec![[0; 4]; nv];
     let mut remapped = Vec::with_capacity(nc);
-    for (&vertex, tangent) in indices.iter().zip(mesh.tangents) {
+    for (&vertex, tangent) in indices.iter().zip(corner_tangents) {
         let vertex = vertex as usize;
         let bits = tangent.map(f32::to_bits);
         let group = &mut variants[vertex];

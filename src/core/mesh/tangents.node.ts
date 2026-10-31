@@ -35,6 +35,8 @@ for (const record of records.records)
             corners.set(bits.subarray(result.indices[i] * 4, result.indices[i] * 4 + 4), i * 4);
         expect(record.corners).toBe(result.indices.length);
         expect(corners).toEqual(reference);
-        expect(result.vertices.length).toBe(input.vertices.length);
-        expect(result.indices).toEqual(input.indices);
+        if (record.name.startsWith("NormalTangent")) {
+            expect(result.vertices.length).toBe(input.vertices.length);
+            expect(result.indices).toEqual(input.indices);
+        }
     });

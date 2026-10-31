@@ -1,11 +1,14 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import manifest from "../../examples/gltf/assets.json";
+import { adversarial, adversarialNames } from "./adversarial";
 
-export const models = ["NormalTangentTest", "NormalTangentMirrorTest"];
+export const models = [...manifest.models.map(model => model.name), ...adversarialNames];
 export const assets = resolve(import.meta.dir, "../../examples/gltf/public/assets");
 
 /** Reads the pinned fixtures' dense float attributes and unsigned triangle indices. */
 export function primitives(name: string): { mesh: number; primitive: number; vertices: Float32Array; indices: Uint32Array }[] {
+    if (adversarialNames.includes(name)) return [adversarial(name)];
     const path = resolve(assets, `Models/${name}/glTF/${name}.gltf`);
     const gltf = JSON.parse(readFileSync(path, "utf8"));
     const buffers = gltf.buffers.map((buffer: { uri: string }) => {
@@ -28,7 +31,9 @@ export function primitives(name: string): { mesh: number; primitive: number; ver
     for (let mesh = 0; mesh < gltf.meshes.length; mesh++) {
         for (let primitive = 0; primitive < gltf.meshes[mesh].primitives.length; primitive++) {
             const p = gltf.meshes[mesh].primitives[primitive];
-            if ((p.mode ?? 4) !== 4) continue;
+            const texture = gltf.materials?.[p.material]?.normalTexture;
+            if ((p.mode ?? 4) < 4 || (!texture || p.attributes.TANGENT !== undefined) && !["NormalTangentTest", "NormalTangentMirrorTest"].includes(name)) continue;
+            if ((p.mode ?? 4) !== 4 || texture?.texCoord) throw new Error(`reference reader needs topology or UV set support for ${name}`);
             const positions = accessor(p.attributes.POSITION);
             const normals = accessor(p.attributes.NORMAL);
             const uv = accessor(p.attributes.TEXCOORD_0);

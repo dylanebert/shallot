@@ -1,5 +1,6 @@
-bevy_mikktspace 1.0.0 is a Rust reimplementation of MikkTSpace, not the original C software.
-Its MikkTSpace-derived parts carry this notice:
+Shallot's Rust port is an altered version of Mikkelsen's mikktspace.c at
+3e895b49d05ea07e4c2133156cfa94369e19e409, not the original software.
+The original notice follows:
 
 Copyright (C) 2011 by Morten S. Mikkelsen
 

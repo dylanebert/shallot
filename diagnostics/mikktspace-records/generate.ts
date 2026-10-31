@@ -36,6 +36,7 @@ try {
         run([executable, input, output]);
         const file = `${name}-${p.mesh}-${p.primitive}.bin`;
         const bytes = readFileSync(output);
+        writeFileSync(resolve(import.meta.dir, "../../src/core/mesh/fixtures", file.replace(".bin", ".input.bin")), Buffer.concat([Buffer.from(new Uint32Array([count, p.indices.length]).buffer), Buffer.from(p.vertices.buffer), Buffer.from(p.indices.buffer)]));
         writeFileSync(resolve(import.meta.dir, "../../src/core/mesh/fixtures", file), bytes);
         records.push({ name, mesh: p.mesh, primitive: p.primitive, corners: p.indices.length, file });
     }

@@ -16,6 +16,97 @@
             "primitive": 0,
             "corners": 15720,
             "file": "NormalTangentMirrorTest-0-0.bin"
+        },
+        {
+            "name": "degenerate",
+            "mesh": 0,
+            "primitive": 0,
+            "corners": 12,
+            "file": "degenerate-0-0.bin"
+        },
+        {
+            "name": "zero-area",
+            "mesh": 0,
+            "primitive": 0,
+            "corners": 9,
+            "file": "zero-area-0-0.bin"
+        },
+        {
+            "name": "mirrored-seam",
+            "mesh": 0,
+            "primitive": 0,
+            "corners": 6,
+            "file": "mirrored-seam-0-0.bin"
+        },
+        {
+            "name": "seam",
+            "mesh": 0,
+            "primitive": 0,
+            "corners": 6,
+            "file": "seam-0-0.bin"
+        },
+        {
+            "name": "shared-vertex",
+            "mesh": 0,
+            "primitive": 0,
+            "corners": 768,
+            "file": "shared-vertex-0-0.bin"
+        },
+        {
+            "name": "non-manifold",
+            "mesh": 0,
+            "primitive": 0,
+            "corners": 12,
+            "file": "non-manifold-0-0.bin"
+        },
+        {
+            "name": "opposite",
+            "mesh": 0,
+            "primitive": 0,
+            "corners": 6,
+            "file": "opposite-0-0.bin"
+        },
+        {
+            "name": "all-degenerate",
+            "mesh": 0,
+            "primitive": 0,
+            "corners": 3,
+            "file": "all-degenerate-0-0.bin"
+        },
+        {
+            "name": "z-channel",
+            "mesh": 0,
+            "primitive": 0,
+            "corners": 3,
+            "file": "z-channel-0-0.bin"
+        },
+        {
+            "name": "nonfinite-sep",
+            "mesh": 0,
+            "primitive": 0,
+            "corners": 3,
+            "file": "nonfinite-sep-0-0.bin"
+        },
+        {
+            "name": "connected-any",
+            "mesh": 0,
+            "primitive": 0,
+            "corners": 6,
+            "file": "connected-any-0-0.bin"
+        },
+        {
+            "name": "nonmanifold-skip",
+            "mesh": 0,
+            "primitive": 0,
+            "corners": 9,
+            "file": "nonmanifold-skip-0-0.bin"
+        },
+        {
+            "name": "skip-degen",
+            "mesh": 0,
+            "primitive": 0,
+            "corners": 9,
+            "file": "skip-degen-0-0.bin"
         }
     ]
 }

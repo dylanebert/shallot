@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 typedef struct {
     uint32_t vertices, corners;
@@ -32,7 +33,7 @@ static void tangent(const SMikkTSpaceContext *ctx, const float *value, float sig
 }
 
 int main(int argc, char **argv) {
-    if (argc != 3) return 1;
+    if (argc != 3 && argc != 4) return 1;
     FILE *input = fopen(argv[1], "rb");
     if (!input) return 1;
     Mesh m = {0};
@@ -50,7 +51,16 @@ int main(int argc, char **argv) {
     fclose(input);
     SMikkTSpaceInterface interface = {faces, vertices, position, normal, uv, tangent, NULL};
     SMikkTSpaceContext context = {&interface, &m};
-    if (!genTangSpaceDefault(&context)) return 2;
+    if (argc == 4) {
+        int iterations = atoi(argv[3]);
+        if (iterations < 1) return 1;
+        for (int i = 0; i < 5; ++i) if (!genTangSpaceDefault(&context)) return 2;
+        struct timespec start, end;
+        clock_gettime(CLOCK_MONOTONIC, &start);
+        for (int i = 0; i < iterations; ++i) if (!genTangSpaceDefault(&context)) return 2;
+        clock_gettime(CLOCK_MONOTONIC, &end);
+        printf("%.9f\n", ((end.tv_sec-start.tv_sec)*1e6 + (end.tv_nsec-start.tv_nsec)/1e3)/iterations);
+    } else if (!genTangSpaceDefault(&context)) return 2;
     FILE *output = fopen(argv[2], "wb");
     if (!output || fwrite(m.tangent, 16, m.corners, output) != m.corners) return 1;
     fclose(output);
