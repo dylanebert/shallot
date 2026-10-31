@@ -3,7 +3,7 @@ import { createApp } from "../../src/engine";
 import { hashPhysics, PhysicsWorldDefinition, StandardPhysicsPlugin } from "../../src/standard/physics";
 import { BodyType, init } from "../../src/standard/physics/api";
 import { createSphereShape } from "../../src/standard/physics/shapes/shape";
-import { bodyIsAwake } from "../../src/standard/physics/world/body";
+import { bodyIsAwake, setMassData } from "../../src/standard/physics/world/body";
 import { hashWorldState } from "../../src/standard/physics/world/hash";
 import {
     worldEnableSleeping,
@@ -19,6 +19,29 @@ await assertPublicOracleKernel();
 const native = BigInt(nativeSseOutput("world-definition.c", "").trim());
 const nativeGravity = BigInt(nativeSseOutput("world-gravity.c", "").trim());
 const nativeSleeping = BigInt(nativeSseOutput("world-sleeping.c", "").trim());
+
+test("a non-default isotropic inertia tolerance hashes equal native Box3D", () => {
+    const world = createTestWorld({ ...{ isotropicInertiaTolerance: 0.9 }, gravity: { x: 0, y: 0, z: 0 } });
+    try {
+        const body = createTestBody(world, {
+            type: BodyType.Dynamic,
+            angularVelocity: { x: 1, y: -2, z: 3 },
+        });
+        setMassData(world, body, {
+            mass: 1,
+            center: { x: 0, y: 0, z: 0 },
+            inertia: {
+                cx: { x: 0.4, y: 0, z: 0 },
+                cy: { x: 0, y: 0.5, z: 0 },
+                cz: { x: 0, y: 0, z: 0.6 },
+            },
+        });
+        for (let i = 0; i < 10; i++) stepTestWorld(world, 1 / 60, 4);
+        expect(hashWorldState(world)).toBe(BigInt(nativeSseOutput("gyroscopic-tolerance.c", "").trim()));
+    } finally {
+        destroyTestWorld(world);
+    }
+});
 
 test("default ECS world definition hashes equal native Box3D", async () => {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });

@@ -1,16 +1,16 @@
 {
   "schema": "box3d-oracle/manifest-v6",
   "bundle": {
-    "upstreamSha": "0cfc475b88d0e46bea9533a460afdd79a9001868",
+    "upstreamSha": "f36d061ba26998c87cb7dc593a4065aaa03fb7eb",
     "schema": "v6",
-    "identity": "0cfc475b88d0e46bea9533a460afdd79a9001868/v6"
+    "identity": "f36d061ba26998c87cb7dc593a4065aaa03fb7eb/v6"
   },
   "upstream": {
     "url": "https://github.com/erincatto/box3d.git",
     "ref": "refs/heads/main",
     "channel": "official-main",
-    "sha": "0cfc475b88d0e46bea9533a460afdd79a9001868",
-    "tree": "829465b250f202bed30cd355bb60c196baf1241e",
+    "sha": "f36d061ba26998c87cb7dc593a4065aaa03fb7eb",
+    "tree": "7e74dc2998e82058627ca8407e41547f6e987034",
     "reachableFromChannel": true
   },
   "oracle": {
@@ -59,7 +59,7 @@
         "-DBOX3D_VALIDATE=ON",
         "-DCMAKE_C_FLAGS=-DB3_ORACLE_HOOKS"
       ],
-      "executableSha256": "75f8d069427a5a1fc03cf2e9da90faed37c87d3d3f6412970a5c77514b816fd9",
+      "executableSha256": "d87cd2dd4d7cf1c317d528a0d4f265c1e673b2ca76941eb35b0f48410dae2ed3",
       "corpusDigest": "5995326750f78a6098e78823a11cb0954e256fe0b64f34b5bbe6cc5a8f5a264f"
     }
   },
@@ -74,8 +74,8 @@
   "fileDigests": {
     "schema.json": "bbe4e340249bbdfac6eeb3cf125787bd4cd41d16e19b4f51224f7435249aad42",
     "membership.json": "ddeaff2899517d6ed7e85c51ce7a1fbfd868eeef03ac3aae9798acfa43c3ea3f",
-    "provenance.json": "4fae582c2f72eb83594395f076c1a1aca1d86f89bb02c4d3c79a0f1b338d304c",
-    "cases.json": "40dea7d4ccfa94f069b6c184d29ac970fd3309bf49cb158e8cec7b1b7744cbd5"
+    "provenance.json": "b88723798b399597ab28d97337c18aac29348c7e889b6111fe734039cb64d765",
+    "cases.json": "06aea86b6100ef6533b34e74a2bca44346c42304646046cc10420b95190b9f5d"
   },
   "fileDigestScope": "Generated evidence files only; manifest is the receipt and is intentionally excluded from its own digest map.",
   "generation": {

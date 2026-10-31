@@ -1,16 +1,16 @@
 {
   "schema": "box3d-oracle/manifest-v1",
   "bundle": {
-    "upstreamSha": "0cfc475b88d0e46bea9533a460afdd79a9001868",
+    "upstreamSha": "f36d061ba26998c87cb7dc593a4065aaa03fb7eb",
     "schema": "v1",
-    "identity": "0cfc475b88d0e46bea9533a460afdd79a9001868/v1"
+    "identity": "f36d061ba26998c87cb7dc593a4065aaa03fb7eb/v1"
   },
   "upstream": {
     "url": "https://github.com/erincatto/box3d.git",
     "ref": "refs/heads/main",
     "channel": "official-main",
-    "sha": "0cfc475b88d0e46bea9533a460afdd79a9001868",
-    "tree": "829465b250f202bed30cd355bb60c196baf1241e",
+    "sha": "f36d061ba26998c87cb7dc593a4065aaa03fb7eb",
+    "tree": "7e74dc2998e82058627ca8407e41547f6e987034",
     "reachableFromChannel": true
   },
   "oracle": {
@@ -80,7 +80,7 @@
     "library": "official libbox3.a",
     "publicIncludeRoot": "include/box3d",
     "privateIncludeFirewall": "depfiles reject upstream src/ and negative mutation must fail",
-    "executableSha256": "2dd7de20cb8477eb09a134a5cb61198ca430f8419f64b5c50c14494487c47c8a"
+    "executableSha256": "af5901c07ff9cb8e993b3ff2d39b282f100bcda9f888df6215fba2aa68878e6a"
   },
   "schemaDefinition": "schema.json",
   "membership": "membership.json",
