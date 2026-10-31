@@ -1,6 +1,6 @@
 //! Box3D samples/mover.cpp movement phase. Input policy belongs to the player.
 use crate::{
-    math::{Mat3, Plane, Vec3, PI},
+    math::{spring_damper, Mat3, Plane, Vec3},
     mover::{self, CollisionPlane},
 };
 
@@ -134,11 +134,8 @@ pub fn run(world: &mut impl World, input: &Input) -> Output {
         } else {
             1
         };
-        let omega = (2.0 * PI) * 4.0;
-        let omega_h = omega * input.dt;
         let length = hit.fraction * ray_length;
-        out.pogo = (out.pogo - (omega * omega_h) * (length - rest))
-            / ((1.0 + (2.0 * 0.7) * omega_h) + omega_h * omega_h);
+        out.pogo = spring_damper(4.0, 0.7, length - rest, out.pogo, input.dt);
     }
     let target = input
         .position

@@ -17,6 +17,20 @@ pub const HUGE: f32 = 1.0e5 * LENGTH_UNITS_PER_METER;
 const TWO_PI: f32 = 2.0 * PI;
 
 #[inline]
+pub fn spring_damper(
+    hertz: f32,
+    damping_ratio: f32,
+    position: f32,
+    velocity: f32,
+    time_step: f32,
+) -> f32 {
+    let omega = 2.0 * PI * hertz;
+    let omega_h = omega * time_step;
+    (velocity - omega * omega_h * position)
+        / (1.0 + 2.0 * damping_ratio * omega_h + omega_h * omega_h)
+}
+
+#[inline]
 pub fn absf(a: f32) -> f32 {
     if a < 0.0 {
         -a

@@ -14,6 +14,8 @@ pub const TY_REVOLUTE: u32 = 5;
 pub const TY_SPHERICAL: u32 = 6;
 pub const TY_WELD: u32 = 7;
 pub const TY_WHEEL: u32 = 8;
+pub const TY_MOVER: u32 = 9;
+pub const TY_POGO: u32 = 10;
 pub const NULL_INDEX: u32 = u32::MAX;
 
 #[inline]
@@ -32,6 +34,8 @@ fn index_offset(kind: u32) -> usize {
         TY_SPHERICAL => offset_of!(SphericalJoint, index_a),
         TY_WELD => offset_of!(WeldJoint, index_a),
         TY_WHEEL => offset_of!(WheelJoint, index_a),
+        TY_MOVER => offset_of!(MoverJoint, index_a),
+        TY_POGO => offset_of!(PogoJoint, index_a),
         _ => return J_PAYLOAD,
     };
     J_PAYLOAD + offset / 4

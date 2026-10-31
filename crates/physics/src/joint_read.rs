@@ -38,6 +38,14 @@ pub fn read(c: Col<f32>, a: Transform, b: Transform, operation: u32) -> f32 {
             let anchor_b = b.q.rotate(get_vec3(c, 0, J_LOCAL_FRAME_B));
             b.p.sub(a.p).add(anchor_b.sub(anchor_a)).dot(axis)
         }
+        10 => {
+            let axis =
+                b.q.mul(get_quat(c, 0, J_LOCAL_FRAME_B + 3))
+                    .rotate(Vec3::new(0.0, 1.0, 0.0));
+            let pa = a.point(get_vec3(c, 0, J_LOCAL_FRAME_A));
+            let pb = b.point(get_vec3(c, 0, J_LOCAL_FRAME_B));
+            pb.sub(pa).dot(axis)
+        }
         7 => {
             let pa = a.q.rotate(get_vec3(c, 0, J_LOCAL_FRAME_A)).add(a.p);
             let pb = b.q.rotate(get_vec3(c, 0, J_LOCAL_FRAME_B)).add(b.p);
@@ -51,7 +59,7 @@ fn angular_separation(c: Col<f32>, a: Transform, b: Transform) -> f32 {
     let g = |n| get(c, 0, n);
     let mut q = a.q.inv_mul(b.q);
     match joint_type(c, 0) {
-        TY_DISTANCE | TY_MOTOR | TY_FILTER | TY_WHEEL => 0.0,
+        TY_DISTANCE | TY_MOTOR | TY_FILTER | TY_WHEEL | TY_MOVER | TY_POGO => 0.0,
         TY_PARALLEL => {
             q.v.z = 0.0;
             angle(q)
@@ -96,7 +104,7 @@ fn linear_separation(c: Col<f32>, a: Transform, b: Transform) -> f32 {
         .point(get_vec3(c, 0, J_LOCAL_FRAME_B))
         .sub(a.point(get_vec3(c, 0, J_LOCAL_FRAME_A)));
     match joint_type(c, 0) {
-        TY_PARALLEL | TY_MOTOR | TY_FILTER => 0.0,
+        TY_PARALLEL | TY_MOTOR | TY_FILTER | TY_MOVER | TY_POGO => 0.0,
         TY_DISTANCE => {
             let length = dp.length();
             if enabled(c, 0, DJ_ENABLE, DJ_ENABLE_SPRING) {
@@ -226,7 +234,7 @@ pub unsafe extern "C" fn run(world: usize, id: usize, operation: u32) -> f32 {
     );
     let a = crate::draw::pose(world, get(c, 0, J_BODY_ID_A).to_bits() as usize);
     let b = crate::draw::pose(world, get(c, 0, J_BODY_ID_B).to_bits() as usize);
-    if operation >= 8 {
+    if operation == 8 || operation == 9 {
         speed(
             c,
             motion(world, get(c, 0, J_BODY_ID_A).to_bits() as usize, a),

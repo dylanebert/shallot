@@ -40,6 +40,14 @@ pub fn force(c: Col<f32>, inv_h: f32, pose: impl Fn(usize) -> Transform) -> Vec3
     let v = |n| get_vec3(c, 0, n);
     match joint_type(c, 0) {
         TY_PARALLEL | TY_FILTER => Vec3::ZERO,
+        TY_MOVER => crate::math::blend2(
+            g(MVJ_IMPULSE),
+            v(MVJ_AXIS_X),
+            g(MVJ_IMPULSE + 1),
+            v(MVJ_AXIS_Z),
+        )
+        .scale(inv_h),
+        TY_POGO => v(PGJ_NORMAL).scale(inv_h * g(PGJ_IMPULSE)),
         TY_DISTANCE => {
             let a = pose(g(J_BODY_ID_A).to_bits() as usize);
             let b = pose(g(J_BODY_ID_B).to_bits() as usize);
@@ -100,7 +108,7 @@ pub fn constraint_torque(c: Col<f32>, inv_h: f32, pose: impl Fn(usize) -> Transf
                 .add(py.scale(g(PLJ_PERP_IMPULSE + 1)))
                 .scale(inv_h)
         }
-        TY_DISTANCE | TY_FILTER => Vec3::ZERO,
+        TY_DISTANCE | TY_FILTER | TY_MOVER | TY_POGO => Vec3::ZERO,
         TY_MOTOR => v(MJ_ANGULAR_VELOCITY_IMPULSE)
             .add(v(MJ_ANGULAR_SPRING_IMPULSE))
             .scale(inv_h),

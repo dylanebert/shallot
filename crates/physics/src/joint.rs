@@ -2,6 +2,9 @@
 //! Preserve operand order and intermediate f32 rounding without FMA contraction.
 //! b3MinFloat, b3MaxFloat and b3ClampFloat require ordered ternaries for NaN and signed-zero parity.
 
+mod mover;
+use crate::joint_abi::{MVJ_IMPULSE, PGJ_IMPULSE, TY_MOVER, TY_POGO};
+
 use crate::body::{flags::DYNAMIC, read_state, State, STATE_STRIDE};
 use crate::col::Col;
 use crate::contact::{make_soft, Softness};
@@ -210,6 +213,8 @@ fn prepare_dispatch(
         TY_WHEEL => prepare_wheel(joints, slot, pose(), h, enable_warm_starting),
         TY_MOTOR => prepare_motor(joints, slot, pose(), h, enable_warm_starting),
         TY_PARALLEL => prepare_parallel(joints, slot, pose(), h, enable_warm_starting),
+        TY_MOVER => mover::prepare_mover(joints, slot, pose(), enable_warm_starting),
+        TY_POGO => mover::prepare_pogo(joints, slot, pose(), enable_warm_starting),
         _ => {} // TY_FILTER is a no-op (collision filter, no solve); no other awake type remains.
     }
 }
@@ -225,6 +230,8 @@ pub fn warm_start(joints: Col<f32>, slot: usize, state_col: Col<f32>, flags_col:
         TY_WHEEL => warm_start_wheel(joints, slot, state_col, flags_col),
         TY_MOTOR => warm_start_motor(joints, slot, state_col, flags_col),
         TY_PARALLEL => warm_start_parallel(joints, slot, state_col, flags_col),
+        TY_MOVER => mover::warm_mover(joints, slot, state_col, flags_col),
+        TY_POGO => mover::warm_pogo(joints, slot, state_col, flags_col),
         _ => {}
     }
 }
@@ -248,6 +255,8 @@ pub fn solve(
         TY_WHEEL => solve_wheel(joints, slot, state_col, flags_col, use_bias, h, inv_h),
         TY_MOTOR => solve_motor(joints, slot, state_col, flags_col, h),
         TY_PARALLEL => solve_parallel(joints, slot, state_col, flags_col, h),
+        TY_MOVER => mover::solve_mover(joints, slot, state_col, flags_col, h),
+        TY_POGO => mover::solve_pogo(joints, slot, state_col, flags_col, use_bias, h),
         _ => {}
     }
 }
@@ -262,6 +271,11 @@ pub(crate) fn reaction(
     let g = |field| get(joints, slot, field);
     let v = |field| get_vec3(joints, slot, field);
     let (linear, angular) = match joint_type(joints, slot) {
+        TY_MOVER => (
+            (g(MVJ_IMPULSE) * g(MVJ_IMPULSE) + g(MVJ_IMPULSE + 1) * g(MVJ_IMPULSE + 1)).sqrt(),
+            0.0,
+        ),
+        TY_POGO => (g(PGJ_IMPULSE).abs(), 0.0),
         TY_PARALLEL => (
             0.0,
             Vec3 {

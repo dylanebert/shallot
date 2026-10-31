@@ -203,3 +203,26 @@ create_joint!("jointCreateMotor", motor, TY_MOTOR,
     joint.angular_damping_ratio = angular_damping;
     joint.max_spring_torque = max_spring_torque;
 });
+
+create_joint!("jointCreateMover", mover, TY_MOVER,
+    (x: f32, y: f32, z: f32, max_force: f32), |sim| {
+    let joint = &mut sim.payload.mover;
+    core::ptr::write_bytes(joint, 0, 1);
+    joint.linear_velocity = Vec3::new(x, y, z);
+    joint.max_force = max_force;
+});
+
+create_joint!("jointCreatePogo", pogo, TY_POGO,
+    (nx: f32, ny: f32, nz: f32, rest_length: f32, hertz: f32, damping_ratio: f32,
+     max_tension_force: f32, max_compression_force: f32, impulse: f32, velocity: f32), |sim| {
+    let joint = &mut sim.payload.pogo;
+    core::ptr::write_bytes(joint, 0, 1);
+    joint.normal = Vec3::new(nx, ny, nz);
+    joint.rest_length = rest_length;
+    joint.hertz = hertz;
+    joint.damping_ratio = damping_ratio;
+    joint.max_tension_force = max_tension_force;
+    joint.max_compression_force = max_compression_force;
+    joint.impulse = impulse;
+    joint.velocity = velocity;
+});

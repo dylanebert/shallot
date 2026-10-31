@@ -59,6 +59,38 @@ pub struct MotorJoint {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
+pub struct MoverJoint {
+    pub linear_velocity: Vec3,
+    pub max_force: f32,
+    pub axis_x: Vec3,
+    pub axis_z: Vec3,
+    pub impulse: Vec2,
+    pub index_a: i32,
+    pub index_b: i32,
+    pub linear_mass: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PogoJoint {
+    pub normal: Vec3,
+    pub rest_length: f32,
+    pub hertz: f32,
+    pub damping_ratio: f32,
+    pub max_tension_force: f32,
+    pub max_compression_force: f32,
+    pub impulse: f32,
+    pub index_a: i32,
+    pub index_b: i32,
+    pub frame_a: Transform,
+    pub frame_b: Transform,
+    pub delta_center: Vec3,
+    pub linear_mass: f32,
+    pub velocity: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
 pub struct ParallelJoint {
     pub hertz: f32,
     pub damping_ratio: f32,
@@ -235,6 +267,8 @@ pub struct WheelJoint {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub union JointPayload {
+    pub mover: MoverJoint,
+    pub pogo: PogoJoint,
     pub distance: DistanceJoint,
     pub motor: MotorJoint,
     pub parallel: ParallelJoint,
