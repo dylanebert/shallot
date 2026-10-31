@@ -14,7 +14,7 @@ import { digestMismatch, drawingDigest, eventDigests, querySteps, recordDigest }
 setDefaultTimeout(0);
 
 function copyRobustnessSources(directory: string): void {
-    for (const file of ["samples/sample_issues.cpp", "samples/sample_tree.cpp", "samples/sample_world.cpp", "samples/sample_robustness.cpp", "samples/sample_determinism.cpp", "shared/overflow_color.c", "shared/determinism.c", "shared/stability.c"])
+    for (const file of ["samples/sample.h", "samples/sample_issues.cpp", "samples/sample_restitution.cpp", "samples/sample_tree.cpp", "samples/sample_world.cpp", "samples/sample_robustness.cpp", "samples/sample_determinism.cpp", "shared/overflow_color.c", "shared/determinism.c", "shared/stability.c"])
         copyFileSync(join(process.env.BOX3D!, file), join(directory, file));
 }
 
@@ -24,7 +24,7 @@ for (const [scene, name, before, after] of [
     ["restitutionOvershoot", "RestitutionOvershoot", "m_dropHeight = 10.0f", "m_dropHeight = 11.0f"],
     ["crash", "Crash", "{ 2.0f, 4.0f, 0.0f }", "{ 2.1f, 4.0f, 0.0f }"],
     ["multiplePrismatic", "MultiplePrismatic", "{ 0.0f, -0.6f, 0.0f }", "{ 0.0f, -0.7f, 0.0f }"],
-    ["hullCrash", "HullCrash", "{ 100.000000, -142.292389, 130.826111 }", "{ 101.000000, -142.292389, 130.826111 }"],
+    ["hullCrash", "HullCrash", "m_sourceIndex = 3;", "m_sourceIndex = 0;"],
     ["convexJitter", "ConvexJitter", "rollingResistance = 0.1f;", "rollingResistance = 0.2f;"],
     ["sboxMover", "SBoxMover", "{ 0.0f, 3.5f, 0.0f }", "{ 0.0f, 3.6f, 0.0f }"],
     ["capsuleMesh", "CapsuleMeshBug", "{ 0.0f, 4.0f, 10.0f }", "{ 0.0f, 4.1f, 10.0f }"],
@@ -49,14 +49,17 @@ for (const [scene, name, before, after] of [
             equalSampleSteps(run([binary, scene, "600"], env), hashes, `${scene} repeat`);
             if (scene === "hullCrash") expect(geometry()).toBe(hull);
             if (hasReadouts) expect(readouts()).toBe(readFileSync(new URL(`${scene}.readouts.gold.txt`, base), "utf8"));
-            if (scene === "crash" || scene === "ghostCollisions") {
+            if (scene === "crash" || scene === "ghostCollisions" || scene === "hullCrash") {
                 const args = [binary, scene, "600", fileURLToPath(new URL(`${scene}.controls.txt`, base))];
                 const controlled = run(args, env);
                 if(hasReadouts) expect(readouts()).toBe(readFileSync(new URL(`${scene}.controls.readouts.gold.txt`,base),"utf8"));
                 equalSampleSteps(controlled, readFileSync(new URL(`${scene}.controls.gold.txt`, base), "utf8"), `${scene} controls`);
                 equalSampleSteps(run(args, env), controlled, `${scene} controls repeat`);
                 if(hasReadouts) expect(readouts()).toBe(readFileSync(new URL(`${scene}.controls.readouts.gold.txt`,base),"utf8"));
-                expect(controlled).not.toBe(hashes);
+                if (scene === "hullCrash") {
+                    expect(geometry()).toBe(readFileSync(new URL("hullCrash.controls.geometry.gold.txt", base), "utf8"));
+                    expect(geometry()).not.toBe(hull);
+                } else expect(controlled).not.toBe(hashes);
             }
             const samples = join(directory, "samples"); mkdirSync(samples); mkdirSync(join(directory, "shared"));
             for (const file of readdirSync(join(process.env.BOX3D!, "samples")))
@@ -891,7 +894,7 @@ const jointMutations: Record<string, [string, string, string]> = {
     weld: ["WeldJoint", "bodyDef.position = { 0.0f, 4.0f, 0.0f };", "bodyDef.position = { 0.0f, 4.1f, 0.0f };"],
 };
 const shapeMutations: Record<string, [string, string, string]> = {
-    restitution: ["Restitution", "40.0f", "40.1f"],
+    restitution: ["VaryingRestitution", "40.0f", "40.1f"],
     staticInvoke: ["StaticInvoke", "0.25f", "0.3f"],
     wind: ["Wind", "m_lift = 0.75f;", "m_lift = 0.8f;"],
     inclinedPlane: ["InclinedPlane", "bodyDef.position = { 0.0f, 7.5f, -5.0f };", "bodyDef.position = { 0.0f, 7.6f, -5.0f };"],
@@ -948,7 +951,7 @@ for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "f
             copyFileSync(join(process.env.BOX3D!, "samples/sample_geometry.cpp"), join(copy, "samples/sample_geometry.cpp"));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_manifold.cpp"), join(copy, "samples/sample_manifold.cpp"));
             copyRobustnessSources(copy);
-            const path = join(copy, "samples", scene in shapeMutations ? "sample_shapes.cpp" : scene in bodyMutations ? "sample_bodies.cpp" : scene === "box_stack" || scene in stackingMutations ? "sample_stacking.cpp" : ["joint", "sensor", "contact", "hit", "move", "persistentContact", "sensorHits"].includes(scene) ? "sample_events.cpp" : "sample_joint.cpp");
+            const path = join(copy, "samples", scene === "restitution" ? "sample_restitution.cpp" : scene in shapeMutations ? "sample_shapes.cpp" : scene in bodyMutations ? "sample_bodies.cpp" : scene === "box_stack" || scene in stackingMutations ? "sample_stacking.cpp" : ["joint", "sensor", "contact", "hit", "move", "persistentContact", "sensorHits"].includes(scene) ? "sample_events.cpp" : "sample_joint.cpp");
             const source = readFileSync(path, "utf8");
             const classes: Record<string, string> = { box_stack: "BoxStack", bridge: "Bridge", revolute: "RevoluteJoint", prismatic: "PrismaticJoint", wheel: "WheelJoint", filter: "FilterJoint", parallel: "ParallelJoint", motor: "MotorJoint", joint: "JointEvent", sensor: "SensorVisit", contact: "ContactEvent", hit: "HitEvent", move: "MoveEvent", persistentContact: "PersistentContact", sensorHits: "SensorHits" };
             const start = source.indexOf(`class ${shapeMutations[scene]?.[0] ?? bodyMutations[scene]?.[0] ?? jointMutations[scene]?.[0] ?? stackingMutations[scene]?.[0] ?? classes[scene]} :`);

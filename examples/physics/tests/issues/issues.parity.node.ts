@@ -22,6 +22,13 @@ function readouts(world: World, scene: "ghostCollisions" | "restitutionOvershoot
                   issueScenes.restitutionOvershoot.controls.Drop.read(),
                   issueScenes.restitutionOvershoot.controls.Maximum.read(world),
                   Number(issueScenes.restitutionOvershoot.controls.Result.read(world) === "No"),
+                  s.energy.linear,
+                  s.energy.angular,
+                  s.energy.potential,
+                  s.energy.total,
+                  s.startEnergy,
+                  s.maxEnergy,
+                  Number(s.energyFailed),
               ];
     return JSON.parse(
         JSON.stringify(row, (_key, value) =>
@@ -101,7 +108,7 @@ test("off-center shape's initial angular velocity recovers and applies only once
     }
 });
 
-for (const scene of ["crash", "ghostCollisions"] as const)
+for (const scene of ["crash", "ghostCollisions", "hullCrash"] as const)
     test(`${scene} controls follow the native DrawControls sequence`, async () => {
         const gold = sampleGold(
             await Bun.file(new URL(`./${scene}.controls.gold.txt`, import.meta.url)).text(),
@@ -131,6 +138,16 @@ for (const scene of ["crash", "ghostCollisions"] as const)
                           .split("\n")
                           .map((line) => JSON.parse(line))
                     : [];
+            const geometry =
+                scene === "hullCrash"
+                    ? (
+                          await Bun.file(
+                              new URL("./hullCrash.controls.geometry.gold.txt", import.meta.url),
+                          ).text()
+                      )
+                          .trim()
+                          .split("\n")
+                    : [];
             const bodies = createScene(app.world, scene),
                 values = controlValues(scene);
             for (const [step, expected] of gold.entries()) {
@@ -139,6 +156,19 @@ for (const scene of ["crash", "ghostCollisions"] as const)
                         changeControl(app.world, scene, bodies, values, change.name, change.value);
                 app.world.tick();
                 expect(hashPhysics(app.world), `step ${step}`).toBe(expected.hash);
+                if (geometry.length) {
+                    const hull = app.world.resource(Geometry).hulls[0];
+                    expect(
+                        drawingDigest(
+                            hull
+                                ? [[...hullRecord(hull, 0), ...hull.faces.map((face) => face.edge)]]
+                                : hullCrashPoints(app.world.resource(IssueState).hullSource).map(
+                                      (p) => [0, p.x, p.y, p.z, 5],
+                                  ),
+                        ),
+                        `geometry ${step}`,
+                    ).toBe(geometry[step]!);
+                }
                 if (rows.length) {
                     expect(readouts(app.world, "ghostCollisions"), `readouts ${step}`).toEqual(
                         rows[step],

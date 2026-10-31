@@ -251,6 +251,15 @@ bool SliderInt( const char* name, int* value, int, int, const char* = "%d" ) {
     *value = int(result);
     return changed;
 }
+const char* comboName = nullptr;
+int comboIndex = 0;
+bool BeginCombo( const char* name, const char* ) { comboName = name; comboIndex = 0; return true; }
+bool Selectable( const char*, bool ) {
+    int value = -1;
+    bool changed = SliderInt( comboName, &value, 0, 0 );
+    return changed && value == comboIndex++;
+}
+void EndCombo() { comboName = nullptr; }
 bool Combo( const char* name, int* value, const char* const*, int ) {
     return SliderInt( name, value, 0, 0 );
 }
@@ -297,6 +306,8 @@ struct SampleContext
 	int singleStep = 0;
 	float hertz = 60.0f;
 	int subStepCount = 4;
+    int restitutionIterations = 2;
+    bool enableRestitutionPropagation = false;
 	int workerCount = 1;
 	bool enableSleep = true;
 	bool enableWarmStarting = true;
@@ -370,6 +381,8 @@ public:
 		b3World_EnableSleeping( m_worldId, m_context->enableSleep );
 		b3World_EnableWarmStarting( m_worldId, m_context->enableWarmStarting );
 		b3World_EnableContinuous( m_worldId, m_context->enableContinuous );
+        b3World_SetRestitutionIterations( m_worldId, m_context->restitutionIterations );
+        b3World_EnableRestitutionPropagation( m_worldId, m_context->enableRestitutionPropagation );
         if (m_context->pause) return;
 		RecordedStep( m_worldId, 1.0f / m_context->hertz, m_context->subStepCount );
 		m_stepHash = b3HashWorldState( b3GetWorldFromId( m_worldId ) );
@@ -475,7 +488,7 @@ int main( int argc, char** argv )
         { "inclinedPlane", InclinedPlane::Create }, { "rollingResistance", RollingResistance::Create },
         { "highResistance", HighResistance::Create }, { "isotropicFriction", IsotropicFriction::Create },
         { "slideTwist", SlideTwist::Create }, { "conveyorBelt", ConveyorBelt::Create },
-        { "restitution", Restitution::Create }, { "staticInvoke", StaticInvoke::Create }, { "wind", Wind::Create },
+        { "restitution", VaryingRestitution::Create }, { "staticInvoke", StaticInvoke::Create }, { "wind", Wind::Create },
         { "conveyorMesh", ConveyorMesh::Create }, { "windDrop", WindDrop::Create }, { "windFlap", WindFlap::Create },
         { "rigidBody", RigidBodyCharacter::Create }, { "geometricMover", GeometricMover::Create }, { "capsulePlane", CapsulePlane::Create }, { "moverOverlap", MoverOverlap::Create },
         { "classRing", ClassRing::Create }, { "cast", BodyCast::Create },
@@ -655,7 +668,8 @@ int main( int argc, char** argv )
                 fprintf(issueReadouts, "]]\n");
             } else {
                 auto* s = static_cast<Issues::RestitutionOvershoot*>(sample);
-                fprintf(issueReadouts, "[%.9g,%.9g,%d]\n", s->m_dropHeight, s->m_maxBounceY, s->m_failed);
+                MechanicalEnergy energy = MeasureEnergy(s->m_worldId, &s->m_boxBody, 1);
+                fprintf(issueReadouts, "[%.9g,%.9g,%d,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%d]\n", s->m_dropHeight, s->m_maxBounceY, s->m_failed, energy.linear, energy.angular, energy.potential, energy.Total(), s->m_startEnergy, s->m_maxEnergy, s->m_energyFailed);
             }
         }
         if (worldReadouts) {

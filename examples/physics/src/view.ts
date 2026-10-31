@@ -620,6 +620,7 @@ function createView(world: World, scene: Scene, camera: number): () => void {
                     drawLine(world, a, b, color, options),
                 );
             }
+            if (scene === "restitution") drawLine(world, [-40, 40.5, 0], [40, 40.5, 0], 0xff0000);
             if (scene === "meshViewer")
                 drawMeshViewerView(world, (a, b, color, options) =>
                     drawLine(world, a, b, color, options),

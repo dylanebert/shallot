@@ -5,12 +5,12 @@
 #include <stdlib.h>
 
 static int allocations;
-static void* count_alloc(int32_t size, int32_t alignment)
+static void* count_alloc(size_t size, int32_t alignment)
 {
     ++allocations;
     return aligned_alloc(alignment, (size + alignment - 1) & ~(alignment - 1));
 }
-static void count_free(void* memory) { free(memory); }
+static void count_free(void* memory, size_t size) { (void)size; free(memory); }
 
 static void emit(const b3HullData* hull)
 {

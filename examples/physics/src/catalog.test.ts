@@ -185,6 +185,10 @@ test("each picker label selects its scene in its category, exactly once", () => 
             ],
         },
         {
+            name: "Restitution",
+            scenes: [{ id: "restitution", name: "Varying" }],
+        },
+        {
             name: "Shapes",
             scenes: [
                 { id: "conveyorBelt", name: "Conveyor Belt" },
@@ -192,7 +196,6 @@ test("each picker label selects its scene in its category, exactly once", () => 
                 { id: "highResistance", name: "High Resistance" },
                 { id: "inclinedPlane", name: "Inclined Plane" },
                 { id: "isotropicFriction", name: "Isotropic Friction" },
-                { id: "restitution", name: "Restitution" },
                 { id: "rollingResistance", name: "Rolling Resistance" },
                 { id: "slideTwist", name: "Slide Twist" },
                 { id: "staticInvoke", name: "Static Invoke" },

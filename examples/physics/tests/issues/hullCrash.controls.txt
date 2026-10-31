@@ -1,0 +1,5 @@
+60	Source	0
+180	Source	1
+300	Source	2
+420	Source	3
+540	Max Vertices	8

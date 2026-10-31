@@ -255,6 +255,10 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
         ],
     },
     {
+        name: "Restitution",
+        scenes: [{ id: "restitution", name: "Varying" }],
+    },
+    {
         name: "Shapes",
         scenes: [
             { id: "conveyorBelt", name: "Conveyor Belt" },
@@ -262,7 +266,6 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
             { id: "highResistance", name: "High Resistance" },
             { id: "inclinedPlane", name: "Inclined Plane" },
             { id: "isotropicFriction", name: "Isotropic Friction" },
-            { id: "restitution", name: "Restitution" },
             { id: "rollingResistance", name: "Rolling Resistance" },
             { id: "slideTwist", name: "Slide Twist" },
             { id: "staticInvoke", name: "Static Invoke" },

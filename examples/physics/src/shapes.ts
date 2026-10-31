@@ -341,8 +341,8 @@ function restitutionBodies(world: World): number[] {
             eid,
             Shape,
             state.shape === 0
-                ? { kind: ShapeKind.Sphere, radius: 0.5, restitution }
-                : { geometry, restitution },
+                ? { kind: ShapeKind.Sphere, radius: 0.5, density: 1, friction: 0, restitution }
+                : { geometry, density: 1, friction: 0, restitution },
         );
         state.bodies.push(eid);
         restitution = f(restitution + dr);
@@ -424,6 +424,7 @@ function wind(world: World): number[] {
 const restitutionControls = {
     Shape: {
         label: "Shape",
+        select: true,
         value: 0,
         options: [
             { label: "Sphere", value: 0 },
@@ -431,6 +432,14 @@ const restitutionControls = {
         ],
         set(world, _bodies, value) {
             world.resource(ShapeControlsState).shape = value;
+            restitutionBodies(world);
+        },
+    },
+    Reset: {
+        label: "Reset",
+        value: 0,
+        button: true,
+        set(world) {
             restitutionBodies(world);
         },
     },

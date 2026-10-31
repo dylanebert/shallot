@@ -9,6 +9,7 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
     const manifold = readFileSync(join(samples, "sample_manifold.cpp"), "utf8");
     const geometry = readFileSync(join(samples, "sample_geometry.cpp"), "utf8");
     const shapes = readFileSync(join(samples, "sample_shapes.cpp"), "utf8");
+    const restitution = readFileSync(join(samples, "sample_restitution.cpp"), "utf8");
     const bodies = readFileSync(join(samples, "sample_bodies.cpp"), "utf8");
     const character = readFileSync(join(samples, "sample_character.cpp"), "utf8");
     const continuous = readFileSync(join(samples, "sample_continuous.cpp"), "utf8");
@@ -32,7 +33,10 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         return source.slice(first, last);
     }
     const sources = [
+        section(readFileSync(join(samples, "sample.h"), "utf8"), "struct MechanicalEnergy", "MechanicalEnergy MeasureEnergy"),
+        section(sample, "MechanicalEnergy MeasureEnergy"),
         "namespace Issues {",
+        section(issues, "static const b3Vec3 waterfallPoints", "class HullCrash :").replace('fopen( path, "rb" )', 'fopen( (std::string(getenv("BOX3D")) + "/" + path).c_str(), "rb" )'),
         section(issues, "class SBoxGhostCollisions :", "static int sampleSBoxGhostCollisions"),
         section(issues, "static const b3Vec3 s_metalWheel1Verts", "static int sampleWheelStack"),
         section(issues, "class RestitutionOvershoot :", "static int sampleRestitutionOvershoot"),
@@ -61,7 +65,7 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         section(readFileSync(join(samples, "mover.h"), "utf8"), "class Sample;"),
         section(readFileSync(join(samples, "mover.cpp"), "utf8"), "static bool MoverFilterCallback"),
         section(readFileSync(join(process.env.BOX3D ?? "", "samples/sample.h"), "utf8"), "struct CastClosestContext", "float CastClosestCallback"),
-        section(sample, "float CastClosestCallback("),
+        section(sample, "float CastClosestCallback(", "MechanicalEnergy MeasureEnergy"),
         section(compound, "static bool OverlapResultFcn", "static int sampleVillage"),
         section(character, "struct MoverImpact", "static int sampleMover"),
         section(character, "struct ClosestShapeCastContext", "static int sampleRBCharacter"),
@@ -72,7 +76,8 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         section(continuous, "class BulletVersusStack :", "static int sampleContinuous6"),
         section(continuous, "struct IndexPair", "static int sampleMeshDrop"),
         "#undef printf",
-        ...["InclinedPlane", "RollingResistance", "HighResistance", "IsotropicFriction", "SlideTwist", "Restitution", "StaticInvoke", "Wind", "ConveyorBelt", "ConveyorMesh", "WindDrop", "WindFlap"].map(name => section(shapes, `class ${name} :`, `static int sample${name}`)),
+        ...["InclinedPlane", "RollingResistance", "HighResistance", "IsotropicFriction", "SlideTwist", "StaticInvoke", "Wind", "ConveyorBelt", "ConveyorMesh", "WindDrop", "WindFlap"].map(name => section(shapes, `class ${name} :`, `static int sample${name}`)),
+        section(restitution, "class VaryingRestitution :", "static int sampleVaryingRestitution"),
         ...[["ClassRing", "sampleClassRing"], ["BodyCast", "sampleBodyCast"], ["GyroscopicPrecession", "sampleGyroscopicPrecession"], ["BodyType", "sampleBodyType"], ["Weeble", "sampleWeeble"], ["DisableBody", "sampleDisable"], ["SpinningBooks", "sampleBook"], ["GyroscopicTorque", "sampleGyroscopicTorque"], ["Kinematic", "sampleKinematic"], ["LockMixing", "sampleLockMixing"], ["FixedRotation", "sampleFixedRotation"], ["OffsetKinematic", "sampleOffsetKinematic"]].map(([name, end]) => section(bodies, `class ${name} :`, `static int ${end}`)),
         section(benchmark.slice(benchmark.lastIndexOf("class BenchmarkLargeWorld :")), "class BenchmarkLargeWorld :", "static int sampleLargeWorld"),
         ...["BenchmarkLargePyramid", "BenchmarkWidePyramid", "BenchmarkManyPyramids", "BenchmarkJointGrid", "FallingBoxes", "BenchmarkRain", "BenchmarkJunkyard", "BenchmarkWasher", "BenchmarkConvexPile", "BenchmarkFallingTrees", "BenchmarkExplosion", "BenchmarkDestruction", "BenchmarkChains", "BenchmarkHeightField", "BenchmarkHull"].map(name =>

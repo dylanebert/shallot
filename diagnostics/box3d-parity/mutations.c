@@ -7,7 +7,7 @@
 static int allocations;
 static b3ShapeId shape;
 static b3JointId distance, spherical, wheel, motor;
-static void* allocate(int32_t size, int32_t alignment)
+static void* allocate(size_t size, int32_t alignment)
 {
     void* p = NULL;
     if (alignment < (int32_t)sizeof(void*)) alignment = (int32_t)sizeof(void*);
@@ -15,7 +15,7 @@ static void* allocate(int32_t size, int32_t alignment)
     ++allocations;
     return p;
 }
-static void release(void* p) { free(p); }
+static void release(void* p, size_t size) { (void)size; free(p); }
 static void mutate(b3WorldId world, b3BodyId a, int i)
 {
     bool on = (i & 1) != 0;

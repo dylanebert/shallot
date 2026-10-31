@@ -5,6 +5,7 @@ import {
     GlobalTransform,
     HeightFields,
     Hulls,
+    Orbit,
     PhysicsMeshes,
     type Plugin,
     PrismaticJoint,
@@ -29,7 +30,9 @@ import building from "../../src/building.json" with { type: "json" };
 import { Geometry } from "../../src/geometry";
 import { decodeMesh } from "../../src/mesh-data";
 import type { Controls } from "../../src/scenes";
+import { measureEnergy } from "./energy";
 import { ghostFloor } from "./ghost-floor";
+import hullSources from "./hull-crash.json" with { type: "json" };
 import wheel from "./issue-wheel.json" with { type: "json" };
 import jitter from "./issues-points.json" with { type: "json" };
 
@@ -53,6 +56,12 @@ export const IssueState = {
         bounced: false,
         maxBounce: 0,
         failed: false,
+        hullSource: 3,
+        maxVertices: 128,
+        startEnergy: 0,
+        maxEnergy: 0,
+        energyFailed: false,
+        energy: { linear: 0, angular: 0, potential: 0, total: 0 },
     }),
 };
 const IssueStatePlugin: Plugin = { name: "IssueState", recovery: recoverResource(IssueState) };
@@ -71,6 +80,10 @@ export const IssuesPlugin: Plugin = {
                 for (const { body, velocity } of pending) setAngularVelocity(world, body, velocity);
                 pending.length = 0;
                 const s = world.resource(IssueState);
+                if (s.bounce >= 0 && s.startEnergy === 0) {
+                    s.startEnergy = measureEnergy(world, s.bounce).total;
+                    s.maxEnergy = s.startEnergy;
+                }
                 if (s.ghost < 0) return;
                 const t = world.storage(GlobalTransform),
                     e = s.ghost;
@@ -109,6 +122,10 @@ export const IssuesPlugin: Plugin = {
                     s.wasLaunched = launched;
                 }
                 if (s.bounce >= 0) {
+                    s.energy = measureEnergy(world, s.bounce);
+                    s.maxEnergy = Math.max(s.maxEnergy, s.energy.total);
+                    if (s.bounced && s.energy.total > f(s.startEnergy * f(1 + f(0.001))))
+                        s.energyFailed = true;
                     const y = t.translation.y.get(s.bounce),
                         vy = t.linearVelocity.y.get(s.bounce);
                     if (!s.bounced && vy > 0) s.bounced = true;
@@ -174,18 +191,49 @@ function multiplePrismatic(world: World): number[] {
     }
     return bodies;
 }
-export function hullCrashPoints() {
-    return [
-        [100, -142.292389, 130.826111],
-        [99.5354385, -71.3011093, 130.826111],
-        [99.5930862, -80.1112213, -100],
-        [100, -142.292389, -100],
-        [99.5930862, -80.1112213, 130.826111],
-    ].map(([x, y, z]) => ({ x: f(f(0.01) * f(x!)), y: f(f(0.01) * f(y!)), z: f(f(0.01) * f(z!)) }));
+export function hullCrashPoints(source = 3) {
+    const scale = source === 3 ? 1 : f(0.01);
+    return hullSources[source]!.map(([x, y, z]) => ({
+        x: f(scale * f(x!)),
+        y: f(scale * f(y!)),
+        z: f(scale * f(z!)),
+    }));
+}
+function rebuildHullCrash(world: World): void {
+    const state = world.resource(IssueState);
+    const points = hullCrashPoints(state.hullSource);
+    world.resource(Geometry).hulls = [createHull(points, state.maxVertices, world)];
+}
+function frameHullCrash(world: World): void {
+    const points = hullCrashPoints(world.resource(IssueState).hullSource);
+    const lower = [Infinity, Infinity, Infinity],
+        upper = [-Infinity, -Infinity, -Infinity];
+    for (const p of points)
+        for (const [i, value] of [p.x, p.y, p.z].entries()) {
+            lower[i] = Math.min(lower[i]!, value);
+            upper[i] = Math.max(upper[i]!, value);
+        }
+    const center = lower.map((value, i) => f(f(value + upper[i]!) * 0.5));
+    const extent = upper.map((value, i) => f(f(value - lower[i]!) * 0.5));
+    const radius = f(
+        Math.sqrt(
+            f(
+                f(f(extent[0]! * extent[0]!) + f(extent[1]! * extent[1]!)) +
+                    f(extent[2]! * extent[2]!),
+            ),
+        ),
+    );
+    const orbit = world.storage(Orbit);
+    for (const camera of world.query([Orbit])) {
+        orbit.yaw.set(camera, 0);
+        orbit.pitch.set(camera, Math.PI / 12);
+        orbit.distance.set(camera, Math.max(f(3 * radius), 1));
+        orbit.pan.set(camera, center[0]!, center[1]!, center[2]!);
+    }
 }
 function hullCrash(world: World): number[] {
     world.resource(PhysicsWorldDefinition).enableAutomaticStep = false;
-    world.resource(Geometry).hulls = [createHull(hullCrashPoints(), 5, world)];
+    rebuildHullCrash(world);
     return [];
 }
 function convexJitter(world: World): number[] {
@@ -430,6 +478,7 @@ function wheelStack(world: World): number[] {
 function restitutionOvershoot(world: World): number[] {
     box(world, body(world, [0, -0.25, 0]), [0.375, 0.25, 0.375]);
     const e = body(world, [0, 10, 0], true);
+    world.storage(Body).safetyFactor.set(e, 0.1);
     box(world, e, [0.5, 0.5, 0.5]);
     world.storage(Shape).restitution.set(e, 1);
     world.resource(IssueState).bounce = e;
@@ -542,6 +591,50 @@ export const issueScenes = {
                 },
                 set() {},
             },
+            Linear: {
+                label: "Linear, J",
+                value: 0,
+                decimals: 0,
+                read(world) {
+                    return world.resource(IssueState).energy.linear;
+                },
+                set() {},
+            },
+            Angular: {
+                label: "Angular, J",
+                value: 0,
+                decimals: 0,
+                read(world) {
+                    return world.resource(IssueState).energy.angular;
+                },
+                set() {},
+            },
+            Potential: {
+                label: "Potential, J",
+                value: 0,
+                decimals: 0,
+                read(world) {
+                    return world.resource(IssueState).energy.potential;
+                },
+                set() {},
+            },
+            Total: {
+                label: "Total, J",
+                value: 0,
+                decimals: 0,
+                read(world) {
+                    return world.resource(IssueState).energy.total;
+                },
+                set() {},
+            },
+            EnergyResult: {
+                label: "Energy did not increase",
+                value: 0,
+                read(world) {
+                    return world.resource(IssueState).energyFailed ? "No" : "Yes";
+                },
+                set() {},
+            },
             Result: {
                 label: "At or below drop",
                 value: 0,
@@ -581,8 +674,39 @@ export const issueScenes = {
         construct: hullCrash,
         gridExtent: 4,
         gridSpacing: 0.5,
-        camera: { yaw: 65, pitch: 20, distance: 4, target: [1, -1, 0.15] },
-        controls: undefined,
+        camera: { yaw: 0, pitch: 15, distance: 11.608811, target: [0, 4.517928, -0.00005364418] },
+        controls: {
+            Source: {
+                label: "Source",
+                value: 3,
+                select: true,
+                options: ["waterfall", "quad", "thin box", "axe.txt"].map((label, value) => ({
+                    label,
+                    value,
+                })),
+                set(world, _bodies, value) {
+                    const state = world.resource(IssueState);
+                    state.hullSource = value;
+                    state.maxVertices = Math.min(128, Math.max(4, hullSources[value]!.length));
+                    rebuildHullCrash(world);
+                    frameHullCrash(world);
+                },
+            },
+            "Max Vertices": {
+                label: "Max Vertices",
+                value: 128,
+                min: 4,
+                max: 128,
+                step: 1,
+                read(world) {
+                    return world.resource(IssueState).maxVertices;
+                },
+                set(world, _bodies, value) {
+                    world.resource(IssueState).maxVertices = value;
+                    rebuildHullCrash(world);
+                },
+            },
+        } satisfies Controls,
     },
     convexJitter: {
         construct: convexJitter,
