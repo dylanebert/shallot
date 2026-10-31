@@ -450,6 +450,11 @@ pub fn solve(
                 let normal_a = inv_rotate_wide(dq_a, normal);
                 let normal_b = inv_rotate_wide(dq_b, normal);
 
+                let dv = v_b.sub(v_a);
+                let mut linear_normal_velocity = normal.dot(dv);
+                let linear_tangent_velocity1 = (*mc).tangent1.dot(dv) - (*mc).tangent_velocity1;
+                let linear_tangent_velocity2 = (*mc).tangent2.dot(dv) - (*mc).tangent_velocity2;
+                let mut manifold_impulse = 0.0;
                 let mut total_normal_impulse = 0.0f32;
                 let mut total_twist_limit = 0.0f32;
 
@@ -484,7 +489,13 @@ pub fn solve(
 
                     let vr_a = v_a.add(w_a.cross(r_a));
                     let vr_b = v_b.add(w_b.cross(r_b));
-                    let vn = vr_b.sub(vr_a).dot(normal);
+                    let ua = r_a.cross(normal);
+                    let ub = r_b.cross(normal);
+                    let vn = if wide_mesh {
+                        linear_normal_velocity + (ub.dot(w_b) - ua.dot(w_a))
+                    } else {
+                        vr_b.sub(vr_a).dot(normal)
+                    };
 
                     let mut delta_impulse = -normal_mass * (mass_scale * vn + velocity_bias)
                         - impulse_scale * normal_impulse;
@@ -492,11 +503,17 @@ pub fn solve(
                     let new_impulse = if wide_mesh {
                         let neg_impulse = normal_mass * (mass_scale * vn + velocity_bias)
                             + impulse_scale * normal_impulse;
-                        maxf(normal_impulse - neg_impulse, 0.0)
+                        normal_impulse + maxf(-neg_impulse, -normal_impulse)
                     } else {
                         maxf(normal_impulse + delta_impulse, 0.0)
                     };
-                    delta_impulse = new_impulse - normal_impulse;
+                    delta_impulse = if wide_mesh {
+                        let neg_impulse = normal_mass * (mass_scale * vn + velocity_bias)
+                            + impulse_scale * normal_impulse;
+                        maxf(-neg_impulse, -normal_impulse)
+                    } else {
+                        new_impulse - normal_impulse
+                    };
                     (*cp).normal_impulse = new_impulse;
                     if !use_bias {
                         (*cp).total_normal_impulse += new_impulse;
@@ -504,14 +521,26 @@ pub fn solve(
                         total_twist_limit += lever_arm * new_impulse;
                     }
 
-                    let p_imp = normal.scale(delta_impulse);
-                    v_a = v_a.mul_sub(m_a, p_imp);
-                    w_a = w_a.sub(i_a.mul_v(r_a.cross(p_imp)));
-                    v_b = v_b.mul_add(m_b, p_imp);
-                    w_b = w_b.add(i_b.mul_v(r_b.cross(p_imp)));
+                    if wide_mesh {
+                        linear_normal_velocity += (m_a + m_b) * delta_impulse;
+                        manifold_impulse += delta_impulse;
+                        w_a = w_a.mul_sub(delta_impulse, i_a.mul_v(ua));
+                        w_b = w_b.mul_add(delta_impulse, i_b.mul_v(ub));
+                    } else {
+                        let p_imp = normal.scale(delta_impulse);
+                        v_a = v_a.mul_sub(m_a, p_imp);
+                        w_a = w_a.sub(i_a.mul_v(r_a.cross(p_imp)));
+                        v_b = v_b.mul_add(m_b, p_imp);
+                        w_b = w_b.add(i_b.mul_v(r_b.cross(p_imp)));
+                    }
                 }
 
                 if use_bias {
+                    if wide_mesh {
+                        let p = normal.scale(manifold_impulse);
+                        v_a = v_a.mul_sub(m_a, p);
+                        v_b = v_b.mul_add(m_b, p);
+                    }
                     continue;
                 }
 
@@ -535,15 +564,21 @@ pub fn solve(
                     let max_impulse = friction * total_twist_limit;
                     let delta = -(*mc).twist_mass * twist_speed;
                     let old = (*mc).twist_impulse;
-                    let clamped = if wide_mesh {
-                        crate::math::minf(maxf(-max_impulse, old + delta), max_impulse)
+                    if wide_mesh {
+                        let impulse = maxf(
+                            -max_impulse - old,
+                            crate::math::minf(delta, max_impulse - old),
+                        );
+                        (*mc).twist_impulse = old + impulse;
+                        w_a = w_a.mul_sub(impulse, i_a.mul_v(normal));
+                        w_b = w_b.mul_add(impulse, i_b.mul_v(normal));
                     } else {
-                        clampf(old + delta, -max_impulse, max_impulse)
-                    };
-                    (*mc).twist_impulse = clamped;
-                    let applied = clamped - old;
-                    w_a = w_a.sub(i_a.mul_v(normal.scale(applied)));
-                    w_b = w_b.add(i_b.mul_v(normal.scale(applied)));
+                        let clamped = clampf(old + delta, -max_impulse, max_impulse);
+                        (*mc).twist_impulse = clamped;
+                        let applied = clamped - old;
+                        w_a = w_a.sub(i_a.mul_v(normal.scale(applied)));
+                        w_b = w_b.add(i_b.mul_v(normal.scale(applied)));
+                    }
                 }
 
                 if !wide_mesh && rolling_resistance > 0.0 {
@@ -580,10 +615,18 @@ pub fn solve(
                     let vr_a = v_a.add(w_a.cross(r_a));
                     let vr_b = v_b.add(w_b.cross(r_b));
                     let vr = vr_b.sub(vr_a);
-                    let vt = Vec2::new(
-                        vr.dot(tangent1) - tangent_velocity1,
-                        vr.dot(tangent2) - tangent_velocity2,
-                    );
+                    let vt = if wide_mesh {
+                        let angular_relative_velocity = w_b.cross(r_b).sub(w_a.cross(r_a));
+                        Vec2::new(
+                            linear_tangent_velocity1 + angular_relative_velocity.dot(tangent1),
+                            linear_tangent_velocity2 + angular_relative_velocity.dot(tangent2),
+                        )
+                    } else {
+                        Vec2::new(
+                            vr.dot(tangent1) - tangent_velocity1,
+                            vr.dot(tangent2) - tangent_velocity2,
+                        )
+                    };
 
                     let tm = tangent_mass.mul_v(vt);
                     let delta = Vec2::new(-tm.x, -tm.y);
@@ -606,10 +649,15 @@ pub fn solve(
                     (*mc).friction_impulse.y = new_impulse.y;
 
                     let p_imp = blend2(applied.x, tangent1, applied.y, tangent2);
-                    v_a = v_a.mul_sub(m_a, p_imp);
                     w_a = w_a.sub(i_a.mul_v(r_a.cross(p_imp)));
-                    v_b = v_b.mul_add(m_b, p_imp);
                     w_b = w_b.add(i_b.mul_v(r_b.cross(p_imp)));
+                    let p_imp = if wide_mesh {
+                        p_imp.mul_add(manifold_impulse, normal)
+                    } else {
+                        p_imp
+                    };
+                    v_a = v_a.mul_sub(m_a, p_imp);
+                    v_b = v_b.mul_add(m_b, p_imp);
                 }
             }
 

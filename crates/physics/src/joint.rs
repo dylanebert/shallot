@@ -856,17 +856,8 @@ fn solve_weld(
             impulse_scale = linear_spring.impulse_scale;
         }
 
-        let s_a = Mat3::skew(r_a);
-        let s_b = Mat3::skew(r_b);
-        let k_a = s_a.mul(base.inv_ia.mul(s_a));
-        let k_b = s_b.mul(base.inv_ib.mul(s_b));
-        let mut k = k_a.add(k_b).neg();
-        let mm = m_a + m_b;
-        k.cx.x += mm;
-        k.cy.y += mm;
-        k.cz.z += mm;
-
-        let b = k.solve(cdot.add(bias));
+        let b =
+            solve_point_constraint(m_a, m_b, base.inv_ia, base.inv_ib, r_a, r_b, cdot.add(bias));
 
         let linear_impulse = get_vec3(joints, slot, WJ_LINEAR_IMPULSE);
         let impulse = b.scale(-mass_scale).mul_sub(impulse_scale, linear_impulse);
@@ -1062,95 +1053,106 @@ fn solve_revolute(
     }
     let rel_q = quat_a.inv_mul(quat_b);
 
-    if enable_spring && !fixed_rotation {
-        let angle = rel_q.get_twist_angle();
-        let c = angle - target_angle;
-        let bias = spring_soft.bias_rate * c;
-        let mass_scale = spring_soft.mass_scale;
-        let impulse_scale = spring_soft.impulse_scale;
-        let cdot = w_b.sub(w_a).dot(rotation_axis_z);
-
-        let spring_impulse = get(joints, slot, RJ_SPRING_IMPULSE);
-        let delta_impulse =
-            -mass_scale * axial_mass * (cdot + bias) - impulse_scale * spring_impulse;
-        set(
-            joints,
-            slot,
-            RJ_SPRING_IMPULSE,
-            spring_impulse + delta_impulse,
-        );
-
-        w_a = w_a.mul_sub(delta_impulse, i_a.mul_v(rotation_axis_z));
-        w_b = w_b.mul_add(delta_impulse, i_b.mul_v(rotation_axis_z));
-    }
-
-    if enable_motor && !fixed_rotation {
-        let cdot = w_b.sub(w_a).dot(rotation_axis_z) - motor_speed;
-        let motor_impulse = get(joints, slot, RJ_MOTOR_IMPULSE);
-        let mut delta_impulse = -axial_mass * cdot;
-        let mut new_impulse = motor_impulse + delta_impulse;
-        let max_impulse = max_motor_torque * h;
-        new_impulse = clampf(new_impulse, -max_impulse, max_impulse);
-        delta_impulse = new_impulse - motor_impulse;
-        set(joints, slot, RJ_MOTOR_IMPULSE, new_impulse);
-
-        w_a = w_a.mul_sub(delta_impulse, i_a.mul_v(rotation_axis_z));
-        w_b = w_b.mul_add(delta_impulse, i_b.mul_v(rotation_axis_z));
-    }
-
-    if enable_limit && !fixed_rotation {
-        let angle = rel_q.get_twist_angle();
+    if !fixed_rotation && (enable_spring || enable_motor || enable_limit) {
         let axis = rotation_axis_z;
+        let ga = i_a.mul_v(axis);
+        let gb = i_b.mul_v(axis);
+        let k = axis.dot(ga.add(gb));
+        let mut axial_cdot = w_b.sub(w_a).dot(axis);
+        let mut axial_impulse = 0.0;
 
-        {
-            let c = angle - lower_angle;
-            let mut bias = 0.0;
-            let mut mass_scale = 1.0_f32;
-            let mut impulse_scale = 0.0;
-            if c > 0.0 {
-                bias = c * inv_h;
-            } else if use_bias {
-                bias = cs.bias_rate * c;
-                mass_scale = cs.mass_scale;
-                impulse_scale = cs.impulse_scale;
-            }
-            let cdot = w_b.sub(w_a).dot(axis);
-            let old_impulse = get(joints, slot, RJ_LOWER_IMPULSE);
-            let mut delta_impulse =
-                -mass_scale * axial_mass * (cdot + bias) - impulse_scale * old_impulse;
-            let lower_impulse = maxf(old_impulse + delta_impulse, 0.0);
-            set(joints, slot, RJ_LOWER_IMPULSE, lower_impulse);
-            delta_impulse = lower_impulse - old_impulse;
+        if enable_spring {
+            let angle = rel_q.get_twist_angle();
+            let c = angle - target_angle;
+            let bias = spring_soft.bias_rate * c;
+            let mass_scale = spring_soft.mass_scale;
+            let impulse_scale = spring_soft.impulse_scale;
+            let cdot = axial_cdot;
 
-            w_a = w_a.mul_sub(delta_impulse, i_a.mul_v(axis));
-            w_b = w_b.mul_add(delta_impulse, i_b.mul_v(axis));
+            let spring_impulse = get(joints, slot, RJ_SPRING_IMPULSE);
+            let delta_impulse =
+                -mass_scale * axial_mass * (cdot + bias) - impulse_scale * spring_impulse;
+            set(
+                joints,
+                slot,
+                RJ_SPRING_IMPULSE,
+                spring_impulse + delta_impulse,
+            );
+
+            axial_cdot += k * delta_impulse;
+            axial_impulse += delta_impulse;
         }
 
-        {
-            let c = upper_angle - angle;
-            let mut bias = 0.0;
-            let mut mass_scale = 1.0_f32;
-            let mut impulse_scale = 0.0;
-            if c > 0.0 {
-                bias = c * inv_h;
-            } else if use_bias {
-                bias = cs.bias_rate * c;
-                mass_scale = cs.mass_scale;
-                impulse_scale = cs.impulse_scale;
-            }
-            // sign flipped on Cdot
-            let cdot = w_a.sub(w_b).dot(axis);
-            let old_impulse = get(joints, slot, RJ_UPPER_IMPULSE);
-            let mut delta_impulse =
-                -mass_scale * axial_mass * (cdot + bias) - impulse_scale * old_impulse;
-            let upper_impulse = maxf(old_impulse + delta_impulse, 0.0);
-            set(joints, slot, RJ_UPPER_IMPULSE, upper_impulse);
-            delta_impulse = upper_impulse - old_impulse;
+        if enable_motor {
+            let cdot = axial_cdot - motor_speed;
+            let motor_impulse = get(joints, slot, RJ_MOTOR_IMPULSE);
+            let max_impulse = max_motor_torque * h;
+            let delta_impulse = clampf(
+                -axial_mass * cdot,
+                -max_impulse - motor_impulse,
+                max_impulse - motor_impulse,
+            );
+            set(
+                joints,
+                slot,
+                RJ_MOTOR_IMPULSE,
+                motor_impulse + delta_impulse,
+            );
 
-            // sign flipped on applied impulse
-            w_a = w_a.mul_add(delta_impulse, i_a.mul_v(axis));
-            w_b = w_b.mul_sub(delta_impulse, i_b.mul_v(axis));
+            axial_cdot += k * delta_impulse;
+            axial_impulse += delta_impulse;
         }
+
+        if enable_limit {
+            let angle = rel_q.get_twist_angle();
+
+            {
+                let c = angle - lower_angle;
+                let mut bias = 0.0;
+                let mut mass_scale = 1.0_f32;
+                let mut impulse_scale = 0.0;
+                if c > 0.0 {
+                    bias = c * inv_h;
+                } else if use_bias {
+                    bias = cs.bias_rate * c;
+                    mass_scale = cs.mass_scale;
+                    impulse_scale = cs.impulse_scale;
+                }
+                let old_impulse = get(joints, slot, RJ_LOWER_IMPULSE);
+                let delta_impulse = maxf(
+                    -mass_scale * axial_mass * (axial_cdot + bias) - impulse_scale * old_impulse,
+                    -old_impulse,
+                );
+                set(joints, slot, RJ_LOWER_IMPULSE, old_impulse + delta_impulse);
+                axial_cdot += k * delta_impulse;
+                axial_impulse += delta_impulse;
+            }
+
+            {
+                let c = upper_angle - angle;
+                let mut bias = 0.0;
+                let mut mass_scale = 1.0_f32;
+                let mut impulse_scale = 0.0;
+                if c > 0.0 {
+                    bias = c * inv_h;
+                } else if use_bias {
+                    bias = cs.bias_rate * c;
+                    mass_scale = cs.mass_scale;
+                    impulse_scale = cs.impulse_scale;
+                }
+                // sign flipped on Cdot
+                let cdot = -axial_cdot;
+                let old_impulse = get(joints, slot, RJ_UPPER_IMPULSE);
+                let delta_impulse = maxf(
+                    -mass_scale * axial_mass * (cdot + bias) - impulse_scale * old_impulse,
+                    -old_impulse,
+                );
+                set(joints, slot, RJ_UPPER_IMPULSE, old_impulse + delta_impulse);
+                axial_impulse -= delta_impulse;
+            }
+        }
+        w_a = w_a.mul_sub(axial_impulse, ga);
+        w_b = w_b.mul_add(axial_impulse, gb);
     }
 
     if !fixed_rotation {
@@ -1222,17 +1224,8 @@ fn solve_revolute(
             impulse_scale = cs.impulse_scale;
         }
 
-        let s_a = Mat3::skew(r_a);
-        let s_b = Mat3::skew(r_b);
-        let k_a = s_a.mul(base.inv_ia.mul(s_a));
-        let k_b = s_b.mul(base.inv_ib.mul(s_b));
-        let mut k = k_a.add(k_b).neg();
-        let mm = m_a + m_b;
-        k.cx.x += mm;
-        k.cy.y += mm;
-        k.cz.z += mm;
-
-        let b = k.solve(cdot.add(bias));
+        let b =
+            solve_point_constraint(m_a, m_b, base.inv_ia, base.inv_ib, r_a, r_b, cdot.add(bias));
         let linear_impulse = get_vec3(joints, slot, RJ_LINEAR_IMPULSE);
         let impulse = b
             .scale(-mass_scale)
@@ -1450,70 +1443,108 @@ fn solve_spherical(
     let quat_b = end_b.state.delta_rotation.mul(frame_b.q);
     let rel_q = quat_a.inv_mul(quat_b);
 
-    if enable_spring && !fixed_rotation {
-        let delta_rotation = rel_q.delta_to_rotation(target_rotation);
-        let c = quat_a.rotate(delta_rotation).neg();
-        let bias = c.scale(spring_soft.bias_rate);
-        let mass_scale = spring_soft.mass_scale;
-        let impulse_scale = spring_soft.impulse_scale;
-        let cdot = w_b.sub(w_a);
+    if !fixed_rotation && (enable_spring || enable_motor || enable_twist || enable_cone) {
+        let inv_inertia_sum = i_a.add(i_b);
+        let mut cdot = w_b.sub(w_a);
+        let mut angular_impulse = Vec3::ZERO;
+        if enable_spring {
+            let delta_rotation = rel_q.delta_to_rotation(target_rotation);
+            let c = quat_a.rotate(delta_rotation).neg();
+            let bias = c.scale(spring_soft.bias_rate);
+            let mass_scale = spring_soft.mass_scale;
+            let impulse_scale = spring_soft.impulse_scale;
+            let spring_impulse = get_vec3(joints, slot, SJ_SPRING_IMPULSE);
+            let impulse = rotation_mass
+                .mul_v(cdot.add(bias))
+                .scale(-mass_scale)
+                .mul_sub(impulse_scale, spring_impulse);
+            set_vec3(joints, slot, SJ_SPRING_IMPULSE, spring_impulse.add(impulse));
 
-        let spring_impulse = get_vec3(joints, slot, SJ_SPRING_IMPULSE);
-        let impulse = rotation_mass
-            .mul_v(cdot.add(bias))
-            .scale(-mass_scale)
-            .mul_sub(impulse_scale, spring_impulse);
-        set_vec3(joints, slot, SJ_SPRING_IMPULSE, spring_impulse.add(impulse));
-
-        w_a = w_a.sub(i_a.mul_v(impulse));
-        w_b = w_b.add(i_b.mul_v(impulse));
-    }
-
-    if enable_motor && !fixed_rotation {
-        let cdot = w_b.sub(w_a);
-        let mut lambda = rotation_mass.mul_v(cdot.sub(motor_velocity)).neg();
-        let motor_impulse = get_vec3(joints, slot, SJ_MOTOR_IMPULSE);
-        let mut new_impulse = motor_impulse.add(lambda);
-        let length = new_impulse.length_sq().sqrt();
-        let max_impulse = max_motor_torque * h;
-        if length > max_impulse {
-            new_impulse = new_impulse.scale(max_impulse / length);
+            cdot = cdot.add(inv_inertia_sum.mul_v(impulse));
+            angular_impulse = angular_impulse.add(impulse);
         }
-        lambda = new_impulse.sub(motor_impulse);
-        set_vec3(joints, slot, SJ_MOTOR_IMPULSE, new_impulse);
 
-        w_a = w_a.sub(i_a.mul_v(lambda));
-        w_b = w_b.add(i_b.mul_v(lambda));
-    }
-
-    if enable_twist && !fixed_rotation {
-        let twist_angle = rel_q.get_twist_angle();
-
-        {
-            let c = twist_angle - lower_twist_angle;
-            let mut bias = 0.0;
-            let mut mass_scale = 1.0_f32;
-            let mut impulse_scale = 0.0;
-            if c > 0.0 {
-                bias = c * inv_h;
-            } else if use_bias {
-                bias = cs.bias_rate * c;
-                mass_scale = cs.mass_scale;
-                impulse_scale = cs.impulse_scale;
+        if enable_motor {
+            let mut lambda = rotation_mass.mul_v(cdot.sub(motor_velocity)).neg();
+            let motor_impulse = get_vec3(joints, slot, SJ_MOTOR_IMPULSE);
+            let mut new_impulse = motor_impulse.add(lambda);
+            let length = new_impulse.length_sq().sqrt();
+            let max_impulse = max_motor_torque * h;
+            if length > max_impulse {
+                new_impulse = new_impulse.scale(max_impulse / length);
             }
-            let cdot = w_b.sub(w_a).dot(twist_jacobian);
-            let old_impulse = get(joints, slot, SJ_LOWER_TWIST_IMPULSE);
-            let mut delta_impulse =
-                -mass_scale * twist_mass * (cdot + bias) - impulse_scale * old_impulse;
-            let lower_twist_impulse = maxf(old_impulse + delta_impulse, 0.0);
-            set(joints, slot, SJ_LOWER_TWIST_IMPULSE, lower_twist_impulse);
-            delta_impulse = lower_twist_impulse - old_impulse;
-            w_a = w_a.mul_sub(delta_impulse, i_a.mul_v(twist_jacobian));
-            w_b = w_b.mul_add(delta_impulse, i_b.mul_v(twist_jacobian));
+            lambda = new_impulse.sub(motor_impulse);
+            set_vec3(joints, slot, SJ_MOTOR_IMPULSE, new_impulse);
+
+            cdot = cdot.add(inv_inertia_sum.mul_v(lambda));
+            angular_impulse = angular_impulse.add(lambda);
         }
 
-        {
-            let c = upper_twist_angle - twist_angle;
+        if enable_twist {
+            let twist_angle = rel_q.get_twist_angle();
+            let twist_response = inv_inertia_sum.mul_v(twist_jacobian);
+
+            {
+                let c = twist_angle - lower_twist_angle;
+                let mut bias = 0.0;
+                let mut mass_scale = 1.0_f32;
+                let mut impulse_scale = 0.0;
+                if c > 0.0 {
+                    bias = c * inv_h;
+                } else if use_bias {
+                    bias = cs.bias_rate * c;
+                    mass_scale = cs.mass_scale;
+                    impulse_scale = cs.impulse_scale;
+                }
+                let twist_cdot = cdot.dot(twist_jacobian);
+                let old_impulse = get(joints, slot, SJ_LOWER_TWIST_IMPULSE);
+                let delta_impulse = maxf(
+                    -mass_scale * twist_mass * (twist_cdot + bias) - impulse_scale * old_impulse,
+                    -old_impulse,
+                );
+                set(
+                    joints,
+                    slot,
+                    SJ_LOWER_TWIST_IMPULSE,
+                    old_impulse + delta_impulse,
+                );
+                cdot = cdot.mul_add(delta_impulse, twist_response);
+                angular_impulse = angular_impulse.mul_add(delta_impulse, twist_jacobian);
+            }
+
+            {
+                let c = upper_twist_angle - twist_angle;
+                let mut bias = 0.0;
+                let mut mass_scale = 1.0_f32;
+                let mut impulse_scale = 0.0;
+                if c > 0.0 {
+                    bias = c * inv_h;
+                } else if use_bias {
+                    bias = cs.bias_rate * c;
+                    mass_scale = cs.mass_scale;
+                    impulse_scale = cs.impulse_scale;
+                }
+                // sign flipped on Cdot
+                let twist_cdot = -cdot.dot(twist_jacobian);
+                let old_impulse = get(joints, slot, SJ_UPPER_TWIST_IMPULSE);
+                let delta_impulse = maxf(
+                    -mass_scale * twist_mass * (twist_cdot + bias) - impulse_scale * old_impulse,
+                    -old_impulse,
+                );
+                set(
+                    joints,
+                    slot,
+                    SJ_UPPER_TWIST_IMPULSE,
+                    old_impulse + delta_impulse,
+                );
+                cdot = cdot.mul_sub(delta_impulse, twist_response);
+                angular_impulse = angular_impulse.mul_sub(delta_impulse, twist_jacobian);
+            }
+        }
+
+        if enable_cone {
+            let swing_angle = rel_q.get_swing_angle();
+            let c = cone_angle - swing_angle;
             let mut bias = 0.0;
             let mut mass_scale = 1.0_f32;
             let mut impulse_scale = 0.0;
@@ -1525,43 +1556,17 @@ fn solve_spherical(
                 impulse_scale = cs.impulse_scale;
             }
             // sign flipped on Cdot
-            let cdot = w_a.sub(w_b).dot(twist_jacobian);
-            let old_impulse = get(joints, slot, SJ_UPPER_TWIST_IMPULSE);
-            let mut delta_impulse =
-                -mass_scale * twist_mass * (cdot + bias) - impulse_scale * old_impulse;
-            let upper_twist_impulse = maxf(old_impulse + delta_impulse, 0.0);
-            set(joints, slot, SJ_UPPER_TWIST_IMPULSE, upper_twist_impulse);
-            delta_impulse = upper_twist_impulse - old_impulse;
-            // sign flipped on applied impulse
-            w_a = w_a.mul_add(delta_impulse, i_a.mul_v(twist_jacobian));
-            w_b = w_b.mul_sub(delta_impulse, i_b.mul_v(twist_jacobian));
+            let swing_cdot = -cdot.dot(swing_axis);
+            let old_impulse = get(joints, slot, SJ_SWING_IMPULSE);
+            let delta_impulse = maxf(
+                -mass_scale * swing_mass * (swing_cdot + bias) - impulse_scale * old_impulse,
+                -old_impulse,
+            );
+            set(joints, slot, SJ_SWING_IMPULSE, old_impulse + delta_impulse);
+            angular_impulse = angular_impulse.mul_sub(delta_impulse, swing_axis);
         }
-    }
-
-    if enable_cone && !fixed_rotation {
-        let swing_angle = rel_q.get_swing_angle();
-        let c = cone_angle - swing_angle;
-        let mut bias = 0.0;
-        let mut mass_scale = 1.0_f32;
-        let mut impulse_scale = 0.0;
-        if c > 0.0 {
-            bias = c * inv_h;
-        } else if use_bias {
-            bias = cs.bias_rate * c;
-            mass_scale = cs.mass_scale;
-            impulse_scale = cs.impulse_scale;
-        }
-        // sign flipped on Cdot
-        let cdot = w_a.sub(w_b).dot(swing_axis);
-        let old_impulse = get(joints, slot, SJ_SWING_IMPULSE);
-        let mut delta_impulse =
-            -mass_scale * swing_mass * (cdot + bias) - impulse_scale * old_impulse;
-        let swing_impulse = maxf(old_impulse + delta_impulse, 0.0);
-        set(joints, slot, SJ_SWING_IMPULSE, swing_impulse);
-        delta_impulse = swing_impulse - old_impulse;
-        // sign flipped on applied impulse
-        w_a = w_a.mul_add(delta_impulse, i_a.mul_v(swing_axis));
-        w_b = w_b.mul_sub(delta_impulse, i_b.mul_v(swing_axis));
+        w_a = w_a.sub(i_a.mul_v(angular_impulse));
+        w_b = w_b.add(i_b.mul_v(angular_impulse));
     }
 
     // Solve point-to-point constraint
@@ -1583,17 +1588,8 @@ fn solve_spherical(
             impulse_scale = cs.impulse_scale;
         }
 
-        let s_a = Mat3::skew(r_a);
-        let s_b = Mat3::skew(r_b);
-        let k_a = s_a.mul(base.inv_ia.mul(s_a));
-        let k_b = s_b.mul(base.inv_ib.mul(s_b));
-        let mut k = k_a.add(k_b).neg();
-        let mm = m_a + m_b;
-        k.cx.x += mm;
-        k.cy.y += mm;
-        k.cz.z += mm;
-
-        let b = k.solve(cdot.add(bias));
+        let b =
+            solve_point_constraint(m_a, m_b, base.inv_ia, base.inv_ib, r_a, r_b, cdot.add(bias));
         let linear_impulse = get_vec3(joints, slot, SJ_LINEAR_IMPULSE);
         let impulse = b
             .scale(-mass_scale)
@@ -2686,20 +2682,49 @@ fn solve_wheel(
     }
 }
 
-/// K = (1/mA + 1/mB) I − skew(rA) invIA skew(rA) − skew(rB) invIB skew(rB), the point-to-point
-/// effective-mass matrix the motor's linear spring + linear velocity sub-solves share (`linearK`).
+/// b3SolvePointConstraint (joint.h).
 #[inline]
-fn linear_k(m_a: f32, m_b: f32, inv_ia: Mat3, inv_ib: Mat3, r_a: Vec3, r_b: Vec3) -> Mat3 {
-    let s_a = Mat3::skew(r_a);
-    let s_b = Mat3::skew(r_b);
-    let k_a = s_a.mul(inv_ia.mul(s_a));
-    let k_b = s_b.mul(inv_ib.mul(s_b));
-    let mut k = k_a.add(k_b).neg();
-    let mm = m_a + m_b;
-    k.cx.x += mm;
-    k.cy.y += mm;
-    k.cz.z += mm;
-    k
+#[allow(clippy::too_many_arguments)]
+fn solve_point_constraint(
+    m_a: f32,
+    m_b: f32,
+    i_a: Mat3,
+    i_b: Mat3,
+    r_a: Vec3,
+    r_b: Vec3,
+    rhs: Vec3,
+) -> Vec3 {
+    let axy = r_a.z * i_a.cy.y - r_a.y * i_a.cz.y;
+    let axz = r_a.z * i_a.cy.z - r_a.y * i_a.cz.z;
+    let ay = i_a.cz.scale(r_a.x).sub(i_a.cx.scale(r_a.z));
+    let az = i_a.cx.scale(r_a.y).sub(i_a.cy.scale(r_a.x));
+    let bxy = r_b.z * i_b.cy.y - r_b.y * i_b.cz.y;
+    let bxz = r_b.z * i_b.cy.z - r_b.y * i_b.cz.z;
+    let by = i_b.cz.scale(r_b.x).sub(i_b.cx.scale(r_b.z));
+    let bz = i_b.cx.scale(r_b.y).sub(i_b.cy.scale(r_b.x));
+    let m = m_a + m_b;
+    let kxx = (axy * r_a.z - axz * r_a.y) + (bxy * r_b.z - bxz * r_b.y) + m;
+    let kyy = (ay.z * r_a.x - ay.x * r_a.z) + (by.z * r_b.x - by.x * r_b.z) + m;
+    let kzz = (az.x * r_a.y - az.y * r_a.x) + (bz.x * r_b.y - bz.y * r_b.x) + m;
+    let kxy = (ay.y * r_a.z - ay.z * r_a.y) + (by.y * r_b.z - by.z * r_b.y);
+    let kxz = (az.y * r_a.z - az.z * r_a.y) + (bz.y * r_b.z - bz.z * r_b.y);
+    let kyz = (az.z * r_a.x - az.x * r_a.z) + (bz.z * r_b.x - bz.x * r_b.z);
+    let cxx = kyy * kzz - kyz * kyz;
+    let cyy = kxx * kzz - kxz * kxz;
+    let czz = kxx * kyy - kxy * kxy;
+    let cxy = kxz * kyz - kxy * kzz;
+    let cxz = kxy * kyz - kyy * kxz;
+    let cyz = kxy * kxz - kxx * kyz;
+    let det = kxx * cxx + kxy * cxy + kxz * cxz;
+    if det.abs() > 1000.0 * f32::MIN_POSITIVE {
+        let inv_det = 1.0 / det;
+        return Vec3::new(
+            inv_det * (cxx * rhs.x + cxy * rhs.y + cxz * rhs.z),
+            inv_det * (cxy * rhs.x + cyy * rhs.y + cyz * rhs.z),
+            inv_det * (cxz * rhs.x + cyz * rhs.y + czz * rhs.z),
+        );
+    }
+    Vec3::ZERO
 }
 
 /// b3PrepareMotorJoint (`src/motorJoint.ts` `prepareMotorJoint`). Frames are world-space relative to
@@ -2901,8 +2926,8 @@ fn solve_motor(joints: Col<f32>, slot: usize, state_col: Col<f32>, flags_col: Co
 
         let cdot = v_b.add(w_b.cross(r_b)).sub(v_a.add(w_a.cross(r_a)));
 
-        let k = linear_k(m_a, m_b, base.inv_ia, base.inv_ib, r_a, r_b);
-        let b = k.solve(cdot.add(bias));
+        let b =
+            solve_point_constraint(m_a, m_b, base.inv_ia, base.inv_ib, r_a, r_b, cdot.add(bias));
 
         let old_impulse = get_vec3(joints, slot, MJ_LINEAR_SPRING_IMPULSE);
         let impulse = b.scale(-mass_scale).mul_sub(impulse_scale, old_impulse);
@@ -2926,8 +2951,7 @@ fn solve_motor(joints: Col<f32>, slot: usize, state_col: Col<f32>, flags_col: Co
             .sub(v_a.add(w_a.cross(r_a)))
             .sub(linear_velocity);
 
-        let k = linear_k(m_a, m_b, base.inv_ia, base.inv_ib, r_a, r_b);
-        let b = k.solve(cdot);
+        let b = solve_point_constraint(m_a, m_b, base.inv_ia, base.inv_ib, r_a, r_b, cdot);
         let impulse = b.neg();
 
         let old_impulse = get_vec3(joints, slot, MJ_LINEAR_VELOCITY_IMPULSE);

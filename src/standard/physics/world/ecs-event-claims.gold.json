@@ -148,11 +148,11 @@
   ],
   "retained": [
     43,
-    3839.720458984375
+    3839.72021484375
   ],
   "mixedSleep": {
     "awake300": true,
-    "step": 484,
+    "step": 459,
     "together": true
   }
 }

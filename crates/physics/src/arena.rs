@@ -1264,6 +1264,12 @@ unsafe fn update_contact(
             };
             touching =
                 crate::callbacks::pre_solve(world_index, a, b, callback_point, callback_normal);
+            if !touching {
+                dir.set(
+                    o + DIR_FLAGS,
+                    dir.get(o + DIR_FLAGS) & !contact_flags::RELATIVE_TRANSFORM_VALID,
+                );
+            }
         }
         finish_contact(world_index, thread, contact_id, touching as usize, hit);
     }

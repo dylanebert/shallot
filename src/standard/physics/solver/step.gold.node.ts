@@ -138,7 +138,7 @@ test("the active collision route changes the symmetric face-B feature order, the
             ccdChecked = true;
         });
         expect(ccdChecked).toBe(true);
-        expect(ccdResult.hashes.find((hash) => hash.step === 0)?.value).toBe("0x6ea9534fb3dd35e5");
+        expect(ccdResult.hashes.find((hash) => hash.step === 0)?.value).toBe("0xb5e25fe09de42f5f");
 
         let sensorChecked = false;
         const sensorResult = runScenario(sensor, digest, false, (physicsWorld, step) => {
@@ -154,7 +154,7 @@ test("the active collision route changes the symmetric face-B feature order, the
         });
         expect(sensorChecked).toBe(true);
         expect(sensorResult.hashes.find((hash) => hash.step === 14)?.value).toBe(
-            "0xb30f8501650d5893",
+            "0xa87d4ff5d798365a",
         );
     } finally {
         destroyTestWorld(physicsWorld);

@@ -639,10 +639,11 @@ pub fn collide_spheres(
     let center2 = transform_b_to_a.point(sphere_b.center);
 
     let total_radius = sphere_a.radius + sphere_b.radius;
+    let max_distance = total_radius + SPECULATIVE_DISTANCE;
     let offset = center2.sub(center1);
     let distance_sq = offset.length_sq();
 
-    if distance_sq > total_radius * total_radius {
+    if distance_sq > max_distance * max_distance {
         return;
     }
 
@@ -686,12 +687,13 @@ pub fn collide_capsule_and_sphere(
     let center2 = capsule_a.center2;
 
     let total_radius = sphere_b.radius + capsule_a.radius;
+    let max_distance = total_radius + SPECULATIVE_DISTANCE;
 
     let closest_point = point_to_segment_distance(center1, center2, center);
     let offset = center.sub(closest_point);
     let distance_sq = offset.length_sq();
 
-    if distance_sq > total_radius * total_radius {
+    if distance_sq > max_distance * max_distance {
         return;
     }
 

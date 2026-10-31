@@ -13,8 +13,8 @@ const MIN_FRICTION_WEIGHT: f32 = 1.0e-10;
 use crate::simd::FloatW;
 use crate::wide::{
     add_v2w, add_vw, cross_w, dot_w, inv_rotate_vector_w, mul_add_mvw, mul_add_svw, mul_mv2w,
-    mul_mvw, mul_sub_mvw, mul_sub_svw, mul_svw, sub_vw, sym_clamp, QuatW, SymMatrix2W, SymMatrix3W,
-    Vec2W, Vec3W,
+    mul_mvw, mul_sub_mvw, mul_sub_svw, mul_svw, sub_vw, QuatW, SymMatrix2W, SymMatrix3W, Vec2W,
+    Vec3W,
 };
 #[cfg(target_arch = "wasm32")]
 use core::arch::wasm32::*;
@@ -860,6 +860,14 @@ pub fn solve(
         let normal_separation = dot_w(normal, dp);
         let normal_a = inv_rotate_vector_w(ba.dq, normal);
         let normal_b = inv_rotate_vector_w(bb.dq, normal);
+        let inv_mass = inv_ma.add(inv_mb);
+        let dv = sub_vw(bb.v, ba.v);
+        let mut linear_normal_velocity = dot_w(normal, dv);
+        let linear_tangent_velocity1 =
+            dot_w(ld_v3(wide, wo + TANGENT1), dv).sub(ld(wide, wo + TANGENT_VELOCITY1));
+        let linear_tangent_velocity2 =
+            dot_w(ld_v3(wide, wo + TANGENT2), dv).sub(ld(wide, wo + TANGENT_VELOCITY2));
+        let mut manifold_impulse = zero;
         let mut total_normal_impulse = zero;
         let mut total_twist_limit = zero;
 
@@ -883,9 +891,11 @@ pub fn solve(
             let point_mass_scale = FloatW::blend(mass_scale, one, mask);
             let point_impulse_scale = FloatW::blend(impulse_scale, zero, mask);
 
-            let vra = add_vw(ba.v, cross_w(ba.w, ra));
-            let vrb = add_vw(bb.v, cross_w(bb.w, rb));
-            let vn = dot_w(sub_vw(vrb, vra), normal);
+            let ua = cross_w(ra, normal);
+            let ub = cross_w(rb, normal);
+            let ga = mul_mvw(ia, ua);
+            let gb = mul_mvw(ib, ub);
+            let vn = linear_normal_velocity.add(dot_w(ub, bb.w).sub(dot_w(ua, ba.w)));
 
             let normal_mass = ld(wide, pb + P_NORMAL_MASS);
             let old_impulse = ld(wide, pb + P_NORMAL_IMP);
@@ -896,8 +906,8 @@ pub fn solve(
             } else {
                 normal_mass.mul(vn.add(bias))
             };
-            let new_impulse = old_impulse.sub(neg_impulse).max(zero);
-            let delta_impulse = new_impulse.sub(old_impulse);
+            let delta_impulse = neg_impulse.neg().max(old_impulse.neg());
+            let new_impulse = old_impulse.add(delta_impulse);
             st(wide, pb + P_NORMAL_IMP, new_impulse);
             if !use_bias {
                 let total = ld(wide, pb + P_TOTAL_NORMAL_IMP).add(new_impulse);
@@ -907,13 +917,17 @@ pub fn solve(
                     total_twist_limit.add(ld(wide, pb + P_LEVER_ARM).mul(new_impulse));
             }
 
-            let p = mul_svw(delta_impulse, normal);
-            ba.w = mul_sub_mvw(ba.w, ia, cross_w(ra, p));
-            ba.v = mul_sub_svw(ba.v, inv_ma, p);
-            bb.w = mul_add_mvw(bb.w, ib, cross_w(rb, p));
-            bb.v = mul_add_svw(bb.v, inv_mb, p);
+            linear_normal_velocity = linear_normal_velocity.mul_add(inv_mass, delta_impulse);
+            manifold_impulse = manifold_impulse.add(delta_impulse);
+            ba.w = mul_sub_svw(ba.w, delta_impulse, ga);
+            bb.w = mul_add_svw(bb.w, delta_impulse, gb);
         }
 
+        if use_bias {
+            let p = mul_svw(manifold_impulse, normal);
+            ba.v = mul_sub_svw(ba.v, inv_ma, p);
+            bb.v = mul_add_svw(bb.v, inv_mb, p);
+        }
         if !use_bias {
             let rolling_resistance = ld(wide, wo + ROLLING_RESISTANCE);
             if !rolling_resistance.all_zero() {
@@ -946,12 +960,13 @@ pub fn solve(
                 let max_lambda = friction.mul(total_twist_limit);
                 let delta = twist_mass.mul(twist_speed).neg();
                 let old = ld(wide, wo + TWIST_IMPULSE);
-                let new = sym_clamp(old.add(delta), max_lambda);
-                st(wide, wo + TWIST_IMPULSE, new);
-                let d = new.sub(old);
-                let l = mul_svw(d, normal);
-                ba.w = mul_sub_mvw(ba.w, ia, l);
-                bb.w = mul_add_mvw(bb.w, ib, l);
+                let impulse = max_lambda
+                    .neg()
+                    .sub(old)
+                    .max(delta.min(max_lambda.sub(old)));
+                st(wide, wo + TWIST_IMPULSE, old.add(impulse));
+                ba.w = mul_sub_svw(ba.w, impulse, mul_mvw(ia, normal));
+                bb.w = mul_add_svw(bb.w, impulse, mul_mvw(ib, normal));
             }
 
             {
@@ -959,12 +974,10 @@ pub fn solve(
                 let t2 = ld_v3(wide, wo + TANGENT2);
                 let ra = ld_v3(wide, wo + ORIGIN_A);
                 let rb = ld_v3(wide, wo + ORIGIN_B);
-                let vra = add_vw(ba.v, cross_w(ba.w, ra));
-                let vrb = add_vw(bb.v, cross_w(bb.w, rb));
-                let vr = sub_vw(vrb, vra);
+                let angular_relative_velocity = sub_vw(cross_w(bb.w, rb), cross_w(ba.w, ra));
                 let vt = Vec2W {
-                    x: dot_w(vr, t1).sub(ld(wide, wo + TANGENT_VELOCITY1)),
-                    y: dot_w(vr, t2).sub(ld(wide, wo + TANGENT_VELOCITY2)),
+                    x: linear_tangent_velocity1.add(dot_w(angular_relative_velocity, t1)),
+                    y: linear_tangent_velocity2.add(dot_w(angular_relative_velocity, t2)),
                 };
                 let tangent_mass = ld_sym2(wide, wo + TANGENT_MASS);
                 let d0 = mul_mv2w(tangent_mass, vt);
@@ -991,8 +1004,9 @@ pub fn solve(
                 st_v2(wide, wo + FRICTION_IMPULSE, new);
                 let p = add_vw(mul_svw(delta.x, t1), mul_svw(delta.y, t2));
                 ba.w = mul_sub_mvw(ba.w, ia, cross_w(ra, p));
-                ba.v = mul_sub_svw(ba.v, inv_ma, p);
                 bb.w = mul_add_mvw(bb.w, ib, cross_w(rb, p));
+                let p = mul_add_svw(p, manifold_impulse, normal);
+                ba.v = mul_sub_svw(ba.v, inv_ma, p);
                 bb.v = mul_add_svw(bb.v, inv_mb, p);
             }
         }

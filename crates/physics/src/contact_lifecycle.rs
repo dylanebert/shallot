@@ -37,11 +37,6 @@ pub unsafe fn create(world: usize, mut shape_a: usize, mut shape_b: usize, child
     d.set(o + DIR_SHAPE_B, shape_b as u32);
     d.set(o + DIR_CHILD_INDEX, child as u32);
     let mut flags = 0;
-    if body_a.flags & crate::body::flags::ENABLE_CONTACT_RECYCLING != 0
-        && body_b.flags & crate::body::flags::ENABLE_CONTACT_RECYCLING != 0
-    {
-        flags |= contact_flags::RECYCLE;
-    }
     if kind == TY_HEIGHT_FIELD
         || kind == TY_MESH
         || (kind == TY_COMPOUND
@@ -67,6 +62,12 @@ pub unsafe fn create(world: usize, mut shape_a: usize, mut shape_b: usize, child
             != 0
     {
         flags |= contact_flags::ENABLE_SPECULATIVE_POINTS;
+    }
+    if body_a.flags & crate::body::flags::ENABLE_CONTACT_RECYCLING != 0
+        && body_b.flags & crate::body::flags::ENABLE_CONTACT_RECYCLING != 0
+        && flags & contact_flags::ENABLE_SPECULATIVE_POINTS != 0
+    {
+        flags |= contact_flags::RECYCLE;
     }
     for (side, body_id) in [a, b].into_iter().enumerate() {
         let encoded = bodies::encoded_sim_index(world, body_id);

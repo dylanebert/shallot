@@ -144,7 +144,7 @@ test("an unflagged fast body remains in its task when the only flagged target is
     }
 });
 
-test("recycled pre-solve contacts finish in the task without a second deferral", async () => {
+test("accepted recycled pre-solve contacts finish in the task without a second deferral", async () => {
     await assertPublicOracleKernel();
     const world = createTestWorld({ gravity: { x: 0, y: 0, z: 0 } });
     try {
@@ -159,7 +159,7 @@ test("recycled pre-solve contacts finish in the task without a second deferral",
             radius: 0.5,
         });
         let calls = 0;
-        worldSetPreSolveCallback(world, () => { ++calls; return false; });
+        worldSetPreSolveCallback(world, () => { ++calls; return true; });
         stepTestWorld(world, 1 / 60);
         expect(calls).toBe(1);
         expect(count(world, 3)).toBe(1);
