@@ -55,8 +55,8 @@ test("junkyard with one rock matches native through step 12, its edge-pair norma
     const env = { ROCKS: "19,0,11", PROBE: "12", FOCUS: "1" };
     const side = both("junk", 13, env);
     // Sorted pair keys now put the rock (A) before the pusher's cylinder (B). Step 12 is one edge-pair point, whose normal
-    // compute_separating_axis (crates/physics/src/manifold.rs) derives through dot_wide; Box3D's b3Dot3W sums
-    // x + (y + z) (simd.h:527 NEON, :691 SSE2, :888 scalar). Fed native's transformBtoA with a fresh cache,
+    // compute_separating_axis (crates/physics/src/manifold.rs) derives through dot_wide; Box3D's b3DotW sums
+    // (x + y) + z on every target. Fed native's transformBtoA with a fresh cache,
     // Shallot's kernel returns native's normal bit for bit.
     const x = side.native
         .find((l) => l.startsWith("X 12"))
@@ -112,7 +112,7 @@ test("junkyard with two stacked rocks matches native's contact caches through st
     expect(firstDifference(side)).toBe(-1);
     const caches = (lines: string[]) => lines.filter((l) => l.startsWith("S "));
     expect(caches(side.native).find((l) => l.startsWith("S 176 "))).toBe(
-        "S 176 contact 2 bodies 2 3 manifolds 0 cache sep 3db82b50 type 4 indexA 38 indexB 34 hit 1",
+        "S 176 contact 2 bodies 2 3 manifolds 0 cache sep 3db82b5a type 4 indexA 38 indexB 34 hit 1",
     );
     expect(caches(side.shallot)).toEqual(caches(side.native));
 });

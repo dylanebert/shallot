@@ -62,7 +62,9 @@ struct Camera
     b3Pos DrawOrigin() const { return {}; }
 };
 constexpr int KEY_W = 1, KEY_S = 2, KEY_A = 3, KEY_D = 4, KEY_L = 5, KEY_T = 6, KEY_B = 7;
-constexpr int KEY_SPACE = 8, KEY_LEFT_SHIFT = 9, KEY_V = 10;
+void DrawGizmoControls(bool*, bool*) {}
+void DrawTransformGizmo(const Camera*, b3WorldTransform*, bool) {}
+constexpr int KEY_SPACE = 8, KEY_LEFT_SHIFT = 9, KEY_V = 10, KEY_G = 11;
 constexpr int MOUSE_LEFT = 0;
 constexpr int ACTION_PRESS = 1, MOD_SHIFT = 1, MOD_ALT = 2, MOD_CTRL = 4;
 constexpr int ImGuiSliderFlags_Logarithmic = 1;
@@ -348,6 +350,7 @@ public:
 	virtual void Keyboard( int, int, int ) {}
 	void ToggleThirdPerson() { m_camera->m_thirdPerson = !m_camera->m_thirdPerson; }
 	virtual bool DrawControls() { return false; }
+    virtual void DrawSampleWindows() {}
     virtual bool HasSolverControls() const { return true; }
 	virtual void Render() {}
 	void DrawTextLine( const char* format, ... ) {

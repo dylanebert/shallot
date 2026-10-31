@@ -63,6 +63,14 @@ function construct(world: World): number[] {
         hulls: NonNullable<Compound["hulls"]> = [],
         spheres: NonNullable<Compound["spheres"]> = [],
         meshes: NonNullable<Compound["meshes"]> = [];
+    const convexMaterials = [1n, 2n, 3n].map((userMaterialId) => ({
+        friction: 0.6,
+        restitution: 0,
+        rollingResistance: 0,
+        tangentVelocity: [0, 0, 0] as [number, number, number],
+        customColor: 0,
+        userMaterialId,
+    }));
     for (let i = 0; i < 200; i++) {
         for (let j = 0; j < 200; j++) {
             const p = v((2 * i - 200) * 4, f(rand(-0.25, 0.125) * 4), (2 * j - 200) * 4);
@@ -71,10 +79,19 @@ function construct(world: World): number[] {
                 const p2 = add(p, randomVec([-4, 4, -4], [4, 8, 4]));
                 const radius = rand(0.1, 0.5);
                 if (capsules.length < spheres.length)
-                    capsules.push({ center1: tuple(p1), center2: tuple(p2), radius });
-                else spheres.push({ center: tuple(p1), radius });
+                    capsules.push({
+                        center1: tuple(p1),
+                        center2: tuple(p2),
+                        radius,
+                        material: convexMaterials[0],
+                    });
+                else spheres.push({ center: tuple(p1), radius, material: convexMaterials[1] });
             }
-            hulls.push({ hull, transform: { position: tuple(p), rotation: identity() } });
+            hulls.push({
+                hull,
+                transform: { position: tuple(p), rotation: identity() },
+                material: convexMaterials[2],
+            });
         }
     }
     const data = decodeMesh(building);

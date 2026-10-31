@@ -7,8 +7,35 @@ import { sampleGold } from "../../examples/physics/tests/gold";
 import { physicsState } from "../../src/standard/physics/runtime";
 import type { CompoundData } from "../../src/standard/physics/shapes/compound";
 import { compoundRecord } from "./compound-records";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { sampleBinary } from "./sample";
+import { run } from "./native";
 
 setDefaultTimeout(0);
+test("Village convex-child material ids follow the native sample", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "village-materials-"));
+    const receipt = join(directory, "materials.txt");
+    const app = await createApp({ defaults: false, plugins: [VillagePlugin] });
+    try {
+        run([sampleBinary(), "village", "0"], { VILLAGE_MATERIALS: receipt });
+        const native = readFileSync(receipt, "utf8").trim().split(/\s+/).map(BigInt);
+        expect(native).toEqual([1n, 3n, 2n]);
+        createScene(app.world, "village");
+        app.world.tick();
+        const compounds = [...physicsState(app.world)!.geometryIdentityValues.values()].filter((v): v is CompoundData => "hulls" in v && "spheres" in v);
+        expect(compounds).toHaveLength(1);
+        const c = compounds[0]!;
+        for (const [i, children] of [c.capsules, c.hulls, c.spheres].entries()) {
+            expect(children.length).toBeGreaterThan(0);
+            expect([...new Set(children.map(child => c.materials[child.materialIndex].userMaterialId))]).toEqual([native[i]!]);
+        }
+    } finally {
+        app.dispose();
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
 for (const mode of ["", ".controls", ".casts"]) {
     const controlled = mode === ".controls";
     test(`Village${mode} equals 600 native hashes, mover states and cast drawings`, async () => {

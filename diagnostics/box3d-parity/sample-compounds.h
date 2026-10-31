@@ -11,6 +11,16 @@ static void CompoundTransform(FILE* file, b3Transform t)
 static b3CompoundData* RecordCompound(const b3CompoundDef* def)
 {
     b3CompoundData* data = b3CreateCompound(def);
+    if (const char* materialsPath = getenv("VILLAGE_MATERIALS")) {
+        assert(data->capsuleCount > 0 && data->hullCount > 0 && data->sphereCount > 0);
+        const b3SurfaceMaterial* materials = b3GetCompoundMaterials(data);
+        FILE* file = fopen(materialsPath, "a"); assert(file);
+        fprintf(file, "%llu %llu %llu\n",
+            (unsigned long long)materials[b3GetCompoundCapsule(data, 0).materialIndex].userMaterialId,
+            (unsigned long long)materials[b3GetCompoundHull(data, 0).materialIndex].userMaterialId,
+            (unsigned long long)materials[b3GetCompoundSphere(data, 0).materialIndex].userMaterialId);
+        fclose(file);
+    }
     const char* path = getenv("COMPOUND_GEOMETRY");
     if (!path) return data;
     FILE* file = fopen(path, "a"); assert(file);
