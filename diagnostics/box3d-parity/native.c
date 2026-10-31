@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
-// Native side of the box3d-parity oracles (divergence.oracle.ts, phases.oracle.ts), linked against Box3D
-// 47d7f7cc's box3d and shared libraries. Builds a scene as benchmark/main.c does, steps it at 1/60 with 4
-// substeps, and prints the world hash after every step, plus the state the oracles diff or time.
+// Native side of the box3d-parity oracles (divergence.oracle.ts, phases.oracle.ts), linked against the
+// box3d and shared libraries at the Box3D revision native.ts pins. Builds a scene as benchmark/main.c does,
+// steps it at 1/60 with 4 substeps, and prints the world hash after every step, plus the state the oracles diff or time.
 //
 //   native <scene> <workers> <steps>
 //

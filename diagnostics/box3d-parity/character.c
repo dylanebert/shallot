@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Movement phase from Box3D samples/mover.cpp at 47d7f7cc. Velocity replaces input policy.
+// Movement phase from Box3D samples/mover.cpp at the revision native.ts pins. Velocity replaces input policy.
 #include "box3d/box3d.h"
 #include <float.h>
 #include <math.h>

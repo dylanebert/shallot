@@ -3,8 +3,8 @@
 //
 //   bun diagnostics/box3d-parity/scenes.ts <scene> <threads> <steps>
 //
-// The builders transcribe Box3D 47d7f7cc's shared/benchmarks.c and shared/human.c with their f32
-// arithmetic; human.c's bone table is read from the frozen ragdoll fixture. Environment as native.c:
+// The builders transcribe shared/benchmarks.c and shared/human.c at the Box3D revision native.ts pins,
+// with their f32 arithmetic; human.c's bone table is read from the frozen ragdoll fixture. Environment as native.c:
 // RAIN_COUNT, RAIN_GROUP, ROCKS, COLORS, CACHE, PROFILE, COUNTERS, and on Node CPU (cpu.ts).
 // HASH_STEPS=0 disables hash output for timing; SAMPLE_WALL=1 reports setup and loop costs as M JSON.
 import { World } from "../../src/engine";

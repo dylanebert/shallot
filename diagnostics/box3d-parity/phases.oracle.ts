@@ -1,5 +1,5 @@
 // Manual oracle comparing Shallot's step phases with native Box3D's b3Profile on joint_grid, rain and
-// junkyard at full size (strategy unit box3d-parity). Run by path, with a Box3D checkout at 47d7f7cc:
+// junkyard at full size (strategy unit box3d-parity). Run by path, with BOX3D at the revision native.ts pins:
 //
 //     BOX3D=/path/to/box3d bun test ./diagnostics/box3d-parity/phases.oracle.ts
 //

@@ -25,7 +25,7 @@ fn quaternion_validity_native_bits() {
 
 #[test]
 fn point_to_segment_box3d_corpus() {
-    let corpus: Value = serde_json::from_str(include_str!("../../../../src/standard/physics/oracle/box3d/47d7f7cc7e091142c08d11dc7d2e493c5d34f536/v6/cases.json")).unwrap();
+    let corpus: Value = serde_json::from_str(include_str!("../../../../src/standard/physics/oracle/box3d/v6/cases.json")).unwrap();
     let mut count = 0;
     for case in corpus["cases"].as_array().unwrap() {
         if case["symbol"] != "b3PointToSegmentDistance" {
@@ -55,7 +55,7 @@ fn point_to_segment_box3d_corpus() {
 
 #[test]
 fn math_box3d_corpus() {
-    let corpus: Value = serde_json::from_str(include_str!("../../../../src/standard/physics/oracle/box3d/47d7f7cc7e091142c08d11dc7d2e493c5d34f536/v6/cases.json")).unwrap();
+    let corpus: Value = serde_json::from_str(include_str!("../../../../src/standard/physics/oracle/box3d/v6/cases.json")).unwrap();
     let mut count = 0;
     for case in corpus["cases"].as_array().unwrap() {
         if case["family"] != "math" {

@@ -22,7 +22,7 @@ import {
     StepPhysicsSystem,
 } from "./index";
 import { readStateAngularVelocity } from "./kernel/bodycolumns";
-import lane from "./oracle/box3d/47d7f7cc7e091142c08d11dc7d2e493c5d34f536/v7/cases.json";
+import lane from "./oracle/box3d/v7/cases.json";
 import { physicsBodyIndex, physicsState } from "./runtime";
 import {
     createHeightFieldShape,
