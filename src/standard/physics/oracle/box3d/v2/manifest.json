@@ -1,16 +1,16 @@
 {
   "schema": "box3d-oracle/manifest-v2",
   "bundle": {
-    "upstreamSha": "79fc55976a041d63f160da1de3ef8d224249ce7e",
+    "upstreamSha": "51f056e0a9d299326b10f10a63270c81d901df21",
     "schema": "v2",
-    "identity": "79fc55976a041d63f160da1de3ef8d224249ce7e/v2"
+    "identity": "51f056e0a9d299326b10f10a63270c81d901df21/v2"
   },
   "upstream": {
     "url": "https://github.com/erincatto/box3d.git",
     "ref": "refs/heads/main",
     "channel": "official-main",
-    "sha": "79fc55976a041d63f160da1de3ef8d224249ce7e",
-    "tree": "3cc1c3d44d7cccd07c85a819ad2d238152347ec2",
+    "sha": "51f056e0a9d299326b10f10a63270c81d901df21",
+    "tree": "3e5b839113240f0480782d4ec3a71e5afb78fc67",
     "reachableFromChannel": true
   },
   "oracle": {
@@ -166,9 +166,9 @@
     ],
     "library": "patched disposable official libbox3.a",
     "privateIncludeRoot": "official src/ in disposable patched checkout",
-    "linkMapSha256": "cccb4e1ae8c6bc7a9c71bf30a0399eb42bf458b3c547087e869eaab80739eadb",
-    "nmEvidenceSha256": "059a4f3f24d47aec474477dc8e59b2e2849049884ee01ef9c882f24cb8b9506c",
-    "executableSha256": "5ac3840d85dcd4235079fb2ba572c370d3d4ae9fe407ced89a4b68dbcc3c9d61"
+    "linkMapSha256": "ee6b68c6fcc6cefe4ee96c982933f8ec5199a98db861143643e9771b61939e83",
+    "nmEvidenceSha256": "4a33352fbd0fd695bdd15507976679c172604ec0658e9812830d42e836aebd72",
+    "executableSha256": "8650c55ccdaf54c1aed94d39e7b09ed2c490bc4f4b247ec846558cd26750d851"
   },
   "schemaDefinition": "schema.json",
   "membership": "membership.json",
@@ -178,7 +178,7 @@
   "fileDigests": {
     "schema.json": "9997df52f73a03d82c831bfbb20a640d8a28dadf16672f6842ca3f3af415c02f",
     "membership.json": "dcf7c6ce77167ad0ca4c7392273f04efba329d8b1795a1ce08b3720b22dfd1f9",
-    "provenance.json": "b601caf59078ccf5210654d6bd5ee3981fcbe9d51a908d0aeee1fdb893b33c52",
+    "provenance.json": "c6f0d01e2d9d84fcc533eaae021e281a2ec0067079fdb833943e0f1ef4277d45",
     "cases.json": "378a8a33cae0e1281c2969d198016cd2423ed7137e027be6b287c2ad1eacc64a"
   },
   "fileDigestScope": "Generated evidence files only; manifest is the receipt and is intentionally excluded from its own digest map.",

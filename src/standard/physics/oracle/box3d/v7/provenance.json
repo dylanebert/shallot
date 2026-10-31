@@ -3,7 +3,7 @@
   "transcription": "adapter/mover_sample.h",
   "transcriptionSha256": "8f139d7ed22b97c654cfd8ba0f2e2b5c6001475f9113b1b704c6f55713b2c638",
   "corpusDigest": "a430e808652618780cedded165980ff047fce545385314d168e7dc856125dffb",
-  "executableSha256": "e588eb5c84954e92527ab37a15881a3a265e4da446d32cbd2e20d2b86ba33de0",
+  "executableSha256": "61dc5d521f2687051a5ec33dd077ea9f8c0531395c6f02843e864fa62e298d79",
   "cmake": [
     "-S",
     "<patched-official-source>",

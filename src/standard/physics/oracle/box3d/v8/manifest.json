@@ -1,15 +1,15 @@
 {
   "schema": "box3d-oracle/manifest-v8",
   "bundle": {
-    "upstreamSha": "79fc55976a041d63f160da1de3ef8d224249ce7e",
+    "upstreamSha": "51f056e0a9d299326b10f10a63270c81d901df21",
     "schema": "v8",
-    "identity": "79fc55976a041d63f160da1de3ef8d224249ce7e/v8"
+    "identity": "51f056e0a9d299326b10f10a63270c81d901df21/v8"
   },
   "upstream": {
     "url": "https://github.com/erincatto/box3d.git",
     "ref": "refs/heads/main",
-    "sha": "79fc55976a041d63f160da1de3ef8d224249ce7e",
-    "tree": "3cc1c3d44d7cccd07c85a819ad2d238152347ec2"
+    "sha": "51f056e0a9d299326b10f10a63270c81d901df21",
+    "tree": "3e5b839113240f0480782d4ec3a71e5afb78fc67"
   },
   "oracle": {
     "memberCommit": "b2945a9be6a34de91723f9f552df5160aab769db",
