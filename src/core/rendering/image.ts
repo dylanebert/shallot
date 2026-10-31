@@ -336,6 +336,11 @@ export async function uploadLayer(
         { texture, origin: { x: 0, y: 0, z: layer } },
         { width: size, height: size },
     );
+    // Consecutive external-image copies on Chromium's D3D12 WARP path can put one copy's
+    // pixels in another's destination. WebGPU orders queue operations, so this is below Shallot.
+    // https://github.com/dylanebert/shallot/actions/runs/41168160666: unfenced layer 0 held
+    // layer 1's exact RGBA; fenced copies had zero mismatches in 32 arrays, in both formats.
+    await device.queue.onSubmittedWorkDone();
     genMipmapsLayer(world, device, texture, layer, levels, format);
 }
 
