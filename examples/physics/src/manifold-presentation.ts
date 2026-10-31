@@ -11,7 +11,7 @@ export function manifoldDrawing(world: World) {
         m = s.manifold;
     const marks: { point: Point; color: number }[] = [],
         segments: { a: Point; b: Point; color: number }[] = [];
-    if (!s.scene || !m) return { marks, segments };
+    if (!s.scene || !m || !s.drawPoints) return { marks, segments };
     const t = s.scene.startsWith("triangle") ? s.b : s.a,
         n = manifoldRotate(t.q, m.normal),
         f = Math.fround;

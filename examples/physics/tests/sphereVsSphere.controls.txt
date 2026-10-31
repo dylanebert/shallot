@@ -18,3 +18,5 @@
 300	drag	1
 320	dragX	1.5
 340	drag	0
+360	Draw Points	0
+380	Draw Points	1

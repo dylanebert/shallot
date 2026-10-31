@@ -56,6 +56,7 @@ export const ManifoldSample = {
         simplex: simplex(),
         sat: sat(),
         useCache: false,
+        drawPoints: true,
         manualFeature: 0,
         manifold: null as LocalManifold | null,
         tracking: false,
@@ -276,6 +277,17 @@ export const manifoldScenes = Object.fromEntries(
                         w.resource(ManifoldSample).manualFeature = v;
                     },
                 },
+                ...(!scene.startsWith("triangle")
+                    ? {
+                          "Draw Points": {
+                              label: "Draw Points",
+                              value: 1,
+                              set(w: World, _b: number[], v: number) {
+                                  w.resource(ManifoldSample).drawPoints = Boolean(v);
+                              },
+                          },
+                      }
+                    : {}),
                 count: {
                     label: "Point count",
                     value: 0,

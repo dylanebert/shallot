@@ -82,6 +82,7 @@ test("Manifold retains the cache toggle, feature choices, native separation form
         expect(Object.keys(controls)).toEqual([
             "Use cache",
             "feature",
+            ...(!scene.startsWith("triangle") ? ["Draw Points"] : []),
             "count",
             ...Array.from({ length: manifoldPointLimits[index]! }, (_, i) => `separation${i}`),
         ]);
@@ -97,6 +98,8 @@ test("Manifold retains the cache toggle, feature choices, native separation form
                 { label: "edgePair", value: 3 },
             ],
         });
+        if (!scene.startsWith("triangle"))
+            expect(controls["Draw Points"]).toMatchObject({ label: "Draw Points", value: 1 });
         expect(controls.count).toMatchObject({ label: "Point count", decimals: 0 });
         for (let i = 0; i < manifoldPointLimits[index]!; i++)
             expect(controls[`separation${i}`]).toMatchObject({

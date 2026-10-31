@@ -63,7 +63,13 @@ struct Camera
 };
 constexpr int KEY_W = 1, KEY_S = 2, KEY_A = 3, KEY_D = 4, KEY_L = 5, KEY_T = 6, KEY_B = 7;
 void DrawGizmoControls(bool*, bool*) {}
-void DrawTransformGizmo(const Camera*, b3WorldTransform*, bool) {}
+const b3WorldTransform* pendingGizmoPose = nullptr;
+void DrawTransformGizmo(const Camera*, b3WorldTransform* transform, bool) {
+    if (pendingGizmoPose) {
+        *transform = *pendingGizmoPose;
+        pendingGizmoPose = nullptr;
+    }
+}
 constexpr int KEY_SPACE = 8, KEY_LEFT_SHIFT = 9, KEY_V = 10, KEY_G = 11;
 constexpr int MOUSE_LEFT = 0;
 constexpr int ACTION_PRESS = 1, MOD_SHIFT = 1, MOD_ALT = 2, MOD_CTRL = 4;
@@ -564,6 +570,22 @@ int main( int argc, char** argv )
     manifoldRecords = getenv("MANIFOLD_RECORDS") ? fopen(getenv("MANIFOLD_RECORDS"), "w") : nullptr;
     manifoldRecording = manifoldRecords != nullptr;
     const bool manifoldScene = dynamic_cast<ManifoldSamples::Manifold*>(sample) || dynamic_cast<ManifoldSamples::TriangleManifold*>(sample);
+    std::vector<b3WorldTransform> gizmoPoses;
+    if (const char* path = getenv("MANIFOLD_POSES")) {
+        assert(manifoldScene);
+        FILE* file = fopen(path, "r"); assert(file);
+        int step;
+        b3WorldTransform pose;
+        double x, y, z;
+        while (fscanf(file, "%d %lf %lf %lf %f %f %f %f", &step,
+            &x, &y, &z, &pose.q.v.x, &pose.q.v.y, &pose.q.v.z, &pose.q.s) == 8) {
+            assert(step == (int)gizmoPoses.size());
+            pose.p = {static_cast<decltype(pose.p.x)>(x), static_cast<decltype(pose.p.y)>(y), static_cast<decltype(pose.p.z)>(z)};
+            gizmoPoses.push_back(pose);
+        }
+        assert(feof(file)); fclose(file);
+        assert(gizmoPoses.size() == (size_t)atoi(argv[2]));
+    }
     issueHullRecords = !strcmp(argv[1], "hullCrash");
     geometryRecords = getenv("GEOMETRY_RECORDS") ? fopen(getenv("GEOMETRY_RECORDS"), "w") : nullptr;
     const bool geometryScene = !strcmp(argv[1],"hullCrash") || !strcmp(argv[1],"boxHull") || !strcmp(argv[1],"geometryHull") || !strcmp(argv[1],"hullReduction") || !strcmp(argv[1],"hullTransform") || !strcmp(argv[1],"capsuleMass");
@@ -614,6 +636,10 @@ int main( int argc, char** argv )
 			if ( i == 31 ) sample->Release();
 		}
 		for ( const Change& change : changes ) if ( change.step == i ) {
+            if (manifoldScene && change.name.rfind("drag", 0) == 0) {
+                assert(!gizmoPoses.empty());
+                continue;
+            }
 			if ( change.name == "grabBody" ) {
 				const int tag = (int)change.value;
 				assert( tag > 0 && tag <= (int)recordedBodies.size() );
@@ -635,9 +661,15 @@ int main( int argc, char** argv )
             } else if ( change.name == "grabY" ) sample->m_mousePoint.y = change.value;
 			else if ( change.name == "release" ) sample->Release();
 		}
-        sample->MouseMove({});
+        if (!manifoldScene) sample->MouseMove({});
 		currentStep = i;
 		sample->DrawControls();
+        if (!gizmoPoses.empty()) {
+            // Upstream's UI writes transformB in world space between simulation steps.
+            pendingGizmoPose = &gizmoPoses[i];
+            sample->DrawSampleWindows();
+            assert(pendingGizmoPose == nullptr);
+        }
         contactMarks.clear();
         characterMarks.clear();
         meshBuildCount = 0;

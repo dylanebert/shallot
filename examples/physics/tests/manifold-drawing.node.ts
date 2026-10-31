@@ -72,6 +72,14 @@ for (const [index, scene] of manifoldNames.entries())
             expect(manifoldDrawing(w).marks[0]!.color).toBe(INK);
             const t = scene.startsWith("triangle") ? s.b : s.a;
             expect(drawing.marks[0]!.point).toEqual([t.p.x, t.p.y, t.p.z]);
+            if (!scene.startsWith("triangle")) {
+                expect(controls["Draw Points"]?.value).toBe(1);
+                changeControl(w, scene, [], values, "Draw Points", 0);
+                expect(manifoldDrawing(w)).toEqual({ marks: [], segments: [] });
+                expect(m.pointCount).toBe(1);
+                changeControl(w, scene, [], values, "Draw Points", 1);
+                expect(manifoldDrawing(w).marks).toHaveLength(1);
+            }
             m.pointCount = 0;
             expect(manifoldDrawing(w)).toEqual({ marks: [], segments: [] });
             createScene(w, "boxStack");

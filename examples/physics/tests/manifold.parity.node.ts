@@ -1,16 +1,16 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { createApp, hashPhysics } from "@dylanebert/shallot";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { ManifoldPlugin, manifoldNames } from "../src/manifold";
-import { manifoldDrag } from "../src/manifold-drag";
+import { ManifoldPlugin, ManifoldSample, manifoldNames } from "../src/manifold";
 import { controlValues, createScene } from "../src/scenes";
 import { drawingDigest } from "./digest";
 import { manifoldInput } from "./manifold-input";
+import { manifoldPoses } from "./manifold-poses";
 import { manifoldRecords } from "./manifold-records";
 
 setDefaultTimeout(TIMEOUT.node);
 for (const scene of manifoldNames)
-    test(`${scene}: 600 unstepped native manifolds, caches, geometry and drag controls`, async () => {
+    test(`${scene}: 600 native manifolds, caches and geometry from recorded world poses`, async () => {
         const start = performance.now();
         for (const controlled of [false, true]) {
             const stem = scene + (controlled ? ".controls" : "");
@@ -20,6 +20,11 @@ for (const scene of manifoldNames)
                     .split("\n");
             const hashes = await gold("gold.txt"),
                 records = await gold("manifold.gold.txt");
+            const poses = controlled
+                ? manifoldPoses(
+                      await Bun.file(new URL(`./${scene}.poses.gold.txt`, import.meta.url)).text(),
+                  )
+                : [];
             const changes = controlled
                 ? (await Bun.file(new URL(`./${scene}.controls.txt`, import.meta.url)).text())
                       .trim()
@@ -41,18 +46,12 @@ for (const scene of manifoldNames)
             try {
                 expect(hashes).toHaveLength(600);
                 expect(records).toHaveLength(600);
+                if (controlled) expect(poses).toHaveLength(600);
                 for (let step = 0; step < 600; step++) {
                     for (const c of changes)
-                        if (c.step === step)
+                        if (c.step === step && !c.name.startsWith("drag"))
                             manifoldInput(app.world, scene, values, ray, c.name, c.value);
-                    if (controlled)
-                        manifoldDrag(
-                            app.world,
-                            ray.origin,
-                            { x: 0, y: 0, z: -20 },
-                            false,
-                            ray.held,
-                        );
+                    if (controlled) app.world.resource(ManifoldSample).b = poses[step]!;
                     app.world.tick();
                     expect(
                         hashPhysics(app.world).toString(16).padStart(16, "0"),

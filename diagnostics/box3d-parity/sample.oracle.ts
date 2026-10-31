@@ -265,18 +265,19 @@ for (const [scene, name, before, after] of [
     ["hullVsHull", "HullAndHull", "0.5f, 1.0f, 1.0f, transform", "0.6f, 1.0f, 1.0f, transform"],
     ["triangleVsHull", "TriangleAndHull", "0.304800004f;", "0.314800004f;"],
 ] as const) {
-    test(`${scene}: native manifolds repeat, controls use DrawControls, and a source mutation fails parity`, () => {
+    test(`${scene}: native manifolds consume recorded world poses, repeat and reject a source mutation`, () => {
         const start=performance.now(), binary=sampleBinary();
         const directory=mkdtempSync(join(tmpdir(),"box3d-manifold-")),records=join(directory,"manifold.jsonl"),base=new URL("../../examples/physics/tests/",import.meta.url);
         const digests=()=>readFileSync(records,"utf8").trimEnd().split("\n").map(line=>drawingDigest(JSON.parse(line))).join("\n")+"\n";
         try {
             for(const controlled of [false,true]) {
                 const stem=scene+(controlled?".controls":""),args=[binary,scene,"600",...(controlled?[fileURLToPath(new URL(`${scene}.controls.txt`,base))]:[])];
-                const hashes=run(args,{MANIFOLD_RECORDS:records}),manifold=digests();
+                const env = { MANIFOLD_RECORDS: records, ...(controlled ? { MANIFOLD_POSES: fileURLToPath(new URL(`${scene}.poses.gold.txt`,base)) } : {}) };
+                const hashes=run(args,env),manifold=digests();
                 equalSampleSteps(hashes,readFileSync(new URL(`${stem}.gold.txt`,base),"utf8"),stem);
                 expect(manifold).toBe(readFileSync(new URL(`${stem}.manifold.gold.txt`,base),"utf8"));
                 expect(manifold.trimEnd().split("\n")).toHaveLength(600);
-                equalSampleSteps(run(args,{MANIFOLD_RECORDS:records}),hashes,`${stem} repeat`);
+                equalSampleSteps(run(args,env),hashes,`${stem} repeat`);
                 expect(digests()).toBe(manifold);
             }
             const samples=join(directory,"samples");mkdirSync(samples);mkdirSync(join(directory,"shared"));
