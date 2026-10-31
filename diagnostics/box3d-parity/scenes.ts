@@ -67,9 +67,12 @@ type Bone = {
     swingDeg?: number;
     twistDeg?: [number, number];
     friction: number;
+    materialFriction: number;
+    rollingResistance: number;
+    foot?: { cap1: V3; cap2: V3; radius: number };
 };
 const BONES = BONE_TABLE as Bone[];
-type Human = { bodies: number[]; joints: number[]; filter: number };
+type Human = { bodies: number[]; joints: number[]; filters: number[] };
 
 function createHuman(
     w: WorldState,
@@ -94,7 +97,7 @@ function createHuman(
             w,
             body,
             shapeDef({
-                baseMaterial: { ...defaultSurfaceMaterial(), rollingResistance: f(0.2) },
+                baseMaterial: { ...defaultSurfaceMaterial(), friction: f(b.materialFriction), rollingResistance: f(b.rollingResistance) },
                 filter: { ...defaultFilter(), groupIndex: b.negGroup ? -groupIndex : 0 },
             }),
             {
@@ -103,6 +106,15 @@ function createHuman(
                 radius: f(b.radius),
             },
         );
+        if (b.foot) createCapsuleShape(w, body, shapeDef({
+            density: f(0.5 * defaultShapeDef().density),
+            baseMaterial: { ...defaultSurfaceMaterial(), friction: f(b.materialFriction), rollingResistance: f(b.rollingResistance) },
+            filter: { ...defaultFilter(), groupIndex: b.negGroup ? -groupIndex : 0 },
+        }), {
+            center1: { x: f(b.foot.cap1[0]), y: f(b.foot.cap1[1]), z: f(b.foot.cap1[2]) },
+            center2: { x: f(b.foot.cap2[0]), y: f(b.foot.cap2[1]), z: f(b.foot.cap2[2]) },
+            radius: f(b.foot.radius),
+        });
         return body;
     });
     const frame = (p: V3, q: Q4) => {
@@ -164,11 +176,12 @@ function createHuman(
             joints.push(createSphericalJoint(w, def).joint);
         }
     }
-    return { bodies, joints, filter: createFilterJoint(w, { ...defaultJointDef(), bodyIdA: bodies[6]!, bodyIdB: bodies[8]! }).joint };
+    const filters = [[4, 6], [3, 8], [3, 10]].map(([a, b]) => createFilterJoint(w, { ...defaultJointDef(), bodyIdA: bodies[a]!, bodyIdB: bodies[b]! }).joint);
+    return { bodies, joints, filters };
 }
 
 function destroyHuman(w: WorldState, h: Human): void {
-    destroyJointInternal(w, h.filter, false);
+    for (const filter of h.filters) destroyJointInternal(w, filter, false);
     for (const j of h.joints) destroyJointInternal(w, j, false);
     for (const b of h.bodies) destroyBody(w, b);
 }

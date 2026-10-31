@@ -77,7 +77,7 @@ impl LocalManifoldPoint {
     };
 }
 
-/// Local manifold borrowing caller-owned points: 32 for convex contacts, the remaining
+/// Local manifold borrowing caller-owned points: four for convex contacts, the remaining
 /// shared point-pool span for triangle contacts.
 pub struct LocalManifold<'a> {
     pub normal: Vec3,

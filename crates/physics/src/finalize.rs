@@ -15,10 +15,6 @@ use crate::math::{maxf, minf, Mat3, Transform, Vec3};
 /// Position-correction weight for the sleep-velocity blend (b3FinalizeBodies `positionSleepFactor`).
 const POSITION_SLEEP_FACTOR: f32 = 0.5;
 
-/// The continuous-collision safety factor (b3FinalizeBodies `safetyFactor`): a body whose step motion
-/// exceeds `SAFETY_FACTOR * minExtent` is a fast-body candidate.
-const SAFETY_FACTOR: f32 = 0.5;
-
 // The arena commits bounds and enlarge flags to the owning shape columns.
 
 /// Shape type codes (b3ShapeType, types.h:434-453), as stored at `shapes::S_TYPE` and in a compound
@@ -202,7 +198,7 @@ pub unsafe fn finalize(
             let max_motion = maxf(max_delta_position, max_velocity * h);
             fast_candidate = enable_continuous
                 && flags_col.get(i * crate::body::STATE_STRIDE) & DYNAMIC != 0
-                && max_motion > SAFETY_FACTOR * sim_col.get(o + MIN_EXTENT);
+                && max_motion > body.safety_factor * sim_col.get(o + MIN_EXTENT);
         }
         if !awake {
             body.sleep_time += h;
@@ -405,7 +401,11 @@ mod c_parity {
 
     #[test]
     fn safety_factor() {
-        // C: safetyFactor = 0.5f (solver.c:747, exact k/2^n)
-        assert_eq!(super::SAFETY_FACTOR.to_bits(), 0.5f32.to_bits());
+        assert_eq!(
+            crate::body_record::BodyRecord::EMPTY
+                .safety_factor
+                .to_bits(),
+            0.5f32.to_bits()
+        );
     }
 }

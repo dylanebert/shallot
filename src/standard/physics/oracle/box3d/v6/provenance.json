@@ -4,7 +4,7 @@
   "scenarioCases": 53,
   "scenarioCompiler": "bin/compile-scenarios.ts",
   "scenarioAdapter": "adapter/scenario.c",
-  "scenarioExecutableSha256": "6052af680f7e2b73589b1e7917635c2ba6e6f984fd37747635096f071b2a2af4",
+  "scenarioExecutableSha256": "d3d0309b2a554ca6ec5eec2f354270e86c9506a69fb2c267ee97b0ca684feb56",
   "corpusDigest": "5995326750f78a6098e78823a11cb0954e256fe0b64f34b5bbe6cc5a8f5a264f",
   "cases": [
     "s1.free-fall.v1",

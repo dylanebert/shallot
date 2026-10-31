@@ -39,6 +39,7 @@ test("standard physics exports consumed world operations and profiling without s
         "StandardPhysicsPlugin",
         "StepPhysicsSystem",
         "SyncPhysicsConstraintsSystem",
+        "SyncPhysicsSystem",
         "TOIState",
         "applyAngularImpulse",
         "applyForce",

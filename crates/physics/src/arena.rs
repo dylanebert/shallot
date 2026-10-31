@@ -1522,14 +1522,13 @@ unsafe fn contact_block_impl(
                 fin_b.max_extent
             };
             let fast = (flags_a | flags_b) & crate::body::flags::IS_FAST != 0;
-            let fast_mesh = flags & contact_flags::SIM_MESH_CONTACT != 0 && fast;
             let tol = if flags & contact_flags::SIM_TOUCHING != 0 {
                 recycle_dist
             } else {
                 recycle_dist_non_touching
             };
 
-            if !fast_mesh
+            if !fast
                 && recycle_dist > 0.0
                 && flags & contact_flags::RELATIVE_TRANSFORM_VALID != 0
                 && flags & contact_flags::RECYCLE != 0

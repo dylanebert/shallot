@@ -11,13 +11,10 @@ use crate::manifold::{
 };
 use crate::math::{Mat3, Transform, Vec3};
 
-/// Max points in a persistent convex manifold (B3_MAX_MANIFOLD_POINTS). The geometry buffer is wider
-/// (`GEOM_CAPACITY`); the pair functions reduce to at most this before the map runs.
+/// Max points in a convex manifold (B3_MAX_MANIFOLD_POINTS).
 pub const MAX_MANIFOLD_POINTS: usize = 4;
 
-/// B3_MAX_LOCAL_MANIFOLD_POINTS. High-vertex hull clips can exceed eight points
-/// before reduction; shrinking this buffer changes the resulting manifold.
-const GEOM_CAPACITY: usize = 32;
+const GEOM_CAPACITY: usize = MAX_MANIFOLD_POINTS;
 
 /// The GJK/SAT warm-start caches a convex contact carries between steps (b3ContactCache). The
 /// hull-vs-sphere/capsule paths use `simplex_cache`; hull-vs-hull uses `sat_cache`.

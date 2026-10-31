@@ -913,7 +913,7 @@ for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "f
         equalSampleSteps(hashes, readFileSync(new URL(`../../examples/physics/tests/${scene === "box_stack" ? "boxStack" : scene}.gold.txt`, import.meta.url), "utf8"), scene);
         if (["restitution", "staticInvoke", "wind", "bodyType", "weeble", "disable", "revolute", "prismatic", "wheel", "parallel", "motor", "joint", "contact", "jenga", "weld", "topDownFriction", "distance", "spherical", "motionLocks", "door", "gearLift", "driving", "sensorHits"].includes(scene)) {
             const sequence = fileURLToPath(new URL(`../../examples/physics/tests/${scene}.controls.txt`, import.meta.url));
-            const controlledSteps = scene === "contact" ? 1204 : steps;
+            const controlledSteps = scene === "contact" ? 3000 : steps;
             const controlled = run([binary, scene, String(controlledSteps), sequence]);
             equalSampleSteps(run([binary, scene, String(controlledSteps), sequence]), controlled, `${scene} controls repeat`);
             equalSampleSteps(controlled, readFileSync(new URL(`../../examples/physics/tests/${scene}.controls.gold.txt`, import.meta.url), "utf8"), `${scene} controls`);

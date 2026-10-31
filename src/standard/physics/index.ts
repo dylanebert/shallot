@@ -110,6 +110,7 @@ export {
     StandardPhysicsPlugin,
     StepPhysicsSystem,
     SyncPhysicsConstraintsSystem,
+    SyncPhysicsSystem,
     setAngularVelocity,
     setAwake,
     setBodyType,

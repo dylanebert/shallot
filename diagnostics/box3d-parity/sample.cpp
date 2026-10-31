@@ -301,7 +301,7 @@ struct SampleContext
 	bool enableSleep = true;
 	bool enableWarmStarting = true;
 	bool enableContinuous = true;
-	float recycleDistance = 0.05f;
+	float recycleDistance = B3_CONTACT_RECYCLE_DISTANCE;
 };
 
 // SAMPLE_EVENTS

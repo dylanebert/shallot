@@ -1,7 +1,7 @@
 import type { Mat3 } from "../common/records";
 import type { WorldState } from "../world/world";
 
-export const BODY_RECORD_STRIDE = 29;
+export const BODY_RECORD_STRIDE = 30;
 export const BodyField = {
     setIndex: 0,
     localIndex: 1,
@@ -23,8 +23,9 @@ export const BodyField = {
     flags: 26,
     type: 27,
     generation: 28,
-    userData: 29,
-    name: 30,
+    safetyFactor: 29,
+    userData: 30,
+    name: 31,
 } as const;
 export type BodyField = (typeof BodyField)[keyof typeof BodyField];
 
@@ -36,7 +37,11 @@ export function bodyField(world: WorldState, id: number, field: BodyField): unkn
     if (field === BodyField.name) return world.bodyNames[id] ?? "";
     const store = world.bodyStore;
     const offset = id * BODY_RECORD_STRIDE + field;
-    if (field >= BodyField.sleepThreshold && field <= BodyField.mass) return store.recordF[offset];
+    if (
+        (field >= BodyField.sleepThreshold && field <= BodyField.mass) ||
+        field === BodyField.safetyFactor
+    )
+        return store.recordF[offset];
     if (field === BodyField.generation) return store.recordU[offset] & 0xffff;
     if (field === BodyField.flags) return store.recordU[offset];
     return store.recordU[offset] | 0;
@@ -57,7 +62,10 @@ export function setBodyField(
         return;
     }
     const offset = id * BODY_RECORD_STRIDE + field;
-    if (field >= BodyField.sleepThreshold && field <= BodyField.mass)
+    if (
+        (field >= BodyField.sleepThreshold && field <= BodyField.mass) ||
+        field === BodyField.safetyFactor
+    )
         world.bodyStore.recordF[offset] = value as number;
     else
         world.bodyStore.recordU[offset] =

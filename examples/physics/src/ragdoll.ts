@@ -27,7 +27,7 @@ const f = Math.fround;
 type V3 = [number, number, number];
 export const RagdollState = {
     create: () => ({
-        human: { bodies: [] as number[], joints: [] as number[] },
+        human: { bodies: [] as number[], joints: [] as number[], shapes: [] as number[] },
         anchorJoints: [] as number[],
         mesh: false,
         incline: false,
@@ -196,7 +196,12 @@ function controls(hertz: number): Controls {
                 // DestroyHuman leaves anchor bodies alive; their joints disappear with the bones.
                 for (const joint of state.anchorJoints) world.destroy(joint);
                 state.anchorJoints.length = 0;
-                for (const body of state.human.bodies) world.destroy(body);
+                for (const [index, body] of state.human.bodies.entries()) {
+                    // Body removal destroys its attached shapes in Box3D's linked-list order.
+                    world.remove(body, Body);
+                    world.destroy(body);
+                    if (state.human.shapes[index]) world.destroy(state.human.shapes[index]!);
+                }
                 spawn(world, values);
             },
         },

@@ -1,22 +1,22 @@
 {
   "schema": "box3d-oracle/manifest-v1",
   "bundle": {
-    "upstreamSha": "47d7f7cc7e091142c08d11dc7d2e493c5d34f536",
+    "upstreamSha": "954cf879e717334eb96da9a5c255788fdc9f5f87",
     "schema": "v1",
-    "identity": "47d7f7cc7e091142c08d11dc7d2e493c5d34f536/v1"
+    "identity": "954cf879e717334eb96da9a5c255788fdc9f5f87/v1"
   },
   "upstream": {
     "url": "https://github.com/erincatto/box3d.git",
     "ref": "refs/heads/main",
     "channel": "official-main",
-    "sha": "47d7f7cc7e091142c08d11dc7d2e493c5d34f536",
-    "tree": "0a6472d03ff61c9af28216443fba341a21cbed96",
+    "sha": "954cf879e717334eb96da9a5c255788fdc9f5f87",
+    "tree": "f112da807e8a98f64339d1456b04ffcdf65a083f",
     "reachableFromChannel": true
   },
   "oracle": {
-    "memberCommit": "4250090eaffa5f6077e7268b230034060324fdb3",
+    "memberCommit": "b2945a9be6a34de91723f9f552df5160aab769db",
     "generator": "bin/oracle.ts",
-    "generatorSha256": "039753daeea1f1d7ffe226b92541e3b5af0e6f89ce0b8eafbd8f309162e9feaf",
+    "generatorSha256": "f47b588f8b95d48dee2658fa4013a35d9d2e62985c4a7e5b34ee08db60c7e8c4",
     "adapters": [
       {
         "path": "adapter/distance.c",
@@ -59,8 +59,8 @@
   "build": {
     "compiler": {
       "executable": "cc",
-      "version": "Apple clang version 21.0.0 (clang-2100.1.1.101)",
-      "sha256": "ebdd1913203aebbae99a8adad363e300e6cea37bcc703a8f9506410551f809f1"
+      "version": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+      "sha256": "8d50be9d2d5749332f48a244b12446a94940c46d71ef2d2f2eeb4fad19b2e17c"
     },
     "cmake": [
       "-S",
@@ -80,7 +80,7 @@
     "library": "official libbox3.a",
     "publicIncludeRoot": "include/box3d",
     "privateIncludeFirewall": "depfiles reject upstream src/ and negative mutation must fail",
-    "executableSha256": "ceafdd46447d632811b26c0b03f2508f03cd53036c221e90ad7502a9c6ddbe24"
+    "executableSha256": "d51e943a6cd0637fe7daf5c5c8eeeec40a179eca9eba7c29b3e92fed5c44693c"
   },
   "schemaDefinition": "schema.json",
   "membership": "membership.json",

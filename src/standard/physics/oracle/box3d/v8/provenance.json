@@ -1,7 +1,7 @@
 {
   "adapter": "adapter/toi.c",
   "adapterSha256": "0ebb60f30e317107e30135e59ac9137d84e47cdd0d355019a5360cf645b817f0",
-  "executableSha256": "46d0e693e9f55d4d2ebd7958aa47223e5deae4b36cf5ed6ee4b2347c10f1e160",
+  "executableSha256": "ace1579d4b25bf23c6c0cb5679185e135042ccc620271d7cf26dfb3b03afc29e",
   "compiler": {
     "executable": "cc",
     "version": "Apple clang version 21.0.0 (clang-2100.3.34.2)",

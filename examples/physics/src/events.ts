@@ -25,7 +25,6 @@ import {
 } from "@dylanebert/shallot";
 import {
     applyLinearImpulseToCenter,
-    applyTorque,
     computeBodyAABB,
     getContactData,
     getLocalPoint,
@@ -37,6 +36,7 @@ import {
     StandardPhysicsPlugin,
     StepPhysicsSystem,
     SyncPhysicsConstraintsSystem,
+    SyncPhysicsSystem,
     setAngularVelocity,
     setLinearVelocity,
     setTargetTransform,
@@ -93,10 +93,6 @@ const BeforeSample: System = {
     before: [StepPhysicsSystem],
     update(world) {
         const sample = world.resource(EventSample);
-        if (sample.scene === "contact") {
-            driveContact(world);
-            return;
-        }
         if (sample.scene === "motor") {
             driveMotor(world);
             return;
@@ -190,6 +186,15 @@ export const EventSamplePlugin: Plugin = {
             before: [SyncPhysicsConstraintsSystem],
             update(world) {
                 if (world.resource(EventSample).scene === "sensorHits") driveSensorHits(world);
+            },
+        },
+        {
+            name: "contact-before-constraints",
+            group: "fixed",
+            after: [SyncPhysicsSystem],
+            before: [SyncPhysicsConstraintsSystem],
+            update(world) {
+                if (world.resource(EventSample).scene === "contact") driveContact(world);
             },
         },
         BeforeSample,
@@ -320,7 +325,7 @@ export function hit(world: World): number[] {
     return sample.bodies;
 }
 
-function eventGround(world: World, extent: number): void {
+function eventGround(world: World, extent: number): number {
     const ground = world.create();
     world.add(ground, Transform, { translation: [0, -1, 0] });
     world.add(ground, Body);
@@ -328,6 +333,7 @@ function eventGround(world: World, extent: number): void {
         .resource(Hulls)
         .add({ name: "ground", halfExtents: [extent, 1, extent] });
     world.add(ground, Shape, { geometry });
+    return ground;
 }
 
 export function sensor(world: World): number[] {
@@ -478,24 +484,25 @@ function driveContact(world: World): void {
         f(f(direction[0] * direction[0]) + f(direction[1] * direction[1])) +
             f(direction[2] * direction[2]),
     );
-    if (length2 <= 0) return;
+    if (length2 <= 0) {
+        world.storage(MotorJoint).angularVelocity.set(sample.motor, 0, 0, 0);
+        return;
+    }
     const inverseLength = f(1 / f(Math.sqrt(length2)));
     const unit = direction.map((n) => f(inverseLength * n)) as Point;
     const axis = cross([0, 1, 0], unit);
     const scale = f(massExtent(world) / sample.massExtent);
-    const torque = f(scale * sample.torque);
-    applyTorque(world, sample.player, {
-        x: f(torque * axis[0]),
-        y: f(torque * axis[1]),
-        z: f(torque * axis[2]),
-    });
+    world.storage(MotorJoint).maxVelocityTorque.set(sample.motor, f(scale * sample.torque));
+    world
+        .storage(MotorJoint)
+        .angularVelocity.set(sample.motor, f(5 * axis[0]), f(5 * axis[1]), f(5 * axis[2]));
 }
 
 export function contact(world: World): number[] {
     const sample = world.resource(EventSample);
     sample.scene = "contact";
     sample.debrisHull = world.resource(Hulls).add({ name: "debris", halfExtents: [0.4, 0.6, 0.5] });
-    eventGround(world, 80);
+    const ground = eventGround(world, 80);
     sample.walls = world.create();
     world.add(sample.walls, Body);
     for (const [halfExtents, position] of [
@@ -524,13 +531,20 @@ export function contact(world: World): number[] {
     sample.player = world.create();
     sample.core = sample.player;
     world.add(sample.player, Transform, { translation: [0, 1, 0] });
-    world.add(sample.player, Body, { type: BodyType.Dynamic, angularDamping: 0.1 });
+    world.add(sample.player, Body, { type: BodyType.Dynamic, angularDamping: 0.1, enableSleep: 0 });
     world.add(sample.player, Shape, {
         kind: ShapeKind.Sphere,
         radius: 1,
         enableContactEvents: 1,
         rollingResistance: 0.1,
         customColor: 0x05dda0dd,
+    });
+    sample.motor = world.create();
+    world.add(sample.motor, MotorJoint, {
+        a: ground,
+        b: sample.player,
+        collideConnected: 1,
+        maxVelocityTorque: sample.torque,
     });
     remember(world);
     return [sample.player];

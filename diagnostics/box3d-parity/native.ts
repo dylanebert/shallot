@@ -49,7 +49,7 @@ export function nativeBinary(sourceName = "native.c", architecture?: "x86_64" | 
     }
     const inc = ["include", "src", "shared"].map((d) => `-I${join(box3d, d)}`);
     const object = `${native}-benchmarks.o`;
-    if (benchmarks) run(["cc", "-O2", "-DNDEBUG", "-std=c17", "-ffp-contract=off", ...inc, "-c", benchmarks, "-o", object]);
+    if (benchmarks) run(["cc", ...(architecture ? ["-arch", architecture] : []), "-O2", "-DNDEBUG", "-std=c17", "-ffp-contract=off", ...inc, "-c", benchmarks, "-o", object]);
     run([
         source.endsWith(".cpp") ? "c++" : "cc",
         ...(architecture ? ["-arch", architecture] : []),

@@ -897,6 +897,8 @@ test("Body definition writes reach Box3D through its setters after spawn", async
         authored.linearDamping.set(eid, 0.25);
         authored.angularDamping.set(eid, 0.5);
         authored.gravityScale.set(eid, 0.75);
+        expect(bodyGetProperty(stateFor(world), solver, BodyProperty.safetyFactor)).toBe(0.5);
+        authored.safetyFactor.set(eid, 0.125);
         authored.sleepThreshold.set(eid, 0.2);
         authored.motionLocks.set(eid, BodyMotionLock.linearX | BodyMotionLock.angularZ);
         authored.enableSleep.set(eid, 0);
@@ -906,6 +908,7 @@ test("Body definition writes reach Box3D through its setters after spawn", async
         world.tick();
 
         expect(bodyGetType(stateFor(world), solver)).toBe(BodyType.Kinematic);
+        expect(bodyGetProperty(stateFor(world), solver, BodyProperty.safetyFactor)).toBe(0.125);
         expect(bodyGetProperty(stateFor(world), solver, BodyProperty.linearDamping)).toBe(0.25);
         expect(bodyGetProperty(stateFor(world), solver, BodyProperty.angularDamping)).toBe(0.5);
         expect(bodyGetProperty(stateFor(world), solver, BodyProperty.gravityScale)).toBe(0.75);

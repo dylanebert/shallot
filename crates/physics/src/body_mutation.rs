@@ -70,6 +70,7 @@ pub unsafe fn get_property_in_world(world: usize, id: usize, property: u32) -> f
             sim.get(crate::body::LINEAR_DAMPING + property as usize)
         }
         3 => record.sleep_threshold,
+        11 => record.safety_factor,
         4 => (u8::from(record.flags & crate::body::flags::ENABLE_SLEEP != 0)) as f32,
         5 => (record.flags & crate::body::flags::ALL_MOTION_LOCKS) as f32,
         6 => (u8::from(record.flags & crate::body::flags::IS_BULLET != 0)) as f32,
@@ -95,6 +96,7 @@ pub unsafe fn set_property_in_world(world: usize, id: usize, property: u32, valu
             sim.set(body::LINEAR_DAMPING + property as usize, value);
         }
         3 => bodies::record_mut(world, id).sleep_threshold = value,
+        11 => bodies::record_mut(world, id).safety_factor = value,
         4 => {
             let record = bodies::record_mut(world, id);
             let enabled = value != 0.0;

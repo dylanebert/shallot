@@ -41,6 +41,7 @@ export function marshalBody(world: World, state: WorldState, eid: number): Entit
         angularDamping: body.angularDamping.get(eid),
         gravityScale: body.gravityScale.get(eid),
         sleepThreshold: body.sleepThreshold.get(eid),
+        safetyFactor: body.safetyFactor.get(eid),
         motionLocks: {
             linearX: (locks & BodyMotionLock.linearX) !== 0,
             linearY: (locks & BodyMotionLock.linearY) !== 0,

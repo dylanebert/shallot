@@ -307,6 +307,7 @@ export const BodyProperty = {
     enableContactRecycling: 8,
     isEnabled: 9,
     isAwake: 10,
+    safetyFactor: 11,
 } as const;
 
 export function bodyGetProperty(world: WorldState, body: number, property: number): number {
@@ -376,6 +377,12 @@ export function createBody(world: WorldState, def: BodyDef): number {
         def.linearDamping,
         def.angularDamping,
         def.gravityScale,
+    );
+    kernel(world.ecsState).bodySetProperty(
+        world.worldId,
+        bodyId,
+        BodyProperty.safetyFactor,
+        def.safetyFactor,
     );
     world.bodyNames[bodyId] = def.name ? def.name.slice(0, BODY_NAME_LENGTH) : "";
     world.bodyUserData[bodyId] = def.userData;

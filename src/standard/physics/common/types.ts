@@ -158,6 +158,7 @@ export type BodyDef = {
     angularDamping: number;
     gravityScale: number;
     sleepThreshold: number;
+    safetyFactor: number;
     /** Optional debug name, truncated to BODY_NAME_LENGTH-1 characters. */
     name?: string;
     userData?: unknown;
@@ -182,6 +183,7 @@ export function defaultBodyDef(): BodyDef {
         angularDamping: 0,
         gravityScale: f32(1.0),
         sleepThreshold: f32(f32(0.05) * LENGTH_UNITS_PER_METER),
+        safetyFactor: 0.5,
         motionLocks: {
             linearX: false,
             linearY: false,

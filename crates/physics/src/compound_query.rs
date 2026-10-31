@@ -297,7 +297,7 @@ pub fn shape_cast_compound(c: Compound, input: &ShapeCastInput) -> CastOutput {
                     count,
                     radius: input.proxy.radius,
                 },
-                translation: matrix.mul_v(input.translation),
+                translation: xf.q.inv_rotate(input.translation),
                 max_fraction: fraction,
                 can_encroach: input.can_encroach,
             };
@@ -317,11 +317,23 @@ pub fn shape_cast_compound(c: Compound, input: &ShapeCastInput) -> CastOutput {
     result
 }
 pub fn overlap_compound(c: Compound, transform: Transform, proxy: ShapeProxy) -> bool {
+    let inv = transform.invert();
+    let matrix = Mat3::from_quat(inv.q);
+    let mut points = [Vec3::ZERO; 128];
+    let count = proxy.count.min(128);
+    for (i, point) in points[..count].iter_mut().enumerate() {
+        *point = matrix.mul_v(proxy.points[i]).add(inv.p);
+    }
+    let proxy = ShapeProxy {
+        points: &points[..count],
+        count,
+        radius: proxy.radius,
+    };
     let (lower, upper) = proxy_bounds(proxy);
     let mut overlap = false;
     query(c, lower, upper, |_, index| {
         let (shape, xf, _) = child(c, index as usize);
-        overlap = overlap_shape(&shape, transform.mul(xf), proxy);
+        overlap = overlap_shape(&shape, xf, proxy);
         !overlap
     });
     overlap

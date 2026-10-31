@@ -52,9 +52,13 @@ export function rainSpawner(): (world: World, step: number) => void {
         for (let row = 0; row < 10; row++) {
             const index = row * 10 + column;
             for (const group of groups[index]!) {
-                world.destroy(group.joints.at(-1)!);
-                for (const joint of group.joints.slice(0, -1)) world.destroy(joint);
-                for (const body of group.bodies) world.destroy(body);
+                for (const joint of group.joints.slice(-3)) world.destroy(joint);
+                for (const joint of group.joints.slice(0, -3)) world.destroy(joint);
+                for (const [index, body] of group.bodies.entries()) {
+                    world.remove(body, Body);
+                    world.destroy(body);
+                    if (group.shapes[index]) world.destroy(group.shapes[index]!);
+                }
             }
             const next: ReturnType<typeof human>[] = [];
             let x = -75 + 15 * (column + 0.5);

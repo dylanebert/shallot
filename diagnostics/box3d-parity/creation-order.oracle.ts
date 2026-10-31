@@ -9,7 +9,7 @@ import { sampleBinary } from "./sample";
 
 setDefaultTimeout(0);
 
-test("Rain's public authoring order equals native at every step; deferred joints distinguish the order", async () => {
+test("Rain's direct and public authoring order equals native and rejects reversed joints", async () => {
     const steps = 600;
     const native = run([sampleBinary(), "rain", String(steps)]).trim().split("\n");
     const hashes = (text: string) => text.trim().split("\n").map(line => line.split("0x").at(-1)!);
@@ -21,14 +21,15 @@ test("Rain's public authoring order equals native at every step; deferred joints
         const reference = join(directory, "reference.ts");
         writeFileSync(reference, original);
         expect(hashes(run([process.execPath, reference, "rain", "1", String(steps)]))).toEqual(native);
-        const deferred = original
+        const reversed = original
             .replace("{ createRevoluteJoint,", "{ createRevoluteJoint as immediateRevoluteJoint,")
             .replace("{ createSphericalJoint,", "{ createSphericalJoint as immediateSphericalJoint,")
             .replace("{ createFilterJoint,", "{ createFilterJoint as immediateFilterJoint,")
             .replace("scene.step(state, i);", "scene.step(state, i); flushJoints();");
+        // One step only: these mutation-only handles cannot be used for destruction.
         const wrappers = `
 const pendingJoints: (() => void)[] = [];
-function flushJoints() { for (const create of pendingJoints) create(); pendingJoints.length = 0; }
+function flushJoints() { for (let i = pendingJoints.length - 1; i >= 0; i--) pendingJoints[i](); pendingJoints.length = 0; }
 function createRevoluteJoint(...args: Parameters<typeof immediateRevoluteJoint>) {
     pendingJoints.push(() => immediateRevoluteJoint(...args)); return { joint: -1 };
 }
@@ -39,12 +40,11 @@ function createFilterJoint(...args: Parameters<typeof immediateFilterJoint>) {
     pendingJoints.push(() => immediateFilterJoint(...args)); return { joint: -1 };
 }
 `;
-        const path = join(directory, "deferred.ts");
-        writeFileSync(path, deferred.replace("const [name, threadArg, stepArg]", wrappers + "\nconst [name, threadArg, stepArg]"));
-        const actual = hashes(run([process.execPath, path, "rain", "1", "262"]));
-        expect(actual.slice(0, 261)).toEqual(native.slice(0, 261));
-        expect(native[261]).toBe("7d6a463f6abc1bed");
-        expect(actual[261]).toBe("824b177370f62dc5");
+        const path = join(directory, "reversed.ts");
+        writeFileSync(path, reversed.replace("const [name, threadArg, stepArg]", wrappers + "\nconst [name, threadArg, stepArg]"));
+        const actual = hashes(run([process.execPath, path, "rain", "1", "1"]));
+        expect(actual).toHaveLength(1);
+        expect(actual[0], "reversed joint creation must fail the native step-0 hash").not.toBe(native[0]);
         const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
         try {
             rainGround(app.world);
@@ -55,6 +55,6 @@ function createFilterJoint(...args: Parameters<typeof immediateFilterJoint>) {
                 expect(hashPhysics(app.world).toString(16).padStart(16, "0"), `public Rain step ${step}`).toBe(native[step]);
             }
         } finally { await app.dispose(); }
-        console.log(`Rain: ${steps} native, direct and public hashes equal; deferred control differs at step 261`);
+        console.log(`Rain: ${steps} native, direct and public hashes equal; reversed joints differ at step 0 (${actual[0]} versus ${native[0]})`);
     } finally { rmSync(directory, { recursive: true, force: true }); }
 });

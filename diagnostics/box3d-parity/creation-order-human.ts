@@ -11,8 +11,9 @@ function normalized(values: number[]): [number, number, number, number] {
     return [f(inv * x), f(inv * y), f(inv * z), f(inv * w)];
 }
 /** shared/human.c's capsule bodies and constrained bones. */
-export function human(world: World, position: [number, number, number], group: number): { bodies: number[]; joints: number[] } {
-    const bodies = bones.map(bone => {
+export function human(world: World, position: [number, number, number], group: number): { bodies: number[]; joints: number[]; shapes: number[] } {
+    const shapes = Array<number>(bones.length).fill(0);
+    const bodies = bones.map((bone, index) => {
         const eid = world.create();
         world.add(eid, Transform, {
             translation: position.map((v, i) => f(v + f(bone.refP[i]!))) as [number, number, number],
@@ -23,9 +24,21 @@ export function human(world: World, position: [number, number, number], group: n
             kind: ShapeKind.Capsule,
             capsuleCenter1: bone.cap1 as [number, number, number],
             capsuleCenter2: bone.cap2 as [number, number, number],
-            radius: bone.radius, rollingResistance: 0.2,
+            radius: bone.radius, friction: bone.materialFriction, rollingResistance: bone.rollingResistance,
             filterGroupIndex: bone.negGroup ? -group : 0,
         });
+        if (bone.foot) {
+            const foot = world.create();
+            shapes[index] = foot;
+            world.add(foot, Shape, {
+                body: eid, kind: ShapeKind.Capsule,
+                capsuleCenter1: bone.foot.cap1 as [number, number, number],
+                capsuleCenter2: bone.foot.cap2 as [number, number, number],
+                radius: bone.foot.radius, density: 500,
+                friction: bone.materialFriction, rollingResistance: bone.rollingResistance,
+                filterGroupIndex: bone.negGroup ? -group : 0,
+            });
+        }
         return eid;
     });
     const joints: number[] = [];
@@ -45,8 +58,10 @@ export function human(world: World, position: [number, number, number], group: n
         else world.add(eid, SphericalJoint, { ...base, enableConeLimit: 1, coneAngle: f(f(bone.swingDeg!) * degrees), enableTwistLimit: 1, lowerTwistAngle: lower, upperTwistAngle: upper });
         joints.push(eid);
     }
-    const filter = world.create();
-    world.add(filter, FilterJoint, { a: bodies[6]!, b: bodies[8]! });
-    joints.push(filter);
-    return { bodies, joints };
+    for (const [a, b] of [[4, 6], [3, 8], [3, 10]]) {
+        const filter = world.create();
+        world.add(filter, FilterJoint, { a: bodies[a]!, b: bodies[b]! });
+        joints.push(filter);
+    }
+    return { bodies, joints, shapes };
 }

@@ -28,8 +28,9 @@ export function human(
     torque = 5,
     hertz = 1,
     dampingRatio = 0.7,
-): { bodies: number[]; joints: number[] } {
-    const bodies = bones.map((bone) => {
+): { bodies: number[]; joints: number[]; shapes: number[] } {
+    const shapes = Array<number>(bones.length).fill(0);
+    const bodies = bones.map((bone, index) => {
         const eid = world.create();
         world.add(eid, Transform, {
             translation: position.map((v, i) => f(v + f(bone.refP[i]!))) as [
@@ -45,9 +46,25 @@ export function human(
             capsuleCenter1: bone.cap1 as [number, number, number],
             capsuleCenter2: bone.cap2 as [number, number, number],
             radius: bone.radius,
-            rollingResistance: 0.2,
+            friction: bone.materialFriction,
+            rollingResistance: bone.rollingResistance,
             filterGroupIndex: bone.negGroup ? -group : 0,
         });
+        if (bone.foot) {
+            const foot = world.create();
+            shapes[index] = foot;
+            world.add(foot, Shape, {
+                body: eid,
+                kind: ShapeKind.Capsule,
+                capsuleCenter1: bone.foot.cap1 as [number, number, number],
+                capsuleCenter2: bone.foot.cap2 as [number, number, number],
+                radius: bone.foot.radius,
+                density: 500,
+                friction: bone.materialFriction,
+                rollingResistance: bone.rollingResistance,
+                filterGroupIndex: bone.negGroup ? -group : 0,
+            });
+        }
         return eid;
     });
     const joints: number[] = [];
@@ -87,8 +104,14 @@ export function human(
             });
         joints.push(eid);
     }
-    const filter = world.create();
-    world.add(filter, FilterJoint, { a: bodies[6]!, b: bodies[8]! });
-    joints.push(filter);
-    return { bodies, joints };
+    for (const [a, b] of [
+        [4, 6],
+        [3, 8],
+        [3, 10],
+    ]) {
+        const filter = world.create();
+        world.add(filter, FilterJoint, { a: bodies[a]!, b: bodies[b]! });
+        joints.push(filter);
+    }
+    return { bodies, joints, shapes };
 }

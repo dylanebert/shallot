@@ -620,6 +620,9 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
             0 => return 0,
             1 => {
                 if crate::broad::move_count(world_index) == 0 {
+                    crate::pairwork::reserve_rebuild_in_world(world_index);
+                    crate::pairwork::schedule_rebuild();
+                    TREE_TASK = crate::solve::SCHEDULER.enqueue(rebuild_task, world_index, 0);
                     DRIVER.phase = 3;
                     continue;
                 }

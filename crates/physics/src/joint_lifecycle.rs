@@ -147,6 +147,9 @@ pub unsafe extern "C" fn create_in_world(
     damping: f32,
 ) -> u32 {
     begin();
+    if !collide_connected {
+        destroy_contacts_between_bodies(world_index, a, b);
+    }
     let id = records::alloc(world_index) as usize;
     let world = world_index;
     records::record_mut(world_index, id).joint_type = joint_type;
@@ -239,22 +242,26 @@ pub unsafe extern "C" fn set_collide_connected_in_world(world: usize, id: usize,
             shape = u.get(o + crate::shapes::S_NEXT) as i32;
         }
     } else {
-        let a = bodies::record(world, a);
-        let b = bodies::record(world, b);
-        let (mut key, other) = if a.contact_count < b.contact_count {
-            (a.head_contact_key, b.id)
-        } else {
-            (b.head_contact_key, a.id)
-        };
-        while key != -1 {
-            let id = (key >> 1) as usize;
-            let edge = (key & 1) as usize;
-            let d = crate::manifolds::dir_col(world);
-            let o = id * crate::manifold_abi::DIR_STRIDE + crate::manifold_abi::DIR_EDGE_A;
-            key = d.get(o + 2 + 3 * edge) as i32;
-            if d.get(o + 3 * (edge ^ 1)) as i32 == other {
-                crate::contact_lifecycle::destroy(world, id, false);
-            }
+        destroy_contacts_between_bodies(world, a, b);
+    }
+}
+
+unsafe fn destroy_contacts_between_bodies(world: usize, a: usize, b: usize) {
+    let a = bodies::record(world, a);
+    let b = bodies::record(world, b);
+    let (mut key, other) = if a.contact_count < b.contact_count {
+        (a.head_contact_key, b.id)
+    } else {
+        (b.head_contact_key, a.id)
+    };
+    while key != -1 {
+        let id = (key >> 1) as usize;
+        let edge = (key & 1) as usize;
+        let d = crate::manifolds::dir_col(world);
+        let o = id * crate::manifold_abi::DIR_STRIDE + crate::manifold_abi::DIR_EDGE_A;
+        key = d.get(o + 2 + 3 * edge) as i32;
+        if d.get(o + 3 * (edge ^ 1)) as i32 == other {
+            crate::contact_lifecycle::destroy(world, id, false);
         }
     }
 }

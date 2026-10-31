@@ -131,6 +131,17 @@ export function syncBodyFields(
             "any",
             warned,
         );
+        applyFloat(
+            state,
+            binding,
+            eid,
+            mask,
+            "safetyFactor",
+            body,
+            BodyProperty.safetyFactor,
+            "nonnegative",
+            warned,
+        );
         if (fieldMarked(binding, mask, "motionLocks")) {
             const next = value(binding, eid, "motionLocks");
             if ((next & ~0x3f) !== 0) warnInvalid(warned, binding, eid, "motionLocks");

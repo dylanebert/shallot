@@ -2449,7 +2449,7 @@ function applyTransformPoses(world: World, runtime: PhysicsRuntime): void {
  * substeps, and publishes placement, velocity and this call's events (replacing prior events).
  * Callable only in the fixed group. Does not advance the world's tick clock.
  * Disable `PhysicsWorldDefinition.enableAutomaticStep` to own solve ordering. This does not
- * transfer the automatic step's ordering: SyncPhysicsWorldDefinitionSystem, SyncSystem,
+ * transfer the automatic step's ordering: SyncPhysicsWorldDefinitionSystem, SyncPhysicsSystem,
  * SyncPhysicsConstraintsSystem and CharacterPlugin's MoveCharactersSystem precede StepPhysicsSystem.
  * Put the calling fixed system `after: [StepPhysicsSystem]` to run after those producers.
  * Refuses a locked solver, a non-finite or negative timestep, or a non-positive integer substep count.
@@ -2464,7 +2464,7 @@ export function stepPhysics(world: World, timeStep: number, subStepCount: number
     if (runtimeFor(world).physicsWorld?.locked)
         throw new Error("stepPhysics refuses a locked solver");
     SyncPhysicsWorldDefinitionSystem.update!(world);
-    SyncSystem.update!(world);
+    SyncPhysicsSystem.update!(world);
     SyncPhysicsConstraintsSystem.update!(world);
     solvePhysics(world, timeStep, subStepCount);
 }
@@ -2851,7 +2851,8 @@ function realizeMemberships(world: World, runtime: PhysicsRuntime): void {
     journal.count = 0;
 }
 
-const SyncSystem: System = {
+/** Synchronizes authored bodies and shapes before constraint synchronization and the automatic solve. */
+export const SyncPhysicsSystem: System = {
     name: "physics-sync",
     group: "fixed",
     before: [SyncPhysicsConstraintsSystem, StepPhysicsSystem],
@@ -2924,7 +2925,7 @@ const SyncSystem: System = {
 export const SyncPhysicsWorldDefinitionSystem: System = {
     name: "world-definition",
     group: "fixed",
-    before: [SyncSystem],
+    before: [SyncPhysicsSystem],
     update(world) {
         const physicsWorld = runtimeFor(world).physicsWorld;
         if (physicsWorld) syncWorldDefinition(physicsWorld, world.resource(PhysicsWorldDefinition));
@@ -2954,7 +2955,7 @@ export const StandardPhysicsPlugin: Plugin = {
     },
     dependencies: [PhysicsPlugin],
     systems: [
-        SyncSystem,
+        SyncPhysicsSystem,
         SyncPhysicsWorldDefinitionSystem,
         SyncPhysicsConstraintsSystem,
         StepPhysicsSystem,

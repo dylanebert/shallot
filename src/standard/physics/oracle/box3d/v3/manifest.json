@@ -1,23 +1,23 @@
 {
   "schema": "box3d-oracle/manifest-v3",
   "bundle": {
-    "upstreamSha": "47d7f7cc7e091142c08d11dc7d2e493c5d34f536",
+    "upstreamSha": "954cf879e717334eb96da9a5c255788fdc9f5f87",
     "schema": "v3",
-    "identity": "47d7f7cc7e091142c08d11dc7d2e493c5d34f536/v3"
+    "identity": "954cf879e717334eb96da9a5c255788fdc9f5f87/v3"
   },
   "upstream": {
     "url": "https://github.com/erincatto/box3d.git",
     "ref": "refs/heads/main",
     "channel": "official-main",
-    "sha": "47d7f7cc7e091142c08d11dc7d2e493c5d34f536",
-    "tree": "0a6472d03ff61c9af28216443fba341a21cbed96",
+    "sha": "954cf879e717334eb96da9a5c255788fdc9f5f87",
+    "tree": "f112da807e8a98f64339d1456b04ffcdf65a083f",
     "reachableFromChannel": true
   },
   "oracle": {
-    "memberCommit": "20186e9ba8539ce5d32cfcde80cf78864fc32351",
+    "memberCommit": "b2945a9be6a34de91723f9f552df5160aab769db",
     "generator": "bin/oracle.ts",
-    "generatorSha256": "0b0a73b663a1bfd189a6a89218428727eb7544e7db411c54b21a382980a56d2b",
-    "hookDigest": "841e2805328063a7662a2c1169a3ca89f1a184b39542f3ef5398fa68f743db29",
+    "generatorSha256": "f47b588f8b95d48dee2658fa4013a35d9d2e62985c4a7e5b34ee08db60c7e8c4",
+    "hookDigest": "f1b2a82ab3b80aab9e1cea4bab9f0527168e79f7665ad90f2544651004353279",
     "patches": [
       {
         "file": "src/recording.c",
@@ -69,11 +69,7 @@
       },
       {
         "file": "src/convex_manifold.c",
-        "marker": "o4.convex-manifold.visit.simd"
-      },
-      {
-        "file": "src/convex_manifold.c",
-        "marker": "o4.convex-manifold.visit.scalar"
+        "marker": "o4.convex-manifold.visit"
       },
       {
         "file": "src/mesh_contact.c",
@@ -154,14 +150,14 @@
         "disableSimd": true,
         "compiler": {
           "executable": "cc",
-          "version": "Apple clang version 21.0.0 (clang-2100.1.1.101)",
-          "sha256": "ebdd1913203aebbae99a8adad363e300e6cea37bcc703a8f9506410551f809f1"
+          "version": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+          "sha256": "8d50be9d2d5749332f48a244b12446a94940c46d71ef2d2f2eeb4fad19b2e17c"
         },
         "cmake": [
           "-S",
-          "/var/folders/24/2ff01nsx7cs9005l3jbptw8c0000gp/T/box3d-oracle-cache/checkouts/47d7f7cc7e091142c08d11dc7d2e493c5d34f536-patched-o4",
+          "/var/folders/24/2ff01nsx7cs9005l3jbptw8c0000gp/T/box3d-oracle-cache/checkouts/954cf879e717334eb96da9a5c255788fdc9f5f87-patched-o4",
           "-B",
-          "/var/folders/24/2ff01nsx7cs9005l3jbptw8c0000gp/T/box3d-oracle-cache/whitebox-builds/47d7f7cc7e091142c08d11dc7d2e493c5d34f536-o4-scalar",
+          "/var/folders/24/2ff01nsx7cs9005l3jbptw8c0000gp/T/box3d-oracle-cache/whitebox-builds/954cf879e717334eb96da9a5c255788fdc9f5f87-o4-scalar",
           "-G",
           "Ninja",
           "-DCMAKE_BUILD_TYPE=Release",
@@ -173,9 +169,9 @@
           "-DBOX3D_VALIDATE=ON",
           "-DCMAKE_C_FLAGS=-DB3_ORACLE_HOOKS -DB3_ORACLE_SENTINELS"
         ],
-        "executableSha256": "e7e2a1cf265fbc44b4e79852b5c98a3494471c5d2d270863ab45dbbb70c89de2",
-        "publicExecutableSha256": "ceafdd46447d632811b26c0b03f2508f03cd53036c221e90ad7502a9c6ddbe24",
-        "patchDigest": "841e2805328063a7662a2c1169a3ca89f1a184b39542f3ef5398fa68f743db29",
+        "executableSha256": "3345c60647983b4c4497dde7eacc3a334f2c0e742e70c66bd83316703315fadf",
+        "publicExecutableSha256": "d51e943a6cd0637fe7daf5c5c8eeeec40a179eca9eba7c29b3e92fed5c44693c",
+        "patchDigest": "f1b2a82ab3b80aab9e1cea4bab9f0527168e79f7665ad90f2544651004353279",
         "cases": [
           "math.add.v1.scalar",
           "math.dot.v1.scalar",
@@ -213,14 +209,14 @@
         "disableSimd": false,
         "compiler": {
           "executable": "cc",
-          "version": "Apple clang version 21.0.0 (clang-2100.1.1.101)",
-          "sha256": "ebdd1913203aebbae99a8adad363e300e6cea37bcc703a8f9506410551f809f1"
+          "version": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+          "sha256": "8d50be9d2d5749332f48a244b12446a94940c46d71ef2d2f2eeb4fad19b2e17c"
         },
         "cmake": [
           "-S",
-          "/var/folders/24/2ff01nsx7cs9005l3jbptw8c0000gp/T/box3d-oracle-cache/checkouts/47d7f7cc7e091142c08d11dc7d2e493c5d34f536-patched-o4",
+          "/var/folders/24/2ff01nsx7cs9005l3jbptw8c0000gp/T/box3d-oracle-cache/checkouts/954cf879e717334eb96da9a5c255788fdc9f5f87-patched-o4",
           "-B",
-          "/var/folders/24/2ff01nsx7cs9005l3jbptw8c0000gp/T/box3d-oracle-cache/whitebox-builds/47d7f7cc7e091142c08d11dc7d2e493c5d34f536-o4-simd",
+          "/var/folders/24/2ff01nsx7cs9005l3jbptw8c0000gp/T/box3d-oracle-cache/whitebox-builds/954cf879e717334eb96da9a5c255788fdc9f5f87-o4-simd",
           "-G",
           "Ninja",
           "-DCMAKE_BUILD_TYPE=Release",
@@ -231,9 +227,9 @@
           "-DBOX3D_VALIDATE=ON",
           "-DCMAKE_C_FLAGS=-DB3_ORACLE_HOOKS -DB3_ORACLE_SENTINELS"
         ],
-        "executableSha256": "d2d063ce3dd80c55a7385c98286a368ed71180a0f204bdc3744e360bf3d3f5e2",
-        "publicExecutableSha256": "e277452d99169ef0d90bdc79598852bb7a5929ce82bdc62e0b9cf2e15ef38026",
-        "patchDigest": "841e2805328063a7662a2c1169a3ca89f1a184b39542f3ef5398fa68f743db29",
+        "executableSha256": "56ea2df89a444c11d6b70e392c1a8c659983b6cee4015d195ab22f1dfe49946a",
+        "publicExecutableSha256": "7ae3e4d20bafa4871473e9f94d39e5b7e8341b5287c5a3575ab66aff2d326578",
+        "patchDigest": "f1b2a82ab3b80aab9e1cea4bab9f0527168e79f7665ad90f2544651004353279",
         "cases": [
           "math.add.v1.simd",
           "math.dot.v1.simd",
@@ -278,7 +274,7 @@
   "fileDigests": {
     "schema.json": "277b6b593869c53424a6ad16aa8bd7952e88141ac6190519f3520692d7a09298",
     "membership.json": "6e25b4c781f999b43718289eb2aa019db083b6d4624b7e2066e7d7c316cb80c9",
-    "provenance.json": "ddc83cd7dbaff9b2db6575a4fbaabe6f5d6c71e6ddaf4c860a56733eedcc80dc",
+    "provenance.json": "6f43f69bb2613ee32ec4a9e25f58108a6e60d6a5cc8f93026134afacfde7e1db",
     "cases.json": "6863f233f68820f5130b0510e56aaab2d4d7786c6e07030d3d40fadb361562e2"
   },
   "fileDigestScope": "Generated evidence files only; manifest is the receipt and is intentionally excluded from its own digest map.",

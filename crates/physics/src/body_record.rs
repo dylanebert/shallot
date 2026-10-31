@@ -26,6 +26,7 @@ pub struct BodyRecord {
     pub body_type: i32,
     pub generation: u16,
     pub(crate) padding: u16,
+    pub safety_factor: f32,
 }
 
 impl BodyRecord {
@@ -56,6 +57,7 @@ impl BodyRecord {
         body_type: 0,
         generation: 0,
         padding: 0,
+        safety_factor: 0.5,
     };
 }
 
@@ -65,7 +67,7 @@ mod tests {
     use std::mem::{offset_of, size_of};
     #[test]
     fn body_record_layout_matches_the_plain_word_bindings() {
-        assert_eq!(size_of::<BodyRecord>(), 29 * 4);
+        assert_eq!(size_of::<BodyRecord>(), 30 * 4);
         let offsets = [
             offset_of!(BodyRecord, set_index),
             offset_of!(BodyRecord, local_index),
@@ -92,6 +94,7 @@ mod tests {
         assert_eq!(offset_of!(BodyRecord, flags), 26 * 4);
         assert_eq!(offset_of!(BodyRecord, body_type), 27 * 4);
         assert_eq!(offset_of!(BodyRecord, generation), 28 * 4);
+        assert_eq!(offset_of!(BodyRecord, safety_factor), 29 * 4);
     }
 }
 
@@ -656,8 +659,27 @@ pub(crate) mod runtime {
         sim.set(body::MIN_EXTENT, 1.0e5);
     }
 
+    unsafe fn invalidate_contact_transforms(world: usize, id: usize) {
+        let mut key = bodies::record(world, id).head_contact_key;
+        let dir = crate::manifolds::dir_col(world);
+        while key != -1 {
+            let offset = (key as usize >> 1) * crate::manifold_abi::DIR_STRIDE;
+            let flags = dir.get(offset + crate::manifold_abi::DIR_FLAGS);
+            dir.set(
+                offset + crate::manifold_abi::DIR_FLAGS,
+                flags & !crate::manifold_abi::contact_flags::RELATIVE_TRANSFORM_VALID,
+            );
+            key = dir.get(offset + crate::manifold_abi::DIR_EDGE_A + 3 * (key as usize & 1) + 2)
+                as i32;
+        }
+    }
+
     unsafe fn mass_finish(world: usize, id: usize) {
         use crate::math::Vec3;
+        let record = bodies::record(world, id);
+        if record.body_type == crate::body::body_type::DYNAMIC && record.shape_count != 0 {
+            invalidate_contact_transforms(world, id);
+        }
 
         let record = bodies::record_mut(world, id);
         if record.shape_count == 0 {
@@ -797,6 +819,7 @@ pub(crate) mod runtime {
         zz: f32,
     ) {
         use crate::math::Vec3;
+        invalidate_contact_transforms(world, id);
         let center = Vec3::new(cx, cy, cz);
         let inertia = Mat3 {
             cx: Vec3::new(xx, xy, xz),

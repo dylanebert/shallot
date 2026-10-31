@@ -24,7 +24,7 @@ import { changeControl, controlValues, createScene } from "../src/scenes";
 setDefaultTimeout(TIMEOUT.node);
 for (const [scene, count] of [
     ["ragdollBox", 14],
-    ["ragdollMesh", 28],
+    ["ragdollMesh", 26],
     ["ragdollPile", 280],
     ["ragdollIncline", 14],
 ] as const) {

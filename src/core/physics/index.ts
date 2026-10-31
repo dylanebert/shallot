@@ -85,6 +85,13 @@ export const Body = component(
         gravityScale: f32,
         /** Sleep speed threshold in meters per second; changing it applies at the next fixed sync. */
         sleepThreshold: f32,
+        /**
+         * Non-dimensional continuous-collision safety factor. A body is fast when its motion over a
+         * full timestep exceeds this factor times its tunneling-risk distance. Recommended range
+         * [0.01, 0.5]; default 0.5 favors performance with low tunneling risk. Must be finite and
+         * nonnegative; changing it applies at the next fixed sync.
+         */
+        safetyFactor: f32,
         /** Six `BodyMotionLock` bits; changing them applies at the next fixed sync. */
         motionLocks: u32,
         /** Whether the body may sleep; changing it applies at the next fixed sync. */
@@ -109,6 +116,7 @@ export const Body = component(
             angularDamping: 0,
             gravityScale: 1,
             sleepThreshold: 0.05,
+            safetyFactor: 0.5,
             motionLocks: 0,
             enableSleep: 1,
             isAwake: 1,
