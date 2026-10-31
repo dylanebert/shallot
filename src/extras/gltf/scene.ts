@@ -60,9 +60,8 @@ export interface GltfPlacement {
 
 /** Registers the default scene before warm, from the game's async initialize.
  * The handle and its mesh, image and material registrations belong to this world until disposal.
- * Decoded nodes, skins and primitive data are immutable and copied to the kernel once at load.
- * Animations passed to poseGltfScene are copied on first use per handle, keyed by identity;
- * treat their channels and samplers as immutable. All kernel data is freed when the world disposes.
+ * The handle's decoded data, including animations, is immutable and copied to the kernel.
+ * To change a clip, pass a new animation object. All kernel data is freed when the world disposes.
  */
 export async function loadGltfScene(
     world: World,
