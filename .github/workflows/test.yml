@@ -27,7 +27,9 @@ jobs:
           exit "$status"
       - name: full browser tier
         if: always()
-        run: sh scripts/browser.sh --retries=0
+        run: |
+          bun -e 'const p="scripts/browser.sh"; await Bun.write(p,(await Bun.file(p).text()).replace("--workers=1", "--workers=1 --retries=0"))'
+          sh scripts/browser.sh
       - uses: actions/upload-artifact@v7
         if: always()
         with:
