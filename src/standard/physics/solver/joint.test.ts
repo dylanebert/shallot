@@ -483,7 +483,7 @@ test("mixed-joint island sleeps as one unit", () => {
             localFrameA: frame(0.25, -0.5),
             localFrameB: frame(0, 0.5),
         });
-        for (let i = 1; i <= eventClaims.mixedSleep.step; ++i) {
+        for (let i = 1; i <= Math.max(300, eventClaims.mixedSleep.step); ++i) {
             stepTestWorld(world, 1 / 60, 4);
             const awake = [torso, armL, armR, legL, legR].map((id) => bodyIsAwake(world, id));
             expect(awake.every((value) => value === awake[0])).toBe(true);
