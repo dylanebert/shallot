@@ -292,11 +292,7 @@ function compoundImage(c: CompoundData): Uint8Array {
     bytes.set(raw);
     const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     const u = (o: number, x: number) => v.setUint32(o, x, true);
-    v.setBigUint64(
-        0,
-        0x9e4b17d3a25c68f1n ^ 0xaaab9a00f1a8aaf7n ^ 0x6b1e39d4a87c25f3n,
-        true,
-    );
+    v.setBigUint64(0, 0x9e4b17d3a25c68f1n ^ 0xaaab9a00f1a8aaf7n ^ 0x6b1e39d4a87c25f3n, true);
     u(8, bytes.length);
     const nodes = c.tree.compoundNodes!;
     bytes.set(new Uint8Array(nodes.buffer, nodes.byteOffset, 24), 12);

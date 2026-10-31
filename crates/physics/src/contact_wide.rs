@@ -791,6 +791,11 @@ pub fn warm_start(
             angular_a = add_vw(angular_a, rolling);
             angular_b = add_vw(angular_b, rolling);
         }
+        // The common mesh/convex path accumulates each manifold into zero-initialized totals,
+        // including the single convex manifold. Keep the additions for signed-zero parity.
+        let linear_impulse = add_vw(Vec3W::splat0(), linear_impulse);
+        let angular_a = add_vw(Vec3W::splat0(), angular_a);
+        let angular_b = add_vw(Vec3W::splat0(), angular_b);
         ba_w = mul_sub_mvw(ba_w, ia, angular_a);
         ba_v = mul_sub_svw(ba_v, inv_ma, linear_impulse);
         bb_w = mul_add_mvw(bb_w, ib, angular_b);
@@ -1037,6 +1042,9 @@ pub fn restitution(
         let normal = ld_v3(wide, wo + NORMAL);
         let restitution_mask = rest.greater_than(zero);
         let dp = sub_vw(bb.dp, ba.dp);
+        let normal_separation = dot_w(normal, dp);
+        let normal_a = inv_rotate_vector_w(ba.dq, normal);
+        let normal_b = inv_rotate_vector_w(bb.dq, normal);
 
         for pi in 0..point_count {
             let pb = wo + POINTS + pi * POINT_STRIDE;
@@ -1056,11 +1064,9 @@ pub fn restitution(
 
             let ra = ld_v3(wide, pb + P_ANCHOR_A);
             let rb = ld_v3(wide, pb + P_ANCHOR_B);
-            let ds = add_vw(
-                dp,
-                sub_vw(rotate_vector_w(bb.dq, rb), rotate_vector_w(ba.dq, ra)),
-            );
-            let s = dot_w(normal, ds).add(ld(wide, pb + P_BASE_SEP));
+            let s = normal_separation
+                .add(dot_w(normal_b, rb).sub(dot_w(normal_a, ra)))
+                .add(ld(wide, pb + P_BASE_SEP));
             let spec_bias = zero.max(s.mul(inv_h));
             let bias = FloatW::blend(spec_bias, rest.mul(rel_vel), armed);
             let vra = add_vw(ba.v, cross_w(ba.w, ra));

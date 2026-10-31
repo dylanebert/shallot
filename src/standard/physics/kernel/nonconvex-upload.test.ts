@@ -151,7 +151,9 @@ test("compound uploads use Box3D header, tree, material and child-blob offsets",
         expect(u(2)).toBe(bytes.length);
         expect(u(10)).toBe(96);
         expect(u(11)).toBe(compound.tree.nodeCount);
-        expect(new Uint32Array(bytes.buffer, bytes.byteOffset + 12, 6)).toEqual(compound.tree.compoundNodes!.slice(0, 6));
+        expect(new Uint32Array(bytes.buffer, bytes.byteOffset + 12, 6)).toEqual(
+            compound.tree.compoundNodes!.slice(0, 6),
+        );
         expect(u(9)).toBe(compound.tree.compoundNodes![7]);
         expect(u(12)).toBe(96 + compound.tree.nodeCount * 32);
         expect(u(13)).toBe(compound.materialCount);

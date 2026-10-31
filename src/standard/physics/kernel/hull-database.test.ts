@@ -26,7 +26,7 @@ function compoundHullPointer(world: WorldState, shape: number): number {
     store.refreshViews();
     const pointer = store.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE];
     const view = new DataView(store.materialU.buffer);
-    const hullArray = view.getUint32(pointer + 84, true);
+    const hullArray = view.getUint32(pointer + 64, true);
     const hullImage = view.getUint32(pointer + hullArray + 28, true);
     return pointer + hullImage;
 }
