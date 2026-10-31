@@ -11,11 +11,10 @@ interface Kernel {
     freeLanes(ptr: number, count: number): void;
     assetNew(ptr: number, count: number): number;
     animationNew(ptr: number, count: number): number;
-    instanceNew(asset: number): number;
-    view(instance: number, field: number): number;
+    view(asset: number, field: number): number;
     destroy(handle: number, kind: number): void;
-    pose(asset: number, instance: number, animation: number, time: number): void;
-    evaluate(asset: number, instance: number, animation: number, time: number): void;
+    pose(asset: number, animation: number, time: number): void;
+    evaluate(asset: number, animation: number, time: number): void;
 }
 let wasm: Kernel | undefined;
 function kernel(): Kernel {
@@ -63,17 +62,15 @@ function uploadAnimation(animation: GltfAnimation): number {
 interface Asset {
     ptr: number;
     animations: Map<GltfAnimation, number>;
-    instances: number[];
+    scratch: Scratch;
 }
 const assets = new WeakMap<Gltf, Asset>();
-const instances = new WeakMap<GltfSceneInstance, Scratch>();
+const globalCopies = new WeakMap<GltfSceneInstance, Float32Array>();
 interface Scratch {
-    ptr: number;
     poses: Float64Array;
     globals: Float32Array;
     input: Uint32Array;
     output: Float32Array;
-    globalCopy: Float32Array;
     weights: Float32Array[];
     palettes: Float32Array[];
     bounds: Float32Array[];
@@ -93,28 +90,11 @@ export function registerGltfKernel(gltf: Gltf): void {
         array(data, primitive.morphReach ?? []);
         array(data, gltf.world.resource(Meshes).get(primitive.mesh)!.bounds ?? [0, 0, 0, 0]);
     }
-    const asset: Asset = { ptr: upload(data, false), animations: new Map(), instances: [] };
-    assets.set(gltf, asset);
-    gltf.world.onDispose(() => {
-        const k = kernel();
-        for (const ptr of asset.instances) k.destroy(ptr, 2);
-        for (const ptr of asset.animations.values()) k.destroy(ptr, 1);
-        k.destroy(asset.ptr, 0);
-        assets.delete(gltf);
-    });
-}
-function scratch(instance: GltfSceneInstance): Scratch {
-    let s = instances.get(instance);
-    if (!s) {
-        const asset = assets.get(instance.gltf)!;
-        const ptr = kernel().instanceNew(asset.ptr);
-        asset.instances.push(ptr);
-        const globalCopy = new Float32Array(instance.gltf.nodes.length * 16);
-        for (let i = 0; i < instance.globals.length; i++)
-            instance.globals[i] = globalCopy.subarray(i * 16, i * 16 + 16);
-        s = {
-            ptr,
-            globalCopy,
+    const ptr = upload(data, false);
+    const asset: Asset = {
+        ptr,
+        animations: new Map(),
+        scratch: {
             poses: new Float64Array(),
             globals: new Float32Array(),
             input: new Uint32Array(),
@@ -122,11 +102,21 @@ function scratch(instance: GltfSceneInstance): Scratch {
             weights: [],
             palettes: [],
             bounds: [],
-        };
-        instances.set(instance, s);
-    }
-    refresh(instance.gltf, s);
-    return s;
+        },
+    };
+    assets.set(gltf, asset);
+    gltf.world.onDispose(() => {
+        const k = kernel();
+        for (const ptr of asset.animations.values()) k.destroy(ptr, 1);
+        k.destroy(asset.ptr, 0);
+        assets.delete(gltf);
+    });
+}
+export function initializeGltfGlobals(instance: GltfSceneInstance): void {
+    const globals = new Float32Array(instance.gltf.nodes.length * 16);
+    for (let i = 0; i < instance.globals.length; i++)
+        instance.globals[i] = globals.subarray(i * 16, i * 16 + 16);
+    globalCopies.set(instance, globals);
 }
 function refresh(gltf: Gltf, s: Scratch): void {
     const k = kernel();
@@ -134,6 +124,7 @@ function refresh(gltf: Gltf, s: Scratch): void {
 }
 function rebuildViews(gltf: Gltf, s: Scratch): void {
     const k = kernel();
+    const ptr = assets.get(gltf)!.ptr;
     const poseCount = gltf.nodes.reduce((n, node) => n + 10 + node.weights.length, 0);
     const outputCount = gltf.primitives.reduce(
         (n, p) =>
@@ -143,10 +134,10 @@ function rebuildViews(gltf: Gltf, s: Scratch): void {
             (p.skin < 0 ? 0 : gltf.skins[p.skin].joints.length * 16),
         0,
     );
-    s.poses = new Float64Array(k.memory.buffer, k.view(s.ptr, 0), poseCount);
-    s.globals = new Float32Array(k.memory.buffer, k.view(s.ptr, 1), gltf.nodes.length * 16);
-    s.input = new Uint32Array(k.memory.buffer, k.view(s.ptr, 2), gltf.primitives.length * 2);
-    s.output = new Float32Array(k.memory.buffer, k.view(s.ptr, 3), outputCount);
+    s.poses = new Float64Array(k.memory.buffer, k.view(ptr, 0), poseCount);
+    s.globals = new Float32Array(k.memory.buffer, k.view(ptr, 1), gltf.nodes.length * 16);
+    s.input = new Uint32Array(k.memory.buffer, k.view(ptr, 2), gltf.primitives.length * 2);
+    s.output = new Float32Array(k.memory.buffer, k.view(ptr, 3), outputCount);
     let offset = 0;
     for (let i = 0; i < gltf.primitives.length; i++) {
         const p = gltf.primitives[i];
@@ -183,20 +174,21 @@ export function poseKernel(
             asset.animations.set(animation, clip);
         }
     }
-    const s = scratch(instance);
+    const s = asset.scratch;
+    refresh(instance.gltf, s);
     const morph = world.storage(MorphedMesh);
     for (let i = 0; i < instance.entities.length; i++) {
         const eid = instance.entities[i];
         s.input[i * 2] = world.has(eid, SkinnedMesh) ? 1 : 0;
         s.input[i * 2 + 1] = world.has(eid, MorphedMesh) ? morph.weightCount.get(eid) + 1 : 0;
     }
-    kernel().pose(asset.ptr, s.ptr, clip, time);
+    kernel().pose(asset.ptr, clip, time);
     refresh(instance.gltf, s);
-    s.globalCopy.set(s.globals);
+    globalCopies.get(instance)!.set(s.globals);
     copyPoses(s.poses, instance.poses);
 }
 export function writeKernelPose(world: World, instance: GltfSceneInstance, i: number): void {
-    const s = instances.get(instance)!;
+    const s = assets.get(instance.gltf)!.scratch;
     const p = instance.gltf.primitives[i];
     const eid = instance.entities[i];
     if (p.morphReach && world.has(eid, MorphedMesh)) {
@@ -229,21 +221,18 @@ export function evaluateKernel(
     const k = kernel();
     const asset = upload(data, false);
     let clip = 0;
-    let instance = 0;
     try {
         clip = uploadAnimation(animation);
-        instance = k.instanceNew(asset);
-        k.evaluate(asset, instance, clip, time);
+        k.evaluate(asset, clip, time);
         copyPoses(
             new Float64Array(
                 k.memory.buffer,
-                k.view(instance, 0),
+                k.view(asset, 0),
                 nodes.reduce((n, node) => n + 10 + node.weights.length, 0),
             ),
             poses,
         );
     } finally {
-        if (instance) k.destroy(instance, 2);
         if (clip) k.destroy(clip, 1);
         k.destroy(asset, 0);
     }

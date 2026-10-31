@@ -87,7 +87,7 @@ fn globals_compose_parent_first_at_f32_boundaries() {
         skins: vec![],
         primitives: vec![],
     };
-    let mut i = Instance {
+    let mut i = Scratch {
         poses: a.nodes.iter().flat_map(|n| n.pose.clone()).collect(),
         globals: vec![0.; 32],
         input: vec![],
@@ -142,22 +142,14 @@ fn present_zero_weight_count_resets_unskinned_cull_bounds() {
             bounds: vec![1., 2., 3., 4.],
         }],
     };
-    let mut i = Instance {
-        poses: vec![0.; 11],
-        globals: vec![0.; 16],
-        input: vec![0, 1],
-        output: vec![99.; 5],
-    };
+    let mut h = Handle::new(a);
+    h.scratch.input[1] = 1;
+    h.scratch.output.fill(99.);
     // The second input lane is zero for no MorphedMesh, otherwise weightCount + 1.
     unsafe {
-        pose(
-            (&a as *const Asset).cast(),
-            (&mut i as *mut Instance).cast(),
-            std::ptr::null(),
-            0.,
-        );
+        pose((&mut h as *mut Handle).cast(), std::ptr::null(), 0.);
     }
-    assert_eq!(&i.output[..4], &[1., 2., 3., 4.]);
+    assert_eq!(&h.scratch.output[..4], &[1., 2., 3., 4.]);
 }
 
 #[test]
@@ -168,19 +160,37 @@ fn standalone_evaluation_does_not_require_parent_first_nodes() {
         primitives: vec![],
     };
     let clip = animation(1, 0, vec![0., 2., 4., 4., 6., 8.]);
-    let mut i = Instance {
-        poses: vec![0.; 22],
-        globals: vec![],
-        input: vec![],
-        output: vec![],
-    };
+    let mut h = Handle::new(a);
     unsafe {
         evaluate_only(
-            (&a as *const Asset).cast(),
-            (&mut i as *mut Instance).cast(),
+            (&mut h as *mut Handle).cast(),
             (&clip as *const Animation).cast(),
             2.,
         );
     }
-    assert_eq!(&i.poses[..3], &[2., 4., 6.]);
+    assert_eq!(&h.scratch.poses[..3], &[2., 4., 6.]);
+}
+
+#[test]
+fn asset_reuses_scratch_across_poses() {
+    let mut h = Handle::new(Asset {
+        nodes: vec![node(4, -1, 0.)],
+        skins: vec![],
+        primitives: vec![],
+    });
+    let clip = animation(1, 0, vec![0., 2., 4., 4., 6., 8.]);
+    let poses = h.scratch.poses.as_ptr();
+    let globals = h.scratch.globals.as_ptr();
+    for time in [1., 2., 3., 1.] {
+        unsafe {
+            pose(
+                (&mut h as *mut Handle).cast(),
+                (&clip as *const Animation).cast(),
+                time,
+            );
+        }
+        assert_eq!(h.scratch.poses.as_ptr(), poses);
+        assert_eq!(h.scratch.globals.as_ptr(), globals);
+        assert_eq!(h.scratch.globals[12], ((time - 1.) * 2.) as f32);
+    }
 }

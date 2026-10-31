@@ -12,7 +12,7 @@ import {
 } from "../../standard/rendering";
 import type { GltfAnimation, GltfNode, GltfNodePose } from "./animation";
 import type { GltfSkeleton, GltfSkin } from "./gltf";
-import { poseKernel, registerGltfKernel, writeKernelPose } from "./kernel";
+import { initializeGltfGlobals, poseKernel, registerGltfKernel, writeKernelPose } from "./kernel";
 import { loadGltf } from "./load";
 import {
     MorphedMesh,
@@ -373,13 +373,14 @@ export function spawnGltfScene(
             scale: [...scale],
             weights: [...weights],
         })),
-        globals: gltf.nodes.map(() => new Float32Array(16)),
+        globals: new Array<Float32Array>(gltf.nodes.length),
         transforms: transforms.map(
             (t) => new Float32Array([...t.translation, ...t.rotation, ...t.scale]),
         ),
         composed: new Float32Array(16),
         recomposed: new Float32Array(16),
     };
+    initializeGltfGlobals(instance);
     poseKernel(world, instance);
     for (let i = 0; i < gltf.primitives.length; i++) writeKernelPose(world, instance, i);
     return instance;

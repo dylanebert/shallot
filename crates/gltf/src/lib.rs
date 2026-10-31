@@ -39,11 +39,26 @@ struct Animation {
     samplers: Vec<Sampler>,
     channels: Vec<Channel>,
 }
-struct Instance {
+struct Scratch {
     poses: Vec<f64>,
     globals: Vec<f32>,
     input: Vec<u32>,
     output: Vec<f32>,
+}
+struct Handle {
+    asset: Asset,
+    scratch: Scratch,
+}
+impl Handle {
+    fn new(asset: Asset) -> Self {
+        let scratch = Scratch {
+            poses: vec![0.; asset.nodes.iter().map(|n| n.pose.len()).sum()],
+            globals: vec![0.; asset.nodes.len() * 16],
+            input: vec![0; asset.primitives.len() * 2],
+            output: vec![0.; output_len(&asset)],
+        };
+        Self { asset, scratch }
+    }
 }
 struct Reader<'a> {
     data: &'a [f64],
@@ -114,11 +129,11 @@ pub unsafe extern "C" fn asset_new(ptr: *const f64, count: usize) -> *mut std::f
             }
         })
         .collect();
-    Box::into_raw(Box::new(Asset {
+    Box::into_raw(Box::new(Handle::new(Asset {
         nodes,
         skins,
         primitives,
-    }))
+    })))
     .cast()
 }
 /// # Safety
@@ -159,26 +174,13 @@ fn output_len(a: &Asset) -> usize {
         .sum()
 }
 /// # Safety
-/// `asset` is a live asset handle.
-#[export_name = "instanceNew"]
-pub unsafe extern "C" fn instance_new(asset: *const std::ffi::c_void) -> *mut std::ffi::c_void {
-    let a = &*asset.cast::<Asset>();
-    Box::into_raw(Box::new(Instance {
-        poses: vec![0.; a.nodes.iter().map(|n| n.pose.len()).sum()],
-        globals: vec![0.; a.nodes.len() * 16],
-        input: vec![0; a.primitives.len() * 2],
-        output: vec![0.; output_len(a)],
-    }))
-    .cast()
-}
-/// # Safety
-/// `handle` is a live instance handle; field is 0 (poses), 1 (globals), 2 (inputs), or 3 (outputs).
+/// `handle` is a live asset handle; field is 0 (poses), 1 (globals), 2 (inputs), or 3 (outputs).
 #[no_mangle]
 pub unsafe extern "C" fn view(
     handle: *mut std::ffi::c_void,
     field: usize,
 ) -> *mut std::ffi::c_void {
-    let i = &mut *handle.cast::<Instance>();
+    let i = &mut (*handle.cast::<Handle>()).scratch;
     match field {
         0 => i.poses.as_mut_ptr().cast(),
         1 => i.globals.as_mut_ptr().cast(),
@@ -187,13 +189,13 @@ pub unsafe extern "C" fn view(
     }
 }
 /// # Safety
-/// Handle is live and matches kind: 0 asset, 1 animation, 2 instance. It must not be reused.
+/// Handle is live and matches kind: 0 asset (including scratch), 1 animation. It must not be reused.
 #[no_mangle]
 pub unsafe extern "C" fn destroy(handle: *mut std::ffi::c_void, kind: usize) {
     match kind {
-        0 => drop(Box::from_raw(handle.cast::<Asset>())),
+        0 => drop(Box::from_raw(handle.cast::<Handle>())),
         1 => drop(Box::from_raw(handle.cast::<Animation>())),
-        _ => drop(Box::from_raw(handle.cast::<Instance>())),
+        _ => unreachable!(),
     }
 }
 
@@ -306,13 +308,13 @@ fn js_min(a: f64, b: f64) -> f64 {
 /// Handles are live, belong to this asset, and do not alias.
 #[export_name = "evaluate"]
 pub unsafe extern "C" fn evaluate_only(
-    asset: *const std::ffi::c_void,
-    instance: *mut std::ffi::c_void,
+    asset: *mut std::ffi::c_void,
     animation: *const std::ffi::c_void,
     time: f64,
 ) {
-    let a = &*asset.cast::<Asset>();
-    let i = &mut *instance.cast::<Instance>();
+    let h = &mut *asset.cast::<Handle>();
+    let a = &h.asset;
+    let i = &mut h.scratch;
     evaluate(
         &a.nodes,
         animation.cast::<Animation>().as_ref(),
@@ -366,7 +368,7 @@ fn multiply(a: &[f32], b: &[f32], out: &mut [f32]) {
         }
     }
 }
-fn compose_globals(a: &Asset, i: &mut Instance) {
+fn compose_globals(a: &Asset, i: &mut Scratch) {
     let mut start = 0;
     for (n, node) in a.nodes.iter().enumerate() {
         let local = compose(&i.poses[start..]);
@@ -442,13 +444,13 @@ fn write_skin_pose(
 /// Handles are live, belong to this asset, and do not alias. Null animation selects rest pose.
 #[no_mangle]
 pub unsafe extern "C" fn pose(
-    asset: *const std::ffi::c_void,
-    instance: *mut std::ffi::c_void,
+    asset: *mut std::ffi::c_void,
     animation: *const std::ffi::c_void,
     time: f64,
 ) {
-    let a = &*asset.cast::<Asset>();
-    let i = &mut *instance.cast::<Instance>();
+    let h = &mut *asset.cast::<Handle>();
+    let a = &h.asset;
+    let i = &mut h.scratch;
     evaluate(
         &a.nodes,
         animation.cast::<Animation>().as_ref(),
