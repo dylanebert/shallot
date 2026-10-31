@@ -174,6 +174,8 @@ pub unsafe extern "C" fn finalize_in_world(
 
 #[export_name = "stepSolveBuild"]
 pub unsafe extern "C" fn solve_build(
+    restitution_iterations: usize,
+    restitution_propagation: bool,
     threads: usize,
     substeps: usize,
     gx: f32,
@@ -189,6 +191,8 @@ pub unsafe extern "C" fn solve_build(
     unsafe {
         solve_build_in_world(
             crate::regions::active(),
+            restitution_iterations,
+            restitution_propagation,
             threads,
             substeps,
             gx,
@@ -206,6 +210,8 @@ pub unsafe extern "C" fn solve_build(
 
 pub unsafe extern "C" fn solve_build_in_world(
     world_index: usize,
+    restitution_iterations: usize,
+    restitution_propagation: bool,
     threads: usize,
     substeps: usize,
     gx: f32,
@@ -245,6 +251,8 @@ pub unsafe extern "C" fn solve_build_in_world(
         restitution,
         hit,
         continuous as u32,
+        restitution_iterations,
+        restitution_propagation,
     );
 }
 
@@ -327,6 +335,8 @@ pub unsafe extern "C" fn profile_ptr(world: usize) -> *const f32 {
     (&raw const PROFILE).cast::<Profile>().add(world).cast()
 }
 struct Driver {
+    restitution_iterations: usize,
+    restitution_propagation: bool,
     phase: u32,
     threads: usize,
     substeps: usize,
@@ -355,6 +365,8 @@ pub unsafe extern "C" fn pairs_begin(world: usize, threads: usize) {
     PAIRS_ONLY = true;
 }
 static mut DRIVER: Driver = Driver {
+    restitution_iterations: 2,
+    restitution_propagation: false,
     phase: 0,
     threads: 1,
     substeps: 1,
@@ -376,6 +388,8 @@ static mut DRIVER: Driver = Driver {
 #[export_name = "stepBegin"]
 pub unsafe extern "C" fn begin(
     world: usize,
+    restitution_iterations: usize,
+    restitution_propagation: bool,
     dt: f32,
     substeps: i32,
     threads: usize,
@@ -398,6 +412,8 @@ pub unsafe extern "C" fn begin(
     unsafe {
         begin_in_world(
             world,
+            restitution_iterations,
+            restitution_propagation,
             dt,
             substeps,
             threads,
@@ -421,6 +437,8 @@ pub unsafe extern "C" fn begin(
 
 pub unsafe extern "C" fn begin_in_world(
     world: usize,
+    restitution_iterations: usize,
+    restitution_propagation: bool,
     dt: f32,
     substeps: i32,
     threads: usize,
@@ -457,6 +475,8 @@ pub unsafe extern "C" fn begin_in_world(
     );
     events::begin_step(world);
     DRIVER = Driver {
+        restitution_iterations,
+        restitution_propagation,
         phase: 1,
         threads,
         substeps: substeps.max(1),
@@ -711,6 +731,8 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                 let start = ticks();
                 solve_build_in_world(
                     world_index,
+                    DRIVER.restitution_iterations,
+                    DRIVER.restitution_propagation,
                     DRIVER.threads,
                     DRIVER.substeps,
                     DRIVER.gravity[0],

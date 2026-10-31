@@ -118,6 +118,10 @@ export type MixCallback = (
 export type WorldDef = {
     gravity: Vec3;
     restitutionThreshold: number;
+    /** Restitution passes, clamped to an integer in [0, 63]; defaults to two. */
+    restitutionIterations: number;
+    /** Allow restitution impulses through non-bouncy contacts; defaults to false. */
+    enableRestitutionPropagation: boolean;
     hitEventThreshold: number;
     contactHertz: number;
     contactDampingRatio: number;
@@ -137,6 +141,8 @@ export function defaultWorldDef(): WorldDef {
     return {
         gravity: { x: 0, y: f32(-10.0), z: 0 },
         restitutionThreshold: f32(1.0 * lu),
+        restitutionIterations: 2,
+        enableRestitutionPropagation: false,
         hitEventThreshold: f32(1.0 * lu),
         contactHertz: f32(30.0),
         contactDampingRatio: f32(10.0),

@@ -97,6 +97,8 @@ export type WorldState = {
     gravity: Vec3;
     hitEventThreshold: number;
     restitutionThreshold: number;
+    restitutionIterations: number;
+    enableRestitutionPropagation: boolean;
     maxLinearSpeed: number;
     contactSpeed: number;
     contactHertz: number;
@@ -190,6 +192,8 @@ function makeWorldState(
         gravity: { ...def.gravity },
         hitEventThreshold: def.hitEventThreshold,
         restitutionThreshold: def.restitutionThreshold,
+        restitutionIterations: clamp(def.restitutionIterations | 0, 0, 63),
+        enableRestitutionPropagation: def.enableRestitutionPropagation,
         maxLinearSpeed: def.maximumLinearSpeed,
         contactSpeed: def.contactSpeed,
         contactHertz: def.contactHertz,
@@ -295,6 +299,24 @@ export function worldSetHitEventThreshold(world: WorldState, value: number): voi
 export function worldSetRestitutionThreshold(world: WorldState, value: number): void {
     if (!world.inUse || world.locked) return;
     world.restitutionThreshold = clamp(f32(value), 0, Infinity);
+}
+
+export function worldSetRestitutionIterations(world: WorldState, iterations: number): void {
+    if (!world.inUse || world.locked) return;
+    world.restitutionIterations = clamp(iterations | 0, 0, 63);
+}
+
+export function worldGetRestitutionIterations(world: WorldState): number {
+    return world.restitutionIterations;
+}
+
+export function worldEnableRestitutionPropagation(world: WorldState, enabled: boolean): void {
+    if (!world.inUse || world.locked) return;
+    world.enableRestitutionPropagation = enabled;
+}
+
+export function worldIsRestitutionPropagationEnabled(world: WorldState): boolean {
+    return world.enableRestitutionPropagation;
 }
 
 export function worldSetContactTuning(

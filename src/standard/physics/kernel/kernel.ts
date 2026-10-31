@@ -581,6 +581,8 @@ export type Kernel = {
     collideListPtr(): number;
     stepBegin(
         world: number,
+        restitutionIterations: number,
+        restitutionPropagation: boolean,
         dt: number,
         substeps: number,
         threads: number,
@@ -607,6 +609,8 @@ export type Kernel = {
     bodySyncCount(): number;
     stepContext(dt: number, substeps: number, hertz: number, damping: number): number;
     stepSolveBuild(
+        restitutionIterations: number,
+        restitutionPropagation: boolean,
         threads: number,
         substeps: number,
         gx: number,

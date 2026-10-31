@@ -458,6 +458,9 @@ impl<'a> Work<'a> {
 }
 
 impl StageWork for Work<'_> {
+    fn has_restitution(&self) -> bool {
+        true
+    }
     fn prepare_wide(&self, b: Block) {
         self.tick();
         contact_wide::prepare(
@@ -659,6 +662,7 @@ fn plan<'a>(s: &'a Scene, worker_count: usize) -> Plan<'a> {
         joint_total: 0,
         colors: &s.spans,
         sub_step_count: SUB_STEPS,
+        restitution_iterations: 2,
         worker_count,
     }
 }

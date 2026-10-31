@@ -169,6 +169,7 @@ pub struct Plan<'a> {
     pub joint_total: usize,
     pub colors: &'a [ColorSpan],
     pub sub_step_count: usize,
+    pub restitution_iterations: usize,
     pub worker_count: usize,
 }
 
@@ -181,6 +182,7 @@ pub trait StageWork: Sync {
         0.0
     }
     fn profile(&self, _field: usize, _start: f64) {}
+    fn has_restitution(&self) -> bool;
     fn prepare_wide(&self, block: Block);
     fn prepare_mesh(&self, block: Block);
     fn integrate_velocities(&self, block: Block);
@@ -344,6 +346,7 @@ pub struct Context<'a> {
     blocks: core::marker::PhantomData<&'a [SyncBlock]>,
     colors: &'a [ColorSpan],
     sub_step_count: usize,
+    restitution_iterations: usize,
     worker_count: usize,
     /// `(syncIndex << 16) | stageIndex`; `u32::MAX` is the finish sentinel.
     /// Keep the frequently read sync bits off the line containing the orchestrator claim.
@@ -615,6 +618,7 @@ pub fn build<'a>(
         blocks: core::marker::PhantomData,
         colors: plan.colors,
         sub_step_count: plan.sub_step_count,
+        restitution_iterations: plan.restitution_iterations,
         worker_count: plan.worker_count,
         sync_bits: Line(AtomicU32::new(0)),
         main_claimed: AtomicU32::new(0),
@@ -878,13 +882,15 @@ fn walk<W: StageWork>(ctx: &Context, work: &W) -> Option<()> {
     stage_index += 2 + colors * (1 + ITERATIONS + RELAX_ITERATIONS);
 
     let start = work.ticks();
-    for _ in 0..2 {
-        work.restitution_overflow();
-        for color in 0..colors {
-            let i = stage_index + color;
-            execute_main_stage(ctx, work, i, sync_bits(graph_sync, i))?;
+    if work.has_restitution() {
+        for _ in 0..ctx.restitution_iterations {
+            work.restitution_overflow();
+            for color in 0..colors {
+                let i = stage_index + color;
+                execute_main_stage(ctx, work, i, sync_bits(graph_sync, i))?;
+            }
+            graph_sync += 1;
         }
-        graph_sync += 1;
     }
     stage_index += colors;
 

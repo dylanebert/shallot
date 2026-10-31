@@ -16,6 +16,8 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
         const k = kernel(world.ecsState);
         k.stepBegin(
             world.worldId,
+            world.restitutionIterations,
+            world.enableRestitutionPropagation,
             timeStep,
             subStepCount,
             threads(world.ecsState),

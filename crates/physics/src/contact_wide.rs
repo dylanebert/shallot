@@ -526,7 +526,8 @@ pub fn prepare(
     contact_softness: Softness,
     static_softness: Softness,
     warm_start_scale: f32,
-) {
+) -> bool {
+    let mut any_restitution = false;
     for (r, span) in crate::contact_spans::wide_records(spans, start, count) {
         let wo = r * WIDE_STRIDE;
         let io = r * WIDE_STRIDE;
@@ -537,6 +538,7 @@ pub fn prepare(
         for lane in 0..lane_count {
             let d = read_dir(dir, unsafe { *span.contacts.add(local + lane) as usize });
             any_rolling |= d.rolling_resistance > 0.0;
+            any_restitution |= d.restitution > 0.0;
             sample_velocity |=
                 d.restitution > 0.0 || d.flags & mabi::contact_flags::SIM_ENABLE_HIT_EVENT != 0;
         }
@@ -721,6 +723,7 @@ pub fn prepare(
             }
         }
     }
+    any_restitution
 }
 
 /// Seed body velocities from the warm-start impulses (b3WarmStartContacts_Convex) for records

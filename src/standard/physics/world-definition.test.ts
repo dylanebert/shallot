@@ -5,6 +5,12 @@ import { createApp, type EntityRef, Time } from "../../engine";
 import { hashPhysics, PhysicsWorldDefinition, StandardPhysicsPlugin } from ".";
 import { threads } from "./kernel/kernel";
 import { physicsState } from "./runtime";
+import {
+    worldEnableRestitutionPropagation,
+    worldGetRestitutionIterations,
+    worldIsRestitutionPropagationEnabled,
+    worldSetRestitutionIterations,
+} from "./world/world";
 
 test("workerCount selects a single-thread solver at build", async () => {
     const app = await createApp({
@@ -50,6 +56,8 @@ test("world settings apply at the next fixed sync", async () => {
         const definition = world.resource(PhysicsWorldDefinition);
         definition.gravity = { x: 0, y: -3, z: 0 };
         definition.restitutionThreshold = 0.25;
+        definition.restitutionIterations = 5;
+        definition.enableRestitutionPropagation = true;
         definition.hitEventThreshold = 2;
         definition.contactHertz = 20;
         definition.contactDampingRatio = 3;
@@ -66,6 +74,8 @@ test("world settings apply at the next fixed sync", async () => {
         const state = physicsState(world)!;
         expect(state.gravity.y).toBe(-3);
         expect(state.restitutionThreshold).toBe(0.25);
+        expect(worldGetRestitutionIterations(state)).toBe(5);
+        expect(worldIsRestitutionPropagationEnabled(state)).toBe(true);
         expect(state.hitEventThreshold).toBe(2);
         expect(state.contactHertz).toBe(20);
         expect(state.contactDampingRatio).toBe(3);
@@ -80,6 +90,39 @@ test("world settings apply at the next fixed sync", async () => {
     } finally {
         app.dispose();
     }
+});
+
+test("restitution controls default, clamp and ignore locked or destroyed worlds", async () => {
+    const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
+    const definition = app.world.resource(PhysicsWorldDefinition);
+    expect(definition.restitutionIterations).toBe(2);
+    expect(definition.enableRestitutionPropagation).toBe(false);
+    app.world.tick();
+    const state = physicsState(app.world)!;
+    try {
+        expect(worldGetRestitutionIterations(state)).toBe(2);
+        expect(worldIsRestitutionPropagationEnabled(state)).toBe(false);
+        worldSetRestitutionIterations(state, -1);
+        expect(worldGetRestitutionIterations(state)).toBe(0);
+        worldSetRestitutionIterations(state, 100);
+        expect(worldGetRestitutionIterations(state)).toBe(63);
+        worldSetRestitutionIterations(state, 3.9);
+        expect(worldGetRestitutionIterations(state)).toBe(3);
+        worldEnableRestitutionPropagation(state, true);
+        expect(worldIsRestitutionPropagationEnabled(state)).toBe(true);
+        state.locked = true;
+        worldSetRestitutionIterations(state, 0);
+        worldEnableRestitutionPropagation(state, false);
+        expect(worldGetRestitutionIterations(state)).toBe(3);
+        expect(worldIsRestitutionPropagationEnabled(state)).toBe(true);
+    } finally {
+        state.locked = false;
+        app.dispose();
+    }
+    worldSetRestitutionIterations(state, 0);
+    worldEnableRestitutionPropagation(state, false);
+    expect(state.restitutionIterations).toBe(3);
+    expect(state.enableRestitutionPropagation).toBe(true);
 });
 
 test("world callbacks receive the owning World and its ECS Shape EntityRefs", async () => {

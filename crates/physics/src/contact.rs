@@ -132,7 +132,8 @@ pub fn prepare(
     contact_softness: Softness,
     static_softness: Softness,
     warm_start_scale: f32,
-) {
+) -> bool {
+    let mut any_restitution = false;
     unsafe {
         for (c, spec) in crate::contact_spans::contact_specs(cols.spans, start, count) {
             let contact_id = spec.contact_id as usize;
@@ -145,6 +146,7 @@ pub fn prepare(
                 .cast();
 
             let d = read_dir(cols.dir, contact_id);
+            any_restitution |= d.restitution > 0.0;
             let index_a = d.index_a;
             let index_b = d.index_b;
             let manifold_count = spec.manifold_count as usize;
@@ -298,6 +300,7 @@ pub fn prepare(
             }
         }
     }
+    any_restitution
 }
 
 /// Seed body velocities from the prior step's impulses (b3WarmStartContacts_Mesh). Reads the

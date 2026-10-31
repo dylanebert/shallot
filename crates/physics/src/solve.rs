@@ -10,6 +10,7 @@ use crate::integrate;
 use crate::math::Vec3;
 use crate::parfor::{ParFor, COLLIDE_MIN_RANGE};
 use crate::scheduler::Scheduler;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 pub(crate) static SCHEDULER: Scheduler = Scheduler::new();
 use crate::stages::{
@@ -74,6 +75,8 @@ struct Work {
     contact_speed: f32,
     max_linear_velocity: f32,
     restitution_threshold: f32,
+    restitution_propagation: bool,
+    any_restitution: AtomicBool,
     hit_threshold: f32,
     /// The world's continuous toggle, for the fused finalize's fast-candidate predicate.
     enable_continuous: bool,
@@ -88,8 +91,12 @@ impl StageWork for Work {
             crate::physics_world::accumulate(self.world, field, start);
         }
     }
+    fn has_restitution(&self) -> bool {
+        self.any_restitution.load(Ordering::Relaxed)
+    }
+
     fn prepare_wide(&self, b: Block) {
-        contact_wide::prepare(
+        let any = contact_wide::prepare(
             self.wide,
             self.wide_idx,
             self.wide_spans,
@@ -103,10 +110,13 @@ impl StageWork for Work {
             self.static_softness,
             self.warm_start_scale,
         );
+        if any {
+            self.any_restitution.store(true, Ordering::Relaxed);
+        }
     }
 
     fn prepare_mesh(&self, b: Block) {
-        contact::prepare(
+        let any = contact::prepare(
             &self.cols,
             b.start,
             b.count,
@@ -114,6 +124,9 @@ impl StageWork for Work {
             self.static_softness,
             self.warm_start_scale,
         );
+        if any {
+            self.any_restitution.store(true, Ordering::Relaxed);
+        }
     }
 
     fn integrate_velocities(&self, b: Block) {
@@ -189,7 +202,7 @@ impl StageWork for Work {
             b.count,
             self.restitution_threshold,
             self.inv_h,
-            false,
+            self.restitution_propagation,
         );
     }
 
@@ -200,7 +213,7 @@ impl StageWork for Work {
             b.count,
             self.restitution_threshold,
             self.inv_h,
-            false,
+            self.restitution_propagation,
         );
     }
 
@@ -253,7 +266,7 @@ impl StageWork for Work {
     }
 
     fn prepare_overflow(&self) {
-        contact::prepare(
+        let any = contact::prepare(
             &self.overflow_cols,
             0,
             self.overflow_count,
@@ -261,6 +274,9 @@ impl StageWork for Work {
             self.static_softness,
             self.warm_start_scale,
         );
+        if any {
+            self.any_restitution.store(true, Ordering::Relaxed);
+        }
     }
 
     fn warm_start_overflow(&self) {
@@ -285,7 +301,7 @@ impl StageWork for Work {
             self.overflow_count,
             self.restitution_threshold,
             self.inv_h,
-            false,
+            self.restitution_propagation,
         );
     }
 
@@ -445,6 +461,8 @@ pub extern "C" fn solve_build_in_world(
     restitution_threshold: f32,
     hit_event_threshold: f32,
     enable_continuous: u32,
+    restitution_iterations: usize,
+    restitution_propagation: bool,
 ) {
     assert!((1..=MAX_THREADS).contains(&thread_count));
     unsafe {
@@ -485,6 +503,7 @@ pub extern "C" fn solve_build_in_world(
             joint_total,
             colors: &out[..color_count],
             sub_step_count,
+            restitution_iterations,
             worker_count: thread_count,
         };
         let sizes = stages::sizes(&plan);
@@ -543,6 +562,8 @@ pub extern "C" fn solve_build_in_world(
             contact_speed,
             max_linear_velocity,
             restitution_threshold,
+            restitution_propagation,
+            any_restitution: AtomicBool::new(false),
             hit_threshold: hit_event_threshold,
             enable_continuous: enable_continuous != 0,
         });
@@ -555,6 +576,7 @@ pub extern "C" fn solve_build_in_world(
             joint_total,
             colors: &(&(*STEP).spans)[..color_count],
             sub_step_count,
+            restitution_iterations,
             worker_count: thread_count,
         };
         SOLVE_PAGES = core::arch::wasm32::memory_size::<0>();

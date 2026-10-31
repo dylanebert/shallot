@@ -157,11 +157,13 @@ import {
     createWorld,
     destroyWorld,
     getWorld,
+    worldEnableRestitutionPropagation,
     worldSetContactRecycleDistance,
     worldSetContactTuning,
     worldSetGravity,
     worldSetHitEventThreshold,
     worldSetMaximumLinearSpeed,
+    worldSetRestitutionIterations,
     worldSetRestitutionThreshold,
     worldStateIsValid,
 } from "./world/world";
@@ -1998,6 +2000,8 @@ function solverWorldDefinition(def: PhysicsWorldDefinitionConfig): Partial<World
     return {
         gravity: def.gravity,
         restitutionThreshold: def.restitutionThreshold,
+        restitutionIterations: def.restitutionIterations,
+        enableRestitutionPropagation: def.enableRestitutionPropagation,
         hitEventThreshold: def.hitEventThreshold,
         contactHertz: def.contactHertz,
         contactDampingRatio: def.contactDampingRatio,
@@ -2021,6 +2025,10 @@ function syncWorldDefinition(state: WorldState, definition: PhysicsWorldDefiniti
     const restitutionThreshold = clamp(f32(definition.restitutionThreshold), 0, Infinity);
     if (state.restitutionThreshold !== restitutionThreshold)
         worldSetRestitutionThreshold(state, definition.restitutionThreshold);
+    if (state.restitutionIterations !== clamp(definition.restitutionIterations | 0, 0, 63))
+        worldSetRestitutionIterations(state, definition.restitutionIterations);
+    if (state.enableRestitutionPropagation !== definition.enableRestitutionPropagation)
+        worldEnableRestitutionPropagation(state, definition.enableRestitutionPropagation);
     const hitEventThreshold = clamp(f32(definition.hitEventThreshold), 0, Infinity);
     if (state.hitEventThreshold !== hitEventThreshold)
         worldSetHitEventThreshold(state, definition.hitEventThreshold);

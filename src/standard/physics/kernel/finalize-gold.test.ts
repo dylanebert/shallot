@@ -51,7 +51,7 @@ function fixture(count: number, dt: number, continuous: boolean, invDt = 1 / dt)
     // The frozen phase inputs supply dt and invDt independently.
     const context = new Float32Array(k.memory.buffer, k.stepContext(dt, 1, 0, 0), 10);
     context[1] = invDt;
-    k.stepSolveBuild(1, 1, 0, 0, 0, 1000, 0, false, 0, 0, continuous);
+    k.stepSolveBuild(2, false, 1, 1, 0, 0, 0, 1000, 0, false, 0, 0, continuous);
     world.bodyStore.refreshViews();
     return { world, k, store: world.bodyStore };
 }
