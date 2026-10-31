@@ -1,5 +1,6 @@
 // Manual oracle for Shallot following native Box3D on the smallest rain and junkyard scenes that once
-// diverged (strategy unit box3d-parity). Run by path, with BOX3D at the revision native.ts pins:
+// diverged (strategy unit box3d-parity). Run by path, with BOX3D at the revision
+// src/standard/physics/oracle/pin.ts pins:
 //
 //     BOX3D=/path/to/box3d bun test ./diagnostics/box3d-parity/divergence.oracle.ts
 //

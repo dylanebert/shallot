@@ -1,26 +1,12 @@
-// Builds C and C++ harnesses against BOX3D at the pinned revision. Libraries are cached by revision and
-// architecture; each harness binary is keyed by its contents. Existing scene oracles use the host architecture.
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+// Builds C and C++ harnesses against BOX3D at the revision src/standard/physics/oracle/pin.ts pins. Libraries
+// are cached by revision and architecture; each harness binary is keyed by its contents. Existing scene
+// oracles use the host architecture.
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { BOX3D_PIN } from "../../src/standard/physics/oracle/pin";
 
-/**
- * The Box3D revision every oracle, corpus lane and gold is held to, and its source tree. A stage moves the
- * pin here and replaces src/standard/physics/oracle/box3d/ with box3d-oracle's lanes generated at it.
- *
- * Authority: Box3D's CMake default build on x86_64, SSE2 at SIMD width 4, the path the kernel's wasm
- * simd128 follows (native-evidence.ts). box3d-oracle generates the lanes scalar (BOX3D_DISABLE_SIMD=ON) and
- * the scene oracles build the host default, NEON on arm64. At 47d7f7cc and every re-pin stage's revision
- * through 3362633, the scalar and default builds, arm64 and -arch x86_64, hash native.c's scenes equal, so
- * each measures the authority there; where builds differ, SSE2 decides. Under Rosetta, runtime dispatch
- * finds no AVX2 and keeps width 4; an AVX2 host would dispatch width 8, which no oracle here measures.
- */
-export const BOX3D_PIN = {
-    revision: "47d7f7cc7e091142c08d11dc7d2e493c5d34f536",
-    tree: "0a6472d03ff61c9af28216443fba341a21cbed96",
-} as const;
 const here = import.meta.dir;
-const corpus = resolve(here, "../../src/standard/physics/oracle/box3d");
 
 /** Run `cmd` from the repository root; its stdout, or a throw naming its stderr. */
 export function run(cmd: string[], env: Record<string, string> = {}): string {
@@ -84,7 +70,7 @@ export function nativeBinary(sourceName = "native.c", architecture?: "x86_64" | 
 
 let verified: string | undefined;
 
-/** BOX3D, once its source tree is the pinned tree and every corpus lane was generated at the pin. */
+/** BOX3D, once its source tree is the pinned tree. */
 function pinnedSource(): string {
     if (verified) return verified;
     const box3d = process.env.BOX3D;
@@ -93,13 +79,6 @@ function pinnedSource(): string {
     if (!box3d) throw new Error(`set BOX3D to a Box3D source tree at ${revision}: ${fetch}`);
     const actual = sourceTree(resolve(box3d));
     if (actual !== tree) throw new Error(`BOX3D's source tree is ${actual}, not ${revision}'s ${tree}: ${fetch}`);
-    for (const lane of readdirSync(corpus)) {
-        const { upstream } = JSON.parse(readFileSync(join(corpus, lane, "manifest.json"), "utf8")) as {
-            upstream: { sha: string; tree: string };
-        };
-        if (upstream.sha !== revision || upstream.tree !== tree)
-            throw new Error(`corpus lane ${lane} was generated at ${upstream.sha}, not the pinned ${revision}`);
-    }
     verified = box3d;
     return box3d;
 }
