@@ -382,7 +382,7 @@ test("manifold.rs:79-96; triangle_manifold.rs:348: local manifold returns triang
 for (const [operation, entry] of [
     [0, "math.rs:908-915 vs math_functions.h:290-302 normalize"],
     [1, "math.rs:75-113 vs math_functions.h:213-216 unwind remainder"],
-    [2, "wide.rs:13-17 vs simd.h:633-637 sym_clamp operand order"],
+    [2, "wide.rs sym_clamp vs native SIMD neg/max/min composition operand order"],
     [
         3,
         "distance.rs:745-750,777-783 early iterations; distance.rs:824-838 witness/normal/cache order",
@@ -440,7 +440,7 @@ test("unwind ordinary finite angles equal Box3D SSE2 bits", () => {
         ),
     );
 });
-test("symmetric clamp unequal nonzero finite operands equal Box3D SSE2 bits", () => {
+test("symmetric clamp unequal nonzero finite operands equal native SSE2 neg/max/min bits", () => {
     compare(
         results.filter((r) => r.operation === 2 && r.words.every((w) => (w & 0x7fffffff) !== 0)),
     );

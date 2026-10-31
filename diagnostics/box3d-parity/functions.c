@@ -56,7 +56,8 @@ int main(void) {
                 b3FloatW a = b3SetW(value(r[0]), value(r[1]), value(r[2]), value(r[3]));
                 b3FloatW b = b3SetW(value(r[4]), value(r[5]), value(r[6]), value(r[7]));
                 float out[4];
-                b3StoreW(out, b3SymClampW(a, b));
+                // The symmetric-clamp wrapper was removed at #202; observe its native SIMD primitives.
+                b3StoreW(out, b3MinW(b3MaxW(b3NegW(b), a), b));
                 for (int i = 0; i < 4; ++i) emit(out[i]);
                 break;
             }
