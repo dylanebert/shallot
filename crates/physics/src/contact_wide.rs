@@ -13,8 +13,8 @@ const MIN_FRICTION_WEIGHT: f32 = 1.0e-10;
 use crate::simd::FloatW;
 use crate::wide::{
     add_v2w, add_vw, cross_w, dot_w, inv_rotate_vector_w, mul_add_mvw, mul_add_svw, mul_mv2w,
-    mul_mvw, mul_sub_mvw, mul_sub_svw, mul_svw, rotate_vector_w, sub_vw, sym_clamp, QuatW,
-    SymMatrix2W, SymMatrix3W, Vec2W, Vec3W,
+    mul_mvw, mul_sub_mvw, mul_sub_svw, mul_svw, sub_vw, sym_clamp, QuatW, SymMatrix2W, SymMatrix3W,
+    Vec2W, Vec3W,
 };
 #[cfg(target_arch = "wasm32")]
 use core::arch::wasm32::*;

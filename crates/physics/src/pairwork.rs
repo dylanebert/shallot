@@ -33,6 +33,9 @@ static mut SCRATCH_BYTES: usize = 0;
 pub unsafe fn schedule_rebuild(world: usize) {
     for i in [1, 2] {
         broad::tree_mut(world, i).reserve_rebuild();
+        // The rebuild also refreshes the exported tree state. Reserve its mirror before
+        // enqueueing: a pending rebuild can execute while the scheduler joins solver tasks.
+        broad::sync_tree(world, i);
     }
     REBUILD_PENDING = true;
 }
