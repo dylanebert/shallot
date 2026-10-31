@@ -214,7 +214,7 @@ test("loaded primitive placement and material draw the same pixels as direct aut
 });
 test("a texture naming no sampler repeats outside [0, 1] like a directly registered image", async () => {
     const pixels = await Promise.all(
-        apps.slice(2).map(async (app, i) => {
+        apps.slice(2, 4).map(async (app, i) => {
             app.world.step(0);
             return (await captureTexture(app.world, cameras[i + 2])).rgba;
         }),
@@ -283,8 +283,8 @@ test("a foreign world refuses the handle", () => {
 
 // Constant-color mip levels isolate mip selection from filtering within a level.
 // The loaded sampler/settings stay intact; only Dawn's missing bitmap decode is replaced.
-test("LINEAR_MIPMAP_NEAREST steps between levels while unspecified minFilter blends", async () => {
-    const samples: number[][] = [];
+const mipApps: { app: App; target: number }[] = [];
+beforeAll(async () => {
     for (const minFilter of [9985, undefined]) {
         for (const lod of [0.25, 0.75]) {
             // Perspective at z=4, fov=60: 64 / (8*tan(30)) pixels per world unit.
@@ -343,7 +343,8 @@ test("LINEAR_MIPMAP_NEAREST steps between levels while unspecified minFilter ble
                 ],
             });
             const { device } = app.world.gpu;
-            try {
+            apps.push(app);
+            {
                 const texture = device.createTexture({
                     size: [8, 8, 1],
                     mipLevelCount: 4,
@@ -373,12 +374,18 @@ test("LINEAR_MIPMAP_NEAREST steps between levels while unspecified minFilter ble
                 app.world.resource(ImageBindings).images = texture;
                 app.world.step(0);
                 app.world.step(0);
-                const { rgba } = await captureTexture(app.world, target);
-                samples.push(Array.from(rgba.slice((32 * 64 + 32) * 4, (32 * 64 + 32) * 4 + 3)));
-            } finally {
-                app.dispose();
+                await captureTexture(app.world, target);
+                mipApps.push({ app, target });
             }
         }
+    }
+}, TIMEOUT.startup);
+test("LINEAR_MIPMAP_NEAREST steps between levels while unspecified minFilter blends", async () => {
+    const samples: number[][] = [];
+    for (const { app, target } of mipApps) {
+        app.world.step(0);
+        const { rgba } = await captureTexture(app.world, target);
+        samples.push(Array.from(rgba.slice((32 * 64 + 32) * 4, (32 * 64 + 32) * 4 + 3)));
     }
     expect(samples[0][0]).toBeGreaterThan(250);
     expect(samples[0][1]).toBeLessThan(5);
@@ -396,8 +403,8 @@ test("LINEAR_MIPMAP_NEAREST steps between levels while unspecified minFilter ble
 });
 
 // The synthetic plane has no textures: lighting isolates the back-face normal flip.
-test("loaded double-sided back faces draw and light like direct authoring; single-sided culls", async () => {
-    const samples: number[][] = [];
+const faceApps: { app: App; target: number; mode: string }[] = [];
+beforeAll(async () => {
     for (const mode of ["loaded", "direct", "single", "unflipped"] as const) {
         let target = 0;
         const app = await createApp({
@@ -445,16 +452,21 @@ test("loaded double-sided back faces draw and light like direct authoring; singl
                 },
             ],
         });
-        try {
-            app.world.step(0);
-            app.world.step(0);
-            const { rgba } = await captureTexture(app.world, target);
-            const center = Array.from(rgba.slice((32 * 64 + 32) * 4, (32 * 64 + 32) * 4 + 3));
-            samples.push(center);
-            if (mode === "single") expect(center).toEqual(Array.from(rgba.slice(0, 3)));
-        } finally {
-            app.dispose();
-        }
+        apps.push(app);
+        app.world.step(0);
+        app.world.step(0);
+        await captureTexture(app.world, target);
+        faceApps.push({ app, target, mode });
+    }
+}, TIMEOUT.startup);
+test("loaded double-sided back faces draw and light like direct authoring; single-sided culls", async () => {
+    const samples: number[][] = [];
+    for (const { app, target, mode } of faceApps) {
+        app.world.step(0);
+        const { rgba } = await captureTexture(app.world, target);
+        const center = Array.from(rgba.slice((32 * 64 + 32) * 4, (32 * 64 + 32) * 4 + 3));
+        samples.push(center);
+        if (mode === "single") expect(center).toEqual(Array.from(rgba.slice(0, 3)));
     }
     expect(samples[0]).toEqual(samples[1]);
     expect(samples[0][0]).toBeGreaterThan(samples[2][0] + 20);
