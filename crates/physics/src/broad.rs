@@ -10,6 +10,7 @@ const N_BROAD: usize = 10;
 struct Broad {
     columns: Columns<N_BROAD>,
     tree: [usize; 3],
+    owned: [usize; 3],
     set: usize,
     set_count: usize,
     rebuild: [crate::regions::Buffer; 6],
@@ -21,6 +22,7 @@ impl Broad {
     const EMPTY: Self = Self {
         columns: Columns::EMPTY,
         tree: [0; 3],
+        owned: [0; 3],
         set: 0,
         set_count: 0,
         rebuild: [crate::regions::Buffer::EMPTY; 6],
@@ -43,11 +45,73 @@ fn tree_bytes(cap: usize) -> usize {
         (cap * TREE_STRIDE + TREE_STATE_WORDS) * 4
     }
 }
+pub unsafe fn tree(world_index: usize, i: usize) -> &'static mut crate::dynamic_tree::Tree {
+    let w = &mut WORLDS[world_index];
+    if w.owned[i] == 0 {
+        w.owned[i] = Box::into_raw(Box::new(crate::dynamic_tree::Tree::new(16))) as usize;
+    }
+    &mut *(w.owned[i] as *mut crate::dynamic_tree::Tree)
+}
+pub unsafe fn sync_tree(world_index: usize, i: usize) {
+    let t = tree(world_index, i);
+    let w = &mut WORLDS[world_index];
+    let cap = t.nodes.len();
+    w.columns.reserve(i, tree_bytes(cap));
+    w.tree[i] = cap;
+    let s = w.columns.layout[i] as *mut u32;
+    *s = 0;
+    *s.add(1) = t.end as u32;
+    *s.add(2) = t.pair_free as u32;
+    *s.add(3) = t.count as u32;
+}
 pub fn tree_state(world_index: usize, i: usize) -> *mut u32 {
+    unsafe {
+        sync_tree(world_index, i);
+    }
     base(world_index, i) as *mut u32
 }
 pub fn tree_ptr(world_index: usize, i: usize) -> *mut u32 {
-    unsafe { tree_state(world_index, i).add(TREE_STATE_WORDS) }
+    unsafe {
+        let ptr = tree_state(world_index, i).add(TREE_STATE_WORDS);
+        let t = tree(world_index, i);
+        for (index, node) in t.nodes.iter().enumerate() {
+            let n = ptr.add(index * TREE_STRIDE);
+            core::ptr::write_bytes(n, 0, TREE_STRIDE);
+            if index >= t.end || node.flags == crate::dynamic_tree::EMPTY {
+                continue;
+            }
+            for (k, value) in [
+                node.lo.x, node.lo.y, node.lo.z, node.hi.x, node.hi.y, node.hi.z,
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                *n.add(k) = value.to_bits();
+            }
+            *n.add(10) = t.parents[index] as u32;
+            *n.add(11) = 1
+                | if node.leaf() { 4 } else { 0 }
+                | if node.flags & crate::dynamic_tree::MOVED != 0 {
+                    2
+                } else {
+                    0
+                }
+                | ((node.height() as u32) << 16);
+            if node.leaf() {
+                let p = t.proxies[node.index()];
+                *n.add(6) = (p.category >> 32) as u32;
+                *n.add(7) = p.category as u32;
+                *n.add(8) = p.user as u32;
+                *n.add(9) = (p.user >> 32) as u32;
+            } else {
+                *n.add(6) = u32::MAX;
+                *n.add(7) = u32::MAX;
+                *n.add(8) = node.index() as u32;
+                *n.add(9) = (node.index() + 1) as u32;
+            }
+        }
+        ptr
+    }
 }
 pub fn tree_cap(world_index: usize, i: usize) -> usize {
     unsafe { world(world_index).tree[i] }
@@ -416,6 +480,11 @@ pub extern "C" fn reserve_broad_in_world(
             return 0;
         }
         for i in 0..3 {
+            if w.owned[i] == 0 && tree[i] != 0 {
+                w.owned[i] =
+                    Box::into_raw(Box::new(crate::dynamic_tree::Tree::new(tree[i].div_ceil(2))))
+                        as usize;
+            }
             w.columns.reserve(i, tree_bytes(tree[i]));
             if w.tree[i] == 0 && tree[i] != 0 {
                 let state = w.columns.layout[i] as *mut u32;
@@ -438,6 +507,11 @@ pub extern "C" fn reserve_broad_in_world(
     }
 }
 pub unsafe fn reset(id: usize) {
+    for ptr in WORLDS[id].owned {
+        if ptr != 0 {
+            drop(Box::from_raw(ptr as *mut crate::dynamic_tree::Tree));
+        }
+    }
     for buffer in &mut WORLDS[id].rebuild {
         buffer.release();
     }
@@ -445,6 +519,9 @@ pub unsafe fn reset(id: usize) {
     WORLDS[id] = Broad::EMPTY;
 }
 pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
+    for i in 0..3 {
+        tree(id, i).snapshot(out);
+    }
     let w = &WORLDS[id];
     for value in w.tree {
         regions::write_word(out, value);
@@ -468,6 +545,10 @@ pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
     w.columns.snapshot_prefix(out, bytes);
 }
 pub unsafe fn restore(id: usize, input: &mut &[u8]) {
+    for i in 0..3 {
+        let t = crate::dynamic_tree::Tree::restore(input);
+        *tree(id, i) = t;
+    }
     let w = &mut WORLDS[id];
     for value in &mut w.tree {
         *value = regions::read_word(input);

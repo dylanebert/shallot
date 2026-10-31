@@ -1,7 +1,7 @@
 //! physics_world.c explosion query and impulse application.
 use crate::distance::{shape_distance, DistanceInput, ShapeProxy, SimplexCache};
 use crate::math::{maxf, Transform, Vec3};
-use crate::{bodies, body, broad, query, query_abi, shapes, tree};
+use crate::{bodies, body, broad, query, query_abi, shapes};
 
 fn projected_area(shape: &query::Shape, direction: Vec3) -> f32 {
     match shape {
@@ -60,22 +60,11 @@ pub unsafe extern "C" fn explode(
     let extent = radius + falloff;
     let lo = position.sub(Vec3::new(extent, extent, extent));
     let hi = position.add(Vec3::new(extent, extent, extent));
-    let pool = core::slice::from_raw_parts(
-        broad::tree_ptr(world, 2),
-        broad::tree_cap(world, 2) * tree::STRIDE,
-    );
-    let root = *broad::tree_state(world, 2) as i32;
-    let count = *broad::tree_state(world, 2).add(1) as usize;
-    tree::query(
-        pool,
-        root,
-        count,
-        [lo.x, lo.y, lo.z],
-        [hi.x, hi.y, hi.z],
-        mask_hi,
-        mask_lo,
+    broad::tree(world, 2).query(
+        lo,
+        hi,
+        (mask_hi as u64) << 32 | mask_lo as u64,
         false,
-        &mut [0; tree::STACK_SIZE],
         |_, data| {
             let id = data as usize;
             let scale = shapes::col_f(world).get(id * shapes::SHAPE_STRIDE + 8);

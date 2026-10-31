@@ -1,5 +1,6 @@
 #include "box3d/box3d.h"
 #include "box3d/collision.h"
+#include "dynamic_tree.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,21 +24,25 @@ int main(void) {
         if (!compound || compound->tree.nodeCapacity < 2 * depth + 1) return 2;
         b3TreeNode* nodes = compound->tree.nodes;
         memset(nodes, 0, (size_t)compound->tree.nodeCapacity * sizeof(*nodes));
-        compound->tree.root = 0; compound->tree.nodeCount = 2 * depth + 1;
-        compound->tree.proxyCount = leaves; compound->tree.freeList = -1;
+        compound->tree.nodeEnd = 2 * leaves;
+        compound->tree.proxyCount = leaves; compound->tree.pairFreeList = -1;
+        nodes[1] = b3MakeEmptyNode();
         for (int i = 0; i < depth; ++i) {
-            nodes[i].aabb = (b3AABB){{-0.5f,-0.5f,-0.5f},{100.5f,0.5f,0.5f}};
-            nodes[i].categoryBits = UINT64_MAX;
-            nodes[i].children = (b3TreeNodeChildren){depth + i, i + 1 < depth ? i + 1 : 2 * depth};
-            nodes[i].parent = i - 1; nodes[i].height = (uint16_t)(depth - i); nodes[i].flags = b3_allocatedNode;
-            nodes[depth + i].aabb = (b3AABB){{99.5f,-0.5f,-0.5f},{100.5f,0.5f,0.5f}};
-            nodes[depth + i].categoryBits = UINT64_MAX;
-            nodes[depth + i].userData = (uint64_t)i; nodes[depth + i].parent = i;
-            nodes[depth + i].flags = b3_allocatedNode | b3_leafNode;
+            int parent = i == 0 ? 0 : 2 * i + 1;
+            int pair = 2 * i + 2;
+            nodes[parent].aabb = (b3AABB){{-0.5f,-0.5f,-0.5f},{100.5f,0.5f,0.5f}};
+            nodes[parent].flagIndex = (uint32_t)pair;
+            nodes[parent].height = depth-i;
+            nodes[pair].aabb = (b3AABB){{99.5f,-0.5f,-0.5f},{100.5f,0.5f,0.5f}};
+            nodes[pair].flagIndex = B3_LEAF_NODE | (uint32_t)i;
+            nodes[pair].shapeIndex = i;
+            compound->tree.proxies[i].node = pair;
         }
-        nodes[2 * depth].aabb = (b3AABB){{-0.5f,-0.5f,-0.5f},{0.5f,0.5f,0.5f}};
-        nodes[2 * depth].categoryBits = UINT64_MAX; nodes[2 * depth].userData = (uint64_t)depth;
-        nodes[2 * depth].parent = depth - 1; nodes[2 * depth].flags = b3_allocatedNode | b3_leafNode;
+        int last = 2 * depth + 1;
+        nodes[last].aabb = (b3AABB){{-0.5f,-0.5f,-0.5f},{0.5f,0.5f,0.5f}};
+        nodes[last].flagIndex = B3_LEAF_NODE | (uint32_t)depth;
+        nodes[last].shapeIndex = depth;
+        compound->tree.proxies[depth].node = last;
         b3WorldDef wd = b3DefaultWorldDef(); wd.gravity = b3Vec3_zero;
         b3WorldId world = b3CreateWorld(&wd);
         b3BodyDef bd = b3DefaultBodyDef(); b3BodyId body = b3CreateBody(world, &bd);

@@ -27,34 +27,26 @@ function measure(leaves: number) {
     })!;
     // Author the retained image before attaching it; queries never mutate its tree.
     const tree = compound.tree;
-    tree.ni.fill(0);
     tree.root = 0;
-    tree.nodeCount = 2 * depth + 1;
+    tree.nodeCount = 2 * leaves;
     tree.proxyCount = leaves;
     tree.freeList = -1;
-    function node(
-        index: number,
-        lower: number[],
-        upper: number[],
-        parent: number,
-        height: number,
-        flags: number,
-    ) {
-        const o = index * 12;
-        tree.nf.set([...lower, ...upper], o);
-        tree.ni[o + 6] = tree.ni[o + 7] = -1;
-        tree.ni[o + 10] = parent;
-        tree.ni[o + 11] = flags | (height << 16);
+    const nodes=tree.compoundNodes!, proxies=tree.compoundProxies!;
+    nodes.fill(0);
+    const floats=new Float32Array(nodes.buffer);
+    function node(index:number,lower:number[],upper:number[],flags:number,height:number) {
+        const o=index*8;floats.set([...lower,...upper],o);nodes[o+6]=flags;nodes[o+7]=height;
     }
-    for (let i = 0; i < depth; ++i) {
-        node(i, [-0.5, -0.5, -0.5], [100.5, 0.5, 0.5], i - 1, depth - i, 1);
-        tree.ni[i * 12 + 8] = depth + i;
-        tree.ni[i * 12 + 9] = i + 1 < depth ? i + 1 : 2 * depth;
-        node(depth + i, [99.5, -0.5, -0.5], [100.5, 0.5, 0.5], i, 0, 5);
-        tree.ni[(depth + i) * 12 + 8] = i;
+    node(1,[Infinity,Infinity,Infinity],[-Infinity,-Infinity,-Infinity],0xbfffffff,0);
+    for(let i=0;i<depth;i++) {
+        const parent=i===0?0:2*i+1,pair=2*i+2;
+        node(parent,[-0.5,-0.5,-0.5],[100.5,0.5,0.5],pair,depth-i);
+        node(pair,[99.5,-0.5,-0.5],[100.5,0.5,0.5],0x80000000|i,i);
+        proxies[i*6+4]=pair;
     }
-    node(2 * depth, [-0.5, -0.5, -0.5], [0.5, 0.5, 0.5], depth - 1, 0, 5);
-    tree.ni[2 * depth * 12 + 8] = depth;
+    const last=2*depth+1;
+    node(last,[-0.5,-0.5,-0.5],[0.5,0.5,0.5],0x80000000|depth,depth);
+    proxies[depth*6+4]=last;
     const world = createTestWorld({ gravity: { x: 0, y: 0, z: 0 } });
     try {
         const body = createTestBody(world, { type: BodyType.Static });
@@ -92,9 +84,9 @@ function measure(leaves: number) {
     }
 }
 const actual = native.map((row) => measure(row[0]));
-test("compound retained images below the traversal depth bound retain the deepest child", () => {
+test("compound retained sibling-pair combs retain the deepest child", () => {
     expect(actual.slice(0, 2)).toEqual(native.slice(0, 2));
 });
-test("compound_query.rs:267-301 vs dynamic_tree.c:1140: traversal permits B3_TREE_STACK_SIZE - 1 node pairs, not 1022", () => {
+test("a 1024-leaf comb tests siblings immediately without exhausting the pair stack", () => {
     expect(actual[2]).toEqual(native[2]);
 });

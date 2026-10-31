@@ -5,7 +5,7 @@ use crate::math::{maxf, minf, Quat, Transform, Vec3};
 use crate::mesh_query::proxy_bounds;
 use crate::query::{self, PlaneResult, RayCastInput, ShapeCastInput};
 use crate::shapes::*;
-use crate::{broad, query_abi, tree};
+use crate::{broad, query_abi};
 
 // Words 0-5 unused, then category hi/lo, mask hi/lo, origin xyz, box lower/upper xyz, excluded body + 1.
 pub(crate) static mut HEADER: [u32; 20] = [0; 20];
@@ -161,23 +161,12 @@ pub(crate) unsafe fn sensor_task(
         );
         let (sensor, _) = query_abi::active_shape(world_index, sensor_id);
         let sensor_transform = pose(world_index, sensor_id, Vec3::ZERO);
-        let mut stack = [0; tree::STACK_SIZE];
         for i in 0..3 {
-            let pool = core::slice::from_raw_parts(
-                broad::tree_ptr(world_index, i),
-                broad::tree_cap(world_index, i) * tree::STRIDE,
-            );
-            let (root, count) = broad::tree_root(world_index, i);
-            tree::query(
-                pool,
-                root,
-                count,
-                [lo.x, lo.y, lo.z],
-                [hi.x, hi.y, hi.z],
-                r.get(n + S_QUERY_MASK),
-                r.get(n + S_QUERY_MASK - 1),
+            broad::tree(world_index, i).query(
+                lo,
+                hi,
+                ((r.get(n + S_QUERY_MASK) as u64) << 32) | r.get(n + S_QUERY_MASK - 1) as u64,
                 false,
-                &mut stack,
                 |_, id| {
                     let id = id as usize;
                     let o = id * SHAPE_STRIDE;
@@ -270,15 +259,10 @@ pub extern "C" fn run_in_world(world: usize, operation: u32, user_callback: u32)
         let mut plane_count = 0;
         let mut node_visits = 0;
         let mut leaf_visits = 0;
-        let mut stack = [0; tree::STACK_SIZE];
         for i in 0..3 {
-            let pool = core::slice::from_raw_parts(
-                broad::tree_ptr(world, i),
-                broad::tree_cap(world, i) * tree::STRIDE,
-            );
-            let (root, count) = broad::tree_root(world, i);
+            let tree = broad::tree(world, i);
             let tree_fraction = fraction;
-            let mut visit = |clip: f32, _: i32, shape_id: u32| -> f32 {
+            let mut visit = |clip: f32, _: usize, shape_id: u64| -> f32 {
                 let id = shape_id as usize;
                 if !accepts(world, id, &header)
                     || (exclude_body
@@ -328,7 +312,7 @@ pub extern "C" fn run_in_world(world: usize, operation: u32, user_callback: u32)
                                 break;
                             }
                             let n = 16 + index * 8;
-                            result.add(n).write(shape_id);
+                            result.add(n).write(shape_id as u32);
                             let values = [
                                 plane.plane.normal.x,
                                 plane.plane.normal.y,
@@ -395,48 +379,38 @@ pub extern "C" fn run_in_world(world: usize, operation: u32, user_callback: u32)
                     fraction = value;
                 }
                 if operation == 3 {
-                    result.write(shape_id);
+                    result.write(shape_id as u32);
                 }
                 value
             };
             let stats = if operation <= 1 || operation == 5 {
-                tree::query(
-                    pool,
-                    root,
-                    count,
-                    [lo.x, lo.y, lo.z],
-                    [hi.x, hi.y, hi.z],
-                    header[H_MASK],
-                    header[H_MASK + 1],
+                tree.query(
+                    lo,
+                    hi,
+                    ((header[H_MASK] as u64) << 32) | header[H_MASK + 1] as u64,
                     false,
-                    &mut stack,
                     |id, data| visit(1.0, id, data) != 0.0,
                 )
             } else if operation == 2 || operation == 3 {
-                tree::ray_cast(
-                    pool,
-                    root,
-                    count,
+                tree.cast(
+                    origin,
                     origin,
                     translation,
                     tree_fraction,
-                    header[H_MASK],
-                    header[H_MASK + 1],
+                    ((header[H_MASK] as u64) << 32) | header[H_MASK + 1] as u64,
+                    false,
                     false,
                     visit,
                 )
             } else {
-                tree::box_cast(
-                    pool,
-                    root,
-                    count,
+                tree.cast(
                     lo,
                     hi,
                     translation,
                     tree_fraction,
-                    header[H_MASK],
-                    header[H_MASK + 1],
+                    ((header[H_MASK] as u64) << 32) | header[H_MASK + 1] as u64,
                     false,
+                    true,
                     visit,
                 )
             };

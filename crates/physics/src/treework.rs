@@ -147,53 +147,37 @@ pub unsafe extern "C" fn mutate_resident_in_world(
     ud: u32,
     udh: u32,
 ) -> i32 {
-    let state = crate::broad::tree_state(world_index, index);
-    let ptr = crate::broad::tree_ptr(world_index, index);
-    if op == 4 {
-        let count = *state.add(3) as usize;
-        if count == 0 {
-            return *state as i32;
+    let t = crate::broad::tree(world_index, index);
+    let lo = crate::math::Vec3::new(lx, ly, lz);
+    let hi = crate::math::Vec3::new(hx, hy, hz);
+    let result = match op {
+        0 => t.create(
+            lo,
+            hi,
+            cl as u64 | ((ch as u64) << 32),
+            ud as u64 | ((udh as u64) << 32),
+            false,
+        ) as i32,
+        1 => {
+            t.move_proxy(id as usize, lo, hi, false);
+            id
         }
-        let (indices, centers, n) = crate::broad::rebuild_scratch(world_index, index, count);
-        let mut gather = [0; STACK_SIZE];
-        let mut build = [0; STACK_SIZE * 5];
-        let mut rb = Rebuild {
-            node_count: &mut *(state.add(1) as *mut usize),
-            free_list: &mut *(state.add(2) as *mut i32),
-            leaf_indices: slice::from_raw_parts_mut(indices, n),
-            leaf_centers: slice::from_raw_parts_mut(centers, n * 3),
-            gather_stack: &mut gather,
-            build_stack: &mut build,
-        };
-        let pool =
-            slice::from_raw_parts_mut(ptr, crate::broad::tree_cap(world_index, index) * STRIDE);
-        let root = tree::rebuild(
-            pool,
-            *state as i32,
-            *state.add(3) as usize,
-            id != 0,
-            &mut rb,
-        );
-        *state = root as u32;
-        return root;
-    }
-    mutate(
-        ptr,
-        crate::broad::tree_cap(world_index, index),
-        state,
-        op,
-        id,
-        lx,
-        ly,
-        lz,
-        hx,
-        hy,
-        hz,
-        ch,
-        cl,
-        ud,
-        udh,
-    )
+        2 => {
+            t.enlarge(id as usize, lo, hi);
+            id
+        }
+        3 => {
+            t.destroy(id as usize);
+            id
+        }
+        4 => {
+            t.rebuild(id != 0);
+            0
+        }
+        _ => unreachable!(),
+    };
+    crate::broad::sync_tree(world_index, index);
+    result
 }
 
 #[export_name = "treeCreateProxy"]
@@ -239,42 +223,6 @@ pub unsafe extern "C" fn create_proxy_in_world(
     cl: u32,
     user: u32,
 ) -> i32 {
-    let cap = crate::broad::tree_cap(world_index, index);
-    let state = crate::broad::tree_state(world_index, index);
-    if cap - (*state.add(1) as usize) < 2 {
-        let next = if cap == 0 { 31 } else { cap + (cap >> 1) };
-        let mut caps = [
-            crate::broad::tree_cap(world_index, 0),
-            crate::broad::tree_cap(world_index, 1),
-            crate::broad::tree_cap(world_index, 2),
-        ];
-        caps[index] = next;
-        crate::broad::reserve_broad_in_world(
-            world_index,
-            caps[0],
-            caps[1],
-            caps[2],
-            crate::broad::set_cap(world_index),
-        );
-        let state = crate::broad::tree_state(world_index, index);
-        let ptr = crate::broad::tree_ptr(world_index, index);
-        for i in cap..next {
-            *ptr.add(i * STRIDE + 10) = if i + 1 == next {
-                u32::MAX
-            } else {
-                (i + 1) as u32
-            };
-        }
-        if *state.add(2) == u32::MAX {
-            *state.add(2) = cap as u32;
-        } else {
-            let mut i = *state.add(2) as usize;
-            while *ptr.add(i * STRIDE + 10) != u32::MAX {
-                i = *ptr.add(i * STRIDE + 10) as usize;
-            }
-            *ptr.add(i * STRIDE + 10) = cap as u32;
-        }
-    }
     mutate_resident_in_world(
         world_index,
         index,
@@ -430,15 +378,10 @@ pub unsafe extern "C" fn enlarge_pass_in_world(world_index: usize, count: usize,
                 {
                     let index = (key & 3) as usize;
                     let b = o + crate::shapes::S_FAT_AABB;
-                    let pool = slice::from_raw_parts_mut(
-                        crate::broad::tree_ptr(world_index, index),
-                        crate::broad::tree_cap(world_index, index) * STRIDE,
-                    );
-                    tree::enlarge_proxy(
-                        pool,
-                        (key >> 2) as i32,
-                        [fat.get(b), fat.get(b + 1), fat.get(b + 2)],
-                        [fat.get(b + 3), fat.get(b + 4), fat.get(b + 5)],
+                    crate::broad::tree(world_index, index).enlarge(
+                        (key >> 2) as usize,
+                        crate::math::Vec3::new(fat.get(b), fat.get(b + 1), fat.get(b + 2)),
+                        crate::math::Vec3::new(fat.get(b + 3), fat.get(b + 4), fat.get(b + 5)),
                     );
                     let flags = shapes.get(o + crate::shapes::S_FLAGS);
                     shapes.set(
@@ -475,19 +418,13 @@ pub unsafe extern "C" fn query(
     all: u32,
     state: *mut u32,
 ) {
-    let pool = slice::from_raw_parts(ptr, cap * STRIDE);
-    let mut stack = [0; STACK_SIZE];
-    let (nv, lv) = tree::query(
-        pool,
-        root,
-        count,
-        [lx, ly, lz],
-        [hx, hy, hz],
-        mh,
-        ml,
+    let _ = (ptr, root, count);
+    let (nv, lv) = crate::broad::tree(crate::regions::active(), cap).query(
+        crate::math::Vec3::new(lx, ly, lz),
+        crate::math::Vec3::new(hx, hy, hz),
+        ((mh as u64) << 32) | ml as u64,
         all != 0,
-        &mut stack,
-        |id, ud| queryCallback(9, id as u32, ud, pool[id as usize * STRIDE + 9]) != 0.0,
+        |id, user| queryCallback(9, id as u32, user as u32, (user >> 32) as u32) != 0.0,
     );
     *state.add(4) = nv;
     *state.add(5) = lv;

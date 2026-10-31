@@ -80,7 +80,7 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         section(benchmark, "struct ShapeUserData", "static int benchmarkSensor"),
         section(benchmark, "class CandyCups :", "static int sampleSmallConvexes"),
         readFileSync(join(samples, "../shared/overflow_color.c"), "utf8"),
-        '#include "stability.h"\n#include "determinism.h"',
+        '#include "stability.h"\n#include "determinism.h"\n#include "dynamic_tree.h"',
         '#define printf(...) fprintf(stderr, __VA_ARGS__)',
         ...["FallingRagdolls", "WavePile", "QuerySpawn", "MeshDropDeterminism"].map(name => section(determinism, `class ${name} :`, `static int sample${name}`)),
         '#undef printf',

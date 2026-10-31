@@ -24,16 +24,16 @@ export type DynamicTree = {
     store: TreeBacking | null;
     treeIndex: number;
     initNodeCapacity: number;
+    handle: number;
+    compoundNodes?: Uint32Array;
+    compoundProxies?: Uint32Array;
     captureCheckpoint(): unknown;
     restoreCheckpoint(state: unknown): void;
 };
 const STRIDE = 12;
 let depth = 0;
 class TreeMetadata {
-    state: Int32Array;
-    constructor(state: Int32Array) {
-        this.state = state;
-    }
+    state = new Int32Array([0, 2, -1, 0, 0, 0]);
     captureCheckpoint() {
         const tree = this as unknown as DynamicTree;
         return {
@@ -51,25 +51,25 @@ class TreeMetadata {
         Object.assign(tree, metadata);
         if (privateState !== null) tree.state = privateState;
     }
-    get root(): number {
+    get root() {
         return this.state[0];
     }
     set root(value: number) {
         this.state[0] = value;
     }
-    get nodeCount(): number {
+    get nodeCount() {
         return this.state[1];
     }
     set nodeCount(value: number) {
         this.state[1] = value;
     }
-    get freeList(): number {
+    get freeList() {
         return this.state[2];
     }
     set freeList(value: number) {
         this.state[2] = value;
     }
-    get proxyCount(): number {
+    get proxyCount() {
         return this.state[3];
     }
     set proxyCount(value: number) {
@@ -81,77 +81,68 @@ export function createTree(
     store: TreeBacking | null = null,
     treeIndex = 0,
 ): DynamicTree {
-    const cap = 2 * Math.max(capacity, 16) - 1;
-    const buffer = new ArrayBuffer(store ? 0 : cap * STRIDE * 4);
-    const t: DynamicTree = Object.assign(
-        new TreeMetadata(new Int32Array([-1, 0, store ? -1 : 0, 0, 0, 0])),
-        {
-            nf: new Float32Array(buffer),
-            ni: new Int32Array(buffer),
-            residentState: false,
-            nodeCapacity: store ? 0 : cap,
-            store,
-            treeIndex,
-            initNodeCapacity: cap,
-        },
+    const tree: DynamicTree = Object.assign(new TreeMetadata(), {
+        nf: new Float32Array(0),
+        ni: new Int32Array(0),
+        residentState: false,
+        nodeCapacity: 0,
+        store,
+        treeIndex,
+        initNodeCapacity: 2 * Math.max(capacity, 16),
+        handle: 0,
+    });
+    if (store) guardViews(tree, store);
+    return tree;
+}
+function handle(t: DynamicTree): number {
+    if (!t.handle) t.handle = kernel(undefined).standaloneTreeCreate(t.initNodeCapacity / 2) >>> 0;
+    return t.handle;
+}
+export function destroyTree(t: DynamicTree): void {
+    if (t.handle) {
+        kernel(undefined).standaloneTreeDestroy(t.handle);
+        t.handle = 0;
+    }
+}
+function publish(t: DynamicTree): void {
+    const k = kernel(undefined),
+        h = handle(t);
+    const state = new Uint32Array(k.memory.buffer, k.standaloneTreeWords(h) >>> 0, 32);
+    t.root = 0;
+    t.nodeCount = state[9];
+    t.nodeCapacity = state[10];
+    t.proxyCount = state[11];
+    t.freeList = state[17] | 0;
+    const pool = new Uint32Array(
+        k.memory.buffer,
+        k.standaloneTreePool(h) >>> 0,
+        Math.max(state[10], state[18]) * 20,
     );
-    if (store) guardViews(t, store);
-    else freeRun(t, 0, cap);
-    return t;
-}
-function freeRun(t: DynamicTree, start: number, end: number): void {
-    for (let i = start; i < end; i++) t.ni[i * STRIDE + 10] = i + 1 === end ? -1 : i + 1;
-}
-function reserve(t: DynamicTree): void {
-    if (t.nodeCapacity - t.nodeCount >= 2) return;
-    const old = t.nodeCapacity;
-    const cap = old === 0 ? t.initNodeCapacity : old + (old >> 1);
-    if (t.store) t.store.growTree(t.treeIndex, cap);
-    else {
-        const ni = new Int32Array(cap * STRIDE);
-        ni.set(t.ni);
-        t.ni = ni;
-        t.nf = new Float32Array(ni.buffer);
+    t.ni = new Int32Array(t.nodeCapacity * 12);
+    t.nf = new Float32Array(t.ni.buffer);
+    t.compoundNodes = new Uint32Array(t.nodeCount * 8);
+    t.compoundProxies = new Uint32Array(t.proxyCount * 6);
+    for (let i = 0; i < t.nodeCapacity; i++) {
+        const p = i * 20,
+            n = i * 8;
+        t.ni.set(pool.subarray(p, p + 12), i * 12);
+        if (i >= t.nodeCount) continue;
+        t.compoundNodes.set(pool.subarray(p, p + 6), n);
+        const flags = pool[p + 11];
+        if (!(flags & 1))
+            t.compoundNodes.set(
+                [0x7f800000, 0x7f800000, 0x7f800000, 0xff800000, 0xff800000, 0xff800000],
+                n,
+            );
+        t.compoundNodes[n + 6] = !(flags & 1)
+            ? 0xbfffffff
+            : flags & 4
+              ? 0x80000000 | pool[p + 18]
+              : pool[p + 8];
+        t.compoundNodes[n + 7] = flags & 4 ? pool[p + 8] : flags >>> 16;
     }
-    t.nodeCapacity = cap;
-    freeRun(t, old, cap);
-    if (t.freeList === -1) t.freeList = old;
-    else {
-        let i = t.freeList;
-        while (t.ni[i * STRIDE + 10] !== -1) i = t.ni[i * STRIDE + 10];
-        t.ni[i * STRIDE + 10] = old;
-    }
-}
-function withColumns<T>(
-    t: DynamicTree,
-    mutate: boolean,
-    run: (ptr: number, state: number) => T,
-    proxies = t.proxyCount,
-): T {
-    t.store?.refreshIfStale();
-    const k = kernel(t.store?.ecsState);
-    const d = depth++;
-    try {
-        const words = 6 + (t.store ? 0 : t.ni.length) + Math.max(proxies, 1) * 4;
-        const state = t.store
-            ? t.store.reserveTreeWork(d, words)
-            : k.reserveTreeWork(d, words) >>> 0;
-        t.store?.refreshIfStale();
-        const s = new Int32Array(k.memory.buffer, state, 6);
-        s.set([t.root, t.nodeCount, t.freeList, t.proxyCount, 0, 0]);
-        const ptr = t.store ? t.ni.byteOffset : state + 24;
-        if (!t.store) new Int32Array(k.memory.buffer, ptr, t.ni.length).set(t.ni);
-        const result = run(ptr, state);
-        if (mutate) {
-            const out = new Int32Array(k.memory.buffer, state, 6);
-            [t.root, t.nodeCount, t.freeList, t.proxyCount] = out;
-            if (!t.store) t.ni.set(new Int32Array(k.memory.buffer, ptr, t.ni.length));
-        }
-        rethrowQueryError(t.store?.ecsState);
-        return result;
-    } finally {
-        depth = d;
-    }
+    for (let i = 0; i < t.proxyCount; i++)
+        t.compoundProxies.set(pool.subarray(i * 20 + 12, i * 20 + 18), i * 6);
 }
 function mutation(
     t: DynamicTree,
@@ -162,53 +153,10 @@ function mutation(
     lo = 0,
     user: number | bigint = 0,
 ): number {
-    if (op === 0) {
-        t.store?.refreshIfStale();
-        reserve(t);
-    }
-    if (t.store) return residentMutation(t, op, id, box, hi, lo, user);
-    return uploadedMutation(t, op, id, box, hi, lo, user);
-}
-function residentMutation(
-    t: DynamicTree,
-    op: number,
-    id: number,
-    box: AABB | undefined,
-    hi: number,
-    lo: number,
-    user: number | bigint,
-): number {
-    t.store!.refreshIfStale();
-    return kernel(t.store!.ecsState).treeMutateResident(
-        t.treeIndex,
-        op,
-        id,
-        box?.lowerBound.x ?? 0,
-        box?.lowerBound.y ?? 0,
-        box?.lowerBound.z ?? 0,
-        box?.upperBound.x ?? 0,
-        box?.upperBound.y ?? 0,
-        box?.upperBound.z ?? 0,
-        hi,
-        lo,
-        typeof user === "number" ? user : Number(user & 0xffffffffn),
-        typeof user === "number" ? 0 : Number(user >> 32n),
-    );
-}
-function uploadedMutation(
-    t: DynamicTree,
-    op: number,
-    id: number,
-    box: AABB | undefined,
-    hi: number,
-    lo: number,
-    user: number | bigint,
-): number {
-    return withColumns(t, true, (ptr, state) =>
-        kernel(t.store?.ecsState).treeMutate(
-            ptr,
-            t.nodeCapacity,
-            state,
+    if (t.store) {
+        t.store.refreshIfStale();
+        return kernel(t.store.ecsState).treeMutateResident(
+            t.treeIndex,
             op,
             id,
             box?.lowerBound.x ?? 0,
@@ -221,49 +169,57 @@ function uploadedMutation(
             lo,
             Number(BigInt(user) & 0xffffffffn),
             Number(BigInt(user) >> 32n),
-        ),
+        );
+    }
+    const k = kernel(undefined),
+        h = handle(t);
+    if (box)
+        new Float32Array(k.memory.buffer, k.standaloneTreeWords(h) >>> 0, 6).set([
+            box.lowerBound.x,
+            box.lowerBound.y,
+            box.lowerBound.z,
+            box.upperBound.x,
+            box.upperBound.y,
+            box.upperBound.z,
+        ]);
+    const result = k.standaloneTreeCall(
+        h,
+        [0, 12, 13, 11, 3][op],
+        id,
+        hi,
+        lo,
+        0,
+        Number(BigInt(user) & 0xffffffffn),
+        Number(BigInt(user) >> 32n),
+        0,
     );
+    publish(t);
+    return result;
 }
-/**
- * A tree outside the kernel holding a proxy for each box, with its index as user data, fully
- * rebuilt: the tree b3CreateCompound builds. Its columns upload once, not once per proxy.
- */
+/** Rebuilt compound tree columns own their bytes, not a native tree handle. */
 export function buildTree(boxes: readonly AABB[], hi: number, lo: number): DynamicTree {
     const t = createTree(boxes.length);
-    withColumns(
-        t,
-        true,
-        (ptr, state) => {
-            const k = kernel(undefined);
-            for (let i = 0; i < boxes.length; i++) {
-                const box = boxes[i]!;
-                k.treeMutate(
-                    ptr,
-                    t.nodeCapacity,
-                    state,
-                    0,
-                    0,
-                    box.lowerBound.x,
-                    box.lowerBound.y,
-                    box.lowerBound.z,
-                    box.upperBound.x,
-                    box.upperBound.y,
-                    box.upperBound.z,
-                    hi,
-                    lo,
-                    i,
-                    0,
-                );
-            }
-            k.treeMutate(ptr, t.nodeCapacity, state, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-        },
-        boxes.length,
-    );
-    return t;
-}
-export function reserveProxy(t: DynamicTree): void {
-    t.store?.refreshIfStale();
-    reserve(t);
+    try {
+        const k = kernel(undefined),
+            h = handle(t);
+        for (let i = 0; i < boxes.length; i++) {
+            const b = boxes[i];
+            new Float32Array(k.memory.buffer, k.standaloneTreeWords(h) >>> 0, 6).set([
+                b.lowerBound.x,
+                b.lowerBound.y,
+                b.lowerBound.z,
+                b.upperBound.x,
+                b.upperBound.y,
+                b.upperBound.z,
+            ]);
+            k.standaloneTreeCall(h, 0, 0, hi, lo, 0, i, 0, 0);
+        }
+        k.standaloneTreeCall(h, 3, 1, 0, 0, 0, 0, 0, 0);
+        publish(t);
+        return t;
+    } finally {
+        destroyTree(t);
+    }
 }
 export function createProxy(
     t: DynamicTree,
@@ -274,7 +230,6 @@ export function createProxy(
 ): number {
     if (!t.store || typeof user !== "number") return mutation(t, 0, 0, box, hi, lo, user);
     t.store.refreshIfStale();
-    reserve(t);
     return kernel(t.store.ecsState).treeCreateProxy(
         t.treeIndex,
         box.lowerBound.x,
@@ -289,29 +244,10 @@ export function createProxy(
     );
 }
 export function enlargeProxy(t: DynamicTree, id: number, box: AABB): void {
-    if (!t.store) {
-        mutation(t, 2, id, box);
-        return;
-    }
-    t.store.refreshIfStale();
-    kernel(t.store.ecsState).treeEnlargeProxy(
-        t.treeIndex,
-        id,
-        box.lowerBound.x,
-        box.lowerBound.y,
-        box.lowerBound.z,
-        box.upperBound.x,
-        box.upperBound.y,
-        box.upperBound.z,
-    );
+    mutation(t, 2, id, box);
 }
 export function destroyProxy(t: DynamicTree, id: number): void {
-    if (!t.store) {
-        mutation(t, 3, id);
-        return;
-    }
-    t.store.refreshIfStale();
-    kernel(t.store.ecsState).treeDestroyProxy(t.treeIndex, id);
+    mutation(t, 3, id);
 }
 export function rebuild(t: DynamicTree, full: boolean): number {
     return mutation(t, 4, Number(full));
@@ -357,29 +293,48 @@ export function query(
             ),
         ),
     );
+    const d = depth++;
     try {
-        return withColumns(t, false, (ptr, state) => {
-            const k = kernel(world);
-            k.treeQuery(
-                ptr,
-                t.nodeCapacity,
-                t.root,
-                t.nodeCount,
+        const k = kernel(world);
+        if (!t.store) {
+            const h = handle(t),
+                wp = k.standaloneTreeWords(h) >>> 0;
+            new Float32Array(k.memory.buffer, wp, 6).set([
                 box.lowerBound.x,
                 box.lowerBound.y,
                 box.lowerBound.z,
                 box.upperBound.x,
                 box.upperBound.y,
                 box.upperBound.z,
-                hi,
-                lo,
-                Number(all),
-                state,
-            );
-            const out = new Uint32Array(k.memory.buffer, state, 6);
-            return { nodeVisits: out[4], leafVisits: out[5] };
-        });
+            ]);
+            k.standaloneTreeCall(h, 4, 0, hi, lo, Number(all), 0, 0, 0);
+            rethrowQueryError(world);
+            const out = new Uint32Array(k.memory.buffer, wp, 32);
+            return { nodeVisits: out[14], leafVisits: out[15] };
+        }
+        t.store.refreshIfStale();
+        const state = t.store.reserveTreeWork(d, 6);
+        k.treeQuery(
+            0,
+            t.treeIndex,
+            0,
+            0,
+            box.lowerBound.x,
+            box.lowerBound.y,
+            box.lowerBound.z,
+            box.upperBound.x,
+            box.upperBound.y,
+            box.upperBound.z,
+            hi,
+            lo,
+            Number(all),
+            state,
+        );
+        rethrowQueryError(world);
+        const out = new Uint32Array(k.memory.buffer, state, 6);
+        return { nodeVisits: out[4], leafVisits: out[5] };
     } finally {
+        depth = d;
         setQueryCallback(world, previous);
     }
 }

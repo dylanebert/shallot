@@ -181,21 +181,10 @@ function heightImage(h: HeightFieldData): Uint8Array {
     v.setBigUint64(8, hash64NonZero(bytes), true);
     return bytes;
 }
-function treeImage(c: CompoundData): Uint8Array {
-    const bytes = new Uint8Array(c.tree.nodeCapacity * 48),
+function treeImage(words: Uint32Array): Uint8Array {
+    const bytes = new Uint8Array(words.byteLength),
         v = new DataView(bytes.buffer);
-    for (let i = 0; i < c.tree.nodeCapacity; ++i) {
-        const n = i * 12,
-            o = i * 48;
-        for (let j = 0; j < 6; ++j) v.setFloat32(o + j * 4, c.tree.nf[n + j], true);
-        v.setUint32(o + 24, c.tree.ni[n + 7], true);
-        v.setUint32(o + 28, c.tree.ni[n + 6], true);
-        v.setUint32(o + 32, c.tree.ni[n + 8], true);
-        v.setUint32(o + 36, c.tree.ni[n + 9], true);
-        v.setInt32(o + 40, c.tree.ni[n + 10], true);
-        const h = c.tree.ni[n + 11];
-        v.setUint32(o + 44, ((h >>> 16) | (h << 16)) >>> 0, true);
-    }
+    for (let i = 0; i < words.length; i++) v.setUint32(i * 4, words[i], true);
     return bytes;
 }
 function materialImage(material: SurfaceMaterial): Uint8Array {
@@ -224,7 +213,8 @@ function compoundImage(c: CompoundData): Uint8Array {
         length = offset + bytes.length;
         return offset;
     };
-    const treeOffset = push(treeImage(c));
+    const treeOffset = push(treeImage(c.tree.compoundNodes!));
+    const proxyOffset = push(treeImage(c.tree.compoundProxies!));
     const materialsOffset = push(concat(c.materials.map(materialImage)));
     const capsulesOffset = push(
         concat(
@@ -302,8 +292,8 @@ function compoundImage(c: CompoundData): Uint8Array {
     );
     u(8, bytes.length);
     u(12, treeOffset);
-    v.setBigUint64(16, 0x93edaf889fd30b4an, true);
-    u(24, 0);
+    v.setBigUint64(16, 0x1d6f4c2a73b80e91n, true);
+    u(24, proxyOffset);
     u(28, c.tree.root);
     u(32, c.tree.nodeCount);
     u(36, c.tree.nodeCapacity);

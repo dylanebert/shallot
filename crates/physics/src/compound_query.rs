@@ -10,7 +10,8 @@ use crate::query::{
 #[derive(Clone, Copy)]
 pub struct Compound<'a> {
     pub root: i32,
-    pub nodes: &'a [u32],
+    pub nodes: &'a [crate::dynamic_tree::Node],
+    proxies: &'a [crate::dynamic_tree::Proxy],
     data: &'a [u32],
 }
 impl<'a> Compound<'a> {
@@ -21,7 +22,11 @@ impl<'a> Compound<'a> {
         let node_offset = *pointer.add(3) as usize / 4;
         Self {
             root: *pointer.add(7) as i32,
-            nodes: core::slice::from_raw_parts(pointer.add(node_offset), capacity * 12),
+            nodes: core::slice::from_raw_parts(pointer.add(node_offset).cast(), capacity),
+            proxies: core::slice::from_raw_parts(
+                pointer.add(data[6] as usize / 4).cast(),
+                data[10] as usize,
+            ),
             data,
         }
     }
@@ -194,38 +199,41 @@ fn cast(
     if c.root < 0 {
         return;
     }
-    crate::tree::cast::<16, _>(
-        c.nodes,
-        c.root,
-        c.data[8] as usize,
+    crate::dynamic_tree::TreeQuery {
+        nodes: c.nodes,
+        proxies: c.proxies,
+        count: c.proxies.len(),
+        end: c.nodes.len(),
+    }
+    .cast(
         lower,
         upper,
         translation,
         fraction,
-        u32::MAX,
-        u32::MAX,
+        u64::MAX,
         false,
         box_cast,
         |fraction, _, index| visit(index as usize, fraction),
     );
 }
-pub(crate) fn query(c: Compound, lower: Vec3, upper: Vec3, visit: impl FnMut(i32, u32) -> bool) {
+pub(crate) fn query(
+    c: Compound,
+    lower: Vec3,
+    upper: Vec3,
+    mut visit: impl FnMut(i32, u32) -> bool,
+) {
     if c.root < 0 {
         return;
     }
-    let mut stack = [0i32; crate::tree::STACK_SIZE];
-    crate::tree::query_packed::<16, _>(
-        c.nodes,
-        c.root,
-        c.data[8] as usize,
-        [lower.x, lower.y, lower.z],
-        [upper.x, upper.y, upper.z],
-        u32::MAX,
-        u32::MAX,
-        false,
-        &mut stack,
-        visit,
-    );
+    crate::dynamic_tree::TreeQuery {
+        nodes: c.nodes,
+        proxies: c.proxies,
+        count: c.proxies.len(),
+        end: c.nodes.len(),
+    }
+    .query(lower, upper, u64::MAX, false, |id, user| {
+        visit(id as i32, user as u32)
+    });
 }
 pub fn ray_cast_compound(c: Compound, input: &RayCastInput) -> CastOutput {
     let mut result = CastOutput {

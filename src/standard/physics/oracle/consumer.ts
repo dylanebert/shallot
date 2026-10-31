@@ -20,7 +20,7 @@ import { hullDatabaseIndex } from "../kernel/geocolumns";
 import { readJointFloat, readJointVec3 } from "../kernel/jointcolumns";
 import { JointField, jointField } from "../kernel/jointrecords";
 import { kernel } from "../kernel/kernel";
-import { createProxy, createTree, query } from "../kernel/treecolumns";
+import { createProxy, createTree, destroyTree, query } from "../kernel/treecolumns";
 import { makeBoxHull } from "../shapes/build-hull";
 import { type Capsule, computeSphereAABB, type Sphere } from "../shapes/geometry";
 import { createBoxMesh } from "../shapes/mesh";
@@ -314,49 +314,53 @@ function runBaseCase(item: OracleCase): unknown {
         case "tree.query.v1.scalar":
         case "tree.query.v1.simd": {
             const tree = createTree(2);
-            const hits: { proxyId: number; userData: bigint }[] = [];
-            (input.proxies as Record<string, unknown>[]).map((proxy) => {
-                const values = (proxy.aabb as string[]).map(f32);
-                const box: AABB = {
-                    lowerBound: { x: values[0], y: values[1], z: values[2] },
-                    upperBound: { x: values[3], y: values[4], z: values[5] },
-                };
-                const category = u64(String(proxy.category));
-                return createProxy(
+            try {
+                const hits: { proxyId: number; userData: bigint }[] = [];
+                (input.proxies as Record<string, unknown>[]).map((proxy) => {
+                    const values = (proxy.aabb as string[]).map(f32);
+                    const box: AABB = {
+                        lowerBound: { x: values[0], y: values[1], z: values[2] },
+                        upperBound: { x: values[3], y: values[4], z: values[5] },
+                    };
+                    const category = u64(String(proxy.category));
+                    return createProxy(
+                        tree,
+                        box,
+                        Number((category >> 32n) & 0xffffffffn),
+                        Number(category & 0xffffffffn),
+                        u64(String(proxy.userData)),
+                    );
+                });
+                const q = (input.queryAabb as string[]).map(f32);
+                const stats = query(
                     tree,
-                    box,
-                    Number((category >> 32n) & 0xffffffffn),
-                    Number(category & 0xffffffffn),
-                    u64(String(proxy.userData)),
+                    {
+                        lowerBound: { x: q[0], y: q[1], z: q[2] },
+                        upperBound: { x: q[3], y: q[4], z: q[5] },
+                    },
+                    0,
+                    Number(u64(String(input.mask))),
+                    false,
+                    (proxyId, userData) => {
+                        hits.push({ proxyId, userData });
+                        return true;
+                    },
+                    undefined,
+                    true,
                 );
-            });
-            const q = (input.queryAabb as string[]).map(f32);
-            const stats = query(
-                tree,
-                {
-                    lowerBound: { x: q[0], y: q[1], z: q[2] },
-                    upperBound: { x: q[3], y: q[4], z: q[5] },
-                },
-                0,
-                Number(u64(String(input.mask))),
-                false,
-                (proxyId, userData) => {
-                    hits.push({ proxyId, userData });
-                    return true;
-                },
-                undefined,
-                true,
-            );
-            return {
-                stats: {
-                    nodeVisits: `0x${stats.nodeVisits.toString(16).padStart(8, "0")}`,
-                    leafVisits: `0x${stats.leafVisits.toString(16).padStart(8, "0")}`,
-                },
-                hits: hits.map((hit) => ({
-                    proxyId: `0x${hit.proxyId.toString(16).padStart(8, "0")}`,
-                    userData: `0x${hit.userData.toString(16).padStart(16, "0")}`,
-                })),
-            };
+                return {
+                    stats: {
+                        nodeVisits: `0x${stats.nodeVisits.toString(16).padStart(8, "0")}`,
+                        leafVisits: `0x${stats.leafVisits.toString(16).padStart(8, "0")}`,
+                    },
+                    hits: hits.map((hit) => ({
+                        proxyId: `0x${hit.proxyId.toString(16).padStart(8, "0")}`,
+                        userData: `0x${hit.userData.toString(16).padStart(16, "0")}`,
+                    })),
+                };
+            } finally {
+                destroyTree(tree);
+            }
         }
         case "manifold.spheres.v1.scalar":
         case "manifold.spheres.v1.simd": {

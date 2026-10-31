@@ -6,7 +6,7 @@ use crate::{
     distance::Sweep,
     math::{Quat, Transform, Vec3},
     query::Shape,
-    shapes, tree,
+    shapes,
 };
 use body::flags::{ENLARGE_BOUNDS, HAD_TIME_OF_IMPACT, IS_BULLET};
 static mut BULLET_BODIES: *mut u32 = core::ptr::null_mut();
@@ -153,21 +153,7 @@ pub(crate) fn bounds(world_index: usize, id: usize, xf: Transform) -> [f32; 6] {
             (crate::mesh_query::min(a, b), crate::mesh_query::max(a, b))
         }
         Shape::Height(h) => (h.lower, h.upper),
-        Shape::Compound(c) => {
-            let n = c.root as usize * 12;
-            (
-                Vec3::new(
-                    f32::from_bits(c.nodes[n]),
-                    f32::from_bits(c.nodes[n + 1]),
-                    f32::from_bits(c.nodes[n + 2]),
-                ),
-                Vec3::new(
-                    f32::from_bits(c.nodes[n + 3]),
-                    f32::from_bits(c.nodes[n + 4]),
-                    f32::from_bits(c.nodes[n + 5]),
-                ),
-            )
-        }
+        Shape::Compound(c) => (c.nodes[0].lo, c.nodes[0].hi),
         _ => unreachable!(),
     };
     box_transform(lower, upper, xf)
@@ -318,22 +304,12 @@ unsafe fn solve_impl(world_index: usize, worker: usize, i: usize, probe: bool) -
             if ROOTS[t] == -1 {
                 continue;
             }
-            let pool = core::slice::from_raw_parts(
-                broad::tree_ptr(world_index, t),
-                broad::tree_cap(world_index, t) * tree::STRIDE,
-            );
-            let mut stack = [0; tree::STACK_SIZE];
             let mut needed = false;
-            tree::query(
-                pool,
-                ROOTS[t],
-                broad::tree_cap(world_index, t),
-                [swept[0], swept[1], swept[2]],
-                [swept[3], swept[4], swept[5]],
-                u32::MAX,
-                u32::MAX,
+            broad::tree(world_index, t).query(
+                Vec3::new(swept[0], swept[1], swept[2]),
+                Vec3::new(swept[3], swept[4], swept[5]),
+                u64::MAX,
                 false,
-                &mut stack,
                 |_, target| {
                     let target = target as usize;
                     let a = target * shapes::SHAPE_STRIDE;

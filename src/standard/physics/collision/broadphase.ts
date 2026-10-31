@@ -108,7 +108,6 @@ export function createProxy(
     // The resident tree views may have been detached by a `memory.grow` since the last broad-phase op
     // (a sibling region reserve, or a shape/body create). Re-derive if so — O(1) when still fresh.
     bp.store.refreshIfStale();
-    tree.reserveProxy(bp.trees[type]);
     return kernel(bp.store.ecsState).broadCreateProxy(
         type,
         box.lowerBound.x,

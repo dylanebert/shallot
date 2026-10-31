@@ -351,6 +351,59 @@ impl Tree {
             p = self.parents[n];
         }
     }
+    pub fn view(&self) -> TreeQuery<'_> {
+        TreeQuery {
+            nodes: &self.nodes,
+            proxies: &self.proxies,
+            count: self.count,
+            end: self.end,
+        }
+    }
+    pub fn area_ratio(&self) -> f32 {
+        self.view().area_ratio()
+    }
+    pub fn query<F: FnMut(usize, u64) -> bool>(
+        &self,
+        lo: Vec3,
+        hi: Vec3,
+        mask: u64,
+        all: bool,
+        cb: F,
+    ) -> (u32, u32) {
+        self.view().query(lo, hi, mask, all, cb)
+    }
+    pub fn closest<F: FnMut(f32, usize, u64) -> f32>(
+        &self,
+        point: Vec3,
+        mask: u64,
+        all: bool,
+        limit: &mut f32,
+        cb: F,
+    ) -> (u32, u32) {
+        self.view().closest(point, mask, all, limit, cb)
+    }
+    pub fn cast<F: FnMut(f32, usize, u64) -> f32>(
+        &self,
+        lo: Vec3,
+        hi: Vec3,
+        translation: Vec3,
+        fraction: f32,
+        mask: u64,
+        all: bool,
+        box_cast: bool,
+        cb: F,
+    ) -> (u32, u32) {
+        self.view()
+            .cast(lo, hi, translation, fraction, mask, all, box_cast, cb)
+    }
+}
+pub struct TreeQuery<'a> {
+    pub nodes: &'a [Node],
+    pub proxies: &'a [Proxy],
+    pub count: usize,
+    pub end: usize,
+}
+impl TreeQuery<'_> {
     fn root_pair(&self) -> usize {
         if self.nodes[0].leaf() {
             0
@@ -549,6 +602,8 @@ impl Tree {
         }
         stats
     }
+}
+impl Tree {
     fn partition(indices: &mut [usize], centers: &mut [Vec3]) -> usize {
         let count = indices.len();
         if count <= 2 {
@@ -641,6 +696,107 @@ impl Tree {
             new = self.bump_pair(item.1);
             self.swap[item.1].flags = (self.swap[item.1].flags & !INDEX) | new as u32;
         }
+    }
+    #[cfg(target_arch = "wasm32")]
+    pub fn snapshot(&self, out: &mut Vec<u8>) {
+        for value in [
+            self.nodes.len(),
+            self.proxies.len(),
+            self.end,
+            self.pair_free as u32 as usize,
+            self.proxy_free as u32 as usize,
+            self.count,
+            usize::from(self.ordered),
+        ] {
+            crate::regions::write_word(out, value);
+        }
+        for n in &self.nodes {
+            for value in [
+                n.lo.x.to_bits(),
+                n.lo.y.to_bits(),
+                n.lo.z.to_bits(),
+                n.hi.x.to_bits(),
+                n.hi.y.to_bits(),
+                n.hi.z.to_bits(),
+                n.flags,
+                n.height as u32,
+            ] {
+                crate::regions::write_word(out, value as usize);
+            }
+        }
+        for &p in &self.parents {
+            crate::regions::write_word(out, p as u32 as usize);
+        }
+        for p in &self.proxies {
+            for value in [
+                p.user as u32,
+                (p.user >> 32) as u32,
+                p.category as u32,
+                (p.category >> 32) as u32,
+                p.node as u32,
+                p.next as u32,
+            ] {
+                crate::regions::write_word(out, value as usize);
+            }
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    pub fn restore(input: &mut &[u8]) -> Self {
+        let cap = crate::regions::read_word(input);
+        let pc = crate::regions::read_word(input);
+        let mut t = Self::new(16);
+        t.end = crate::regions::read_word(input);
+        t.pair_free = crate::regions::read_word(input) as i32;
+        t.proxy_free = crate::regions::read_word(input) as i32;
+        t.count = crate::regions::read_word(input);
+        t.ordered = crate::regions::read_word(input) != 0;
+        t.nodes.resize(cap, Node::empty());
+        t.parents.resize(cap, -1);
+        t.proxies.resize(
+            pc,
+            Proxy {
+                user: 0,
+                category: 0,
+                node: -1,
+                next: -1,
+            },
+        );
+        for n in &mut t.nodes {
+            let mut v = [0; 8];
+            for x in &mut v {
+                *x = crate::regions::read_word(input) as u32;
+            }
+            *n = Node {
+                lo: Vec3::new(
+                    f32::from_bits(v[0]),
+                    f32::from_bits(v[1]),
+                    f32::from_bits(v[2]),
+                ),
+                hi: Vec3::new(
+                    f32::from_bits(v[3]),
+                    f32::from_bits(v[4]),
+                    f32::from_bits(v[5]),
+                ),
+                flags: v[6],
+                height: v[7] as i32,
+            };
+        }
+        for p in &mut t.parents {
+            *p = crate::regions::read_word(input) as i32;
+        }
+        for p in &mut t.proxies {
+            let mut v = [0; 6];
+            for x in &mut v {
+                *x = crate::regions::read_word(input) as u32;
+            }
+            *p = Proxy {
+                user: v[0] as u64 | ((v[1] as u64) << 32),
+                category: v[2] as u64 | ((v[3] as u64) << 32),
+                node: v[4] as i32,
+                next: v[5] as i32,
+            };
+        }
+        t
     }
     pub fn valid(&self) -> bool {
         if self.end < 2

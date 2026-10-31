@@ -246,6 +246,9 @@ pub unsafe extern "C" fn call(
             );
         }
         10 => {}
+        11 => t.tree.destroy(id as usize),
+        12 => t.tree.move_proxy(id as usize, lo, hi, false),
+        13 => t.tree.enlarge(id as usize, lo, hi),
         _ => unreachable!(),
     }
     t.report();
