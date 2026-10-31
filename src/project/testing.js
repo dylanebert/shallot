@@ -135,7 +135,27 @@ export async function holdFrames(page, ready) {
     };
 }
 
-/** Playwright fixtures: `test.use(pipelineWarnings)` fails on late pipelines, including manually created pages. */
+/** @param {import("playwright/test").BrowserContext} context */
+async function observeAdapters(context) {
+    await context.addInitScript(() => {
+        if (!navigator.gpu) return;
+        const requestAdapter = navigator.gpu.requestAdapter.bind(navigator.gpu);
+        navigator.gpu.requestAdapter = async (options) => {
+            const adapter = await requestAdapter(options);
+            const info = adapter?.info;
+            console.log(`Shallot browser adapter: ${JSON.stringify(info ? {
+                vendor: info.vendor,
+                architecture: info.architecture,
+                device: info.device,
+                description: info.description,
+                isFallbackAdapter: info.isFallbackAdapter,
+            } : null)}`);
+            return adapter;
+        };
+    });
+}
+
+/** Playwright fixtures: `test.use(pipelineWarnings)` records adapters and fails on late pipelines, including manually created pages. */
 export const pipelineWarnings = {
     /**
      * @param {{ browser: import("playwright/test").Browser }} fixtures
@@ -148,15 +168,17 @@ export const pipelineWarnings = {
         const contexts = new Set();
         /** @param {import("playwright/test").ConsoleMessage} message */
         const onConsole = (message) => {
+            if (message.text().startsWith("Shallot browser adapter: ")) console.log(message.text());
             if (message.type() === "warning" && message.text().startsWith("[shallot] Pipeline ") &&
                 message.text().includes("created after the precompile drain.")) warnings.push(message.text());
         };
         /** @param {import("playwright/test").BrowserContext} context */
-        const watch = (context) => {
+        const watch = async (context) => {
             if (!contexts.has(context)) {
                 contexts.add(context);
                 context.on("console", onConsole);
                 context.once("close", () => contexts.delete(context));
+                await observeAdapters(context);
             }
             return context;
         };
@@ -165,7 +187,7 @@ export const pipelineWarnings = {
         /** @type {import("playwright/test").Browser["newPage"]} */
         const newPage = async (options) => {
             const page = await browser.newPage(options);
-            watch(page.context());
+            await watch(page.context());
             return page;
         };
         const guarded = new Proxy(browser, {
@@ -192,11 +214,13 @@ export const pipelineWarnings = {
         const warnings = [];
         /** @param {import("playwright/test").ConsoleMessage} message */
         const onConsole = (message) => {
+            if (message.text().startsWith("Shallot browser adapter: ")) console.log(message.text());
             if (message.type() === "warning" && message.text().startsWith("[shallot] Pipeline ") &&
                 message.text().includes("created after the precompile drain.")) warnings.push(message.text());
         };
         const context = page.context();
         context.on("console", onConsole);
+        await observeAdapters(context);
         try {
             await use(page);
         } finally {

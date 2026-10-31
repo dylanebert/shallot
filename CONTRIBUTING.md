@@ -253,7 +253,7 @@ sh scripts/lavapipe.sh HEAD sh scripts/browser.sh
 - A red push run on main does not close landing; a release waits until every red on main is answered
 - A dependency or infrastructure failure is named as such, not quarantined as a test
 - For a red only one hosted OS shows, run that OS and tier before landing: `gh workflow run test.yml --ref <branch> -f os=<os> -f tier=<tier>`
-- Windows GPU and Node tiers use software WARP; [dawn-host.ts](src/engine/runtime/dawn-host.ts) owns Dawn's Windows host-name requirement
+- Windows browser checks use Chromium's SwiftShader fallback without overriding its GPU blocklist. GPU and Node tiers use software WARP; [dawn-host.ts](src/engine/runtime/dawn-host.ts) owns Dawn's Windows host-name requirement
 - `scripts/native-smoke.ts` checks a packed consumer's native launch. Mac and hardware smoke runs are one-off qualification spikes, recorded in their commit and outside every local and pre-land check; hosted jobs are the gates. On Apple Silicon macOS the spike requires hardware in the system and portable backends, including a copied release launched through `open` with the source project unavailable. `linux-native` runs the Linux paths, checking process-group behavior and WebGPU canvas images on composited X11 with software graphics. Canvas readback is not physical-monitor presentation or hardware qualification
 - Release-time qualification stays outside the push sweep: hardware oracles, display runs, the packed release candidate, newest-in-range resolution and the published-pin spike. Mac/Windows native launch and software WebGPU capability also remain outside it
 

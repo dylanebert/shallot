@@ -18,7 +18,6 @@ export const test = base.extend({
             fail(new Error(`page error: ${error.name}: ${error.message}`, { cause: error }));
         };
         const onConsole = (message: { type(): string; text(): string }): void => {
-            if (message.text().startsWith("Shallot browser adapter: ")) console.log(message.text());
             if (message.type() !== "error" || !message.text().startsWith(noticePrefix)) return;
             fail(new Error(`Shallot startup notice: ${message.text().slice(noticePrefix.length)}`));
         };
@@ -26,26 +25,6 @@ export const test = base.extend({
         page.on("pageerror", onPageError);
         page.on("console", onConsole);
         await page.addInitScript((prefix) => {
-            if (navigator.gpu) {
-                const requestAdapter = navigator.gpu.requestAdapter.bind(navigator.gpu);
-                navigator.gpu.requestAdapter = async (options) => {
-                    const adapter = await requestAdapter(options);
-                    console.log(
-                        `Shallot browser adapter: ${JSON.stringify(
-                            adapter
-                                ? {
-                                      vendor: adapter.info.vendor,
-                                      architecture: adapter.info.architecture,
-                                      device: adapter.info.device,
-                                      description: adapter.info.description,
-                                      isFallbackAdapter: adapter.info.isFallbackAdapter,
-                                  }
-                                : null,
-                        )}`,
-                    );
-                    return adapter;
-                };
-            }
             const inspect = (): void => {
                 for (const notice of document.querySelectorAll<HTMLElement>(
                     '[role="alert"], [data-shallot-loading]',
