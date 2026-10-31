@@ -328,7 +328,9 @@ export function spawnGltfScene(
         composed: new Float32Array(16),
         recomposed: new Float32Array(16),
     };
-    poseGltfScene(world, instance, { name: "rest", samplers: [], channels: [] }, 0);
+    composeGlobals(instance);
+    for (let i = 0; i < gltf.primitives.length; i++)
+        if (gltf.primitives[i].skin >= 0) writeSkinPose(world, instance, i);
     return instance;
 }
 
@@ -387,6 +389,27 @@ export function poseGltfScene(
     const { entities, gltf, poses, globals, transforms, composed, recomposed } = instance;
     if (gltf.world !== world) throw new Error("glTF handle belongs to another world");
     evaluateGltfAnimation(gltf.nodes, animation, time, poses);
+    composeGlobals(instance);
+    for (let i = 0; i < entities.length; i++) {
+        const primitive = gltf.primitives[i];
+        if (primitive.skin >= 0) continue;
+        multiplyMat4(instance.placement, globals[primitive.nodeIndex], composed);
+        decomposeMat4(composed, transforms[i]);
+        validateTransform(composed, transforms[i], recomposed, primitive.node);
+    }
+    const storage = world.storage(Transform);
+    for (let i = 0; i < entities.length; i++) {
+        const eid = entities[i],
+            t = transforms[i];
+        storage.translation.set(eid, t[0], t[1], t[2]);
+        storage.rotation.set(eid, t[3], t[4], t[5], t[6]);
+        storage.scale.set(eid, t[7], t[8], t[9]);
+        if (gltf.primitives[i].skin >= 0) writeSkinPose(world, instance, i);
+    }
+}
+
+function composeGlobals(instance: GltfSceneInstance): void {
+    const { gltf, poses, globals, composed } = instance;
     for (let i = 0; i < poses.length; i++) {
         const { translation: t, rotation: r, scale: s } = poses[i];
         const local = composeMat4(
@@ -405,22 +428,6 @@ export function poseGltfScene(
         const parent = gltf.nodes[i].parent;
         if (parent !== -1) multiplyMat4(globals[parent], local, globals[i]);
         else globals[i].set(local);
-    }
-    for (let i = 0; i < entities.length; i++) {
-        const primitive = gltf.primitives[i];
-        if (primitive.skin >= 0) continue;
-        multiplyMat4(instance.placement, globals[primitive.nodeIndex], composed);
-        decomposeMat4(composed, transforms[i]);
-        validateTransform(composed, transforms[i], recomposed, primitive.node);
-    }
-    const storage = world.storage(Transform);
-    for (let i = 0; i < entities.length; i++) {
-        const eid = entities[i],
-            t = transforms[i];
-        storage.translation.set(eid, t[0], t[1], t[2]);
-        storage.rotation.set(eid, t[3], t[4], t[5], t[6]);
-        storage.scale.set(eid, t[7], t[8], t[9]);
-        if (gltf.primitives[i].skin >= 0) writeSkinPose(world, instance, i);
     }
 }
 

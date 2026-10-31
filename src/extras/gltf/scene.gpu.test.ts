@@ -4,13 +4,16 @@ import { attachTexture, captureTexture, ImageBindings } from "../../core/renderi
 import {
     type App,
     Camera,
+    composeMat4,
     DirectionalLight,
+    decomposeMat4,
     ImageAddressMode,
     lookAtRotation,
     Materials,
     Meshes,
     MeshInstance,
     MeshMaterial,
+    multiplyMat4,
     type Plugin,
     registerImage,
     StandardMaterial,
@@ -22,7 +25,7 @@ import {
 } from "../../index";
 import { openGpuApp as createApp } from "../../project/testing-gpu";
 import { MeshRenderPlugin, StandardRenderingPlugin } from "../../standard/rendering";
-import { type Gltf, loadGltf, loadGltfScene, spawnGltfScene } from "./index";
+import { type Gltf, loadGltf, loadGltfScene, poseGltfScene, spawnGltfScene } from "./index";
 
 setDefaultTimeout(TIMEOUT.gpu);
 const vertices = new Float32Array([
@@ -76,6 +79,61 @@ const url = `data:model/gltf+json;base64,${Buffer.from(JSON.stringify(fixture)).
 const apps: App[] = [];
 const cameras: number[] = [];
 let loaded: Gltf;
+let matrixLoaded: Gltf;
+const matrixFixture = {
+    ...fixture,
+    nodes: [
+        { children: [1], matrix: [1, 0, 0, 0, 0, 0, -1, 0, 0, 1, 0, 0, 0, 0, 0, 1] },
+        { mesh: 0 },
+    ],
+};
+
+function transformBits(world: World, eid: number): Uint32Array {
+    const t = world.get(eid, Transform)!;
+    return new Uint32Array(new Float32Array([...t.translation, ...t.rotation, ...t.scale]).buffer);
+}
+
+test("unskinned spawn keeps the flattened primitive's single-decomposition Transform bits", () => {
+    const world = apps[0].world;
+    for (const scale of [1, 1.2]) {
+        const instance = spawnGltfScene(world, matrixLoaded, { scale: [scale, scale, scale] });
+        try {
+            const placement = composeMat4(0, 0, 0, 0, 0, 0, 1, scale, scale, scale);
+            const expected = decomposeMat4(
+                multiplyMat4(placement, matrixLoaded.primitives[0].matrix),
+            );
+            expect(transformBits(world, instance.entities[0])).toEqual(
+                new Uint32Array(expected.buffer),
+            );
+        } finally {
+            for (const eid of instance.entities) world.destroy(eid);
+        }
+    }
+});
+
+test("explicit unskinned pose keeps parent-first local TRS composition Transform bits", () => {
+    const world = apps[0].world;
+    const instance = spawnGltfScene(world, matrixLoaded);
+    try {
+        const globals: Float32Array[] = [];
+        for (const node of matrixLoaded.nodes) {
+            const t = node.translation,
+                r = node.rotation,
+                s = node.scale;
+            const local = composeMat4(t[0], t[1], t[2], r[0], r[1], r[2], r[3], s[0], s[1], s[2]);
+            globals.push(node.parent < 0 ? local : multiplyMat4(globals[node.parent], local));
+        }
+        const expected = decomposeMat4(
+            multiplyMat4(instance.placement, globals[matrixLoaded.primitives[0].nodeIndex]),
+        );
+        poseGltfScene(world, instance, { name: "rest", samplers: [], channels: [] }, 0);
+        expect(transformBits(world, instance.entities[0])).toEqual(
+            new Uint32Array(expected.buffer),
+        );
+    } finally {
+        for (const eid of instance.entities) world.destroy(eid);
+    }
+});
 
 test("scene bounds enclose transformed vertices before spawn placement", () => {
     const points = [
@@ -118,6 +176,10 @@ beforeAll(async () => {
                 camera(world);
                 if (!direct) {
                     loaded = await loadGltfScene(world, url);
+                    matrixLoaded = await loadGltfScene(
+                        world,
+                        `data:model/gltf+json;base64,${Buffer.from(JSON.stringify(matrixFixture)).toString("base64")}`,
+                    );
                     spawnGltfScene(world, loaded, {
                         translation: [-0.1, 0.2, 0],
                         scale: [1.2, 1.2, 1.2],
