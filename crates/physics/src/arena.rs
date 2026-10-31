@@ -1589,6 +1589,7 @@ unsafe fn contact_block_impl(
                                     po + P_SEPARATION,
                                     manifolds.get(po + P_BASE_SEPARATION) + dp.dot(normal),
                                 );
+                                manifolds.set(po + P_NORMAL_VELOCITY, 0.0);
                                 manifolds.set(po + P_PERSISTED, f32::from_bits(1));
                             }
                         }

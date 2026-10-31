@@ -175,16 +175,17 @@ pub unsafe fn finalize(
         let body_id = sim_col.get(o + BODY_ID).to_bits() as usize;
         let body = crate::bodies::record_mut(world_index, body_id);
         body.sleep_velocity = sleep_velocity;
-        let transient = crate::body::flags::IS_FAST
-            | crate::body::flags::IS_SPEED_CAPPED
-            | crate::body::flags::HAD_TIME_OF_IMPACT;
+        let transient =
+            crate::body::flags::IS_SPEED_CAPPED | crate::body::flags::HAD_TIME_OF_IMPACT;
         let sim_flags = sim_col.get(o + FLAGS).to_bits();
         let state_flags = flags_col.get(i * crate::body::STATE_STRIDE);
         body.body_move_index = i as i32;
-        body.flags = (body.flags & !transient)
-            | ((sim_flags | state_flags)
-                & (crate::body::flags::IS_SPEED_CAPPED | crate::body::flags::HAD_TIME_OF_IMPACT));
-        sim_col.set(o + FLAGS, f32::from_bits(sim_flags & !transient));
+        body.flags =
+            (body.flags & !transient) | (state_flags & crate::body::flags::IS_SPEED_CAPPED);
+        sim_col.set(
+            o + FLAGS,
+            f32::from_bits(sim_flags & !(transient | crate::body::flags::IS_FAST)),
+        );
         flags_col.set(i * crate::body::STATE_STRIDE, state_flags & !transient);
         crate::events::write_move(world_index, i);
         let awake = !crate::continuous::sleep_enabled()

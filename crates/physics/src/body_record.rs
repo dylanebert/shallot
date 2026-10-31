@@ -607,11 +607,13 @@ pub(crate) mod runtime {
 
     pub unsafe extern "C" fn sync_flags_in_world(world: usize, id: usize) {
         let record = bodies::record(world, id);
-        let flags = record.flags
-            & !(body::flags::IS_FAST
-                | body::flags::IS_SPEED_CAPPED
-                | body::flags::HAD_TIME_OF_IMPACT);
-        bodies::column(world, id, 1, body::SIM_STRIDE).set(body::FLAGS, f32::from_bits(flags));
+        let flags =
+            record.flags & !(body::flags::IS_SPEED_CAPPED | body::flags::HAD_TIME_OF_IMPACT);
+        let sim = bodies::column(world, id, 1, body::SIM_STRIDE);
+        let sim_flags = (sim.get(body::FLAGS).to_bits()
+            & (body::flags::IS_FAST | body::flags::HAD_TIME_OF_IMPACT))
+            | flags;
+        sim.set(body::FLAGS, f32::from_bits(sim_flags));
         if record.set_index == AWAKE_SET {
             *crate::solver_set::body_ptr(
                 world,

@@ -567,6 +567,8 @@ impl StageWork for Work<'_> {
             b.start,
             b.count,
             self.restitution_threshold,
+            self.inv_h,
+            false,
         );
     }
 
@@ -577,6 +579,8 @@ impl StageWork for Work<'_> {
             b.start,
             b.count,
             self.restitution_threshold,
+            self.inv_h,
+            false,
         );
     }
 
@@ -712,10 +716,12 @@ fn solve_serial(
         }
     }
 
-    work.restitution_overflow();
-    for s in spans {
-        work.restitution_wide(color_wide(s));
-        work.restitution_mesh(color_mesh(s));
+    for _ in 0..2 {
+        work.restitution_overflow();
+        for s in spans {
+            work.restitution_wide(color_wide(s));
+            work.restitution_mesh(color_mesh(s));
+        }
     }
 
     work.store_overflow();

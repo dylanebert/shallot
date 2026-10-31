@@ -62,6 +62,23 @@ impl Vec3W {
     }
 }
 
+/// Inverse rotation in b3InvRotateVectorW's floating-point order.
+#[inline]
+pub fn inv_rotate_vector_w(q: QuatW, a: Vec3W) -> Vec3W {
+    let t = cross_w(q.v, a);
+    let t = Vec3W {
+        x: t.x.add(t.x),
+        y: t.y.add(t.y),
+        z: t.z.add(t.z),
+    };
+    let u = cross_w(q.v, t);
+    Vec3W {
+        x: a.x.sub(q.s.mul(t.x)).add(u.x),
+        y: a.y.sub(q.s.mul(t.y)).add(u.y),
+        z: a.z.sub(q.s.mul(t.z)).add(u.z),
+    }
+}
+
 /// `s * a` (b3MulSVW).
 #[inline]
 pub fn mul_svw(s: FloatW, a: Vec3W) -> Vec3W {
@@ -184,21 +201,35 @@ pub fn cross_w(a: Vec3W, b: Vec3W) -> Vec3W {
     }
 }
 
-/// Rotate `a` by quaternion `q` (b3RotateVectorW).
+/// Rotate through b3MakeMatrixFromQuatW and b3MulM3VW's arithmetic.
 #[inline]
 pub fn rotate_vector_w(q: QuatW, a: Vec3W) -> Vec3W {
-    let t1 = cross_w(q.v, a);
-    let t2 = Vec3W {
-        x: t1.x.mul_add(q.s, a.x),
-        y: t1.y.mul_add(q.s, a.y),
-        z: t1.z.mul_add(q.s, a.z),
-    };
-    let t3 = cross_w(q.v, t2);
-    let two = FloatW::splat(2.0);
+    let x2 = q.v.x.add(q.v.x);
+    let y2 = q.v.y.add(q.v.y);
+    let z2 = q.v.z.add(q.v.z);
+    let xx2 = q.v.x.mul(x2);
+    let yy2 = q.v.y.mul(y2);
+    let zz2 = q.v.z.mul(z2);
+    let xy2 = q.v.x.mul(y2);
+    let xz2 = q.v.x.mul(z2);
+    let yz2 = q.v.y.mul(z2);
+    let xw2 = q.s.mul(x2);
+    let yw2 = q.s.mul(y2);
+    let zw2 = q.s.mul(z2);
+    let one = FloatW::splat(1.0);
     Vec3W {
-        x: a.x.mul_add(two, t3.x),
-        y: a.y.mul_add(two, t3.y),
-        z: a.z.mul_add(two, t3.z),
+        x: one
+            .sub(yy2.add(zz2))
+            .mul(a.x)
+            .add(xy2.sub(zw2).mul(a.y).add(xz2.add(yw2).mul(a.z))),
+        y: xy2
+            .add(zw2)
+            .mul(a.x)
+            .add(one.sub(xx2.add(zz2)).mul(a.y).add(yz2.sub(xw2).mul(a.z))),
+        z: xz2
+            .sub(yw2)
+            .mul(a.x)
+            .add(yz2.add(xw2).mul(a.y).add(one.sub(xx2.add(yy2)).mul(a.z))),
     }
 }
 

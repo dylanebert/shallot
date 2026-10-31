@@ -77,10 +77,14 @@ pub(crate) unsafe fn bullet_body(index: usize) -> usize {
 
 static mut ROOTS: [i32; 3] = [-1; 3];
 static mut ENABLE_SLEEP: bool = true;
-pub extern "C" fn roots(s: i32, k: i32, d: i32, enable_sleep: bool) {
+static mut STEP_DT: f32 = 0.0;
+static mut GRAVITY: Vec3 = Vec3::ZERO;
+pub(crate) fn roots(roots: [i32; 3], enable_sleep: bool, dt: f32, gravity: [f32; 3]) {
     unsafe {
-        ROOTS = [s, k, d];
+        ROOTS = roots;
         ENABLE_SLEEP = enable_sleep;
+        STEP_DT = dt;
+        GRAVITY = Vec3::new(gravity[0], gravity[1], gravity[2]);
     }
 }
 unsafe fn sim(world_index: usize) -> Col<'static, f32> {
@@ -241,7 +245,9 @@ fn commit_bounds(u: Col<u32>, f: Col<f32>, su: Col<u32>, i: usize, o: usize, b: 
             f.set(fb + n, b[n] - margin);
             f.set(fb + n + 3, b[n + 3] + margin);
         }
-        su.atomic_or(i * body::SIM_STRIDE + body::FLAGS, ENLARGE_BOUNDS);
+        if su.atomic_get(i * body::SIM_STRIDE + body::FLAGS) & IS_BULLET != 0 {
+            su.atomic_or(i * body::SIM_STRIDE + body::FLAGS, ENLARGE_BOUNDS);
+        }
     }
 }
 
@@ -378,7 +384,6 @@ unsafe fn solve_impl(world_index: usize, worker: usize, i: usize, probe: bool) -
                         {
                             fraction = output.fraction;
                             crate::arena::note_impact(world_index, worker, &output);
-                            su.atomic_or(i * body::SIM_STRIDE + body::FLAGS, HAD_TIME_OF_IMPACT);
                         }
                     }
                     true
@@ -398,6 +403,25 @@ unsafe fn solve_impl(world_index: usize, worker: usize, i: usize, probe: bool) -
         body::write_sim_rotation(sf, i, rotation);
         body::write_sim_center(sf, i, base.add(c));
         body::write_sim_transform_p(sf, i, base.add(c.sub(rotation.rotate(sw.local_center))));
+        su.atomic_or(i * body::SIM_STRIDE + body::FLAGS, HAD_TIME_OF_IMPACT);
+        let time_loss = (1.0 - fraction) * STEP_DT;
+        let mut dv = GRAVITY.scale(-time_loss * sf.get(i * body::SIM_STRIDE + body::GRAVITY_SCALE));
+        let flags = *(bodies::flags_base(world_index) as *const u32).add(i * body::STATE_STRIDE);
+        if flags & body::flags::LOCK_LINEAR_X != 0 {
+            dv.x = 0.0;
+        }
+        if flags & body::flags::LOCK_LINEAR_Y != 0 {
+            dv.y = 0.0;
+        }
+        if flags & body::flags::LOCK_LINEAR_Z != 0 {
+            dv.z = 0.0;
+        }
+        let state = Col::new(
+            bodies::state_base(world_index) as *mut f32,
+            (bodies::body_cap_in_world(world_index) + 8) * body::STATE_STRIDE,
+        );
+        let offset = i * body::STATE_STRIDE;
+        put(state, offset, v(state, offset).add(dv));
         crate::events::write_move(world_index, i);
     }
     let rotation = q(sf, i * body::SIM_STRIDE + body::ROTATION);

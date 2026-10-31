@@ -728,10 +728,10 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
             }
             6 => {
                 crate::continuous::roots(
-                    *crate::broad::tree_state(world_index, 0) as i32,
-                    -1,
-                    -1,
+                    [*crate::broad::tree_state(world_index, 0) as i32, -1, -1],
                     DRIVER.sleep,
+                    CONTEXT[0],
+                    DRIVER.gravity,
                 );
                 island::set_split_candidate_in_world(world_index, -1);
                 crate::arena::prepare_finalize(world_index, DRIVER.count);
@@ -757,10 +757,14 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                 let start = ticks();
                 finish_tree();
                 crate::continuous::roots(
-                    *crate::broad::tree_state(world_index, 0) as i32,
-                    *crate::broad::tree_state(world_index, 1) as i32,
-                    *crate::broad::tree_state(world_index, 2) as i32,
+                    [
+                        *crate::broad::tree_state(world_index, 0) as i32,
+                        *crate::broad::tree_state(world_index, 1) as i32,
+                        *crate::broad::tree_state(world_index, 2) as i32,
+                    ],
                     DRIVER.sleep,
+                    CONTEXT[0],
+                    DRIVER.gravity,
                 );
                 crate::treework::enlarge_pass_in_world(world_index, DRIVER.count, 0);
                 accumulate(world_index, 19, start);

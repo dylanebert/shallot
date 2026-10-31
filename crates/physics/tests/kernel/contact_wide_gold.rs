@@ -272,6 +272,8 @@ fn wide_convex_phases_match_c() {
         0,
         1,
         restitution_threshold,
+        inv_h,
+        false,
     );
 
     // store (writes impulses back into the pool manifolds + the directory hit flags)

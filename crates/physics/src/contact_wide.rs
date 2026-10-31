@@ -12,9 +12,9 @@ const SPECULATIVE_DISTANCE: f32 = 0.02;
 const MIN_FRICTION_WEIGHT: f32 = 1.0e-10;
 use crate::simd::FloatW;
 use crate::wide::{
-    add_v2w, add_vw, cross_w, dot_w, mul_add_mvw, mul_add_svw, mul_mv2w, mul_mvw, mul_sub_mvw,
-    mul_sub_svw, mul_svw, rotate_vector_w, sub_vw, sym_clamp, QuatW, SymMatrix2W, SymMatrix3W,
-    Vec2W, Vec3W,
+    add_v2w, add_vw, cross_w, dot_w, inv_rotate_vector_w, mul_add_mvw, mul_add_svw, mul_mv2w,
+    mul_mvw, mul_sub_mvw, mul_sub_svw, mul_svw, rotate_vector_w, sub_vw, sym_clamp, QuatW,
+    SymMatrix2W, SymMatrix3W, Vec2W, Vec3W,
 };
 #[cfg(target_arch = "wasm32")]
 use core::arch::wasm32::*;
@@ -85,7 +85,7 @@ const RESTITUTION: usize = offset_of!(ContactConstraintWide, restitution) / 4;
 const POINTS: usize = offset_of!(ContactConstraintWide, points) / 4;
 const POINT_COUNTS: usize = offset_of!(ContactConstraintWide, point_counts) / 4;
 const MANIFOLDS: usize = offset_of!(ContactConstraintWide, manifolds) / 4;
-const POINT_STRIDE: usize = 48;
+const POINT_STRIDE: usize = 52;
 // point sub-offsets (relative to a point's base)
 const P_ANCHOR_A: usize = 0;
 const P_ANCHOR_B: usize = 12;
@@ -95,6 +95,7 @@ const P_TOTAL_NORMAL_IMP: usize = 32;
 const P_NORMAL_MASS: usize = 36;
 const P_LEVER_ARM: usize = 40;
 const P_REL_VEL: usize = 44;
+const P_RESTITUTION_IMP: usize = 48;
 
 pub const WIDE_STRIDE: usize = size_of::<ContactConstraintWide>() / 4;
 
@@ -173,6 +174,37 @@ fn st_lane_sym3(wide: Col<f32>, o: usize, lane: usize, m: Mat3) {
     }
 }
 
+// Prepare gathers one lane at a time from Shallot's split directory/pool. Keep the wide C
+// symmetric matrix arithmetic, including its right-associated sums, in each scalar lane.
+#[inline]
+fn mul_sym(m: Mat3, a: Vec3) -> Vec3 {
+    Vec3::new(
+        m.cx.x * a.x + (m.cx.y * a.y + m.cx.z * a.z),
+        m.cx.y * a.x + (m.cy.y * a.y + m.cy.z * a.z),
+        m.cx.z * a.x + (m.cy.z * a.y + m.cz.z * a.z),
+    )
+}
+
+fn invert_sym(m: Mat3) -> Mat3 {
+    let cxx = m.cy.y * m.cz.z - m.cy.z * m.cy.z;
+    let cxy = m.cx.z * m.cy.z - m.cx.y * m.cz.z;
+    let cxz = m.cx.y * m.cy.z - m.cx.z * m.cy.y;
+    let cyy = m.cx.x * m.cz.z - m.cx.z * m.cx.z;
+    let cyz = m.cx.y * m.cx.z - m.cx.x * m.cy.z;
+    let czz = m.cx.x * m.cy.y - m.cx.y * m.cx.y;
+    let det = m.cx.x * cxx + (m.cx.y * cxy + m.cx.z * cxz);
+    let inv_det = if det.abs() > 1000.0 * f32::MIN_POSITIVE {
+        1.0 / det
+    } else {
+        0.0
+    };
+    Mat3 {
+        cx: Vec3::new(inv_det * cxx, inv_det * cxy, inv_det * cxz),
+        cy: Vec3::new(inv_det * cxy, inv_det * cyy, inv_det * cyz),
+        cz: Vec3::new(inv_det * cxz, inv_det * cyz, inv_det * czz),
+    }
+}
+
 #[inline]
 fn st_lane_sym2(wide: Col<f32>, o: usize, lane: usize, m: Mat2) {
     wide.set(o + lane, m.cx.x);
@@ -230,28 +262,8 @@ fn scatter(state: Col<f32>, flags: Col<u32>, idx: Col<u32>, io: usize, v: &Vec3W
         if f & body_flags::DYNAMIC == 0 {
             return;
         }
-        let mut v = [vx[lane], vy[lane], vz[lane]];
-        let mut w = [wx[lane], wy[lane], wz[lane]];
-        if f & body_flags::ALL_MOTION_LOCKS != 0 {
-            if f & body_flags::LOCK_LINEAR_X != 0 {
-                v[0] = 0.0;
-            }
-            if f & body_flags::LOCK_LINEAR_Y != 0 {
-                v[1] = 0.0;
-            }
-            if f & body_flags::LOCK_LINEAR_Z != 0 {
-                v[2] = 0.0;
-            }
-            if f & body_flags::LOCK_ANGULAR_X != 0 {
-                w[0] = 0.0;
-            }
-            if f & body_flags::LOCK_ANGULAR_Y != 0 {
-                w[1] = 0.0;
-            }
-            if f & body_flags::LOCK_ANGULAR_Z != 0 {
-                w[2] = 0.0;
-            }
-        }
+        let v = [vx[lane], vy[lane], vz[lane]];
+        let w = [wx[lane], wy[lane], wz[lane]];
         let o = b * STATE_STRIDE;
         state.set(o, v[0]);
         state.set(o + 1, v[1]);
@@ -520,6 +532,14 @@ pub fn prepare(
         let io = r * WIDE_STRIDE;
         let local = (r - span.start as usize) * LANES;
         let lane_count = (span.count as usize - local).min(LANES);
+        let mut any_rolling = false;
+        let mut sample_velocity = false;
+        for lane in 0..lane_count {
+            let d = read_dir(dir, unsafe { *span.contacts.add(local + lane) as usize });
+            any_rolling |= d.rolling_resistance > 0.0;
+            sample_velocity |=
+                d.restitution > 0.0 || d.flags & mabi::contact_flags::SIM_ENABLE_HIT_EVENT != 0;
+        }
 
         for lane in 0..lane_count {
             let contact_id = unsafe { *span.contacts.add(local + lane) as usize };
@@ -597,17 +617,29 @@ pub fn prepare(
                     warm_start_scale * mp_normal_impulse,
                 );
                 wide.set(pb + P_TOTAL_NORMAL_IMP + lane, 0.0);
+                wide.set(pb + P_RESTITUTION_IMP + lane, 0.0);
 
                 let rn_a = r_a.cross(n);
                 let rn_b = r_b.cross(n);
-                let k_normal = m_a + m_b + rn_a.dot(i_a.mul_v(rn_a)) + rn_b.dot(i_b.mul_v(rn_b));
+                let k_normal =
+                    m_a + m_b + rn_a.dot(mul_sym(i_a, rn_a)) + rn_b.dot(mul_sym(i_b, rn_b));
                 wide.set(
                     pb + P_NORMAL_MASS + lane,
                     if k_normal > 0.0 { 1.0 / k_normal } else { 0.0 },
                 );
                 let vr_a = v_a.add(w_a.cross(r_a));
                 let vr_b = v_b.add(w_b.cross(r_b));
-                wide.set(pb + P_REL_VEL + lane, n.dot(vr_b.sub(vr_a)));
+                let hit_events = d.flags & mabi::contact_flags::SIM_ENABLE_HIT_EVENT != 0;
+                let vn = if sample_velocity {
+                    n.dot(vr_b.sub(vr_a))
+                } else {
+                    0.0
+                };
+                wide.set(pb + P_REL_VEL + lane, vn);
+                pool.set(
+                    pp + mabi::P_NORMAL_VELOCITY,
+                    if hit_events { vn } else { 0.0 },
+                );
             }
             let inv_weight = 1.0 / total_friction_weight;
             center_a = center_a.scale(inv_weight);
@@ -627,9 +659,9 @@ pub fn prepare(
             let rt_a2 = center_a.cross(t2);
             let rt_b1 = center_b.cross(t1);
             let rt_b2 = center_b.cross(t2);
-            let kxx = m_a + m_b + rt_a1.dot(i_a.mul_v(rt_a1)) + rt_b1.dot(i_b.mul_v(rt_b1));
-            let kyy = m_a + m_b + rt_a2.dot(i_a.mul_v(rt_a2)) + rt_b2.dot(i_b.mul_v(rt_b2));
-            let kxy = rt_a1.dot(i_a.mul_v(rt_a2)) + rt_b1.dot(i_b.mul_v(rt_b2));
+            let kxx = m_a + m_b + rt_a1.dot(mul_sym(i_a, rt_a1)) + rt_b1.dot(mul_sym(i_b, rt_b1));
+            let kyy = m_a + m_b + rt_a2.dot(mul_sym(i_a, rt_a2)) + rt_b2.dot(mul_sym(i_b, rt_b2));
+            let kxy = rt_a1.dot(mul_sym(i_a, rt_a2)) + rt_b1.dot(mul_sym(i_b, rt_b2));
             st_lane_sym2(
                 wide,
                 wo + TANGENT_MASS,
@@ -652,7 +684,7 @@ pub fn prepare(
             );
 
             let iab = i_a.add(i_b);
-            let twist_k = n.dot(iab.mul_v(n));
+            let twist_k = n.dot(mul_sym(iab, n));
             wide.set(
                 wo + TWIST_MASS + lane,
                 if twist_k > 0.0 { 1.0 / twist_k } else { 0.0 },
@@ -661,12 +693,25 @@ pub fn prepare(
                 wo + TWIST_IMPULSE + lane,
                 warm_start_scale * pool.get(mpo + mabi::M_TWIST),
             );
-            st_lane_sym3(wide, wo + ROLLING_MASS, lane, iab.invert());
+            st_lane_sym3(
+                wide,
+                wo + ROLLING_MASS,
+                lane,
+                if any_rolling {
+                    invert_sym(iab)
+                } else {
+                    Mat3::ZERO
+                },
+            );
             st_lane_v3(
                 wide,
                 wo + ROLLING_IMPULSE,
                 lane,
-                v3(pool, mpo + mabi::M_ROLLING).scale(warm_start_scale),
+                if d.rolling_resistance > 0.0 {
+                    v3(pool, mpo + mabi::M_ROLLING).scale(warm_start_scale)
+                } else {
+                    Vec3::ZERO
+                },
             );
             for pi in point_count..MAX_POINTS {
                 let pb = wo + POINTS + pi * POINT_STRIDE;
@@ -706,46 +751,47 @@ pub fn warm_start(
         let (mut ba_v, mut ba_w) = gather_vel(state, idx, io);
         let (mut bb_v, mut bb_w) = gather_vel(state, idx, io + LANES);
 
+        let mut total_normal_impulse = FloatW::zero();
+        let mut moment_a = Vec3W::splat0();
+        let mut moment_b = Vec3W::splat0();
         for pi in 0..point_count {
             let pb = wo + POINTS + pi * POINT_STRIDE;
-            let ra = ld_v3(wide, pb + P_ANCHOR_A);
-            let rb = ld_v3(wide, pb + P_ANCHOR_B);
-            let n_imp = ld(wide, pb + P_NORMAL_IMP);
-            let impulse = Vec3W {
-                x: n_imp.mul(normal.x),
-                y: n_imp.mul(normal.y),
-                z: n_imp.mul(normal.z),
-            };
-            ba_w = mul_sub_mvw(ba_w, ia, cross_w(ra, impulse));
-            ba_v = mul_sub_svw(ba_v, inv_ma, impulse);
-            bb_w = mul_add_mvw(bb_w, ib, cross_w(rb, impulse));
-            bb_v = mul_add_svw(bb_v, inv_mb, impulse);
+            let impulse = ld(wide, pb + P_NORMAL_IMP);
+            total_normal_impulse = total_normal_impulse.add(impulse);
+            moment_a = mul_add_svw(moment_a, impulse, ld_v3(wide, pb + P_ANCHOR_A));
+            moment_b = mul_add_svw(moment_b, impulse, ld_v3(wide, pb + P_ANCHOR_B));
         }
-
-        {
-            let ra = ld_v3(wide, wo + ORIGIN_A);
-            let rb = ld_v3(wide, wo + ORIGIN_B);
-            let fi = ld_v2(wide, wo + FRICTION_IMPULSE);
-            let t1 = ld_v3(wide, wo + TANGENT1);
-            let t2 = ld_v3(wide, wo + TANGENT2);
-            let mut impulse = mul_svw(fi.x, t1);
-            impulse = mul_add_svw(impulse, fi.y, t2);
-            ba_w = mul_sub_mvw(ba_w, ia, cross_w(ra, impulse));
-            ba_v = mul_sub_svw(ba_v, inv_ma, impulse);
-            bb_w = mul_add_mvw(bb_w, ib, cross_w(rb, impulse));
-            bb_v = mul_add_svw(bb_v, inv_mb, impulse);
+        let fi = ld_v2(wide, wo + FRICTION_IMPULSE);
+        let friction_impulse = mul_add_svw(
+            mul_svw(fi.x, ld_v3(wide, wo + TANGENT1)),
+            fi.y,
+            ld_v3(wide, wo + TANGENT2),
+        );
+        let linear_impulse = mul_add_svw(friction_impulse, total_normal_impulse, normal);
+        let twist = mul_svw(ld(wide, wo + TWIST_IMPULSE), normal);
+        let mut angular_a = add_vw(
+            add_vw(
+                cross_w(moment_a, normal),
+                cross_w(ld_v3(wide, wo + ORIGIN_A), friction_impulse),
+            ),
+            twist,
+        );
+        let mut angular_b = add_vw(
+            add_vw(
+                cross_w(moment_b, normal),
+                cross_w(ld_v3(wide, wo + ORIGIN_B), friction_impulse),
+            ),
+            twist,
+        );
+        if !ld(wide, wo + ROLLING_RESISTANCE).all_zero() {
+            let rolling = ld_v3(wide, wo + ROLLING_IMPULSE);
+            angular_a = add_vw(angular_a, rolling);
+            angular_b = add_vw(angular_b, rolling);
         }
-        {
-            let twist = ld(wide, wo + TWIST_IMPULSE);
-            let impulse = mul_svw(twist, normal);
-            ba_w = mul_sub_mvw(ba_w, ia, impulse);
-            bb_w = mul_add_mvw(bb_w, ib, impulse);
-        }
-        {
-            let impulse = ld_v3(wide, wo + ROLLING_IMPULSE);
-            ba_w = mul_sub_mvw(ba_w, ia, impulse);
-            bb_w = mul_add_mvw(bb_w, ib, impulse);
-        }
+        ba_w = mul_sub_mvw(ba_w, ia, angular_a);
+        ba_v = mul_sub_svw(ba_v, inv_ma, linear_impulse);
+        bb_w = mul_add_mvw(bb_w, ib, angular_b);
+        bb_v = mul_add_svw(bb_v, inv_mb, linear_impulse);
 
         scatter(state, flags, idx, io, &ba_v, &ba_w);
         scatter(state, flags, idx, io + LANES, &bb_v, &bb_w);
@@ -803,6 +849,9 @@ pub fn solve(
         };
 
         let dp = sub_vw(bb.dp, ba.dp);
+        let normal_separation = dot_w(normal, dp);
+        let normal_a = inv_rotate_vector_w(ba.dq, normal);
+        let normal_b = inv_rotate_vector_w(bb.dq, normal);
         let mut total_normal_impulse = zero;
         let mut total_twist_limit = zero;
 
@@ -811,15 +860,18 @@ pub fn solve(
             let ra = ld_v3(wide, pb + P_ANCHOR_A);
             let rb = ld_v3(wide, pb + P_ANCHOR_B);
 
-            let rs_a = rotate_vector_w(ba.dq, ra);
-            let rs_b = rotate_vector_w(bb.dq, rb);
-            let ds = add_vw(dp, sub_vw(rs_b, rs_a));
-            let s = dot_w(normal, ds).add(ld(wide, pb + P_BASE_SEP));
+            let s = normal_separation
+                .add(dot_w(normal_b, rb).sub(dot_w(normal_a, ra)))
+                .add(ld(wide, pb + P_BASE_SEP));
 
             let mask = s.greater_than(zero);
             let spec_bias = s.mul(inv_h_w);
             let soft_bias = bias_rate.mul(s).max(contact_speed_w);
-            let bias = FloatW::blend(soft_bias, spec_bias, mask);
+            let bias = if use_bias {
+                FloatW::blend(soft_bias, spec_bias, mask)
+            } else {
+                zero.max(spec_bias)
+            };
             let point_mass_scale = FloatW::blend(mass_scale, one, mask);
             let point_impulse_scale = FloatW::blend(impulse_scale, zero, mask);
 
@@ -829,17 +881,23 @@ pub fn solve(
 
             let normal_mass = ld(wide, pb + P_NORMAL_MASS);
             let old_impulse = ld(wide, pb + P_NORMAL_IMP);
-            let neg_impulse = normal_mass
-                .mul(point_mass_scale.mul(vn).add(bias))
-                .add(point_impulse_scale.mul(old_impulse));
+            let neg_impulse = if use_bias {
+                normal_mass
+                    .mul(point_mass_scale.mul(vn).add(bias))
+                    .add(point_impulse_scale.mul(old_impulse))
+            } else {
+                normal_mass.mul(vn.add(bias))
+            };
             let new_impulse = old_impulse.sub(neg_impulse).max(zero);
             let delta_impulse = new_impulse.sub(old_impulse);
             st(wide, pb + P_NORMAL_IMP, new_impulse);
-            let total = ld(wide, pb + P_TOTAL_NORMAL_IMP).add(new_impulse);
-            st(wide, pb + P_TOTAL_NORMAL_IMP, total);
-
-            total_normal_impulse = total_normal_impulse.add(new_impulse);
-            total_twist_limit = total_twist_limit.add(ld(wide, pb + P_LEVER_ARM).mul(new_impulse));
+            if !use_bias {
+                let total = ld(wide, pb + P_TOTAL_NORMAL_IMP).add(new_impulse);
+                st(wide, pb + P_TOTAL_NORMAL_IMP, total);
+                total_normal_impulse = total_normal_impulse.add(new_impulse);
+                total_twist_limit =
+                    total_twist_limit.add(ld(wide, pb + P_LEVER_ARM).mul(new_impulse));
+            }
 
             let p = mul_svw(delta_impulse, normal);
             ba.w = mul_sub_mvw(ba.w, ia, cross_w(ra, p));
@@ -942,8 +1000,11 @@ pub fn restitution(
     start: usize,
     count: usize,
     threshold: f32,
+    inv_h: f32,
+    propagate: bool,
 ) {
-    let threshold_w = FloatW::splat(threshold);
+    let threshold_w = FloatW::splat(-threshold);
+    let inv_h = FloatW::splat(inv_h);
     let zero = FloatW::zero();
 
     for r in start..start + count {
@@ -957,7 +1018,7 @@ pub fn restitution(
                     .max(idx.get(io + POINT_COUNTS + 3)),
             ) as usize;
         let rest = ld(wide, wo + RESTITUTION);
-        if rest.all_zero() {
+        if !propagate && rest.all_zero() {
             continue;
         }
         let mut ba = gather(state, idx, io);
@@ -967,28 +1028,52 @@ pub fn restitution(
         let inv_ma = ld(wide, wo + INV_MASS_A);
         let inv_mb = ld(wide, wo + INV_MASS_B);
         let normal = ld_v3(wide, wo + NORMAL);
-        let restitution_mask = rest.equals(zero);
+        let restitution_mask = rest.greater_than(zero);
+        let dp = sub_vw(bb.dp, ba.dp);
 
         for pi in 0..point_count {
             let pb = wo + POINTS + pi * POINT_STRIDE;
             let rel_vel = ld(wide, pb + P_REL_VEL);
             let total_normal = ld(wide, pb + P_TOTAL_NORMAL_IMP);
-            let mask1 = rel_vel.add(threshold_w).greater_than(zero);
-            let mask2 = total_normal.equals(zero);
-            let mask = mask1.or(mask2).or(restitution_mask);
-            let mass = FloatW::blend(ld(wide, pb + P_NORMAL_MASS), zero, mask);
+            let restitution_impulse = ld(wide, pb + P_RESTITUTION_IMP);
+            let compression = total_normal.sub(restitution_impulse);
+            let armed = restitution_mask
+                .and(rel_vel.less_than(threshold_w))
+                .and(compression.greater_than(zero));
+            let normal_mass = ld(wide, pb + P_NORMAL_MASS);
+            let mass = if propagate {
+                normal_mass
+            } else {
+                FloatW::blend(zero, normal_mass, restitution_mask)
+            };
 
             let ra = ld_v3(wide, pb + P_ANCHOR_A);
             let rb = ld_v3(wide, pb + P_ANCHOR_B);
+            let ds = add_vw(
+                dp,
+                sub_vw(rotate_vector_w(bb.dq, rb), rotate_vector_w(ba.dq, ra)),
+            );
+            let s = dot_w(normal, ds).add(ld(wide, pb + P_BASE_SEP));
+            let spec_bias = zero.max(s.mul(inv_h));
+            let bias = FloatW::blend(spec_bias, rest.mul(rel_vel), armed);
             let vra = add_vw(ba.v, cross_w(ba.w, ra));
             let vrb = add_vw(bb.v, cross_w(bb.w, rb));
             let vn = dot_w(sub_vw(vrb, vra), normal);
 
-            let neg_impulse = mass.mul(vn.add(rest.mul(rel_vel)));
+            let neg_impulse = mass.mul(vn.add(bias));
             let old_impulse = ld(wide, pb + P_NORMAL_IMP);
             let new_impulse = old_impulse.sub(neg_impulse).max(zero);
-            let delta_impulse = new_impulse.sub(old_impulse);
-            st(wide, pb + P_NORMAL_IMP, new_impulse);
+            let impulse = new_impulse.sub(old_impulse);
+            let approach = mass.mul(vn).neg().max(zero).min(impulse.max(zero));
+            let allowance = rest.mul(compression.add(approach)).sub(restitution_impulse);
+            let max_impulse = approach.add(allowance.max(zero));
+            let delta_impulse = FloatW::blend(impulse, impulse.min(max_impulse), armed);
+            st(wide, pb + P_NORMAL_IMP, old_impulse.add(delta_impulse));
+            st(
+                wide,
+                pb + P_RESTITUTION_IMP,
+                restitution_impulse.add(delta_impulse.sub(approach)),
+            );
             st(
                 wide,
                 pb + P_TOTAL_NORMAL_IMP,
@@ -1080,10 +1165,6 @@ pub fn store(
                 pool.set(
                     pp + mabi::P_TOTAL_NORMAL_IMPULSE,
                     ld(wide, pb + P_TOTAL_NORMAL_IMP).to_array()[lane],
-                );
-                pool.set(
-                    pp + mabi::P_NORMAL_VELOCITY,
-                    ld(wide, pb + P_REL_VEL).to_array()[lane],
                 );
             }
 

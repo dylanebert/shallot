@@ -991,7 +991,9 @@ impl Tree {
             count = 1;
         } else {
             let mut n = root;
-            n.flags &= !MOVED;
+            if !full {
+                n.flags &= !MOVED;
+            }
             self.leaves.push(n);
             self.indices.push(0);
             self.centers.push(n.center());
@@ -1006,7 +1008,9 @@ impl Tree {
                     stack[count] = n.index();
                     count += 1;
                 } else {
-                    n.flags &= !MOVED;
+                    if !full {
+                        n.flags &= !MOVED;
+                    }
                     self.indices.push(self.leaves.len());
                     self.leaves.push(n);
                     self.centers.push(n.center());

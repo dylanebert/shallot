@@ -188,11 +188,20 @@ impl StageWork for Work {
             b.start,
             b.count,
             self.restitution_threshold,
+            self.inv_h,
+            false,
         );
     }
 
     fn restitution_mesh(&self, b: Block) {
-        contact::restitution(&self.cols, b.start, b.count, self.restitution_threshold);
+        contact::restitution(
+            &self.cols,
+            b.start,
+            b.count,
+            self.restitution_threshold,
+            self.inv_h,
+            false,
+        );
     }
 
     fn store_wide(&self, b: Block, worker: usize) {
@@ -275,6 +284,8 @@ impl StageWork for Work {
             0,
             self.overflow_count,
             self.restitution_threshold,
+            self.inv_h,
+            false,
         );
     }
 

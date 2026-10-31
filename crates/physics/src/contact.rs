@@ -54,6 +54,7 @@ pub struct ManifoldConstraintPoint {
     pub relative_velocity: f32,
     pub normal_impulse: f32,
     pub total_normal_impulse: f32,
+    pub restitution_impulse: f32,
     pub normal_mass: f32,
     pub lever_arm: f32,
 }
@@ -217,13 +218,23 @@ pub fn prepare(
 
                     let base_separation = separation - r_b.sub(r_a).dot(normal);
                     let normal_mass = if k_normal > 0.0 { 1.0 / k_normal } else { 0.0 };
-                    let relative_velocity = normal.dot(vr_b.sub(vr_a));
+                    let hit_events = d.flags & contact_flags::SIM_ENABLE_HIT_EVENT != 0;
+                    let relative_velocity = if restitution > 0.0 || hit_events {
+                        normal.dot(vr_b.sub(vr_a))
+                    } else {
+                        0.0
+                    };
+                    cols.pool.set(
+                        pp + P_NORMAL_VELOCITY,
+                        if hit_events { relative_velocity } else { 0.0 },
+                    );
 
                     (*cp).r_a = r_a;
                     (*cp).r_b = r_b;
                     (*cp).base_separation = base_separation;
                     (*cp).normal_impulse = warm_start_scale * mp_normal_impulse;
-                    (*cp).total_normal_impulse = 0.0; // totalNormalImpulse
+                    (*cp).total_normal_impulse = 0.0;
+                    (*cp).restitution_impulse = 0.0;
                     (*cp).normal_mass = normal_mass;
                     (*cp).relative_velocity = relative_velocity;
                     (*cp).lever_arm = 0.0; // leverArm, filled below
@@ -436,10 +447,11 @@ pub fn solve(
                     let new_impulse = maxf(normal_impulse + delta_impulse, 0.0);
                     delta_impulse = new_impulse - normal_impulse;
                     (*cp).normal_impulse = new_impulse;
-                    (*cp).total_normal_impulse += new_impulse;
-
-                    total_normal_impulse += new_impulse;
-                    total_twist_limit += lever_arm * new_impulse;
+                    if !use_bias {
+                        (*cp).total_normal_impulse += new_impulse;
+                        total_normal_impulse += new_impulse;
+                        total_twist_limit += lever_arm * new_impulse;
+                    }
 
                     let p_imp = normal.scale(delta_impulse);
                     v_a = v_a.mul_sub(m_a, p_imp);
@@ -534,13 +546,20 @@ pub fn solve(
 
 /// Apply restitution bounce to approaching contacts (b3ApplyRestitution_Mesh). Mutates the point
 /// normal impulses and the body velocities (dynamic bodies only).
-pub fn restitution(cols: &Columns, start: usize, count: usize, threshold: f32) {
+pub fn restitution(
+    cols: &Columns,
+    start: usize,
+    count: usize,
+    threshold: f32,
+    inv_h: f32,
+    propagate: bool,
+) {
     unsafe {
         for c in start..start + count {
             let cc = cols.cc.ptr().add(c);
 
             let restitution = (*cc).restitution;
-            if restitution == 0.0 {
+            if !propagate && restitution == 0.0 {
                 continue;
             }
             let index_a = (*cc).index_a;
@@ -552,8 +571,9 @@ pub fn restitution(cols: &Columns, start: usize, count: usize, threshold: f32) {
             let i_a = (*cc).inv_ia;
             let i_b = (*cc).inv_ib;
 
-            let (mut v_a, mut w_a) = read_vel(cols.state, index_a);
-            let (mut v_b, mut w_b) = read_vel(cols.state, index_b);
+            let (mut v_a, mut w_a, dp_a, dq_a) = read_solve_state(cols.state, index_a);
+            let (mut v_b, mut w_b, dp_b, dq_b) = read_solve_state(cols.state, index_b);
+            let dp = dp_b.sub(dp_a);
 
             for mi in 0..manifold_count {
                 let mc = (*cc).constraints.add(mi);
@@ -565,11 +585,9 @@ pub fn restitution(cols: &Columns, start: usize, count: usize, threshold: f32) {
                     let cp = core::ptr::addr_of_mut!((*mc).points[pi]);
 
                     let relative_velocity = (*cp).relative_velocity;
-                    let total_normal_impulse = (*cp).total_normal_impulse;
-                    // Skip speculative points that never generated a real impulse.
-                    if relative_velocity > -threshold || total_normal_impulse == 0.0 {
-                        continue;
-                    }
+                    let compression = (*cp).total_normal_impulse - (*cp).restitution_impulse;
+                    let armed =
+                        restitution > 0.0 && relative_velocity < -threshold && compression > 0.0;
                     let r_a = (*cp).r_a;
                     let r_b = (*cp).r_b;
                     let normal_mass = (*cp).normal_mass;
@@ -579,10 +597,29 @@ pub fn restitution(cols: &Columns, start: usize, count: usize, threshold: f32) {
                     let vr_a = v_a.add(w_a.cross(r_a));
                     let vn = vr_b.sub(vr_a).dot(normal);
 
-                    let mut impulse = -normal_mass * (vn + restitution * relative_velocity);
+                    let velocity_bias = if armed {
+                        restitution * relative_velocity
+                    } else {
+                        let ds = dp.add(dq_b.rotate(r_b).sub(dq_a.rotate(r_a)));
+                        let s = ds.dot(normal) + (*cp).base_separation;
+                        if s > 0.0 {
+                            s * inv_h
+                        } else {
+                            0.0
+                        }
+                    };
+                    let mut impulse = -normal_mass * (vn + velocity_bias);
                     let new_impulse = maxf(normal_impulse + impulse, 0.0);
                     impulse = new_impulse - normal_impulse;
-                    (*cp).normal_impulse = new_impulse;
+                    let approach =
+                        crate::math::minf(maxf(-normal_mass * vn, 0.0), maxf(impulse, 0.0));
+                    if armed {
+                        let allowance =
+                            restitution * (compression + approach) - (*cp).restitution_impulse;
+                        impulse = crate::math::minf(impulse, approach + maxf(allowance, 0.0));
+                    }
+                    (*cp).normal_impulse += impulse;
+                    (*cp).restitution_impulse += impulse - approach;
                     (*cp).total_normal_impulse += impulse;
 
                     let p_imp = normal.scale(impulse);
@@ -651,11 +688,10 @@ pub fn store(
 
                     let normal_impulse = (*cp).normal_impulse;
                     let total_normal_impulse = (*cp).total_normal_impulse;
-                    let normal_velocity = (*cp).relative_velocity;
+                    let normal_velocity = cols.pool.get(pp + P_NORMAL_VELOCITY);
                     cols.pool.set(pp + P_NORMAL_IMPULSE, normal_impulse);
                     cols.pool
                         .set(pp + P_TOTAL_NORMAL_IMPULSE, total_normal_impulse);
-                    cols.pool.set(pp + P_NORMAL_VELOCITY, normal_velocity);
 
                     // One flag per contact: a confirmed impulse approaching faster than the threshold.
                     if check_hit_events

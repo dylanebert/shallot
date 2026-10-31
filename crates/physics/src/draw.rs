@@ -162,7 +162,7 @@ unsafe fn color(world: usize, id: usize) -> u32 {
         0x708090
     } else if r[n + shapes::S_FLAGS] & shapes::SENSOR_FLAG != 0 {
         0xf5deb3
-    } else if b.flags & body::flags::HAD_TIME_OF_IMPACT != 0 {
+    } else if flags & body::flags::HAD_TIME_OF_IMPACT != 0 {
         0x00ff00
     } else if flags & body::flags::IS_BULLET != 0 && b.set_index == AWAKE_SET {
         0x40e0d0

@@ -399,7 +399,7 @@ fn contact_phases_match_c() {
                 cc: col(&mut cc_records),
                 mc: col(&mut mc_records),
             };
-            restitution(&cols, 0, 1, rest_threshold);
+            restitution(&cols, 0, 1, rest_threshold, inv_h, false);
             store(&cols, 0, 1, hit_threshold, |_| {
                 hit = 1;
             });

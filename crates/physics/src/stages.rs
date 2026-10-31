@@ -878,11 +878,15 @@ fn walk<W: StageWork>(ctx: &Context, work: &W) -> Option<()> {
     stage_index += 2 + colors * (1 + ITERATIONS + RELAX_ITERATIONS);
 
     let start = work.ticks();
-    work.restitution_overflow();
-    for _ in 0..colors {
-        execute_main_stage(ctx, work, stage_index, sync_bits(graph_sync, stage_index))?;
-        stage_index += 1;
+    for _ in 0..2 {
+        work.restitution_overflow();
+        for color in 0..colors {
+            let i = stage_index + color;
+            execute_main_stage(ctx, work, i, sync_bits(graph_sync, i))?;
+        }
+        graph_sync += 1;
     }
+    stage_index += colors;
 
     work.profile(12, start);
     let start = work.ticks();
