@@ -38,25 +38,14 @@ const chromiumArgs =
               "--enable-features=Vulkan",
               "--use-vulkan=swiftshader",
           ]
-        : process.platform === "win32"
-          ? [
-                "--enable-unsafe-webgpu",
-                "--enable-features=WebGPUDeveloperFeatures",
-                "--enable-webgpu-developer-features",
-                "--enable-gpu",
-                "--ignore-gpu-blocklist",
-            ]
-          : [
+        : [
                 "--enable-unsafe-webgpu",
                 "--enable-features=WebGPUDeveloperFeatures",
                 "--enable-webgpu-developer-features",
                 "--enable-gpu",
             ];
 
-const launchOptions =
-    process.platform === "win32"
-        ? { args: chromiumArgs, ignoreDefaultArgs: ["--enable-unsafe-swiftshader"] }
-        : { args: chromiumArgs };
+const launchOptions = { args: chromiumArgs };
 
 /** @satisfies {import("playwright/test").PlaywrightTestConfig} */
 export const BROWSER_CONFIG = {
