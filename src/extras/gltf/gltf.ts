@@ -272,14 +272,14 @@ function readComponent(
     }
 }
 
-function readAccessor(gltf: GltfJson, buffers: ArrayBuffer[], index: number): Float32Array;
-function readAccessor(
+export function readAccessor(gltf: GltfJson, buffers: ArrayBuffer[], index: number): Float32Array;
+export function readAccessor(
     gltf: GltfJson,
     buffers: ArrayBuffer[],
     index: number,
     indices: true,
 ): Uint32Array;
-function readAccessor(
+export function readAccessor(
     gltf: GltfJson,
     buffers: ArrayBuffer[],
     index: number,
@@ -669,7 +669,7 @@ function mergeSkeletons(skins: GltfSkin[], nodes: GltfNode[]): GltfSkeleton[] {
 }
 
 function supportedExtension(name: string): boolean {
-    return name === "KHR_materials_unlit";
+    return name === "KHR_materials_unlit" || name === "KHR_mesh_quantization";
 }
 
 /** Refuses versions beyond 2.0 and unsupported required extensions before reading resources. */

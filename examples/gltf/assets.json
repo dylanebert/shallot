@@ -92,7 +92,9 @@
         { "name": "AnimatedMorphCube", "license": "Models/AnimatedMorphCube/LICENSE.md", "files": [
             { "path": "Models/AnimatedMorphCube/LICENSE.md", "sha256": "f329408d3b37552eb0773907af5448a8aa1ae078c1c22c3e83e7ee5e10ec45bd" },
             { "path": "Models/AnimatedMorphCube/glTF/AnimatedMorphCube.bin", "sha256": "4aba93918adba56c1cc688a38c527bc647e26f2c386802e119b4d01b7250dd23" },
-            { "path": "Models/AnimatedMorphCube/glTF/AnimatedMorphCube.gltf", "sha256": "0b910ed4b52fd9fbb565911fc7f9f285edb0f30fa4913a93143466d439d1092e" }
+            { "path": "Models/AnimatedMorphCube/glTF/AnimatedMorphCube.gltf", "sha256": "0b910ed4b52fd9fbb565911fc7f9f285edb0f30fa4913a93143466d439d1092e" },
+            { "path": "Models/AnimatedMorphCube/glTF-Quantized/AnimatedMorphCube.bin", "sha256": "bde22d01f34dd8f5d83cfbb20a1a6d117ec48596157df5d484a58eba13cdff51" },
+            { "path": "Models/AnimatedMorphCube/glTF-Quantized/AnimatedMorphCube.gltf", "sha256": "ff514453beb4b2130fe4c0857a71f8af568a86258f814b4c7b9ac9a55722a850" }
         ] },
         {
             "name": "Box",
@@ -623,6 +625,43 @@
                     "sha256": "c8041334a99cb48852b2139253cbde5f8ac87e27f124aed51223e0d5bf0080eb"
                 }
             ]
-        }
+        },
+        { "name": "Avocado", "license": "Models/Avocado/LICENSE.md", "files": [
+            { "path": "Models/Avocado/LICENSE.md", "sha256": "15aa885ef74db3dce103da85abb568476378a815ca46db0cf7667a1a795b4194" },
+            { "path": "Models/Avocado/glTF/Avocado.bin", "sha256": "3bf7ce0ec994562eabf0cb72a52bbc7976818d630d62609a966b53a5ff9b9180" },
+            { "path": "Models/Avocado/glTF/Avocado.gltf", "sha256": "c9bde1d2f09514dad0a16971df2222beb582fad5dfc86203de1d56389d52feda" },
+            { "path": "Models/Avocado/glTF/Avocado_baseColor.png", "sha256": "385dce948c3b9e8bc93e1c930d796e72b02cbd474b121a160d577de95ebbb48f" },
+            { "path": "Models/Avocado/glTF/Avocado_normal.png", "sha256": "25783c211761b7e32497fdd3e2490f3bac05b738e5e2bc62fc5b78a270bb4e50" },
+            { "path": "Models/Avocado/glTF/Avocado_roughnessMetallic.png", "sha256": "33ee80f7ccfd36825acfbd5ef0a51326bea49e33efed852dca44798798bd6901" },
+            { "path": "Models/Avocado/glTF-Quantized/Avocado.bin", "sha256": "ec991f94879b1987d82e57e4edb13c0b48be65092177a541f146c2c71de27422" },
+            { "path": "Models/Avocado/glTF-Quantized/Avocado.gltf", "sha256": "0cb153be897b36ca62e7c08f6f9921c764063d791e4cef249b95c928bc324b85" },
+            { "path": "Models/Avocado/glTF-Quantized/Avocado_baseColor.png", "sha256": "385dce948c3b9e8bc93e1c930d796e72b02cbd474b121a160d577de95ebbb48f" },
+            { "path": "Models/Avocado/glTF-Quantized/Avocado_normal.png", "sha256": "25783c211761b7e32497fdd3e2490f3bac05b738e5e2bc62fc5b78a270bb4e50" },
+            { "path": "Models/Avocado/glTF-Quantized/Avocado_roughnessMetallic.png", "sha256": "33ee80f7ccfd36825acfbd5ef0a51326bea49e33efed852dca44798798bd6901" }
+        ] },
+        { "name": "Duck", "license": "Models/Duck/LICENSE.md", "files": [
+            { "path": "Models/Duck/LICENSE.md", "sha256": "f97057a519a1dfab15a5503dc4bd0051c190c272dabbb5cf02e23961e06bc2aa" },
+            { "path": "Models/Duck/glTF/Duck.gltf", "sha256": "98009069c87b165df92dbc8213d7c2b4f296074097ad2ec4efddf3dbc50cdcb0" },
+            { "path": "Models/Duck/glTF/Duck0.bin", "sha256": "4c851f5909095ecf77e66e0968c31d5354f17a49b62e1fad0c341e1635145ee9" },
+            { "path": "Models/Duck/glTF/DuckCM.png", "sha256": "8aedb428cbb815dffea650fe75bff032ea240f00ccad2f64dc8f62a0c5e30313" },
+            { "path": "Models/Duck/glTF-Quantized/Duck.bin", "sha256": "a8f5a07454ca7bf0e6f8e029c7c626b71b6b60703b9e8240b78d849f01c3dbcb" },
+            { "path": "Models/Duck/glTF-Quantized/Duck.gltf", "sha256": "a0522c4c01b3a9f168ca95ed18810947c730d0bedb9ce8c3b46c7a58ba196821" },
+            { "path": "Models/Duck/glTF-Quantized/DuckCM.png", "sha256": "8aedb428cbb815dffea650fe75bff032ea240f00ccad2f64dc8f62a0c5e30313" }
+        ] },
+        { "name": "Lantern", "license": "Models/Lantern/LICENSE.md", "files": [
+            { "path": "Models/Lantern/LICENSE.md", "sha256": "bb3a06704566d7d31e719e098203a18ddebd4735a5fa65baa25ea39958a5c31c" },
+            { "path": "Models/Lantern/glTF/Lantern.bin", "sha256": "ef0e2e89e4b14ff9035b43867a16dc3218569b29363ccb16b283b86f1dc50eb0" },
+            { "path": "Models/Lantern/glTF/Lantern.gltf", "sha256": "2106fea76c458caf43078c34ae7da7016cedd1f22e6f4badf94590be590f53d6" },
+            { "path": "Models/Lantern/glTF/Lantern_baseColor.png", "sha256": "a2d6aa660f0b9ce46b3863e955248454e73be96063218b799af9f750e0f7be71" },
+            { "path": "Models/Lantern/glTF/Lantern_emissive.png", "sha256": "eafa6390501d537f5bbcf92c64ad1c39d2493aef4508e9cc9d537771efe8bad7" },
+            { "path": "Models/Lantern/glTF/Lantern_normal.png", "sha256": "3318a4d3bef8be53c192d87b7401145493774126c54a22e50e1269f9476065fa" },
+            { "path": "Models/Lantern/glTF/Lantern_roughnessMetallic.png", "sha256": "01b8105756fd86f13e66602f85ee03e7e5daf22a8531f32bef8bbe678cf38cf6" },
+            { "path": "Models/Lantern/glTF-Quantized/Lantern.bin", "sha256": "98d081fd37f63702ac9d8578a2c13f432caffe3d9adba6f86e292085b6873823" },
+            { "path": "Models/Lantern/glTF-Quantized/Lantern.gltf", "sha256": "f96fcbcf0da532749f1f8ae1071bc4ffc2ba1a43ed387784fa939d0db08ab67b" },
+            { "path": "Models/Lantern/glTF-Quantized/Lantern_baseColor.png", "sha256": "a2d6aa660f0b9ce46b3863e955248454e73be96063218b799af9f750e0f7be71" },
+            { "path": "Models/Lantern/glTF-Quantized/Lantern_emissive.png", "sha256": "eafa6390501d537f5bbcf92c64ad1c39d2493aef4508e9cc9d537771efe8bad7" },
+            { "path": "Models/Lantern/glTF-Quantized/Lantern_normal.png", "sha256": "3318a4d3bef8be53c192d87b7401145493774126c54a22e50e1269f9476065fa" },
+            { "path": "Models/Lantern/glTF-Quantized/Lantern_roughnessMetallic.png", "sha256": "01b8105756fd86f13e66602f85ee03e7e5daf22a8531f32bef8bbe678cf38cf6" }
+        ] }
     ]
 }

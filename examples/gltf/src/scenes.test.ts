@@ -6,16 +6,16 @@ import { categories, modelPath, type Scene, scenes, truckPlacement } from "./sce
 
 test("the picker demonstrates each promise once without shrinking the regression corpus", () => {
     const listed = categories.flatMap((category) => category.scenes.map((scene) => scene.id));
-    expect(listed.length).toBe(16);
+    expect(listed.length).toBe(17);
     expect(new Set(listed).size).toBe(listed.length);
-    expect(manifest.models).toHaveLength(33);
+    expect(manifest.models).toHaveLength(36);
     expect(
         Object.fromEntries(
             categories.map((category) => [category.name, category.scenes.map((scene) => scene.id)]),
         ),
     ).toEqual({
         animation: ["AnimatedTriangle", "CesiumMan", "SkinnedNormal", "AnimatedMorphCube"],
-        geometry: ["MeshPrimitiveModes", "VertexColorTest"],
+        geometry: ["MeshPrimitiveModes", "VertexColorTest", "QuantizedMorphCube"],
         transforms: ["OrientationTest", "NegativeScaleTest"],
         materials: [
             "AlphaBlendModeTest",
@@ -38,8 +38,8 @@ test("the picker demonstrates each promise once without shrinking the regression
         }
         expect(
             manifest.models
-                .find((model) => model.name === scene)!
-                .files.some((file) => modelPath(scene) === `assets/${file.path}`),
+                .flatMap((model) => model.files)
+                .some((file) => modelPath(scene) === `assets/${file.path}`),
         ).toBe(true);
     }
 });

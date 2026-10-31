@@ -18,6 +18,7 @@ export const scenes = {
     CesiumMan: { promise: "animation" },
     SkinnedNormal: { promise: "animation" },
     AnimatedMorphCube: { promise: "animation" },
+    QuantizedMorphCube: { promise: "geometry" },
 } as const;
 export type Scene = keyof typeof scenes;
 export const categories = ["geometry", "transforms", "materials", "textures", "animation"].map(
@@ -29,7 +30,9 @@ export const categories = ["geometry", "transforms", "materials", "textures", "a
     }),
 );
 export const modelPath = (scene: Scene) =>
-    scene === "SkinnedNormal"
-        ? "models/SkinnedNormal.gltf"
-        : `assets/Models/${scene}/glTF/${scene}.gltf`;
+    scene === "QuantizedMorphCube"
+        ? "assets/Models/AnimatedMorphCube/glTF-Quantized/AnimatedMorphCube.gltf"
+        : scene === "SkinnedNormal"
+          ? "models/SkinnedNormal.gltf"
+          : `assets/Models/${scene}/glTF/${scene}.gltf`;
 export const truckPlacement: GltfPlacement = { translation: [0, -0.5, 0], scale: [0.7, 0.7, 0.7] };

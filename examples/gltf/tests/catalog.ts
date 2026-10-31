@@ -3,6 +3,9 @@ export const categories = [
     {
         name: "core",
         scenes: [
+            { id: "Avocado" },
+            { id: "Duck" },
+            { id: "Lantern" },
             { id: "SimpleSkin" },
             { id: "RiggedSimple" },
             { id: "RiggedFigure" },

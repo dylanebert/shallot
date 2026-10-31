@@ -41958,6 +41958,846 @@
         }
       ],
       "divergences": []
+    },
+    {
+      "fixture": "Models/Avocado/glTF/Avocado.gltf",
+      "textures": [
+        {
+          "image": 0,
+          "sampler": {
+            "addressModeU": 1,
+            "addressModeV": 1,
+            "magFilter": 1,
+            "minFilter": 1,
+            "mipmapFilter": 1
+          }
+        },
+        {
+          "image": 1,
+          "sampler": {
+            "addressModeU": 1,
+            "addressModeV": 1,
+            "magFilter": 1,
+            "minFilter": 1,
+            "mipmapFilter": 1
+          }
+        },
+        {
+          "image": 2,
+          "sampler": {
+            "addressModeU": 1,
+            "addressModeV": 1,
+            "magFilter": 1,
+            "minFilter": 1,
+            "mipmapFilter": 1
+          }
+        }
+      ],
+      "images": [
+        "Avocado_baseColor.png",
+        "Avocado_roughnessMetallic.png",
+        "Avocado_normal.png"
+      ],
+      "instances": [
+        {
+          "frontFace": "ccw",
+          "matrix": [
+            -1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            -1,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "nodePath": [
+            {
+              "rotation": [
+                0,
+                1,
+                0,
+                0
+              ]
+            }
+          ],
+          "implicitNormals": false,
+          "positions": {
+            "count": 406,
+            "min": [
+              -0.021280910819768906,
+              -0.000047738551074871793,
+              -0.01380900014191866
+            ],
+            "max": [
+              0.021280910819768906,
+              0.0628480613231659,
+              0.013809001073241234
+            ],
+            "sha256": "87c3d051840fff094bbbb04e767adcba1cc38521d7e5ff39cf4982da3df30af2"
+          },
+          "normals": {
+            "count": 406,
+            "min": [
+              -0.9951770305633545,
+              -0.9995664954185486,
+              -0.9988548755645752
+            ],
+            "max": [
+              0.995966911315918,
+              0.9749684929847717,
+              0.9986339211463928
+            ],
+            "sha256": "25726e976bbe1b07652957d05422d95506cfe36bdd50fe6ac34db71b478a7b74"
+          },
+          "uvs": {
+            "count": 406,
+            "min": [
+              0.006780204363167286,
+              0.0029819607734680176
+            ],
+            "max": [
+              0.9824978113174438,
+              0.9953720569610596
+            ],
+            "sha256": "5bf48b7de229514de04e90d2037f6629cbec4162859f0fd6e1ae4b737f25b25e"
+          },
+          "uv1": null,
+          "color": null,
+          "tangent": {
+            "count": 406,
+            "min": [
+              -0.9999704360961914,
+              -0.999693751335144,
+              -0.993059515953064,
+              1
+            ],
+            "max": [
+              0.9298392534255981,
+              0.9988671541213989,
+              0.9950757622718811,
+              1
+            ],
+            "sha256": "2f097028ffbe7db6093a2f0e3434b7159cb6c96dd4ee0650574e8376810a1343"
+          },
+          "morphTargets": null,
+          "morphWeights": null,
+          "indices": {
+            "count": 2046,
+            "min": [
+              0
+            ],
+            "max": [
+              405
+            ],
+            "sha256": "0ceab0f3b2a743d936138796e5d743609c9bade3349afa0eb1f9035959f380c9"
+          },
+          "material": {
+            "color": [
+              1,
+              1,
+              1,
+              1
+            ],
+            "metallic": 1,
+            "roughness": 1,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "alphaMode": "OPAQUE",
+            "textureImage": 0,
+            "textureIndex": 0,
+            "textureSlots": {
+              "baseColor": {
+                "index": 0,
+                "texCoord": 0
+              },
+              "normalMap": {
+                "index": 2,
+                "texCoord": 0
+              },
+              "metallicRoughness": {
+                "index": 1,
+                "texCoord": 0
+              },
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
+            "unlit": false,
+            "doubleSided": false
+          }
+        }
+      ],
+      "divergences": []
+    },
+    {
+      "fixture": "Models/Duck/glTF/Duck.gltf",
+      "textures": [
+        {
+          "image": 0,
+          "sampler": {
+            "addressModeU": 1,
+            "addressModeV": 1,
+            "magFilter": 1,
+            "minFilter": 0,
+            "mipmapFilter": 1
+          }
+        }
+      ],
+      "images": [
+        "DuckCM.png"
+      ],
+      "instances": [
+        {
+          "frontFace": "ccw",
+          "matrix": [
+            0.009999999776482582,
+            0,
+            0,
+            0,
+            0,
+            0.009999999776482582,
+            0,
+            0,
+            0,
+            0,
+            0.009999999776482582,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "nodePath": [
+            {
+              "matrix": [
+                0.009999999776482582,
+                0,
+                0,
+                0,
+                0,
+                0.009999999776482582,
+                0,
+                0,
+                0,
+                0,
+                0.009999999776482582,
+                0,
+                0,
+                0,
+                0,
+                1
+              ]
+            },
+            {}
+          ],
+          "implicitNormals": false,
+          "positions": {
+            "count": 2399,
+            "min": [
+              -69.29850006103516,
+              9.929369926452637,
+              -61.32819747924805
+            ],
+            "max": [
+              96.17990112304688,
+              163.97000122070312,
+              53.92519760131836
+            ],
+            "sha256": "6c0e727f2d154a5985452ba548f4a5813425a6da0286a6b2099760551e9854b9"
+          },
+          "normals": {
+            "count": 2399,
+            "min": [
+              -0.9990839958190918,
+              -1,
+              -0.9998319745063782
+            ],
+            "max": [
+              0.9995989799499512,
+              0.999580979347229,
+              0.9984359741210938
+            ],
+            "sha256": "efae66db7c3405150396630b35310557868a82c551ac8d22634186b156e40b0a"
+          },
+          "uvs": {
+            "count": 2399,
+            "min": [
+              0.026409000158309937,
+              0.01996302604675293
+            ],
+            "max": [
+              0.9833459854125977,
+              0.9800369739532471
+            ],
+            "sha256": "2ce81a1c667c5e87aeb976c6d9396d405582675fd31a93e0f35ee450a88184ff"
+          },
+          "uv1": null,
+          "color": null,
+          "tangent": null,
+          "morphTargets": null,
+          "morphWeights": null,
+          "indices": {
+            "count": 12636,
+            "min": [
+              0
+            ],
+            "max": [
+              2398
+            ],
+            "sha256": "ee7f41bb6b43da7666c43ee2063e7ce826fe665ec3512bd44bb40584ee1fb697"
+          },
+          "material": {
+            "color": [
+              1,
+              1,
+              1,
+              1
+            ],
+            "metallic": 0,
+            "roughness": 1,
+            "emissive": [
+              0,
+              0,
+              0
+            ],
+            "alphaMode": "OPAQUE",
+            "textureImage": 0,
+            "textureIndex": 0,
+            "textureSlots": {
+              "baseColor": {
+                "index": 0,
+                "texCoord": 0
+              },
+              "normalMap": null,
+              "metallicRoughness": null,
+              "occlusion": null,
+              "emissive": null
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
+            "unlit": false,
+            "doubleSided": false
+          }
+        }
+      ],
+      "divergences": []
+    },
+    {
+      "fixture": "Models/Lantern/glTF/Lantern.gltf",
+      "textures": [
+        {
+          "image": 0,
+          "sampler": {
+            "addressModeU": 1,
+            "addressModeV": 1,
+            "magFilter": 1,
+            "minFilter": 1,
+            "mipmapFilter": 1
+          }
+        },
+        {
+          "image": 1,
+          "sampler": {
+            "addressModeU": 1,
+            "addressModeV": 1,
+            "magFilter": 1,
+            "minFilter": 1,
+            "mipmapFilter": 1
+          }
+        },
+        {
+          "image": 2,
+          "sampler": {
+            "addressModeU": 1,
+            "addressModeV": 1,
+            "magFilter": 1,
+            "minFilter": 1,
+            "mipmapFilter": 1
+          }
+        },
+        {
+          "image": 3,
+          "sampler": {
+            "addressModeU": 1,
+            "addressModeV": 1,
+            "magFilter": 1,
+            "minFilter": 1,
+            "mipmapFilter": 1
+          }
+        }
+      ],
+      "images": [
+        "Lantern_baseColor.png",
+        "Lantern_roughnessMetallic.png",
+        "Lantern_normal.png",
+        "Lantern_emissive.png"
+      ],
+      "instances": [
+        {
+          "frontFace": "ccw",
+          "matrix": [
+            -1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            -1,
+            0,
+            3.82315421,
+            13.01603,
+            0,
+            1
+          ],
+          "nodePath": [
+            {
+              "rotation": [
+                0,
+                1,
+                0,
+                0
+              ]
+            },
+            {
+              "translation": [
+                -3.82315421,
+                13.01603,
+                0
+              ]
+            }
+          ],
+          "implicitNormals": false,
+          "positions": {
+            "count": 926,
+            "min": [
+              -7.745599269866943,
+              -12.832109451293945,
+              -2.3157098293304443
+            ],
+            "max": [
+              7.745599269866943,
+              12.832109451293945,
+              2.3157098293304443
+            ],
+            "sha256": "4f3d85a0c4b43b3c3573e2bf457984d06f1baf3268d075fbaf796a635dcf0c0d"
+          },
+          "normals": {
+            "count": 926,
+            "min": [
+              -1,
+              -1,
+              -1
+            ],
+            "max": [
+              1,
+              1,
+              1
+            ],
+            "sha256": "4fa675f7ca57140ca132ebc9c610d50f6e27270b5dc227e588fabd8b631e76c5"
+          },
+          "uvs": {
+            "count": 926,
+            "min": [
+              0.010736674070358276,
+              0.007465243339538574
+            ],
+            "max": [
+              0.9921691417694092,
+              0.9920015335083008
+            ],
+            "sha256": "c949c482f317ec8f4c4e53e823b3a20a5cf3f6c946ce743450f6a0fe902a0766"
+          },
+          "uv1": null,
+          "color": null,
+          "tangent": {
+            "count": 926,
+            "min": [
+              -1,
+              -0.9621708989143372,
+              -1,
+              1
+            ],
+            "max": [
+              1,
+              0.9999657869338989,
+              1,
+              1
+            ],
+            "sha256": "f1c68d446d85e024957c499d1c080118f1b010858460e92201f2e7c9795b25c2"
+          },
+          "morphTargets": null,
+          "morphWeights": null,
+          "indices": {
+            "count": 2616,
+            "min": [
+              0
+            ],
+            "max": [
+              925
+            ],
+            "sha256": "0753f0b9e4c7375a7d5f6f82091373edce37d591cbaba663c9edcd05df43026e"
+          },
+          "material": {
+            "color": [
+              1,
+              1,
+              1,
+              1
+            ],
+            "metallic": 1,
+            "roughness": 1,
+            "emissive": [
+              1,
+              1,
+              1
+            ],
+            "alphaMode": "OPAQUE",
+            "textureImage": 0,
+            "textureIndex": 0,
+            "textureSlots": {
+              "baseColor": {
+                "index": 0,
+                "texCoord": 0
+              },
+              "normalMap": {
+                "index": 2,
+                "texCoord": 0
+              },
+              "metallicRoughness": {
+                "index": 1,
+                "texCoord": 0
+              },
+              "occlusion": null,
+              "emissive": {
+                "index": 3,
+                "texCoord": 0
+              }
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
+            "unlit": false,
+            "doubleSided": false
+          }
+        },
+        {
+          "frontFace": "ccw",
+          "matrix": [
+            -1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            -1,
+            0,
+            9.582001,
+            21.0378723,
+            0,
+            1
+          ],
+          "nodePath": [
+            {
+              "rotation": [
+                0,
+                1,
+                0,
+                0
+              ]
+            },
+            {
+              "translation": [
+                -9.582001,
+                21.0378723,
+                0
+              ]
+            }
+          ],
+          "implicitNormals": false,
+          "positions": {
+            "count": 756,
+            "min": [
+              -0.12920807301998138,
+              -0.6523504257202148,
+              -0.12920807301998138
+            ],
+            "max": [
+              0.12920807301998138,
+              0.6523504257202148,
+              0.12920807301998138
+            ],
+            "sha256": "da03d3e0e10516b65f02cc1395a84a420738efa5b4458e947967b10f657ef15c"
+          },
+          "normals": {
+            "count": 756,
+            "min": [
+              -1,
+              -1,
+              -0.9999979734420776
+            ],
+            "max": [
+              1,
+              1,
+              0.9999979734420776
+            ],
+            "sha256": "0eccf45ba94577d267f9c76024d975f2db28816535e2170d9accadcc451f7598"
+          },
+          "uvs": {
+            "count": 756,
+            "min": [
+              0.3512461483478546,
+              0.6389883756637573
+            ],
+            "max": [
+              0.8007193207740784,
+              0.9418544173240662
+            ],
+            "sha256": "fe80ddfccadff9921569ed69028347f00ce2ba94825c25dd8859951ac6ce6a78"
+          },
+          "uv1": null,
+          "color": null,
+          "tangent": {
+            "count": 756,
+            "min": [
+              -0.999512791633606,
+              -1,
+              -0.9997523427009583,
+              1
+            ],
+            "max": [
+              0.9997525811195374,
+              1,
+              0.9997523427009583,
+              1
+            ],
+            "sha256": "af762cc103644a6d19365f77007b8f5a59852bdf31f69818c61b4642e8102bf4"
+          },
+          "morphTargets": null,
+          "morphWeights": null,
+          "indices": {
+            "count": 3744,
+            "min": [
+              0
+            ],
+            "max": [
+              755
+            ],
+            "sha256": "745fe4f2cdad2d6f4b41a71765f7ca0e1fdeaec1c5f6929571c3c856c496f68b"
+          },
+          "material": {
+            "color": [
+              1,
+              1,
+              1,
+              1
+            ],
+            "metallic": 1,
+            "roughness": 1,
+            "emissive": [
+              1,
+              1,
+              1
+            ],
+            "alphaMode": "OPAQUE",
+            "textureImage": 0,
+            "textureIndex": 0,
+            "textureSlots": {
+              "baseColor": {
+                "index": 0,
+                "texCoord": 0
+              },
+              "normalMap": {
+                "index": 2,
+                "texCoord": 0
+              },
+              "metallicRoughness": {
+                "index": 1,
+                "texCoord": 0
+              },
+              "occlusion": null,
+              "emissive": {
+                "index": 3,
+                "texCoord": 0
+              }
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
+            "unlit": false,
+            "doubleSided": false
+          }
+        },
+        {
+          "frontFace": "ccw",
+          "matrix": [
+            -1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            -1,
+            0,
+            9.582007,
+            18.0091515,
+            0,
+            1
+          ],
+          "nodePath": [
+            {
+              "rotation": [
+                0,
+                1,
+                0,
+                0
+              ]
+            },
+            {
+              "translation": [
+                -9.582007,
+                18.0091515,
+                0
+              ]
+            }
+          ],
+          "implicitNormals": false,
+          "positions": {
+            "count": 2463,
+            "min": [
+              -1.034082293510437,
+              -2.5292809009552,
+              -1.034084677696228
+            ],
+            "max": [
+              1.034082293510437,
+              2.5292809009552,
+              1.034084677696228
+            ],
+            "sha256": "72b6d8b52b0c5f8ed58c6cdec6fbd9b29f973ecedbba0e5f9fa229ef0da1166e"
+          },
+          "normals": {
+            "count": 2463,
+            "min": [
+              -1,
+              -1,
+              -1
+            ],
+            "max": [
+              1,
+              1,
+              1
+            ],
+            "sha256": "3f45cc05653e1f3fde477e74038b7090298f176a34b15bce6ccc0f74d987114f"
+          },
+          "uvs": {
+            "count": 2463,
+            "min": [
+              0.3673208951950073,
+              0.5866477489471436
+            ],
+            "max": [
+              0.9923278093338013,
+              0.9927117824554443
+            ],
+            "sha256": "94b25c0a1d443238f50fa2afb5f9a26bcd8ae71eb619783e022ca2341cfff4da"
+          },
+          "uv1": null,
+          "color": null,
+          "tangent": {
+            "count": 2463,
+            "min": [
+              -1,
+              -1,
+              -1,
+              -1
+            ],
+            "max": [
+              1,
+              1,
+              1,
+              1
+            ],
+            "sha256": "7649702da3f123f880e1c385cf43ab71d81fe6852c678244765eacace456cbe9"
+          },
+          "morphTargets": null,
+          "morphWeights": null,
+          "indices": {
+            "count": 9822,
+            "min": [
+              0
+            ],
+            "max": [
+              2462
+            ],
+            "sha256": "512b3fa8f25ee83a801ad8c3b3fff05706c8a4e84db90cad2ed77efdc4339740"
+          },
+          "material": {
+            "color": [
+              1,
+              1,
+              1,
+              1
+            ],
+            "metallic": 1,
+            "roughness": 1,
+            "emissive": [
+              1,
+              1,
+              1
+            ],
+            "alphaMode": "OPAQUE",
+            "textureImage": 0,
+            "textureIndex": 0,
+            "textureSlots": {
+              "baseColor": {
+                "index": 0,
+                "texCoord": 0
+              },
+              "normalMap": {
+                "index": 2,
+                "texCoord": 0
+              },
+              "metallicRoughness": {
+                "index": 1,
+                "texCoord": 0
+              },
+              "occlusion": null,
+              "emissive": {
+                "index": 3,
+                "texCoord": 0
+              }
+            },
+            "normalMapScale": 1,
+            "occlusionStrength": 1,
+            "unlit": false,
+            "doubleSided": false
+          }
+        }
+      ],
+      "divergences": []
     }
   ]
 }

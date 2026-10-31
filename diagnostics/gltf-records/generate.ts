@@ -12,9 +12,10 @@ import { recordArray } from "../../examples/gltf/tests/records";
 import manifest from "../../examples/gltf/assets.json";
 import { syncFiles } from "../../examples/gltf/sync";
 
-const example = process.argv.includes("--example");
-const subjects = example ? manifest.models.map(model => `Models/${model.name}/glTF/${model.name}.gltf`) : fixtures;
-const array = example ? (values: ArrayLike<number>, width: number, integer = false) => recordArray(integer ? values : new Float32Array(values), width, integer) : recordArray;
+const quantization = process.argv.includes("--quantization");
+const example = quantization || process.argv.includes("--example");
+const subjects = quantization ? ["Avocado", "Duck", "Lantern", "AnimatedMorphCube"].map(name => `Models/${name}/glTF/${name}.gltf`) : example ? manifest.models.map(model => `Models/${model.name}/glTF/${model.name}.gltf`) : fixtures;
+const array = quantization ? (values: ArrayLike<number>, _width: number, integer = false) => Array.from(integer ? values : new Float32Array(values)) : example ? (values: ArrayLike<number>, width: number, integer = false) => recordArray(integer ? values : new Float32Array(values), width, integer) : recordArray;
 
 const revision = "1e7e3cff304a05416a54343e7ce273c709bccefe";
 const checkout = process.env.THREE;
@@ -179,9 +180,9 @@ for (const fixture of subjects) {
 }
 // JSON's -0 number retains the float32 sign bit in small exact arrays.
 const json = JSON as typeof JSON & { rawJSON(text: string): unknown };
-writeFileSync(resolve(import.meta.dir, example ? "../../examples/gltf/tests/models.gold.json" : "../../src/extras/gltf/fixtures/records.json"), `${JSON.stringify({
+writeFileSync(resolve(import.meta.dir, quantization ? "../../examples/gltf/tests/quantization.gold.json" : example ? "../../examples/gltf/tests/models.gold.json" : "../../src/extras/gltf/fixtures/records.json"), `${JSON.stringify({
     specification: "a55d8458c1e82720413acd3b420fd09e73b8e40b", generator: revision,
-    arrayFormat: example ? "At most 128 components: exact JSON values. Otherwise: element count, per-component min/max, SHA-256 of little-endian float32 attributes or uint32 indices. Attributes are stored as float32 after the clause's arithmetic, before mesh registration." : "At most 128 components: exact JSON values. Otherwise: element count, per-component min/max, SHA-256 of little-endian float32 attributes or uint32 indices, without rounding.",
+    arrayFormat: quantization ? "Exact float32 attributes and uint32 indices as JSON arrays, before mesh registration." : example ? "At most 128 components: exact JSON values. Otherwise: element count, per-component min/max, SHA-256 of little-endian float32 attributes or uint32 indices. Attributes are stored as float32 after the clause's arithmetic, before mesh registration." : "At most 128 components: exact JSON values. Otherwise: element count, per-component min/max, SHA-256 of little-endian float32 attributes or uint32 indices, without rounding.",
     ...(example ? { generatedNormalZeros: "Generated flat-normal zeros use +0: the specification leaves their zero sign unspecified. Authored float32 bits are retained." } : {}),
     defaults: "material.schema.json; material.pbrMetallicRoughness.schema.json; sampler.schema.json; texture.schema.json; node.schema.json at specification revision",
     samplerEnums: "address modes: clamp=0, repeat=1, mirror=2; filters: nearest=0, linear=1",
