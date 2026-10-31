@@ -321,26 +321,62 @@ export async function uploadLayer(
     levels: number,
     format: GPUTextureFormat = ARRAY_FORMAT,
 ): Promise<void> {
-    const sized =
-        bitmap.width === size && bitmap.height === size
-            ? bitmap
-            : await createImageBitmap(bitmap, {
-                  resizeWidth: size,
-                  resizeHeight: size,
-                  resizeQuality: "high",
-                  premultiplyAlpha: "none",
-                  colorSpaceConversion: "none",
-              });
+    const native = device.createTexture({
+        label: "image-resample-source",
+        size: [bitmap.width, bitmap.height],
+        format,
+        mipLevelCount: mipLevels(Math.max(bitmap.width, bitmap.height)),
+        usage:
+            GPUTextureUsage.COPY_DST |
+            GPUTextureUsage.TEXTURE_BINDING |
+            GPUTextureUsage.RENDER_ATTACHMENT,
+    });
     device.queue.copyExternalImageToTexture(
-        { source: sized },
-        { texture, origin: { x: 0, y: 0, z: layer } },
-        { width: size, height: size },
+        { source: bitmap },
+        { texture: native },
+        { width: bitmap.width, height: bitmap.height },
     );
     // Consecutive external-image copies on Chromium's D3D12 WARP path can put one copy's
     // pixels in another's destination. WebGPU orders queue operations, so this is below Shallot.
     // https://github.com/dylanebert/shallot/actions/runs/41168160666: unfenced layer 0 held
     // layer 1's exact RGBA; fenced copies had zero mismatches in 32 arrays, in both formats.
     await device.queue.onSubmittedWorkDone();
+    try {
+        genMipmapsLayer(world, device, native, 0, native.mipLevelCount, format);
+        // Implicit derivatives choose the source footprint's LOD; trilinear filtering blends
+        // its neighboring mip averages rather than sampling distant level-zero texels.
+        const group = world.gpu.root.createBindGroup(blitLayout, {
+            src: native.createView(),
+            samp: device.createSampler({
+                magFilter: "linear",
+                minFilter: "linear",
+                mipmapFilter: "linear",
+            }),
+        });
+        const encoder = device.createCommandEncoder({ label: "image-resample" });
+        const pass = encoder.beginRenderPass({
+            colorAttachments: [
+                {
+                    view: texture.createView({
+                        dimension: "2d",
+                        baseArrayLayer: layer,
+                        arrayLayerCount: 1,
+                        baseMipLevel: 0,
+                        mipLevelCount: 1,
+                    }),
+                    loadOp: "clear",
+                    storeOp: "store",
+                },
+            ],
+        });
+        pass.setViewport(0, 0, size, size, 0, 1);
+        blitPipeline(world, format).with(group).with(pass).draw(3);
+        pass.end();
+        device.queue.submit([encoder.finish()]);
+        await device.queue.onSubmittedWorkDone();
+    } finally {
+        native.destroy();
+    }
     genMipmapsLayer(world, device, texture, layer, levels, format);
 }
 

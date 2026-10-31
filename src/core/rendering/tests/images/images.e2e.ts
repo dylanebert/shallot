@@ -3,6 +3,15 @@ import { expect, test } from "../../../../../scripts/browser.fixture";
 
 test.use(pipelineWarnings);
 
+test("GPU resampling matches a CPU box reference within two bytes upscale and one otherwise", async ({
+    page,
+}) => {
+    await page.goto("/resample.html");
+    await expect(page.locator("body")).toHaveText(
+        "upscale, exact and downscale match CPU box reference",
+    );
+});
+
 for (const format of ["rgba8unorm", "rgba8unorm-srgb"]) {
     test(`consecutive ${format} uploads preserve each array layer`, async ({ page }) => {
         await page.goto(`/arrays.html?format=${format}`);
