@@ -2,53 +2,30 @@ import { expect, test } from "bun:test";
 import manifest from "../assets.json";
 import { categories, modelPath, type Scene, scenes, truckPlacement } from "./scenes";
 
-test("every synced model appears under exactly its upstream catalog tags", () => {
-    expect(Object.keys(scenes).sort()).toEqual(manifest.models.map((model) => model.name).sort());
+test("the picker demonstrates each promise once without shrinking the regression corpus", () => {
+    const listed = categories.flatMap((category) => category.scenes.map((scene) => scene.id));
+    expect(listed.length).toBe(12);
+    expect(new Set(listed).size).toBe(listed.length);
+    expect(manifest.models).toHaveLength(18);
     expect(
         Object.fromEntries(
             categories.map((category) => [category.name, category.scenes.map((scene) => scene.id)]),
         ),
     ).toEqual({
-        core: [
-            "Box",
-            "BoxTextured",
-            "TextureSettingsTest",
+        geometry: ["MeshPrimitiveModes", "VertexColorTest"],
+        transforms: ["OrientationTest", "NegativeScaleTest"],
+        materials: [
             "AlphaBlendModeTest",
             "TwoSidedPlane",
-            "OrientationTest",
-            "SimpleMeshes",
-            "TriangleWithoutIndices",
-            "SimpleSparseAccessor",
-            "NegativeScaleTest",
-            "MultiUVTest",
-            "VertexColorTest",
-            "TextureCoordinateTest",
             "MetalRoughSpheres",
-            "NormalTangentTest",
             "NormalTangentMirrorTest",
-            "CesiumMilkTruck",
         ],
-        issues: ["BoxTextured", "CesiumMilkTruck"],
-        testing: [
-            "Box",
-            "BoxTextured",
+        textures: [
             "TextureSettingsTest",
-            "AlphaBlendModeTest",
-            "OrientationTest",
-            "SimpleMeshes",
-            "TriangleWithoutIndices",
-            "SimpleSparseAccessor",
-            "NegativeScaleTest",
-            "MeshPrimitiveModes",
             "MultiUVTest",
-            "VertexColorTest",
             "TextureCoordinateTest",
-            "MetalRoughSpheres",
-            "NormalTangentTest",
-            "NormalTangentMirrorTest",
             "CesiumMilkTruck",
         ],
-        written: ["SimpleMeshes"],
     });
     for (const scene of Object.keys(scenes) as Scene[]) {
         expect(
@@ -65,7 +42,6 @@ test("the truck retains its accepted placement and orbit framing", () => {
         distance: 6,
         yaw: 0.7,
         pitch: 0.4,
-        ground: -0.6,
         target: [0, 0, 0],
     });
 });

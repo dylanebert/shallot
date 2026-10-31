@@ -1,5 +1,6 @@
 import { holdFrames, pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, test } from "playwright/test";
+import { categories } from "../src/scenes";
 import { scenePixels } from "./scenes";
 
 test.use({
@@ -40,17 +41,17 @@ test("catalog switches draw on the same canvas with desktop clicks and 390x844 t
         );
         if (phone) await picker.tap();
         else await picker.click();
-        for (const name of ["core", "issues", "testing", "written"])
+        for (const name of categories.map((category) => category.name))
             await expect(page.getByRole("region", { name, exact: true })).toBeVisible();
-        const name = phone ? "CesiumMilkTruck" : "BoxTextured";
+        const name = phone ? "CesiumMilkTruck" : "TextureCoordinateTest";
         const choice = page
-            .getByRole("region", { name: "core", exact: true })
+            .getByRole("region", { name: "textures", exact: true })
             .getByRole("button", { name, exact: true });
         if (phone) await choice.tap();
         else await choice.click();
         await expect(picker).toHaveText(name);
         await expect(picker).toHaveAttribute("aria-expanded", "false");
-        // BoxTextured's logo has a blue sky; the truck has a green body.
+        // The UV test's blue patches and the truck's green body.
         await expect
             .poll(async () => {
                 expect(errors).toEqual([]);
@@ -67,6 +68,17 @@ test("catalog switches draw on the same canvas with desktop clicks and 390x844 t
             true,
         );
         await expect(page.getByRole("slider")).toHaveCount(0);
+    }
+    for (const category of categories) {
+        for (const scene of category.scenes) {
+            await picker.click();
+            await page
+                .getByRole("region", { name: category.name, exact: true })
+                .getByRole("button", { name: scene.id, exact: true })
+                .click();
+            await expect(picker).toHaveText(scene.id);
+            await frames.run(2);
+        }
     }
     expect(errors).toEqual([]);
 });

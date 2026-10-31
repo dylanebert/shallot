@@ -3,13 +3,9 @@ import {
     DirectionalLight,
     GlobalAmbientLight,
     lookAtRotation,
-    Materials,
-    MeshInstance,
-    MeshMaterial,
     MeshPlugin,
     type Plugin,
     type Resource,
-    StandardMaterial,
     StandardRenderer,
     Transform,
     type World,
@@ -22,13 +18,11 @@ export const Viewer: Resource<{
     models: Map<Scene, Gltf>;
     entities: number[];
     camera: number;
-    ground: number;
 }> = {
     create: () => ({
         models: new Map(),
         entities: [],
         camera: 0,
-        ground: 0,
     }),
 };
 export function selectScene(world: World, scene: Scene, phone = false) {
@@ -45,10 +39,6 @@ export function selectScene(world: World, scene: Scene, phone = false) {
     orbit.yaw.set(viewer.camera, view.yaw);
     orbit.pitch.set(viewer.camera, view.pitch);
     orbit.pan.set(viewer.camera, view.target[0], view.target[1], view.target[2]);
-    const transform = world.storage(Transform);
-    transform.translation.set(viewer.ground, 0, view.ground, 0);
-    if (scene === "CesiumMilkTruck") transform.scale.set(viewer.ground, 4, 0.2, 4);
-    else transform.scale.set(viewer.ground, view.distance, 0.02, view.distance);
 }
 export const AppPlugin: Plugin = {
     name: "GltfApp",
@@ -67,27 +57,17 @@ export const AppPlugin: Plugin = {
         world.add(viewer.camera, StandardRenderer);
         world.add(viewer.camera, Transform);
         world.add(viewer.camera, Orbit);
-        viewer.ground = world.create();
-        world.add(viewer.ground, MeshInstance);
-        world.add(
-            viewer.ground,
-            MeshMaterial,
-            world.resource(Materials).add(
-                StandardMaterial({
-                    baseColor: [0.085, 0.08, 0.072, 1],
-                    perceptualRoughness: 0.82,
-                }),
-            ),
-        );
-        world.add(viewer.ground, Transform);
         const names = Object.keys(scenes) as Scene[];
-        for (const [i, scene] of names.entries()) {
-            viewer.models.set(
-                scene,
-                await loadGltfScene(world, new URL(modelPath(scene), document.baseURI)),
-            );
-            progress?.((i + 1) / names.length);
-        }
+        let loaded = 0;
+        await Promise.all(
+            names.map(async (scene) => {
+                viewer.models.set(
+                    scene,
+                    await loadGltfScene(world, new URL(modelPath(scene), document.baseURI)),
+                );
+                progress?.(++loaded / names.length);
+            }),
+        );
         selectScene(world, "CesiumMilkTruck", matchMedia("(max-width: 480px)").matches);
     },
 };

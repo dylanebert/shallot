@@ -18,8 +18,8 @@ import {
 import { loadGltf, loadGltfScene, spawnGltfScene } from "@dylanebert/shallot/gltf";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
-import { categories, modelPath } from "../src/scenes";
 import { decodeConformance } from "./arrays";
+import { categories, modelPath } from "./catalog";
 import gold from "./models.gold.json";
 import { decodeQuantized } from "./quantization";
 import { assets, fileFetch, syncAssets } from "./setup";

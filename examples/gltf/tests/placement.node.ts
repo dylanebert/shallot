@@ -36,9 +36,7 @@ test("the truck's accepted placement derives its five mesh and material instance
                     viewer.camera = world.create();
                     world.add(viewer.camera, Transform);
                     world.add(viewer.camera, Orbit);
-                    viewer.ground = world.create();
-                    world.add(viewer.ground, Transform);
-                    for (const scene of ["CesiumMilkTruck", "BoxTextured"] as const) {
+                    for (const scene of ["CesiumMilkTruck", "TextureCoordinateTest"] as const) {
                         viewer.models.set(
                             scene,
                             await loadGltfScene(
@@ -72,14 +70,13 @@ test("the truck's accepted placement derives its five mesh and material instance
         }
         const old = entities.map((eid) => app.world.ref(eid));
         const viewer = app.world.resource(Viewer);
-        selectScene(app.world, "BoxTextured", true);
+        selectScene(app.world, "TextureCoordinateTest", true);
         expect(old.map((ref) => app.world.resolve(ref))).toEqual([0, 0, 0, 0, 0]);
-        expect(viewer.entities).toHaveLength(1);
+        expect(viewer.entities).toHaveLength(5);
         expect(app.world.storage(MeshInstance).mesh.get(viewer.entities[0])).toBe(
-            viewer.models.get("BoxTextured")!.primitives[0].mesh,
+            viewer.models.get("TextureCoordinateTest")!.primitives[0].mesh,
         );
-        expect(app.world.storage(Orbit).distance.get(viewer.camera)).toBeCloseTo(4.8);
-        expect(app.world.storage(Transform).translation.y.get(viewer.ground)).toBeCloseTo(-0.51);
+        expect(app.world.storage(Orbit).distance.get(viewer.camera)).toBeCloseTo(9.6);
         selectScene(app.world, "CesiumMilkTruck");
         expect(viewer.entities).toHaveLength(5);
         expect(app.world.storage(Orbit).distance.get(viewer.camera)).toBe(6);
