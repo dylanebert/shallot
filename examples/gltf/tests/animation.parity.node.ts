@@ -1,11 +1,13 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { composeMat4, multiplyMat4 } from "../../../src/engine/utils";
-import { evaluateGltfAnimation, type GltfJson, parse } from "../../../src/extras/gltf";
+import { composeMat4, multiplyMat4 } from "@dylanebert/shallot";
+import { evaluateGltfAnimation, type GltfJson, parse } from "@dylanebert/shallot/gltf";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import gold from "./animations.gold.json";
 import { syncAssets } from "./setup";
 
+setDefaultTimeout(TIMEOUT.node);
 await syncAssets();
 
 const subjects = gold.records.map((record) => {
