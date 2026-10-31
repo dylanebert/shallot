@@ -23,7 +23,7 @@ const head = Bun.spawnSync(["git", "-C", checkout, "rev-parse", "HEAD"]).stdout.
 if (head !== revision) throw new Error(`THREE is at ${head || "no git revision"}, not ${revision}`);
 if (example) await syncFiles(manifest.models.flatMap(model => model.files), new URL(`${manifest.commit}/`, manifest.source), resolve(import.meta.dir, "../../examples/gltf/public/assets"));
 const { GLTFLoader } = await import(pathToFileURL(resolve(checkout, "examples/jsm/loaders/GLTFLoader.js")).href);
-const { LoadingManager, Mesh, MeshBasicMaterial, DoubleSide } = await import(pathToFileURL(resolve(checkout, "build/three.module.js")).href);
+const { LoadingManager, Mesh, MeshBasicMaterial, DoubleSide, BufferAttribute } = await import(pathToFileURL(resolve(checkout, "build/three.module.js")).href);
 
 // Pixels are not recorded. The loader still resolves texture identity and sampler state.
 globalThis.self = globalThis as typeof self;
@@ -76,6 +76,7 @@ for (const fixture of subjects) {
             geometry = geometry.clone();
             geometry.setIndex(specified);
         }
+        const originalIndices = geometry.index?.array ?? Array.from({ length: geometry.getAttribute("position").count }, (_, i) => i);
         const implicitNormals = !geometry.getAttribute("normal");
         if (implicitNormals) {
             // meshes-usage: one normal per triangle. GLTFLoader leaves these implicit
@@ -86,7 +87,7 @@ for (const fixture of subjects) {
         const position = geometry.getAttribute("position");
         const normal = geometry.getAttribute("normal");
         const uv = geometry.getAttribute("uv");
-        const positions = [], normals = [], uvs = [];
+        const positions: number[] = [], normals: number[] = [], uvs: number[] = [];
         for (let i = 0; i < position.count; i++) {
             positions.push(position.getX(i), position.getY(i), position.getZ(i));
             normals.push(...[normal.getX(i), normal.getY(i), normal.getZ(i)].map(value => example && implicitNormals && value === 0 ? 0 : value));
@@ -110,6 +111,28 @@ for (const fixture of subjects) {
             });
             tangent = null;
         }
+        const morphTargets = primitive.targets ? await Promise.all(primitive.targets.map(async (target: Record<string, number>, m: number) => {
+            const delta = async (semantic: string) => {
+                if (target[semantic] === undefined) return null;
+                const accessor = await reference.parser.getDependency("accessor", target[semantic]);
+                return Float32Array.from({ length: position.count * 3 }, (_, i) => accessor.getComponent(implicitNormals ? originalIndices[Math.floor(i / 3)] : Math.floor(i / 3), i % 3));
+            };
+            const p = await delta("POSITION");
+            let n = await delta("NORMAL");
+            const t = implicitNormals ? null : await delta("TANGENT");
+            if (t) divergences.push({ field: `instances[${instances.indexOf(object)}].morphTargets[${m}].tangent`, clause: "morph-targets-storage; morph-targets-usage (provided xyz tangent deltas, handedness unchanged)", reason: "GLTFLoader omits TANGENT morph attributes; the record retains the accessor's xyz differences.", loader: null, specified: array(t, 3) });
+            if (implicitNormals) {
+                const displaced = geometry.clone();
+                displaced.setAttribute("position", new BufferAttribute(Float32Array.from(positions, (v, i) => v + (p?.[i] ?? 0)), 3));
+                displaced.deleteAttribute("normal");
+                displaced.computeVertexNormals();
+                const normal = displaced.getAttribute("normal");
+                const specified = Float32Array.from(normals, (v, i) => { const difference = normal.getComponent(Math.floor(i / 3), i % 3) - v; return example && difference === 0 ? 0 : difference; });
+                divergences.push({ field: `instances[${instances.indexOf(object)}].morphTargets[${m}].normal`, clause: "morph-targets-usage: implicitly flat target normals follow displaced geometry", reason: "GLTFLoader retains provided morph normals or leaves them absent when base normals are implicit; the record recomputes each displaced face.", loader: n && array(n, 3), specified: array(specified, 3) });
+                n = specified;
+            }
+            return { position: p && array(p, 3), normal: n && array(n, 3), tangent: t && array(t, 3) };
+        })) : null;
         const ref = object.material;
         const unlit = ref instanceof MeshBasicMaterial;
         const materialIndex = reference.parser.associations.get(ref)?.materials;
@@ -147,7 +170,7 @@ for (const fixture of subjects) {
         }
         return { frontFace: object.matrixWorld.determinant() < 0 ? "cw" : "ccw", matrix: object.matrixWorld.elements, ...(example ? { nodePath } : {}), implicitNormals,
             positions: array(positions, 3), normals: array(normals, 3), uvs: array(uvs, 2),
-            uv1: stream("uv1", 2), color: stream("color", 4), tangent,
+            uv1: stream("uv1", 2), color: stream("color", 4), tangent, morphTargets, morphWeights: primitive.targets ? object.morphTargetInfluences.slice() : null,
             indices: array(geometry.index?.array ?? Array.from({ length: position.count }, (_, i) => i), 1, true),
             material,
         };
@@ -173,6 +196,8 @@ writeFileSync(resolve(import.meta.dir, example ? "../../examples/gltf/tests/mode
         uv1: "accessors-overview; accessor-data-types (normalized unsigned integers); meshes-attributes (TEXCOORD_1); null means absent",
         vertexColor: "meshes-attributes (COLOR_0, linear RGB/RGBA); meshes-usage (VEC3 alpha is 1); accessor-data-types (normalized unsigned integers); null means absent",
         tangent: "meshes-attributes (authored TANGENT xyzw, w unchanged); meshes-usage (ignored without NORMAL); null means absent, generated tangents are checked against the separate MikkTSpace reference",
+        morphWeights: "instantiation-morph-targets (node weights override mesh defaults; omitted weights are zero)",
+        morphTargets: "morph-targets-storage (xyz differences, absent semantics are zero); morph-targets-usage (flat target normals from displaced positions; provided tangents ignored without base NORMAL)",
         indices: "meshes-topology (indexed order; sequential vertices if indices absent); meshes-usage (split corners for flat normals)",
         matrix: "transformations (TRS; parent global times local)",
         frontFace: "instantiation (negative global determinant makes front faces clockwise)",

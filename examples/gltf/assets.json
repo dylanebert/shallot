@@ -2,9 +2,30 @@
     "source": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/",
     "commit": "2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf",
     "written": [
+        { "name": "MorphSkin", "path": "models/MorphSkin.gltf", "license": "CC0-1.0", "sha256": "2444995e6997099682f6ffc03f3601bc650ad1e46d3d2559d401d1348feed180" },
         { "name": "SkinnedNormal", "path": "models/SkinnedNormal.gltf", "license": "CC0-1.0", "sha256": "fa648612c0e8d4ca35b48ab8e0ada4abd5d063982278fd5ba43429c10a959678" }
     ],
     "models": [
+        { "name": "MorphPrimitivesTest", "license": "Models/MorphPrimitivesTest/LICENSE.md", "files": [
+            { "path": "Models/MorphPrimitivesTest/LICENSE.md", "sha256": "c5cb97e22a9ce3b298c9d7c4def7f4f40af73c52b69818a30f773e78c699bf54" },
+            { "path": "Models/MorphPrimitivesTest/glTF/MorphPrimitivesTest.bin", "sha256": "59ec1d7ca5c8d7605b69aa57cee3da2994384831a290e5271ecd963002c31c76" },
+            { "path": "Models/MorphPrimitivesTest/glTF/MorphPrimitivesTest.gltf", "sha256": "a51388b330a49586388e052dc66f74e95cdbc1efcdddea4248f65e200e1d335a" },
+            { "path": "Models/MorphPrimitivesTest/glTF/uv_texture.jpg", "sha256": "d498c54b30f096b663b161f37ee64397253d6fa15ee4f8c03082c890f6065031" }
+        ] },
+        { "name": "MorphStressTest", "license": "Models/MorphStressTest/LICENSE.md", "files": [
+            { "path": "Models/MorphStressTest/LICENSE.md", "sha256": "d71442a3656e7ba9f1ac39cdc814a1f18051ce6792d895528d0fa3226595a26a" },
+            { "path": "Models/MorphStressTest/glTF/ColorSwatches.png", "sha256": "80ac40f4caa24872aef11a2990afcaaec7fe9e3113db148ecf63f0016639e9fb" },
+            { "path": "Models/MorphStressTest/glTF/Base_AO.png", "sha256": "e64d4f4b3d7b4f1a0fa3e37006a8fbab76b8980d72fd740060631c30d8d77681" },
+            { "path": "Models/MorphStressTest/glTF/MorphStressTest.bin", "sha256": "684397e52a7f3941f369a88373633050462b6c27c1f1aff05f5bb32cf09cabe6" },
+            { "path": "Models/MorphStressTest/glTF/TinyGrid.png", "sha256": "16af23fd3e1bc37c8989293a09ee456c4f19825db69a9266c267e8035937c834" },
+            { "path": "Models/MorphStressTest/glTF/MorphStressTest.gltf", "sha256": "e9ffb5c8d4d6b8b83bf0bbee26146addcd474a44294bcbaae8019e63767272cd" }
+        ] },
+        { "name": "SimpleMorph", "license": "Models/SimpleMorph/LICENSE.md", "files": [
+            { "path": "Models/SimpleMorph/LICENSE.md", "sha256": "1e02a9b60a8fcd5340d6e8a94c657f094c25941540892bee8060950a0fb12c6c" },
+            { "path": "Models/SimpleMorph/glTF/SimpleMorph_geometry.bin", "sha256": "44e308fa30e6864c143c44d43bcf0dd3a48c0e21b8abd33344cf4949166c12ea" },
+            { "path": "Models/SimpleMorph/glTF/SimpleMorph_animation.bin", "sha256": "bba8e6c8579b04fca092057a83266582a2f22fbe390d16f0eb92b577c60f9776" },
+            { "path": "Models/SimpleMorph/glTF/SimpleMorph.gltf", "sha256": "99ec94e30b326077edb3958f5d2b68b4d8ad181529da86f5adf883065e68a2d2" }
+        ] },
         { "name": "SimpleSkin", "license": "Models/SimpleSkin/LICENSE.md", "files": [
             { "path": "Models/SimpleSkin/LICENSE.md", "sha256": "88574262014bd515adb4b6d407da01c5f34d43aef24f5719ce55627c002f55a5" },
             { "path": "Models/SimpleSkin/glTF/SimpleSkin.gltf", "sha256": "8d92e9888340eb98e82a65a1f8b037d9a1d9f09e5fd0b6ba6d40fd93700b3239" },

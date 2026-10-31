@@ -426,7 +426,7 @@ function decodeMesh(
     const morphTargets = prim.targets?.map((target) => ({
         position: stream(target.POSITION),
         normal: stream(target.NORMAL),
-        tangent: stream(target.TANGENT),
+        tangent: prim.attributes.NORMAL === undefined ? undefined : stream(target.TANGENT),
     }));
     if (color && gltf.accessors![prim.attributes.COLOR_0!].type === "VEC3") {
         const rgb = color;

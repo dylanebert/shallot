@@ -98,7 +98,14 @@ for (const [width, height] of [
                 );
                 const mesh = model.meshes[instance.mesh];
                 const vertices = mesh.vertices;
+                const weights = model.nodes.find(
+                    (node) => node.index === instance.nodeIndex,
+                )!.weights;
                 for (let i = 0; i < vertices.length; i += 8) {
+                    const p = [vertices[i], vertices[i + 1], vertices[i + 2]];
+                    for (const [m, target] of (mesh.morphTargets ?? []).entries())
+                        for (let axis = 0; axis < 3; axis++)
+                            p[axis] += weights[m] * (target.position?.[(i / 8) * 3 + axis] ?? 0);
                     if (instance.skin >= 0) {
                         const skin = model.skins[instance.skin];
                         const position = [0, 0, 0];
@@ -112,9 +119,9 @@ for (const [width, height] of [
                             for (let axis = 0; axis < 3; axis++)
                                 position[axis] +=
                                     mesh.weights![offset] *
-                                    (transform[axis] * vertices[i] +
-                                        transform[axis + 4] * vertices[i + 1] +
-                                        transform[axis + 8] * vertices[i + 2] +
+                                    (transform[axis] * p[0] +
+                                        transform[axis + 4] * p[1] +
+                                        transform[axis + 8] * p[2] +
                                         transform[axis + 12]);
                         }
                         points.push(
@@ -131,9 +138,9 @@ for (const [width, height] of [
                     points.push(
                         [0, 1, 2].map(
                             (axis) =>
-                                matrix[axis] * vertices[i] +
-                                matrix[axis + 4] * vertices[i + 1] +
-                                matrix[axis + 8] * vertices[i + 2] +
+                                matrix[axis] * p[0] +
+                                matrix[axis + 4] * p[1] +
+                                matrix[axis + 8] * p[2] +
                                 matrix[axis + 12],
                         ),
                     );

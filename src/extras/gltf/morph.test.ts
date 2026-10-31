@@ -108,6 +108,11 @@ test("provided tangents keep provided deltas and absent tangent deltas remain ze
         scene.meshes[0].morphTargets![0].normal,
     );
     expect(scene.meshes[0].morphTargets![1].tangent).toBeUndefined();
+    delete primitive.attributes.NORMAL;
+    delete json.materials![0].normalTexture;
+    const flat = parse(json, buffers).meshes[0];
+    expect(flat.tangent).toBeUndefined();
+    expect(flat.morphTargets![0].tangent).toBeUndefined();
 });
 
 test("MikkTSpace splits on every target's corner tangent, remaps all streams, and ignores injected provided tangent deltas", async () => {

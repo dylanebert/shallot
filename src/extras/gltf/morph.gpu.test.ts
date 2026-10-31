@@ -1,8 +1,11 @@
-import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, beforeAll, expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { Meshes, MeshInstance } from "../../core/mesh";
+import animationGold from "../../../examples/gltf/tests/animations.gold.json";
+import modelGold from "../../../examples/gltf/tests/models.gold.json";
+import { assets, fileFetch, syncAssets } from "../../../examples/gltf/tests/setup";
+import { Meshes, type MeshHandle, MeshInstance } from "../../core/mesh";
 import {
     attachTexture,
     Camera,
@@ -118,7 +121,17 @@ const scenes: {
     skinned: boolean;
     fixedWeights?: number[];
 }[] = [];
+const corpus: {
+    name: string;
+    instance: GltfSceneInstance;
+    decoded: GltfScene;
+    bases: number[];
+    meshes: MeshHandle[];
+}[] = [];
+let fetchSpy: ReturnType<typeof spyOn>;
 beforeAll(async () => {
+    await syncAssets();
+    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(fileFetch);
     app = await openGpuApp({
         defaults: false,
         plugins: [
@@ -178,19 +191,32 @@ beforeAll(async () => {
                         for (const eid of instance.entities) world.add(eid, MeshMaterial, material);
                         scenes.push({ instance, decoded, skinned, fixedWeights, base: 0 });
                     }
+                    for (const name of [
+                        "AnimatedMorphCube",
+                        "MorphPrimitivesTest",
+                        "MorphStressTest",
+                        "SimpleMorph",
+                    ]) {
+                        const url = new URL(`Models/${name}/glTF/${name}.gltf`, assets);
+                        const decoded = await loadGltf(url),
+                            instance = spawnGltfScene(world, await loadGltfScene(world, url));
+                        for (const eid of instance.entities) {
+                            world.add(eid, MeshMaterial, material);
+                            world.remove(eid, MeshInstance);
+                        }
+                        corpus.push({ name, decoded, instance, bases: [], meshes: [] });
+                    }
                 },
             },
         ],
     });
     const world = app.world,
         meshes = world.resource(Meshes);
-    for (const scene of scenes) {
-        const mesh = meshes.get(scene.instance.gltf.primitives[0].mesh)!;
+    async function provoking(source: MeshHandle, count: number) {
+        const mesh = meshes.get(source)!;
         const original = await mesh.indices.read();
         const base = Math.min(...original.slice(mesh.indexBase, mesh.indexBase + mesh.indexCount));
-        scene.base = base;
-        const count = scene.decoded.meshes[0].vertices.length / 8,
-            indices: number[] = [];
+        const indices: number[] = [];
         for (let v = base; v < base + count; v++) {
             const other = [base, base + 1, base + 2].filter((i) => i % 3 !== v % 3);
             indices.push(v, other[0], other[1]);
@@ -206,13 +232,30 @@ beforeAll(async () => {
             indexCount: indices.length,
             bounds: undefined,
         });
+        return { handle, base };
+    }
+    for (const scene of scenes) {
+        const { handle, base } = await provoking(
+            scene.instance.gltf.primitives[0].mesh,
+            scene.decoded.meshes[0].vertices.length / 8,
+        );
+        scene.base = base;
         world.storage(MeshInstance).mesh.set(scene.instance.entities[0], handle);
     }
+    for (const scene of corpus)
+        for (const [p, primitive] of scene.instance.gltf.primitives.entries()) {
+            const { handle, base } = await provoking(
+                primitive.mesh,
+                scene.decoded.meshes[scene.decoded.instances[p].mesh].vertices.length / 8,
+            );
+            scene.bases.push(base);
+            scene.meshes.push(handle);
+        }
     const palette = world.resource(SkinPalette);
     const oldWeights = palette.bindings.morphWeights,
         oldOffsets = palette.deformationOffsets;
     const reserved = world.create();
-    world.add(reserved, MorphedMesh, { weightCount: 240 });
+    world.add(reserved, MorphedMesh, { weightCount: 252 - palette.morph.ranges.extent });
     while (world.create() < 300) {}
     const third = scenes[2],
         previous = third.instance;
@@ -281,6 +324,7 @@ beforeAll(async () => {
 afterAll(() => {
     app?.dispose();
     cullApp?.dispose();
+    fetchSpy?.mockRestore();
 });
 
 // Absolute + relative 2e-4 permits float32 sum, normalization and matrix error. Echoed GPU inputs
@@ -292,8 +336,11 @@ const normalize = (v: number[]) => {
     const length = Math.hypot(...v);
     return v.map((x) => x / length);
 };
-for (const time of [0, 0.5, 1])
-    test(`morph sum precedes skinning for positions, normals and tangents at recorded time ${time}, including a shared family`, async () => {
+const recorded = animationGold.records.find((record) => record.fixture.endsWith("/MorphSkin.gltf"))!
+    .animations[0].samples;
+for (const sample of recorded)
+    test(`morph sum precedes skinning for positions, normals and tangents at recorded time ${sample.time}, including a shared family`, async () => {
+        const time = Math.max(0, Math.min(1, sample.time));
         const world = app.world,
             meshes = world.resource(Meshes);
         const a = meshes.get(scenes[0].instance.gltf.primitives[0].mesh)!,
@@ -302,7 +349,7 @@ for (const time of [0, 0.5, 1])
         expect(a.attributes!.deformation).toBe(b.attributes!.deformation);
         expect(scenes[1].base).toBeGreaterThan(0);
         for (const scene of scenes) {
-            poseGltfScene(world, scene.instance, scene.instance.gltf.animations[0], time);
+            poseGltfScene(world, scene.instance, scene.instance.gltf.animations[0], sample.time);
             world.storage(MeshInstance).cullBounds.set(scene.instance.entities[0], 0, 0, 0, -1);
         }
         world.tick();
@@ -327,7 +374,7 @@ for (const time of [0, 0.5, 1])
                     ).entries())
                         for (let k = 0; k < 3; k++)
                             values[a][k] +=
-                                (scene.fixedWeights?.[m] ?? [time, time / 2][m]) *
+                                (scene.fixedWeights?.[m] ?? sample.values[1][m]) *
                                 (target[semantic]?.[v * 3 + k] ?? 0);
                 if (scene.skinned)
                     for (let a = 0; a < 3; a++) {
@@ -342,26 +389,8 @@ for (const time of [0, 0.5, 1])
                     for (let k = 0; k < 3; k++) close(output[o + a * 4 + k], values[a][k]);
                 close(output[o + 11], output[o + 23]);
             }
-            // Independent stage-1-style joint-global record for the fixture's authored scale/rotation.
             if (scene.skinned) {
-                const expected = [
-                    1.5 * c,
-                    1.5 * s,
-                    0,
-                    0,
-                    -0.75 * s,
-                    0.75 * c,
-                    0,
-                    0,
-                    0,
-                    0,
-                    1,
-                    0,
-                    0,
-                    0,
-                    0,
-                    1,
-                ];
+                const expected = sample.worlds[1].matrix;
                 for (let i = 0; i < 16; i++) close(scene.instance.globals[1][i], expected[i]);
             }
         }
@@ -427,6 +456,163 @@ test("morphed joint boxes conservatively enclose every morphed-then-skinned vert
         ).toBeLessThanOrEqual(radius + 2e-4);
     }
 });
+
+test("a short weight range neither reads nor overwrites its neighbour, even when attached before its mesh", async () => {
+    const world = app.world,
+        scene = scenes[0],
+        eid = scene.instance.entities[0];
+    const mesh = world.storage(MeshInstance).mesh.get(eid);
+    world.remove(eid, MeshInstance);
+    world.remove(eid, MorphedMesh);
+    world.add(eid, MorphedMesh, { weightCount: 1 });
+    world.add(eid, MeshInstance, { mesh });
+    const neighbour = world.create();
+    world.add(neighbour, MorphedMesh, { weightCount: 1 });
+    const storage = world.storage(MorphedMesh),
+        first = storage.firstWeight.get(eid),
+        next = storage.firstWeight.get(neighbour);
+    expect(next).toBe(first + 1);
+    const weights = world.resource(SkinPalette).morph.weights;
+    weights[next] = 100;
+    try {
+        poseGltfScene(world, scene.instance, scene.instance.gltf.animations[0], 0.5);
+        expect(weights[next]).toBe(100);
+        world.storage(MeshInstance).cullBounds.set(eid, 0, 0, 0, -1);
+        world.tick();
+        world.step(1 / 60);
+        const output = new Float32Array((await probeTexture(world, world.resource(Results))).bytes);
+        const source = scene.decoded.meshes[0],
+            target = source.morphTargets![0];
+        for (let v = 0; v < source.vertices.length / 8; v++) {
+            const o = (scene.base + v) * 24;
+            const normal = normalize(
+                Array.from(
+                    output.subarray(o + 16, o + 19),
+                    (n, a) => n + 0.5 * (target.normal?.[v * 3 + a] ?? 0),
+                ),
+            );
+            for (let a = 0; a < 3; a++) {
+                close(
+                    output[o + a],
+                    output[o + 12 + a] + 0.5 * (target.position?.[v * 3 + a] ?? 0),
+                );
+                close(output[o + 4 + a], normal[a]);
+                close(
+                    output[o + 8 + a],
+                    output[o + 20 + a] + 0.5 * (target.tangent?.[v * 3 + a] ?? 0),
+                );
+            }
+        }
+    } finally {
+        world.destroy(neighbour);
+        world.remove(eid, MorphedMesh);
+        world.add(eid, MorphedMesh, { weightCount: 2 });
+        poseGltfScene(world, scene.instance, scene.instance.gltf.animations[0], 1);
+    }
+});
+
+for (const name of ["AnimatedMorphCube", "MorphPrimitivesTest", "MorphStressTest", "SimpleMorph"])
+    test(`${name}: every morphed vertex matches recorded weights and node globals on the GPU`, async () => {
+        const world = app.world,
+            scene = corpus.find((scene) => scene.name === name)!;
+        const reference = modelGold.records.find(
+            (record) => record.fixture === `Models/${name}/glTF/${name}.gltf`,
+        )!;
+        const animationRecord = animationGold.records.find((record) =>
+            record.fixture.includes(`/${name}/`),
+        );
+        const hidden = scenes.map((scene) => ({
+            eid: scene.instance.entities[0],
+            mesh: world.storage(MeshInstance).mesh.get(scene.instance.entities[0]),
+        }));
+        for (const { eid } of hidden) world.remove(eid, MeshInstance);
+        let checked = 0;
+        try {
+            for (const animation of animationRecord?.animations ?? [null]) {
+                const samples = animation
+                    ? [
+                          animation.samples[0],
+                          animation.samples[1],
+                          animation.samples[Math.floor(animation.samples.length / 2)],
+                          ...animation.samples.slice(-2),
+                      ]
+                    : [null];
+                for (const sample of samples)
+                    for (const [p, primitive] of scene.instance.gltf.primitives.entries()) {
+                        const eid = scene.instance.entities[p];
+                        world.add(eid, MeshInstance, { mesh: scene.meshes[p] });
+                        poseGltfScene(
+                            world,
+                            scene.instance,
+                            animation
+                                ? scene.instance.gltf.animations[animation.index]
+                                : { name: "rest", samplers: [], channels: [] },
+                            sample?.time ?? 0,
+                        );
+                        world.storage(MeshInstance).cullBounds.set(eid, 0, 0, 0, -1);
+                        world.tick();
+                        world.step(1 / 60);
+                        const output = new Float32Array(
+                            (await probeTexture(world, world.resource(Results))).bytes,
+                        );
+                        const node = scene.instance.gltf.nodes[primitive.nodeIndex].index;
+                        const channel =
+                            animation?.channels.findIndex(
+                                (channel) => channel.node === node && channel.path === "weights",
+                            ) ?? -1;
+                        const weights =
+                            channel < 0
+                                ? reference.instances[p].morphWeights!
+                                : sample!.values[channel];
+                        const matrix =
+                            sample?.worlds[primitive.nodeIndex].matrix ??
+                            reference.instances[p].matrix;
+                        // These corpus nodes have uniform scale; normalize their linear normal transform.
+                        const scale = Math.hypot(matrix[0], matrix[1], matrix[2]);
+                        close(Math.hypot(matrix[4], matrix[5], matrix[6]), scale);
+                        close(Math.hypot(matrix[8], matrix[9], matrix[10]), scale);
+                        const mesh = scene.decoded.meshes[scene.decoded.instances[p].mesh];
+                        for (let v = 0; v < mesh.vertices.length / 8; v++) {
+                            const o = (scene.bases[p] + v) * 24;
+                            expect(output[o + 15]).toBe(scene.bases[p] + v);
+                            const values = [
+                                Array.from(output.subarray(o + 12, o + 15)),
+                                Array.from(output.subarray(o + 16, o + 19)),
+                                Array.from(output.subarray(o + 20, o + 23)),
+                            ];
+                            for (const [m, target] of mesh.morphTargets!.entries())
+                                for (const [a, semantic] of (
+                                    ["position", "normal", "tangent"] as const
+                                ).entries())
+                                    for (let k = 0; k < 3; k++)
+                                        values[a][k] +=
+                                            weights[m] * (target[semantic]?.[v * 3 + k] ?? 0);
+                            for (let a = 0; a < 3; a++) {
+                                const value = values[a];
+                                values[a] = [0, 1, 2].map(
+                                    (r) =>
+                                        matrix[r] * value[0] +
+                                        matrix[r + 4] * value[1] +
+                                        matrix[r + 8] * value[2] +
+                                        (a === 0 ? matrix[r + 12] : 0),
+                                );
+                            }
+                            values[1] = normalize(values[1]).map((v) => v / scale);
+                            for (let a = 0; a < 3; a++)
+                                for (let k = 0; k < 3; k++)
+                                    close(output[o + a * 4 + k], values[a][k]);
+                            close(output[o + 11], output[o + 23]);
+                            checked++;
+                        }
+                        world.remove(eid, MeshInstance);
+                    }
+            }
+            expect(checked).toBeGreaterThan(0);
+        } finally {
+            for (const eid of scene.instance.entities) world.remove(eid, MeshInstance);
+            for (const { eid, mesh } of hidden) world.add(eid, MeshInstance, { mesh });
+        }
+    });
 
 test("weight membership owns reusable ranges; posing a detached morph cannot overwrite another spawn", () => {
     const world = app.world,

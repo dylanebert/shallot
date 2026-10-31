@@ -489,11 +489,13 @@ function writeMorphPose(world: World, instance: GltfSceneInstance, primitiveInde
     const primitive = instance.gltf.primitives[primitiveIndex];
     const eid = instance.entities[primitiveIndex];
     if (!primitive.morphReach || !world.has(eid, MorphedMesh)) return 0;
-    const first = world.storage(MorphedMesh).firstWeight.get(eid);
+    const storage = world.storage(MorphedMesh);
+    const first = storage.firstWeight.get(eid);
+    const count = Math.min(storage.weightCount.get(eid), primitive.morphReach.length);
     const weights = world.resource(SkinPalette).morph.weights;
     const pose = instance.poses[primitive.nodeIndex].weights;
     let reach = 0;
-    for (let m = 0; m < primitive.morphReach.length; m++) {
+    for (let m = 0; m < count; m++) {
         weights[first + m] = pose[m];
         reach += Math.abs(weights[first + m]) * primitive.morphReach[m];
     }

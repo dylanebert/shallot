@@ -6,15 +6,15 @@ import { categories, modelPath, type Scene, scenes, truckPlacement } from "./sce
 
 test("the picker demonstrates each promise once without shrinking the regression corpus", () => {
     const listed = categories.flatMap((category) => category.scenes.map((scene) => scene.id));
-    expect(listed.length).toBe(15);
+    expect(listed.length).toBe(16);
     expect(new Set(listed).size).toBe(listed.length);
-    expect(manifest.models).toHaveLength(30);
+    expect(manifest.models).toHaveLength(33);
     expect(
         Object.fromEntries(
             categories.map((category) => [category.name, category.scenes.map((scene) => scene.id)]),
         ),
     ).toEqual({
-        animation: ["AnimatedTriangle", "CesiumMan", "SkinnedNormal"],
+        animation: ["AnimatedTriangle", "CesiumMan", "SkinnedNormal", "AnimatedMorphCube"],
         geometry: ["MeshPrimitiveModes", "VertexColorTest"],
         transforms: ["OrientationTest", "NegativeScaleTest"],
         materials: [
@@ -34,8 +34,6 @@ test("the picker demonstrates each promise once without shrinking the regression
         const written = manifest.written.find((fixture) => fixture.name === scene);
         if (written) {
             expect(modelPath(scene)).toBe(written.path);
-            const bytes = readFileSync(new URL(`../public/${written.path}`, import.meta.url));
-            expect(createHash("sha256").update(bytes).digest("hex")).toBe(written.sha256);
             continue;
         }
         expect(
@@ -45,6 +43,14 @@ test("the picker demonstrates each promise once without shrinking the regression
         ).toBe(true);
     }
 });
+test("written corpus fixtures are CC0 and retain their manifest hashes", () => {
+    for (const fixture of manifest.written) {
+        expect(fixture.license).toBe("CC0-1.0");
+        const bytes = readFileSync(new URL(`../public/${fixture.path}`, import.meta.url));
+        expect(createHash("sha256").update(bytes).digest("hex")).toBe(fixture.sha256);
+    }
+});
+
 test("the truck retains its accepted placement", () => {
     expect(truckPlacement).toEqual({ translation: [0, -0.5, 0], scale: [0.7, 0.7, 0.7] });
 });

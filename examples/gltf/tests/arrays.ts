@@ -39,7 +39,11 @@ export function decodeConformance(
     reference: Record<
         keyof ReturnType<typeof decodedArrays>,
         ReturnType<typeof recordArray> | null
-    >,
+    > & {
+        morphTargets?:
+            | Record<"position" | "normal" | "tangent", ReturnType<typeof recordArray> | null>[]
+            | null;
+    },
     label: string,
     generatedTangents?: Float32Array,
 ) {
@@ -74,5 +78,16 @@ export function decodeConformance(
                 name === "indices",
             );
     }
+    expect(mesh.morphTargets?.length ?? 0, `${label} morph target count`).toBe(
+        reference.morphTargets?.length ?? 0,
+    );
+    for (const [m, target] of (reference.morphTargets ?? []).entries())
+        for (const semantic of ["position", "normal", "tangent"] as const)
+            decodedArray(
+                mesh.morphTargets![m][semantic] ?? null,
+                target[semantic],
+                3,
+                `${label} morph ${m} ${semantic}`,
+            );
     return arrays;
 }

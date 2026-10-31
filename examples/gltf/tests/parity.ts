@@ -19,7 +19,9 @@ import {
     GltfPlugin,
     loadGltf,
     loadGltfScene,
+    MorphedMesh,
     SkinnedMaterial,
+    SkinPalette,
     spawnGltfScene,
 } from "@dylanebert/shallot/gltf";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
@@ -299,6 +301,16 @@ export function parity(category: string) {
                     );
                     const t = app.world.storage(Transform);
                     const eid = entities![i];
+                    expect(app.world.has(eid, MorphedMesh)).toBe(ref.morphWeights !== null);
+                    if (ref.morphWeights) {
+                        const first = app.world.storage(MorphedMesh).firstWeight.get(eid);
+                        materialValues(
+                            app.world
+                                .resource(SkinPalette)
+                                .morph.weights.subarray(first, first + ref.morphWeights.length),
+                            ref.morphWeights,
+                        );
+                    }
                     expect(app.world.storage(MeshInstance).mesh.get(eid)).toBe(primitive.mesh);
                     const bindings = app.world.storage(MeshMaterial);
                     for (const field of [
@@ -327,7 +339,11 @@ export function parity(category: string) {
                         ),
                     ).toEqual(Array.from(expectedMatrix));
                     const material = app.world
-                        .resource(primitive.skin >= 0 ? SkinnedMaterial : Materials)
+                        .resource(
+                            primitive.skin >= 0 || primitive.morphReach
+                                ? SkinnedMaterial
+                                : Materials,
+                        )
                         .get(primitive.material)!;
                     const refMaterial = ref.material as {
                         color: number[];

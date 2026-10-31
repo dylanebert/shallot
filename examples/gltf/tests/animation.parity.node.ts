@@ -14,8 +14,10 @@ import {
     type GltfJson,
     GltfPlugin,
     loadGltfScene,
+    MorphedMesh,
     parse,
     poseGltfScene,
+    SkinPalette,
     spawnGltfScene,
 } from "@dylanebert/shallot/gltf";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
@@ -158,7 +160,7 @@ test("sampled local poses compose to recorded node world matrices", () => {
 
 await setupGlobals();
 for (const { record, path, scene } of subjects) {
-    test(`spawned animation ${record.fixture} matches recorded world transforms`, async () => {
+    test(`spawned animation ${record.fixture} matches recorded world transforms and morph weights`, async () => {
         const fetch = spyOn(globalThis, "fetch").mockImplementation(fileFetch);
         const app = await createApp({
             defaults: false,
@@ -167,6 +169,20 @@ for (const { record, path, scene } of subjects) {
         try {
             const gltf = await loadGltfScene(app.world, new URL(`file://${path}`));
             const instance = spawnGltfScene(app.world, gltf);
+            const morphs = app.world.storage(MorphedMesh),
+                morph = app.world.resource(SkinPalette).morph;
+            for (const [i, primitive] of gltf.primitives.entries()) {
+                const eid = instance.entities[i];
+                expect(app.world.has(eid, MorphedMesh)).toBe(!!primitive.morphReach);
+                if (primitive.morphReach) {
+                    expect(morphs.weightCount.get(eid)).toBe(primitive.morphReach.length);
+                    const first = morphs.firstWeight.get(eid);
+                    close(
+                        morph.weights.subarray(first, first + primitive.morphReach.length),
+                        record.nodes[primitive.nodeIndex].weights,
+                    );
+                }
+            }
             if (record.fixture.includes("AnimatedTriangle")) {
                 const stretched = spawnGltfScene(app.world, gltf, { scale: [2, 1, 1] });
                 const before = app.world.storage(GlobalTransform);
@@ -223,6 +239,26 @@ for (const { record, path, scene } of subjects) {
                         [placed.entities, placement],
                     ] as const) {
                         entities.forEach((eid, i) => {
+                            const primitive = gltf.primitives[i];
+                            if (primitive.morphReach) {
+                                const channel = animation.channels.findIndex(
+                                    (channel) =>
+                                        channel.node === gltf.nodes[primitive.nodeIndex].index &&
+                                        channel.path === "weights",
+                                );
+                                const expected =
+                                    channel < 0
+                                        ? record.nodes[primitive.nodeIndex].weights
+                                        : sample.values[channel];
+                                const first = morphs.firstWeight.get(eid);
+                                close(
+                                    morph.weights.subarray(
+                                        first,
+                                        first + primitive.morphReach.length,
+                                    ),
+                                    expected,
+                                );
+                            }
                             const t = global.translation,
                                 r = global.rotation,
                                 s = global.scale;

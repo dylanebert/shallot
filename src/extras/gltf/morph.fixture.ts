@@ -3,7 +3,10 @@ import type { GltfJson } from "./gltf";
 
 export function morphFixture() {
     const json = JSON.parse(
-        readFileSync(new URL("./fixtures/morph-skin.gltf", import.meta.url), "utf8"),
+        readFileSync(
+            new URL("../../../examples/gltf/public/models/MorphSkin.gltf", import.meta.url),
+            "utf8",
+        ),
     ) as GltfJson;
     const buffers = json.buffers!.map(
         (buffer) => Uint8Array.from(Buffer.from(buffer.uri!.split(",")[1], "base64")).buffer,

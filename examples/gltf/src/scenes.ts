@@ -17,6 +17,7 @@ export const scenes = {
     AnimatedTriangle: { promise: "animation" },
     CesiumMan: { promise: "animation" },
     SkinnedNormal: { promise: "animation" },
+    AnimatedMorphCube: { promise: "animation" },
 } as const;
 export type Scene = keyof typeof scenes;
 export const categories = ["geometry", "transforms", "materials", "textures", "animation"].map(

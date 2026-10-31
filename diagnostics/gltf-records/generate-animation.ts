@@ -3,7 +3,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { accessorFixture, animationFixtures } from "./animation-fixtures";
+import { accessorFixture, animationFixtures, writtenAnimationFixtures } from "./animation-fixtures";
 import manifest from "../../examples/gltf/assets.json";
 import { syncFiles } from "../../examples/gltf/sync";
 
@@ -19,7 +19,7 @@ globalThis.createImageBitmap = (async () => ({ width: 1, height: 1, close() {} }
 await syncFiles(manifest.models.filter(model => animationFixtures.some(name => name === model.name)).flatMap(model => model.files),
     new URL(`${manifest.commit}/`, manifest.source), resolve(import.meta.dir, "../../examples/gltf/public/assets"));
 const records = [];
-for (const fixture of [...animationFixtures.map(name => `../../examples/gltf/public/assets/Models/${name}/glTF/${name}.gltf`), accessorFixture]) {
+for (const fixture of [...animationFixtures.map(name => `../../examples/gltf/public/assets/Models/${name}/glTF/${name}.gltf`), ...writtenAnimationFixtures, accessorFixture]) {
     const path = resolve(import.meta.dir, fixture);
     const manager = new LoadingManager();
     manager.setURLModifier((url: string) => url.startsWith("data:") || url.startsWith("blob:") ? url
@@ -34,7 +34,7 @@ for (const fixture of [...animationFixtures.map(name => `../../examples/gltf/pub
         if (index !== undefined) nodes.push({ index, object,
             translation: object.position.toArray(), rotation: object.quaternion.toArray(), scale: object.scale.toArray(),
             weights: json.nodes[index].weights ?? json.meshes?.[json.nodes[index].mesh]?.weights
-                ?? Array(json.meshes?.[json.nodes[index].mesh]?.primitives[0]?.targets?.length ?? 0).fill(0) });
+                ?? Array(json.meshes?.[json.nodes[index].mesh]?.primitives.find((primitive: any) => primitive.targets?.length)?.targets?.length ?? 0).fill(0) });
     });
     const animations = [];
     for (const [animationIndex, animation] of json.animations.entries()) {

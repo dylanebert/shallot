@@ -21,7 +21,8 @@ import { DeformationRanges, MorphTextures, MorphWidth, WeightWidth } from "./mor
  * Morph descriptor is (targetCount << 3) | position/normal/tangent mask; zero disables morphing. */
 export const VertexDeformation = d.struct({ joints: d.vec2u, morph: d.vec2u, weights: d.vec4f });
 /** Bindings for deformationVertex in materialLayout and extensionLayout.
- * deformationOffsets holds (firstJoint + 1, firstWeight + 1) by eid; zero disables that deformation. */
+ * deformationOffsets holds (firstJoint + 1, firstWeight + 1, weightCount, 0) by eid;
+ * a zero offset disables that deformation. Missing entity weights leave remaining targets unmorphed. */
 export const deformationBindings = {
     deformation: { type: "attribute", element: VertexDeformation },
     jointPalette: { type: "texture", filterable: false },
@@ -70,7 +71,7 @@ class Palette {
         texture: undefined as unknown as GPUTexture,
     };
     private readonly _paletteLayout = { bytesPerRow: PaletteWidth * 16 };
-    private readonly _offsetLayout = { bytesPerRow: PaletteWidth * 8 };
+    private readonly _offsetLayout = { bytesPerRow: PaletteWidth * 16 };
     private readonly _paletteSize = { width: PaletteWidth, height: 1 };
     private readonly _offsetSize = { width: PaletteWidth, height: 1 };
     private _world: World;
@@ -118,18 +119,20 @@ class Palette {
             );
         if (height > this._offsetHeight) {
             this._offsetHeight = this._offsetSize.height = height;
-            this._offsets = new Uint32Array(height * PaletteWidth * 2);
+            this._offsets = new Uint32Array(height * PaletteWidth * 4);
             if (this.deformationOffsets) this._world.retireGpuResource(this.deformationOffsets);
-            this.deformationOffsets = this.texture("rg32uint", height);
+            this.deformationOffsets = this.texture("rgba32uint", height);
             this.bindings.deformationOffsets = this._offsetTarget.texture = this.deformationOffsets;
         }
         const counts = this._world.fieldStorage(SkinnedMesh, "jointCount").column;
         const weightCounts = this._world.fieldStorage(MorphedMesh, "weightCount").column;
         this._offsets.fill(0);
         for (let eid = 0; eid < column.length; eid++)
-            this._offsets[eid * 2] = counts[eid] === 0 ? 0 : column[eid] + 1;
-        for (let eid = 0; eid < weightColumn.length; eid++)
-            this._offsets[eid * 2 + 1] = weightCounts[eid] === 0 ? 0 : weightColumn[eid] + 1;
+            this._offsets[eid * 4] = counts[eid] === 0 ? 0 : column[eid] + 1;
+        for (let eid = 0; eid < weightColumn.length; eid++) {
+            this._offsets[eid * 4 + 1] = weightCounts[eid] === 0 ? 0 : weightColumn[eid] + 1;
+            this._offsets[eid * 4 + 2] = weightCounts[eid];
+        }
         this.morph.upload();
         this.bindings.morphWeights = this.morph.bindings.morphWeights;
         this.bindings.morphDeltas = this.morph.bindings.morphDeltas;
@@ -200,7 +203,7 @@ export function deformationVertex(layout: DeformationLayout) {
         let n = d.vec3f(sourceNormal);
         let t = d.vec3f(sourceTangent.xyz);
         const mask = influence.morph.y & 7;
-        const count = influence.morph.y >>> 3;
+        const count = std.min(influence.morph.y >>> 3, allocation.z);
         const stride = (mask & 1) + ((mask >>> 1) & 1) + ((mask >>> 2) & 1);
         if (allocation.y !== 0) {
             for (let target = d.u32(0); target < count; target++) {
