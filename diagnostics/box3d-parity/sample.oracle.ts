@@ -412,7 +412,7 @@ for (const [scene, name, before, after] of [
         try {
             mkdirSync(join(copy,"samples")); mkdirSync(join(copy,"shared"));
             copyFileSync(join(process.env.BOX3D!,"shared/benchmarks.c"),join(copy,"shared/benchmarks.c"));
-            for (const file of ["sample_manifold.cpp", "sample_geometry.cpp", "sample_collision.cpp", "sample_ragdoll.cpp", "sample_mesh.cpp", "sample_compound.cpp", "sample_continuous.cpp", "sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp", "sample_bodies.cpp", "sample_shapes.cpp", "sample_character.cpp", "mover.h", "mover.cpp"])
+            for (const file of ["sample_manifold.cpp", "sample_geometry.cpp", "sample_collision.cpp", "sample_ragdoll.cpp", "sample_mesh.cpp", "sample_compound.cpp", "sample_continuous.cpp", "sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp", "sample_bodies.cpp", "sample_shapes.cpp", "sample_character.cpp", "geometric_mover.h", "geometric_mover.cpp"])
                 copyFileSync(join(process.env.BOX3D!,"samples",file),join(copy,"samples",file));
             copyRobustnessSources(copy);
             const path = join(copy,"samples/sample_ragdoll.cpp"), source = readFileSync(path,"utf8");
@@ -465,7 +465,7 @@ test("rigidBody: native hashes and character state repeat through held keys and 
         }
         const copy = join(directory, "source"); mkdirSync(join(copy, "samples"), { recursive: true }); mkdirSync(join(copy, "shared"));
         copyFileSync(join(process.env.BOX3D!, "shared/benchmarks.c"), join(copy, "shared/benchmarks.c"));
-        for (const name of ["sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp", "sample_bodies.cpp", "sample_shapes.cpp", "sample_character.cpp", "mover.h", "mover.cpp"]) copyFileSync(join(process.env.BOX3D!, "samples", name), join(copy, "samples", name));
+        for (const name of ["sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp", "sample_bodies.cpp", "sample_shapes.cpp", "sample_character.cpp", "geometric_mover.h", "geometric_mover.cpp"]) copyFileSync(join(process.env.BOX3D!, "samples", name), join(copy, "samples", name));
         copyFileSync(join(process.env.BOX3D!, "samples/sample_continuous.cpp"), join(copy, "samples/sample_continuous.cpp"));
         copyFileSync(join(process.env.BOX3D!, "samples/sample_compound.cpp"), join(copy, "samples/sample_compound.cpp"));
         copyFileSync(join(process.env.BOX3D!, "samples/sample_mesh.cpp"), join(copy, "samples/sample_mesh.cpp"));
@@ -503,7 +503,7 @@ test("geometricMover: native hashes and mover state repeat through keys and Draw
         }
         mkdirSync(join(copy, "samples")); mkdirSync(join(copy, "shared"));
         copyFileSync(join(process.env.BOX3D!, "shared/benchmarks.c"), join(copy, "shared/benchmarks.c"));
-        for (const name of ["sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp", "sample_bodies.cpp", "sample_shapes.cpp", "sample_character.cpp", "mover.h", "mover.cpp"])
+        for (const name of ["sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp", "sample_bodies.cpp", "sample_shapes.cpp", "sample_character.cpp", "geometric_mover.h", "geometric_mover.cpp"])
             copyFileSync(join(process.env.BOX3D!, "samples", name), join(copy, "samples", name));
         copyFileSync(join(process.env.BOX3D!, "samples/sample_continuous.cpp"), join(copy, "samples/sample_continuous.cpp"));
         copyFileSync(join(process.env.BOX3D!, "samples/sample_compound.cpp"), join(copy, "samples/sample_compound.cpp"));
@@ -513,10 +513,10 @@ test("geometricMover: native hashes and mover state repeat through keys and Draw
         copyFileSync(join(process.env.BOX3D!, "samples/sample_geometry.cpp"), join(copy, "samples/sample_geometry.cpp"));
         copyFileSync(join(process.env.BOX3D!, "samples/sample_manifold.cpp"), join(copy, "samples/sample_manifold.cpp"));
         copyRobustnessSources(copy);
-        const path = join(copy, "samples/mover.h");
+        const path = join(copy, "samples/geometric_mover.h");
         const source = readFileSync(path, "utf8");
-        expect(source.includes("m_maxSpeed = 6.0f;")).toBe(true);
-        writeFileSync(path, source.replace("m_maxSpeed = 6.0f;", "m_maxSpeed = 6.1f;"));
+        expect(source.includes("maxSpeed = 6.0f;")).toBe(true);
+        writeFileSync(path, source.replace("maxSpeed = 6.0f;", "maxSpeed = 6.1f;"));
         const mutated = run([sampleBinary(join(copy, "samples")), "geometricMover", "600", sequence], { MOVER_READOUTS: records });
         expect(mutated).not.toBe(readFileSync(new URL("../../examples/physics/tests/geometricMover.controls.gold.txt", import.meta.url), "utf8"));
         expect(readFileSync(records, "utf8")).not.toBe(readFileSync(new URL("../../examples/physics/tests/geometricMover.controls.mover.gold.txt", import.meta.url), "utf8"));
@@ -545,7 +545,7 @@ for (const scene of ["capsulePlane", "moverOverlap"]) {
             mkdirSync(join(copy, "samples"));
             mkdirSync(join(copy, "shared"));
             copyFileSync(join(process.env.BOX3D!, "shared/benchmarks.c"), join(copy, "shared/benchmarks.c"));
-            for (const name of ["sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp", "sample_bodies.cpp", "sample_shapes.cpp", "sample_character.cpp", "mover.h", "mover.cpp"]) copyFileSync(join(process.env.BOX3D!, "samples", name), join(copy, "samples", name));
+            for (const name of ["sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp", "sample_bodies.cpp", "sample_shapes.cpp", "sample_character.cpp", "geometric_mover.h", "geometric_mover.cpp"]) copyFileSync(join(process.env.BOX3D!, "samples", name), join(copy, "samples", name));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_continuous.cpp"), join(copy, "samples/sample_continuous.cpp"));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_compound.cpp"), join(copy, "samples/sample_compound.cpp"));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_mesh.cpp"), join(copy, "samples/sample_mesh.cpp"));
@@ -598,7 +598,7 @@ for (const [scene,[name,before,after]] of Object.entries(meshMutations)) {
             }
             mkdirSync(join(copy,"samples"));mkdirSync(join(copy,"shared"));
             copyFileSync(join(process.env.BOX3D!,"shared/benchmarks.c"),join(copy,"shared/benchmarks.c"));
-            for (const file of ["sample_mesh.cpp","sample_compound.cpp","sample_continuous.cpp","sample.cpp","sample_stacking.cpp","sample_joint.cpp","sample_events.cpp","sample_benchmark.cpp","sample_bodies.cpp","sample_shapes.cpp","sample_character.cpp","mover.h","mover.cpp"])
+            for (const file of ["sample_mesh.cpp","sample_compound.cpp","sample_continuous.cpp","sample.cpp","sample_stacking.cpp","sample_joint.cpp","sample_events.cpp","sample_benchmark.cpp","sample_bodies.cpp","sample_shapes.cpp","sample_character.cpp","geometric_mover.h","geometric_mover.cpp"])
                 copyFileSync(join(process.env.BOX3D!,"samples",file),join(copy,"samples",file));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_ragdoll.cpp"), join(copy, "samples/sample_ragdoll.cpp"));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_collision.cpp"), join(copy, "samples/sample_collision.cpp"));
@@ -645,7 +645,7 @@ for (const [scene, name, before, after] of [
             }
             mkdirSync(join(copy,"samples"));mkdirSync(join(copy,"shared"));
             copyFileSync(join(process.env.BOX3D!,"shared/benchmarks.c"),join(copy,"shared/benchmarks.c"));
-            for (const file of ["sample_mesh.cpp","sample_compound.cpp","sample_continuous.cpp","sample.cpp","sample_stacking.cpp","sample_joint.cpp","sample_events.cpp","sample_benchmark.cpp","sample_bodies.cpp","sample_shapes.cpp","sample_character.cpp","mover.h","mover.cpp"])
+            for (const file of ["sample_mesh.cpp","sample_compound.cpp","sample_continuous.cpp","sample.cpp","sample_stacking.cpp","sample_joint.cpp","sample_events.cpp","sample_benchmark.cpp","sample_bodies.cpp","sample_shapes.cpp","sample_character.cpp","geometric_mover.h","geometric_mover.cpp"])
                 copyFileSync(join(process.env.BOX3D!,"samples",file),join(copy,"samples",file));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_ragdoll.cpp"), join(copy, "samples/sample_ragdoll.cpp"));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_collision.cpp"), join(copy, "samples/sample_collision.cpp"));
@@ -695,7 +695,7 @@ for (const [scene, name, before, after] of [
             }
             mkdirSync(join(copy, "samples")); mkdirSync(join(copy, "shared"));
             copyFileSync(join(process.env.BOX3D!, "shared/benchmarks.c"), join(copy, "shared/benchmarks.c"));
-            for (const file of ["sample_mesh.cpp", "sample_compound.cpp", "sample_continuous.cpp", "sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp", "sample_bodies.cpp", "sample_shapes.cpp", "sample_character.cpp", "mover.h", "mover.cpp"])
+            for (const file of ["sample_mesh.cpp", "sample_compound.cpp", "sample_continuous.cpp", "sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp", "sample_bodies.cpp", "sample_shapes.cpp", "sample_character.cpp", "geometric_mover.h", "geometric_mover.cpp"])
                 copyFileSync(join(process.env.BOX3D!, "samples", file), join(copy, "samples", file));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_ragdoll.cpp"), join(copy, "samples/sample_ragdoll.cpp"));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_collision.cpp"), join(copy, "samples/sample_collision.cpp"));
@@ -762,7 +762,7 @@ for (const [scene, [name, before, after]] of Object.entries(compoundMutations)) 
             }
             mkdirSync(join(copy, "samples")); mkdirSync(join(copy, "shared"));
             copyFileSync(join(process.env.BOX3D!, "shared/benchmarks.c"), join(copy, "shared/benchmarks.c"));
-            for (const file of ["sample_mesh.cpp", "sample_compound.cpp", "sample_continuous.cpp", "sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp", "sample_bodies.cpp", "sample_shapes.cpp", "sample_character.cpp", "mover.h", "mover.cpp"])
+            for (const file of ["sample_mesh.cpp", "sample_compound.cpp", "sample_continuous.cpp", "sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp", "sample_bodies.cpp", "sample_shapes.cpp", "sample_character.cpp", "geometric_mover.h", "geometric_mover.cpp"])
                 copyFileSync(join(process.env.BOX3D!, "samples", file), join(copy, "samples", file));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_ragdoll.cpp"), join(copy, "samples/sample_ragdoll.cpp"));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_collision.cpp"), join(copy, "samples/sample_collision.cpp"));
@@ -831,7 +831,7 @@ for (const [scene, [name, before, after]] of Object.entries(continuousMutations)
         try {
             mkdirSync(join(copy, "samples")); mkdirSync(join(copy, "shared"));
             copyFileSync(join(process.env.BOX3D!, "shared/benchmarks.c"), join(copy, "shared/benchmarks.c"));
-            for (const file of ["sample_continuous.cpp", "sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp", "sample_bodies.cpp", "sample_shapes.cpp", "sample_character.cpp", "mover.h", "mover.cpp"])
+            for (const file of ["sample_continuous.cpp", "sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp", "sample_bodies.cpp", "sample_shapes.cpp", "sample_character.cpp", "geometric_mover.h", "geometric_mover.cpp"])
                 copyFileSync(join(process.env.BOX3D!, "samples", file), join(copy, "samples", file));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_compound.cpp"), join(copy, "samples/sample_compound.cpp"));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_mesh.cpp"), join(copy, "samples/sample_mesh.cpp"));
@@ -942,7 +942,7 @@ for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "f
             mkdirSync(join(copy, "samples"));
             mkdirSync(join(copy, "shared"));
             copyFileSync(join(process.env.BOX3D!, "shared/benchmarks.c"), join(copy, "shared/benchmarks.c"));
-            for (const name of ["sample_continuous.cpp", "sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp", "sample_bodies.cpp", "sample_shapes.cpp", "sample_character.cpp", "mover.h", "mover.cpp"]) {
+            for (const name of ["sample_continuous.cpp", "sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp", "sample_bodies.cpp", "sample_shapes.cpp", "sample_character.cpp", "geometric_mover.h", "geometric_mover.cpp"]) {
                 copyFileSync(join(process.env.BOX3D!, "samples", name), join(copy, "samples", name));
             }
             copyFileSync(join(process.env.BOX3D!, "samples/sample_compound.cpp"), join(copy, "samples/sample_compound.cpp"));
@@ -1035,7 +1035,7 @@ for (const [scene, [before, after]] of Object.entries(benchmarkMutations)) {
         try {
             mkdirSync(join(copy, "samples"));
             mkdirSync(join(copy, "shared"));
-            for (const name of ["sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp", "sample_bodies.cpp", "sample_shapes.cpp", "sample_character.cpp", "mover.h", "mover.cpp"])
+            for (const name of ["sample.cpp", "sample_stacking.cpp", "sample_joint.cpp", "sample_events.cpp", "sample_benchmark.cpp", "sample_bodies.cpp", "sample_shapes.cpp", "sample_character.cpp", "geometric_mover.h", "geometric_mover.cpp"])
                 copyFileSync(join(process.env.BOX3D!, "samples", name), join(copy, "samples", name));
             copyFileSync(join(process.env.BOX3D!, "shared/benchmarks.c"), join(copy, "shared/benchmarks.c"));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_continuous.cpp"), join(copy, "samples/sample_continuous.cpp"));

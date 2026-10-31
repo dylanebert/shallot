@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
-// mover.cpp's movement phase with no obstacles, no input policy and no pogo hit.
+// geometric_mover.cpp's movement phase with no obstacles, no input policy and no pogo hit.
 // The public Character supplies velocity rather than the sample's friction/gravity policy.
 static uint32_t bits(float value) {
     uint32_t word;

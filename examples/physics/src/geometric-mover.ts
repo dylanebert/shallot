@@ -212,7 +212,7 @@ function construct(world: World): number[] {
             body: capsule,
             kind: ShapeKind.Capsule,
             radius: 0.3,
-            filterCategoryLow: friendly ? 2 : 1,
+            ...(friendly ? { filterCategoryLow: 2, filterCategoryHigh: 0, filterMaskHigh: 0 } : {}),
         });
         s.policies.set(shape, {
             maxPush: friendly ? f(0.01) : 1,

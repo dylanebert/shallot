@@ -326,11 +326,7 @@ struct SampleContext
 
 // SAMPLE_EVENTS
 
-struct MoverInput {
-    b3Vec3 forward, right;
-    b3Vec2 throttle;
-    bool jump, sprint, walk;
-};
+// SAMPLE_MOVER_INPUT
 class Sample
 {
 public:
