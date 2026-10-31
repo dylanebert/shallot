@@ -142,5 +142,5 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
     }).join("\n");
     const sharedPath = join(tmpdir(), `box3d-sample-shared-${Bun.hash(shared).toString(16)}.c`);
     writeFileSync(sharedPath, shared);
-    return nativeBinary(path, undefined, sharedPath);
+    return nativeBinary(path, "x86_64", sharedPath);
 }
