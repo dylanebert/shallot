@@ -77,7 +77,7 @@
 .ec .scenes { position: absolute; bottom: calc(var(--full) + var(--s2)); left: var(--half); transform: translateX(calc(var(--zero) - var(--half))); width: var(--full); max-width: var(--full); max-height: calc(var(--view) - var(--s5) - var(--s5) - var(--reserve)); overflow-y: auto; padding: var(--s4); background: var(--bg2); border: var(--hair) solid var(--line); border-radius: var(--radius); }
 .ec .categories { column-gap: var(--s4); }
 .ec .categories h2, .ec .categories button { white-space: nowrap; }
-.ec .categories section { margin-bottom: var(--s4); }
+.ec .categories section { break-inside: avoid; margin-bottom: var(--s4); }
 .ec .categories h2 { break-after: avoid; }
 .ec .categories button { display: block; break-inside: avoid; margin-top: var(--s1); }
 .ec .categories h2 { margin: var(--zero); padding: var(--zero) var(--s2); font: var(--regular) var(--small)/var(--leading) var(--mono); letter-spacing: var(--tracking); text-transform: uppercase; color: var(--muted); }

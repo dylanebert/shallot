@@ -30,7 +30,7 @@
                         + parseFloat(style.borderRightWidth || "0");
                 },
             ))));
-            const count = matchMedia("(max-width: 480px)").matches ? 1 : Math.max(1, Math.floor((available + gap) / (width + gap)));
+            const count = matchMedia("(max-width: 480px)").matches ? 1 : Math.min(categories.length, Math.max(1, Math.floor((available + gap) / (width + gap))));
             columns.style.columnCount = String(count);
             node.style.width = `${count * width + (count - 1) * gap + chrome}px`;
         }

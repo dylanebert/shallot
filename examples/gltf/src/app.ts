@@ -12,20 +12,28 @@ import {
 } from "@dylanebert/shallot";
 import { DiagnosticsOverlayPlugin, Orbit, OrbitPlugin } from "@dylanebert/shallot/extras";
 import { type Gltf, loadGltfScene, spawnGltfScene } from "@dylanebert/shallot/gltf";
+import { fitBounds, sceneAngles, sceneBounds } from "./framing";
 import { modelPath, type Scene, scenes, truckPlacement } from "./scenes";
 
 export const Viewer: Resource<{
     models: Map<Scene, Gltf>;
     entities: number[];
     camera: number;
+    bounds: Gltf["bounds"] | null;
 }> = {
     create: () => ({
         models: new Map(),
         entities: [],
         camera: 0,
+        bounds: null,
     }),
 };
-export function selectScene(world: World, scene: Scene, phone = false) {
+export function frameScene(world: World, aspect: number) {
+    const viewer = world.resource(Viewer);
+    if (viewer.bounds) fitBounds(world, viewer.camera, viewer.bounds, aspect);
+}
+
+export function selectScene(world: World, scene: Scene, aspect = 1) {
     const viewer = world.resource(Viewer);
     for (const eid of viewer.entities) world.destroy(eid);
     viewer.entities = spawnGltfScene(
@@ -33,12 +41,12 @@ export function selectScene(world: World, scene: Scene, phone = false) {
         viewer.models.get(scene)!,
         scene === "CesiumMilkTruck" ? truckPlacement : {},
     );
-    const view = scenes[scene];
+    viewer.bounds = sceneBounds(viewer.models.get(scene)!, scene);
+    const view = sceneAngles(scene);
     const orbit = world.storage(Orbit);
-    orbit.distance.set(viewer.camera, view.distance * (phone ? 1.6 : 1));
     orbit.yaw.set(viewer.camera, view.yaw);
     orbit.pitch.set(viewer.camera, view.pitch);
-    orbit.pan.set(viewer.camera, view.target[0], view.target[1], view.target[2]);
+    frameScene(world, aspect);
 }
 export const AppPlugin: Plugin = {
     name: "GltfApp",
@@ -68,6 +76,7 @@ export const AppPlugin: Plugin = {
                 progress?.(++loaded / names.length);
             }),
         );
-        selectScene(world, "CesiumMilkTruck", matchMedia("(max-width: 480px)").matches);
+        const canvas = document.querySelector("canvas")!;
+        selectScene(world, "CesiumMilkTruck", canvas.clientWidth / canvas.clientHeight);
     },
 };

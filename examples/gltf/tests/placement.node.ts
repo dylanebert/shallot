@@ -1,5 +1,6 @@
 import { beforeAll, expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import {
+    Camera,
     createApp,
     GlobalTransform,
     MeshInstance,
@@ -12,7 +13,7 @@ import { Orbit } from "@dylanebert/shallot/extras";
 import { loadGltfScene } from "@dylanebert/shallot/gltf";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
-import { selectScene, Viewer } from "../src/app";
+import { frameScene, selectScene, Viewer } from "../src/app";
 import { modelPath } from "../src/scenes";
 import { assets, fileFetch, syncAssets } from "./setup";
 
@@ -34,6 +35,7 @@ test("the truck's accepted placement derives its five mesh and material instance
                 async initialize(world) {
                     const viewer = world.resource(Viewer);
                     viewer.camera = world.create();
+                    world.add(viewer.camera, Camera, { fov: 60 });
                     world.add(viewer.camera, Transform);
                     world.add(viewer.camera, Orbit);
                     for (const scene of ["CesiumMilkTruck", "TextureCoordinateTest"] as const) {
@@ -70,16 +72,19 @@ test("the truck's accepted placement derives its five mesh and material instance
         }
         const old = entities.map((eid) => app.world.ref(eid));
         const viewer = app.world.resource(Viewer);
-        selectScene(app.world, "TextureCoordinateTest", true);
+        const truckDistance = app.world.storage(Orbit).distance.get(viewer.camera);
+        selectScene(app.world, "TextureCoordinateTest", 390 / 844);
         expect(old.map((ref) => app.world.resolve(ref))).toEqual([0, 0, 0, 0, 0]);
         expect(viewer.entities).toHaveLength(5);
         expect(app.world.storage(MeshInstance).mesh.get(viewer.entities[0])).toBe(
             viewer.models.get("TextureCoordinateTest")!.primitives[0].mesh,
         );
-        expect(app.world.storage(Orbit).distance.get(viewer.camera)).toBeCloseTo(9.6);
+        const phoneDistance = app.world.storage(Orbit).distance.get(viewer.camera);
+        frameScene(app.world, 1280 / 720);
+        expect(app.world.storage(Orbit).distance.get(viewer.camera)).toBeLessThan(phoneDistance);
         selectScene(app.world, "CesiumMilkTruck");
         expect(viewer.entities).toHaveLength(5);
-        expect(app.world.storage(Orbit).distance.get(viewer.camera)).toBe(6);
+        expect(app.world.storage(Orbit).distance.get(viewer.camera)).toBe(truckDistance);
     } finally {
         app.dispose();
     }

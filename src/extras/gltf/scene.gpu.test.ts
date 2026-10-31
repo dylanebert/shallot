@@ -76,6 +76,29 @@ const url = `data:model/gltf+json;base64,${Buffer.from(JSON.stringify(fixture)).
 const apps: App[] = [];
 const cameras: number[] = [];
 let loaded: Gltf;
+
+test("scene bounds enclose transformed vertices before spawn placement", () => {
+    const points = [
+        [-0.8, -0.6],
+        [0.8, -0.6],
+        [0, 0.8],
+    ].map(([x, y]) => [
+        0.25 + x * Math.cos(0.3) - y * Math.sin(0.3),
+        0.1 + x * Math.sin(0.3) + y * Math.cos(0.3),
+        0,
+    ]);
+    for (let axis = 0; axis < 3; axis++) {
+        expect(loaded.bounds.min[axis]).toBeCloseTo(
+            Math.min(...points.map((point) => point[axis])),
+            6,
+        );
+        expect(loaded.bounds.max[axis]).toBeCloseTo(
+            Math.max(...points.map((point) => point[axis])),
+            6,
+        );
+    }
+});
+
 function camera(world: World) {
     const eid = world.create();
     world.add(eid, Transform, { translation: [0, 0, 4] });

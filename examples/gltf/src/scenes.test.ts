@@ -33,15 +33,8 @@ test("the picker demonstrates each promise once without shrinking the regression
                 .find((model) => model.name === scene)!
                 .files.some((file) => modelPath(scene) === `assets/${file.path}`),
         ).toBe(true);
-        expect(scenes[scene].distance).toBeGreaterThan(0);
     }
 });
-test("the truck retains its accepted placement and orbit framing", () => {
+test("the truck retains its accepted placement", () => {
     expect(truckPlacement).toEqual({ translation: [0, -0.5, 0], scale: [0.7, 0.7, 0.7] });
-    expect(scenes.CesiumMilkTruck).toMatchObject({
-        distance: 6,
-        yaw: 0.7,
-        pitch: 0.4,
-        target: [0, 0, 0],
-    });
 });

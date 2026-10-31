@@ -23,6 +23,11 @@ export interface GltfPrimitive {
 export interface Gltf {
     readonly world: World;
     readonly primitives: readonly GltfPrimitive[];
+    /** Default scene's axis-aligned bounds, including node transforms, before spawn placement. */
+    readonly bounds: {
+        min: readonly [number, number, number];
+        max: readonly [number, number, number];
+    };
     readonly unsupported: readonly string[];
 }
 
@@ -131,8 +136,29 @@ export async function loadGltfScene(
             matrix: instance.matrix,
         };
     });
+    const min: [number, number, number] = [Infinity, Infinity, Infinity];
+    const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+    for (const instance of scene.instances) {
+        const vertices = scene.meshes[instance.mesh].vertices;
+        const m = instance.matrix;
+        for (let i = 0; i < vertices.length; i += 8) {
+            for (let axis = 0; axis < 3; axis++) {
+                const value =
+                    m[axis] * vertices[i] +
+                    m[axis + 4] * vertices[i + 1] +
+                    m[axis + 8] * vertices[i + 2] +
+                    m[axis + 12];
+                min[axis] = Math.min(min[axis], value);
+                max[axis] = Math.max(max[axis], value);
+            }
+        }
+    }
+    if (!scene.instances.length) {
+        min.fill(0);
+        max.fill(0);
+    }
     onProgress?.(1);
-    return { world, primitives, unsupported: scene.unsupported };
+    return { world, primitives, bounds: { min, max }, unsupported: scene.unsupported };
 }
 
 /** Spawns one entity per primitive instance, composing placement onto the node's world transform.

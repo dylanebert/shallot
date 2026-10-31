@@ -20,16 +20,19 @@
     <script type="module">
         import { runApp } from "@dylanebert/shallot";
         import { flushSync, mount, unmount } from "svelte";
-        import { AppPlugin, selectScene } from "./src/app";
+        import { AppPlugin, frameScene, selectScene } from "./src/app";
         import Hud from "./src/Hud.svelte";
         import { scenes } from "./src/scenes";
         await runApp({
             plugins: [AppPlugin],
             ui(container, world) {
                 let component;
+                const canvas = document.querySelector("canvas");
+                const resize = new ResizeObserver(() => frameScene(world, canvas.clientWidth / canvas.clientHeight));
+                resize.observe(canvas);
                 function select(scene) {
                     if (component) void unmount(component);
-                    selectScene(world, scene, matchMedia("(max-width: 480px)").matches);
+                    selectScene(world, scene, canvas.clientWidth / canvas.clientHeight);
                     const url = new URL(location.href);
                     url.searchParams.set("scene", scene);
                     history.replaceState(null, "", url);
@@ -37,7 +40,7 @@
                 }
                 const requested = new URL(location.href).searchParams.get("scene");
                 select(requested && Object.hasOwn(scenes, requested) ? requested : "CesiumMilkTruck");
-                return () => void unmount(component);
+                return () => { resize.disconnect(); void unmount(component); };
             },
         });
     </script>
