@@ -2,7 +2,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { MeshInstance, MeshPlugin } from "../../core/mesh";
-import { Xform, xformNormal, xformPoint } from "../../core/rendering";
+import { Xform, xformNormal, xformPoint, xformQuat } from "../../core/rendering";
 import { component, type Plugin, type System, u32, type World } from "../../engine";
 import {
     applyPbrLighting,
@@ -147,15 +147,16 @@ class Palette {
     }
 }
 
-const SkinOutput = d.struct({ world: d.vec4f, worldNormal: d.vec3f });
+const SkinOutput = d.struct({ world: d.vec4f, worldNormal: d.vec3f, worldTangent: d.vec4f });
 type SkinLayout = Pick<
     ReturnType<typeof materialLayout<typeof skinningBindings, d.WgslStruct<Record<never, never>>>>,
     "$"
 >;
-/** Returns a vertex function taking eid, family-absolute vidx, local position, local normal and
- * placement Xform, returning world position and normal. Compose with any material declaring
- * skinningBindings. Uses the last StandardMaterial vertex storage binding and two sampled textures. Normals use the blended matrix's inverse transpose;
- * tangents are not deformed because vertex functions cannot patch mesh streams. */
+/** Returns a vertex function taking eid, family-absolute vidx, local position, normal, tangent and
+ * placement Xform, returning world position, normal and tangent. Compose with a material declaring
+ * skinningBindings and vertexTangent. Uses the last StandardMaterial vertex storage binding and two
+ * sampled textures. Normals use the blended matrix's inverse transpose; tangents use its linear part.
+ * Tangent handedness is preserved; the renderer corrects it for mirrored placement. */
 export function skinningVertex(layout: SkinLayout) {
     const jointMatrix = tgpu.fn(
         [d.u32],
@@ -172,9 +173,9 @@ export function skinningVertex(layout: SkinLayout) {
         );
     });
     return tgpu.fn(
-        [d.u32, d.u32, d.vec3f, d.vec3f, Xform],
+        [d.u32, d.u32, d.vec3f, d.vec3f, d.vec4f, Xform],
         SkinOutput,
-    )((eid, vidx, position, sourceNormal, xform) => {
+    )((eid, vidx, position, sourceNormal, sourceTangent, xform) => {
         "use gpu";
         const allocation = std.textureLoad(
             layout.$.skinOffsets,
@@ -185,6 +186,10 @@ export function skinningVertex(layout: SkinLayout) {
             return {
                 world: d.vec4f(xformPoint(xform, position), 1),
                 worldNormal: xformNormal(xform, sourceNormal),
+                worldTangent: d.vec4f(
+                    xformQuat(xform.quat, std.mul(sourceTangent.xyz, xform.scale)),
+                    sourceTangent.w,
+                ),
             };
         const first = allocation - 1;
         const influence = layout.$.skin[vidx];
@@ -214,6 +219,13 @@ export function skinningVertex(layout: SkinLayout) {
         return {
             world: d.vec4f(xformPoint(xform, std.mul(m, d.vec4f(position, 1)).xyz), 1),
             worldNormal: xformNormal(xform, normal),
+            worldTangent: d.vec4f(
+                xformQuat(
+                    xform.quat,
+                    std.mul(std.mul(m, d.vec4f(sourceTangent.xyz, 0)).xyz, xform.scale),
+                ),
+                sourceTangent.w,
+            ),
         };
     });
 }
@@ -221,16 +233,28 @@ const layout = extensionLayout(Materials, d.struct({ skinPad: d.u32 }), skinning
 const vertex = skinningVertex(layout);
 /** StandardMaterial with linear blend skinning. A game's replacement material draws the bind pose
  * unless it declares skinningBindings and calls skinningVertex, using its last vertex-stage storage
- * buffer and two sampled textures. Tangents are not deformed. */
+ * buffer and two sampled textures, and opts into vertexTangent. */
 export const SkinnedMaterial = extendedMaterial(Materials, {
     name: "SkinnedMaterial",
+    vertexTangent: true,
     layout,
     defaults: { skinPad: 0 },
     bindings: (world) => world.resource(SkinPalette).bindings,
     vertex: (input) => {
         "use gpu";
-        const posed = vertex(input.eid, input.vidx, input.localPos, input.localNormal, input.xform);
-        return { world: posed.world, worldNormal: posed.worldNormal };
+        const posed = vertex(
+            input.eid,
+            input.vidx,
+            input.localPos,
+            input.localNormal,
+            input.localTangent,
+            input.xform,
+        );
+        return {
+            world: posed.world,
+            worldNormal: posed.worldNormal,
+            worldTangent: posed.worldTangent,
+        };
     },
     fragment: (ctx) => {
         "use gpu";

@@ -31,7 +31,8 @@ export interface Mesh {
     /** Optional appended streams. GPU producers use absolute vertex indices: after the base vec4u
      * vertices, interleave uv1 (two f32 words), tangent (one oct snorm16 word), color (two unorm16x2
      * words), in that order, present streams only. Pad the family's end to vec4u; quant.streams
-     * points to its first vec4u. Material vertex functions cannot read or patch these streams. */
+     * points to its first vec4u. Standard materials can opt into reading and overriding tangents with
+     * vertexTangent; uv1 and color are fragment-only. */
     streams?: { uv1?: true; tangent?: true; color?: true };
     vertices: MeshStorage<d.Vec4u>;
     /** the 8 B/vertex position-only stream the depth + shadow passes pull (standard binds this in the prepass group) */

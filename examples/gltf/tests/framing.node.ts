@@ -42,7 +42,7 @@ beforeAll(async () => {
                         world.add(viewer.camera, Transform);
                         world.add(viewer.camera, Orbit);
                         for (const scene of Object.keys(scenes) as Scene[]) {
-                            const url = new URL(modelPath(scene).slice("assets/".length), assets);
+                            const url = new URL(modelPath(scene), new URL("../", assets));
                             decoded.set(scene, await loadGltf(url, fileFetch));
                             viewer.models.set(scene, await loadGltfScene(world, url));
                         }

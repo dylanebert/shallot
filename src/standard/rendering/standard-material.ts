@@ -301,6 +301,7 @@ type StandardVertex =
 type Plain<F> = F & { readonly resourceType?: never };
 type ExtensionSpec<E extends d.AnyWgslStruct> = {
     name: string;
+    vertexTangent?: true;
     defaults?: d.InferInput<NoInfer<E>>;
     bindings?: (world: World) => Record<string, BindResource>;
     vertex?: Plain<
@@ -333,6 +334,8 @@ export function extendedMaterial<
         ),
 ): MaterialType<ExtendedParameters<E>, StandardBindings & B> {
     if (!spec.name) throw new Error("material type name must not be empty");
+    if (spec.vertexTangent && !spec.vertex)
+        throw new Error(`material type "${spec.name}" vertexTangent requires a vertex function`);
     for (const stage of ["fragment", "vertex"] as const) {
         if (spec[stage] && "resourceType" in spec[stage])
             throw new Error(
@@ -350,6 +353,7 @@ export function extendedMaterial<
         layout: layout as ExtensionLayout<B, E>,
         parameters: layout.parameters as ExtendedParameters<E>,
         extension,
+        vertexTangent: spec.vertexTangent,
         defaults: { ...base.defaults, ...spec.defaults } as d.InferInput<ExtendedParameters<E>>,
         bindings: spec.bindings
             ? (world) => {
@@ -374,11 +378,11 @@ export function extendedMaterial<
             ? ((extension
                   ? tgpu.fn(
                         [materialVertexInput(StandardMaterialInput), extension],
-                        materialVertexOutput(),
+                        materialVertexOutput({}, spec.vertexTangent),
                     )(spec.vertex as any)
                   : tgpu.fn(
                         [materialVertexInput(StandardMaterialInput)],
-                        materialVertexOutput(),
+                        materialVertexOutput({}, spec.vertexTangent),
                     )(spec.vertex as any)) as any)
             : undefined,
         create: (world) => new MaterialAssets(world, definition),

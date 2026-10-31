@@ -444,7 +444,9 @@ export function meshStreamMask(surface: AnyMaterialType, mesh: Mesh): number {
     const physical =
         Number(!!streams.uv1) | (Number(!!streams.tangent) << 1) | (Number(!!streams.color) << 2);
     const declared =
-        Number(!!inputs?.uv1) | (Number(!!inputs?.tangent) << 1) | (Number(!!inputs?.color) << 2);
+        Number(!!inputs?.uv1) |
+        (Number(!!inputs?.tangent || !!surface.vertexTangent) << 1) |
+        (Number(!!inputs?.color) << 2);
     return physical & declared ? physical : 0;
 }
 
@@ -453,7 +455,8 @@ function streamFields(surface: AnyMaterialType, mask: number): Record<string, An
         Object.entries(STREAM_FIELDS).filter(
             ([key]) =>
                 surface.fragmentInputs?.[key as keyof typeof STREAM_BITS] &&
-                mask & STREAM_BITS[key as keyof typeof STREAM_BITS],
+                (mask & STREAM_BITS[key as keyof typeof STREAM_BITS] ||
+                    (key === "tangent" && surface.vertexTangent)),
         ),
     );
 }
@@ -467,7 +470,7 @@ function fragmentInterstage(surface: AnyMaterialType, mask = 0): Record<string, 
 }
 
 function streamAssignments(surface: AnyMaterialType, mask: number, vidx: string): string {
-    if (!mask) return "";
+    if (!mask && !surface.vertexTangent) return "";
     const stride = Number(!!(mask & 1)) * 2 + Number(!!(mask & 2)) + Number(!!(mask & 4)) * 2;
     const word = (offset: number) =>
         `bound.vertices[(mq.streams * 4u + ${vidx} * ${stride}u + ${offset}u) / 4u][(mq.streams * 4u + ${vidx} * ${stride}u + ${offset}u) % 4u]`;
@@ -475,7 +478,7 @@ function streamAssignments(surface: AnyMaterialType, mask: number, vidx: string)
     const lines: string[] = [];
     for (const key of Object.keys(STREAM_BITS) as (keyof typeof STREAM_BITS)[]) {
         if (!(mask & STREAM_BITS[key])) continue;
-        if (surface.fragmentInputs?.[key]) {
+        if (surface.fragmentInputs?.[key] && !(key === "tangent" && surface.vertexTangent)) {
             if (key === "tangent") {
                 lines.push(
                     `    let tangent = decodeTangent(${word(offset)});`,
@@ -490,7 +493,21 @@ function streamAssignments(surface: AnyMaterialType, mask: number, vidx: string)
         }
         offset += key === "tangent" ? 1 : 2;
     }
+    if (surface.vertexTangent && surface.fragmentInputs?.tangent) {
+        lines.push(
+            `    var tangentWorld = patched.worldTangent.xyz;`,
+            `    if (any(tangentWorld != vec3f(0.0))) { tangentWorld = normalize(tangentWorld); }`,
+            `    out.tangent = vec4f(tangentWorld, select(patched.worldTangent.w, -patched.worldTangent.w, out.material >= 0x80000000u));`,
+        );
+    }
     return lines.join("\n");
+}
+
+function localTangent(surface: AnyMaterialType, mask: number, vidx: string): string {
+    if (!surface.vertexTangent || !(mask & STREAM_BITS.tangent)) return "vec4f(0.0)";
+    const stride = Number(!!(mask & 1)) * 2 + 1 + Number(!!(mask & 4)) * 2;
+    const index = `mq.streams * 4u + ${vidx} * ${stride}u + ${Number(!!(mask & 1)) * 2}u`;
+    return `decodeTangent(bound.vertices[(${index}) / 4u][(${index}) % 4u])`;
 }
 
 const CULL_FACES: readonly GPUCullMode[] = ["back", "none", "front"];
@@ -619,6 +636,7 @@ function materialVertexFunction(surface: AnyMaterialType) {
                 parameters: layout.$.materialParameters[input.material],
                 localPos: input.localPos,
                 localNormal: input.localNormal,
+                localTangent: input.localTangent,
                 uv: input.uv,
                 vidx: input.vidx,
                 eid: input.eid,
@@ -685,6 +703,7 @@ function colorVertex(surface: AnyMaterialType, clip: boolean, suffix = clip ? "C
                     MaterialVertexInput({
                         localPos,
                         localNormal,
+                        localTangent: d.vec4f(0),
                         uv,
                         vidx,
                         eid,
@@ -929,7 +948,7 @@ function clipFs(
 function varyingVs(surface: AnyMaterialType, clip = false, suffix = clip ? "Clip" : "", mask = 0) {
     const varyings = surface.varyings ?? {};
     const vsFn = materialVertexFunction(surface);
-    if (!mask && Object.keys(varyings).length === 0) {
+    if (!mask && !surface.vertexTangent && Object.keys(varyings).length === 0) {
         throw new Error(
             `standard: surface "${surface.name}" reached the raw varying copier without a custom varying`,
         );
@@ -1032,7 +1051,7 @@ ${
         : ""
 }${
     hasVs
-        ? `    let patched = vs(MaterialVertexInput(localPos, localNormal, uv, vidx, eid, row, iid, xform, world, worldNormal, material));
+        ? `    let patched = vs(MaterialVertexInput(localPos, localNormal, ${localTangent(surface, mask, "in.vidx")}, uv, vidx, eid, row, iid, xform, world, worldNormal, material));
     world = patched.world;
     worldNormal = patched.worldNormal;
 `
@@ -1047,7 +1066,8 @@ ${
     out.material = mirroredMaterial(material, xform.scale);
     out.alphaMode = alphaMode;
     out.alphaCutoff = alphaCutoff;
-${fragmentAssigns}${mask ? `${streamAssignments(surface, mask, "in.vidx")}\n` : ""}
+${fragmentAssigns}${streamAssignments(surface, mask, "in.vidx")}
+
 ${assigns}
     return out;
 }`)
@@ -1262,7 +1282,10 @@ export function compileMaterial<
     const cached = pipelineState(world).compiledMaterials.get(cacheKey);
     if (cached?.owner === surface && cached.layout === surface.layout) return cached;
     const hasVaryings = !!surface.varyings && Object.keys(surface.varyings).length > 0;
-    const vertex = hasVaryings || mask ? varyingVs(surface, false, "", mask) : colorVs(surface);
+    const vertex =
+        hasVaryings || mask || surface.vertexTangent
+            ? varyingVs(surface, false, "", mask)
+            : colorVs(surface);
     const fogged =
         !!fogSource(world) &&
         (alphaPipelineKey === AlphaPipelineKey.Blend ||
@@ -1492,12 +1515,14 @@ function compilePrepass(
             // stream without them.
             vertex:
                 clip || normals
-                    ? varying || mask
+                    ? varying || mask || surface.vertexTangent
                         ? varyingVs(surface, true, "Clip", mask)
                         : colorVs(surface, true)
-                    : surface.vertex
-                      ? colorVs(surface, true)
-                      : prepassVs(surface),
+                    : surface.vertexTangent
+                      ? varyingVs(surface, true, "Clip", mask)
+                      : surface.vertex
+                        ? colorVs(surface, true)
+                        : prepassVs(surface),
             fragment: clip
                 ? (clipFs(surface, normals, true, cullMode, mask) as never)
                 : normals
@@ -1644,6 +1669,7 @@ function clipShadowVertex(
                     MaterialVertexInput({
                         localPos,
                         localNormal,
+                        localTangent: d.vec4f(0),
                         uv,
                         vidx,
                         eid,
@@ -1842,7 +1868,7 @@ function varyingShadowVs(
     var worldNormal = vec3f(xformNormal(xform, localNormal));
 ${
     hasVs
-        ? `    let patched = vs(MaterialVertexInput(localPos, localNormal, uv, vidx, eid, row, iid, xform, world, worldNormal, material));
+        ? `    let patched = vs(MaterialVertexInput(localPos, localNormal, ${localTangent(surface, mask, "vidx")}, uv, vidx, eid, row, iid, xform, world, worldNormal, material));
     world = patched.world;
     worldNormal = patched.worldNormal;
 `
@@ -1859,7 +1885,8 @@ ${
     out.world = world.xyz;
     out.material = mirroredMaterial(material, xform.scale);
     out.alphaCutoff = alphaCutoff;
-${fragmentAssigns}${mask ? `${streamAssignments(surface, mask, "vidx")}\n` : ""}
+${fragmentAssigns}${streamAssignments(surface, mask, "vidx")}
+
 ${assigns}
     return out;
 }`)
@@ -2042,12 +2069,14 @@ function compileShadow(
     const point = root
         .createRenderPipeline({
             vertex: clip
-                ? varying || mask
+                ? varying || mask || surface.vertexTangent
                     ? varyingShadowVs(surface, pointLayout, false, capacity, mask)
                     : clipShadowVs(surface, pointLayout, false, capacity)
-                : surface.vertex
-                  ? clipShadowVs(surface, pointLayout, false, capacity)
-                  : shadowVs(surface, pointLayout, false, capacity),
+                : surface.vertexTangent
+                  ? varyingShadowVs(surface, pointLayout, false, capacity, mask)
+                  : surface.vertex
+                    ? clipShadowVs(surface, pointLayout, false, capacity)
+                    : shadowVs(surface, pointLayout, false, capacity),
             fragment: clip ? (clipShadowFs(surface, cullMode, mask) as never) : shadowFs,
             primitive,
             depthStencil,
@@ -2059,12 +2088,14 @@ function compileShadow(
     const cascade = root
         .createRenderPipeline({
             vertex: clip
-                ? varying || mask
+                ? varying || mask || surface.vertexTangent
                     ? varyingShadowVs(surface, cascadeLayout, true, capacity, mask)
                     : clipShadowVs(surface, cascadeLayout, true, capacity)
-                : surface.vertex
-                  ? clipShadowVs(surface, cascadeLayout, true, capacity)
-                  : shadowVs(surface, cascadeLayout, true, capacity),
+                : surface.vertexTangent
+                  ? varyingShadowVs(surface, cascadeLayout, true, capacity, mask)
+                  : surface.vertex
+                    ? clipShadowVs(surface, cascadeLayout, true, capacity)
+                    : shadowVs(surface, cascadeLayout, true, capacity),
             fragment: clip ? (clipShadowFs(surface, cullMode, mask) as never) : shadowFs,
             primitive,
             depthStencil,

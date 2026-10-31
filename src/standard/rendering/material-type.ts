@@ -419,6 +419,7 @@ export const MeshVertexInput = d
     .struct({
         localPos: d.vec3f,
         localNormal: d.vec3f,
+        localTangent: d.vec4f,
         uv: d.vec2f,
         vidx: d.u32,
         eid: d.u32,
@@ -454,8 +455,10 @@ export function varyingValueTypes<V extends Record<string, AnyWgslData>>(varying
 /** @internal Vertex output schema shared with extended materials. */
 export function materialVertexOutput<V extends Record<string, AnyWgslData> = Record<never, never>>(
     varyings: V = {} as V,
+    tangent = false,
 ) {
-    return d.struct({ world: d.vec4f, worldNormal: d.vec3f, ...varyingValueTypes(varyings) });
+    const fields = { world: d.vec4f, worldNormal: d.vec3f, ...varyingValueTypes(varyings) };
+    return tangent ? d.struct({ ...fields, worldTangent: d.vec4f }) : d.struct(fields);
 }
 
 /** Fragment context with typed parameters and varyings. eid is the entity id, or 0xFFFFFFFF
@@ -678,8 +681,8 @@ export interface MaterialType<
      * A camera without the prepass this frame and depth passes read 0 / vec3f(0).
      * At 4x antialiasing both reads use sample 0. */
     readonly readsPrepass?: { depth?: true; normal?: true };
-    /** Optional mesh streams reach only the fragment stage; vertex functions cannot read or patch
-     * them. Undeclared or absent uv1 falls back to uv, color to white, tangent to zero.
+    /** Optional mesh streams reach the fragment stage. vertexTangent also exposes the local tangent
+     * to vertex functions. Undeclared or absent uv1 falls back to uv, color to white, tangent to zero.
      * Tangents are world-space, with handedness corrected for mirrored instance scale. */
     readonly fragmentInputs?: {
         uv?: true;
@@ -692,6 +695,9 @@ export interface MaterialType<
      * when declared. Pipelines exceeding the device's maxInterStageShaderVariables are refused
      * when prepared. */
     readonly varyings?: V;
+    /** The vertex function writes worldTangent (xyz direction, w handedness). localTangent reads
+     * the mesh tangent, or zero when absent. Without this opt-in, the mesh tangent is unchanged. */
+    readonly vertexTangent?: true;
     readonly vertex?: MaterialVertexFn<P, V>;
     readonly fragment: MaterialFragmentFn<P, V>;
     readonly depthPass?: { prepass?: boolean; shadows?: boolean };
@@ -1255,6 +1261,8 @@ export function materialType<
     const layout = spec.layout ?? materialLayout(spec.parameters!, {});
     const parameters = layout.parameters;
     if (!spec.name) throw new Error("material type name must not be empty");
+    if (spec.vertexTangent && !spec.vertex)
+        throw new Error(`material type "${spec.name}" vertexTangent requires a vertex function`);
     for (const stage of ["vertex", "fragment"] as const) {
         const shader = spec[stage];
         if (shader && "resourceType" in shader) {
@@ -1275,7 +1283,7 @@ export function materialType<
         vertex: spec.vertex
             ? tgpu.fn(
                   [materialVertexInput(parameters)],
-                  materialVertexOutput<V>(spec.varyings),
+                  materialVertexOutput<V>(spec.varyings, spec.vertexTangent),
               )(spec.vertex)
             : undefined,
         create: (world: World) => new MaterialAssets<P>(world, definition),

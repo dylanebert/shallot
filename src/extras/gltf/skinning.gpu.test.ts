@@ -75,7 +75,14 @@ const ReadSkin = materialType({
     },
     vertex: (input) => {
         "use gpu";
-        const posed = skin(input.eid, input.vidx, input.localPos, input.localNormal, input.xform);
+        const posed = skin(
+            input.eid,
+            input.vidx,
+            input.localPos,
+            input.localNormal,
+            input.localTangent,
+            input.xform,
+        );
         const corner = input.vidx % 3;
         const x = std.select(std.select(0, 1, corner === 1), -1, corner === 0);
         const y = std.select(-1, 1, corner === 2);

@@ -1,7 +1,12 @@
 import { expect, expectTypeOf, test } from "bun:test";
 import * as d from "typegpu/data";
 import { backgroundLayout } from "./contract";
-import { type MaterialBinding, materialLayout, materialType } from "./material-type";
+import {
+    type MaterialBinding,
+    materialLayout,
+    materialType,
+    materialVertexOutput,
+} from "./material-type";
 
 test("a material without owned bindings needs only its parameter schema", () => {
     const Parameters = d.struct({ tint: d.vec4f, scale: d.f32 });
@@ -23,6 +28,27 @@ test("a material without owned bindings needs only its parameter schema", () => 
     expect(material.parameters).toBe(Parameters);
     expect(material.layout.parameters).toBe(Parameters);
     expect(material.layout.attributes).toEqual({});
+});
+
+test("world tangent is an opt-in vertex output without another varying or binding", () => {
+    expect(Object.keys(materialVertexOutput().propTypes)).toEqual(["world", "worldNormal"]);
+    expect(Object.keys(materialVertexOutput({}, true).propTypes)).toEqual([
+        "world",
+        "worldNormal",
+        "worldTangent",
+    ]);
+    expect(() =>
+        materialType({
+            name: "MissingTangentVertex",
+            parameters: d.struct({ unused: d.u32 }),
+            defaults: { unused: 0 },
+            vertexTangent: true,
+            fragment: () => {
+                "use gpu";
+                return d.vec4f(1);
+            },
+        }),
+    ).toThrow("vertexTangent requires a vertex function");
 });
 
 test("texture and sampler options declare their WGSL resource types", () => {

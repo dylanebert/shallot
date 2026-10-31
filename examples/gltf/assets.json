@@ -1,6 +1,9 @@
 {
     "source": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/",
     "commit": "2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf",
+    "written": [
+        { "name": "SkinnedNormal", "path": "models/SkinnedNormal.gltf", "license": "CC0-1.0", "sha256": "fa648612c0e8d4ca35b48ab8e0ada4abd5d063982278fd5ba43429c10a959678" }
+    ],
     "models": [
         { "name": "SimpleSkin", "license": "Models/SimpleSkin/LICENSE.md", "files": [
             { "path": "Models/SimpleSkin/LICENSE.md", "sha256": "88574262014bd515adb4b6d407da01c5f34d43aef24f5719ce55627c002f55a5" },

@@ -16,6 +16,7 @@ export const scenes = {
     CesiumMilkTruck: { promise: "textures" },
     AnimatedTriangle: { promise: "animation" },
     CesiumMan: { promise: "animation" },
+    SkinnedNormal: { promise: "animation" },
 } as const;
 export type Scene = keyof typeof scenes;
 export const categories = ["geometry", "transforms", "materials", "textures", "animation"].map(
@@ -26,5 +27,8 @@ export const categories = ["geometry", "transforms", "materials", "textures", "a
             .map((id) => ({ id, name: id })),
     }),
 );
-export const modelPath = (scene: Scene) => `assets/Models/${scene}/glTF/${scene}.gltf`;
+export const modelPath = (scene: Scene) =>
+    scene === "SkinnedNormal"
+        ? "models/SkinnedNormal.gltf"
+        : `assets/Models/${scene}/glTF/${scene}.gltf`;
 export const truckPlacement: GltfPlacement = { translation: [0, -0.5, 0], scale: [0.7, 0.7, 0.7] };
