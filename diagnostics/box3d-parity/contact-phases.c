@@ -87,16 +87,14 @@ static void capture_scalar(b3StepContext *context) {
   b3ContactSpec spec = {.contactId = 0, .manifoldStart = 0, .manifoldCount = 1};
   b3ContactPrepareSpan spans[2] = {{.start = 0, .count = 1, .contacts = &spec},
                                    {.start = INT_MAX}};
-  context->contactPrepareSpans = spans;
-  context->contactConstraints = &cc;
-  context->manifoldConstraints = &mc;
-  b3GraphColor *color = context->graph->colors;
+  context->overflowSpans = spans;
+  b3GraphColor *color = context->graph->colors + B3_OVERFLOW_INDEX;
   color->contactConstraints = &cc;
   color->manifoldConstraints = &mc;
   b3SolverBlock block = {.startIndex = 0,
                          .count = 1,
-                         .colorIndex = 0,
-                         .blockType = b3_graphContactBlock};
+                         .colorIndex = B3_OVERFLOW_INDEX,
+                         .blockType = b3_overflowBlock};
   b3PrepareContacts_Mesh(block, context);
   b3WarmStartContacts_Mesh(block, context);
   begin();
