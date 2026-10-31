@@ -126,10 +126,10 @@ unsafe fn shape(world_index: usize, out: &mut Vec<u32>, id: usize, t: Transform,
     }
     let p = *geo as *const u32;
     for (kind, offset_lane, count_lane, stride) in [
-        (TY_CAPSULE, 19, 20, 8),
-        (TY_HULL, 21, 22, 9),
-        (TY_MESH, 24, 25, 15),
-        (TY_SPHERE, 27, 28, 5),
+        (TY_CAPSULE, 14, 15, 8),
+        (TY_HULL, 16, 17, 9),
+        (TY_MESH, 19, 20, 13),
+        (TY_SPHERE, 22, 23, 5),
     ] {
         let start = *p.add(offset_lane) as usize / 4;
         for i in 0..*p.add(count_lane) as usize {

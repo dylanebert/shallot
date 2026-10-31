@@ -123,6 +123,7 @@ impl StageWork for Work {
             self.contact_softness,
             self.static_softness,
             self.warm_start_scale,
+            true,
         );
         if any {
             self.any_restitution.store(true, Ordering::Relaxed);
@@ -164,7 +165,7 @@ impl StageWork for Work {
     }
 
     fn warm_start_mesh(&self, b: Block) {
-        contact::warm_start(&self.cols, b.start, b.count);
+        contact::warm_start(&self.cols, b.start, b.count, true);
     }
 
     fn solve_wide(&self, b: Block, use_bias: bool) {
@@ -189,6 +190,7 @@ impl StageWork for Work {
             use_bias,
             self.inv_h,
             self.contact_speed,
+            true,
         );
     }
 
@@ -214,6 +216,7 @@ impl StageWork for Work {
             self.restitution_threshold,
             self.inv_h,
             self.restitution_propagation,
+            true,
         );
     }
 
@@ -273,6 +276,7 @@ impl StageWork for Work {
             self.contact_softness,
             self.static_softness,
             self.warm_start_scale,
+            false,
         );
         if any {
             self.any_restitution.store(true, Ordering::Relaxed);
@@ -280,7 +284,7 @@ impl StageWork for Work {
     }
 
     fn warm_start_overflow(&self) {
-        contact::warm_start(&self.overflow_cols, 0, self.overflow_count);
+        contact::warm_start(&self.overflow_cols, 0, self.overflow_count, false);
     }
 
     fn solve_overflow(&self, use_bias: bool) {
@@ -291,6 +295,7 @@ impl StageWork for Work {
             use_bias,
             self.inv_h,
             self.contact_speed,
+            false,
         );
     }
 
@@ -302,6 +307,7 @@ impl StageWork for Work {
             self.restitution_threshold,
             self.inv_h,
             self.restitution_propagation,
+            false,
         );
     }
 

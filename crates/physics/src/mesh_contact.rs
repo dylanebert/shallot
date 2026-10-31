@@ -8,7 +8,7 @@ use crate::triangle_manifold::{
     collide_capsule_and_triangle, collide_hull_and_triangle, collide_sphere_and_triangle,
 };
 
-pub const MAX_TRIANGLES: usize = 256;
+pub const MAX_TRIANGLES: usize = 512;
 #[cfg(not(target_arch = "wasm32"))]
 const MAX_POINTS: usize = 32 * MAX_TRIANGLES;
 const SLOP: f32 = 0.005;
@@ -717,6 +717,29 @@ pub(crate) fn compute_mesh_manifolds_into<'a, M: ManifoldOutput + 'a>(
         }
         let triangle = geometry(cached.triangle_index as usize);
         let [a, b, c] = triangle.vertices.map(|v| matrix.mul_v(v).add(transform.p));
+        if let ConvexShape::Hull(h) = shape {
+            let margin = if speculative { 0.02 } else { 0.0 };
+            let lower = Vec3::new(
+                minf(a.x, minf(b.x, c.x)) - margin,
+                minf(a.y, minf(b.y, c.y)) - margin,
+                minf(a.z, minf(b.z, c.z)) - margin,
+            );
+            let upper = Vec3::new(
+                maxf(a.x, maxf(b.x, c.x)) + margin,
+                maxf(a.y, maxf(b.y, c.y)) + margin,
+                maxf(a.z, maxf(b.z, c.z)) + margin,
+            );
+            if upper.x < h.bounds[0].x
+                || lower.x > h.bounds[1].x
+                || upper.y < h.bounds[0].y
+                || lower.y > h.bounds[1].y
+                || upper.z < h.bounds[0].z
+                || lower.z > h.bounds[1].z
+            {
+                cached.cache.sat = SatCache::empty();
+                continue;
+            }
+        }
         let point_base = total;
         let mut m = LocalManifold::new(&mut scratch.triangle_points[total..capacity]);
         m.triangle_flags = triangle.flags;

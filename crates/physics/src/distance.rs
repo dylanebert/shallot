@@ -601,6 +601,24 @@ pub fn shape_cast(input: &ShapeCastPairInput) -> CastOutput {
             if iteration == 0 {
                 if input.can_encroach && distance.distance > 2.0 * linear_slop {
                     target = distance.distance - linear_slop;
+                } else if input.can_encroach && distance.distance > 0.0 {
+                    let retained = 0.5 * linear_slop;
+                    let needed = distance.distance - retained;
+                    let approach = -input.translation_b.dot(distance.normal);
+                    if approach <= crate::math::maxf(needed, 0.0) {
+                        return output;
+                    }
+                    let fraction = if needed > 0.0 { needed / approach } else { 0.0 };
+                    if fraction >= input.max_fraction {
+                        return output;
+                    }
+                    output.fraction = fraction;
+                    output.point = distance
+                        .point_a
+                        .mul_add(input.proxy_a.radius, distance.normal);
+                    output.normal = distance.normal;
+                    output.hit = true;
+                    return output;
                 } else {
                     output.hit = true;
                     let c1 = distance

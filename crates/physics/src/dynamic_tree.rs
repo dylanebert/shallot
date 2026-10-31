@@ -478,7 +478,17 @@ impl TreeQuery<'_> {
             self.nodes[0].index()
         }
     }
+    fn user(&self, n: Node) -> u64 {
+        if self.proxies.is_empty() {
+            n.height as u32 as u64
+        } else {
+            self.proxies[n.index()].user
+        }
+    }
     fn matches(&self, n: Node, mask: u64, all: bool) -> bool {
+        if self.proxies.is_empty() {
+            return true;
+        }
         let bits = self.proxies[n.index()].category & mask;
         if all {
             bits == mask
@@ -525,7 +535,7 @@ impl TreeQuery<'_> {
                 if n.leaf() {
                     if self.matches(n, mask, all) {
                         stats.1 += 1;
-                        if !cb(n.index(), self.proxies[n.index()].user) {
+                        if !cb(n.index(), self.user(n)) {
                             return stats;
                         }
                     }
@@ -580,7 +590,7 @@ impl TreeQuery<'_> {
             }
             if n.leaf() {
                 if self.matches(n, mask, all) {
-                    let dd = cb(*limit, n.index(), self.proxies[n.index()].user);
+                    let dd = cb(*limit, n.index(), self.user(n));
                     if dd < *limit {
                         *limit = dd;
                     }
@@ -645,7 +655,7 @@ impl TreeQuery<'_> {
                     if !self.matches(*n, mask, all) {
                         continue;
                     }
-                    let value = cb(fraction, n.index(), self.proxies[n.index()].user);
+                    let value = cb(fraction, n.index(), self.user(*n));
                     stats.1 += 1;
                     if value == 0.0 {
                         return stats;

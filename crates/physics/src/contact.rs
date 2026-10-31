@@ -1,4 +1,5 @@
-//! Scalar mesh and overflow contact constraints.
+//! Per-contact mesh and overflow constraints. Mesh arithmetic follows Box3D's width-four path;
+//! overflow follows its scalar path. Per-contact storage retains the kernel's scheduling.
 
 use crate::body::flags as body_flags;
 use crate::body::{read_sim, read_state, STATE_STRIDE};
@@ -101,6 +102,36 @@ pub struct ContactConstraint {
 // and contact flag writes use atomics. All referenced storage stays put until workers join.
 unsafe impl Send for ContactConstraint {}
 
+fn inv_rotate_wide(q: Quat, v: Vec3) -> Vec3 {
+    let t = q.v.cross(v).scale(2.0);
+    v.sub(t.scale(q.s)).add(q.v.cross(t))
+}
+
+#[derive(Clone, Copy)]
+struct Inertia(Mat3, bool);
+impl Inertia {
+    fn mul_v(self, v: Vec3) -> Vec3 {
+        if self.1 {
+            crate::contact_wide::mul_sym(self.0, v)
+        } else {
+            self.0.mul_v(v)
+        }
+    }
+    fn add(self, other: Self) -> Self {
+        Self(self.0.add(other.0), self.1)
+    }
+    fn invert(self) -> Self {
+        Self(
+            if self.1 {
+                crate::contact_wide::invert_sym(self.0)
+            } else {
+                self.0.invert()
+            },
+            self.1,
+        )
+    }
+}
+
 #[inline]
 fn v3(col: Col<f32>, o: usize) -> Vec3 {
     Vec3::new(col.get(o), col.get(o + 1), col.get(o + 2))
@@ -132,6 +163,7 @@ pub fn prepare(
     contact_softness: Softness,
     static_softness: Softness,
     warm_start_scale: f32,
+    wide_mesh: bool,
 ) -> bool {
     let mut any_restitution = false;
     unsafe {
@@ -163,6 +195,8 @@ pub fn prepare(
             // Body A / B data (mass, inverse world inertia, velocities) — zeroed for a static body.
             let (m_a, i_a, v_a, w_a) = body_terms(cols.sim, cols.state, index_a);
             let (m_b, i_b, v_b, w_b) = body_terms(cols.sim, cols.state, index_b);
+            let i_a = Inertia(i_a, wide_mesh);
+            let i_b = Inertia(i_b, wide_mesh);
 
             let is_static = (d.flags & contact_flags::STATIC) != 0;
             let softness = if is_static {
@@ -174,9 +208,9 @@ pub fn prepare(
 
             (*cc).inv_mass_a = m_a;
             (*cc).inv_mass_b = m_b;
-            (*cc).inv_ia = i_a;
-            (*cc).inv_ib = i_b;
-            (*cc).rolling_mass = rolling_mass;
+            (*cc).inv_ia = i_a.0;
+            (*cc).inv_ib = i_b.0;
+            (*cc).rolling_mass = rolling_mass.0;
             (*cc).softness.bias_rate = softness.bias_rate;
             (*cc).softness.mass_scale = softness.mass_scale;
             (*cc).softness.impulse_scale = softness.impulse_scale;
@@ -290,7 +324,11 @@ pub fn prepare(
                 (*mc).friction_impulse.y = warm_start_scale * friction_impulse.dot(tangent2);
                 (*mc).twist_mass = twist_mass;
                 (*mc).twist_impulse = warm_start_scale * twist_impulse;
-                (*mc).rolling_impulse = rolling_impulse.scale(warm_start_scale);
+                (*mc).rolling_impulse = if wide_mesh && rolling_resistance <= 0.0 {
+                    Vec3::ZERO
+                } else {
+                    rolling_impulse.scale(warm_start_scale)
+                };
                 (*mc).tangent_velocity1 = tangent_velocity.dot(tangent1);
                 (*mc).tangent_velocity2 = tangent_velocity.dot(tangent2);
                 (*mc).center_a = center_a;
@@ -305,7 +343,7 @@ pub fn prepare(
 
 /// Seed body velocities from the prior step's impulses (b3WarmStartContacts_Mesh). Reads the
 /// transient constraints; mutates the velocity fields of the state column (dynamic bodies only).
-pub fn warm_start(cols: &Columns, start: usize, count: usize) {
+pub fn warm_start(cols: &Columns, start: usize, count: usize, wide_mesh: bool) {
     unsafe {
         for c in start..start + count {
             let cc = cols.cc.ptr().add(c);
@@ -316,57 +354,52 @@ pub fn warm_start(cols: &Columns, start: usize, count: usize) {
 
             let m_a = (*cc).inv_mass_a;
             let m_b = (*cc).inv_mass_b;
-            let i_a = (*cc).inv_ia;
-            let i_b = (*cc).inv_ib;
+            let i_a = Inertia((*cc).inv_ia, wide_mesh);
+            let i_b = Inertia((*cc).inv_ib, wide_mesh);
 
             let (mut v_a, mut w_a) = read_vel(cols.state, index_a);
             let (mut v_b, mut w_b) = read_vel(cols.state, index_b);
 
+            let mut linear_impulse = Vec3::ZERO;
+            let mut angular_impulse_a = Vec3::ZERO;
+            let mut angular_impulse_b = Vec3::ZERO;
             for mi in 0..manifold_count {
-                let mc = (*cc).constraints.add(mi);
-
-                let normal = (*mc).normal;
-                let point_count = (*mc).point_count as usize;
-
-                for pi in 0..point_count {
-                    let cp = core::ptr::addr_of_mut!((*mc).points[pi]);
-
-                    let r_a = (*cp).r_a;
-                    let r_b = (*cp).r_b;
-                    let normal_impulse = (*cp).normal_impulse;
-                    let impulse = normal.scale(normal_impulse);
-                    w_a = w_a.sub(i_a.mul_v(r_a.cross(impulse)));
-                    v_a = v_a.mul_sub(m_a, impulse);
-                    w_b = w_b.add(i_b.mul_v(r_b.cross(impulse)));
-                    v_b = v_b.mul_add(m_b, impulse);
+                let mc = &*(*cc).constraints.add(mi);
+                let normal = mc.normal;
+                let mut total_normal_impulse = 0.0;
+                let mut moment_a = Vec3::ZERO;
+                let mut moment_b = Vec3::ZERO;
+                for cp in &mc.points[..mc.point_count as usize] {
+                    total_normal_impulse += cp.normal_impulse;
+                    moment_a = moment_a.mul_add(cp.normal_impulse, cp.r_a);
+                    moment_b = moment_b.mul_add(cp.normal_impulse, cp.r_b);
                 }
-
-                {
-                    let r_a = (*mc).center_a;
-                    let r_b = (*mc).center_b;
-                    let tangent1 = (*mc).tangent1;
-                    let tangent2 = (*mc).tangent2;
-                    let impulse = tangent1
-                        .scale((*mc).friction_impulse.x)
-                        .add(tangent2.scale((*mc).friction_impulse.y));
-                    w_a = w_a.sub(i_a.mul_v(r_a.cross(impulse)));
-                    v_a = v_a.mul_sub(m_a, impulse);
-                    w_b = w_b.add(i_b.mul_v(r_b.cross(impulse)));
-                    v_b = v_b.mul_add(m_b, impulse);
+                let friction_impulse = mc
+                    .tangent1
+                    .scale(mc.friction_impulse.x)
+                    .mul_add(mc.friction_impulse.y, mc.tangent2);
+                linear_impulse =
+                    linear_impulse.add(friction_impulse.mul_add(total_normal_impulse, normal));
+                let twist_impulse = normal.scale(mc.twist_impulse);
+                let mut angular_a = moment_a
+                    .cross(normal)
+                    .add(mc.center_a.cross(friction_impulse))
+                    .add(twist_impulse);
+                let mut angular_b = moment_b
+                    .cross(normal)
+                    .add(mc.center_b.cross(friction_impulse))
+                    .add(twist_impulse);
+                if !wide_mesh || (*cc).rolling_resistance > 0.0 {
+                    angular_a = angular_a.add(mc.rolling_impulse);
+                    angular_b = angular_b.add(mc.rolling_impulse);
                 }
-
-                {
-                    let impulse = normal.scale((*mc).twist_impulse);
-                    w_a = w_a.sub(i_a.mul_v(impulse));
-                    w_b = w_b.add(i_b.mul_v(impulse));
-                }
-
-                {
-                    let impulse = (*mc).rolling_impulse;
-                    w_a = w_a.sub(i_a.mul_v(impulse));
-                    w_b = w_b.add(i_b.mul_v(impulse));
-                }
+                angular_impulse_a = angular_impulse_a.add(angular_a);
+                angular_impulse_b = angular_impulse_b.add(angular_b);
             }
+            w_a = w_a.sub(i_a.mul_v(angular_impulse_a));
+            v_a = v_a.mul_sub(m_a, linear_impulse);
+            w_b = w_b.add(i_b.mul_v(angular_impulse_b));
+            v_b = v_b.mul_add(m_b, linear_impulse);
 
             write_vel(cols.state, cols.flags, index_a, v_a, w_a);
             write_vel(cols.state, cols.flags, index_b, v_b, w_b);
@@ -383,6 +416,7 @@ pub fn solve(
     use_bias: bool,
     inv_h: f32,
     contact_speed: f32,
+    wide_mesh: bool,
 ) {
     unsafe {
         for c in start..start + count {
@@ -394,9 +428,9 @@ pub fn solve(
 
             let m_a = (*cc).inv_mass_a;
             let m_b = (*cc).inv_mass_b;
-            let i_a = (*cc).inv_ia;
-            let i_b = (*cc).inv_ib;
-            let rolling_mass = (*cc).rolling_mass;
+            let i_a = Inertia((*cc).inv_ia, wide_mesh);
+            let i_b = Inertia((*cc).inv_ib, wide_mesh);
+            let rolling_mass = Inertia((*cc).rolling_mass, wide_mesh);
             let soft_bias_rate = (*cc).softness.bias_rate;
             let soft_mass_scale = (*cc).softness.mass_scale;
             let soft_impulse_scale = (*cc).softness.impulse_scale;
@@ -412,6 +446,9 @@ pub fn solve(
 
                 let normal = (*mc).normal;
                 let point_count = (*mc).point_count as usize;
+                let normal_separation = normal.dot(dp);
+                let normal_a = inv_rotate_wide(dq_a, normal);
+                let normal_b = inv_rotate_wide(dq_b, normal);
 
                 let mut total_normal_impulse = 0.0f32;
                 let mut total_twist_limit = 0.0f32;
@@ -427,7 +464,12 @@ pub fn solve(
                     let normal_impulse = (*cp).normal_impulse;
 
                     let ds = dp.add(dq_b.rotate(r_b).sub(dq_a.rotate(r_a)));
-                    let s = ds.dot(normal) + base_separation;
+                    let s = if wide_mesh {
+                        (normal_separation + (normal_b.dot(r_b) - normal_a.dot(r_a)))
+                            + base_separation
+                    } else {
+                        ds.dot(normal) + base_separation
+                    };
 
                     let mut velocity_bias = 0.0f32;
                     let mut mass_scale = 1.0f32;
@@ -447,7 +489,13 @@ pub fn solve(
                     let mut delta_impulse = -normal_mass * (mass_scale * vn + velocity_bias)
                         - impulse_scale * normal_impulse;
 
-                    let new_impulse = maxf(normal_impulse + delta_impulse, 0.0);
+                    let new_impulse = if wide_mesh {
+                        let neg_impulse = normal_mass * (mass_scale * vn + velocity_bias)
+                            + impulse_scale * normal_impulse;
+                        maxf(normal_impulse - neg_impulse, 0.0)
+                    } else {
+                        maxf(normal_impulse + delta_impulse, 0.0)
+                    };
                     delta_impulse = new_impulse - normal_impulse;
                     (*cp).normal_impulse = new_impulse;
                     if !use_bias {
@@ -467,19 +515,38 @@ pub fn solve(
                     continue;
                 }
 
+                if wide_mesh && rolling_resistance > 0.0 {
+                    let delta = rolling_mass.mul_v(w_a.sub(w_b));
+                    let old = (*mc).rolling_impulse;
+                    let mut rolling = old.add(delta);
+                    let max_impulse = rolling_resistance * total_normal_impulse;
+                    let mag_sqr = rolling.dot(rolling);
+                    if mag_sqr > max_impulse * max_impulse + FLT_EPSILON {
+                        rolling = rolling.scale(max_impulse / (mag_sqr.sqrt() + FLT_EPSILON));
+                    }
+                    let applied = rolling.sub(old);
+                    (*mc).rolling_impulse = rolling;
+                    w_a = w_a.sub(i_a.mul_v(applied));
+                    w_b = w_b.add(i_b.mul_v(applied));
+                }
+
                 {
                     let twist_speed = normal.dot(w_b.sub(w_a));
                     let max_impulse = friction * total_twist_limit;
                     let delta = -(*mc).twist_mass * twist_speed;
                     let old = (*mc).twist_impulse;
-                    let clamped = clampf(old + delta, -max_impulse, max_impulse);
+                    let clamped = if wide_mesh {
+                        crate::math::minf(maxf(-max_impulse, old + delta), max_impulse)
+                    } else {
+                        clampf(old + delta, -max_impulse, max_impulse)
+                    };
                     (*mc).twist_impulse = clamped;
                     let applied = clamped - old;
                     w_a = w_a.sub(i_a.mul_v(normal.scale(applied)));
                     w_b = w_b.add(i_b.mul_v(normal.scale(applied)));
                 }
 
-                if rolling_resistance > 0.0 {
+                if !wide_mesh && rolling_resistance > 0.0 {
                     let delta = rolling_mass.mul_v(w_b.sub(w_a)).neg();
                     let old = (*mc).rolling_impulse;
                     let mut rolling = old.add(delta);
@@ -526,7 +593,12 @@ pub fn solve(
                     let max_impulse = friction * total_normal_impulse;
                     let length_squared = new_impulse.dot(new_impulse);
                     if length_squared > max_impulse * max_impulse {
-                        let scale = max_impulse / length_squared.sqrt();
+                        let denominator = if wide_mesh {
+                            length_squared.sqrt() + FLT_EPSILON
+                        } else {
+                            length_squared.sqrt()
+                        };
+                        let scale = max_impulse / denominator;
                         new_impulse = Vec2::new(new_impulse.x * scale, new_impulse.y * scale);
                     }
                     let applied = new_impulse.sub(friction_impulse);
@@ -556,6 +628,7 @@ pub fn restitution(
     threshold: f32,
     inv_h: f32,
     propagate: bool,
+    wide_mesh: bool,
 ) {
     unsafe {
         for c in start..start + count {
@@ -571,8 +644,8 @@ pub fn restitution(
 
             let m_a = (*cc).inv_mass_a;
             let m_b = (*cc).inv_mass_b;
-            let i_a = (*cc).inv_ia;
-            let i_b = (*cc).inv_ib;
+            let i_a = Inertia((*cc).inv_ia, wide_mesh);
+            let i_b = Inertia((*cc).inv_ib, wide_mesh);
 
             let (mut v_a, mut w_a, dp_a, dq_a) = read_solve_state(cols.state, index_a);
             let (mut v_b, mut w_b, dp_b, dq_b) = read_solve_state(cols.state, index_b);
@@ -604,7 +677,14 @@ pub fn restitution(
                         restitution * relative_velocity
                     } else {
                         let ds = dp.add(dq_b.rotate(r_b).sub(dq_a.rotate(r_a)));
-                        let s = ds.dot(normal) + (*cp).base_separation;
+                        let s = if wide_mesh {
+                            (normal.dot(dp)
+                                + (inv_rotate_wide(dq_b, normal).dot(r_b)
+                                    - inv_rotate_wide(dq_a, normal).dot(r_a)))
+                                + (*cp).base_separation
+                        } else {
+                            ds.dot(normal) + (*cp).base_separation
+                        };
                         if s > 0.0 {
                             s * inv_h
                         } else {

@@ -305,6 +305,40 @@ unsafe fn solve_impl(world_index: usize, worker: usize, i: usize, probe: bool) -
         if !matches!(shape, Shape::Sphere(_) | Shape::Capsule(_) | Shape::Hull(_)) {
             continue;
         }
+        if !bullet {
+            let (centroid, min_extent, radius) = match &shape {
+                Shape::Sphere(s) => (s.center, s.radius, s.radius),
+                Shape::Capsule(s) => (
+                    s.center1.lerp(s.center2, 0.5),
+                    s.radius,
+                    0.5 * s.center1.distance(s.center2) + s.radius,
+                ),
+                Shape::Hull(h) => {
+                    let p = h.center;
+                    let [lo, hi] = h.bounds;
+                    let farthest = Vec3::new(
+                        if p.x - lo.x > hi.x - p.x { lo.x } else { hi.x },
+                        if p.y - lo.y > hi.y - p.y { lo.y } else { hi.y },
+                        if p.z - lo.z > hi.z - p.z { lo.z } else { hi.z },
+                    );
+                    (p, h.inner_radius, farthest.distance(p))
+                }
+                _ => unreachable!(),
+            };
+            let start = Transform {
+                p: sw.c1.sub(sw.q1.rotate(sw.local_center)),
+                q: sw.q1,
+            };
+            let centroid1 = start.point(centroid);
+            let centroid2 = end.point(centroid);
+            let rotation_chord = 2.0 * sw.q1.inv_mul(sw.q2).v.length();
+            let max_motion = centroid1.distance(centroid2) + rotation_chord * radius;
+            if max_motion
+                <= bodies::record(world_index, body_id as usize).safety_factor * min_extent
+            {
+                continue;
+            }
+        }
         let swept = union(old, box2);
         for t in 0..if bullet { 3 } else { 1 } {
             if ROOTS[t] == -1 {

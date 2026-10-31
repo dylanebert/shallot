@@ -31,7 +31,7 @@ function measure(leaves: number) {
     tree.nodeCount = 2 * leaves;
     tree.proxyCount = leaves;
     tree.freeList = -1;
-    const nodes=tree.compoundNodes!, proxies=tree.compoundProxies!;
+    const nodes=tree.compoundNodes!;
     nodes.fill(0);
     const floats=new Float32Array(nodes.buffer);
     function node(index:number,lower:number[],upper:number[],flags:number,height:number) {
@@ -42,11 +42,9 @@ function measure(leaves: number) {
         const parent=i===0?0:2*i+1,pair=2*i+2;
         node(parent,[-0.5,-0.5,-0.5],[100.5,0.5,0.5],pair,depth-i);
         node(pair,[99.5,-0.5,-0.5],[100.5,0.5,0.5],0x80000000|i,i);
-        proxies[i*6+4]=pair;
     }
     const last=2*depth+1;
     node(last,[-0.5,-0.5,-0.5],[0.5,0.5,0.5],0x80000000|depth,depth);
-    proxies[depth*6+4]=last;
     const world = createTestWorld({ gravity: { x: 0, y: 0, z: 0 } });
     try {
         const body = createTestBody(world, { type: BodyType.Static });

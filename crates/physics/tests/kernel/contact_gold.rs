@@ -281,8 +281,8 @@ fn contact_phases_match_c() {
 
         // Run both phases before reading columns back: consecutive `cols` uses keep the borrow
         // checker happy, and warm_start only mutates the state column, leaving prepare's outputs.
-        prepare(&cols, 0, 1, contact_softness, static_softness, warm);
-        warm_start(&cols, 0, 1);
+        prepare(&cols, 0, 1, contact_softness, static_softness, warm, false);
+        warm_start(&cols, 0, 1, false);
 
         let (cc, cc_meta, mc, mc_meta, mcp) =
             observe(&cc_records[0], &mc_records[..manifold_count]);
@@ -333,8 +333,8 @@ fn contact_phases_match_c() {
                 cc: col(&mut cc_records),
                 mc: col(&mut mc_records),
             };
-            solve(&cols, 0, 1, true, inv_h, contact_speed);
-            solve(&cols, 0, 1, false, inv_h, contact_speed);
+            solve(&cols, 0, 1, true, inv_h, contact_speed, false);
+            solve(&cols, 0, 1, false, inv_h, contact_speed, false);
         }
 
         let slv_a = floats(&case["outSlvA"]);
@@ -397,7 +397,7 @@ fn contact_phases_match_c() {
                 cc: col(&mut cc_records),
                 mc: col(&mut mc_records),
             };
-            restitution(&cols, 0, 1, rest_threshold, inv_h, false);
+            restitution(&cols, 0, 1, rest_threshold, inv_h, false, false);
             store(&cols, 0, 1, hit_threshold, |_| {
                 hit = 1;
             });

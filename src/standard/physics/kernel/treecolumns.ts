@@ -26,7 +26,6 @@ export type DynamicTree = {
     initNodeCapacity: number;
     handle: number;
     compoundNodes?: Uint32Array;
-    compoundProxies?: Uint32Array;
     captureCheckpoint(): unknown;
     restoreCheckpoint(state: unknown): void;
 };
@@ -121,7 +120,6 @@ function publish(t: DynamicTree): void {
     t.ni = new Int32Array(t.nodeCapacity * 12);
     t.nf = new Float32Array(t.ni.buffer);
     t.compoundNodes = new Uint32Array(t.nodeCount * 8);
-    t.compoundProxies = new Uint32Array(t.proxyCount * 6);
     for (let i = 0; i < t.nodeCapacity; i++) {
         const p = i * 20,
             n = i * 8;
@@ -141,8 +139,6 @@ function publish(t: DynamicTree): void {
               : pool[p + 8];
         t.compoundNodes[n + 7] = flags & 4 ? pool[p + 8] : flags >>> 16;
     }
-    for (let i = 0; i < t.proxyCount; i++)
-        t.compoundProxies.set(pool.subarray(i * 20 + 12, i * 20 + 18), i * 6);
 }
 function mutation(
     t: DynamicTree,

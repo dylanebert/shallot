@@ -488,6 +488,7 @@ impl StageWork for Work<'_> {
             self.contact_softness,
             self.static_softness,
             self.warm_start_scale,
+            true,
         );
     }
 
@@ -530,7 +531,7 @@ impl StageWork for Work<'_> {
 
     fn warm_start_mesh(&self, b: Block) {
         self.tick();
-        contact::warm_start(&self.columns(), b.start, b.count);
+        contact::warm_start(&self.columns(), b.start, b.count, true);
     }
 
     fn solve_wide(&self, b: Block, use_bias: bool) {
@@ -557,6 +558,7 @@ impl StageWork for Work<'_> {
             use_bias,
             self.inv_h,
             self.contact_speed,
+            true,
         );
     }
 
@@ -584,6 +586,7 @@ impl StageWork for Work<'_> {
             self.restitution_threshold,
             self.inv_h,
             false,
+            true,
         );
     }
 

@@ -177,7 +177,7 @@ fn st_lane_sym3(wide: Col<f32>, o: usize, lane: usize, m: Mat3) {
 // Prepare gathers one lane at a time from Shallot's split directory/pool. Keep the wide C
 // symmetric matrix arithmetic, including its right-associated sums, in each scalar lane.
 #[inline]
-fn mul_sym(m: Mat3, a: Vec3) -> Vec3 {
+pub(crate) fn mul_sym(m: Mat3, a: Vec3) -> Vec3 {
     Vec3::new(
         m.cx.x * a.x + (m.cx.y * a.y + m.cx.z * a.z),
         m.cx.y * a.x + (m.cy.y * a.y + m.cy.z * a.z),
@@ -185,7 +185,7 @@ fn mul_sym(m: Mat3, a: Vec3) -> Vec3 {
     )
 }
 
-fn invert_sym(m: Mat3) -> Mat3 {
+pub(crate) fn invert_sym(m: Mat3) -> Mat3 {
     let cxx = m.cy.y * m.cz.z - m.cy.z * m.cy.z;
     let cxy = m.cx.z * m.cy.z - m.cx.y * m.cz.z;
     let cxz = m.cx.y * m.cy.z - m.cx.z * m.cy.y;

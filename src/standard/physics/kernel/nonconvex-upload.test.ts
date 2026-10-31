@@ -146,25 +146,23 @@ test("compound uploads use Box3D header, tree, material and child-blob offsets",
         const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
         const u = (word: number) => v.getUint32(word * 4, true);
         expect(v.getBigUint64(0, true)).toBe(
-            0x7a2f41c9e6d0b358n ^ 0x1d6f4c2a73b80e91n ^ 0xaaab9a00f1a8aaf7n ^ 0x6b1e39d4a87c25f3n,
+            0x9e4b17d3a25c68f1n ^ 0xaaab9a00f1a8aaf7n ^ 0x6b1e39d4a87c25f3n,
         );
         expect(u(2)).toBe(bytes.length);
-        expect(u(3)).toBe(120);
-        expect(v.getBigUint64(16, true)).toBe(0x1d6f4c2a73b80e91n);
-        expect(u(6)).toBe(120 + compound.tree.nodeCount * 32);
-        expect(u(7)).toBe(compound.tree.root);
-        expect(u(9)).toBe(compound.tree.nodeCapacity);
-        expect(u(9)).toBe(compound.tree.nodeCount);
-        expect(u(17)).toBe(u(6) + compound.tree.proxyCount * 24);
-        expect(u(18)).toBe(compound.materialCount);
-        expect(u(19)).toBe(u(17) + compound.materialCount * 40);
-        expect(u(21) % 8).toBe(0);
-        expect(u(24) % 8).toBe(0);
-        const hullData = u(u(21) / 4 + 7);
+        expect(u(10)).toBe(96);
+        expect(u(11)).toBe(compound.tree.nodeCount);
+        expect(new Uint32Array(bytes.buffer, bytes.byteOffset + 12, 6)).toEqual(compound.tree.compoundNodes!.slice(0, 6));
+        expect(u(9)).toBe(compound.tree.compoundNodes![7]);
+        expect(u(12)).toBe(96 + compound.tree.nodeCount * 32);
+        expect(u(13)).toBe(compound.materialCount);
+        expect(u(14)).toBe(u(12) + compound.materialCount * 40);
+        expect(u(16) % 8).toBe(0);
+        expect(u(19) % 8).toBe(0);
+        const hullData = u(u(16) / 4 + 7);
         expect(
             new DataView(bytes.buffer, bytes.byteOffset + hullData, 8).getBigUint64(0, true),
         ).toBe(0x6b1e39d4a87c25f3n);
-        const meshInstance = u(24) / 4;
+        const meshInstance = u(19) / 4;
         const meshBlobOffset = u(meshInstance + 10);
         expect(
             new DataView(bytes.buffer, bytes.byteOffset + meshBlobOffset, 8).getBigUint64(0, true),

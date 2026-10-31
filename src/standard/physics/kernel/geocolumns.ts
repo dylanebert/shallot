@@ -204,8 +204,8 @@ function materialImage(material: SurfaceMaterial): Uint8Array {
     return b;
 }
 function compoundImage(c: CompoundData): Uint8Array {
-    const chunks: Uint8Array[] = [new Uint8Array(120)];
-    let length = 120;
+    const chunks: Uint8Array[] = [new Uint8Array(96)];
+    let length = 96;
     const push = (bytes: Uint8Array): number => {
         const offset = align8(length);
         if (offset > length) chunks.push(new Uint8Array(offset - length));
@@ -214,7 +214,6 @@ function compoundImage(c: CompoundData): Uint8Array {
         return offset;
     };
     const treeOffset = push(treeImage(c.tree.compoundNodes!));
-    const proxyOffset = push(treeImage(c.tree.compoundProxies!));
     const materialsOffset = push(concat(c.materials.map(materialImage)));
     const capsulesOffset = push(
         concat(
@@ -295,35 +294,27 @@ function compoundImage(c: CompoundData): Uint8Array {
     const u = (o: number, x: number) => v.setUint32(o, x, true);
     v.setBigUint64(
         0,
-        0x7a2f41c9e6d0b358n ^ 0x1d6f4c2a73b80e91n ^ 0xaaab9a00f1a8aaf7n ^ 0x6b1e39d4a87c25f3n,
+        0x9e4b17d3a25c68f1n ^ 0xaaab9a00f1a8aaf7n ^ 0x6b1e39d4a87c25f3n,
         true,
     );
     u(8, bytes.length);
-    u(12, treeOffset);
-    v.setBigUint64(16, 0x1d6f4c2a73b80e91n, true);
-    u(24, proxyOffset);
-    u(28, c.tree.root);
-    u(32, c.tree.nodeCount);
-    u(36, c.tree.nodeCapacity);
-    u(40, c.tree.proxyCount);
-    u(44, 0);
-    u(48, 0);
-    u(52, 0);
-    u(56, 0);
-    u(60, 0);
-    u(64, 0);
-    u(68, materialsOffset);
-    u(72, c.materialCount);
-    u(76, capsulesOffset);
-    u(80, c.capsules.length);
-    u(84, hullOffset);
-    u(88, c.hulls.length);
-    u(92, sharedHulls.distinct.length);
-    u(96, meshOffset);
-    u(100, c.meshes.length);
-    u(104, sharedMeshes.distinct.length);
-    u(108, spheresOffset);
-    u(112, c.spheres.length);
+    const nodes = c.tree.compoundNodes!;
+    bytes.set(new Uint8Array(nodes.buffer, nodes.byteOffset, 24), 12);
+    u(36, nodes[6] & 0x80000000 ? 0 : nodes[7]);
+    u(40, treeOffset);
+    u(44, c.tree.nodeCount);
+    u(48, materialsOffset);
+    u(52, c.materialCount);
+    u(56, capsulesOffset);
+    u(60, c.capsules.length);
+    u(64, hullOffset);
+    u(68, c.hulls.length);
+    u(72, sharedHulls.distinct.length);
+    u(76, meshOffset);
+    u(80, c.meshes.length);
+    u(84, sharedMeshes.distinct.length);
+    u(88, spheresOffset);
+    u(92, c.spheres.length);
     return bytes;
 }
 function concat(chunks: Uint8Array[]): Uint8Array {

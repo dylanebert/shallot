@@ -11,22 +11,17 @@ use crate::query::{
 pub struct Compound<'a> {
     pub root: i32,
     pub nodes: &'a [crate::dynamic_tree::Node],
-    proxies: &'a [crate::dynamic_tree::Proxy],
     data: &'a [u32],
 }
 impl<'a> Compound<'a> {
     pub unsafe fn from_pointer(pointer: *const u32) -> Self {
         let words = *pointer.add(2) as usize / 4;
         let data = core::slice::from_raw_parts(pointer, words);
-        let capacity = *pointer.add(9) as usize;
-        let node_offset = *pointer.add(3) as usize / 4;
+        let node_count = *pointer.add(11) as usize;
+        let node_offset = *pointer.add(10) as usize / 4;
         Self {
-            root: *pointer.add(7) as i32,
-            nodes: core::slice::from_raw_parts(pointer.add(node_offset).cast(), capacity),
-            proxies: core::slice::from_raw_parts(
-                pointer.add(data[6] as usize / 4).cast(),
-                data[10] as usize,
-            ),
+            root: 0,
+            nodes: core::slice::from_raw_parts(pointer.add(node_offset).cast(), node_count),
             data,
         }
     }
@@ -40,28 +35,28 @@ fn vec(r: &[u32], i: usize) -> Vec3 {
 }
 pub(crate) unsafe fn child_materials(pointer: *const u32, index: usize) -> &'static [u16] {
     let c = Compound::from_pointer(pointer);
-    let capsules = c.data[20] as usize;
-    let hulls = c.data[22] as usize;
-    let meshes = c.data[25] as usize;
+    let capsules = c.data[15] as usize;
+    let hulls = c.data[17] as usize;
+    let meshes = c.data[20] as usize;
     let (pointer, count) = if index < capsules {
-        (section(c, 19, 20, 8).as_ptr().add(index * 8 + 7).cast(), 1)
+        (section(c, 14, 15, 8).as_ptr().add(index * 8 + 7).cast(), 1)
     } else if index < capsules + hulls {
         (
-            section(c, 21, 22, 9)
+            section(c, 16, 17, 9)
                 .as_ptr()
                 .add((index - capsules) * 9 + 8)
                 .cast(),
             1,
         )
     } else if index < capsules + hulls + meshes {
-        let r = &section(c, 24, 25, 13)[(index - capsules - hulls) * 13..];
+        let r = &section(c, 19, 20, 13)[(index - capsules - hulls) * 13..];
         (
             c.data.as_ptr().cast::<u8>().add(r[11] as usize).cast(),
             r[12] as usize,
         )
     } else {
         (
-            section(c, 27, 28, 5)
+            section(c, 22, 23, 5)
                 .as_ptr()
                 .add((index - capsules - hulls - meshes) * 5 + 4)
                 .cast(),
@@ -81,15 +76,15 @@ pub(crate) unsafe fn child_material_index(
     triangle: usize,
 ) -> u32 {
     let c = Compound::from_pointer(pointer);
-    let capsules = c.data[20] as usize;
-    let hulls = c.data[22] as usize;
-    let meshes = c.data[25] as usize;
+    let capsules = c.data[15] as usize;
+    let hulls = c.data[17] as usize;
+    let meshes = c.data[20] as usize;
     if index < capsules {
-        section(c, 19, 20, 8)[index * 8 + 7]
+        section(c, 14, 15, 8)[index * 8 + 7]
     } else if index < capsules + hulls {
-        section(c, 21, 22, 9)[(index - capsules) * 9 + 8]
+        section(c, 16, 17, 9)[(index - capsules) * 9 + 8]
     } else if index < capsules + hulls + meshes {
-        let r = &section(c, 24, 25, 13)[(index - capsules - hulls) * 13..];
+        let r = &section(c, 19, 20, 13)[(index - capsules - hulls) * 13..];
         let mesh = c
             .data
             .as_ptr()
@@ -99,14 +94,14 @@ pub(crate) unsafe fn child_material_index(
         let triangle_material = crate::geo::mesh_view(mesh, vec(r, 7)).materials[triangle] as usize;
         child_materials(pointer, index)[triangle_material] as u32
     } else {
-        section(c, 27, 28, 5)[(index - capsules - hulls - meshes) * 5 + 4]
+        section(c, 22, 23, 5)[(index - capsules - hulls - meshes) * 5 + 4]
     }
 }
 pub(crate) unsafe fn child_words(pointer: *const u32, index: usize) -> [u32; 19] {
     let c = Compound::from_pointer(pointer);
-    let capsules = c.data[20] as usize;
-    let hulls = c.data[22] as usize;
-    let meshes = c.data[25] as usize;
+    let capsules = c.data[15] as usize;
+    let hulls = c.data[17] as usize;
+    let meshes = c.data[20] as usize;
     let mut out = [0u32; 19];
     out[7] = 1.0f32.to_bits();
     let set_transform = |out: &mut [u32; 19], p: Vec3, q: Quat| {
@@ -115,12 +110,12 @@ pub(crate) unsafe fn child_words(pointer: *const u32, index: usize) -> [u32; 19]
         out[7] = q.s.to_bits();
     };
     if index < capsules {
-        let r = &section(c, 19, 20, 8)[index * 8..];
+        let r = &section(c, 14, 15, 8)[index * 8..];
         out[0] = 0;
         out[12..19].copy_from_slice(&[r[0], r[1], r[2], r[3], r[4], r[5], r[6]]);
         out[8] = r[7];
     } else if index < capsules + hulls {
-        let r = &section(c, 21, 22, 9)[(index - capsules) * 9..];
+        let r = &section(c, 16, 17, 9)[(index - capsules) * 9..];
         out[0] = 3;
         set_transform(
             &mut out,
@@ -134,7 +129,7 @@ pub(crate) unsafe fn child_words(pointer: *const u32, index: usize) -> [u32; 19]
         out[12] = c.data.as_ptr().cast::<u8>().add(r[7] as usize) as u32;
         out[13] = *((out[12] as *const u32).add(12));
     } else if index < capsules + hulls + meshes {
-        let r = &section(c, 24, 25, 13)[(index - capsules - hulls) * 13..];
+        let r = &section(c, 19, 20, 13)[(index - capsules - hulls) * 13..];
         out[0] = 4;
         set_transform(
             &mut out,
@@ -149,7 +144,7 @@ pub(crate) unsafe fn child_words(pointer: *const u32, index: usize) -> [u32; 19]
         out[12] = c.data.as_ptr().cast::<u8>().add(r[10] as usize) as u32;
         out[13..16].copy_from_slice(&r[7..10]);
     } else {
-        let r = &section(c, 27, 28, 5)[(index - capsules - hulls - meshes) * 5..];
+        let r = &section(c, 22, 23, 5)[(index - capsules - hulls - meshes) * 5..];
         out[0] = 5;
         out[12..16].copy_from_slice(&r[..4]);
         out[8] = r[4];
@@ -157,19 +152,19 @@ pub(crate) unsafe fn child_words(pointer: *const u32, index: usize) -> [u32; 19]
     out
 }
 pub(crate) fn child(c: Compound, index: usize) -> (Shape<'static>, Transform, &'static [u16]) {
-    let capsules = c.data[20] as usize;
-    let hulls = c.data[22] as usize;
-    let meshes = c.data[25] as usize;
+    let capsules = c.data[15] as usize;
+    let hulls = c.data[17] as usize;
+    let meshes = c.data[20] as usize;
     let (shape, xf, materials) = unsafe {
         if index < capsules {
-            let r = &section(c, 19, 20, 8)[index * 8..];
+            let r = &section(c, 14, 15, 8)[index * 8..];
             (
                 Shape::Capsule(&*r.as_ptr().cast::<Capsule>()),
                 Transform::IDENTITY,
                 core::slice::from_raw_parts(r.as_ptr().add(7).cast(), 1),
             )
         } else if index < capsules + hulls {
-            let r = &section(c, 21, 22, 9)[(index - capsules) * 9..];
+            let r = &section(c, 16, 17, 9)[(index - capsules) * 9..];
             let xf = Transform {
                 p: vec(r, 0),
                 q: Quat {
@@ -189,7 +184,7 @@ pub(crate) fn child(c: Compound, index: usize) -> (Shape<'static>, Transform, &'
                 core::slice::from_raw_parts(r.as_ptr().add(8).cast(), 1),
             )
         } else if index < capsules + hulls + meshes {
-            let r = &section(c, 24, 25, 13)[(index - capsules - hulls) * 13..];
+            let r = &section(c, 19, 20, 13)[(index - capsules - hulls) * 13..];
             let xf = Transform {
                 p: vec(r, 0),
                 q: Quat {
@@ -213,7 +208,7 @@ pub(crate) fn child(c: Compound, index: usize) -> (Shape<'static>, Transform, &'
                 ),
             )
         } else {
-            let r = &section(c, 27, 28, 5)[(index - capsules - hulls - meshes) * 5..];
+            let r = &section(c, 22, 23, 5)[(index - capsules - hulls - meshes) * 5..];
             (
                 Shape::Sphere(&*r.as_ptr().cast::<crate::manifold::Sphere>()),
                 Transform::IDENTITY,
@@ -237,8 +232,8 @@ fn cast(
     }
     crate::dynamic_tree::TreeQuery {
         nodes: c.nodes,
-        proxies: c.proxies,
-        count: c.proxies.len(),
+        proxies: &[],
+        count: c.nodes.len() / 2,
         end: c.nodes.len(),
     }
     .cast(
@@ -263,8 +258,8 @@ pub(crate) fn query(
     }
     crate::dynamic_tree::TreeQuery {
         nodes: c.nodes,
-        proxies: c.proxies,
-        count: c.proxies.len(),
+        proxies: &[],
+        count: c.nodes.len() / 2,
         end: c.nodes.len(),
     }
     .query(lower, upper, u64::MAX, false, |id, user| {
