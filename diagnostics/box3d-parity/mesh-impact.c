@@ -7,6 +7,8 @@
 #include "box3d/box3d.h"
 #include "box3d/collision.h"
 #include "shape.h"
+#include "physics_world.h"
+#include "recording.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -55,6 +57,42 @@ int main(void)
     while (scanf("%7s", mode) == 1)
     {
         uint32_t w[18];
+        if (strcmp(mode, "dense") == 0)
+        {
+            b3Vec3 vertices[225];
+            int indices[1176];
+            for (int z = 0; z < 15; ++z)
+                for (int x = 0; x < 15; ++x)
+                    vertices[15*z+x] = (b3Vec3){(x-7)*0.125f, 0, (z-7)*0.125f};
+            int n = 0;
+            for (int z = 0; z < 14; ++z)
+                for (int x = 0; x < 14; ++x)
+                {
+                    int a = 15*z+x;
+                    indices[n++] = a; indices[n++] = a+15; indices[n++] = a+16;
+                    indices[n++] = a; indices[n++] = a+16; indices[n++] = a+1;
+                }
+            b3MeshDef md = {0}; md.vertices = vertices; md.vertexCount = 225;
+            md.indices = indices; md.triangleCount = 392;
+            b3MeshData* mesh = b3CreateMesh(&md, NULL, 0);
+            b3WorldDef wd = b3DefaultWorldDef(); wd.workerCount = 1;
+            b3WorldId world = b3CreateWorld(&wd);
+            b3BodyDef bd = b3DefaultBodyDef();
+            b3BodyId ground = b3CreateBody(world, &bd);
+            b3ShapeDef sd = b3DefaultShapeDef();
+            b3CreateMeshShape(ground, &sd, mesh, b3Vec3_one);
+            bd.type = b3_dynamicBody; bd.position = (b3Pos){0, 0.49f, 0};
+            b3BodyId body = b3CreateBody(world, &bd);
+            b3BoxHull hull = b3MakeBoxHull(1, 0.5f, 1);
+            b3CreateHullShape(body, &sd, &hull.base);
+            for (int i = 0; i < 60; ++i)
+            {
+                b3World_Step(world, 1.0f/60.0f, 4);
+                printf("%016llx\n", (unsigned long long)b3HashWorldState(b3GetWorldFromId(world)));
+            }
+            b3DestroyWorld(world); b3DestroyMesh(mesh);
+            continue;
+        }
         if (strcmp(mode, "toi") == 0)
         {
             if (!words(w, 18))

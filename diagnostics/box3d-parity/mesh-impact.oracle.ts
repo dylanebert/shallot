@@ -14,6 +14,7 @@ import { createCompoundShape, createHullShape, createMeshShape } from "../../src
 import { createTestBody, createTestWorld, destroyTestWorld, stepTestWorld } from "../../src/standard/physics/testing";
 import { bodyGetLinearVelocity, bodyGetTransform } from "../../src/standard/physics/world/body";
 import { nativeSseOutput } from "./native-evidence";
+import { hashWorldState } from "../../src/standard/physics/world/hash";
 
 setDefaultTimeout(180_000);
 
@@ -103,6 +104,31 @@ function step(world: World, kind: number, w: number[]): string {
 const world = new World();
 await init(world, { threads: 0 });
 const goldWorlds = gold.cases.map((c) => [...c.vertices, ...c.scale].map(value));
+
+test("a box touching 392 mesh triangles equals native beyond the old 256-triangle contact limit", () => {
+    const expected = nativeSseOutput("mesh-impact.c", "dense\n").trim().split("\n");
+    const state = createTestWorld({}, world);
+    try {
+        const vertices = Array.from({ length: 225 }, (_, i) => ({ x: (i % 15 - 7) * 0.125, y: 0, z: (Math.floor(i / 15) - 7) * 0.125 }));
+        const indices: number[] = [];
+        for (let z = 0; z < 14; ++z) for (let x = 0; x < 14; ++x) {
+            const a = 15 * z + x;
+            indices.push(a, a + 15, a + 16, a, a + 16, a + 1);
+        }
+        const mesh = createMesh({ vertices, indices })!;
+        createMeshShape(state, createTestBody(state), defaultShapeDef(), mesh, { x: 1, y: 1, z: 1 });
+        const body = createTestBody(state, { type: BodyType.Dynamic, position: { x: 0, y: f(0.49), z: 0 } });
+        createHullShape(state, body, defaultShapeDef(), makeBoxHull(1, 0.5, 1));
+        const actual: string[] = [];
+        for (let i = 0; i < 60; ++i) {
+            stepTestWorld(state, f(1 / 60), 4);
+            actual.push(hashWorldState(state).toString(16).padStart(16, "0"));
+        }
+        expect(actual).toEqual(expected);
+    } finally {
+        destroyTestWorld(state);
+    }
+});
 
 for (const kind of [0, 1]) {
     for (const reflected of [true, false]) {

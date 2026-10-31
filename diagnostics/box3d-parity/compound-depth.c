@@ -21,11 +21,11 @@ int main(void) {
         }
         b3CompoundDef def = {0}; def.spheres = spheres; def.sphereCount = leaves;
         b3CompoundData* compound = b3CreateCompound(&def);
-        if (!compound || compound->tree.nodeCapacity < 2 * depth + 1) return 2;
-        b3TreeNode* nodes = compound->tree.nodes;
-        memset(nodes, 0, (size_t)compound->tree.nodeCapacity * sizeof(*nodes));
-        compound->tree.nodeEnd = 2 * leaves;
-        compound->tree.proxyCount = leaves; compound->tree.pairFreeList = -1;
+        if (!compound || compound->nodeCount < 2 * leaves) return 2;
+        b3TreeNode* nodes = (b3TreeNode*)((uint8_t*)compound + compound->nodeOffset);
+        memset(nodes, 0, (size_t)compound->nodeCount * sizeof(*nodes));
+        compound->treeHeight = depth;
+        compound->bounds = (b3AABB){{-0.5f,-0.5f,-0.5f},{100.5f,0.5f,0.5f}};
         nodes[1] = b3MakeEmptyNode();
         for (int i = 0; i < depth; ++i) {
             int parent = i == 0 ? 0 : 2 * i + 1;
@@ -36,13 +36,11 @@ int main(void) {
             nodes[pair].aabb = (b3AABB){{99.5f,-0.5f,-0.5f},{100.5f,0.5f,0.5f}};
             nodes[pair].flagIndex = B3_LEAF_NODE | (uint32_t)i;
             nodes[pair].shapeIndex = i;
-            compound->tree.proxies[i].node = pair;
         }
         int last = 2 * depth + 1;
         nodes[last].aabb = (b3AABB){{-0.5f,-0.5f,-0.5f},{0.5f,0.5f,0.5f}};
         nodes[last].flagIndex = B3_LEAF_NODE | (uint32_t)depth;
         nodes[last].shapeIndex = depth;
-        compound->tree.proxies[depth].node = last;
         b3WorldDef wd = b3DefaultWorldDef(); wd.gravity = b3Vec3_zero;
         b3WorldId world = b3CreateWorld(&wd);
         b3BodyDef bd = b3DefaultBodyDef(); b3BodyId body = b3CreateBody(world, &bd);
