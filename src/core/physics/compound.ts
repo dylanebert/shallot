@@ -15,7 +15,7 @@ type Placement = { position: Vec3; rotation: [number, number, number, number] };
  * apply. Body Transform.scale multiplies child positions and each child's geometry in its own frame,
  * retaining child rotations. Body-scale changes recreate the shape at the next fixed sync; sphere
  * and capsule children require uniform component magnitudes. A solver refuses a child naming a missing hull or mesh, a hull or mesh it refuses on its
- * own, and a mesh child whose `materials` count differs from its mesh's or exceeds 4. Replace a
+ * own, and a mesh child whose `materials` count differs from its mesh's. Replace a
  * compound by adding a new definition and assigning its handle, never by mutation.
  */
 export interface Compound {
@@ -26,8 +26,7 @@ export interface Compound {
     /**
      * `PhysicsMeshes` handles. `scale` is non-uniform in the child's space and may be negative.
      * `materials` holds one material per material index of the built mesh (its highest kept
-     * `materialIndices` entry plus one, or one without them), at most 4
-     * (`B3_MAX_COMPOUND_MESH_MATERIALS`); default one default material.
+     * `materialIndices` entry plus one, or one without them); default one default material.
      */
     meshes?: {
         mesh: number;

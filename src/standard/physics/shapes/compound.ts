@@ -19,8 +19,6 @@ import { computeMeshAABB, type Mesh, type MeshData } from "./mesh";
 
 const f32 = Math.fround;
 
-export const MAX_COMPOUND_MESH_MATERIALS = 4;
-
 // B3_MAX_CHILD_SHAPES = 1 << B3_CHILD_POWER, B3_CHILD_POWER = 64 - 2 * B3_SHAPE_POWER (22) = 20.
 const MAX_CHILD_SHAPES = 1 << 20;
 

@@ -846,6 +846,33 @@ test("each Compound field reaches Box3D's compound build", async () => {
     });
 });
 
+test("a Compound mesh child accepts six materials through the public registry", async () => {
+    await withPhysics((world) => {
+        const mesh = world
+            .resource(PhysicsMeshes)
+            .add({ ...quad("six-materials"), materialIndices: new Uint8Array([0, 5]) });
+        const geometry = world.resource(Compounds).add({
+            name: "six-materials",
+            meshes: [
+                {
+                    mesh,
+                    transform: { position: [0, 0, 0], rotation: [0, 0, 0, 1] },
+                    scale: [1, 1, 1],
+                    materials: Array.from({ length: 6 }, (_, i) => ({
+                        ...defaultSurfaceMaterial(),
+                        userMaterialId: BigInt(100 + i),
+                    })),
+                },
+            ],
+        });
+        const body = world.create();
+        world.add(body, Body);
+        world.add(body, Shape, { kind: ShapeKind.Compound, geometry });
+        world.tick();
+        expect(worldCounters(state(world)).shapeCount).toBe(1);
+    });
+});
+
 test("a Compound Box3D cannot build leaves its Shape unattached with a warning naming it", async () => {
     const at = {
         position: [0, 0, 0] as [number, number, number],
@@ -873,15 +900,15 @@ test("a Compound Box3D cannot build leaves its Shape unattached with a warning n
             [{ meshes: [meshChild(99, 1)] }, /compound "bad-1" mesh 0 names missing mesh 99/],
             [
                 { meshes: [meshChild(mesh, 2)] },
-                /compound "bad-2" mesh 0 has 2 materials for its mesh's 1, at most 4/,
+                /compound "bad-2" mesh 0 has 2 materials for its mesh's 1/,
             ],
             [
                 { meshes: [meshChild(mesh, 0)] },
-                /compound "bad-3" mesh 0 has 0 materials for its mesh's 1, at most 4/,
+                /compound "bad-3" mesh 0 has 0 materials for its mesh's 1/,
             ],
             [
-                { meshes: [meshChild(six, 6)] },
-                /compound "bad-4" mesh 0 has 6 materials for its mesh's 6, at most 4/,
+                { meshes: [meshChild(six, 5)] },
+                /compound "bad-4" mesh 0 has 5 materials for its mesh's 6/,
             ],
             [
                 { hulls: [{ hull: ragged, transform: at }] },

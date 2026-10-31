@@ -26,7 +26,7 @@ import {
     makeBoxHull,
     makeTransformedBoxHull,
 } from "./shapes/build-hull";
-import { type CompoundData, createCompound, MAX_COMPOUND_MESH_MATERIALS } from "./shapes/compound";
+import { type CompoundData, createCompound } from "./shapes/compound";
 import { createHeightField, createWave, type HeightFieldData } from "./shapes/heightfield";
 import type { HullData } from "./shapes/hull";
 import {
@@ -440,9 +440,9 @@ function buildCompound(world: World, def: Compound, sx = 1, sy = 1, sz = 1): Com
         const built = lookup(world, meshes, child.mesh);
         if (!built) throw new Error(`${label} mesh ${i} names missing mesh ${child.mesh}`);
         const count = child.materials?.length ?? 1;
-        if (count !== built.materialCount || count > MAX_COMPOUND_MESH_MATERIALS)
+        if (count !== built.materialCount)
             throw new Error(
-                `${label} mesh ${i} has ${count} materials for its mesh's ${built.materialCount}, at most ${MAX_COMPOUND_MESH_MATERIALS}`,
+                `${label} mesh ${i} has ${count} materials for its mesh's ${built.materialCount}`,
             );
         return built;
     });
