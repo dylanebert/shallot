@@ -707,7 +707,8 @@ function supportedExtension(name: string): boolean {
     return (
         name === "KHR_materials_unlit" ||
         name === "KHR_mesh_quantization" ||
-        name === "KHR_texture_transform"
+        name === "KHR_texture_transform" ||
+        name === "KHR_materials_emissive_strength"
     );
 }
 
@@ -779,7 +780,15 @@ export function parse(gltf: GltfJson, buffers: ArrayBuffer[]): GltfScene {
             emissiveTransform: m.emissiveTexture?.extensions?.KHR_texture_transform,
             metallic: pbr?.metallicFactor ?? 1,
             roughness: pbr?.roughnessFactor ?? 1,
-            emissive: (m.emissiveFactor ?? [0, 0, 0]) as GltfMaterial["emissive"],
+            emissive: (m.emissiveFactor ?? [0, 0, 0]).map(
+                (value) =>
+                    value *
+                    ((
+                        m.extensions?.KHR_materials_emissive_strength as
+                            | { emissiveStrength?: number }
+                            | undefined
+                    )?.emissiveStrength ?? 1),
+            ) as GltfMaterial["emissive"],
             alphaMode: m.alphaMode ?? "OPAQUE",
             cutoff: m.alphaCutoff ?? 0.5,
             unlit: m.extensions?.KHR_materials_unlit !== undefined,

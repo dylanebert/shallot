@@ -141,10 +141,10 @@ for (const fixture of subjects) {
         const textureInfo = (info: any) => info ? { index: info.index, texCoord: info.texCoord ?? 0 } : null;
         const material = materialIndex === undefined ? null : {
             color: [...ref.color.toArray(), ref.opacity],
-            ...(!unlit ? { metallic: ref.metalness, roughness: ref.roughness, emissive: ref.emissive.toArray() } : {}),
+            ...(!unlit ? { metallic: ref.metalness, roughness: ref.roughness, emissive: ref.emissive.toArray().map((value: number) => value * ref.emissiveIntensity) } : {}),
             alphaMode: reference.parser.json.materials[materialIndex].alphaMode ?? "OPAQUE",
             ...(reference.parser.json.materials[materialIndex].alphaMode === "MASK" ? { cutoff: ref.alphaTest } : {}),
-            textureImage: ref.map ? reference.parser.json.textures[reference.parser.associations.get(ref.map).textures].source : null,
+            textureImage: sourceMaterial?.pbrMetallicRoughness?.baseColorTexture ? reference.parser.json.textures[sourceMaterial.pbrMetallicRoughness.baseColorTexture.index].source : null,
             ...(example ? {
                 textureIndex: sourceMaterial.pbrMetallicRoughness?.baseColorTexture?.index ?? null,
                 textureSlots: {
@@ -205,7 +205,7 @@ writeFileSync(resolve(import.meta.dir, quantization ? "../../examples/gltf/tests
         ...(example ? { nodePath: "transformations; nodes-and-hierarchy (authored local matrices or TRS, root to instance, for evaluation at the client's float32 storage boundaries)" } : {}),
         color: "metallic-roughness-material (linear baseColorFactor); alpha-coverage (fourth component)",
         metallic: "metallic-roughness-material (metallicFactor)", roughness: "metallic-roughness-material (roughnessFactor)",
-        emissive: "emissive (linear emissiveFactor)", alphaMode: "alpha-coverage", cutoff: "alpha-coverage (MASK only)",
+        emissive: "emissive (linear emissiveFactor × KHR_materials_emissive_strength.emissiveStrength, default 1)", alphaMode: "alpha-coverage", cutoff: "alpha-coverage (MASK only)",
         textureImage: "materials-overview (texture index); textures (source image)",
         ...(example ? { textureIndex: "material.pbrMetallicRoughness.schema.json (baseColorTexture.index); read from JSON because GLTFLoader's shared texture associations may name the last equivalent texture index", images: "images (uri relative to the glTF asset)" } : {}),
         ...(example ? { textureSlots: "material.schema.json; textureInfo.schema.json: texture index and texCoord (default 0), read from JSON to preserve texture identity; material.normalTextureInfo.schema.json: scale (default 1); material.occlusionTextureInfo.schema.json: strength (default 1)" } : {}),

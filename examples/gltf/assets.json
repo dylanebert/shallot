@@ -6,6 +6,12 @@
         { "name": "SkinnedNormal", "path": "models/SkinnedNormal.gltf", "license": "CC0-1.0", "sha256": "fa648612c0e8d4ca35b48ab8e0ada4abd5d063982278fd5ba43429c10a959678" }
     ],
     "models": [
+        { "name": "EmissiveStrengthTest", "license": "Models/EmissiveStrengthTest/LICENSE.md", "files": [
+            { "path": "Models/EmissiveStrengthTest/LICENSE.md", "sha256": "22c93a569b134779fab131236460049937c1f5c858292d3f08d626079b82cedd" },
+            { "path": "Models/EmissiveStrengthTest/glTF/EmissiveStrengthTest.bin", "sha256": "54ba759d776228b52a256bb7b739581ad3081ac77677ee905b4920e869ceccf5" },
+            { "path": "Models/EmissiveStrengthTest/glTF/EmissiveStrengthTest.gltf", "sha256": "84264f4300d2618aa2be39e90448f1716df8f1946d0d172476773bc9a4a99f65" },
+            { "path": "Models/EmissiveStrengthTest/glTF/PlainGrid.png", "sha256": "c67b0411f4f8d2c940c7e4583ce6c7607cc6c45779c88c3c16f2d2892fb9c411" }
+        ] },
         { "name": "TextureTransformTest", "license": "Models/TextureTransformTest/LICENSE.md", "files": [
             { "path": "Models/TextureTransformTest/LICENSE.md", "sha256": "2756f452c3dd14860ace0f63abc5899755a1efbd63d63671fd6eec16e5fce2c1" },
             { "path": "Models/TextureTransformTest/glTF/Arrow.png", "sha256": "5df5b251fed0ac306cf859a30b59a4953d152483a4bed2b84e5bba1c667a1e64" },

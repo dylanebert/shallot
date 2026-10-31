@@ -4,6 +4,7 @@ import type { GltfPlacement } from "@dylanebert/shallot/gltf";
 export const scenes = {
     TextureSettingsTest: { promise: "textures" },
     TextureTransformMultiTest: { promise: "textures" },
+    EmissiveStrengthTest: { promise: "materials" },
     AlphaBlendModeTest: { promise: "materials" },
     TwoSidedPlane: { promise: "materials" },
     OrientationTest: { promise: "transforms" },

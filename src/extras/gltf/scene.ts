@@ -61,6 +61,8 @@ export interface GltfPlacement {
 /** Registers the default scene before warm, from the game's async initialize.
  * The handle and its mesh, image and material registrations belong to this world until disposal.
  * The handle's decoded data, including animations, is immutable and copied to the kernel.
+ * glTF emissive (cd/m²) reaches StandardMaterial.emissive unscaled and is added outside camera
+ * exposure, as Bevy's default; glTF leaves its screen brightness to the client's exposure.
  * To change a clip, pass a new animation object. All kernel data is freed when the world disposes.
  */
 export async function loadGltfScene(

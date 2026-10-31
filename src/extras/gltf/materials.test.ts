@@ -38,6 +38,43 @@ for (const slot of [
             if (other !== slot) expect(scene.materials[0][`${other}Transform`]).toBeUndefined();
     });
 
+const emissiveStrengthExtension = "KHR_materials_emissive_strength";
+for (const strength of [undefined, 0, 0.5, 8])
+    test(`emissive factor is multiplied by strength ${strength ?? "default"}`, () => {
+        const extensions =
+            strength === undefined
+                ? {}
+                : {
+                      [emissiveStrengthExtension]: { emissiveStrength: strength },
+                  };
+        const scene = parse({ materials: [{ emissiveFactor: [0.25, 0.5, 1], extensions }] }, []);
+        expect([...scene.materials[0].emissive]).toEqual(
+            [0.25, 0.5, 1].map((value) => value * (strength ?? 1)),
+        );
+        expect(scene.unsupported).toEqual([]);
+    });
+
+test("emissive strength defaults to one and does not supply an absent factor", () => {
+    const scene = parse(
+        {
+            extensionsRequired: ["KHR_materials_emissive_strength"],
+            materials: [
+                {
+                    emissiveFactor: [0.25, 0.5, 1],
+                    extensions: { [emissiveStrengthExtension]: {} },
+                },
+                { extensions: { [emissiveStrengthExtension]: { emissiveStrength: 8 } } },
+            ],
+        },
+        [],
+    );
+    expect(scene.materials.map((material) => material.emissive)).toEqual([
+        [0.25, 0.5, 1],
+        [0, 0, 0],
+    ]);
+    expect(scene.unsupported).toEqual([]);
+});
+
 test("material textures retain their independent UV set, factors and scales without unsupported reports", () => {
     const scene = parse(
         {
