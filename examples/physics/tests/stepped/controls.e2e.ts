@@ -131,26 +131,21 @@ for (const width of [1280, 390]) {
         await page.setViewportSize({ width, height: width === 390 ? 844 : 720 });
         await page.goto("/tests/controls.html");
         await page.waitForFunction(() => "controlsKey" in window);
-        for (const scene of ["Restitution", "Static Invoke", "Wind"]) {
+        for (const scene of ["Varying", "Static Invoke", "Wind"]) {
             await pointerControl(page, page.getByRole("button", { name: "Scene", exact: true }));
             await pointerControl(page, page.getByRole("button", { name: scene, exact: true }));
             const panel = page.locator(".controls");
             expect(
                 await panel.evaluate((element) => element.scrollWidth <= element.clientWidth),
             ).toBe(true);
-            if (scene === "Restitution") {
-                for (const name of ["Box", "Sphere"])
-                    await pointerControl(page, panel.getByRole("radio", { name, exact: true }));
-            } else {
-                const select = panel.getByRole("combobox");
-                const bounds = (await panel.boundingBox())!;
-                const field = (await select.boundingBox())!;
-                expect(field.x + field.width).toBeLessThanOrEqual(bounds.x + bounds.width - 16);
-                for (const value of scene === "Wind" ? ["0", "1", "2"] : ["1", "0"]) {
-                    await select.selectOption(value);
-                    await expect(select).toHaveValue(value);
-                    await bodyHasFocus(page);
-                }
+            const select = panel.getByRole("combobox");
+            const bounds = (await panel.boundingBox())!;
+            const field = (await select.boundingBox())!;
+            expect(field.x + field.width).toBeLessThanOrEqual(bounds.x + bounds.width - 16);
+            for (const value of scene === "Wind" ? ["0", "1", "2"] : ["1", "0"]) {
+                await select.selectOption(value);
+                await expect(select).toHaveValue(value);
+                await bodyHasFocus(page);
             }
             await gameKeyMovesCamera(page);
         }
