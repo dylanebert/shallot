@@ -8,6 +8,7 @@ import { hashWorldState } from "../../src/standard/physics/world/hash";
 import {
     worldEnableSleeping,
     worldSetGravity,
+    worldSetIsotropicInertiaTolerance,
 } from "../../src/standard/physics/world/world";
 import { createTestBody, createTestWorld, destroyTestWorld, stepTestWorld, testShapeDef } from "../../src/standard/physics/testing";
 import { nativeSseOutput } from "./native-evidence";
@@ -21,7 +22,7 @@ const nativeGravity = BigInt(nativeSseOutput("world-gravity.c", "").trim());
 const nativeSleeping = BigInt(nativeSseOutput("world-sleeping.c", "").trim());
 
 test("a non-default isotropic inertia tolerance hashes equal native Box3D", () => {
-    const world = createTestWorld({ ...{ isotropicInertiaTolerance: 0.9 }, gravity: { x: 0, y: 0, z: 0 } });
+    const world = createTestWorld({ isotropicInertiaTolerance: 0.9, gravity: { x: 0, y: 0, z: 0 } });
     try {
         const body = createTestBody(world, {
             type: BodyType.Dynamic,
@@ -38,6 +39,22 @@ test("a non-default isotropic inertia tolerance hashes equal native Box3D", () =
         });
         for (let i = 0; i < 10; i++) stepTestWorld(world, 1 / 60, 4);
         expect(hashWorldState(world)).toBe(BigInt(nativeSseOutput("gyroscopic-tolerance.c", "").trim()));
+        const hashes = [hashWorldState(world)];
+        worldSetIsotropicInertiaTolerance(world, 0.1);
+        for (let i = 0; i < 10; i++) stepTestWorld(world, 1 / 60, 4);
+        hashes.push(hashWorldState(world));
+        setMassData(world, body, {
+            mass: 1,
+            center: { x: 0, y: 0, z: 0 },
+            inertia: {
+                cx: { x: 0.4, y: 0, z: 0 },
+                cy: { x: 0, y: 0.5, z: 0 },
+                cz: { x: 0, y: 0, z: 0.6 },
+            },
+        });
+        for (let i = 0; i < 10; i++) stepTestWorld(world, 1 / 60, 4);
+        hashes.push(hashWorldState(world));
+        expect(hashes).toEqual(nativeSseOutput("gyroscopic-tolerance.c", "1\n").trim().split("\n").map(BigInt));
     } finally {
         destroyTestWorld(world);
     }

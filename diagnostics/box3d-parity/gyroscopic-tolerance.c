@@ -19,5 +19,15 @@ int main(void)
     b3Body_SetMassData(body, mass);
     for (int i = 0; i < 10; ++i) b3World_Step(world, 1.0f / 60.0f, 4);
     printf("%" PRIu64 "\n", b3HashWorldState(b3GetWorldFromId(world)));
+    int change = 0;
+    if (scanf("%d", &change) == 1 && change)
+    {
+        b3World_SetIsotropicInertiaTolerance(world, 0.1f);
+        for (int i = 0; i < 10; ++i) b3World_Step(world, 1.0f / 60.0f, 4);
+        printf("%" PRIu64 "\n", b3HashWorldState(b3GetWorldFromId(world)));
+        b3Body_SetMassData(body, mass);
+        for (int i = 0; i < 10; ++i) b3World_Step(world, 1.0f / 60.0f, 4);
+        printf("%" PRIu64 "\n", b3HashWorldState(b3GetWorldFromId(world)));
+    }
     b3DestroyWorld(world);
 }

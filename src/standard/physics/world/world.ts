@@ -256,6 +256,7 @@ export function createWorld(
 
     const generation = worlds[worldId]?.generation ?? 0;
     const physicsWorld = makeWorldState(world, def, worldId, generation);
+    worldSetIsotropicInertiaTolerance(physicsWorld, def.isotropicInertiaTolerance);
     worlds[worldId] = physicsWorld;
 
     return { index1: worldId + 1, generation };
@@ -334,6 +335,15 @@ export function worldSetContactTuning(
 export function worldSetContactRecycleDistance(world: WorldState, distance: number): void {
     if (!world.inUse || world.locked) return;
     world.contactRecycleDistance = clamp(f32(distance), 0, Infinity);
+}
+
+export function worldSetIsotropicInertiaTolerance(world: WorldState, tolerance: number): void {
+    if (!world.inUse || world.locked) return;
+    kernel(world.ecsState).worldSetIsotropicInertiaTolerance(world.worldId, tolerance);
+}
+
+export function worldGetIsotropicInertiaTolerance(world: WorldState): number {
+    return kernel(world.ecsState).worldGetIsotropicInertiaTolerance(world.worldId);
 }
 
 export function worldSetMaximumLinearSpeed(world: WorldState, speed: number): void {

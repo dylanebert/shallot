@@ -127,6 +127,12 @@ export type WorldDef = {
     contactDampingRatio: number;
     contactSpeed: number;
     maximumLinearSpeed: number;
+    /**
+     * Disable gyroscopic torque on nearly isotropic inertia tensors. Clamped to [0, 1]; defaults
+     * to 0.2. A sphere is 0 and a 1×1×2 box is 0.5. Applied at the next fixed sync; existing bodies
+     * use the new tolerance only when their mass data is updated.
+     */
+    isotropicInertiaTolerance: number;
     frictionCallback?: MixCallback;
     restitutionCallback?: MixCallback;
     enableSleep: boolean;
@@ -148,6 +154,7 @@ export function defaultWorldDef(): WorldDef {
         contactDampingRatio: f32(10.0),
         contactSpeed: f32(3.0 * lu),
         maximumLinearSpeed: f32(400.0 * lu),
+        isotropicInertiaTolerance: f32(0.2),
         enableSleep: true,
         enableContinuous: true,
     };

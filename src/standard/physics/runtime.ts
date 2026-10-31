@@ -159,10 +159,12 @@ import {
     destroyWorld,
     getWorld,
     worldEnableRestitutionPropagation,
+    worldGetIsotropicInertiaTolerance,
     worldSetContactRecycleDistance,
     worldSetContactTuning,
     worldSetGravity,
     worldSetHitEventThreshold,
+    worldSetIsotropicInertiaTolerance,
     worldSetMaximumLinearSpeed,
     worldSetRestitutionIterations,
     worldSetRestitutionThreshold,
@@ -2004,6 +2006,7 @@ function solverWorldDefinition(def: PhysicsWorldDefinitionConfig): Partial<World
         contactDampingRatio: def.contactDampingRatio,
         contactSpeed: def.contactSpeed,
         maximumLinearSpeed: def.maximumLinearSpeed,
+        isotropicInertiaTolerance: def.isotropicInertiaTolerance,
         enableSleep: def.enableSleep,
         enableContinuous: def.enableContinuous,
         capacity: def.capacity,
@@ -2046,6 +2049,9 @@ function syncWorldDefinition(state: WorldState, definition: PhysicsWorldDefiniti
     const recycleDistance = clamp(f32(definition.contactRecycleDistance), 0, Infinity);
     if (state.contactRecycleDistance !== recycleDistance)
         worldSetContactRecycleDistance(state, definition.contactRecycleDistance);
+    const tolerance = f32(Math.max(0, Math.min(1, definition.isotropicInertiaTolerance)));
+    if (worldGetIsotropicInertiaTolerance(state) !== tolerance)
+        worldSetIsotropicInertiaTolerance(state, definition.isotropicInertiaTolerance);
     const maximumLinearSpeed = f32(definition.maximumLinearSpeed);
     if (state.maxLinearSpeed !== maximumLinearSpeed)
         worldSetMaximumLinearSpeed(state, definition.maximumLinearSpeed);
