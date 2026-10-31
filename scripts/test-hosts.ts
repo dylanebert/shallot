@@ -34,6 +34,12 @@ export const ONLY: Readonly<Record<string, readonly NodeJS.Platform[]>> = {
     "examples/minimap": ["darwin"],
     "examples/volumetric-fog": ["darwin"],
     "src/project/browser": ["darwin"],
+    // These claims read external-image texture contents, which Chromium's D3D12 WARP adapter corrupts
+    // between consecutive copies. The Windows browser tier forces that adapter despite Chromium blocking it
+    // as non-conformant (https://issues.chromium.org/issues/536046187). Windows layout and input stay held by
+    // the subjects every host keeps.
+    "examples/gltf": ["darwin", "linux"],
+    "src/core/rendering/tests/images": ["darwin", "linux"],
     // Its cost is DOM-bound, so SwiftShader's runners run it no slower than the other hosts.
     "examples/color-grading": ["linux"],
     // Its one host-sensitive claim is label fit, from text width; it bundles its fonts, which Chromium shapes with
