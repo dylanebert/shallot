@@ -125,7 +125,34 @@ for (const record of gold.records) {
                     Math.sin(rotation) * x + Math.cos(rotation) * y + uvOffset[1],
                 ];
             };
-            const uvStep = Math.max(...uvScale.map(Math.abs)) + 8 * 2 ** -23;
+            const uvAccessor =
+                json.accessors[primitive.attributes[`TEXCOORD_${material?.baseColorChannel ?? 0}`]];
+            const uvMaximum =
+                uvAccessor?.componentType === 5120
+                    ? 127
+                    : uvAccessor?.componentType === 5121
+                      ? 255
+                      : uvAccessor?.componentType === 5122
+                        ? 32767
+                        : 65535;
+            const uvUnit =
+                !uvAccessor || uvAccessor.componentType === 5126
+                    ? 0
+                    : uvAccessor.normalized
+                      ? 1 / uvMaximum
+                      : 1;
+            // Nearest-integer quantization contributes half an accessor step per axis.
+            // Propagate it through R * S; decoded coordinates and records also round to float32.
+            const c = Math.abs(Math.cos(rotation)),
+                s = Math.abs(Math.sin(rotation));
+            const uvStep =
+                0.5 *
+                    uvUnit *
+                    Math.max(
+                        c * Math.abs(uvScale[0]) + s * Math.abs(uvScale[1]),
+                        s * Math.abs(uvScale[0]) + c * Math.abs(uvScale[1]),
+                    ) +
+                8 * 2 ** -23;
             const corners = Array.from(
                 mesh.indices,
                 (v): Corner => ({

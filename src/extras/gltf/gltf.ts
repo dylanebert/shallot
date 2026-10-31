@@ -525,12 +525,31 @@ export async function generateSceneTangents(
                         );
             if (uv && set > 1 && prim.attributes.NORMAL === undefined)
                 uv = expandCorners(uv, triangleIndices(gltf, buffers, prim), 2);
+            const transform = texture.extensions?.KHR_texture_transform;
+            if (transform) {
+                const coordinates =
+                    uv ??
+                    Float32Array.from(
+                        { length: mesh.vertices.length / 4 },
+                        (_, i) => mesh.vertices[Math.floor(i / 2) * 8 + (i % 2 === 0 ? 3 : 7)],
+                    );
+                const [sx, sy] = transform.scale ?? [1, 1];
+                const [ox, oy] = transform.offset ?? [0, 0];
+                const c = Math.cos(transform.rotation ?? 0),
+                    s = Math.sin(transform.rotation ?? 0);
+                uv = Float32Array.from(coordinates, (_, i) => {
+                    const v = i - (i % 2),
+                        x = coordinates[v] * sx,
+                        y = coordinates[v + 1] * sy;
+                    return i % 2 === 0 ? c * x - s * y + ox : s * x + c * y + oy;
+                });
+            }
             if (mesh.morphTargets?.length) {
                 scene.meshes[index - 1] = await generateMorphTangents(mesh, uv);
                 continue;
             }
             const generated = await generateTangents(uv ? { ...mesh, uv1: uv } : mesh, uv ? 1 : 0);
-            if (set > 1) {
+            if (set > 1 || transform) {
                 if (mesh.uv1) {
                     const remapped = new Float32Array(generated.vertices.length / 4);
                     remapped.set(mesh.uv1);

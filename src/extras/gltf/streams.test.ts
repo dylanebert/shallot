@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { generateTangents } from "../../core/mesh";
-import { type GltfJson, parse } from "./gltf";
+import { type GltfJson, generateSceneTangents, parse } from "./gltf";
 import { loadGltf } from "./load";
 
 async function load(json: GltfJson) {
@@ -20,6 +20,72 @@ function buffers(json: GltfJson) {
         Uint8Array.from(atob(json.buffers![0].uri!.split(",")[1]), (c) => c.charCodeAt(0)).buffer,
     ];
 }
+
+for (const set of [0, 1])
+    for (const scale of [
+        [1, 1],
+        [-1, 2],
+    ])
+        for (const morph of [false, true])
+            test(`normal texture UV${set} rotation and scale ${scale} generate ${morph ? "morph and base" : "base"} tangents from transformed coordinates`, async () => {
+                const json = model();
+                const texture = json.materials![0].normalTexture!;
+                texture.texCoord = 1 - set;
+                texture.extensions = {
+                    // biome-ignore lint/style/useNamingConvention: glTF owns its extension names.
+                    KHR_texture_transform: {
+                        texCoord: set,
+                        rotation: Math.PI / 2,
+                        scale: scale as [number, number],
+                        offset: [0.2, 0.4],
+                    },
+                };
+                const scene = parse(json, buffers(json));
+                const source = scene.meshes[0];
+                const coordinates =
+                    set === 1
+                        ? source.uv1!
+                        : Float32Array.from(
+                              { length: source.vertices.length / 4 },
+                              (_, i) =>
+                                  source.vertices[Math.floor(i / 2) * 8 + (i % 2 === 0 ? 3 : 7)],
+                          );
+                // Independent homogeneous T * R * S, for a quarter turn: x' = -sy*y + ox; y' = sx*x + oy.
+                const transformed = Float32Array.from(coordinates, (_, i) =>
+                    i % 2 === 0
+                        ? -scale[1] * coordinates[i + 1] + 0.2
+                        : scale[0] * coordinates[i - 1] + 0.4,
+                );
+                const expected = await generateTangents({ ...source, uv1: transformed }, 1);
+                const vertices = source.vertices.slice();
+                const delta = new Float32Array([0, 0, 0, 0, 0, 0.4, 0.2, 0, 0]);
+                if (morph) source.morphTargets = [{ position: delta }];
+                for (let v = 0; v < vertices.length / 8; v++)
+                    for (let a = 0; a < 3; a++) vertices[v * 8 + a] += delta[v * 3 + a];
+                const target = await generateTangents({ ...source, vertices, uv1: transformed }, 1);
+                await generateSceneTangents(scene, json, buffers(json));
+                const actual = scene.meshes[0];
+                for (let corner = 0; corner < actual.indices.length; corner++) {
+                    const a = actual.indices[corner],
+                        e = expected.indices[corner],
+                        t = target.indices[corner];
+                    expect(actual.tangent!.subarray(a * 4, a * 4 + 4)).toEqual(
+                        expected.tangent.subarray(e * 4, e * 4 + 4),
+                    );
+                    expect(actual.uv1!.subarray(a * 2, a * 2 + 2)).toEqual(
+                        source.uv1!.subarray(
+                            source.indices[corner] * 2,
+                            source.indices[corner] * 2 + 2,
+                        ),
+                    );
+                    if (morph)
+                        for (let axis = 0; axis < 3; axis++)
+                            expect(actual.morphTargets![0].tangent![a * 3 + axis]).toBeCloseTo(
+                                target.tangent[t * 4 + axis] - expected.tangent[e * 4 + axis],
+                                6,
+                            );
+                }
+            });
 
 test("normalTexture.texCoord selects UV_1 for MikkTSpace, not UV_0", async () => {
     const json = model();
