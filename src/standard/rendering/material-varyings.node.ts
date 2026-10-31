@@ -214,6 +214,27 @@ const VaryingLit = materialType({
         return d.vec4f(lit(ctx.parameters.color.xyz, ctx.worldNormal), ctx.a);
     },
 });
+const FlatInteger = materialType({
+    ...common,
+    name: "FlatIntegerVarying",
+    varyings: { a: d.f32, exact: d.interpolate("flat", d.vec4u) },
+    vertex: (input) => {
+        "use gpu";
+        return {
+            world: input.world,
+            worldNormal: input.worldNormal,
+            a: input.localPos.x,
+            exact: d.vec4u(0xdeadbeef, 0x1000001, 0xffffffff, 0x12345679),
+        };
+    },
+    fragment: (ctx) => {
+        "use gpu";
+        const exact = std.all(
+            std.eq(ctx.exact, d.vec4u(0xdeadbeef, 0x1000001, 0xffffffff, 0x12345679)),
+        );
+        return d.vec4f(ctx.parameters.color.xyz, std.select(0, 1, exact && ctx.a > 0.125));
+    },
+});
 const SIDE = 64;
 const depthLayout = tgpu.bindGroupLayout({
     view: { texture: d.textureDepth2d() },
@@ -272,6 +293,13 @@ const cases = [
         reference: RowReference,
         weight: 1,
         mode: AlphaMode.Mask(0.25),
+    },
+    {
+        name: "flat vec4u reaches the fragment exact",
+        material: FlatInteger,
+        reference: Reference,
+        weight: 1,
+        mode: AlphaMode.Mask(0.5),
     },
 ] as const;
 type App = Awaited<ReturnType<typeof createTestGpuApp>>;

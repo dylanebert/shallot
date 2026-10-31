@@ -437,12 +437,25 @@ export function materialVertexInput<P extends AnyWgslStruct>(parameters: P) {
     return d.struct({ parameters, ...MeshVertexInput.propTypes });
 }
 
+/** @internal Interpolation belongs on pipeline IO, not the function's value structs. */
+export function varyingValueType(schema: AnyWgslData): AnyWgslData {
+    while (d.isDecorated(schema)) schema = schema.inner as AnyWgslData;
+    return schema;
+}
+
+/** @internal Value-only schemas with the same inferred shader values. */
+export function varyingValueTypes<V extends Record<string, AnyWgslData>>(varyings: V): V {
+    return Object.fromEntries(
+        Object.entries(varyings).map(([key, schema]) => [key, varyingValueType(schema)]),
+    ) as V;
+}
+
 /** World-space fields a material vertex function may override, plus its declared varyings. */
 /** @internal Vertex output schema shared with extended materials. */
 export function materialVertexOutput<V extends Record<string, AnyWgslData> = Record<never, never>>(
     varyings: V = {} as V,
 ) {
-    return d.struct({ world: d.vec4f, worldNormal: d.vec3f, ...varyings });
+    return d.struct({ world: d.vec4f, worldNormal: d.vec3f, ...varyingValueTypes(varyings) });
 }
 
 /** Fragment context with typed parameters and varyings. eid is the entity id, or 0xFFFFFFFF
@@ -483,7 +496,7 @@ function materialFragmentContext<
          * with lighting stubbed and their own fragCoord; false in the color pass. Side effects such as
          * storage writes belong under `!ctx.prepass`, as Bevy's `PREPASS_PIPELINE` guards prepass code. */
         prepass: d.bool,
-        ...varyings,
+        ...varyingValueTypes(varyings),
     });
 }
 

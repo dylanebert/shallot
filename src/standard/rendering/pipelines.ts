@@ -71,6 +71,8 @@ import {
     MeshVertexInput as MaterialVertexInput,
     materialSource,
     rethrowMaterialError,
+    varyingValueType,
+    varyingValueTypes,
 } from "./material-type";
 import { prepassTextures } from "./prepass-textures";
 import type { Draw } from "./registry";
@@ -867,10 +869,10 @@ function clipFs(
     const needLocalPos = !!surface.fragmentInputs?.localPos;
     const varyings = surface.varyings ?? {};
     const keys = Object.keys(varyings);
-    const schemas = keys.map((key) => varyings[key]);
+    const schemas = keys.map((key) => varyingValueType(varyings[key]));
     const slots = keys.map((_, i) => `v${i}`);
     const located = Object.fromEntries(
-        slots.map((slot, i) => [slot, d.location(VARYING_BASE + i, schemas[i])]),
+        slots.map((slot, i) => [slot, d.location(VARYING_BASE + i, varyings[keys[i]])]),
     );
     const fragment = materialFragmentFunction(surface);
     const Ctx = (fragment as any).shell.argTypes[0];
@@ -994,8 +996,7 @@ function varyingVs(surface: AnyMaterialType, clip = false, suffix = clip ? "Clip
                 alphaMode: d.interpolate("flat", d.u32),
                 alphaCutoff: d.interpolate("flat", d.f32),
                 ...fragmentFields,
-                // No flat interpolation is inserted for integer varyings; they are unsupported
-                // and fail at resolve or device compilation.
+                // Integer varyings declare their flat interpolation on the material schema.
                 ...located,
             },
         })(/* wgsl */ `{
@@ -1113,14 +1114,14 @@ function colorFs(
     const fogColor = fogged ? foggedColor : unfoggedColor;
     const varyings = surface.varyings ?? {};
     const varyingKeys = Object.keys(varyings);
-    const schemas = varyingKeys.map((k) => varyings[k]);
+    const schemas = varyingKeys.map((k) => varyingValueType(varyings[k]));
     const fsFn = materialFragmentFunction(surface);
     const needUv = !!surface.fragmentInputs?.uv;
     const needLocalPos = !!surface.fragmentInputs?.localPos;
     const Ctx = (fsFn as any).shell.argTypes[0];
     const slots = varyingKeys.map((_, i) => `v${i}`);
     const located = Object.fromEntries(
-        slots.map((slot, i) => [slot, d.location(VARYING_BASE + i, schemas[i])]),
+        slots.map((slot, i) => [slot, d.location(VARYING_BASE + i, varyings[varyingKeys[i]])]),
     );
     const base = {
         pos: d.builtin.position,
@@ -1808,7 +1809,7 @@ function varyingShadowVs(
             material: d.u32,
             alphaCutoff: d.f32,
             ...fragmentFields,
-            ...varyings,
+            ...varyingValueTypes(varyings),
         })
         .$name(`${surface.name}${cascade ? "Cascade" : "Point"}ClipOut`);
     const assigns = keys.map((key) => `    out.${key} = patched.${key};`).join("\n");
@@ -1933,10 +1934,10 @@ function clipShadowFs(surface: AnyMaterialType, cullMode: number, mask = 0) {
     const facing = cullMode === CullModeCode.Back;
     const varyings = surface.varyings ?? {};
     const keys = Object.keys(varyings);
-    const schemas = keys.map((key) => varyings[key]);
+    const schemas = keys.map((key) => varyingValueType(varyings[key]));
     const slots = keys.map((_, i) => `v${i}`);
     const located = Object.fromEntries(
-        slots.map((slot, i) => [slot, d.location(VARYING_BASE + i, schemas[i])]),
+        slots.map((slot, i) => [slot, d.location(VARYING_BASE + i, varyings[keys[i]])]),
     );
     const fragment = materialFragmentFunction(surface);
     const Ctx = (fragment as any).shell.argTypes[0];
