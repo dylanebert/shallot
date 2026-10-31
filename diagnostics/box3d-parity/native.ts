@@ -1,7 +1,7 @@
 // Builds C and C++ harnesses against BOX3D at the revision src/standard/physics/oracle/pin.ts pins. Libraries
 // are cached by revision and architecture; each harness binary is keyed by its contents. Existing scene
 // oracles use the host architecture.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { BOX3D_PIN } from "../../src/standard/physics/oracle/pin";
@@ -24,48 +24,73 @@ export function nativeBinary(sourceName = "native.c", architecture?: "x86_64" | 
     const build = join(
         tmpdir(),
         `box3d-parity-${BOX3D_PIN.revision.slice(0, 8)}${architecture ? `-${architecture}` : ""}`,
+        "published",
     );
-    const cmake = join(build, "cmake");
+    const libraries = join(build, "libraries");
     const source = resolve(here, sourceName);
     const native = join(
         build,
         `native-${Bun.hash(Buffer.concat([readFileSync(source), benchmarks ? readFileSync(benchmarks) : Buffer.alloc(0)])).toString(16).padStart(16, "0")}`,
     );
     if (existsSync(native)) return native;
-    if (!existsSync(join(cmake, "src/libbox3d.a"))) {
-        mkdirSync(build, { recursive: true });
-        run([
-            "cmake",
-            "-S",
-            box3d,
-            "-B",
-            cmake,
-            "-DCMAKE_BUILD_TYPE=Release",
-            "-DBOX3D_BENCHMARKS=ON",
-            ...(architecture ? [`-DCMAKE_OSX_ARCHITECTURES=${architecture}`] : []),
-            `-DFETCHCONTENT_BASE_DIR=${join(build, "fetch")}`,
-        ]);
-        run(["cmake", "--build", cmake, "-j", "8", "--target", "box3d", "shared"]);
+    mkdirSync(build, { recursive: true });
+    if (!existsSync(libraries)) {
+        const temporary = mkdtempSync(join(build, ".libraries-"));
+        try {
+            const cmake = join(temporary, "cmake");
+            run([
+                "cmake",
+                "-S",
+                box3d,
+                "-B",
+                cmake,
+                "-DCMAKE_BUILD_TYPE=Release",
+                "-DBOX3D_BENCHMARKS=ON",
+                ...(architecture ? [`-DCMAKE_OSX_ARCHITECTURES=${architecture}`] : []),
+                `-DFETCHCONTENT_BASE_DIR=${join(temporary, "fetch")}`,
+            ]);
+            run(["cmake", "--build", cmake, "-j", "8", "--target", "box3d", "shared"]);
+            const complete = join(temporary, "libraries");
+            mkdirSync(complete);
+            copyFileSync(join(cmake, "src/libbox3d.a"), join(complete, "libbox3d.a"));
+            copyFileSync(join(cmake, "shared/libshared.a"), join(complete, "libshared.a"));
+            try {
+                renameSync(complete, libraries);
+            } catch (error) {
+                // A nonempty destination is another builder's complete library pair.
+                const code = (error as NodeJS.ErrnoException).code;
+                if (code !== "EEXIST" && code !== "ENOTEMPTY") throw error;
+            }
+        } finally {
+            rmSync(temporary, { recursive: true, force: true });
+        }
     }
-    const inc = ["include", "src", "shared"].map((d) => `-I${join(box3d, d)}`);
-    const object = `${native}-benchmarks.o`;
-    if (benchmarks) run(["cc", ...(architecture ? ["-arch", architecture] : []), "-O2", "-DNDEBUG", "-std=c17", "-ffp-contract=off", ...inc, "-c", benchmarks, "-o", object]);
-    run([
-        source.endsWith(".cpp") ? "c++" : "cc",
-        ...(architecture ? ["-arch", architecture] : []),
-        "-O2",
-        source.endsWith(".cpp") ? "-std=c++17" : "-std=c17",
-        "-ffp-contract=off",
-        ...inc,
-        source,
-        ...(benchmarks ? [object] : []),
-        join(cmake, "shared/libshared.a"),
-        join(cmake, "src/libbox3d.a"),
-        "-lm",
-        "-o",
-        native,
-    ]);
-    return native;
+    const temporary = mkdtempSync(join(build, ".native-"));
+    try {
+        const inc = ["include", "src", "shared"].map((d) => `-I${join(box3d, d)}`);
+        const object = join(temporary, "benchmarks.o");
+        if (benchmarks) run(["cc", ...(architecture ? ["-arch", architecture] : []), "-O2", "-DNDEBUG", "-std=c17", "-ffp-contract=off", ...inc, "-c", benchmarks, "-o", object]);
+        const complete = join(temporary, "native");
+        run([
+            source.endsWith(".cpp") ? "c++" : "cc",
+            ...(architecture ? ["-arch", architecture] : []),
+            "-O2",
+            source.endsWith(".cpp") ? "-std=c++17" : "-std=c17",
+            "-ffp-contract=off",
+            ...inc,
+            source,
+            ...(benchmarks ? [object] : []),
+            join(libraries, "libshared.a"),
+            join(libraries, "libbox3d.a"),
+            "-lm",
+            "-o",
+            complete,
+        ]);
+        renameSync(complete, native);
+        return native;
+    } finally {
+        rmSync(temporary, { recursive: true, force: true });
+    }
 }
 
 let verified: string | undefined;
