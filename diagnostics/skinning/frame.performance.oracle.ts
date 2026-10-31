@@ -22,7 +22,15 @@ import {
 import {
     evaluateGltfAnimation,
     type GltfNodePose,
+    type GltfSceneInstance,
+    GltfPlugin,
     loadGltf,
+    loadGltfScene,
+    poseGltfScene,
+    SkinPalette,
+    SkinnedMaterial,
+    SkinnedMesh,
+    spawnGltfScene,
     parseGlb,
 } from "@dylanebert/shallot/gltf";
 import {
@@ -52,7 +60,8 @@ import manifest from "../../examples/gltf/assets.json";
 import { syncFiles } from "../../examples/gltf/sync";
 
 // bun test ./diagnostics/skinning/frame.performance.oracle.ts
-// Measures linear blend skinning of a CesiumMan crowd three ways on one hardware adapter: unskinned
+// SKINNING_MODES=unskinned,shipped selects the shipped glTF path and its textured bind-pose baseline.
+// The spike modes measure linear blend skinning on one hardware adapter: unskinned
 // bind-pose StandardMaterial (baseline), skinning in a StandardMaterial extension's vertex function
 // reading a palette storage buffer by eid, and skinning in a compute pass before the draw that the
 // extension's vertex function then reads. Sun shadows (four cascades) and the depth and normal
@@ -64,8 +73,12 @@ const FILE = {
 };
 // 2560 is the largest crowd whose compute-deformed rows fit one default 128 MiB storage binding.
 const POPULATIONS = process.env.SKINNING_POPULATIONS?.split(",").map(Number) ?? [640, 1280, 2560];
-const MODES = ["static", "vertex", "compute"] as const;
-type Mode = (typeof MODES)[number];
+const ALL_MODES = ["static", "vertex", "compute", "unskinned", "shipped"] as const;
+type Mode = (typeof ALL_MODES)[number];
+const MODES: readonly Mode[] = process.env.SKINNING_MODES?.split(",").map((mode) => {
+    if (!ALL_MODES.includes(mode as Mode)) throw new Error(`Unknown skinning mode: ${mode}`);
+    return mode as Mode;
+}) ?? ALL_MODES;
 // "all": four-cascade sun shadows and the depth and normal prepasses; "color": the color pass alone,
 // so the difference is what the shadow and prepass runs add.
 const PASSES = ["all", "color"] as const;
@@ -385,6 +398,7 @@ interface Crowd {
     staging: Float32Array;
     mesh: MeshHandle;
     camera: number;
+    instances?: GltfSceneInstance[];
 }
 const CrowdState = { create: () => ({ value: undefined as Crowd | undefined }) };
 
@@ -402,10 +416,11 @@ function crowdPlugin(
         dependencies: [
             StandardRenderingPlugin,
             MeshRenderPlugin,
-            MaterialPlugin(VertexSkinned),
-            MaterialPlugin(ComputeSkinned),
+            ...(mode === "shipped" || mode === "unskinned"
+                ? [GltfPlugin]
+                : [MaterialPlugin(VertexSkinned), MaterialPlugin(ComputeSkinned)]),
         ],
-        initialize(world) {
+        async initialize(world) {
             const mesh = world.resource(Meshes).add({
                 name: "CesiumMan",
                 vertices: skin.vertices,
@@ -422,11 +437,19 @@ function crowdPlugin(
                 perceptualRoughness: 0.7,
             });
             const material =
-                mode === "static"
+                mode === "static" || mode === "shipped" || mode === "unskinned"
                     ? world.resource(Materials).add(values)
                     : mode === "vertex"
                       ? world.resource(VertexSkinned).add({ ...values, skinPad: 0 })
                       : world.resource(ComputeSkinned).add({ ...values, skinPad: 0 });
+            const shipped = mode === "shipped" || mode === "unskinned";
+            const gltf = shipped
+                ? await loadGltfScene(world, Bun.pathToFileURL(join(ASSETS, FILE.path)))
+                : undefined;
+            const instances: GltfSceneInstance[] = [];
+            const plain = gltf?.primitives.map((primitive) =>
+                world.resource(Materials).add(world.resource(SkinnedMaterial).get(primitive.material)!),
+            );
             const side = Math.ceil(Math.sqrt(population));
             const meshGlobal = new Float32Array(16);
             const restPoses = evaluateGltfAnimation(skin.nodes, skin.animation, 0);
@@ -460,6 +483,29 @@ function crowdPlugin(
                 if (mode === "static") multiplyMat4(placement, meshGlobal, composed);
                 else composed.set(placement);
                 decomposeMat4(composed, trs);
+                if (gltf) {
+                    const instance = spawnGltfScene(world, gltf, {
+                        translation: [x, 0, z],
+                        rotation: [0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2)],
+                    });
+                    instances.push(instance);
+                    if (mode === "unskinned") {
+                        for (let p = 0; p < instance.entities.length; p++) {
+                            const eid = instance.entities[p]!;
+                            world.remove(eid, SkinnedMesh);
+                            multiplyMat4(instance.placement, gltf.primitives[p]!.matrix, composed);
+                            decomposeMat4(composed, trs);
+                            world.add(eid, Transform, {
+                                translation: [trs[0], trs[1], trs[2]],
+                                rotation: [trs[3], trs[4], trs[5], trs[6]],
+                                scale: [trs[7], trs[8], trs[9]],
+                            });
+                            world.add(eid, MeshMaterial, plain![p]!);
+                        }
+                    }
+                    eids.push(...instance.entities);
+                    continue;
+                }
                 const eid = world.create();
                 world.add(eid, Transform, {
                     translation: [trs[0], trs[1], trs[2]],
@@ -498,7 +544,9 @@ function crowdPlugin(
                 staging: new Float32Array(population * J * 16),
                 mesh,
                 camera,
+                instances: shipped ? instances : undefined,
             };
+            if (shipped) return;
             const device = world.gpu.device;
             const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST;
             const buffer = (label: string, size: number) => {
@@ -717,7 +765,7 @@ function expectBoundsEnclose(world: World, skin: Skin, crowd: Crowd): void {
 }
 
 await setupGlobals();
-test("report CPU pose, palette upload and GPU time for static, vertex-stage and compute skinning", async () => {
+test("report CesiumMan crowd CPU paths and pipelined GPU frames", async () => {
     const skin = await loadSkin();
     const V = skin.bind.length / 8;
     const J = skin.inverseBinds.length;
@@ -782,6 +830,7 @@ test("report CPU pose, palette upload and GPU time for static, vertex-stage and 
         },
     });
     const throughput: Record<string, number> = {};
+    const paths: Record<string, { median: number; p95: number }> = {};
     try {
         for (const population of POPULATIONS) {
             for (const view of VIEWS) {
@@ -799,6 +848,7 @@ test("report CPU pose, palette upload and GPU time for static, vertex-stage and 
                             const crowd = world.resource(CrowdState).value!;
                             const buffers = world.resource(Gpu).buffers!;
                             const cpu = {
+                                path: [] as number[],
                                 pose: [] as number[],
                                 palette: [] as number[],
                                 bounds: [] as number[],
@@ -820,8 +870,18 @@ test("report CPU pose, palette upload and GPU time for static, vertex-stage and 
                             };
                             const animate = (measured: boolean) => {
                                 time += Time.FIXED_DT;
-                                if (mode === "static") return;
+                                if (mode === "static" || mode === "unskinned") return;
                                 const start = performance.now();
+                                if (mode === "shipped") {
+                                    for (let i = 0; i < crowd.instances!.length; i++) {
+                                        const instance = crowd.instances![i]!;
+                                        const t = (time + hash(i * 2 + 1) * skin.duration) % skin.duration;
+                                        poseGltfScene(world, instance, instance.gltf.animations[0]!, t);
+                                    }
+                                    const elapsed = performance.now() - start;
+                                    if (measured) cpu.path.push(elapsed);
+                                    return;
+                                }
                                 pose(skin, crowd, time);
                                 const posed = performance.now();
                                 palette(skin, crowd);
@@ -831,6 +891,7 @@ test("report CPU pose, palette upload and GPU time for static, vertex-stage and 
                                 upload();
                                 const uploaded = performance.now();
                                 if (!measured) return;
+                                cpu.path.push(uploaded - start);
                                 cpu.pose.push(posed - start);
                                 cpu.palette.push(paletted - posed);
                                 cpu.bounds.push(bounded - paletted);
@@ -885,7 +946,18 @@ test("report CPU pose, palette upload and GPU time for static, vertex-stage and 
                                     readback.unmap();
                                 }
                             }
-                            if (mode !== "static") expectBoundsEnclose(world, skin, crowd);
+                            if (mode === "shipped") {
+                                const matrices = world.resource(SkinPalette).matrices;
+                                const first = world.storage(SkinnedMesh).firstJoint;
+                                for (let i = 0; i < crowd.eids.length; i++) {
+                                    const offset = first.get(crowd.eids[i]!) * 16;
+                                    crowd.staging.set(matrices.subarray(offset, offset + J * 16), i * J * 16);
+                                }
+                                expectBoundsEnclose(world, skin, crowd);
+                                expect(crowd.staging.some((v, i) => Math.abs(v - (i % 16 % 5 === 0 ? 1 : 0)) > 0.01)).toBe(true);
+                            } else if (mode !== "static" && mode !== "unskinned") {
+                                expectBoundsEnclose(world, skin, crowd);
+                            }
                             const seen = [...perPass.keys()];
                             expect(seen.includes("standard-cascadeshadow")).toBe(passes === "all");
                             expect(seen.includes("standard-prepass")).toBe(passes === "all");
@@ -920,6 +992,10 @@ test("report CPU pose, palette upload and GPU time for static, vertex-stage and 
                             const record = {
                                 "gpu-frame-pipelined": frameMs,
                                 "gpu-span-serial": m(spans),
+                                "cpu-path": m(cpu.path),
+                                "cpu-path-p95": cpu.path.toSorted((a, b) => a - b)[Math.ceil(cpu.path.length * 0.95) - 1] ?? 0,
+                                "cpu-path/gpu-frame": m(cpu.path) / frameMs,
+                                "cpu-path-fits": m(cpu.path) <= frameMs,
                                 "cpu-pose": m(cpu.pose),
                                 "cpu-palette": m(cpu.palette),
                                 "cpu-bounds": m(cpu.bounds),
@@ -931,8 +1007,12 @@ test("report CPU pose, palette upload and GPU time for static, vertex-stage and 
                                         .map(([label, values]) => [`pass:${label}`, m(values)]),
                                 ),
                             };
+                            paths[`${population}/${view.name}/${passes}/${mode}`] = {
+                                median: m(cpu.path),
+                                p95: record["cpu-path-p95"],
+                            };
                             console.info(
-                                `[skinning] population=${population} view=${view.name} passes=${passes} mode=${mode} vertices-per-pass=${population * V} palette-bytes=${mode === "static" ? 0 : population * J * 64} deformed-bytes=${mode === "compute" ? population * V * 16 : 0} ${JSON.stringify(record, (_, v) => (typeof v === "number" ? Number(v.toFixed(3)) : v))}`,
+                                `[skinning] population=${population} view=${view.name} passes=${passes} mode=${mode} vertices-per-pass=${population * V} palette-bytes=${mode === "static" || mode === "unskinned" ? 0 : population * J * 64} deformed-bytes=${mode === "compute" ? population * V * 16 : 0} ${JSON.stringify(record, (_, v) => (typeof v === "number" ? Number(v.toFixed(3)) : v))}`,
                             );
                         } finally {
                             app.dispose();
@@ -940,6 +1020,13 @@ test("report CPU pose, palette upload and GPU time for static, vertex-stage and 
                     }
                     // The two skinning paths are independent implementations of one formula: their
                     // images agree but for the compute path's 8-bit normals.
+                    if (MODES.includes("shipped") && MODES.includes("unskinned")) {
+                        const key = `${population}/${view.name}/${passes}`;
+                        const path = paths[`${key}/shipped`]!;
+                        const gpu = throughput[`${key}/shipped`]!;
+                        console.info(`[skinning-summary] population=${population} view=${view.name} passes=${passes} cpu-path-median-ms=${path.median.toFixed(3)} cpu-path-p95-ms=${path.p95.toFixed(3)} gpu-frame-ms=${gpu.toFixed(3)} cpu/gpu=${(path.median / gpu).toFixed(3)} fits=${path.median <= gpu} shipped-cost-over-unskinned-ms=${(gpu - throughput[`${key}/unskinned`]!).toFixed(3)}`);
+                    }
+                    if (!captures.has("vertex") || !captures.has("compute")) continue;
                     const a = captures.get("vertex")!;
                     const b = captures.get("compute")!;
                     let differing = 0;
@@ -951,6 +1038,7 @@ test("report CPU pose, palette upload and GPU time for static, vertex-stage and 
                             }
                     expect(differing / (a.length / 4)).toBeLessThan(1e-3);
                 }
+                if (!["static", "vertex", "compute"].every((mode) => MODES.includes(mode as Mode))) continue;
                 const t = (passes: Passes, mode: Mode) =>
                     throughput[`${population}/${view.name}/${passes}/${mode}`]!;
                 const vertexAll = t("all", "vertex") - t("all", "static");
@@ -966,7 +1054,7 @@ test("report CPU pose, palette upload and GPU time for static, vertex-stage and 
             }
         }
         console.info(
-            `[skinning] serial=${WARM}+${FRAMES} pipelined=${WARM}+${THROUGHPUT} frames per run. Pipelined frame time is wall time over back-to-back submissions, CPU pose held (world.step stays well under the GPU frame). Serial GPU span is first pass start to last pass end; per-pass sums overlap on a tile-based GPU, so the pipelined ablation (all passes against the color pass alone) attributes the shadow and prepass runs. The palette writeBuffer's GPU copy falls outside passes but inside the pipelined frame. CPU times are medians of serial frames.`,
+            `[skinning] serial=${WARM}+${FRAMES} pipelined=${WARM}+${THROUGHPUT} frames per run. Pipelined frame time is wall time over back-to-back submissions, CPU pose held (world.step stays well under the GPU frame). Serial GPU span is first pass start to last pass end; per-pass sums overlap on a tile-based GPU, so the pipelined ablation (all passes against the color pass alone) attributes the shadow and prepass runs. The palette writeBuffer's GPU copy falls outside passes but inside the pipelined frame. CPU times are serial-frame medians except cpu-path-p95. Shipped cpu-path times the entire phase-shifted poseGltfScene loop; cpu-step includes deformation texture uploads. The path/GPU ratio uses the median, not p95.`,
         );
     } finally {
         querySet.destroy();
