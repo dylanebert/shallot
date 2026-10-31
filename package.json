@@ -120,6 +120,7 @@
         "!**/*.fixture.ts",
         "!**/*.gold.json",
         "!**/*.gold.txt",
+        "!**/*.inputs.json",
         "!examples/physics/tests/*.parity.node.ts",
         "!examples/gltf/tests/*.parity.node.ts",
         "!examples/gltf/tests/parity.ts",
