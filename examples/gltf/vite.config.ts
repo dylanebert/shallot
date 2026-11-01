@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import { shallot } from "@dylanebert/shallot/vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import manifest from "./assets.json";
+import { devModels } from "./dev-assets";
 import { syncFiles } from "./sync";
 
 export default {
@@ -12,7 +13,7 @@ export default {
             name: "gltf-assets",
             async buildStart() {
                 await syncFiles(
-                    manifest.models.flatMap((model) => model.files),
+                    devModels.flatMap((model) => model.files),
                     new URL(`${manifest.commit}/`, manifest.source),
                     fileURLToPath(new URL("./public/assets/", import.meta.url)),
                 );

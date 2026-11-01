@@ -23,7 +23,17 @@ export async function syncFiles(
     source: URL,
     destination: string,
 ): Promise<void> {
+    const unique = new Map<string, AssetFile>();
     for (const file of files) {
+        const previous = unique.get(file.path);
+        if (previous && previous.sha256 !== file.sha256)
+            throw new Error(`${file.path}: conflicting SHA-256 hashes`);
+        unique.set(file.path, file);
+    }
+    const pending = [...unique.values()];
+    let next = 0;
+    let failure: { error: unknown } | undefined;
+    async function sync(file: AssetFile) {
         const path = join(destination, file.path);
         let bytes: Uint8Array | undefined;
         try {
@@ -33,7 +43,7 @@ export async function syncFiles(
         }
         if (bytes) {
             verify(file, bytes);
-            continue;
+            return;
         }
         const url = new URL(file.path, source);
         if (url.protocol === "file:") {
@@ -53,6 +63,18 @@ export async function syncFiles(
             await rm(partial, { force: true });
         }
     }
+    await Promise.all(
+        Array.from({ length: Math.min(8, pending.length) }, async () => {
+            while (!failure && next < pending.length) {
+                try {
+                    await sync(pending[next++]);
+                } catch (error) {
+                    failure ??= { error };
+                }
+            }
+        }),
+    );
+    if (failure) throw failure.error;
 }
 
 if (import.meta.main) {
