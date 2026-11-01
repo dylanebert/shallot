@@ -35,6 +35,7 @@ import {
 } from "@dylanebert/shallot/standard/physics";
 import { CastPlugin, castScene } from "./cast";
 import { gyroscopicPrecession, PrecessionPlugin } from "./precession";
+import { SceneRestart } from "./scene-restart";
 import type { Controls } from "./scenes";
 
 type V3 = [number, number, number];
@@ -169,6 +170,51 @@ function box(world: World, eid: number, halfExtents: V3, position: V3 = [0, 0, 0
 }
 function ground(world: World, extent = 20): void {
     box(world, body(world, [0, -1, 0], BodyType.Static), [extent, 1, extent]);
+}
+function spinningCapsule(world: World, length = 4, tolerance?: number): number[] {
+    if (tolerance !== undefined)
+        world.resource(PhysicsWorldDefinition).isotropicInertiaTolerance = tolerance;
+    ground(world, 20);
+    const halfLength = f(f(0.5) * f(length));
+    const rotation = rotationFromAxisAngle(
+        world,
+        { x: 0, y: 0, z: 1 },
+        f(f(15 * f(Math.PI)) / 180),
+    );
+    const x = f(-f(f(2 * rotation[2]) * rotation[3]));
+    const y = f(1 - f(f(2 * rotation[2]) * rotation[2]));
+    const eid = body(world, [f(halfLength * x), f(f(0.2) + f(halfLength * y)), 0]);
+    world.storage(Transform).rotation.set(eid, ...rotation);
+    world.storage(Body).angularVelocity.set(eid, f(20 * x), f(20 * y), 0);
+    world.add(eid, Shape, {
+        kind: ShapeKind.Capsule,
+        capsuleCenter1: [0, -halfLength, 0],
+        capsuleCenter2: [0, halfLength, 0],
+        radius: 0.2,
+    });
+    return [eid];
+}
+const spinningCapsuleControls: Controls = {
+    Length: { label: "Length", value: 4, min: 0, max: 8, step: 0.1, set: restartSpinningCapsule },
+    Tolerance: {
+        label: "Tolerance",
+        value: 0.2,
+        min: 0,
+        max: 1,
+        step: 0.001,
+        set: restartSpinningCapsule,
+    },
+    Reset: { label: "Reset", value: 0, button: true, set: restartSpinningCapsule },
+};
+function restartSpinningCapsule(
+    world: World,
+    _b: readonly number[],
+    _v: number,
+    values: Record<string, number>,
+): void {
+    world
+        .resource(SceneRestart)
+        .restart((w) => spinningCapsule(w, values.Length, values.Tolerance));
 }
 function spinningBook(world: World): number[] {
     ground(world, 10);
@@ -531,6 +577,13 @@ export const bodyScenes = {
         gridSpacing: 1,
         camera: { yaw: 25, pitch: 20, distance: 8, target: [1.5, 1.5, 0] },
         controls: disableControls,
+    },
+    spinningCapsule: {
+        construct: (world: World) => spinningCapsule(world),
+        gridExtent: 20,
+        gridSpacing: 1,
+        camera: { yaw: 30, pitch: 25, distance: 10, phoneDistance: 14, target: [0, 2, 0] },
+        controls: spinningCapsuleControls,
     },
     spinningBook: {
         construct: spinningBook,

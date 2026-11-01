@@ -484,6 +484,7 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 weeble: 30,
                 disable: 20,
                 spinningBook: 10,
+                spinningCapsule: 20,
                 gyroscopicTorque: 20,
                 kinematic: 20,
                 lockMixing: 20,

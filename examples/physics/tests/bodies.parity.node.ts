@@ -2,6 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { createApp, hashPhysics, StandardPhysicsPlugin } from "@dylanebert/shallot";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { BodySamplePlugin, bodyScenes } from "../src/bodies";
+import { sceneSwitcher } from "../src/sample";
 import { type Controls, changeControl, controlValues, createScene, scenes } from "../src/scenes";
 import { sampleGold } from "./gold";
 
@@ -35,10 +36,11 @@ for (const scene of Object.keys(bodyScenes) as (keyof typeof bodyScenes)[]) {
                 defaults: false,
                 plugins: [StandardPhysicsPlugin, BodySamplePlugin],
                 setup(world) {
-                    bodies = createScene(world, scene);
+                    if (scene !== "spinningCapsule") bodies = createScene(world, scene);
                 },
             });
             try {
+                if (scene === "spinningCapsule") bodies = sceneSwitcher(app.world)(scene);
                 expect(gold).toHaveLength(600);
                 for (let step = 0; step < gold.length; step++) {
                     for (const change of sequence)

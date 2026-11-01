@@ -521,6 +521,7 @@ int main( int argc, char** argv )
         { "classRing", ClassRing::Create }, { "cast", BodyCast::Create },
         { "bodyType", BodyType::Create }, { "weeble", Weeble::Create }, { "disable", DisableBody::Create },
         { "gyroscopicPrecession", GyroscopicPrecession::Create },
+        { "spinningCapsule", SpinningCapsule::Create },
         { "spinningBook", SpinningBooks::Create }, { "gyroscopicTorque", GyroscopicTorque::Create },
         { "kinematic", Kinematic::Create }, { "lockMixing", LockMixing::Create },
         { "fixedRotation", FixedRotation::Create }, { "offsetKinematic", OffsetKinematic::Create },

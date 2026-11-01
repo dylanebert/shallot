@@ -112,6 +112,7 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
             { id: "lockMixing", name: "Lock Mixing" },
             { id: "offsetKinematic", name: "Offset Kinematic" },
             { id: "spinningBook", name: "Spinning Book" },
+            { id: "spinningCapsule", name: "Spinning Capsule" },
             { id: "weeble", name: "Weeble" },
         ],
     },

@@ -1,0 +1,4 @@
+120	Length	2
+240	Tolerance	0.8
+360	Reset	1
+480	Length	6
