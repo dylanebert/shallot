@@ -94,6 +94,7 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
             { id: "manyPyramids", name: "Many Pyramids" },
             { id: "rain", name: "Rain" },
             { id: "benchmarkSensor", name: "Sensor" },
+            { id: "sleep", name: "Sleep" },
             { id: "washer", name: "Washer" },
             { id: "widePyramid", name: "Wide Pyramid" },
         ],

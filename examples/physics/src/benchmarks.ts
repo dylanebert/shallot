@@ -1,6 +1,7 @@
 import {
     Body,
     BodyType,
+    FilterJoint,
     Hulls,
     PhysicsMeshes,
     type Plugin,
@@ -17,12 +18,14 @@ import {
     computeCosSin,
     defaultExplosionDef,
     explode,
+    isAwake,
     PhysicsWorldDefinition,
     rotationFromAxisAngle,
     StandardPhysicsPlugin,
     StepPhysicsSystem,
     SyncPhysicsConstraintsSystem,
     setTargetTransform,
+    stepPhysics,
 } from "@dylanebert/shallot/standard/physics";
 import { human } from "./human";
 import { QuerySamplePlugin, queryScenes } from "./queries";
@@ -182,6 +185,10 @@ function jointGrid(world: World): number[] {
 }
 export const BenchmarkSample = {
     create: () => ({
+        sleepPairs: [] as [number, number][],
+        sleepJoint: -1,
+        sleepIndex: -1,
+        sleepComplete: false,
         windShapes: [] as number[],
         noise: [0, 0, 0],
         explosionPending: false,
@@ -253,6 +260,21 @@ const SpawnBenchmark: System = {
     before: [SyncPhysicsConstraintsSystem],
     update(world) {
         const sample = world.resource(BenchmarkSample);
+        if (sample.scene === "sleep") {
+            sample.sleepComplete = false;
+            if (sample.sleepJoint >= 0) {
+                world.destroy(sample.sleepJoint);
+                sample.sleepJoint = -1;
+                return;
+            }
+            sample.sleepIndex = sample.sleepPairs.findIndex(([a]) => isAwake(world, a) === false);
+            if (sample.sleepIndex >= 0) {
+                const [a, b] = sample.sleepPairs[sample.sleepIndex]!;
+                sample.sleepJoint = world.create();
+                world.add(sample.sleepJoint, FilterJoint, { a, b });
+            }
+            return;
+        }
         if (sample.scene === "largeWorld") {
             const step = sample.step++;
             if (step === 0 || step % 5 !== 0 || step > 500) return;
@@ -426,10 +448,60 @@ function rain(world: World): number[] {
     });
     return [];
 }
+const StepSleep: System = {
+    name: "sleep-step",
+    group: "fixed",
+    after: [StepPhysicsSystem],
+    update(world) {
+        const s = world.resource(BenchmarkSample);
+        if (s.scene !== "sleep" || s.sleepJoint >= 0) return;
+        stepPhysics(world, 1 / 60, 4);
+        s.sleepComplete = true;
+    },
+};
+function sleep(world: World): number[] {
+    const s = world.resource(BenchmarkSample);
+    Object.assign(s, {
+        scene: "sleep",
+        sleepPairs: [],
+        sleepJoint: -1,
+        sleepIndex: -1,
+        sleepComplete: false,
+    });
+    const def = world.resource(PhysicsWorldDefinition);
+    def.enableAutomaticStep = false;
+    def.capacity = {
+        staticShapeCount: 4,
+        staticBodyCount: 4,
+        dynamicShapeCount: 2200,
+        dynamicBodyCount: 2200,
+        contactCount: 12000,
+    };
+    body(world, box(world, [128, 1, 4]), [0, -1, 0], false);
+    const hull = box(world, [0.5, 0.5, 0.5]);
+    const bodies: number[] = [];
+    for (let p = 0; p < 10; p++) {
+        const pair: [number, number] = [0, 0];
+        for (let i = 0; i < 20; i++)
+            for (let j = i; j < 20; j++) {
+                const e = body(world, hull, [
+                    (i + 1) * 0.5 + (j - i) - 108 + p * 24 - 10,
+                    (2 * i + 1) * 0.5,
+                    0,
+                ]);
+                world.storage(Body).sleepThreshold.set(e, 1);
+                bodies.push(e);
+                if (i === 0 && j === 0) pair[0] = e;
+                else if (i === 1 && j === 1) pair[1] = e;
+            }
+        s.sleepPairs.push(pair);
+    }
+    return bodies;
+}
 export const BenchmarkSamplePlugin: Plugin = {
     name: "BenchmarkSample",
     dependencies: [StandardPhysicsPlugin, TreeSamplePlugin, SensorSamplePlugin, QuerySamplePlugin],
-    systems: [SpawnBenchmark, BeforeBenchmark, AfterDestruction, SpawnDestruction],
+    systems: [SpawnBenchmark, BeforeBenchmark, AfterDestruction, SpawnDestruction, StepSleep],
     recovery: recoverResource(BenchmarkSample),
 };
 function shape(world: World, parent: number, geometry: number): void {
@@ -655,6 +727,14 @@ function chains(world: World): number[] {
     return bodies;
 }
 export const benchmarkScenes = {
+    sleep: {
+        construct: sleep,
+        iterationComplete: (world: World) => world.resource(BenchmarkSample).sleepComplete,
+        gridExtent: 128,
+        gridSpacing: 4,
+        camera: { yaw: 0, pitch: 20, distance: 260, phoneDistance: 500, target: [0, 5, 0] },
+        controls: undefined,
+    },
     largeWorld: {
         construct: largeWorld,
         gridExtent: 0,

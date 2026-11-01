@@ -997,6 +997,7 @@ for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "f
 }
 
 const benchmarkMutations: Record<string, [string, string]> = {
+    sleep: ["if ( b3Body_IsAwake( g_sleepData.bodyIdA[i] ) == false )", "if ( false )"],
     largeWorld: ["#define STATIC_FLOOR_DROP_INTERVAL 5", "#define STATIC_FLOOR_DROP_INTERVAL 6"],
     benchmarkSensor: ["float gridSize = 3.0f;", "float gridSize = 3.1f;"],
     chains: ["float linkRadius = 0.125f;", "float linkRadius = 0.126f;"],

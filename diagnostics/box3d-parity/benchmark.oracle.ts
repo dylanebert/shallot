@@ -2,7 +2,7 @@ import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import * as physics from "@dylanebert/shallot/standard/physics";
 import { MeshSamplePlugin } from "../../examples/physics/src/mesh";
 import { Body, BodyType, createApp, hashPhysics, Shape, StandardPhysicsPlugin } from "@dylanebert/shallot";
-import { BenchmarkSamplePlugin, benchmarkScenes } from "../../examples/physics/src/benchmarks";
+import { BenchmarkSample, BenchmarkSamplePlugin, benchmarkScenes } from "../../examples/physics/src/benchmarks";
 import { sceneSwitcher } from "../../examples/physics/src/sample";
 import { changeControl, controlValues, createScene, scenes } from "../../examples/physics/src/scenes";
 import { sampleGold } from "../../examples/physics/tests/gold";
@@ -18,6 +18,48 @@ import { advanceIteration } from "../../examples/physics/tests/iteration";
 // Run by path with sample.oracle.ts. Scene parity needs one solver thread; the engine's
 // small determinism scenes hold scheduling and cross-host equality.
 setDefaultTimeout(0);
+
+test("sleep joint creation removes the pair contact and removal wakes the island before its solve", async () => {
+    let filtered = 0, woke = 0, touchingBefore = 0;
+    const observer = {
+        name: "ObserveSleepSync",
+        dependencies: [BenchmarkSamplePlugin],
+        systems: [{
+            name: "observe-sleep-sync",
+            group: "fixed" as const,
+            after: [physics.SyncPhysicsConstraintsSystem],
+            before: [physics.StepPhysicsSystem],
+            update(world: import("@dylanebert/shallot").World) {
+                const s = world.resource(BenchmarkSample);
+                if (s.sleepIndex < 0) return;
+                const [a, b] = s.sleepPairs[s.sleepIndex]!;
+                if (s.sleepJoint >= 0) {
+                    expect(physics.getContactData(world, a, b)).toBeNull();
+                    filtered++;
+                } else {
+                    expect(physics.isAwake(world, a)).toBe(true);
+                    woke++;
+                }
+            },
+        }],
+    };
+    const app = await createApp({ defaults: false, plugins: [observer], setup(world) { createScene(world, "sleep"); } });
+    try {
+        for (let iteration = 0; iteration < 600; iteration++) {
+            const s = app.world.resource(BenchmarkSample);
+            for (const [a, b] of s.sleepPairs) {
+                if (physics.isAwake(app.world, a) === false) {
+                    if (physics.getContactData(app.world, a, b)) touchingBefore++;
+                    break;
+                }
+            }
+            advanceIteration(app.world, "sleep");
+        }
+        expect(filtered).toBeGreaterThan(0);
+        expect(woke).toBe(filtered);
+        expect(touchingBefore).toBe(10);
+    } finally { app.dispose(); }
+});
 
 // Large World's million-body switch is held by large-world-construction.oracle.ts.
 for (const scene of [...manualParityScenes].filter(scene => scene !== "largeWorld")) {

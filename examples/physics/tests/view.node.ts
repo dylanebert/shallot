@@ -485,6 +485,7 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 disable: 20,
                 spinningBook: 10,
                 spinningCapsule: 20,
+                sleep: 128,
                 gyroscopicTorque: 20,
                 kinematic: 20,
                 lockMixing: 20,

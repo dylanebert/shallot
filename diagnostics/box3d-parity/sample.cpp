@@ -530,6 +530,7 @@ int main( int argc, char** argv )
 		{ "fallingBoxes", FallingBoxes::Create },
 		{ "rain", BenchmarkRain::Create },
 		{ "junkyard", BenchmarkJunkyard::Create },
+        { "sleep", BenchmarkSleep::Create },
 		{ "washer", BenchmarkWasher::Create },
 		{ "convexPile", BenchmarkConvexPile::Create },
 		{ "candyCups", CandyCups::Create },
