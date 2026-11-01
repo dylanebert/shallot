@@ -1,0 +1,5 @@
+120	Height	2
+240	Safety	0.01
+360	Drop	1
+480	Height	0
+540	Safety	1

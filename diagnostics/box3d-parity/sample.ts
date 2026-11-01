@@ -79,7 +79,7 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         ...["CapsulePlane", "MoverOverlap"].map(name => section(character, `class ${name} :`, `static int sample${name}`)),
         section(sample, "b3BodyId Sample::AddGroundBox(", "struct RowDef"),
         "#define printf(...) fprintf(stderr, __VA_ARGS__)",
-        ...["ThinWall", "BounceHouse", "SpinningStick", "NeedleMesh", "HumpMesh", "IsFast", "Stall"].map(name => section(continuous, `class ${name} :`, `static int sample${name}`)),
+        ...["ThinWall", "BounceHouse", "SpinningStick", "NeedleMesh", "HumpMesh", "IsFast", "Stall", "SafetyFactor"].map(name => section(continuous, `class ${name} :`, `static int sample${name}`)),
         section(continuous, "class BulletVersusStack :", "static int sampleContinuous6"),
         section(continuous, "struct IndexPair", "static int sampleMeshDrop"),
         "#undef printf",

@@ -19,6 +19,17 @@ for (const scene of Object.keys(continuousScenes) as (keyof typeof continuousSce
             await Bun.file(new URL(`./${scene}.gold.txt`, import.meta.url)).text(),
         );
         expect(gold).toHaveLength(600);
+        const overlaps =
+            scene === "safetyFactor"
+                ? (
+                      await Bun.file(
+                          new URL("./safetyFactor.overlap.gold.txt", import.meta.url),
+                      ).text()
+                  )
+                      .trimEnd()
+                      .split("\n")
+                      .map((value) => Math.fround(Number(value)))
+                : null;
         const start = performance.now();
         for (const mutated of [false, true]) {
             let bodies: number[] = [];
@@ -36,8 +47,14 @@ for (const scene of Object.keys(continuousScenes) as (keyof typeof continuousSce
                 for (const [step, expected] of gold.entries()) {
                     app.world.tick();
                     const hash = hashPhysics(app.world);
-                    if (!mutated) expect(hash, `step ${step} hash`).toBe(expected.hash);
-                    else if (hash !== expected.hash) {
+                    if (!mutated) {
+                        expect(hash, `step ${step} hash`).toBe(expected.hash);
+                        if (overlaps)
+                            expect(
+                                app.world.resource(ContinuousState).safetyOverlap,
+                                `step ${step} overlap`,
+                            ).toBe(overlaps[step]);
+                    } else if (hash !== expected.hash) {
                         diverged = true;
                         break;
                     }
@@ -51,6 +68,7 @@ for (const scene of Object.keys(continuousScenes) as (keyof typeof continuousSce
     });
 }
 for (const [scene, recording, budget] of [
+    ["safetyFactor", "safetyFactor", false],
     ["bulletVersusStack", "bulletVersusStack", false],
     ["meshDrop", "meshDrop", true],
     ["meshDrop", "meshDrop.regeneration", false],
@@ -68,6 +86,17 @@ for (const [scene, recording, budget] of [
                 const [step, name, value] = line.split("\t");
                 return { step: Number(step), name: name!, value: Number(value) };
             });
+        const overlaps =
+            scene === "safetyFactor"
+                ? (
+                      await Bun.file(
+                          new URL("./safetyFactor.controls.overlap.gold.txt", import.meta.url),
+                      ).text()
+                  )
+                      .trimEnd()
+                      .split("\n")
+                      .map((value) => Math.fround(Number(value)))
+                : null;
         const start = performance.now();
         const observed: bigint[] = [];
         const controlled = await createApp({
@@ -97,6 +126,11 @@ for (const [scene, recording, budget] of [
                             change.value,
                         );
                 controlled.world.tick();
+                if (overlaps)
+                    expect(
+                        controlled.world.resource(ContinuousState).safetyOverlap,
+                        `tick ${tick} overlap`,
+                    ).toBe(overlaps[tick]);
                 if (budget && tick === 269) {
                     expect(controlled.world.resource(ContinuousState).steps).toBeGreaterThan(1000);
                     expect(controlled.world.resource(ContinuousState).paused).toBe(true);

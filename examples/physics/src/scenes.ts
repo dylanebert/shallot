@@ -167,6 +167,7 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
             { id: "isFast", name: "Is Fast" },
             { id: "meshDrop", name: "Mesh Drop" },
             { id: "needleMesh", name: "Needle Mesh" },
+            { id: "safetyFactor", name: "Safety Factor" },
             { id: "spinningStick", name: "Spinning Stick" },
             { id: "stall", name: "Stall" },
             { id: "thinWall", name: "Thin Wall" },

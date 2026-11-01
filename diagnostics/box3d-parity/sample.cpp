@@ -125,6 +125,9 @@ void DrawLine( b3Pos a, b3Pos b, int ) {
     if (contactDrawing) contactMarks.push_back({a,b,{}});
     if (characterDrawing || manifoldRecording) characterMarks.push_back({1,a.x,a.y,a.z,b.x,b.y,b.z});
 }
+constexpr float DEFAULT_LINE_THICKNESS_PX = 1;
+constexpr int OVERLAY_THICKNESS_PIXELS = 0, OVERLAY_OCCLUSION_DASHED = 0;
+void DrawLineEx(b3Pos a, b3Pos b, int color, float, int, int) { DrawLine(a, b, color); }
 void DrawArrow( b3Pos a, b3Pos b, int ) { if (characterDrawing) characterMarks.push_back({2,a.x,a.y,a.z,b.x,b.y,b.z}); }
 void DrawWireSphere( b3WorldTransform, const b3Sphere*, int, int ) {}
 void DrawCross(b3Pos, float, int) {}
@@ -508,7 +511,7 @@ int main( int argc, char** argv )
         { "simpleCompound", SimpleCompound::Create }, { "compoundSpheres", CompoundSpheres::Create },
         { "compoundHulls", CompoundHulls::Create }, { "tileFloor", TileFloor::Create }, { "meshTile", MeshTile::Create }, { "village", Village::Create },
         { "bulletVersusStack", BulletVersusStack::Create }, { "meshDrop", MeshDrop::Create },
-        { "thinWall", ThinWall::Create }, { "bounceHouse", BounceHouse::Create },
+        { "safetyFactor", SafetyFactor::Create }, { "thinWall", ThinWall::Create }, { "bounceHouse", BounceHouse::Create },
         { "spinningStick", SpinningStick::Create }, { "needleMesh", NeedleMesh::Create },
         { "humpMesh", HumpMesh::Create }, { "isFast", IsFast::Create }, { "stall", Stall::Create },
         { "inclinedPlane", InclinedPlane::Create }, { "rollingResistance", RollingResistance::Create },
@@ -645,6 +648,8 @@ int main( int argc, char** argv )
     if (getenv("TREE_RECORDS")) assert(treeRecords && !strcmp(argv[1], "treeBenchmark"));
     FILE* issueReadouts = getenv("ISSUE_READOUTS") ? fopen(getenv("ISSUE_READOUTS"), "w") : nullptr;
     if (getenv("ISSUE_READOUTS")) assert(issueReadouts && (!strcmp(argv[1], "ghostCollisions") || !strcmp(argv[1], "restitutionOvershoot")));
+    FILE* safetyReadouts = getenv("SAFETY_READOUTS") ? fopen(getenv("SAFETY_READOUTS"), "w") : nullptr;
+    if (getenv("SAFETY_READOUTS")) assert(safetyReadouts && !strcmp(argv[1], "safetyFactor"));
     FILE* worldReadouts = getenv("WORLD_READOUTS") ? fopen(getenv("WORLD_READOUTS"), "w") : nullptr;
     if (getenv("WORLD_READOUTS")) assert(worldReadouts);
     FILE* readouts = getenv("PRECESSION_READOUTS") ? fopen(getenv("PRECESSION_READOUTS"), "w") : nullptr;
@@ -733,6 +738,7 @@ int main( int argc, char** argv )
                 fprintf(geometryRecords,"]\n");
             }
         } else sample->Step();
+        if (safetyReadouts) fprintf(safetyReadouts, "%.9g\n", static_cast<SafetyFactor*>(sample)->m_overlap);
         if (treeRecords) RecordTree(static_cast<TreeSample::TreeBenchmark*>(sample), treeRecords);
         if (treeBounds) RecordTreeBounds(static_cast<TreeSample::TreeBenchmark*>(sample), treeBounds);
         if (determinismReadouts) {
@@ -870,6 +876,7 @@ int main( int argc, char** argv )
     if (meshBoundsFile) fclose(meshBoundsFile);
     if (robustnessReadouts) fclose(robustnessReadouts);
     if (worldReadouts) fclose(worldReadouts);
+    if (safetyReadouts) fclose(safetyReadouts);
     if (issueReadouts) fclose(issueReadouts);
     if (treeBounds) fclose(treeBounds);
     if (treeRecords) fclose(treeRecords);

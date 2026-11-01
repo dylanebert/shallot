@@ -795,6 +795,21 @@ for (const [scene, [name, before, after]] of Object.entries(compoundMutations)) 
     });
 }
 
+test("safetyFactor native overlap line repeats its default and controlled records", () => {
+    const directory = mkdtempSync(join(tmpdir(), "shallot-safety-overlap-"));
+    try {
+        const output = join(directory, "overlap.txt");
+        for (const controlled of [false, true]) {
+            const stem = `safetyFactor${controlled ? ".controls" : ""}`;
+            const expected = readFileSync(new URL(`../../examples/physics/tests/${stem}.overlap.gold.txt`, import.meta.url), "utf8");
+            for (let repeat = 0; repeat < 2; repeat++) {
+                run([sampleBinary(), "safetyFactor", "600", ...(controlled ? [fileURLToPath(new URL("../../examples/physics/tests/safetyFactor.controls.txt", import.meta.url))] : [])], { SAFETY_READOUTS: output });
+                expect(readFileSync(output, "utf8")).toBe(expected);
+            }
+        }
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
 const continuousMutations: Record<string, [string, string, string]> = {
     bulletVersusStack: ["BulletVersusStack", "1.1f * row", "1.2f * row"],
     meshDrop: ["MeshDrop", "m_groundAmplitude = 0.5f;", "m_groundAmplitude = 0.6f;"],
@@ -805,6 +820,7 @@ const continuousMutations: Record<string, [string, string, string]> = {
     humpMesh: ["HumpMesh", "-50.0f", "-51.0f"],
     isFast: ["IsFast", "4.0f", "4.1f"],
     stall: ["Stall", "600.0f", "590.0f"],
+    safetyFactor: ["SafetyFactor", "m_height = 0.3f;", "m_height = 0.4f;"],
 };
 for (const [scene, [name, before, after]] of Object.entries(continuousMutations)) {
     test(`${scene}: Continuous sample repeats its gold and rejects a source mutation`, () => {
@@ -814,7 +830,7 @@ for (const [scene, [name, before, after]] of Object.entries(continuousMutations)
         equalSampleSteps(run([binary, scene, "600"]), hashes, `${scene} repeat`);
         equalSampleSteps(hashes, readFileSync(new URL(`../../examples/physics/tests/${scene}.gold.txt`, import.meta.url), "utf8"), scene);
         expect(hashes.trimEnd().split("\n")).toHaveLength(600);
-        if (["stall", "bulletVersusStack", "meshDrop"].includes(scene)) {
+        if (["stall", "bulletVersusStack", "meshDrop", "safetyFactor"].includes(scene)) {
             const sequence = fileURLToPath(new URL(`../../examples/physics/tests/${scene}.controls.txt`, import.meta.url));
             const env: Record<string, string> = scene === "meshDrop" ? { SAMPLE_DISABLE_SLEEP: "1" } : {};
             const controlled = run([binary, scene, "600", sequence], env);

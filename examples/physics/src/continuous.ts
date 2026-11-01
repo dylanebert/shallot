@@ -13,6 +13,7 @@ import {
 } from "@dylanebert/shallot";
 import {
     computeCosSin,
+    getContactData,
     isAwake,
     PhysicsWorldDefinition,
     rotationFromAxisAngle,
@@ -26,6 +27,11 @@ const f = Math.fround;
 type V3 = [number, number, number];
 export const ContinuousState = {
     create: () => ({
+        safetyBody: -1,
+        safetyGround: -1,
+        safetyHeight: 0.3,
+        safetyFactor: 0.1,
+        safetyOverlap: 0,
         bullet: -1,
         meshDrop: false,
         ground: -1,
@@ -72,6 +78,18 @@ export const ContinuousSamplePlugin: Plugin = {
             after: [StepPhysicsSystem],
             update(world) {
                 const state = world.resource(ContinuousState);
+                if (state.safetyBody >= 0) {
+                    const data = getContactData(world, state.safetyBody, state.safetyGround);
+                    if (data)
+                        for (let i = 0; i < data.manifoldCount; i++) {
+                            const manifold = data.manifolds[i]!;
+                            for (let j = 0; j < manifold.pointCount; j++) {
+                                const overlap = -manifold.points[j]!.separation;
+                                state.safetyOverlap =
+                                    state.safetyOverlap > overlap ? state.safetyOverlap : overlap;
+                            }
+                        }
+                }
                 if (!state.meshDrop || state.paused) return;
                 world.resource(ContinuousStepObserver).observe?.(world);
                 state.steps++;
@@ -116,9 +134,10 @@ function body(world: World, translation: V3, dynamic = true): number {
     world.add(eid, Body, { type: dynamic ? BodyType.Dynamic : BodyType.Static });
     return eid;
 }
-function ground(world: World, extent: number): void {
+function ground(world: World, extent: number): number {
     const eid = body(world, [0, -1, 0], false);
     world.add(eid, Shape, { geometry: box(world, [extent, 1, extent]) });
+    return eid;
 }
 function thinWall(world: World): number[] {
     ground(world, 40);
@@ -513,7 +532,59 @@ const meshControls = {
         },
     },
 } satisfies Controls;
+function dropSafetyFactor(world: World): number {
+    const s = world.resource(ContinuousState);
+    if (s.safetyBody >= 0) world.destroy(s.safetyBody);
+    const e = body(world, [0, f(f(s.safetyHeight) + 0.5), 0]);
+    world.storage(Body).safetyFactor.set(e, s.safetyFactor);
+    world.add(e, Shape, { geometry: box(world, [0.5, 0.5, 0.5]) });
+    s.safetyBody = e;
+    s.safetyOverlap = 0;
+    return e;
+}
 export const continuousScenes = {
+    safetyFactor: {
+        construct(world: World) {
+            Object.assign(world.resource(ContinuousState), ContinuousState.create());
+            world.resource(ContinuousState).safetyGround = ground(world, 20);
+            return [dropSafetyFactor(world)];
+        },
+        gridExtent: 20,
+        gridSpacing: 1,
+        camera: { yaw: 0, pitch: 15, distance: 8, phoneDistance: 12, target: [0, 0.8, 0] },
+        controls: {
+            Height: {
+                label: "Height",
+                value: 0.3,
+                min: 0,
+                max: 2,
+                step: 0.01,
+                set(world, _b, value) {
+                    world.resource(ContinuousState).safetyHeight = value;
+                    dropSafetyFactor(world);
+                },
+            },
+            Safety: {
+                label: "Safety",
+                value: 0.1,
+                min: 0,
+                max: 1,
+                step: 0.01,
+                set(world, _b, value) {
+                    world.resource(ContinuousState).safetyFactor = value;
+                    dropSafetyFactor(world);
+                },
+            },
+            Drop: {
+                label: "Drop",
+                value: 0,
+                button: true,
+                set(world) {
+                    dropSafetyFactor(world);
+                },
+            },
+        } satisfies Controls,
+    },
     bulletVersusStack: {
         construct: bulletVersusStack,
         gridExtent: 50,

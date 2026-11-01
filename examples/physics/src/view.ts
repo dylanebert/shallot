@@ -48,6 +48,7 @@ import { collisionNames } from "./collision";
 import { debugDrawing, drawCollisionDebug } from "./collision-debug-presentation";
 import { drawCollisionView } from "./collision-presentation";
 import { childGeometry, compoundChildren, largeCompound, overlaps } from "./compound-presentation";
+import { ContinuousState } from "./continuous";
 import { drawQuerySpawn } from "./determinism-presentation";
 import { drawingBounds, drawSet } from "./draw-set";
 import { drawingHistory } from "./drawing-history";
@@ -635,6 +636,10 @@ function createView(world: World, scene: Scene, camera: number): () => void {
                 drawTreeBenchmark(world, camera, (a, b, color, options) =>
                     drawLine(world, a, b, color, options),
                 );
+            }
+            if (scene === "safetyFactor") {
+                const y = -world.resource(ContinuousState).safetyOverlap;
+                drawLine(world, [-3, y, 0], [3, y, 0], 0xeee9df, { width: 1, depthBias: -1 });
             }
             if (scene === "restitution") drawLine(world, [-40, 40.5, 0], [40, 40.5, 0], 0xff0000);
             if (scene === "meshViewer")

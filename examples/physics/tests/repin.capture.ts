@@ -4,6 +4,7 @@ import { capture } from "./capture";
 for (const width of [1280, 390])
     for (const scene of [
         "spinningCapsule",
+        "safetyFactor",
         "sleep",
         "spinner",
         "benchmarkMeshDrop",

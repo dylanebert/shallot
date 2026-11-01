@@ -393,6 +393,7 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 expect(ground.mesh.indices.length).toBeGreaterThan(0);
             } else expect(presentation.ground).toBeUndefined();
             const extent = {
+                safetyFactor: 20,
                 treeBenchmark: 200,
                 fallingRagdolls: 15,
                 wavePile: 10,
