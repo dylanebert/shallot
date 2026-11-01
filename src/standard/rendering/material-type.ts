@@ -37,7 +37,8 @@ type StorageAccess = "read" | "write" | "read_write";
 
 /** A material-owned resource or mesh attribute made available to its shaders. A texture is a 2d float
  * texture and a sampler filters unless their options say otherwise; a sint or uint texture is read with
- * textureLoad. A texture binds as one view of its dimension over every mip and layer, so a cube texture
+ * textureLoad. Texture visibility defaults to both stages; vertex-only frees a fragment slot.
+ * A texture binds as one view of its dimension over every mip and layer, so a cube texture
  * has six layers and a cube array a multiple of six. A multisampled texture is 2d, read with textureLoad
  * by sample index; a float one is never filtered, so it binds `unfilterable-float`. A storage texture
  * binds its mip 0 to the fragment stage alone, at most four per material. */
@@ -54,6 +55,7 @@ export type MaterialBinding =
           type: "texture";
           dimension?: Dimension;
           sampleType?: "float";
+          visibility?: readonly ShaderStage[];
           /** False binds `unfilterable-float`, which formats such as r32float require. */
           filterable?: boolean;
           multisampled?: boolean;
@@ -62,12 +64,14 @@ export type MaterialBinding =
           type: "texture";
           dimension?: Dimension;
           sampleType: "sint" | "uint";
+          visibility?: readonly ShaderStage[];
           multisampled?: boolean;
       }
     | {
           type: "texture";
           dimension?: DepthDimension;
           sampleType: "depth";
+          visibility?: readonly ShaderStage[];
           multisampled?: boolean;
       }
     | {
@@ -248,7 +252,7 @@ export function bindingEntry<B extends MaterialBinding>(binding: B): EntryFor<B>
                     texture: binding.multisampled
                         ? d.textureDepthMultisampled2d()
                         : depth[binding.dimension ?? "2d"](),
-                    visibility: VS_FS,
+                    visibility: binding.visibility ? [...binding.visibility] : VS_FS,
                 } as EntryFor<B>;
             const channel =
                 binding.sampleType === "sint"
@@ -265,7 +269,7 @@ export function bindingEntry<B extends MaterialBinding>(binding: B): EntryFor<B>
                         ("filterable" in binding && binding.filterable === false)) && {
                         sampleType: "unfilterable-float",
                     }),
-                visibility: VS_FS,
+                visibility: binding.visibility ? [...binding.visibility] : VS_FS,
             } as EntryFor<B>;
         }
         case "storage-texture":

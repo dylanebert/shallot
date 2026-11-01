@@ -25,10 +25,10 @@ export const VertexDeformation = d.struct({ joints: d.vec2u, morph: d.vec2u, wei
  * a zero offset disables that deformation. Missing entity weights leave remaining targets unmorphed. */
 export const deformationBindings = {
     deformation: { type: "attribute", element: VertexDeformation },
-    jointPalette: { type: "texture", filterable: false },
-    deformationOffsets: { type: "texture", sampleType: "uint" },
-    morphWeights: { type: "texture", filterable: false },
-    morphDeltas: { type: "texture", filterable: false },
+    jointPalette: { type: "texture", filterable: false, visibility: ["vertex"] },
+    deformationOffsets: { type: "texture", sampleType: "uint", visibility: ["vertex"] },
+    morphWeights: { type: "texture", filterable: false, visibility: ["vertex"] },
+    morphDeltas: { type: "texture", filterable: false, visibility: ["vertex"] },
 } as const;
 const PaletteWidth = 256;
 const JointsPerRow = PaletteWidth / 4;
@@ -158,8 +158,8 @@ type DeformationLayout = Pick<
 /** Returns a vertex function taking eid, family-absolute vidx, local position, normal, tangent and
  * placement Xform, returning world position, normal and tangent. Compose with a material declaring
  * deformationBindings and vertexTangent. Morph deltas precede skinning and placement.
- * Uses the last StandardMaterial vertex storage binding and four sampled textures: under transparent
- * fog one extension texture remains for a game's material. Normals use the blended matrix's inverse
+ * Uses the last StandardMaterial vertex storage binding and four vertex-only sampled textures,
+ * leaving the fragment texture budget unchanged. Normals use the blended matrix's inverse
  * transpose; tangents use its linear part. Tangent handedness is preserved; the renderer corrects it
  * for mirrored placement and normalizes the tangent. */
 export function deformationVertex(layout: DeformationLayout) {
@@ -272,8 +272,8 @@ const layout = extensionLayout(Materials, d.struct({ skinPad: d.u32 }), deformat
 const vertex = deformationVertex(layout);
 /** StandardMaterial with morphing followed by linear blend skinning. A replacement material draws
  * bind pose unless it declares deformationBindings, calls deformationVertex and opts into
- * vertexTangent. This uses the last vertex storage buffer and four sampled textures; under
- * transparent fog one extension texture remains for a game's own material. */
+ * vertexTangent. This uses the last vertex storage buffer and four vertex-only sampled textures,
+ * leaving the fragment texture budget unchanged. */
 export const SkinnedMaterial = extendedMaterial(Materials, {
     name: "SkinnedMaterial",
     vertexTangent: true,
