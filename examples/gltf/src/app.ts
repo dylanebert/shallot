@@ -26,6 +26,7 @@ export const Viewer: Resource<{
     models: Map<Scene, Gltf>;
     entities: number[];
     camera: number;
+    sun: number;
     bounds: Gltf["bounds"] | null;
     active: Scene | null;
     clocks: Map<Scene, number>;
@@ -35,6 +36,7 @@ export const Viewer: Resource<{
         models: new Map(),
         entities: [],
         camera: 0,
+        sun: 0,
         bounds: null,
         active: null,
         clocks: new Map(),
@@ -49,6 +51,10 @@ export function frameScene(world: World, aspect: number) {
 export function selectScene(world: World, scene: Scene, aspect = 1) {
     const viewer = world.resource(Viewer);
     for (const eid of viewer.entities) world.destroy(eid);
+    for (const eid of viewer.instance?.lightEntities ?? []) world.destroy(eid);
+    const lit = viewer.models.get(scene)!.lights.length > 0;
+    world.resource(GlobalAmbientLight).brightness = lit ? 0 : 380;
+    if (viewer.sun) world.storage(DirectionalLight).illuminance.set(viewer.sun, lit ? 0 : 6000);
     viewer.active = scene;
     viewer.instance = spawnGltfScene(
         world,
@@ -95,6 +101,7 @@ export const AppPlugin: Plugin = {
         ambient.color = 0xd8e4ff;
         ambient.brightness = 380;
         const sun = world.create();
+        viewer.sun = sun;
         world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, 1, -2, -0.35) });
         world.add(sun, DirectionalLight, { color: 0xffe8cc, illuminance: 6000 });
         world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);

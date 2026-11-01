@@ -2,10 +2,34 @@
     "source": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/",
     "commit": "2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf",
     "written": [
+        { "name": "PunctualLights", "path": "models/PunctualLights.gltf", "license": "CC0-1.0", "sha256": "143717ff1f28e12de0821e3e673967386a093cf5ff32e342d695b00ea09b4ad0" },
         { "name": "MorphSkin", "path": "models/MorphSkin.gltf", "license": "CC0-1.0", "sha256": "2444995e6997099682f6ffc03f3601bc650ad1e46d3d2559d401d1348feed180" },
         { "name": "SkinnedNormal", "path": "models/SkinnedNormal.gltf", "license": "CC0-1.0", "sha256": "fa648612c0e8d4ca35b48ab8e0ada4abd5d063982278fd5ba43429c10a959678" }
     ],
     "models": [
+        { "name": "LightsPunctualLamp", "license": "Models/LightsPunctualLamp/LICENSE.md", "files": [
+            { "path": "Models/LightsPunctualLamp/LICENSE.md", "sha256": "44100aecf907abd0460eff3c437323643c565929f61df7c408a3d6966332e8b6" },
+            { "path": "Models/LightsPunctualLamp/glTF/LightsPunctualLamp.data.bin", "sha256": "817275cb2c1e2efa74432ef64b5f05313f8a28c1132a6d2a96fb6cb8f344fca9" },
+            { "path": "Models/LightsPunctualLamp/glTF/LightsPunctualLamp.gltf", "sha256": "282d05dfaf47e80b9bff502a45527d380a979cde9ecf3ffb2bc459342456423c" },
+            { "path": "Models/LightsPunctualLamp/glTF/material0_basecolor.jpeg", "sha256": "ab3fb0fefa6892b6c040f0399b7603e69a2703c42f85968bb053c96e666fecce" },
+            { "path": "Models/LightsPunctualLamp/glTF/material0_emissive.jpeg", "sha256": "d9b74e2dfb8999e3dff0b552b678347bec22bd5d936e1ce24d0545921774c0f8" },
+            { "path": "Models/LightsPunctualLamp/glTF/material0_metallic_roughness.jpeg", "sha256": "6078c0286d7e7f9e6c749c4e386cc61313b7740d1333af3f284cfe1de6c2df92" },
+            { "path": "Models/LightsPunctualLamp/glTF/material0_normal.png", "sha256": "3da4ac573bd4701a199906428dd01230786e99b0abfd044553985cd3d7e134dd" },
+            { "path": "Models/LightsPunctualLamp/glTF/material1_basecolor.png", "sha256": "cb2f264bd18cea43607016bf979d9e2051c46cd24cb48eed8812212b75825210" },
+            { "path": "Models/LightsPunctualLamp/glTF/material1_normal.png", "sha256": "9b831eecebcf3e71b4c4b2dfee99fe231e1d02661eeae2c61bdfdc693f1ec1f6" },
+            { "path": "Models/LightsPunctualLamp/glTF/material2_transmission.jpeg", "sha256": "bce8b14403e58446a8d1cd3fb8a881a51f211494f923241f8533919e5578e14b" }
+        ] },
+        { "name": "PointLightIntensityTest", "license": "Models/PointLightIntensityTest/LICENSE.md", "files": [
+            { "path": "Models/PointLightIntensityTest/LICENSE.md", "sha256": "253dcc017376355c20bedfaa80734c55a2ff46ea90076521558ee61e13f46701" },
+            { "path": "Models/PointLightIntensityTest/glTF/LampColorNames.png", "sha256": "92433d3e05d124a8e37d89f4f0f4863a02654409210a31b35c82154b0ea0a3cd" },
+            { "path": "Models/PointLightIntensityTest/glTF/PointLightIntensityTest.bin", "sha256": "29c2e0d139c8fe4a190654179177166c5da1932a9378d19e8f7f74622e6b16d6" },
+            { "path": "Models/PointLightIntensityTest/glTF/PointLightIntensityTest.gltf", "sha256": "7913fe3e6829beba77f65ea749e40b3e95906bc2894afc443c22e3d91e263733" }
+        ] },
+        { "name": "DirectionalLight", "license": "Models/DirectionalLight/LICENSE.md", "files": [
+            { "path": "Models/DirectionalLight/LICENSE.md", "sha256": "849ea5bbd5c99d35f9f746bb2d0238d7ac0e57f02e84b7b9a0f9a50a789fea22" },
+            { "path": "Models/DirectionalLight/glTF/DirectionalLight.bin", "sha256": "43aea71c4cbe518a9aa34e04ea2acd0b779c189213aee70cec3d80d1a8e72741" },
+            { "path": "Models/DirectionalLight/glTF/DirectionalLight.gltf", "sha256": "71fbfe89e98201b70f5de027604d3745be41e900b8cb03ccfd446c3896c6b559" }
+        ] },
         { "name": "EmissiveStrengthTest", "license": "Models/EmissiveStrengthTest/LICENSE.md", "files": [
             { "path": "Models/EmissiveStrengthTest/LICENSE.md", "sha256": "22c93a569b134779fab131236460049937c1f5c858292d3f08d626079b82cedd" },
             { "path": "Models/EmissiveStrengthTest/glTF/EmissiveStrengthTest.bin", "sha256": "54ba759d776228b52a256bb7b739581ad3081ac77677ee905b4920e869ceccf5" },

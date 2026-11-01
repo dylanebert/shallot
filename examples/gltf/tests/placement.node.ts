@@ -2,6 +2,7 @@ import { beforeAll, expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import {
     Camera,
     createApp,
+    GlobalAmbientLight,
     GlobalTransform,
     MeshInstance,
     MeshMaterial,
@@ -38,7 +39,11 @@ test("the truck's accepted placement derives its five mesh and material instance
                     world.add(viewer.camera, Camera, { fov: 60 });
                     world.add(viewer.camera, Transform);
                     world.add(viewer.camera, Orbit);
-                    for (const scene of ["CesiumMilkTruck", "TextureCoordinateTest"] as const) {
+                    for (const scene of [
+                        "CesiumMilkTruck",
+                        "TextureCoordinateTest",
+                        "LightsPunctualLamp",
+                    ] as const) {
                         viewer.models.set(
                             scene,
                             await loadGltfScene(
@@ -85,6 +90,13 @@ test("the truck's accepted placement derives its five mesh and material instance
         selectScene(app.world, "CesiumMilkTruck");
         expect(viewer.entities).toHaveLength(5);
         expect(app.world.storage(Orbit).distance.get(viewer.camera)).toBe(truckDistance);
+        selectScene(app.world, "LightsPunctualLamp");
+        const lights = viewer.instance!.lightEntities.map((eid) => app.world.ref(eid));
+        expect(lights.length).toBeGreaterThan(0);
+        expect(app.world.resource(GlobalAmbientLight).brightness).toBe(0);
+        selectScene(app.world, "CesiumMilkTruck");
+        expect(lights.map((ref) => app.world.resolve(ref))).toEqual(lights.map(() => 0));
+        expect(app.world.resource(GlobalAmbientLight).brightness).toBe(380);
     } finally {
         app.dispose();
     }

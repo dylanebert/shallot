@@ -8,6 +8,7 @@ export {
 export { isGlb, parseGlb } from "./glb";
 export {
     type GltfJson,
+    type GltfLight,
     type GltfMaterial,
     type GltfMesh,
     type GltfMorphTarget,

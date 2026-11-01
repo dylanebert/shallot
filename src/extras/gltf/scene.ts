@@ -1,8 +1,8 @@
 import { Meshes, type MeshHandle, MeshInstance } from "../../core/mesh";
-import { registerImage } from "../../core/rendering";
+import { DirectionalLight, PointLight, registerImage, SpotLight } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import type { World } from "../../engine/ecs";
-import { composeMat4, decomposeMat4, multiplyMat4 } from "../../engine/utils";
+import { composeMat4, decomposeMat4, linearToSrgb, multiplyMat4 } from "../../engine/utils";
 import {
     AlphaMode,
     type MaterialHandle,
@@ -11,7 +11,7 @@ import {
     StandardMaterial,
 } from "../../standard/rendering";
 import type { GltfAnimation, GltfNode, GltfNodePose } from "./animation";
-import type { GltfSkeleton, GltfSkin } from "./gltf";
+import type { GltfScene, GltfSkeleton, GltfSkin } from "./gltf";
 import { initializeGltfGlobals, poseKernel, registerGltfKernel, writeKernelPose } from "./kernel";
 import { loadGltf } from "./load";
 import {
@@ -40,6 +40,8 @@ export interface GltfPrimitive {
 export interface Gltf {
     readonly world: World;
     readonly primitives: readonly GltfPrimitive[];
+    /** Default-scene lights; nodeIndex addresses nodes, and matrix is the rest-pose model-space placement. */
+    readonly lights: GltfScene["lights"];
     readonly nodes: readonly GltfNode[];
     readonly animations: readonly GltfAnimation[];
     readonly skins: readonly GltfSkin[];
@@ -63,6 +65,10 @@ export interface GltfPlacement {
  * The handle's decoded data, including animations, is immutable and copied to the kernel.
  * glTF emissive (cd/m²) reaches StandardMaterial.emissive unscaled and is added outside camera
  * exposure, as Bevy's default; glTF leaves its screen brightness to the client's exposure.
+ * Punctual lights preserve lux and convert candela to lumens with 4π, matching standard rendering's
+ * inverse conversion for both point and spot lights. Linear light colors are encoded as sRGB hex.
+ * An omitted infinite light range becomes max(1, sqrt(candela / 0.01)) world units: a finite
+ * cluster bound at 0.01 lux, rather than Bevy's fixed 20, so brighter lights keep their reach.
  * To change a clip, pass a new animation object. All kernel data is freed when the world disposes.
  */
 export async function loadGltfScene(
@@ -323,6 +329,7 @@ export async function loadGltfScene(
     const handle: Gltf = {
         world,
         primitives,
+        lights: scene.lights,
         nodes: scene.nodes,
         animations: scene.animations,
         skins: scene.skins,
@@ -334,7 +341,7 @@ export async function loadGltfScene(
     return handle;
 }
 
-/** Spawns one entity per primitive instance. Skinned entities use placement alone; others compose the node's world transform.
+/** Spawns one entity per primitive instance and light. Skinned entities use placement alone; others compose the node's world transform.
  * Refuses a foreign-world handle or a non-TRS composition, naming the node, before spawning anything.
  */
 export function spawnGltfScene(
@@ -358,6 +365,12 @@ export function spawnGltfScene(
             scale: [t[7], t[8], t[9]] as [number, number, number],
         };
     });
+    const lightTransforms = gltf.lights.map((light) => {
+        const composed = multiplyMat4(matrix, light.matrix);
+        const t = decomposeMat4(composed);
+        validateTransform(composed, t, new Float32Array(16), gltf.nodes[light.nodeIndex].name);
+        return t;
+    });
     const entities = gltf.primitives.map((primitive, i) => {
         const eid = world.create();
         world.add(eid, Transform, transforms[i]);
@@ -369,8 +382,42 @@ export function spawnGltfScene(
             world.add(eid, MorphedMesh, { weightCount: primitive.morphReach.length });
         return eid;
     });
+    const lightEntities = gltf.lights.map((light, i) => {
+        const eid = world.create();
+        const t = lightTransforms[i];
+        world.add(eid, Transform, {
+            translation: [t[0], t[1], t[2]],
+            rotation: [t[3], t[4], t[5], t[6]],
+            scale: [t[7], t[8], t[9]],
+        });
+        const color = (light.color ?? [1, 1, 1]).reduce(
+            (hex, c) => (hex << 8) | Math.round(linearToSrgb(c) * 255),
+            0,
+        );
+        const intensity = light.intensity ?? 1;
+        if (light.type === "directional")
+            world.add(eid, DirectionalLight, { color, illuminance: intensity });
+        else {
+            const fields = {
+                color,
+                intensity: intensity * 4 * Math.PI,
+                range: light.range ?? Math.max(1, Math.sqrt(intensity / 0.01)),
+                radius: 0,
+            };
+            if (light.type === "point") world.add(eid, PointLight, fields);
+            else
+                world.add(eid, SpotLight, {
+                    ...fields,
+                    innerAngle: light.spot?.innerConeAngle ?? 0,
+                    outerAngle: light.spot?.outerConeAngle ?? Math.PI / 4,
+                });
+        }
+        return eid;
+    });
     const instance: GltfSceneInstance = {
         entities,
+        lightEntities,
+        lightTransforms,
         gltf,
         placement: matrix,
         poses: gltf.nodes.map(({ translation, rotation, scale, weights }) => ({
@@ -398,8 +445,11 @@ export function spawnGltfScene(
 export interface GltfSceneInstance {
     /** Primitive eids in spawn order. */
     entities: number[];
+    /** Light eids and reusable TRS storage in decoded light order. */
+    lightEntities: number[];
+    lightTransforms: Float32Array[];
     gltf: Gltf;
-    /** Captured spawn placement; composed onto node globals only for unskinned primitives. */
+    /** Captured spawn placement; composed onto node globals for lights and unskinned primitives. */
     placement: Float32Array;
     /** Local poses in scene-node order. */
     poses: GltfNodePose[];
@@ -454,7 +504,25 @@ export function poseGltfScene(
         decomposeMat4(composed, transforms[i]);
         validateTransform(composed, transforms[i], recomposed, primitive.node);
     }
+    for (let i = 0; i < instance.lightEntities.length; i++) {
+        const light = gltf.lights[i];
+        multiplyMat4(instance.placement, globals[light.nodeIndex], composed);
+        decomposeMat4(composed, instance.lightTransforms[i]);
+        validateTransform(
+            composed,
+            instance.lightTransforms[i],
+            recomposed,
+            gltf.nodes[light.nodeIndex].name,
+        );
+    }
     const storage = world.storage(Transform);
+    for (let i = 0; i < instance.lightEntities.length; i++) {
+        const eid = instance.lightEntities[i],
+            t = instance.lightTransforms[i];
+        storage.translation.set(eid, t[0], t[1], t[2]);
+        storage.rotation.set(eid, t[3], t[4], t[5], t[6]);
+        storage.scale.set(eid, t[7], t[8], t[9]);
+    }
     for (let i = 0; i < entities.length; i++) {
         const eid = entities[i],
             t = transforms[i];

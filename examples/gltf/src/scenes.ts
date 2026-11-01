@@ -2,6 +2,7 @@ import type { GltfPlacement } from "@dylanebert/shallot/gltf";
 
 // The picker demonstrates promises; the full asset corpus remains in tests.
 export const scenes = {
+    LightsPunctualLamp: { promise: "lighting" },
     TextureSettingsTest: { promise: "textures" },
     TextureTransformMultiTest: { promise: "textures" },
     EmissiveStrengthTest: { promise: "materials" },
@@ -23,14 +24,19 @@ export const scenes = {
     QuantizedMorphCube: { promise: "geometry" },
 } as const;
 export type Scene = keyof typeof scenes;
-export const categories = ["geometry", "transforms", "materials", "textures", "animation"].map(
-    (name) => ({
-        name,
-        scenes: (Object.keys(scenes) as Scene[])
-            .filter((id) => scenes[id].promise === name)
-            .map((id) => ({ id, name: id })),
-    }),
-);
+export const categories = [
+    "geometry",
+    "transforms",
+    "materials",
+    "textures",
+    "animation",
+    "lighting",
+].map((name) => ({
+    name,
+    scenes: (Object.keys(scenes) as Scene[])
+        .filter((id) => scenes[id].promise === name)
+        .map((id) => ({ id, name: id })),
+}));
 export const modelPath = (scene: Scene) =>
     scene === "QuantizedMorphCube"
         ? "assets/Models/AnimatedMorphCube/glTF-Quantized/AnimatedMorphCube.gltf"

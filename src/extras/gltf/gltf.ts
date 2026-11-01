@@ -37,6 +37,7 @@ export interface GltfJson {
         }[];
     }[];
     skins?: { joints: number[]; inverseBindMatrices?: number; skeleton?: number }[];
+    extensions?: Extensions;
     extensionsRequired?: string[];
     extensionsUsed?: string[];
 }
@@ -128,6 +129,7 @@ interface Material {
 }
 
 interface Node {
+    extensions?: Extensions;
     weights?: number[];
     name?: string;
     mesh?: number;
@@ -205,7 +207,18 @@ export interface GltfSkeleton {
     bones: number[];
 }
 
+export interface GltfLight {
+    type: "directional" | "point" | "spot";
+    /** Linear RGB multiplier. */
+    color?: number[];
+    /** Lux for directional lights; candela for point and spot lights. */
+    intensity?: number;
+    range?: number;
+    spot?: { innerConeAngle?: number; outerConeAngle?: number };
+}
+
 export interface GltfScene {
+    lights: (GltfLight & { nodeIndex: number; matrix: Float32Array })[];
     /** Default scene, with parents before children. */
     nodes: GltfNode[];
     animations: GltfAnimation[];
@@ -708,7 +721,8 @@ function supportedExtension(name: string): boolean {
         name === "KHR_materials_unlit" ||
         name === "KHR_mesh_quantization" ||
         name === "KHR_texture_transform" ||
-        name === "KHR_materials_emissive_strength"
+        name === "KHR_materials_emissive_strength" ||
+        name === "KHR_lights_punctual"
     );
 }
 
@@ -879,6 +893,9 @@ export function parse(gltf: GltfJson, buffers: ArrayBuffer[]): GltfScene {
     );
     const sceneNodes: GltfNode[] = [];
     const instances: GltfScene["instances"] = [];
+    const lights: GltfScene["lights"] = [];
+    const definitions =
+        (gltf.extensions?.KHR_lights_punctual as { lights: GltfLight[] } | undefined)?.lights ?? [];
     const nodes = gltf.nodes ?? [];
     const children = new Set(nodes.flatMap((n) => n.children ?? []));
     const roots =
@@ -914,6 +931,10 @@ export function parse(gltf: GltfJson, buffers: ArrayBuffer[]): GltfScene {
             ],
         });
         const matrix = multiply(parent, local);
+        const light = (node.extensions?.KHR_lights_punctual as { light: number } | undefined)
+            ?.light;
+        if (light !== undefined)
+            lights.push({ ...definitions[light], nodeIndex: sceneIndex, matrix });
         if (node.mesh !== undefined)
             for (const mesh of meshEntries[node.mesh])
                 instances.push({
@@ -956,6 +977,7 @@ export function parse(gltf: GltfJson, buffers: ArrayBuffer[]): GltfScene {
             instance.skin = skins.findIndex((skin) => skin.index === instance.skin);
     const skeletons = mergeSkeletons(skins, sceneNodes);
     return {
+        lights,
         nodes: sceneNodes,
         skins,
         skeletons,
