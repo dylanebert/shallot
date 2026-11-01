@@ -1,0 +1,4 @@
+120	Draw Casts	0
+240	Draw Spheres	0
+360	Draw Casts	1
+480	Draw Spheres	1

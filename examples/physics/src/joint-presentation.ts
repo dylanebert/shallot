@@ -35,6 +35,7 @@ const kinds = [
 ] as const;
 const scenes = new Set<Scene>([
     "dynamicMover",
+    "spinner",
     ...categories
         .filter((category) => category.name === "Joints" || category.name === "Ragdoll")
         .flatMap((category) => category.scenes.map(({ id }) => id)),

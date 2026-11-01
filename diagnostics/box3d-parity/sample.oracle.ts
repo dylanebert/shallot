@@ -996,7 +996,27 @@ for (const scene of ["box_stack", "bridge", "revolute", "prismatic", "wheel", "f
     });
 }
 
+test("benchmarkVillage native cast curtain and UI state repeat their gold", () => {
+    const directory = mkdtempSync(join(tmpdir(), "box3d-benchmark-village-"));
+    const path = join(directory, "casts.jsonl"), binary = sampleBinary();
+    const base = new URL("../../examples/physics/tests/", import.meta.url);
+    try {
+        for (const controlled of [false, true]) {
+            const suffix = controlled ? ".controls" : "";
+            const args = [binary, "benchmarkVillage", "600", ...(controlled ? [fileURLToPath(new URL("benchmarkVillage.controls.txt", base))] : [])];
+            const expected = readFileSync(new URL(`benchmarkVillage${suffix}.queries.gold.txt`, base), "utf8");
+            for (let repeat = 0; repeat < 2; repeat++) {
+                equalSampleSteps(run(args, { BENCHMARK_VILLAGE_READOUTS: path }), readFileSync(new URL(`benchmarkVillage${suffix}.gold.txt`, base), "utf8"), "benchmarkVillage");
+                const rows = readFileSync(path, "utf8").trim().split("\n").map(line => { const [a,b,casts,translation] = JSON.parse(line); return drawingDigest([[a,b],translation,...casts]); });
+                expect(rows.join("\n") + "\n").toBe(expected);
+            }
+        }
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+});
 const benchmarkMutations: Record<string, [string, string]> = {
+    benchmarkVillage: ["g_randomSeed = 2718281828;", "g_randomSeed = 2718281829;"],
+    spinner: ["float radius = 12.0f;", "float radius = 12.1f;"],
+    benchmarkMeshDrop: ["g_randomSeed = 3963634789;", "g_randomSeed = 3963634790;"],
     sleep: ["if ( b3Body_IsAwake( g_sleepData.bodyIdA[i] ) == false )", "if ( false )"],
     largeWorld: ["#define STATIC_FLOOR_DROP_INTERVAL 5", "#define STATIC_FLOOR_DROP_INTERVAL 6"],
     benchmarkSensor: ["float gridSize = 3.0f;", "float gridSize = 3.1f;"],

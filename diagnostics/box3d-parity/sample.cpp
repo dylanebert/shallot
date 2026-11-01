@@ -531,6 +531,9 @@ int main( int argc, char** argv )
 		{ "rain", BenchmarkRain::Create },
 		{ "junkyard", BenchmarkJunkyard::Create },
         { "sleep", BenchmarkSleep::Create },
+        { "spinner", BenchmarkSpinner::Create },
+        { "benchmarkMeshDrop", BenchmarkMeshDrop::Create },
+        { "benchmarkVillage", BenchmarkVillage::Create },
 		{ "washer", BenchmarkWasher::Create },
 		{ "convexPile", BenchmarkConvexPile::Create },
 		{ "candyCups", CandyCups::Create },
@@ -611,6 +614,8 @@ int main( int argc, char** argv )
     const bool geometryScene = !strcmp(argv[1],"hullCrash") || !strcmp(argv[1],"boxHull") || !strcmp(argv[1],"geometryHull") || !strcmp(argv[1],"hullReduction") || !strcmp(argv[1],"hullTransform") || !strcmp(argv[1],"capsuleMass");
     Collision::queries = getenv("COLLISION_QUERIES") ? fopen(getenv("COLLISION_QUERIES"), "w") : nullptr;
     characterDrawing = getenv("CHARACTER_DRAWING") ? fopen(getenv("CHARACTER_DRAWING"), "w") : nullptr;
+    FILE* benchmarkVillageReadouts = getenv("BENCHMARK_VILLAGE_READOUTS") ? fopen(getenv("BENCHMARK_VILLAGE_READOUTS"), "w") : nullptr;
+    if (getenv("BENCHMARK_VILLAGE_READOUTS")) assert(benchmarkVillageReadouts && !strcmp(argv[1], "benchmarkVillage"));
     FILE* villageReadouts = getenv("VILLAGE_READOUTS") ? fopen(getenv("VILLAGE_READOUTS"), "w") : nullptr;
     if (getenv("VILLAGE_READOUTS")) assert(villageReadouts && !strcmp(argv[1], "village"));
     FILE* rigidReadouts = getenv("RIGID_READOUTS") ? fopen(getenv("RIGID_READOUTS"), "w") : nullptr;
@@ -788,6 +793,16 @@ int main( int argc, char** argv )
             }
             fprintf(contactDrawing, "]\n");
         }
+        if (benchmarkVillageReadouts) {
+            VillageCurtain curtain = GetVillageCurtain();
+            auto* village = static_cast<BenchmarkVillage*>(sample);
+            fprintf(benchmarkVillageReadouts, "[%d,%d,[", village->m_drawCasts, village->m_drawSpheres);
+            for (int i = 0; i < curtain.castCount; ++i) {
+                auto& c = curtain.casts[i];
+                fprintf(benchmarkVillageReadouts, "%s[%.9g,%.9g,%.9g,%d,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g]", i ? "," : "", c.origin.x,c.origin.y,c.origin.z,c.hit,c.fraction,c.point.x,c.point.y,c.point.z,c.normal.x,c.normal.y,c.normal.z);
+            }
+            fprintf(benchmarkVillageReadouts, "],[%.9g,%.9g,%.9g]]\n", curtain.translation.x,curtain.translation.y,curtain.translation.z);
+        }
         if (villageReadouts) {
             auto& m = static_cast<Village*>(sample)->m_mover;
             fprintf(villageReadouts, "[%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%d,%d,%d,%d]\n", m.m_position.x,m.m_position.y,m.m_position.z,m.m_velocity.x,m.m_velocity.y,m.m_velocity.z,m.m_pogoVelocity,m.m_onGround,moverSprint,m.m_planeCount,m.m_totalIterations);
@@ -847,6 +862,7 @@ int main( int argc, char** argv )
     if (moverReadouts) fclose(moverReadouts);
     if (dynamicReadouts) fclose(dynamicReadouts);
     if (rigidReadouts) fclose(rigidReadouts);
+    if (benchmarkVillageReadouts) fclose(benchmarkVillageReadouts);
     if (villageReadouts) fclose(villageReadouts);
     if (sensorReadouts) fclose(sensorReadouts);
     if (contactDrawing) fclose(contactDrawing);

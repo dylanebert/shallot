@@ -14,6 +14,7 @@ import { VillagePlugin } from "../../examples/physics/src/village";
 import { manualParityScenes } from "../../examples/physics/tests/manual-parity";
 import { expectSwitchesEqualFresh } from "../../examples/physics/tests/switch";
 import { advanceIteration } from "../../examples/physics/tests/iteration";
+import { benchmarkVillageRecord } from "../../examples/physics/tests/benchmark-village-records";
 
 // Run by path with sample.oracle.ts. Scene parity needs one solver thread; the engine's
 // small determinism scenes hold scheduling and cross-host equality.
@@ -93,6 +94,26 @@ test("meshCreation triangle count and build work equal every recorded native ste
         await app.dispose();
     }
     console.log(`meshCreation: ${(performance.now() - start).toFixed(0)} ms; ${gold.length} recorded steps; 1 solver thread`);
+});
+
+test("benchmarkVillage cast curtain and draw controls equal the native sample", async () => {
+    for (const controlled of [false, true]) {
+        const suffix = controlled ? ".controls" : "";
+        const gold = sampleGold(await Bun.file(new URL(`../../examples/physics/tests/benchmarkVillage${suffix}.gold.txt`, import.meta.url)).text());
+        const records = (await Bun.file(new URL(`../../examples/physics/tests/benchmarkVillage${suffix}.queries.gold.txt`, import.meta.url)).text()).trim().split("\n");
+        const sequence = controlled ? (await Bun.file(new URL("../../examples/physics/tests/benchmarkVillage.controls.txt", import.meta.url)).text()).trim().split("\n").map(line => { const [step, name, value] = line.split("\t"); return { step: Number(step), name: name!, value: Number(value) }; }) : [];
+        const app = await createApp({ defaults: false, plugins: [BenchmarkSamplePlugin] });
+        try {
+            const bodies = sceneSwitcher(app.world)("benchmarkVillage"), values = controlValues("benchmarkVillage");
+            expect(records).toHaveLength(600);
+            for (const [step, expected] of gold.entries()) {
+                for (const change of sequence) if (change.step === step) changeControl(app.world, "benchmarkVillage", bodies, values, change.name, change.value);
+                advanceIteration(app.world, "benchmarkVillage");
+                expect(hashPhysics(app.world), `iteration ${step} hash`).toBe(expected.hash);
+                expect(benchmarkVillageRecord(app.world), `iteration ${step} casts`).toBe(records[step]!);
+            }
+        } finally { app.dispose(); }
+    }
 });
 
 test("explosion magnitude and button sequence equals every recorded native step", async () => {

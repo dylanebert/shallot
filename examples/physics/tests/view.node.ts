@@ -299,7 +299,7 @@ test("a broken joint recolors its body", async () => {
 
 for (const { id, name } of categories.flatMap((category) => category.scenes)) {
     // Their camera draw sets are held by large-world-view.node.ts and village-view.node.ts.
-    if (id === "largeWorld" || id === "village") continue;
+    if (id === "largeWorld" || id === "village" || id === "benchmarkVillage") continue;
     test(`${name} builds every shape mesh, role material and controls panel without a GPU`, async () => {
         const app = await createApp({
             defaults: false,
@@ -486,6 +486,9 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 spinningBook: 10,
                 spinningCapsule: 20,
                 sleep: 128,
+                spinner: 16,
+                benchmarkMeshDrop: 60,
+                benchmarkVillage: 200,
                 gyroscopicTorque: 20,
                 kinematic: 20,
                 lockMixing: 20,

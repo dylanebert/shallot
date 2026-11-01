@@ -5,6 +5,7 @@ import {
     Hulls,
     PhysicsMeshes,
     type Plugin,
+    RevoluteJoint,
     recoverResource,
     Shape,
     ShapeKind,
@@ -27,8 +28,10 @@ import {
     setTargetTransform,
     stepPhysics,
 } from "@dylanebert/shallot/standard/physics";
+import { BenchmarkVillagePlugin, benchmarkVillageScene } from "./benchmark-village";
 import { human } from "./human";
 import { QuerySamplePlugin, queryScenes } from "./queries";
+import { MotorizedJoint } from "./roles";
 import { benchmarkSensor, SensorSamplePlugin } from "./sensor";
 import { fallingTrees, TreeSamplePlugin, treeControls } from "./trees";
 
@@ -500,7 +503,13 @@ function sleep(world: World): number[] {
 }
 export const BenchmarkSamplePlugin: Plugin = {
     name: "BenchmarkSample",
-    dependencies: [StandardPhysicsPlugin, TreeSamplePlugin, SensorSamplePlugin, QuerySamplePlugin],
+    dependencies: [
+        StandardPhysicsPlugin,
+        TreeSamplePlugin,
+        SensorSamplePlugin,
+        QuerySamplePlugin,
+        BenchmarkVillagePlugin,
+    ],
     systems: [SpawnBenchmark, BeforeBenchmark, AfterDestruction, SpawnDestruction, StepSleep],
     recovery: recoverResource(BenchmarkSample),
 };
@@ -726,12 +735,160 @@ function chains(world: World): number[] {
         }
     return bodies;
 }
+function benchmarkMeshDrop(world: World): number[] {
+    const mesh = world.resource(PhysicsMeshes).add({
+        name: "terrain",
+        wave: {
+            xCount: 120,
+            zCount: 120,
+            cellWidth: 1,
+            amplitude: 0.5,
+            rowFrequency: 0.1,
+            columnFrequency: 0.2,
+        },
+    });
+    const base = world.create();
+    world.add(base, Body);
+    world.add(base, Shape, {
+        kind: ShapeKind.Mesh,
+        geometry: mesh,
+        filterCategoryLow: 1,
+        filterCategoryHigh: 0,
+    });
+    const hull = box(world, [0.02, 0.2, 0.04]);
+    let seed = 3963634789;
+    const rand = (lo: number, hi: number) => {
+        seed ^= seed << 13;
+        seed ^= seed >>> 17;
+        seed ^= seed << 5;
+        seed >>>= 0;
+        return f(f(f(f(hi) - f(lo)) * f((seed % 32768) / 32767)) + f(lo));
+    };
+    const bodies: number[] = [];
+    for (let i = 0; i < 100; i++)
+        for (let j = 0; j < 100; j++) {
+            const v: [number, number, number] = [rand(-1, 1), rand(-1, 1), rand(-1, 1)];
+            const w: [number, number, number] = [rand(-5, 5), rand(-5, 5), rand(-5, 5)];
+            const e = body(world, hull, [-49.5 + i, 5, -49.5 + j]);
+            world.storage(Body).linearVelocity.set(e, ...v);
+            world.storage(Body).angularVelocity.set(e, ...w);
+            const shapes = world.storage(Shape);
+            shapes.rollingResistance.set(e, 0.1);
+            shapes.filterCategoryLow.set(e, 2);
+            shapes.filterCategoryHigh.set(e, 0);
+            shapes.filterMaskLow.set(e, 1);
+            shapes.filterMaskHigh.set(e, 0);
+            bodies.push(e);
+        }
+    return bodies;
+}
+function spinner(world: World): number[] {
+    world.resource(PhysicsWorldDefinition).capacity = {
+        staticShapeCount: 4,
+        staticBodyCount: 4,
+        dynamicShapeCount: 2000,
+        dynamicBodyCount: 2000,
+        contactCount: 20000,
+    };
+    const vertices: number[] = [],
+        indices: number[] = [];
+    for (let i = 0; i < 90; i++) {
+        const [c, s] = computeCosSin(world, f(f(f(2 * f(Math.PI)) * i) / 90));
+        const x = f(12 * c),
+            y = f(f(12 * s) + 12);
+        vertices.push(x, y, -1, x, y, 1);
+        const j = (i + 1) % 90;
+        indices.push(
+            2 * i,
+            2 * i + 1,
+            2 * j + 1,
+            2 * i,
+            2 * j + 1,
+            2 * j,
+            180,
+            2 * i,
+            2 * j,
+            181,
+            2 * j + 1,
+            2 * i + 1,
+        );
+    }
+    vertices.push(0, 12, -1, 0, 12, 1);
+    const base = world.create();
+    world.add(base, Body);
+    world.add(base, Shape, {
+        kind: ShapeKind.Mesh,
+        geometry: world.resource(PhysicsMeshes).add({
+            name: "cylinder",
+            vertices: new Float32Array(vertices),
+            indices: new Uint32Array(indices),
+            identifyEdges: true,
+        }),
+        friction: 0.1,
+    });
+    const paddle = body(world, box(world, [0.3, 6.1, 1.1]), [0, 6, 0], true, 1000, false);
+    world.storage(Shape).friction.set(paddle, 0);
+    const motor = world.create();
+    world.add(motor, RevoluteJoint, {
+        a: base,
+        b: paddle,
+        localAnchorA: [0, 6, 0],
+        enableMotor: 1,
+        motorSpeed: 8,
+        maxMotorTorque: f(3.4028234663852886e38),
+    });
+    world.add(motor, MotorizedJoint);
+    const bodies = [paddle];
+    const limit = f(f(Math.sqrt(44)) - f(2 * f(0.55)));
+    const zLimit = f(1 - f(2 * f(0.2)));
+    let x = -limit,
+        y = 2,
+        z = -zLimit;
+    for (let i = 0; i < 1500; i++) {
+        const e = world.create();
+        world.add(e, Transform, { translation: [x, y, z] });
+        world.add(e, Body, { type: BodyType.Dynamic });
+        world.add(e, Shape, {
+            kind: ShapeKind.Sphere,
+            radius: 0.2,
+            friction: 0.1,
+            restitution: 0.1,
+            density: 0.25,
+        });
+        bodies.push(e);
+        z = f(z + f(0.55));
+        if (z > zLimit) {
+            z = -zLimit;
+            x = f(x + f(0.55));
+            if (x > limit) {
+                x = -limit;
+                y = f(y + f(0.55));
+            }
+        }
+    }
+    return bodies;
+}
 export const benchmarkScenes = {
+    benchmarkVillage: benchmarkVillageScene,
+    benchmarkMeshDrop: {
+        construct: benchmarkMeshDrop,
+        gridExtent: 60,
+        gridSpacing: 4,
+        camera: { yaw: 0, pitch: 35, distance: 140, phoneDistance: 220, target: [0, 0, 0] },
+        controls: undefined,
+    },
+    spinner: {
+        construct: spinner,
+        gridExtent: 16,
+        gridSpacing: 1,
+        camera: { yaw: 0, pitch: 5, distance: 38, phoneDistance: 58, target: [0, 12, 0] },
+        controls: undefined,
+    },
     sleep: {
         construct: sleep,
         iterationComplete: (world: World) => world.resource(BenchmarkSample).sleepComplete,
         gridExtent: 128,
-        gridSpacing: 4,
+        gridSpacing: 8,
         camera: { yaw: 0, pitch: 20, distance: 260, phoneDistance: 500, target: [0, 5, 0] },
         controls: undefined,
     },

@@ -41,6 +41,7 @@ import {
     shapeEdges,
     shapeMesh,
 } from "@dylanebert/shallot/standard/physics";
+import { benchmarkVillageDrawing } from "./benchmark-village";
 import { drawCastView } from "./cast-presentation";
 import { characterDrawing, drawCharacterView } from "./character-presentation";
 import { collisionNames } from "./collision";
@@ -216,11 +217,13 @@ function createView(world: World, scene: Scene, camera: number): () => void {
             ? mountPlayerControls(world, scene === "dynamicMover")
             : undefined;
     const queryDrawing =
-        scene === "village"
-            ? drawingHistory((world) => world.resource(VillageState).drawing)
-            : scene === "capsulePlane" || scene === "moverOverlap"
-              ? drawingHistory((world) => characterDrawing(world).records)
-              : undefined;
+        scene === "benchmarkVillage"
+            ? drawingHistory(benchmarkVillageDrawing)
+            : scene === "village"
+              ? drawingHistory((world) => world.resource(VillageState).drawing)
+              : scene === "capsulePlane" || scene === "moverOverlap"
+                ? drawingHistory((world) => characterDrawing(world).records)
+                : undefined;
     for (const system of queryDrawing?.systems ?? []) addSystem(system);
     const characterMover =
         scene === "village"
@@ -611,7 +614,7 @@ function createView(world: World, scene: Scene, camera: number): () => void {
                     (a, b, color, options) => drawLine(world, a, b, color, options),
                     queryDrawing!.records(world),
                 );
-            if (scene === "village")
+            if (scene === "village" || scene === "benchmarkVillage")
                 drawVillageView(
                     world,
                     camera,
