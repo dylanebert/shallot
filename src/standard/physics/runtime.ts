@@ -1293,6 +1293,14 @@ function publishBodyVelocity(world: World, eid: number, state: WorldState, body:
         .linearVelocity.set(eid, stateVelocity.x, stateVelocity.y, stateVelocity.z);
 }
 
+function publishBodyVelocities(world: World, runtime: PhysicsRuntime, state: WorldState): void {
+    for (const eid of runtime.bodies.keys()) {
+        const body = boundBody(world, runtime, eid);
+        if (body && bodyGetType(state, body.index1 - 1) !== BodyType.Static)
+            publishBodyVelocity(world, eid, state, body);
+    }
+}
+
 /**
  * Drives a kinematic or dynamic body toward a world pose over `timeStep` seconds. Derives
  * linear velocity in meters per second and angular velocity in radians per second; `wake` wakes an
@@ -1357,7 +1365,7 @@ export function setTransform(
 }
 
 /** Immediately changes a bound body's type in call order and writes Body.type to match.
- * The next fixed sync does not reapply the change. A body added since the last fixed sync
+ * Linear velocity publishes immediately. The next fixed sync does not reapply the change. A body added since the last fixed sync
  * spawns with this Body.type. Rejects values outside BodyType. Ignored while the solver is
  * locked or for an entity without Body. */
 export function setBodyType(world: World, eid: number, type: number): void {
@@ -1375,7 +1383,7 @@ export function setBodyType(world: World, eid: number, type: number): void {
     world.storage(Body).type.set(eid, type);
 }
 
-/** Sets center-of-mass velocity in meters per second; nonzero values wake the body. Box3D ignores static bodies; a body added since the last fixed sync ignores it and spawns with `Body.linearVelocity`. */
+/** Sets center-of-mass velocity in meters per second and publishes it immediately; nonzero values wake the body. Box3D ignores static bodies; a body added since the last fixed sync ignores it and spawns with `Body.linearVelocity`. */
 export function setLinearVelocity(world: World, eid: number, velocity: Vec3): void {
     const runtime = runtimeFor(world);
     const state = runtime.physicsWorld;
@@ -1503,7 +1511,8 @@ export function defaultExplosionDef(): ExplosionDef {
 }
 
 /** Applies an immediate radial impulse to dynamic spheres, capsules and hulls, waking affected bodies.
- * Bodies added since the last fixed sync are not considered. Shape.explosionScale weights each shape's projected area.
+ * Linear velocities publish immediately. Bodies added since the last fixed sync are not considered.
+ * Shape.explosionScale weights each shape's projected area.
  * Throws RangeError if position, radius, falloff or impulsePerArea is not finite in single precision,
  * or if radius or falloff is negative. */
 export function explode(world: World, def: ExplosionDef): void {
@@ -1519,7 +1528,8 @@ export function explode(world: World, def: ExplosionDef): void {
         throw new RangeError("physics: explosion position must be finite");
     if (!Number.isFinite(f32(def.impulsePerArea)))
         throw new RangeError("physics: explosion impulsePerArea must be finite");
-    const state = runtimeFor(world).physicsWorld;
+    const runtime = runtimeFor(world);
+    const state = runtime.physicsWorld;
     if (!state) return;
     kernel(state.ecsState).worldExplode(
         state.worldId,
@@ -1532,9 +1542,10 @@ export function explode(world: World, def: ExplosionDef): void {
         def.falloff,
         def.impulsePerArea,
     );
+    publishBodyVelocities(world, runtime, state);
 }
 
-/** Applies a one-shot world impulse in newton-seconds at a world point; off-center impulses also change angular velocity. `wake` defaults true. Box3D ignores static and kinematic bodies; a body added since the last fixed sync ignores it and spawns with `Body.linearVelocity` and `Body.angularVelocity`. */
+/** Applies a one-shot world impulse in newton-seconds at a world point; linear velocity publishes immediately and off-center impulses also change angular velocity. `wake` defaults true. Box3D ignores static and kinematic bodies; a body added since the last fixed sync ignores it and spawns with `Body.linearVelocity` and `Body.angularVelocity`. */
 export function applyLinearImpulse(
     world: World,
     eid: number,
@@ -1553,9 +1564,11 @@ export function applyLinearImpulse(
     statePos.y = point.y;
     statePos.z = point.z;
     bodyApplyLinearImpulse(state, body.index1 - 1, stateVector, statePos, wake);
+    if (bodyGetType(state, body.index1 - 1) !== BodyType.Static)
+        publishBodyVelocity(world, eid, state, body);
 }
 
-/** Applies a one-shot center-of-mass impulse in newton-seconds; `wake` defaults true. Box3D ignores static and kinematic bodies; a body added since the last fixed sync ignores it and spawns with `Body.linearVelocity`. */
+/** Applies a one-shot center-of-mass impulse in newton-seconds and publishes linear velocity immediately; `wake` defaults true. Box3D ignores static and kinematic bodies; a body added since the last fixed sync ignores it and spawns with `Body.linearVelocity`. */
 export function applyLinearImpulseToCenter(
     world: World,
     eid: number,
@@ -1570,6 +1583,8 @@ export function applyLinearImpulseToCenter(
     stateVector.y = impulse.y;
     stateVector.z = impulse.z;
     bodyApplyLinearImpulseToCenter(state, body.index1 - 1, stateVector, wake);
+    if (bodyGetType(state, body.index1 - 1) !== BodyType.Static)
+        publishBodyVelocity(world, eid, state, body);
 }
 
 /** Applies a one-shot angular impulse in kilogram-meter-squared per second; `wake` defaults true. Box3D ignores static and kinematic bodies; a body added since the last fixed sync ignores it and spawns with `Body.angularVelocity`. */
@@ -1858,12 +1873,16 @@ export function isAwake(world: World, eid: number): boolean | null {
     return runtime.physicsWorld && body ? bodyIsAwake(runtime.physicsWorld, body.index1 - 1) : null;
 }
 
-/** Wakes a body and its island, or asks Box3D to put the whole island to sleep. A body added since the last fixed sync ignores it and spawns with `Body.isAwake`. */
+/** Wakes a body and its island, or asks Box3D to put the whole island to sleep.
+ * The island's linear velocities publish immediately. A body added since the last fixed sync ignores it and spawns with `Body.isAwake`. */
 export function setAwake(world: World, eid: number, awake: boolean): void {
     const runtime = runtimeFor(world);
     const state = runtime.physicsWorld;
     const body = boundBody(world, runtime, eid);
-    if (state && body) bodySetAwake(state, body.index1 - 1, awake);
+    if (state && body) {
+        bodySetAwake(state, body.index1 - 1, awake);
+        if (!awake) publishBodyVelocities(world, runtime, state);
+    }
 }
 export function physicsCounters(world: World): PhysicsCounters {
     return { ...runtimeFor(world).counters, hullsBuilt: kernelState(world).hullBuilds };

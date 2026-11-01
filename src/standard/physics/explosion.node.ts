@@ -74,8 +74,7 @@ test("explode acts immediately on bound shapes and not bodies awaiting their fir
         world.tick();
         expect(world.get(ball, GlobalTransform)!.linearVelocity[0]).toBe(0);
         explode(world, def);
-        // The kernel changes immediately; placement publication remains on the next fixed step.
-        expect(world.get(ball, GlobalTransform)!.linearVelocity[0]).toBe(0);
+        expect(world.get(ball, GlobalTransform)!.linearVelocity[0]).toBeGreaterThan(0);
         world.tick();
         expect(world.get(ball, GlobalTransform)!.linearVelocity[0]).toBeGreaterThan(0);
     } finally {
