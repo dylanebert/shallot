@@ -66,9 +66,12 @@ export interface GltfPlacement {
  * glTF emissive (cd/m²) reaches StandardMaterial.emissive unscaled and is added outside camera
  * exposure, as Bevy's default; glTF leaves its screen brightness to the client's exposure.
  * Punctual lights preserve lux and convert candela to lumens with 4π, matching standard rendering's
- * inverse conversion for both point and spot lights. Linear light colors are encoded as sRGB hex.
- * An omitted infinite light range becomes max(1, sqrt(candela / 0.01)) world units: a finite
- * cluster bound at 0.01 lux, rather than Bevy's fixed 20, so brighter lights keep their reach.
+ * inverse conversion for both point and spot lights. A linear color's largest channel multiplies
+ * intensity; its normalized hue is encoded as sRGB hex, retaining dim lights within hue quantization.
+ * Local lights follow inverse-square attenuation under the range window saturate(1 - (d/r)^4)^2.
+ * An omitted infinite range becomes max(1, sqrt(peakCandela / 0.01)) world units, where peakCandela
+ * includes that color magnitude: unwindowed peak illuminance reaches 0.01 lux (or less at the
+ * one-unit floor). This finite cluster bound replaces Bevy's fixed 20 so brighter lights keep their reach.
  * To change a clip, pass a new animation object. All kernel data is freed when the world disposes.
  */
 export async function loadGltfScene(
@@ -390,11 +393,14 @@ export function spawnGltfScene(
             rotation: [t[3], t[4], t[5], t[6]],
             scale: [t[7], t[8], t[9]],
         });
-        const color = (light.color ?? [1, 1, 1]).reduce(
-            (hex, c) => (hex << 8) | Math.round(linearToSrgb(c) * 255),
+        const channels = light.color ?? [1, 1, 1];
+        const magnitude = Math.max(...channels);
+        const color = channels.reduce(
+            (hex, c) =>
+                (hex << 8) | Math.round(linearToSrgb(magnitude > 0 ? c / magnitude : 0) * 255),
             0,
         );
-        const intensity = light.intensity ?? 1;
+        const intensity = (light.intensity ?? 1) * magnitude;
         if (light.type === "directional")
             world.add(eid, DirectionalLight, { color, illuminance: intensity });
         else {

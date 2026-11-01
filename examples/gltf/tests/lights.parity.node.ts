@@ -56,21 +56,23 @@ for (const record of gold.records) {
                                       ? PointLight
                                       : SpotLight;
                             expect(world.has(eid, component)).toBe(true);
+                            const channels = light.color ?? [1, 1, 1];
+                            const magnitude = Math.max(...channels);
+                            const intensity = (light.intensity ?? 1) * magnitude;
                             if (light.type === "directional")
                                 expect(world.storage(DirectionalLight).illuminance.get(eid)).toBe(
-                                    Math.fround(light.intensity ?? 1),
+                                    Math.fround(intensity),
                                 );
                             else {
                                 const storage = world.storage(
                                     light.type === "point" ? PointLight : SpotLight,
                                 );
                                 expect(storage.intensity.get(eid)).toBe(
-                                    Math.fround((light.intensity ?? 1) * 4 * Math.PI),
+                                    Math.fround(intensity * 4 * Math.PI),
                                 );
                                 expect(storage.range.get(eid)).toBe(
                                     Math.fround(
-                                        light.range ??
-                                            Math.max(1, Math.sqrt((light.intensity ?? 1) / 0.01)),
+                                        light.range ?? Math.max(1, Math.sqrt(intensity / 0.01)),
                                     ),
                                 );
                                 expect(storage.radius.get(eid)).toBe(0);
@@ -84,17 +86,19 @@ for (const record of gold.records) {
                                 }
                             }
                             // IEC 61966-2-1: component colors are sRGB hex, not glTF's linear multipliers.
-                            const color = (light.color ?? [1, 1, 1]).reduce(
-                                (hex: number, c: number) =>
-                                    (hex << 8) |
-                                    Math.round(
-                                        255 *
-                                            (c <= 0.0031308
-                                                ? c * 12.92
-                                                : 1.055 * c ** (1 / 2.4) - 0.055),
-                                    ),
-                                0,
-                            );
+                            const color = channels
+                                .map((c: number) => (magnitude > 0 ? c / magnitude : 0))
+                                .reduce(
+                                    (hex: number, c: number) =>
+                                        (hex << 8) |
+                                        Math.round(
+                                            255 *
+                                                (c <= 0.0031308
+                                                    ? c * 12.92
+                                                    : 1.055 * c ** (1 / 2.4) - 0.055),
+                                        ),
+                                    0,
+                                );
                             expect(world.storage(component).color.get(eid)).toBe(color);
                         }
                         const samples = [

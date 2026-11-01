@@ -16,6 +16,48 @@ const buffers = document.buffers!.map(
     ({ uri }) => Uint8Array.from(Buffer.from(uri!.split(",")[1], "base64")).buffer,
 );
 
+test.each(
+    (["directional", "point", "spot"] as const).flatMap((type) => [
+        { type, hue: "neutral", channels: [0.0001, 0.0001, 0.0001] },
+        { type, hue: "saturated", channels: [0.0001, 0, 0] },
+        { type, hue: "black", channels: [0, 0, 0] },
+    ]),
+)("$type retains dim $hue illumination under sRGB hue encoding", async ({ type, channels }) => {
+    const fixture = structuredClone(document);
+    fixture.extensions!["KHR_lights_punctual"] = {
+        lights: [{ type, color: channels, intensity: 1_000_000, range: 10, spot: {} }],
+    };
+    fixture.nodes = [{ extensions: { ["KHR_lights_punctual"]: { light: 0 } } }];
+    fixture.animations = [];
+    const world = new World();
+    try {
+        const gltf = await loadGltfScene(
+            world,
+            `data:application/json,${encodeURIComponent(JSON.stringify(fixture))}`,
+        );
+        const eid = spawnGltfScene(world, gltf).lightEntities[0];
+        const component =
+            type === "directional" ? DirectionalLight : type === "point" ? PointLight : SpotLight;
+        const hex = world.storage(component).color.get(eid);
+        const power =
+            type === "directional"
+                ? world.storage(DirectionalLight).illuminance.get(eid)
+                : world.storage(type === "point" ? PointLight : SpotLight).intensity.get(eid) /
+                  (4 * Math.PI);
+        // At five metres on axis: extension candela / d², under Shallot's permitted range window.
+        const attenuation = type === "directional" ? 1 : (1 - (5 / 10) ** 4) ** 2 / 5 ** 2;
+        for (let channel = 0; channel < 3; channel++) {
+            const encoded = ((hex >>> (16 - channel * 8)) & 255) / 255;
+            const linear =
+                encoded <= 0.04045 ? encoded / 12.92 : ((encoded + 0.055) / 1.055) ** 2.4;
+            const expected = channels[channel] * 1_000_000 * attenuation;
+            expect(linear * power * attenuation).toBeCloseTo(expected, 4);
+        }
+    } finally {
+        world.dispose();
+    }
+});
+
 test("punctual lights keep scene-node identity and ignore nodes outside the default scene", () => {
     const scene = parse(document, buffers);
     expect(scene.unsupported).toEqual([]);
