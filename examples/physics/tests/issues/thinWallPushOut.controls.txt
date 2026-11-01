@@ -1,0 +1,4 @@
+120	Start X	-0.2
+240	Start X	0.5
+360	Reset Mover	1
+480	Start X	-0.5

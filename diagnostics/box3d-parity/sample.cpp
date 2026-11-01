@@ -128,6 +128,7 @@ void DrawLine( b3Pos a, b3Pos b, int ) {
 void DrawArrow( b3Pos a, b3Pos b, int ) { if (characterDrawing) characterMarks.push_back({2,a.x,a.y,a.z,b.x,b.y,b.z}); }
 void DrawWireSphere( b3WorldTransform, const b3Sphere*, int, int ) {}
 void DrawCross(b3Pos, float, int) {}
+void DrawAabb(b3Vec3, b3Vec3, int) {}
 void DrawString3D( b3Pos, int, const char* format, ... ) {
     if (!contactDrawing) return;
     char text[128]; va_list args; va_start(args, format); vsnprintf(text, sizeof(text), format, args); va_end(args);
@@ -492,6 +493,7 @@ int main( int argc, char** argv )
         { "sboxMover", Issues::SBoxMover::Create }, { "capsuleMesh", Issues::CapsuleMeshBug::Create },
         { "slideTwistOffCenterShape", Issues::SlideTwistOffCenterShape::Create }, { "hugeBox", Issues::HugeBox::Create },
         { "issueHeightfield", Issues::HeightfieldIssue::Create },
+        { "thinWallPushOut", Issues::ThinWallPushOut::Create },
         { "ghostCollisions", Issues::SBoxGhostCollisions::Create },
         { "wheelStack", Issues::WheelStack::Create },
         { "restitutionOvershoot", Issues::RestitutionOvershoot::Create },

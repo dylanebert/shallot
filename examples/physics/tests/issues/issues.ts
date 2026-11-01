@@ -25,6 +25,7 @@ import {
     SyncPhysicsConstraintsSystem,
     setAngularVelocity,
     setLinearVelocity,
+    setTransform,
 } from "@dylanebert/shallot/standard/physics";
 import building from "../../src/building.json" with { type: "json" };
 import { Geometry } from "../../src/geometry";
@@ -44,6 +45,8 @@ export const IssueVelocities = {
 export const IssueState = {
     create: () => ({
         ghost: -1,
+        thinWallMover: -1,
+        startX: 0.2,
         bounce: -1,
         directionX: 1,
         directionZ: 1,
@@ -83,6 +86,10 @@ export const IssuesPlugin: Plugin = {
                 if (s.bounce >= 0 && s.startEnergy === 0) {
                     s.startEnergy = measureEnergy(world, s.bounce).total;
                     s.maxEnergy = s.startEnergy;
+                }
+                if (s.thinWallMover >= 0) {
+                    setLinearVelocity(world, s.thinWallMover, { x: 0, y: 0, z: 0 });
+                    setAngularVelocity(world, s.thinWallMover, { x: 0, y: 0, z: 0 });
                 }
                 if (s.ghost < 0) return;
                 const t = world.storage(GlobalTransform),
@@ -484,7 +491,52 @@ function restitutionOvershoot(world: World): number[] {
     world.resource(IssueState).bounce = e;
     return [e];
 }
+function thinWallPushOut(world: World): number[] {
+    world.resource(PhysicsWorldDefinition).gravity = { x: 0, y: 0, z: 0 };
+    ground(world, 20);
+    const wall = body(world, [0, 1.5, 0]);
+    box(world, wall, [0.1, 1.5, 2]);
+    const mover = body(world, [0.2, 1.5, 0], true);
+    const b = world.storage(Body);
+    b.enableSleep.set(mover, 0);
+    b.motionLocks.set(
+        mover,
+        BodyMotionLock.linearY | BodyMotionLock.angularX | BodyMotionLock.angularZ,
+    );
+    box(world, mover, [0.5, 0.5, 0.5]);
+    world.storage(Shape).friction.set(mover, 0);
+    world.resource(IssueState).thinWallMover = mover;
+    return [wall, mover];
+}
+function placeThinWallMover(world: World): void {
+    const s = world.resource(IssueState);
+    setTransform(world, s.thinWallMover, [s.startX, 1.5, 0], [0, 0, 0, 1]);
+    setLinearVelocity(world, s.thinWallMover, { x: 0, y: 0, z: 0 });
+    setAngularVelocity(world, s.thinWallMover, { x: 0, y: 0, z: 0 });
+}
 export const issueScenes = {
+    thinWallPushOut: {
+        construct: thinWallPushOut,
+        controls: {
+            "Start X": {
+                label: "Start X",
+                value: 0.2,
+                min: -0.6,
+                max: 0.6,
+                step: 0.01,
+                set(world, _b, value) {
+                    world.resource(IssueState).startX = value;
+                    placeThinWallMover(world);
+                },
+            },
+            "Reset Mover": {
+                label: "Reset Mover",
+                value: 0,
+                button: true,
+                set: placeThinWallMover,
+            },
+        } satisfies Controls,
+    },
     ghostCollisions: {
         construct: ghostCollisions,
         gridExtent: 6.5024,

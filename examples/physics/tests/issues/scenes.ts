@@ -10,6 +10,7 @@ export function createScene(world: World, scene: Scene): number[] {
     Object.assign(world.resource(IssueState), IssueState.create());
     Object.assign(world.resource(Geometry), Geometry.create());
     Object.assign(world.resource(PhysicsWorldDefinition), {
+        gravity: { x: 0, y: -10, z: 0 },
         contactHertz: 30,
         contactDampingRatio: 10,
         contactSpeed: 3,

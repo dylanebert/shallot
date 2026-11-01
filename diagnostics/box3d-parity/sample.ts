@@ -36,6 +36,7 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         section(readFileSync(join(samples, "sample.h"), "utf8"), "struct MechanicalEnergy", "MechanicalEnergy MeasureEnergy"),
         section(sample, "MechanicalEnergy MeasureEnergy"),
         "namespace Issues {",
+        section(issues, "class ThinWallPushOut :", "static int sampleThinWallPushOut"),
         section(issues, "static const b3Vec3 waterfallPoints", "class HullCrash :").replace('fopen( path, "rb" )', 'fopen( (std::string(getenv("BOX3D")) + "/" + path).c_str(), "rb" )'),
         section(issues, "class SBoxGhostCollisions :", "static int sampleSBoxGhostCollisions"),
         section(issues, "static const b3Vec3 s_metalWheel1Verts", "static int sampleWheelStack"),

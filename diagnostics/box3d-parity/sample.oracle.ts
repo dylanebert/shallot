@@ -31,6 +31,7 @@ for (const [scene, name, before, after] of [
     ["slideTwistOffCenterShape", "SlideTwistOffCenterShape", "b3Body_SetAngularVelocity( boxBody, 25.0f", "b3Body_SetAngularVelocity( boxBody, 26.0f"],
     ["hugeBox", "HugeBox", "float a = 100.0f;", "float a = 101.0f;"],
     ["issueHeightfield", "HeightfieldIssue", "{ 50, 20, 50 }", "{ 50, 21, 50 }"],
+    ["thinWallPushOut", "ThinWallPushOut", "m_startX = 0.2f", "m_startX = 0.3f"],
 ] as const) {
     test(`${scene}: Issues native steps repeat, controls use DrawControls, and a source mutation fails parity`, () => {
         const start = performance.now(), binary = sampleBinary();
@@ -49,7 +50,7 @@ for (const [scene, name, before, after] of [
             equalSampleSteps(run([binary, scene, "600"], env), hashes, `${scene} repeat`);
             if (scene === "hullCrash") expect(geometry()).toBe(hull);
             if (hasReadouts) expect(readouts()).toBe(readFileSync(new URL(`${scene}.readouts.gold.txt`, base), "utf8"));
-            if (scene === "crash" || scene === "ghostCollisions" || scene === "hullCrash") {
+            if (scene === "crash" || scene === "ghostCollisions" || scene === "hullCrash" || scene === "thinWallPushOut") {
                 const args = [binary, scene, "600", fileURLToPath(new URL(`${scene}.controls.txt`, base))];
                 const controlled = run(args, env);
                 if(hasReadouts) expect(readouts()).toBe(readFileSync(new URL(`${scene}.controls.readouts.gold.txt`,base),"utf8"));

@@ -113,7 +113,7 @@ test("off-center shape's initial angular velocity recovers and applies only once
     }
 });
 
-for (const scene of ["crash", "ghostCollisions", "hullCrash"] as const)
+for (const scene of ["crash", "ghostCollisions", "hullCrash", "thinWallPushOut"] as const)
     test(`${scene} controls follow the native DrawControls sequence`, async () => {
         const gold = sampleGold(
             await Bun.file(new URL(`./${scene}.controls.gold.txt`, import.meta.url)).text(),
