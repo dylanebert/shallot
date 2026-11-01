@@ -29,6 +29,7 @@ import { Grab, GrabPlugin, pick } from "../src/grab";
 import { sceneSwitcher } from "../src/sample";
 import { changeControl, controlValues, createScene, type Scene } from "../src/scenes";
 import { TreeBenchmarkPlugin, TreeBenchmarkState, treeRecords } from "../src/tree";
+import { advanceIteration } from "./iteration";
 
 function observations(world: World, controls: Record<string, number>) {
     return {
@@ -69,12 +70,12 @@ function observations(world: World, controls: Record<string, number>) {
 }
 
 /** Switches from a changed, grabbed Bridge to each destination and holds it equal to a fresh
- * scene at construction and at each step in the requested range (end exclusive).
- * Earlier steps are replayed without observation; the default holds all 600 steps. */
+ * scene at construction and after each sample iteration in the requested range (end exclusive).
+ * Earlier iterations run without observation; the default holds all 600 iterations. */
 export async function expectSwitchesEqualFresh(
     destinations: readonly Scene[],
     plugins: Plugin[] = [],
-    steps = { start: 0, end: 600 },
+    iterations = { start: 0, end: 600 },
 ): Promise<void> {
     const app = await createApp({
         defaults: false,
@@ -139,15 +140,17 @@ export async function expectSwitchesEqualFresh(
                 expect(observations(world, switchedControls), `${scene} construction`).toEqual(
                     observations(fresh.world, freshControls),
                 );
-                for (let step = 0; step < steps.end; step++) {
-                    world.tick();
-                    fresh.world.tick();
-                    if (step < steps.start) continue;
+                for (let iteration = 0; iteration < iterations.end; iteration++) {
+                    advanceIteration(world, scene);
+                    advanceIteration(fresh.world, scene);
+                    if (iteration < iterations.start) continue;
                     const hash = hashPhysics(world);
-                    expect(hash, `${scene} step ${step} fresh`).toBe(hashPhysics(fresh.world));
+                    expect(hash, `${scene} iteration ${iteration} fresh`).toBe(
+                        hashPhysics(fresh.world),
+                    );
                     expect(
                         observations(world, switchedControls),
-                        `${scene} step ${step} gameplay`,
+                        `${scene} iteration ${iteration} gameplay`,
                     ).toEqual(observations(fresh.world, freshControls));
                 }
             } finally {

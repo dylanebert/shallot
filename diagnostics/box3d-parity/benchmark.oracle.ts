@@ -13,6 +13,7 @@ import "./village.oracle";
 import { VillagePlugin } from "../../examples/physics/src/village";
 import { manualParityScenes } from "../../examples/physics/tests/manual-parity";
 import { expectSwitchesEqualFresh } from "../../examples/physics/tests/switch";
+import { advanceIteration } from "../../examples/physics/tests/iteration";
 
 // Run by path with sample.oracle.ts. Scene parity needs one solver thread; the engine's
 // small determinism scenes hold scheduling and cross-host equality.
@@ -110,7 +111,7 @@ for (const scene of (Object.keys(benchmarkScenes) as (keyof typeof benchmarkScen
                 let diverged = false;
                 let changed = false;
                 for (const [step, expected] of gold.entries()) {
-                    app.world.tick();
+                    advanceIteration(app.world, scene);
                     const hash = hashPhysics(app.world);
                     if (mutated && !changed && (scene !== "benchmarkSensor" || step >= 32)) {
                         const dynamic = [...app.world.query([Shape])].find(eid => app.world.storage(Body).type.get(app.world.storage(Shape).body.get(eid) || eid) === BodyType.Dynamic);
