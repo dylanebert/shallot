@@ -1,7 +1,9 @@
 import type { Page } from "playwright/test";
 
 export async function scenePixels(page: Page, blue = false) {
-    const png = await page.locator("canvas").screenshot();
+    const png = await page.locator("canvas").screenshot({
+        style: "* { visibility: hidden } canvas { visibility: visible }",
+    });
     return page.evaluate(
         async ({ data, blue }) => {
             const image = await createImageBitmap(
@@ -19,7 +21,9 @@ export async function scenePixels(page: Page, blue = false) {
                 if (
                     blue
                         ? rgba[i + 2] > rgba[i] * 1.3 && rgba[i + 2] > rgba[i + 1] * 1.1
-                        : rgba[i + 1] > rgba[i] * 1.3 && rgba[i + 1] > rgba[i + 2] * 1.3
+                        : Math.abs(rgba[i] - 0x19) > 4 ||
+                          Math.abs(rgba[i + 1] - 0x18) > 4 ||
+                          Math.abs(rgba[i + 2] - 0x16) > 4
                 )
                     colored++;
             }

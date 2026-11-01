@@ -20,7 +20,7 @@ import {
     spawnGltfScene,
 } from "@dylanebert/shallot/gltf";
 import { fitBounds, sceneAngles, sceneBounds } from "./framing";
-import { modelPath, type Scene, scenes, truckPlacement } from "./scenes";
+import { initialScene, modelPath, type Scene, scenes, truckPlacement } from "./scenes";
 
 export const Viewer: Resource<{
     models: Map<Scene, Gltf>;
@@ -122,6 +122,6 @@ export const AppPlugin: Plugin = {
             }),
         );
         const canvas = document.querySelector("canvas")!;
-        selectScene(world, "CesiumMilkTruck", canvas.clientWidth / canvas.clientHeight);
+        selectScene(world, initialScene, canvas.clientWidth / canvas.clientHeight);
     },
 };

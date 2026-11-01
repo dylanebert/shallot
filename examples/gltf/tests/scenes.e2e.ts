@@ -22,8 +22,11 @@ for (const [width, height] of [
             const frames = await holdFrames(page, "[aria-label='Scene']");
             await page.goto("/");
             const picker = page.getByRole("button", { name: "Scene", exact: true });
-            await expect(picker).toHaveText("CesiumMilkTruck");
+            await expect(picker).toHaveText(
+                categories.flatMap((category) => category.scenes)[0].name,
+            );
             const canvas = await page.locator("canvas").elementHandle();
+            await frames.run(2);
             await expect
                 .poll(async () => {
                     expect(errors).toEqual([]);

@@ -1,10 +1,9 @@
 <script lang="ts">
     import "./controls.css";
-    import { categories, type Scene } from "./scenes";
+    import { categories, samples, type Scene } from "./scenes";
     let { scene, select }: { scene: Scene; select: (scene: Scene) => void } = $props();
     let open = $state(false);
     let picker: HTMLElement;
-    const samples = categories.flatMap(category => category.scenes);
     function step(direction: number) {
         open = false;
         select(samples[(samples.findIndex(sample => sample.id === scene) + direction + samples.length) % samples.length].id);

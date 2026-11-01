@@ -37,6 +37,8 @@ export const categories = [
         .filter((id) => scenes[id].promise === name)
         .map((id) => ({ id, name: id })),
 }));
+export const samples = categories.flatMap((category) => category.scenes);
+export const initialScene = samples[0].id;
 export const modelPath = (scene: Scene) =>
     scene === "QuantizedMorphCube"
         ? "assets/Models/AnimatedMorphCube/glTF-Quantized/AnimatedMorphCube.gltf"

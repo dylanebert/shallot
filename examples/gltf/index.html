@@ -22,7 +22,7 @@
         import { flushSync, mount, unmount } from "svelte";
         import { AppPlugin, frameScene, selectScene } from "./src/app";
         import Hud from "./src/Hud.svelte";
-        import { scenes } from "./src/scenes";
+        import { initialScene, scenes } from "./src/scenes";
         await runApp({
             plugins: [AppPlugin],
             ui(container, world) {
@@ -39,7 +39,7 @@
                     flushSync(() => { component = mount(Hud, { target: container, props: { scene, select } }); });
                 }
                 const requested = new URL(location.href).searchParams.get("scene");
-                select(requested && Object.hasOwn(scenes, requested) ? requested : "CesiumMilkTruck");
+                select(requested && Object.hasOwn(scenes, requested) ? requested : initialScene);
                 return () => { resize.disconnect(); void unmount(component); };
             },
         });

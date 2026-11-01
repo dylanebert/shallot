@@ -2,7 +2,15 @@ import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import manifest from "../assets.json";
-import { categories, modelPath, type Scene, scenes, truckPlacement } from "./scenes";
+import {
+    categories,
+    initialScene,
+    modelPath,
+    type Scene,
+    samples,
+    scenes,
+    truckPlacement,
+} from "./scenes";
 
 test("the picker demonstrates each promise once without shrinking the regression corpus", () => {
     const listed = categories.flatMap((category) => category.scenes.map((scene) => scene.id));
@@ -56,4 +64,9 @@ test("written corpus fixtures are CC0 and retain their manifest hashes", () => {
 
 test("the truck retains its accepted placement", () => {
     expect(truckPlacement).toEqual({ translation: [0, -0.5, 0], scale: [0.7, 0.7, 0.7] });
+});
+
+test("the initial scene is the first listed in the picker", () => {
+    expect(samples).toEqual(categories.flatMap((category) => category.scenes));
+    expect(initialScene).toBe(categories[0].scenes[0].id);
 });
