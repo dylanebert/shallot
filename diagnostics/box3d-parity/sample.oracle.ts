@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { readdirSync, existsSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { readdirSync, existsSync, cpSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,7 +14,7 @@ import { digestMismatch, drawingDigest, eventDigests, querySteps, recordDigest }
 setDefaultTimeout(0);
 
 function copyRobustnessSources(directory: string): void {
-    for (const file of ["samples/sample.h", "samples/sample_issues.cpp", "samples/sample_restitution.cpp", "samples/sample_tree.cpp", "samples/sample_world.cpp", "samples/sample_robustness.cpp", "samples/sample_determinism.cpp", "shared/overflow_color.c", "shared/determinism.c", "shared/stability.c"])
+    for (const file of ["samples/dynamic_mover.h", "samples/dynamic_mover.cpp", "samples/sample.h", "samples/sample_issues.cpp", "samples/sample_restitution.cpp", "samples/sample_tree.cpp", "samples/sample_world.cpp", "samples/sample_robustness.cpp", "samples/sample_determinism.cpp", "shared/overflow_color.c", "shared/determinism.c", "shared/stability.c"])
         copyFileSync(join(process.env.BOX3D!, file), join(directory, file));
 }
 
@@ -1056,3 +1056,36 @@ for (const [scene, [before, after]] of Object.entries(benchmarkMutations)) {
         } finally { rmSync(copy, { recursive: true, force: true }); }
     });
 }
+
+test("dynamicMover: native hashes and events repeat through recorded input, and mover and projectile mutations red parity", () => {
+    const binary = sampleBinary(), directory = mkdtempSync(join(tmpdir(), "box3d-dynamic-mutation-"));
+    const base = new URL("../../examples/physics/tests/", import.meta.url);
+    const sequence = fileURLToPath(new URL("dynamicMover.controls.txt", base));
+    try {
+        for (const controlled of [false, true]) {
+            const args = [binary, "dynamicMover", "600", ...(controlled ? [sequence] : [])];
+            const receipt = join(directory, "mover.jsonl");
+            const native = run(args, { DYNAMIC_READOUTS: receipt });
+            const state = readFileSync(receipt, "utf8");
+            expect(run(args, { DYNAMIC_READOUTS: receipt })).toBe(native);
+            expect(readFileSync(receipt, "utf8")).toBe(state);
+            const stem = `dynamicMover${controlled ? ".controls" : ""}`;
+            equalSampleSteps(native, readFileSync(new URL(`${stem}.gold.txt`, base), "utf8"), "dynamicMover");
+            expect(state).toBe(readFileSync(new URL(`${stem}.mover.gold.txt`, base), "utf8"));
+        }
+        cpSync(join(process.env.BOX3D!, "samples"), join(directory, "samples"), { recursive: true });
+        cpSync(join(process.env.BOX3D!, "shared"), join(directory, "shared"), { recursive: true });
+        const path = join(directory, "samples/dynamic_mover.h"), source = readFileSync(path, "utf8");
+        expect(source.includes("float pogoHertz = 3.0f;")).toBe(true);
+        writeFileSync(path, source.replace("float pogoHertz = 3.0f;", "float pogoHertz = 4.0f;"));
+        expect(run([sampleBinary(join(directory, "samples")), "dynamicMover", "600", sequence])).not.toBe(readFileSync(new URL("dynamicMover.controls.gold.txt", base), "utf8"));
+        writeFileSync(path, source);
+        const scenePath = join(directory, "samples/sample_character.cpp"), sceneSource = readFileSync(scenePath, "utf8");
+        expect(sceneSource.includes("def.impulsePerArea = 3000.0f;")).toBe(true);
+        writeFileSync(scenePath, sceneSource.replace("def.impulsePerArea = 3000.0f;", "def.impulsePerArea = 2900.0f;"));
+        expect(run([sampleBinary(join(directory, "samples")), "dynamicMover", "600", sequence])).not.toBe(readFileSync(new URL("dynamicMover.controls.gold.txt", base), "utf8"));
+        const noShoot = join(directory, "no-shoot.txt");
+        writeFileSync(noShoot, readFileSync(sequence, "utf8").split("\n").filter(row => !row.includes("\tShoot\t")).join("\n"));
+        expect(run([binary, "dynamicMover", "600", noShoot])).not.toBe(readFileSync(new URL("dynamicMover.controls.gold.txt", base), "utf8"));
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+});

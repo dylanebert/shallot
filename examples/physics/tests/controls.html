@@ -15,6 +15,8 @@ import { ShapesSamplePlugin } from '../src/shapes';
 import { createViewer } from '../src/view';
 import { VillagePlugin } from '../src/village';
 import { GeometricMoverPlugin, GeometricMoverState } from '../src/geometric-mover';
+import { DynamicMoverPlugin, DynamicMoverState } from '../src/dynamic-mover-scene';
+import { captureFrame } from '@dylanebert/shallot/rendering';
 import { RigidBodyPlugin } from '../src/rigid-body';
 import { MeshSamplePlugin } from '../src/mesh';
 import { CollisionPlugin } from '../src/collision';
@@ -28,14 +30,15 @@ import { TreeBenchmarkPlugin } from '../src/tree';
 import { Grab, GrabPlugin } from '../src/grab';
 // The checks read game state and the DOM; a low pixel ratio keeps each stepped draw cheap.
 const Viewer={create:createViewer};
-const app = await createApp({plugins:[StandardPhysicsPlugin,GrabPlugin,VillagePlugin,TreeBenchmarkPlugin,DeterminismPlugin,WorldSamplePlugin,RobustnessSamplePlugin,ManifoldPlugin,GeometryPlugin,CollisionPlugin,CollisionDebugPlugin,MeshSamplePlugin,ShapesSamplePlugin,BodySamplePlugin,GeometricMoverPlugin,RigidBodyPlugin,EventSamplePlugin,SampleInputPlugin,TextPlugin,OrbitPlugin,LinesPlugin,{name:'SampleViewer',dependencies:[OrbitPlugin],initialize(world){world.resource(Viewer);}}],pixelRatio:0.05,setup(world){world.resource(PhysicsWorldDefinition).workerCount=1;}});
+const captureMode=new URLSearchParams(location.search).has('capture');
+const app = await createApp({plugins:[StandardPhysicsPlugin,GrabPlugin,VillagePlugin,TreeBenchmarkPlugin,DeterminismPlugin,WorldSamplePlugin,RobustnessSamplePlugin,ManifoldPlugin,GeometryPlugin,CollisionPlugin,CollisionDebugPlugin,MeshSamplePlugin,ShapesSamplePlugin,BodySamplePlugin,GeometricMoverPlugin,DynamicMoverPlugin,RigidBodyPlugin,EventSamplePlugin,SampleInputPlugin,TextPlugin,OrbitPlugin,LinesPlugin,{name:'SampleViewer',dependencies:[OrbitPlugin],initialize(world){world.resource(Viewer);}}],pixelRatio:captureMode?1:0.05,setup(world){world.resource(PhysicsWorldDefinition).workerCount=1;}});
 const world=app.world;
 const container=mountOverlay(document.querySelector('canvas'),world);
 const replace=sceneSwitcher(world,world.resource(Viewer));
 let component;
 function select(scene){
  const bodies=replace(scene);
- for(const eid of world.query([DirectionalLight]))world.storage(DirectionalLight).shadowMapsEnabled.set(eid,0);
+ if(!captureMode) for(const eid of world.query([DirectionalLight]))world.storage(DirectionalLight).shadowMapsEnabled.set(eid,0);
  if(component) void unmount(component);
  component=mount(Hud,{target:container,props:{world,scene,select,change:(name,value,values)=>changeControl(world,scene,bodies,values,name,value)}});
  flushSync();
@@ -50,6 +53,22 @@ window.playerState=(steps=0)=>{
  const state=world.resource(GeometricMoverState);
  const camera=[...world.query([Orbit])][0];
  return {grabbed:world.resource(Grab).body,position:{...state.mover.position},keys:{...state.keys},yaw:world.storage(Orbit).yaw.get(camera),pan:world.get(camera,Orbit).pan,distance:world.storage(Orbit).distance.get(camera)};
+};
+window.dynamicState=(steps=0)=>{
+ for(let i=0;i<steps;i++)world.step(1/60);
+ const state=world.resource(DynamicMoverState);
+ return {keys:{...state.keys},balls:state.ballIndex,position:world.get(state.entity,GlobalTransform).translation};
+};
+window.drawDynamicFrame=async()=>{
+ await world.frameFence;
+ const pending=captureFrame(document.querySelector('canvas'));
+ world.step(0); await world.frameFence;
+ const image=await pending;
+ const output=document.createElement('canvas');output.width=image.width;output.height=image.height;
+ output.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(image.rgba),image.width,image.height),0,0);
+ const canvas=document.querySelector('canvas');output.style.cssText='position:absolute;inset:0;width:100%;height:100%;pointer-events:none';canvas.after(output);
+ let cyan=0;for(let i=0;i<image.rgba.length;i+=4)if(image.rgba[i+1]>image.rgba[i]*1.2&&image.rgba[i+2]>image.rgba[i]*1.3)cyan++;
+ return {width:image.width,height:image.height,cyan};
 };
 window.controlsKey=()=>{
  world.step(1/60);

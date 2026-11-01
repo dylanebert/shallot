@@ -23,6 +23,7 @@ import { CollisionDebug, debugScenes } from "./collision-debug";
 import { compoundScenes } from "./compound";
 import { continuousScenes } from "./continuous";
 import { DeterminismState, determinismScenes } from "./determinism";
+import { DynamicMoverState, dynamicMoverScene } from "./dynamic-mover-scene";
 import { eventScenes } from "./events";
 import { GeometricMoverState, geometricMoverScene } from "./geometric-mover";
 import { Geometry, geometryScenes } from "./geometry";
@@ -43,6 +44,7 @@ import { VillageState, villageScene } from "./village";
 import { WorldSampleState, worldScenes } from "./world";
 
 export type Scene =
+    | "dynamicMover"
     | "geometricMover"
     | "rigidBody"
     | "boxStack"
@@ -117,6 +119,7 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
         name: "Character",
         scenes: [
             { id: "capsulePlane", name: "CapsulePlane" },
+            { id: "dynamicMover", name: "Dynamic Mover" },
             { id: "geometricMover", name: "Geometric Mover" },
             { id: "moverOverlap", name: "MoverOverlap" },
             { id: "rigidBody", name: "Rigid Body" },
@@ -390,6 +393,7 @@ export function changeControl(
 }
 export const scenes = {
     geometricMover: geometricMoverScene,
+    dynamicMover: dynamicMoverScene,
     rigidBody: rigidBodyScene,
     ...collisionScenes,
     ...debugScenes,
@@ -1023,6 +1027,7 @@ export function createScene(world: World, scene: Scene): number[] {
     Object.assign(world.resource(ManifoldSample), ManifoldSample.create());
     Object.assign(world.resource(CharacterSample), CharacterSample.create());
     Object.assign(world.resource(GeometricMoverState), GeometricMoverState.create());
+    Object.assign(world.resource(DynamicMoverState), DynamicMoverState.create());
     Object.assign(world.resource(VillageState), VillageState.create());
     Object.assign(world.resource(RigidBodyState), RigidBodyState.create());
     world.resource(PhysicsWorldDefinition).enableAutomaticStep = true;

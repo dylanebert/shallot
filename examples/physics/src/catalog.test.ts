@@ -47,6 +47,7 @@ test("each picker label selects its scene in its category, exactly once", () => 
             name: "Character",
             scenes: [
                 { id: "capsulePlane", name: "CapsulePlane" },
+                { id: "dynamicMover", name: "Dynamic Mover" },
                 { id: "geometricMover", name: "Geometric Mover" },
                 { id: "moverOverlap", name: "MoverOverlap" },
                 { id: "rigidBody", name: "Rigid Body" },

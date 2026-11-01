@@ -11,12 +11,14 @@ import {
 } from "@dylanebert/shallot";
 import { Orbit } from "@dylanebert/shallot/extras";
 
-type Keys = Record<"W" | "A" | "S" | "D" | "Space" | "Shift", number>;
+type Keys = Record<"W" | "A" | "S" | "D" | "Space" | "Shift", number> &
+    Partial<Record<"Control" | "Aim" | "Shoot", number>>;
 type Vector = { x: number; y: number; z: number };
 const controls = {
     create: () => ({
         used: false,
         jumpPending: false,
+        shootPending: false,
         sampledTick: -1,
         buttons: [] as HTMLButtonElement[],
         stick: undefined as HTMLDivElement | undefined,
@@ -24,7 +26,7 @@ const controls = {
     }),
 };
 
-/** Samples movement and latched Jump once per frame; fixed gameplay consumes keys and the camera's horizontal basis. */
+/** Samples movement and latched Jump/Shoot once per frame; fixed gameplay consumes keys and the camera's horizontal basis. */
 export function readPlayerControls(world: World, keys: Keys, forward: Vector, right: Vector): void {
     const devices = world.resource(Devices);
     const active = devices.enabled;
@@ -56,11 +58,28 @@ export function readPlayerControls(world: World, keys: Keys, forward: Vector, ri
                 ) ||
                     (key === "Shift" && devices.keys.held.has("ShiftRight"))),
         );
+    if ("Control" in keys)
+        keys.Control = Number(
+            active &&
+                (devices.keys.held.has("ControlLeft") || devices.keys.held.has("ControlRight")),
+        );
+    if ("Aim" in keys)
+        keys.Aim = Number(active && (devices.pointer.right || devices.keys.held.has("KeyQ")));
+    if ("Shoot" in keys)
+        keys.Shoot = Number(active && (devices.pointer.left || devices.keys.held.has("KeyF")));
     if (ui.sampledTick !== world.time.fixedTick || !active || world.time.paused)
-        ui.jumpPending = false;
+        ui.jumpPending = ui.shootPending = false;
     ui.sampledTick = world.time.fixedTick;
     if (active && !world.time.paused && devices.keys.pressed.has("Space")) ui.jumpPending = true;
     keys.Space = Number(!!keys.Space || ui.jumpPending);
+    if (
+        active &&
+        !world.time.paused &&
+        (devices.keys.pressed.has("KeyF") ||
+            devices.pointer.buttonEvents.some((event) => event.button === "left" && event.pressed))
+    )
+        ui.shootPending = true;
+    if ("Shoot" in keys) keys.Shoot = Number(!!keys.Shoot || ui.shootPending);
     const lateral = Math.max(-1, Math.min(1, keys.D - keys.A + x));
     const advance = Math.max(-1, Math.min(1, keys.W - keys.S + y));
     keys.W = Math.max(0, advance);
@@ -99,7 +118,7 @@ export function readPlayerControls(world: World, keys: Keys, forward: Vector, ri
     Object.assign(right, { x: Math.cos(yaw), y: 0, z: -Math.sin(yaw) });
 }
 
-export function mountPlayerControls(world: World): () => void {
+export function mountPlayerControls(world: World, dynamicMover = false): () => void {
     requirePointerLock(world, true);
     const ui = world.resource(controls);
     let root: HTMLDivElement | undefined;
@@ -107,10 +126,17 @@ export function mountPlayerControls(world: World): () => void {
         root = document.createElement("div");
         root.className = "player-controls";
         mountOverlay(document.querySelector("canvas"), world).append(root);
-        for (const [label, key, bottom] of [
+        const buttons: [string, string, number][] = [
             ["Jump", "Space", 104],
             ["Sprint", "ShiftLeft", 176],
-        ] as const) {
+        ];
+        if (dynamicMover)
+            buttons.push(
+                ["Walk", "ControlLeft", 248],
+                ["Aim", "KeyQ", 320],
+                ["Shoot", "KeyF", 392],
+            );
+        for (const [label, key, bottom] of buttons) {
             const button = document.createElement("button");
             button.tabIndex = -1;
             button.onfocus = () => button.blur();
@@ -148,12 +174,13 @@ export function mountPlayerControls(world: World): () => void {
     return () => {
         root?.remove();
         ui.buttons.length = 0;
-        ui.jumpPending = false;
+        ui.jumpPending = ui.shootPending = false;
         ui.sampledTick = -1;
         ui.stick = undefined;
         ui.knob = undefined;
         releaseKey(world, "Space");
         releaseKey(world, "ShiftLeft");
+        for (const key of ["ControlLeft", "KeyQ", "KeyF"]) releaseKey(world, key);
         requirePointerLock(world, false);
         releasePointerLock(world);
     };

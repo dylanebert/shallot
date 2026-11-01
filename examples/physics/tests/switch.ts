@@ -7,8 +7,10 @@ import {
     GlobalTransform,
     hashPhysics,
     MotorJoint,
+    MoverJoint,
     ParallelJoint,
     type Plugin,
+    PogoJoint,
     PrismaticJoint,
     RevoluteJoint,
     Shape,
@@ -21,6 +23,7 @@ import {
 } from "@dylanebert/shallot";
 import { PhysicsEvents, PhysicsWorldDefinition } from "@dylanebert/shallot/standard/physics";
 import { DeterminismPlugin } from "../src/determinism";
+import { DynamicMoverPlugin, DynamicMoverState } from "../src/dynamic-mover-scene";
 import { EventSample, EventSamplePlugin } from "../src/events";
 import { Grab, GrabPlugin, pick } from "../src/grab";
 import { sceneSwitcher } from "../src/sample";
@@ -32,6 +35,9 @@ function observations(world: World, controls: Record<string, number>) {
         sample: world.resource(EventSample),
         grab: world.resource(Grab),
         controls,
+        dynamic: world.resource(DynamicMoverState).active
+            ? world.resource(DynamicMoverState)
+            : null,
         tree: world.resource(TreeBenchmarkState).active ? treeRecords(world) : null,
         events: Object.fromEntries(
             Object.entries(world.resource(PhysicsEvents)).map(([name, channel]) => [
@@ -46,6 +52,8 @@ function observations(world: World, controls: Record<string, number>) {
             DistanceJoint,
             FilterJoint,
             MotorJoint,
+            MoverJoint,
+            PogoJoint,
             ParallelJoint,
             PrismaticJoint,
             RevoluteJoint,
@@ -75,6 +83,7 @@ export async function expectSwitchesEqualFresh(
             EventSamplePlugin,
             DeterminismPlugin,
             TreeBenchmarkPlugin,
+            DynamicMoverPlugin,
 
             ...plugins,
             { name: "GrabRecovery", recovery: GrabPlugin.recovery },
@@ -118,6 +127,7 @@ export async function expectSwitchesEqualFresh(
                     EventSamplePlugin,
                     DeterminismPlugin,
                     TreeBenchmarkPlugin,
+                    DynamicMoverPlugin,
 
                     ...plugins,
                 ],

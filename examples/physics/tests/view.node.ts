@@ -16,6 +16,7 @@ import {
     setAwake,
 } from "@dylanebert/shallot/standard/physics";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { DynamicMoverState } from "../src/dynamic-mover-scene";
 import { EventSample, EventSamplePlugin } from "../src/events";
 import { GeometricMoverState } from "../src/geometric-mover";
 import { manifoldNames } from "../src/manifold";
@@ -362,7 +363,8 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                             : world.get(body, Body)!.type === BodyType.Kinematic ||
                                 driven.has(body) ||
                                 body === world.resource(EventSample).player ||
-                                body === world.resource(RigidBodyState).character.body
+                                body === world.resource(RigidBodyState).character.body ||
+                                body === world.resource(DynamicMoverState).entity
                               ? "motorized"
                               : "subject");
                 expect(role).toBe(expected);
@@ -459,6 +461,7 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 isFast: 40,
                 stall: 500,
                 geometricMover: 80,
+                dynamicMover: 80,
                 rigidBody: 3300,
                 capsulePlane: 10,
                 moverOverlap: 12,

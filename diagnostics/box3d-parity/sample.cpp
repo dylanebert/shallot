@@ -57,8 +57,10 @@ struct Camera
 	PickRay BuildPickRay( float, float ) { return pickRay; }
 	void UpdateTransform() {}
 	void SetView( float, float, float, b3Vec3 ) {}
-	b3Vec3 GetForward() const { return { 0, 0, 1 }; }
-	b3Vec3 GetRight() const { return { 1, 0, 0 }; }
+	float m_yaw = 0, m_pitch = 0;
+    b3Vec3 forward = {0,0,1}, right = {1,0,0};
+    b3Vec3 GetForward() const { return forward; }
+	b3Vec3 GetRight() const { return right; }
     b3Pos DrawOrigin() const { return {}; }
 };
 constexpr int KEY_W = 1, KEY_S = 2, KEY_A = 3, KEY_D = 4, KEY_L = 5, KEY_T = 6, KEY_B = 7;
@@ -72,13 +74,14 @@ void DrawTransformGizmo(const Camera*, b3WorldTransform* transform, bool) {
 }
 constexpr int KEY_SPACE = 8, KEY_LEFT_SHIFT = 9, KEY_V = 10, KEY_G = 11;
 constexpr int KEY_RIGHT_SHIFT = 12, KEY_LEFT_CONTROL = 13, KEY_RIGHT_CONTROL = 14;
+constexpr int KEY_K = 15;
 constexpr int MOUSE_LEFT = 0;
 constexpr int ACTION_PRESS = 1, MOD_SHIFT = 1, MOD_ALT = 2, MOD_CTRL = 4;
 constexpr int ImGuiSliderFlags_Logarithmic = 1;
 void sapp_lock_mouse( bool ) {}
 bool IsKeyDown( int key ) {
 	float value = 0;
-	const char* names[] = { "", "W", "S", "A", "D", "L", "T", "B", "Space", "Shift", "V", "G", "Shift", "Control", "Control" };
+	const char* names[] = { "", "W", "S", "A", "D", "L", "T", "B", "Space", "Shift", "V", "G", "Shift", "Control", "Control", "K" };
 	for ( const Change& change : changes )
 		if ( change.step <= currentStep && change.name == names[key] ) value = change.value;
 	return value != 0;
@@ -301,7 +304,16 @@ bool Button( const char* name ) {
 }
 void Separator() {}
 void PopItemWidth() {}
+struct IO { float DeltaTime = 1.0f / 60.0f; };
+IO& GetIO() { static IO io; return io; }
 }
+using MeshHandle = int;
+constexpr int MESH_MATERIAL_MODE_SOLID = 0, TRANSPARENT_SHADOW_FULL = 0;
+MeshHandle FindOrAddHull(const b3HullData*) { return 0; }
+void ReleaseMeshReference(MeshHandle) {}
+void AppendMesh(MeshHandle, b3Transform, b3Vec3, int, float, float, int, float, int) {}
+void SetBodyAlpha(b3BodyId, float) {}
+b3Pos GetDrawOrigin() { return {}; }
 void SetGroundShape( b3ShapeId ) {}
 struct GuiDraw { bool drawJoints = true; float forceScale = 1.0f; };
 GuiDraw* GetGuiDraw() { static GuiDraw draw; return &draw; }
@@ -454,7 +466,7 @@ int main( int argc, char** argv )
 		fprintf( stderr, "usage: sample <scene> <steps> [grab|control-sequence-file]\n" );
 		return 2;
 	}
-	recordEvents = !strcmp( argv[1], "benchmarkSensor" ) || !strcmp( argv[1], "joint" ) || !strcmp( argv[1], "sensor" ) || !strcmp( argv[1], "contact" ) || !strcmp( argv[1], "hit" ) || !strcmp( argv[1], "motor" ) || !strcmp( argv[1], "move" ) || !strcmp( argv[1], "persistentContact" ) || !strcmp( argv[1], "sensorHits" );
+	recordEvents = !strcmp( argv[1], "dynamicMover" ) || !strcmp( argv[1], "benchmarkSensor" ) || !strcmp( argv[1], "joint" ) || !strcmp( argv[1], "sensor" ) || !strcmp( argv[1], "contact" ) || !strcmp( argv[1], "hit" ) || !strcmp( argv[1], "motor" ) || !strcmp( argv[1], "move" ) || !strcmp( argv[1], "persistentContact" ) || !strcmp( argv[1], "sensorHits" );
 	b3SetLogFcn( []( const char* message ) { fprintf( stderr, "%s\n", message ); } );
     recordQueriesAndBuilds = !strcmp( argv[1], "heightField" ) || !strcmp( argv[1], "hull" );
     meshDropRecording = !strcmp(argv[1], "meshDrop");
@@ -502,6 +514,7 @@ int main( int argc, char** argv )
         { "slideTwist", SlideTwist::Create }, { "conveyorBelt", ConveyorBelt::Create },
         { "restitution", VaryingRestitution::Create }, { "staticInvoke", StaticInvoke::Create }, { "wind", Wind::Create },
         { "conveyorMesh", ConveyorMesh::Create }, { "windDrop", WindDrop::Create }, { "windFlap", WindFlap::Create },
+        { "dynamicMover", DynamicSample::DynamicMoverSample::Create },
         { "rigidBody", RigidBodyCharacter::Create }, { "geometricMover", GeometricMoverSample::Create }, { "capsulePlane", CapsulePlane::Create }, { "moverOverlap", MoverOverlap::Create },
         { "classRing", ClassRing::Create }, { "cast", BodyCast::Create },
         { "bodyType", BodyType::Create }, { "weeble", Weeble::Create }, { "disable", DisableBody::Create },
@@ -598,6 +611,8 @@ int main( int argc, char** argv )
     if (getenv("VILLAGE_READOUTS")) assert(villageReadouts && !strcmp(argv[1], "village"));
     FILE* rigidReadouts = getenv("RIGID_READOUTS") ? fopen(getenv("RIGID_READOUTS"), "w") : nullptr;
     if (getenv("RIGID_READOUTS")) assert(rigidReadouts && !strcmp(argv[1], "rigidBody"));
+    FILE* dynamicReadouts = getenv("DYNAMIC_READOUTS") ? fopen(getenv("DYNAMIC_READOUTS"), "w") : nullptr;
+    if (getenv("DYNAMIC_READOUTS")) assert(dynamicReadouts && !strcmp(argv[1], "dynamicMover"));
     FILE* moverReadouts = getenv("MOVER_READOUTS") ? fopen(getenv("MOVER_READOUTS"), "w") : nullptr;
     if (getenv("MOVER_READOUTS")) assert(moverReadouts && !strcmp(argv[1], "geometricMover"));
     FILE* sensorReadouts = getenv("SENSOR_READOUTS") ? fopen(getenv("SENSOR_READOUTS"), "w") : nullptr;
@@ -667,6 +682,19 @@ int main( int argc, char** argv )
         if (!manifoldScene) sample->MouseMove({});
 		currentStep = i;
 		sample->DrawControls();
+        if (!strcmp(argv[1], "dynamicMover")) {
+            auto* scene = static_cast<DynamicSample::DynamicMoverSample*>(sample);
+            context.camera.forward = {0,0,-1}; context.camera.right = {-1,0,0};
+            for (const Change& change : changes) {
+                if (change.step <= i && change.name == "Aim") scene->m_aiming = change.value != 0;
+                if (change.step == i && change.name == "Shoot" && change.value != 0) scene->m_shootRequested = true;
+                if (change.step == i && change.name == "Snap Position" && change.value != 0) {
+                    b3BodyId id = scene->m_mover.GetBodyId(); b3Pos p = b3Body_GetPosition(id);
+                    p.x = roundf(p.x); p.z = roundf(p.z);
+                    b3Body_SetTransform(id, p, b3Body_GetRotation(id)); b3Body_SetLinearVelocity(id, b3Vec3_zero);
+                }
+            }
+        }
         if (!gizmoPoses.empty()) {
             // Upstream's UI writes transformB in world space between simulation steps.
             pendingGizmoPose = &gizmoPoses[i];
@@ -765,6 +793,12 @@ int main( int argc, char** argv )
             auto p = b3Body_GetPosition(c.m_bodyId); auto vel = b3Body_GetLinearVelocity(c.m_bodyId);
             fprintf(rigidReadouts, "[%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%d,%d,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%d,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g]\n", p.x,p.y,p.z,vel.x,vel.y,vel.z,c.m_onGround,c.m_sprint,c.m_jumpCooldown,c.m_groundNormal.x,c.m_groundNormal.y,c.m_groundNormal.z,c.m_groundVelocity.x,c.m_groundVelocity.y,c.m_groundVelocity.z,c.m_didStep,c.m_stepPosition.x,c.m_stepPosition.y,c.m_stepPosition.z,c.m_lastWishVelocity.x,c.m_lastWishVelocity.y,c.m_lastWishVelocity.z);
         }
+        if (dynamicReadouts) {
+            auto* scene = static_cast<DynamicSample::DynamicMoverSample*>(sample);
+            const auto& m = scene->m_mover;
+            int gems = 0; for (auto id : scene->m_gemIds) gems += B3_IS_NON_NULL(id);
+            fprintf(dynamicReadouts, "[%.9g,%d,%d,%d,%d,%d,%.9g,%.9g,%.9g,%.9g,%d,%d]\n", scene->m_time,scene->m_plateArmed,m.m_onGround,m.m_walkable,m.m_jumping,m.m_jumpTicks,m.m_velocity.x,m.m_velocity.y,m.m_velocity.z,m.m_pogoLength,gems,scene->m_ballIndex);
+        }
         if (moverReadouts) {
             auto* scene = static_cast<GeometricMoverSample*>(sample);
             auto& m = scene->m_mover;
@@ -807,6 +841,7 @@ int main( int argc, char** argv )
     if (Collision::queries) fclose(Collision::queries);
     if (readouts) fclose(readouts);
     if (moverReadouts) fclose(moverReadouts);
+    if (dynamicReadouts) fclose(dynamicReadouts);
     if (rigidReadouts) fclose(rigidReadouts);
     if (villageReadouts) fclose(villageReadouts);
     if (sensorReadouts) fclose(sensorReadouts);

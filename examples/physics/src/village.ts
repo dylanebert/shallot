@@ -24,7 +24,7 @@ import {
 } from "@dylanebert/shallot/standard/physics";
 import building from "./building.json" with { type: "json" };
 import { decodeMesh } from "./mesh-data";
-import { add, move, moverState, mul, sub, v } from "./mover";
+import { add, GeometricMover, mul, sub, v } from "./mover";
 import { readPlayerControls } from "./player-controls";
 
 const f = Math.fround;
@@ -33,7 +33,7 @@ export const VillageState = {
     create: () => ({
         active: false,
         entity: 0,
-        mover: { ...moverState(), position: v(0, 10, 0) },
+        mover: Object.assign(new GeometricMover(), { position: v(0, 10, 0) }),
         keys: { W: 0, A: 0, S: 0, D: 0, Space: 0, Shift: 0 },
         forward: v(0, 0, -1),
         right: v(1, 0, 0),
@@ -150,7 +150,16 @@ function construct(world: World): number[] {
 export const VillagePlugin: Plugin = {
     name: "VillageSample",
     dependencies: [StandardPhysicsPlugin, InputPlugin],
-    recovery: recoverResource(VillageState),
+    recovery(world) {
+        const recovery = recoverResource(VillageState)(world);
+        return {
+            ...recovery,
+            restore(image: ReturnType<typeof VillageState.create>) {
+                recovery.restore(image);
+                Object.setPrototypeOf(world.resource(VillageState).mover, GeometricMover.prototype);
+            },
+        };
+    },
     systems: [
         {
             name: "village-input",
@@ -169,7 +178,19 @@ export const VillagePlugin: Plugin = {
             update(world) {
                 const s = world.resource(VillageState);
                 if (!s.active) return;
-                move(world, s.mover, s.forward, s.right, s.keys, true, 0, s.policies);
+                if (s.keys.Space) s.mover.jump();
+                s.mover.sprint = s.mover.onGround && !!s.keys.Shift;
+                s.mover.update(
+                    world,
+                    f(1 / 60),
+                    s.forward,
+                    s.right,
+                    { x: f(s.keys.W - s.keys.S), y: f(s.keys.D - s.keys.A) },
+                    s.mover.sprint ? 1.5 : 1,
+                    true,
+                    0,
+                    s.policies,
+                );
                 world
                     .storage(Transform)
                     .translation.set(

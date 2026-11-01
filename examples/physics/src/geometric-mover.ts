@@ -33,9 +33,8 @@ import {
     add,
     cross,
     dot,
+    GeometricMover,
     type MoverShape,
-    move,
-    moverState,
     mul,
     pose,
     rotate,
@@ -54,7 +53,7 @@ const impact = () => ({ point: v(), normal: v(), speed: 0, valid: false });
 export const GeometricMoverState = {
     create: () => ({
         active: false,
-        mover: moverState(),
+        mover: new GeometricMover(),
         entity: 0,
         clipVelocity: true,
         keys: { W: 0, A: 0, S: 0, D: 0, Space: 0, Shift: 0 },
@@ -266,7 +265,19 @@ function settled(world: World, owner: number, field: "treeTimer" | "respawnTimer
 export const GeometricMoverPlugin: Plugin = {
     name: "GeometricMoverSample",
     dependencies: [StandardPhysicsPlugin, InputPlugin],
-    recovery: recoverResource(GeometricMoverState),
+    recovery(world) {
+        const recovery = recoverResource(GeometricMoverState)(world);
+        return {
+            ...recovery,
+            restore(image: ReturnType<typeof GeometricMoverState.create>) {
+                recovery.restore(image);
+                Object.setPrototypeOf(
+                    world.resource(GeometricMoverState).mover,
+                    GeometricMover.prototype,
+                );
+            },
+        };
+    },
     systems: [
         {
             name: "geometric-mover-input",
@@ -299,12 +310,15 @@ export const GeometricMoverPlugin: Plugin = {
                 s.moverStart = { ...s.mover.position };
                 s.boxStart = pose(world, s.fallingBox);
                 s.treeStart = pose(world, s.tree);
-                move(
+                if (s.keys.Space) s.mover.jump();
+                s.mover.sprint = s.mover.onGround && !!s.keys.Shift;
+                s.mover.update(
                     world,
-                    s.mover,
+                    f(1 / 60),
                     s.forward,
                     s.right,
-                    s.keys,
+                    { x: f(s.keys.W - s.keys.S), y: f(s.keys.D - s.keys.A) },
+                    s.mover.sprint ? 1.5 : 1,
                     s.clipVelocity,
                     s.ignore,
                     s.policies,

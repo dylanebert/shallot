@@ -13,6 +13,7 @@ import { CollisionPlugin } from "./collision";
 import { CollisionDebugPlugin } from "./collision-debug";
 import { ContinuousSamplePlugin } from "./continuous";
 import { DeterminismPlugin } from "./determinism";
+import { DynamicMoverPlugin } from "./dynamic-mover-scene";
 import { EventSamplePlugin, SampleInputPlugin } from "./events";
 import { GeometricMoverPlugin } from "./geometric-mover";
 import { GeometryPlugin } from "./geometry";
@@ -54,6 +55,7 @@ export const AppPlugin: Plugin = {
         CharacterSamplePlugin,
         ContinuousSamplePlugin,
         GeometricMoverPlugin,
+        DynamicMoverPlugin,
         VillagePlugin,
         RigidBodyPlugin,
         RobustnessSamplePlugin,

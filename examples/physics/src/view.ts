@@ -51,11 +51,14 @@ import { drawQuerySpawn } from "./determinism-presentation";
 import { drawingBounds, drawSet } from "./draw-set";
 import { drawingHistory } from "./drawing-history";
 import { DrivingState } from "./driving";
+import { dynamicMoverDrawing } from "./dynamic-mover-presentation";
+import { DynamicMoverState } from "./dynamic-mover-scene";
 import { EventSample } from "./events";
 import { GeometricMoverState } from "./geometric-mover";
 import { drawGeometry } from "./geometry-presentation";
 import { Grab } from "./grab";
 import { drawHeightFieldView } from "./height-field-presentation";
+import { drawInkPoint } from "./ink-presentation";
 import { drawJointViews } from "./joint-presentation";
 import { ManifoldSample } from "./manifold";
 import { drawManifold, manifoldGeometry } from "./manifold-presentation";
@@ -144,25 +147,32 @@ export function setSceneCamera(world: World, scene: Scene, camera: number): void
         camera,
         phone && "phoneDistance" in view ? view.phoneDistance : view.distance,
     );
-    const player = scene === "geometricMover" || scene === "rigidBody" || scene === "village";
+    const player =
+        scene === "dynamicMover" ||
+        scene === "geometricMover" ||
+        scene === "rigidBody" ||
+        scene === "village";
     orbit.mode.set(camera, player ? OrbitMode.Manual : OrbitMode.Free);
     orbit.smoothness.set(camera, player ? 1 : 0.3);
     const follow =
         scene === "driving" ||
+        scene === "dynamicMover" ||
         scene === "geometricMover" ||
         scene === "rigidBody" ||
         scene === "village";
     orbit.target.set(
         camera,
-        scene === "driving"
-            ? world.resource(DrivingState).chassis
-            : scene === "village"
-              ? world.resource(VillageState).entity
-              : scene === "geometricMover"
-                ? world.resource(GeometricMoverState).entity
-                : scene === "rigidBody"
-                  ? world.resource(RigidBodyState).character.body
-                  : 0,
+        scene === "dynamicMover"
+            ? world.resource(DynamicMoverState).entity
+            : scene === "driving"
+              ? world.resource(DrivingState).chassis
+              : scene === "village"
+                ? world.resource(VillageState).entity
+                : scene === "geometricMover"
+                  ? world.resource(GeometricMoverState).entity
+                  : scene === "rigidBody"
+                    ? world.resource(RigidBodyState).character.body
+                    : 0,
     );
     // Sharing the orbit button prevents flythrough from detaching a follow camera.
     orbit.flyButton.set(camera, follow ? orbit.orbitButton.get(camera) : 2);
@@ -199,8 +209,11 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         });
     setSceneCamera(world, scene, camera);
     const disposePlayerControls =
-        scene === "geometricMover" || scene === "rigidBody" || scene === "village"
-            ? mountPlayerControls(world)
+        scene === "dynamicMover" ||
+        scene === "geometricMover" ||
+        scene === "rigidBody" ||
+        scene === "village"
+            ? mountPlayerControls(world, scene === "dynamicMover")
             : undefined;
     const queryDrawing =
         scene === "village"
@@ -644,6 +657,18 @@ function createView(world: World, scene: Scene, camera: number): () => void {
                 drawQuerySpawn(world, (a, b, color, options) =>
                     drawLine(world, a, b, color, options),
                 );
+            if (scene === "dynamicMover")
+                for (const { a, b, color, point, width = 1 } of dynamicMoverDrawing(world)) {
+                    drawLine(world, a, b, color, { width });
+                    if (point)
+                        drawInkPoint(
+                            world,
+                            camera,
+                            b,
+                            (a, b, color, options) => drawLine(world, a, b, color, options),
+                            color,
+                        );
+                }
             drawJointViews(world, scene, camera, (a, b, color, options) =>
                 drawLine(world, a, b, color, options),
             );

@@ -1,0 +1,48 @@
+0	W	1
+0	Shift	1
+10	Box Mover	1
+45	Box Mover	0
+45	Space	1
+48	Space	0
+175	W	0
+183	Shift	0
+190	Aim	1
+191	Shoot	1
+192	Shoot	0
+200	Shoot	1
+201	Shoot	0
+210	Aim	0
+220	Snap Position	1
+240	Box Mover	1
+250	Skirt Pogo	0
+260	Jump Speed	9
+260	Max Speed	8
+260	Accelerate	25
+260	Friction	10
+260	Air Steer	0.4
+260	Gravity Scale	2
+260	Pogo Hertz	5
+260	Pogo Damping	1.2
+260	Ground Force	8000
+270	Control	1
+270	S	1
+290	Control	0
+310	Space	1
+313	Space	0
+330	S	0
+350	Box Mover	0
+350	Skirt Pogo	1
+360	Draw Probes	0
+370	Ball Speed	80
+370	Aim	1
+371	Shoot	1
+372	Shoot	0
+380	Shoot	1
+381	Shoot	0
+390	Aim	0
+410	A	1
+450	A	0
+470	W	1
+500	Space	1
+503	Space	0
+540	W	0

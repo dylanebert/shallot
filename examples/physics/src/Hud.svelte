@@ -96,6 +96,7 @@
 </section>
 {#if scene === "contact"}<span class="ec input-help">WASD to roll</span>{/if}
 {#if scene === "driving"}<span class="ec input-help">WASD to drive</span>{/if}
+{#if scene === "dynamicMover"}<span class="ec input-help">Click to look · Esc to release · WASD to move · Space to jump · Shift to sprint · Ctrl to walk · RMB to aim · LMB to shoot</span>{/if}
 {#if scene === "geometricMover" || scene === "rigidBody" || scene === "village"}<span class="ec input-help">Click to look · Esc to release · WASD to move · Space to jump · Shift to sprint</span>{/if}
 {#if scenes[scene].controls}
     {#snippet fields(parent?: string, readOnly = false)}

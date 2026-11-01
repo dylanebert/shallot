@@ -14,6 +14,7 @@ import {
 } from "@dylanebert/shallot";
 import { isAwake } from "@dylanebert/shallot/standard/physics";
 import { largeCompound } from "./compound-presentation";
+import { DynamicMoverState } from "./dynamic-mover-scene";
 import { EventSample } from "./events";
 import { GeometricMoverState } from "./geometric-mover";
 import { RigidBodyState } from "./rigid-body";
@@ -91,6 +92,7 @@ export function shapeRole(
         type === BodyType.Kinematic ||
         body === world.resource(EventSample).player ||
         body === world.resource(RigidBodyState).character.body ||
+        body === world.resource(DynamicMoverState).entity ||
         driven.has(body)
     )
         return "motorized";

@@ -3,7 +3,9 @@ import {
     FilterJoint,
     GlobalTransform,
     MotorJoint,
+    MoverJoint,
     ParallelJoint,
+    PogoJoint,
     PrismaticJoint,
     qRotate,
     RevoluteJoint,
@@ -21,6 +23,8 @@ import { categories, type Scene } from "./scenes";
 const kinds = [
     DistanceJoint,
     FilterJoint,
+    MoverJoint,
+    PogoJoint,
     MotorJoint,
     ParallelJoint,
     PrismaticJoint,
@@ -30,6 +34,7 @@ const kinds = [
     WheelJoint,
 ] as const;
 const scenes = new Set<Scene>([
+    "dynamicMover",
     ...categories
         .filter((category) => category.name === "Joints" || category.name === "Ragdoll")
         .flatMap((category) => category.scenes.map(({ id }) => id)),
