@@ -47,6 +47,8 @@ export const SpriteSource = {
 
 const layout = materialLayout(SpriteMaterialInput, {
     images: { type: "texture", dimension: "2d-array" },
+    images1024: { type: "texture", dimension: "2d-array" },
+    images2048: { type: "texture", dimension: "2d-array" },
     imageSampler: { type: "sampler" },
     imageSettings: { type: "texture" },
 });
@@ -116,6 +118,8 @@ export const SpriteMaterialType = materialType({
         const uv = d.vec2f(ctx.localPos.x, 1 - ctx.localPos.y);
         const texel = sampleImage(
             layout.$.images,
+            layout.$.images1024,
+            layout.$.images2048,
             layout.$.imageSampler,
             layout.$.imageSettings,
             uv,

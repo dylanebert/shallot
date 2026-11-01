@@ -14,11 +14,11 @@ test("extension layout preserves base binding numbers and starts its bindings at
     });
     for (const variant of [layout, layout.depthVariant]) {
         const entries = Object.entries(variant.entries);
-        expect(entries.slice(0, 9).map(([name]) => name)).toEqual(
+        expect(entries.slice(0, 13).map(([name]) => name)).toEqual(
             Object.keys(Materials.layout.entries),
         );
         expect(entries[100]![0]).toBe("tint");
-        expect(entries.slice(9, 100).every(([, entry]) => entry === null)).toBe(true);
+        expect(entries.slice(13, 100).every(([, entry]) => entry === null)).toBe(true);
     }
     expect(layout.parameters.propTypes).toEqual({
         ...StandardMaterialInput.propTypes,
@@ -51,8 +51,8 @@ test("extension layout checks merged WebGPU stage budgets", () => {
         ).toThrow("material layout uses 9 vertex storage buffers; WebGPU's limit is 8");
     }
     expect(() =>
-        extensionLayout(Materials, Extension, bindings(10, { type: "texture" }) as never),
-    ).toThrow("material layout uses 18 fragment sampled textures; WebGPU's limit is 16");
+        extensionLayout(Materials, Extension, bindings(5, { type: "texture" }) as never),
+    ).toThrow("material layout uses 17 fragment sampled textures; WebGPU's limit is 16");
     expect(() =>
         extensionLayout(
             Materials,

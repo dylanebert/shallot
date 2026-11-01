@@ -1,6 +1,6 @@
 // Array textures support tiling and per-instance layer selection in one draw, but all layers must
-// share dimensions. Resize varied sources to a common capped square; use the default sRGB format
-// for color maps and pass a linear format for data maps so sampling does not corrupt their values.
+// share dimensions. Group sources by size and resize each group to a common capped square; use
+// sRGB for color maps and a linear format for data maps so sampling preserves their values.
 
 import tgpu, { type TgpuRenderPipeline } from "typegpu";
 import * as d from "typegpu/data";
@@ -8,11 +8,15 @@ import * as std from "typegpu/std";
 import { checkTextureLimits, Registry, type World } from "../../engine";
 import { fullscreenVertex } from "./tonemapping";
 
-/** World-local decoded image array and sampler, populated at RenderingPlugin warm. */
+/** World-local size-class image arrays and sampler, populated at RenderingPlugin warm. */
 export const ImageBindings = {
     create: () => ({
         images: null! as GPUTexture,
+        images1024: null! as GPUTexture,
+        images2048: null! as GPUTexture,
         dataImages: null! as GPUTexture,
+        dataImages1024: null! as GPUTexture,
+        dataImages2048: null! as GPUTexture,
         imageSampler: null! as GPUSampler,
         imageSettings: null! as GPUTexture,
     }),
@@ -51,9 +55,9 @@ export const Images = {
 export const DataImages = { create: Images.create };
 
 /**
- * Register before warm, normally in a plugin's initialize. The returned id selects a layer of the
- * world's shared sRGB image array, or its linear data array when isSrgb is false. Color and data ids
- * are independent; a consumer must sample the array matching the registration's role.
+ * Register before warm, normally in a plugin's initialize. The returned id selects an image in the
+ * world's shared sRGB arrays, or its linear data arrays when isSrgb is false. Color and data ids
+ * are independent; a consumer must sample the arrays matching the registration's role.
  * Within one role, URLs with the same effective sampler return the same id; different samplers return distinct ids.
  * Each Blob registration returns a new id, distinct from all URLs. Omitted sampler fields take
  * Bevy's ImagePlugin default, ImageSamplerDescriptor::linear(): clamp-to-edge, linear texel filters
@@ -66,7 +70,7 @@ export function registerImage(
 ): number {
     const images = world.resource(settings.isSrgb === false ? DataImages : Images);
     const s = settings.sampler;
-    // One settings texel per image; the alpha byte packs the min filter with the mipmap filter.
+    // The sampler texel's alpha byte packs the min filter with the mipmap filter.
     const sampler = [
         s?.addressModeU ?? 0,
         s?.addressModeV ?? 0,
@@ -93,15 +97,19 @@ function transparentPixel(): Blob {
     return new Blob([bytes], { type: "image/png" });
 }
 
+/** Decode registered images into size-class arrays with full mips; empty bands bind 1×1 fallbacks. */
 export async function warmImages(world: World): Promise<void> {
     const images = world.resource(Images);
     const dataImages = world.resource(DataImages);
     const device = world.gpu.device;
+    const locations: number[][][] = [];
     const loadArray = async (
         images: ReturnType<typeof Images.create>,
         format: GPUTextureFormat,
     ) => {
-        let texture: GPUTexture;
+        const bands: ImageBitmap[][] = [[], [], []];
+        const rows: number[][] = [];
+        locations.push(rows);
         if (images.size > 0 && typeof createImageBitmap !== "undefined") {
             const blobs = await Promise.all(
                 Array.from({ length: images.size }, async (_, id) => {
@@ -117,42 +125,72 @@ export async function warmImages(world: World): Promise<void> {
                     }
                 }),
             );
-            texture = await imageArray(world, device, blobs, 2048, format);
-        } else {
-            texture = device.createTexture({
-                label: "images-fallback",
-                size: [1, 1, 1],
-                format,
-                usage: GPUTextureUsage.TEXTURE_BINDING,
-            });
+            const native = await Promise.all(
+                blobs.map((blob) =>
+                    createImageBitmap(blob, {
+                        premultiplyAlpha: "none",
+                        colorSpaceConversion: "none",
+                    }),
+                ),
+            );
+            for (const bitmap of native) {
+                const side = Math.max(bitmap.width, bitmap.height);
+                const band = side > 1024 ? 2 : side > 512 ? 1 : 0;
+                rows.push([band + 1, bands[band].length]);
+                bands[band].push(bitmap);
+            }
         }
-        world.own(texture);
-        return texture;
+        const textures: GPUTexture[] = [];
+        for (const band of bands) {
+            const texture =
+                band.length > 0
+                    ? await arrayFromBitmaps(world, device, band, 2048, format)
+                    : device.createTexture({
+                          label: "images-fallback",
+                          size: [1, 1, 1],
+                          format,
+                          usage: GPUTextureUsage.TEXTURE_BINDING,
+                      });
+            world.own(texture);
+            textures.push(texture);
+        }
+        return textures;
     };
     const bindings = world.resource(ImageBindings);
-    bindings.images = await loadArray(images, "rgba8unorm-srgb");
-    bindings.dataImages = await loadArray(dataImages, "rgba8unorm");
+    [bindings.images, bindings.images1024, bindings.images2048] = await loadArray(
+        images,
+        "rgba8unorm-srgb",
+    );
+    [bindings.dataImages, bindings.dataImages1024, bindings.dataImages2048] = await loadArray(
+        dataImages,
+        "rgba8unorm",
+    );
     const colorCount = Math.max(1, images.size);
     const settingsCount = colorCount + Math.max(1, dataImages.size);
     // A sampled texture keeps sampler metadata out of the storage-buffer binding floor.
     const imageSettings = device.createTexture({
         label: "image-settings",
-        size: [1, settingsCount],
+        size: [2, settingsCount + 1],
         format: "rgba8unorm",
         usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
     });
-    const data = new Uint8Array(settingsCount * 4);
-    data.set([0, 0, 1, 3]);
-    for (let id = 0; id < images.size; id++) {
-        data.set(images.get(images.name(id)!)!.sampler, id * 4);
+    // Texel one holds band+1 and a little-endian 16-bit layer. The final row holds the color count.
+    // Zero location metadata retains band zero at layer=id for externally supplied arrays.
+    const data = new Uint8Array((settingsCount + 1) * 8);
+    for (const [role, registry] of [images, dataImages].entries()) {
+        const offset = role === 0 ? 0 : colorCount;
+        for (let id = 0; id < Math.max(1, registry.size); id++) {
+            const row = (offset + id) * 8;
+            const sampler = registry.get(registry.name(id)!)?.sampler ?? [0, 0, 1, 3];
+            data.set(sampler, row);
+            const [band, layer] = locations[role][id] ?? [0, 0];
+            data.set([band, layer & 255, layer >>> 8, 0], row + 4);
+        }
     }
-    data.set([0, 0, 1, 3], colorCount * 4);
-    for (let id = 0; id < dataImages.size; id++) {
-        data.set(dataImages.get(dataImages.name(id)!)!.sampler, (colorCount + id) * 4);
-    }
-    device.queue.writeTexture({ texture: imageSettings }, data, { bytesPerRow: 4 }, [
-        1,
-        settingsCount,
+    data.set([0, 0, 1, 3, colorCount & 255, colorCount >>> 8, 0, 0], settingsCount * 8);
+    device.queue.writeTexture({ texture: imageSettings }, data, { bytesPerRow: 8 }, [
+        2,
+        settingsCount + 1,
     ]);
     world.own(imageSettings);
     bindings.imageSettings = imageSettings;

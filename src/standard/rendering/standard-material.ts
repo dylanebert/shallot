@@ -23,14 +23,34 @@ import { Pbr } from "./shade";
 
 const standardLayout = materialLayout(StandardMaterialInput, {
     images: { type: "texture", dimension: "2d-array" },
+    images1024: { type: "texture", dimension: "2d-array" },
+    images2048: { type: "texture", dimension: "2d-array" },
     imageSampler: { type: "sampler" },
     imageSettings: { type: "texture" },
     dataImages: { type: "texture", dimension: "2d-array" },
+    dataImages1024: { type: "texture", dimension: "2d-array" },
+    dataImages2048: { type: "texture", dimension: "2d-array" },
 });
 const standardImages = tgpu.accessor(d.texture2dArray(d.f32), () => standardLayout.$.images);
 const standardDataImages = tgpu.accessor(
     d.texture2dArray(d.f32),
     () => standardLayout.$.dataImages,
+);
+const standardImages1024 = tgpu.accessor(
+    d.texture2dArray(d.f32),
+    () => standardLayout.$.images1024,
+);
+const standardImages2048 = tgpu.accessor(
+    d.texture2dArray(d.f32),
+    () => standardLayout.$.images2048,
+);
+const standardDataImages1024 = tgpu.accessor(
+    d.texture2dArray(d.f32),
+    () => standardLayout.$.dataImages1024,
+);
+const standardDataImages2048 = tgpu.accessor(
+    d.texture2dArray(d.f32),
+    () => standardLayout.$.dataImages2048,
 );
 const standardSampler = tgpu.accessor(d.sampler(), () => standardLayout.$.imageSampler);
 const standardImageSettings = tgpu.accessor(
@@ -145,12 +165,29 @@ export const pbrInputFromStandardMaterial = tgpu.fn(
     const occlusionDy = std.dpdy(occlusionUv);
     const emissiveDx = std.dpdx(emissiveUv);
     const emissiveDy = std.dpdy(emissiveUv);
-    const settingsOffset = d.i32(std.textureNumLayers(standardImages.$));
+    let settingsOffset = d.i32(std.textureNumLayers(standardImages.$));
+    if (std.textureDimensions(standardImageSettings.$).x > 1) {
+        const count = d.vec2u(
+            std.round(
+                std.mul(
+                    std.textureLoad(
+                        standardImageSettings.$,
+                        d.vec2i(1, d.i32(std.textureDimensions(standardImageSettings.$).y) - 1),
+                        0,
+                    ).xy,
+                    255,
+                ),
+            ),
+        );
+        settingsOffset = d.i32(count.x | (count.y << 8));
+    }
     if (material.baseColorTexture >= 0) {
         baseColor = std.mul(
             baseColor,
             sampleImage(
                 standardImages.$,
+                standardImages1024.$,
+                standardImages2048.$,
                 standardSampler.$,
                 standardImageSettings.$,
                 baseUv,
@@ -174,6 +211,8 @@ export const pbrInputFromStandardMaterial = tgpu.fn(
     if (material.normalMapTexture >= 0 && ctx.tangent.w !== 0) {
         const tex = sampleImageAt(
             standardDataImages.$,
+            standardDataImages1024.$,
+            standardDataImages2048.$,
             standardSampler.$,
             standardImageSettings.$,
             normalUv,
@@ -201,6 +240,8 @@ export const pbrInputFromStandardMaterial = tgpu.fn(
     if (material.metallicRoughnessTexture >= 0) {
         const tex = sampleImageAt(
             standardDataImages.$,
+            standardDataImages1024.$,
+            standardDataImages2048.$,
             standardSampler.$,
             standardImageSettings.$,
             metalUv,
@@ -215,6 +256,8 @@ export const pbrInputFromStandardMaterial = tgpu.fn(
     if (material.occlusionTexture >= 0) {
         const tex = sampleImageAt(
             standardDataImages.$,
+            standardDataImages1024.$,
+            standardDataImages2048.$,
             standardSampler.$,
             standardImageSettings.$,
             occlusionUv,
@@ -228,6 +271,8 @@ export const pbrInputFromStandardMaterial = tgpu.fn(
     if (material.emissiveTexture >= 0) {
         const tex = sampleImage(
             standardImages.$,
+            standardImages1024.$,
+            standardImages2048.$,
             standardSampler.$,
             standardImageSettings.$,
             emissiveUv,
@@ -396,7 +441,11 @@ export function extendedMaterial<
             : base.bindings,
         slots: [
             [standardImages, () => layout.$.images],
+            [standardImages1024, () => layout.$.images1024],
+            [standardImages2048, () => layout.$.images2048],
             [standardDataImages, () => layout.$.dataImages],
+            [standardDataImages1024, () => layout.$.dataImages1024],
+            [standardDataImages2048, () => layout.$.dataImages2048],
             [standardSampler, () => layout.$.imageSampler],
             [standardImageSettings, () => layout.$.imageSettings],
         ],

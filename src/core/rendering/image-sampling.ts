@@ -65,31 +65,11 @@ const filtered = tgpu.fn(
     return std.mix(a, b, weight.y);
 });
 
-// Address texel taps, not just UVs: repeat's linear footprint straddles the opposite edges.
-// Derivatives precede addressing so wrap boundaries cannot spuriously select coarser mips.
-/**
- * @internal Shared fragment sampling for the built-in image consumers; dx/dy are unwrapped UV
- * derivatives. settingsOffset selects the array's first sampler-settings row. Level of detail is
- * isotropic, from the larger footprint axis, as with anisotropy 1.
- */
-export const sampleImageAt = tgpu.fn(
-    [d.texture2dArray(), d.sampler(), d.texture2d(), d.vec2f, d.i32, d.vec2f, d.vec2f, d.i32],
+const sampleBand = tgpu.fn(
+    [d.texture2dArray(), d.sampler(), d.vec4u, d.vec2f, d.i32, d.vec2f, d.vec2f],
     d.vec4f,
-)((images, sampler, settings, uv, layer, dx, dy, settingsOffset) => {
+)((images, sampler, s, uv, layer, dx, dy) => {
     "use gpu";
-    const settingsHeight = d.i32(std.textureDimensions(settings).y);
-    const s = d.vec4u(
-        std.round(
-            std.mul(
-                std.textureLoad(
-                    settings,
-                    d.vec2i(0, std.min(layer + settingsOffset, settingsHeight - 1)),
-                    0,
-                ),
-                255,
-            ),
-        ),
-    );
     // s.w packs the min filter (bit 0) with the mipmap filter (bit 1); the shared sampler is all linear.
     if (s.x === 0 && s.y === 0 && s.z === 1 && s.w === 3) {
         return std.textureSampleGrad(images, sampler, uv, layer, dx, dy);
@@ -118,11 +98,75 @@ export const sampleImageAt = tgpu.fn(
     return std.mix(finer, coarser, std.fract(clamped));
 });
 
+// Address texel taps, not just UVs: repeat's linear footprint straddles the opposite edges.
+// Derivatives precede addressing so wrap boundaries cannot spuriously select coarser mips.
+/**
+ * @internal Shared fragment sampling for the built-in image consumers; dx/dy are unwrapped UV
+ * derivatives. settingsOffset selects the array's first sampler-settings row. Level of detail is
+ * isotropic, from the larger footprint axis, as with anisotropy 1.
+ */
+export const sampleImageAt = tgpu.fn(
+    [
+        d.texture2dArray(),
+        d.texture2dArray(),
+        d.texture2dArray(),
+        d.sampler(),
+        d.texture2d(),
+        d.vec2f,
+        d.i32,
+        d.vec2f,
+        d.vec2f,
+        d.i32,
+    ],
+    d.vec4f,
+)((images, images1024, images2048, sampler, settings, uv, layer, dx, dy, settingsOffset) => {
+    "use gpu";
+    const settingsHeight = d.i32(std.textureDimensions(settings).y);
+    const lastRow = settingsHeight - std.select(1, 2, std.textureDimensions(settings).x > 1);
+    const s = d.vec4u(
+        std.round(
+            std.mul(
+                std.textureLoad(settings, d.vec2i(0, std.min(layer + settingsOffset, lastRow)), 0),
+                255,
+            ),
+        ),
+    );
+    let location = d.vec4u(0);
+    if (std.textureDimensions(settings).x > 1) {
+        location = d.vec4u(
+            std.round(
+                std.mul(
+                    std.textureLoad(
+                        settings,
+                        d.vec2i(1, std.min(layer + settingsOffset, lastRow)),
+                        0,
+                    ),
+                    255,
+                ),
+            ),
+        );
+    }
+    const selectedLayer = std.select(layer, d.i32(location.y | (location.z << 8)), location.x > 0);
+    if (location.x === 2) return sampleBand(images1024, sampler, s, uv, selectedLayer, dx, dy);
+    if (location.x === 3) return sampleBand(images2048, sampler, s, uv, selectedLayer, dx, dy);
+    return sampleBand(images, sampler, s, uv, selectedLayer, dx, dy);
+});
+
 /** Sample a color image, whose sampler settings begin at row zero. */
 export const sampleImage = tgpu.fn(
-    [d.texture2dArray(), d.sampler(), d.texture2d(), d.vec2f, d.i32, d.vec2f, d.vec2f],
+    [
+        d.texture2dArray(),
+        d.texture2dArray(),
+        d.texture2dArray(),
+        d.sampler(),
+        d.texture2d(),
+        d.vec2f,
+        d.i32,
+        d.vec2f,
+        d.vec2f,
+    ],
     d.vec4f,
-)((images, sampler, settings, uv, layer, dx, dy) => {
+)((images, images1024, images2048, sampler, settings, uv, layer, dx, dy) => {
     "use gpu";
-    return sampleImageAt(images, sampler, settings, uv, layer, dx, dy, 0);
+    return sampleImageAt(images, images1024, images2048, sampler, settings, uv, layer, dx, dy, 0);
 });

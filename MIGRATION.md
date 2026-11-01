@@ -12,11 +12,17 @@ Register normal, metallic-roughness and occlusion images with `registerImage(wor
 
 Each texture also accepts its own `baseColorTransform`, `normalMapTransform`, `metallicRoughnessTransform`, `occlusionTransform` or `emissiveTransform`: `{ offset, rotation, scale }`, with identity defaults. Coordinates are scaled, rotated counter-clockwise in radians around the origin, then offset, after selecting the channel.
 
-Use `StandardMaterial()` to fill new row fields. Hand-built `StandardMaterialInput` rows write `-1` for absent texture ids, `0` for all channels, and `1` for `normalMapScale` and `occlusionStrength`. Each transform row writes scalar `offsetX`, `offsetY` and `rotation` as `0`, and `scaleX` and `scaleY` as `1` for identity. Recompute row strides and binding numbers from their schemas. `ImageBindings` gains `dataImages`; custom replacements supply a linear `rgba8unorm` array alongside the existing sRGB `images`. Data-image sampler settings follow the color array's layer count in `imageSettings`.
+Use `StandardMaterial()` to fill new row fields. Hand-built `StandardMaterialInput` rows write `-1` for absent texture ids, `0` for all channels, and `1` for `normalMapScale` and `occlusionStrength`. Each transform row writes scalar `offsetX`, `offsetY` and `rotation` as `0`, and `scaleX` and `scaleY` as `1` for identity. Recompute row strides and binding numbers from their schemas. `ImageBindings` gains `dataImages`; custom replacements supply a linear `rgba8unorm` array alongside the existing sRGB `images`. Data-image sampler settings follow the color registration count (at least one row) in `imageSettings`.
 
 Fragment contexts gain `rawWorldNormal`, the unnormalized interpolated world normal (Bevy's `PbrInput.world_normal`). `worldNormal` remains normalized (Bevy's `N`). Use the raw normal with the interpolated tangent for a MikkTSpace normal-map basis, normalizing only the mapped result. Both values come from the existing normal varying.
 
 The glTF importer now maps these textures, their UV sets, normal scale and occlusion strength, and applies vertex color instead of reporting the textures unsupported. It maps `KHR_texture_transform` independently on every texture, including the extension's `texCoord` override. UV sets above 1 remain reported by name.
+
+## Custom shaders bind size-class image arrays
+
+Ordinary app code and `registerImage` ids are unchanged. `ImageBindings.images` and `dataImages` now hold images whose decoded largest side is at most 512 pixels. Bind `images1024` and `dataImages1024` for sides above 512 through 1024, and `images2048` and `dataImages2048` for larger sources, capped at 2048.
+
+Custom shaders call `sampleImage(images, images1024, images2048, sampler, settings, uv, id, dx, dy)` or `sampleImageAt(images, images1024, images2048, sampler, settings, uv, id, dx, dy, settingsOffset)`, passing all three arrays for the image's color or data role. `imageSettings` now has two `rgba8unorm` texels per row: sampler bytes, then `(band + 1, layerLow, layerHigh, 0)`. Its final row's second texel holds the color-row count in its first two bytes, low byte first. Decode those bytes for data sampling's `settingsOffset`, instead of `textureNumLayers(images)`. A missing or zero location texel selects the first array at `layer = id` for custom replacement textures.
 
 ## Captures use the rendered target's own size
 

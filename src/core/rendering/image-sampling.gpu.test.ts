@@ -72,7 +72,17 @@ const fragment = tgpu.fragmentFn({ in: { pos: d.builtin.position }, out: d.vec4f
     if (tile.y !== 0) {
         return std.textureSampleGrad(layout.$.images, layout.$.reference, uv, layer, dx, dy);
     }
-    return sampleImage(layout.$.images, layout.$.sampler, layout.$.settings, uv, layer, dx, dy);
+    return sampleImage(
+        layout.$.images,
+        layout.$.images,
+        layout.$.images,
+        layout.$.sampler,
+        layout.$.settings,
+        uv,
+        layer,
+        dx,
+        dy,
+    );
 });
 const pipelineKey = {
     create: (world: World) =>
