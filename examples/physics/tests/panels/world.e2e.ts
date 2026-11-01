@@ -53,8 +53,7 @@ for (const width of [1280, 390])
         }
         await expect(panel.getByLabel("Result", { exact: true })).toHaveCount(0);
         await page.evaluate(() => {
-            const step = (window as unknown as { controlsKey(): number }).controlsKey;
-            for (let i = 0; i < 300; i++) step();
+            (window as unknown as { controlsTicks(ticks: number): void }).controlsTicks(300);
         });
         await expect(panel.getByLabel("Result", { exact: true })).toHaveText("failed!");
     });

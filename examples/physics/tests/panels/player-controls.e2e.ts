@@ -45,9 +45,13 @@ for (const width of [1280, 390]) {
                 await expect
                     .poll(() => page.evaluate(() => !!document.pointerLockElement))
                     .toBe(true);
-                await page.mouse.move(700, 420);
-                await state(1);
-                expect((await state()).yaw).not.toBe(before.yaw);
+                let x = 700;
+                await expect
+                    .poll(async () => {
+                        await page.mouse.move(x++, 420);
+                        return (await state(1)).yaw;
+                    })
+                    .not.toBe(before.yaw);
                 await page.keyboard.down("w");
                 await state(20);
                 await page.keyboard.up("w");

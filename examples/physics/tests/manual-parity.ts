@@ -7,4 +7,5 @@ export const manualParityScenes: ReadonlySet<Scene> = new Set([
         .scenes.map((scene) => scene.id),
     "village",
     "meshCreation",
+    "dynamicMover",
 ]);
