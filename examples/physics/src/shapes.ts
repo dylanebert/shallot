@@ -24,6 +24,7 @@ import {
 } from "@dylanebert/shallot/standard/physics";
 import conveyorData from "./conveyor.json" with { type: "json" };
 import { decodeMesh } from "./mesh-data";
+import { RestitutionPlugin } from "./restitution";
 import type { Controls } from "./scenes";
 
 const conveyor = decodeMesh(conveyorData);
@@ -324,7 +325,7 @@ const ShapeControlsPlugin: Plugin = {
 };
 export const ShapesSamplePlugin: Plugin = {
     name: "ShapesSample",
-    dependencies: [StandardPhysicsPlugin, ShapeControlsPlugin],
+    dependencies: [StandardPhysicsPlugin, ShapeControlsPlugin, RestitutionPlugin],
     systems: [AfterShapes],
     recovery: recoverResource(WindState),
 };

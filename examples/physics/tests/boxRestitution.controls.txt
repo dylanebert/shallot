@@ -1,0 +1,4 @@
+120	Restitution	0.4
+240	Spin	1
+360	Reset	1
+480	Spin	2

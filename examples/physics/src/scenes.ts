@@ -34,6 +34,7 @@ import { HeightFieldState } from "./mesh-height-field";
 import { MeshCreationState, MeshInspectorState } from "./mesh-inspector";
 import { PrecessionState } from "./precession";
 import { RagdollState, ragdollScenes } from "./ragdoll";
+import { restitutionScenes } from "./restitution";
 import { RigidBodyState, rigidBodyScene } from "./rigid-body";
 import { RobustnessState, robustnessScenes } from "./robustness";
 import { MotorizedJoint } from "./roles";
@@ -62,6 +63,7 @@ export type Scene =
     | keyof typeof ragdollScenes
     | keyof typeof meshScenes
     | keyof typeof compoundScenes
+    | keyof typeof restitutionScenes
     | keyof typeof continuousScenes
     | keyof typeof eventScenes
     | keyof typeof benchmarkScenes
@@ -265,7 +267,18 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
     },
     {
         name: "Restitution",
-        scenes: [{ id: "restitution", name: "Varying" }],
+        scenes: [
+            { id: "bounceImpulse", name: "Bounce Impulse" },
+            { id: "boxRestitution", name: "Box Restitution" },
+            { id: "restitutionPropagation", name: "Restitution Propagation" },
+            { id: "rotatedBoxRestitution", name: "Rotated Box Restitution" },
+            { id: "singleBoxRestitution", name: "Single Box Restitution" },
+            { id: "singleSphereRestitution", name: "Single Sphere Restitution" },
+            { id: "sphereRestitution", name: "Sphere Restitution" },
+            { id: "sphereStackRestitution", name: "Sphere Stack Restitution" },
+            { id: "twoBoxRestitution", name: "Two Box Restitution" },
+            { id: "restitution", name: "Varying" },
+        ],
     },
     {
         name: "Shapes",
@@ -411,6 +424,7 @@ export const scenes = {
     ...meshScenes,
     village: villageScene,
     ...continuousScenes,
+    ...restitutionScenes,
     ...bodyScenes,
     ...eventScenes,
     ...benchmarkScenes,

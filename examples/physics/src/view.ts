@@ -76,6 +76,8 @@ import {
     shapeRole,
 } from "./presentation";
 import { castHeightField } from "./queries";
+import { restitutionScenes } from "./restitution";
+import { restitutionLines } from "./restitution-presentation";
 import { RigidBodyState } from "./rigid-body";
 import { type Scene, scenes } from "./scenes";
 import { drawTreeBenchmark, treeGroundHeight } from "./tree-presentation";
@@ -637,6 +639,9 @@ function createView(world: World, scene: Scene, camera: number): () => void {
                     drawLine(world, a, b, color, options),
                 );
             }
+            if (scene in restitutionScenes)
+                for (const { a, b } of restitutionLines(world))
+                    drawLine(world, a, b, 0xeee9df, { width: 1, depthBias: -1 });
             if (scene === "safetyFactor") {
                 const y = -world.resource(ContinuousState).safetyOverlap;
                 drawLine(world, [-3, y, 0], [3, y, 0], 0xeee9df, { width: 1, depthBias: -1 });

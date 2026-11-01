@@ -394,6 +394,15 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
             } else expect(presentation.ground).toBeUndefined();
             const extent = {
                 safetyFactor: 20,
+                bounceImpulse: 40,
+                boxRestitution: 40,
+                restitutionPropagation: 40,
+                rotatedBoxRestitution: 25,
+                singleBoxRestitution: 4,
+                singleSphereRestitution: 4,
+                sphereRestitution: 20,
+                sphereStackRestitution: 40,
+                twoBoxRestitution: 10,
                 treeBenchmark: 200,
                 fallingRagdolls: 15,
                 wavePile: 10,

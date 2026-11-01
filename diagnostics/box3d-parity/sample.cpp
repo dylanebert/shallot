@@ -517,7 +517,7 @@ int main( int argc, char** argv )
         { "inclinedPlane", InclinedPlane::Create }, { "rollingResistance", RollingResistance::Create },
         { "highResistance", HighResistance::Create }, { "isotropicFriction", IsotropicFriction::Create },
         { "slideTwist", SlideTwist::Create }, { "conveyorBelt", ConveyorBelt::Create },
-        { "restitution", VaryingRestitution::Create }, { "staticInvoke", StaticInvoke::Create }, { "wind", Wind::Create },
+        { "restitution", VaryingRestitution::Create }, { "singleBoxRestitution", SingleBoxRestitution::Create }, { "singleSphereRestitution", SingleSphereRestitution::Create }, { "sphereStackRestitution", SphereStackRestitution::Create }, { "restitutionPropagation", RestitutionPropagation::Create }, { "boxRestitution", BoxRestitution::Create }, { "rotatedBoxRestitution", RotatedBoxRestitution::Create }, { "twoBoxRestitution", TwoBoxRestitution::Create }, { "sphereRestitution", SphereRestitution::Create }, { "bounceImpulse", BounceImpulse::Create }, { "staticInvoke", StaticInvoke::Create }, { "wind", Wind::Create },
         { "conveyorMesh", ConveyorMesh::Create }, { "windDrop", WindDrop::Create }, { "windFlap", WindFlap::Create },
         { "dynamicMover", DynamicSample::DynamicMoverSample::Create },
         { "rigidBody", RigidBodyCharacter::Create }, { "geometricMover", GeometricMoverSample::Create }, { "capsulePlane", CapsulePlane::Create }, { "moverOverlap", MoverOverlap::Create },
@@ -648,6 +648,8 @@ int main( int argc, char** argv )
     if (getenv("TREE_RECORDS")) assert(treeRecords && !strcmp(argv[1], "treeBenchmark"));
     FILE* issueReadouts = getenv("ISSUE_READOUTS") ? fopen(getenv("ISSUE_READOUTS"), "w") : nullptr;
     if (getenv("ISSUE_READOUTS")) assert(issueReadouts && (!strcmp(argv[1], "ghostCollisions") || !strcmp(argv[1], "restitutionOvershoot")));
+    FILE* restitutionReadouts = getenv("RESTITUTION_READOUTS") ? fopen(getenv("RESTITUTION_READOUTS"), "w") : nullptr;
+    if (getenv("RESTITUTION_READOUTS")) assert(restitutionReadouts && (!strcmp(argv[1], "bounceImpulse") || !strcmp(argv[1], "restitutionPropagation")));
     FILE* safetyReadouts = getenv("SAFETY_READOUTS") ? fopen(getenv("SAFETY_READOUTS"), "w") : nullptr;
     if (getenv("SAFETY_READOUTS")) assert(safetyReadouts && !strcmp(argv[1], "safetyFactor"));
     FILE* worldReadouts = getenv("WORLD_READOUTS") ? fopen(getenv("WORLD_READOUTS"), "w") : nullptr;
@@ -738,6 +740,15 @@ int main( int argc, char** argv )
                 fprintf(geometryRecords,"]\n");
             }
         } else sample->Step();
+        if (restitutionReadouts) {
+            if (!strcmp(argv[1], "bounceImpulse")) {
+                auto* s = static_cast<BounceImpulse*>(sample);
+                fprintf(restitutionReadouts, "[%.9g,%.9g,%.9g,%.9g,%d,%d,%d]\n", s->m_mass, s->m_approachSpeed, s->m_totalImpulse, s->m_expectedImpulse, s->m_contactSteps, s->m_hit, s->m_bouncing);
+            } else {
+                auto* s = static_cast<RestitutionPropagation*>(sample);
+                fprintf(restitutionReadouts, "[%.9g,%.9g,%.9g,%d,%d,%d,%d,%d,%d]\n", s->m_apex[0], s->m_apex[1], s->m_apex[2], s->m_rebounding[0], s->m_rebounding[1], s->m_rebounding[2], s->m_done[0], s->m_done[1], s->m_done[2]);
+            }
+        }
         if (safetyReadouts) fprintf(safetyReadouts, "%.9g\n", static_cast<SafetyFactor*>(sample)->m_overlap);
         if (treeRecords) RecordTree(static_cast<TreeSample::TreeBenchmark*>(sample), treeRecords);
         if (treeBounds) RecordTreeBounds(static_cast<TreeSample::TreeBenchmark*>(sample), treeBounds);
@@ -877,6 +888,7 @@ int main( int argc, char** argv )
     if (robustnessReadouts) fclose(robustnessReadouts);
     if (worldReadouts) fclose(worldReadouts);
     if (safetyReadouts) fclose(safetyReadouts);
+    if (restitutionReadouts) fclose(restitutionReadouts);
     if (issueReadouts) fclose(issueReadouts);
     if (treeBounds) fclose(treeBounds);
     if (treeRecords) fclose(treeRecords);

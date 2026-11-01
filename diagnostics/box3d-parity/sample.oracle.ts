@@ -822,15 +822,40 @@ const continuousMutations: Record<string, [string, string, string]> = {
     stall: ["Stall", "600.0f", "590.0f"],
     safetyFactor: ["SafetyFactor", "m_height = 0.3f;", "m_height = 0.4f;"],
 };
-for (const [scene, [name, before, after]] of Object.entries(continuousMutations)) {
-    test(`${scene}: Continuous sample repeats its gold and rejects a source mutation`, () => {
+for (const scene of ["bounceImpulse", "restitutionPropagation"]) test(`${scene} native readouts repeat their default and controlled records`, () => {
+    const directory = mkdtempSync(join(tmpdir(), "shallot-restitution-readouts-"));
+    try {
+        const output = join(directory, "readouts.txt");
+        for (const controlled of [false, true]) {
+            const stem = `${scene}${controlled ? ".controls" : ""}`;
+            const expected = readFileSync(new URL(`../../examples/physics/tests/${stem}.readouts.gold.txt`, import.meta.url), "utf8");
+            for (let repeat = 0; repeat < 2; repeat++) {
+                run([sampleBinary(), scene, "600", ...(controlled ? [fileURLToPath(new URL(`../../examples/physics/tests/${scene}.controls.txt`, import.meta.url))] : [])], { RESTITUTION_READOUTS: output });
+                expect(readFileSync(output, "utf8")).toBe(expected);
+            }
+        }
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+const restitutionMutations: Record<string, [string, string, string]> = {
+    singleBoxRestitution: ["SingleBoxRestitution", "m_height = 5.0f;", "m_height = 6.0f;"],
+    singleSphereRestitution: ["SingleSphereRestitution", "{ 0.0f, 10.0f, 0.0f }", "{ 0.0f, 11.0f, 0.0f }"],
+    sphereStackRestitution: ["SphereStackRestitution", "m_impactSpeed = 5.0f;", "m_impactSpeed = 6.0f;"],
+    restitutionPropagation: ["RestitutionPropagation", "m_dropHeight = 5.0f;", "m_dropHeight = 6.0f;"],
+    boxRestitution: ["BoxRestitution", "m_impactSpeed = 5.0f;", "m_impactSpeed = 6.0f;"],
+    rotatedBoxRestitution: ["RotatedBoxRestitution", "m_dropHeight = 10.0f;", "m_dropHeight = 11.0f;"],
+    twoBoxRestitution: ["TwoBoxRestitution", "position.y = 6.0f;", "position.y = 7.0f;"],
+    sphereRestitution: ["SphereRestitution", "{ x, 1.0f, 0.0f }", "{ x, 1.1f, 0.0f }"],
+    bounceImpulse: ["BounceImpulse", "m_dropHeight = 20.0f;", "m_dropHeight = 21.0f;"],
+};
+for (const [scene, [name, before, after]] of [...Object.entries(continuousMutations), ...Object.entries(restitutionMutations)]) {
+    test(`${scene}: ${scene in restitutionMutations ? "Restitution" : "Continuous"} sample repeats its gold and rejects a source mutation`, () => {
         const start = performance.now();
         const binary = sampleBinary();
         const hashes = run([binary, scene, "600"]);
         equalSampleSteps(run([binary, scene, "600"]), hashes, `${scene} repeat`);
         equalSampleSteps(hashes, readFileSync(new URL(`../../examples/physics/tests/${scene}.gold.txt`, import.meta.url), "utf8"), scene);
         expect(hashes.trimEnd().split("\n")).toHaveLength(600);
-        if (["stall", "bulletVersusStack", "meshDrop", "safetyFactor"].includes(scene)) {
+        if (["stall", "bulletVersusStack", "meshDrop", "safetyFactor", "boxRestitution", "rotatedBoxRestitution", "sphereStackRestitution", "restitutionPropagation", "bounceImpulse"].includes(scene)) {
             const sequence = fileURLToPath(new URL(`../../examples/physics/tests/${scene}.controls.txt`, import.meta.url));
             const env: Record<string, string> = scene === "meshDrop" ? { SAMPLE_DISABLE_SLEEP: "1" } : {};
             const controlled = run([binary, scene, "600", sequence], env);
@@ -857,7 +882,7 @@ for (const [scene, [name, before, after]] of Object.entries(continuousMutations)
             copyFileSync(join(process.env.BOX3D!, "samples/sample_geometry.cpp"), join(copy, "samples/sample_geometry.cpp"));
             copyFileSync(join(process.env.BOX3D!, "samples/sample_manifold.cpp"), join(copy, "samples/sample_manifold.cpp"));
             copyRobustnessSources(copy);
-            const path = join(copy, "samples/sample_continuous.cpp");
+            const path = join(copy, "samples", scene in restitutionMutations ? "sample_restitution.cpp" : "sample_continuous.cpp");
             const source = readFileSync(path, "utf8");
             const offset = source.indexOf(`class ${name} :`);
             expect(offset).toBeGreaterThan(0);

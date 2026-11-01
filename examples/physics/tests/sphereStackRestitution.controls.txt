@@ -1,0 +1,5 @@
+100	Restitution	0.5
+200	Stack	3
+300	Gravity	1
+400	Reset	1
+500	Stack	0

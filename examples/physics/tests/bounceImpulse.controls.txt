@@ -1,0 +1,5 @@
+120	Restitution	0.9
+240	Height	5
+360	Reset	1
+480	Restitution	0
+540	Height	0.5

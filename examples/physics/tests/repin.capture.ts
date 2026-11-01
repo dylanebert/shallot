@@ -9,6 +9,15 @@ for (const width of [1280, 390])
         "spinner",
         "benchmarkMeshDrop",
         "benchmarkVillage",
+        "bounceImpulse",
+        "boxRestitution",
+        "restitutionPropagation",
+        "rotatedBoxRestitution",
+        "singleBoxRestitution",
+        "singleSphereRestitution",
+        "sphereRestitution",
+        "sphereStackRestitution",
+        "twoBoxRestitution",
     ])
         test(`${scene} re-pin look at ${width}`, async ({ browser }, info) => {
             const context = await browser.newContext({

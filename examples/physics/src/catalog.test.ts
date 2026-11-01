@@ -193,7 +193,18 @@ test("each picker label selects its scene in its category, exactly once", () => 
         },
         {
             name: "Restitution",
-            scenes: [{ id: "restitution", name: "Varying" }],
+            scenes: [
+                { id: "bounceImpulse", name: "Bounce Impulse" },
+                { id: "boxRestitution", name: "Box Restitution" },
+                { id: "restitutionPropagation", name: "Restitution Propagation" },
+                { id: "rotatedBoxRestitution", name: "Rotated Box Restitution" },
+                { id: "singleBoxRestitution", name: "Single Box Restitution" },
+                { id: "singleSphereRestitution", name: "Single Sphere Restitution" },
+                { id: "sphereRestitution", name: "Sphere Restitution" },
+                { id: "sphereStackRestitution", name: "Sphere Stack Restitution" },
+                { id: "twoBoxRestitution", name: "Two Box Restitution" },
+                { id: "restitution", name: "Varying" },
+            ],
         },
         {
             name: "Shapes",

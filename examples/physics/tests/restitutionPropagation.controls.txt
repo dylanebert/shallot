@@ -1,0 +1,2 @@
+200	Restitution	0.5
+400	Reset	1

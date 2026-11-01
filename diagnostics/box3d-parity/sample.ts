@@ -84,7 +84,7 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         section(continuous, "struct IndexPair", "static int sampleMeshDrop"),
         "#undef printf",
         ...["InclinedPlane", "RollingResistance", "HighResistance", "IsotropicFriction", "SlideTwist", "StaticInvoke", "Wind", "ConveyorBelt", "ConveyorMesh", "WindDrop", "WindFlap"].map(name => section(shapes, `class ${name} :`, `static int sample${name}`)),
-        section(restitution, "class VaryingRestitution :", "static int sampleVaryingRestitution"),
+        ...["VaryingRestitution", "SingleBoxRestitution", "SingleSphereRestitution", "SphereStackRestitution", "RestitutionPropagation", "BoxRestitution", "RotatedBoxRestitution", "TwoBoxRestitution", "SphereRestitution", "BounceImpulse"].map(name => section(restitution, `class ${name} :`, `static int sample${name}`)),
         ...[["SpinningCapsule", "sampleSpinningCapsule"], ["ClassRing", "sampleClassRing"], ["BodyCast", "sampleBodyCast"], ["GyroscopicPrecession", "sampleGyroscopicPrecession"], ["BodyType", "sampleBodyType"], ["Weeble", "sampleWeeble"], ["DisableBody", "sampleDisable"], ["SpinningBooks", "sampleBook"], ["GyroscopicTorque", "sampleGyroscopicTorque"], ["Kinematic", "sampleKinematic"], ["LockMixing", "sampleLockMixing"], ["FixedRotation", "sampleFixedRotation"], ["OffsetKinematic", "sampleOffsetKinematic"]].map(([name, end]) => section(bodies, `class ${name} :`, `static int ${end}`)),
         section(benchmark, "class BenchmarkSleep :", "static int benchmarkSleep"),
         section(benchmark, "class BenchmarkSpinner :", "static int benchmarkSpinner"),

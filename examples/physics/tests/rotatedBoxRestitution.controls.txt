@@ -1,0 +1,5 @@
+100	Restitution	1
+200	Friction	0.3
+300	Safety Factor	0.01
+400	Reset	1
+500	Restitution	0.4
