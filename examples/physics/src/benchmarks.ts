@@ -888,8 +888,8 @@ export const benchmarkScenes = {
         construct: sleep,
         iterationComplete: (world: World) => world.resource(BenchmarkSample).sleepComplete,
         gridExtent: 128,
-        gridSpacing: 8,
-        camera: { yaw: 0, pitch: 20, distance: 260, phoneDistance: 500, target: [0, 5, 0] },
+        gridSpacing: 4,
+        camera: { yaw: 0, pitch: 35, distance: 260, phoneDistance: 420, target: [0, 5, 0] },
         controls: undefined,
     },
     largeWorld: {
