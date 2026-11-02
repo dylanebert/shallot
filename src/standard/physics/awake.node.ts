@@ -1,5 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { expectWarning } from "../../../scripts/test-console";
 import { Body, BodyType, Shape, ShapeKind, Sleeping } from "../../core/physics";
 import { Transform } from "../../core/transform";
 import { createApp } from "../../engine";
@@ -85,10 +86,12 @@ test("Sleeping follows natural sleep, contact wake and restored solver state at 
         world.resource(PhysicsWorldDefinition).gravity = { x: 0, y: 0, z: 0 };
         const body = world.create();
         world.add(body, Body, { type: BodyType.Dynamic });
-        world.add(body, Shape, { kind: ShapeKind.Sphere, radius: 0.5 });
+        const shape = world.create();
+        world.add(shape, Shape, { body, kind: ShapeKind.Sphere, radius: 0.5 });
         for (let i = 0; i < 120; i++) world.tick();
         expect(isAwake(world, body)).toBe(false);
         expect(world.has(body, Sleeping)).toBe(true);
+        expect(world.has(shape, Sleeping)).toBe(true);
         const saved = world.snapshot();
         const other = world.create();
         world.add(other, Transform, { translation: [-2, 0, 0] });
@@ -99,6 +102,7 @@ test("Sleeping follows natural sleep, contact wake and restored solver state at 
         for (let i = 0; i < 20; i++) world.tick();
         expect(isAwake(world, body)).toBe(true);
         expect(world.has(body, Sleeping)).toBe(false);
+        expect(world.has(shape, Sleeping)).toBe(false);
         world.restore(saved);
         expect(world.has(body, Sleeping)).toBe(true);
         world.tick();
@@ -109,8 +113,62 @@ test("Sleeping follows natural sleep, contact wake and restored solver state at 
         expect(world.has(body, Sleeping)).toBe(false);
         world.restore(pending);
         expect(world.has(body, Sleeping)).toBe(true);
+        expect(world.has(shape, Sleeping)).toBe(true);
         world.tick();
         expect(world.has(body, Sleeping)).toBe(false);
+        expect(world.has(shape, Sleeping)).toBe(false);
+    } finally {
+        app.dispose();
+    }
+});
+
+test("attached shapes inherit sleep through attachment, wake, rebinding, detachment, destruction and restore", async () => {
+    const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
+    try {
+        const world = app.world;
+        world.resource(PhysicsWorldDefinition).gravity = { x: 0, y: 0, z: 0 };
+        const body = world.create();
+        world.add(body, Body, { type: BodyType.Dynamic });
+        const awake = world.create();
+        world.add(awake, Body, { type: BodyType.Dynamic });
+        world.tick();
+        setAwake(world, body, false);
+        world.tick();
+        const shape = world.create();
+        world.add(shape, Shape, { body, kind: ShapeKind.Sphere, radius: 0.5 });
+        world.tick();
+        expect(world.has(body, Sleeping)).toBe(true);
+        expect(world.has(shape, Sleeping)).toBe(true);
+        const saved = world.snapshot();
+        setAwake(world, body, true);
+        world.tick();
+        expect(world.has(shape, Sleeping)).toBe(false);
+        setAwake(world, body, false);
+        world.tick();
+        expect(world.has(shape, Sleeping)).toBe(true);
+        world.storage(Shape).body.set(shape, awake);
+        world.tick();
+        expect(world.has(shape, Sleeping)).toBe(false);
+        world.storage(Shape).body.set(shape, body);
+        world.tick();
+        expect(world.has(shape, Sleeping)).toBe(true);
+        world.storage(Shape).body.set(shape, 0);
+        world.tick();
+        expect(world.has(shape, Sleeping)).toBe(false);
+        world.restore(saved);
+        expect(world.has(shape, Sleeping)).toBe(true);
+        world.tick();
+        expect(world.has(shape, Sleeping)).toBe(true);
+        setAwake(world, body, true);
+        world.tick();
+        expect(world.has(shape, Sleeping)).toBe(false);
+        setAwake(world, body, false);
+        world.tick();
+        expect(world.has(shape, Sleeping)).toBe(true);
+        world.destroy(body);
+        expectWarning(/body reference is no longer valid/);
+        world.tick();
+        expect(world.has(shape, Sleeping)).toBe(false);
     } finally {
         app.dispose();
     }

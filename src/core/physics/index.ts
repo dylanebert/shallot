@@ -133,7 +133,11 @@ export const Body = component(
     },
 );
 
-/** Derived sleep state, published by physics at fixed synchronization. Never author this marker. Static bodies never hold it. */
+/**
+ * Derived sleep state, published by physics at fixed synchronization. Never author this marker.
+ * Static bodies never hold it. A shape attached to another bound body holds it exactly when
+ * that body does; detachment, rebinding and body destruction release the inherited marker.
+ */
 export const Sleeping = component("Sleeping", {});
 
 const components = [

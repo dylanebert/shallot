@@ -211,6 +211,7 @@ interface PhysicsRuntime {
     /** Each attached shape's body eid. */
     shapeBodies: EidColumn;
     attachedShapes: Map<number, number>;
+    sleepingAttachments: Map<number, Set<number>>;
     shapeDependencies: BodyDependencies;
     contactData: ContactDataBuffer;
     sensorData: PhysicsSensorData;
@@ -295,6 +296,7 @@ function newRuntime(): PhysicsRuntime {
         shapes: new Map(),
         shapeBodies: new EidColumn(),
         attachedShapes: new Map(),
+        sleepingAttachments: new Map(),
         shapeDependencies: new BodyDependencies(),
         contactData: new ContactDataBuffer(),
         sensorData: { shapes: [], count: 0 },
@@ -2601,8 +2603,10 @@ function publishBodySleeping(world: World, runtime: PhysicsRuntime, eid: number)
     const state = runtime.physicsWorld;
     if (!body || !state) return;
     const sleeping = bodyField(state, body.index1 - 1, BodyField.setIndex) >= SetType.FirstSleeping;
-    if (sleeping && !world.has(eid, Sleeping)) world.add(eid, Sleeping);
-    else if (!sleeping && world.has(eid, Sleeping)) world.remove(eid, Sleeping);
+    if (sleeping === world.has(eid, Sleeping)) return;
+    publishSleepMarker(world, eid, sleeping);
+    for (const shape of runtime.sleepingAttachments.get(eid) ?? [])
+        publishSleepMarker(world, shape, sleeping);
 }
 
 function publishSleeping(world: World, runtime: PhysicsRuntime): void {
@@ -2617,16 +2621,32 @@ function publishSleeping(world: World, runtime: PhysicsRuntime): void {
         publishBodySleeping(world, runtime, eid);
 }
 
+function publishSleepMarker(world: World, eid: number, sleeping: boolean): void {
+    if (sleeping && !world.has(eid, Sleeping)) world.add(eid, Sleeping);
+    else if (!sleeping && world.has(eid, Sleeping)) world.remove(eid, Sleeping);
+}
+
 function bindAttachedShape(world: World, runtime: PhysicsRuntime, eid: number, body: number): void {
     if (runtime.attachedShapes.get(eid) === body) return;
+    releaseAttachedShape(world, runtime, eid);
     runtime.attachedShapes.set(eid, body);
+    let shapes = runtime.sleepingAttachments.get(body);
+    if (!shapes) runtime.sleepingAttachments.set(body, (shapes = new Set()));
+    shapes.add(eid);
+    publishSleepMarker(world, eid, world.has(body, Sleeping));
     if (!world.has(eid, GlobalTransform)) world.add(eid, GlobalTransform);
     claimTransformPose(world, eid, true);
     resetInterpolation(world, eid);
 }
 
 function releaseAttachedShape(world: World, runtime: PhysicsRuntime, eid: number): void {
-    if (!runtime.attachedShapes.delete(eid)) return;
+    const body = runtime.attachedShapes.get(eid);
+    if (body === undefined) return;
+    runtime.attachedShapes.delete(eid);
+    const shapes = runtime.sleepingAttachments.get(body)!;
+    shapes.delete(eid);
+    if (!shapes.size) runtime.sleepingAttachments.delete(body);
+    if (world.exists(eid)) publishSleepMarker(world, eid, false);
     releaseTransformPose(world, eid);
     if (runtime.bodies.has(eid)) claimTransformPose(world, eid);
     resetInterpolation(world, eid);
