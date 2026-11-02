@@ -13,6 +13,7 @@ export {
     ImageFilterMode,
     type ImageLoaderSettings,
     type ImageSamplerDescriptor,
+    resolveImage,
 } from "./image";
 export { sampleImage, sampleImageAt } from "./image-sampling";
 export {

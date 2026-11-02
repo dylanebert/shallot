@@ -9,7 +9,7 @@ import {
     type EffectPass,
     EffectPasses,
     fullscreenVertex,
-    ImageBindings,
+    resolveImage,
     TonemappingSystem,
     Views,
 } from "../../core/rendering";
@@ -306,14 +306,16 @@ export const EffectStackPlugin: Plugin = {
                     const lutId = ca ? a.colorLut.get(eid) : -1;
                     if (camera.lutId !== lutId) {
                         camera.lutId = lutId;
-                        camera.lut =
-                            lutId < 0
-                                ? state.defaultLut!
-                                : world.resource(ImageBindings).images.createView({
-                                      dimension: "2d",
-                                      baseArrayLayer: lutId,
-                                      arrayLayerCount: 1,
-                                  });
+                        if (lutId < 0) {
+                            camera.lut = state.defaultLut!;
+                        } else {
+                            const { texture, layer } = resolveImage(world, lutId);
+                            camera.lut = texture.createView({
+                                dimension: "2d",
+                                baseArrayLayer: layer,
+                                arrayLayerCount: 1,
+                            });
+                        }
                         camera.groups = new WeakMap();
                     }
                     let stack = effects.get(eid);

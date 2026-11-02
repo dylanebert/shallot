@@ -22,6 +22,36 @@ export const ImageBindings = {
     }),
 };
 
+const imageLocations = { create: () => [] as number[][][] };
+
+/**
+ * Resolve a registered id after warm to its world-owned texture and array layer. False isSrgb
+ * selects the independent data ids. An id without location metadata selects band zero at layer=id,
+ * including externally supplied ImageBindings arrays. The texture lives until world disposal.
+ */
+export function resolveImage(
+    world: World,
+    id: number,
+    settings: Pick<ImageLoaderSettings, "isSrgb"> = {},
+): { texture: GPUTexture; layer: number } {
+    const data = settings.isSrgb === false;
+    const location = world.resource(imageLocations)[data ? 1 : 0]?.[id];
+    const bindings = world.resource(ImageBindings);
+    const band = location?.[0] ?? 0;
+    const texture = data
+        ? band === 2
+            ? bindings.dataImages2048
+            : band === 1
+              ? bindings.dataImages1024
+              : bindings.dataImages
+        : band === 2
+          ? bindings.images2048
+          : band === 1
+            ? bindings.images1024
+            : bindings.images;
+    return { texture, layer: location?.[1] ?? id };
+}
+
 /** Addressing outside the image, matching Bevy's ImageAddressMode. */
 export const ImageAddressMode = { ClampToEdge: 0, Repeat: 1, MirrorRepeat: 2 } as const;
 export type ImageAddressMode = (typeof ImageAddressMode)[keyof typeof ImageAddressMode];
@@ -102,7 +132,8 @@ export async function warmImages(world: World): Promise<void> {
     const images = world.resource(Images);
     const dataImages = world.resource(DataImages);
     const device = world.gpu.device;
-    const locations: number[][][] = [];
+    const locations = world.resource(imageLocations);
+    locations.length = 0;
     const loadArray = async (
         images: ReturnType<typeof Images.create>,
         format: GPUTextureFormat,
@@ -129,7 +160,7 @@ export async function warmImages(world: World): Promise<void> {
             for (const bitmap of native) {
                 const side = Math.max(bitmap.width, bitmap.height);
                 const band = side > 1024 ? 2 : side > 512 ? 1 : 0;
-                rows.push([band + 1, bands[band].length]);
+                rows.push([band, bands[band].length]);
                 bands[band].push(bitmap);
             }
         }
@@ -183,7 +214,7 @@ export async function warmImages(world: World): Promise<void> {
                         sampler[0] | (sampler[1] << 2) | (sampler[2] << 4) | (sampler[3] << 5),
                         layer & 255,
                         layer >>> 8,
-                        128 | (band - 1),
+                        128 | band,
                     ],
                     row,
                 );
