@@ -14,8 +14,8 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { DynamicMover } from "../src/dynamic-mover";
 import { dynamicMoverDrawing } from "../src/dynamic-mover-presentation";
 import { DynamicMoverPlugin, DynamicMoverState } from "../src/dynamic-mover-scene";
-import { shapeRole } from "../src/presentation";
 import { changeControl, controlValues, createScene, scenes } from "../src/scenes";
+import { shapeRole } from "../src/shape-color";
 
 setDefaultTimeout(TIMEOUT.node);
 test("Dynamic Mover takes the sample's defaults and exposes its simulation controls without a camera toggle", async () => {

@@ -1,4 +1,5 @@
 import {
+    BaseColor,
     Content,
     component,
     Devices,
@@ -146,9 +147,8 @@ function activate(world: World, target: number): void {
         case Action.Hold: {
             usable.active.set(target, active);
             if (world.has(target, MeshMaterial)) {
-                const material = world.storage(MeshMaterial);
-                world.resource(Materials).update(material.material.get(target), {
-                    baseColor: active ? [0.72, 0.4, 0.05, 1] : [0.658, 0.301, 0.117, 1],
+                world.add(target, BaseColor, {
+                    color: active ? [0.72, 0.4, 0.05, 1] : [0.658, 0.301, 0.117, 1],
                 });
             }
             break;

@@ -16,6 +16,7 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { openGpuApp } from "@dylanebert/shallot/testing/gpu";
 import { EventSamplePlugin, SampleInputPlugin } from "../src/events";
 import { Grab, GrabPlugin } from "../src/grab";
+import { ShapeMaterialPlugin } from "../src/material";
 import { sceneSwitcher } from "../src/sample";
 import { categories } from "../src/scenes";
 import { createViewer, GrabFeedback } from "../src/view";
@@ -27,6 +28,7 @@ test("scene presentation releases old meshes, systems and grab feedback in the r
     const app = await openGpuApp({
         plugins: [
             StandardPhysicsPlugin,
+            ShapeMaterialPlugin,
             EventSamplePlugin,
             SampleInputPlugin,
             TextPlugin,

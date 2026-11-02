@@ -2,9 +2,10 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { createApp, hashPhysics, Shape, StandardPhysicsPlugin } from "@dylanebert/shallot";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { BenchmarkSamplePlugin } from "../src/benchmarks";
-import { shapeMaterial, shapePresentation } from "../src/presentation";
+import { shapePresentation } from "../src/presentation";
 import { createScene } from "../src/scenes";
 import { SensorSample } from "../src/sensor";
+import { shapeMaterial } from "../src/shape-color";
 
 setDefaultTimeout(TIMEOUT.node);
 

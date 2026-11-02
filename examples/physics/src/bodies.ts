@@ -37,6 +37,7 @@ import { CastPlugin, castScene } from "./cast";
 import { gyroscopicPrecession, PrecessionPlugin } from "./precession";
 import { SceneRestart } from "./scene-restart";
 import type { Controls } from "./scenes";
+import { refreshShapeColors } from "./shape-color";
 
 type V3 = [number, number, number];
 const f = Math.fround;
@@ -447,6 +448,7 @@ const bodyTypeControls = {
             }
             for (const i of [4, 5, 6]) setBodyType(world, bodies[i]!, value);
             world.resource(BodySampleState).type = value;
+            refreshShapeColors(world);
         },
     },
     Enable: {

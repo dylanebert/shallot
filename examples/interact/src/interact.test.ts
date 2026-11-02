@@ -1,10 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
 import {
+    BaseColor,
     Body,
     BodyType,
     Content,
     createApp,
     InputPlugin,
+    MeshMaterial,
     Outline,
     PointLight,
     pressKey,
@@ -244,18 +246,28 @@ test("a button returns out after one press instead of toggling its pose", async 
     expect(w.storage(Usable).active.get(target)).toBe(0);
 });
 
-test("a completed hold toggles active without moving its target", async () => {
+test("a completed hold toggles instance color without moving its target or changing its material", async () => {
     const { w, target, step } = await scene(Action.Hold);
+    const material = { material: 123, type: 0 };
+    w.add(target, MeshMaterial, material);
     const y = w.storage(Transform).translation.y.get(target);
     pressKey(w, "KeyE");
     step(60);
     expect(w.storage(Transform).translation.y.get(target)).toBe(y);
     expect(w.storage(Usable).active.get(target)).toBe(1);
+    expect(Array.from(w.get(target, BaseColor)!.color)).toEqual(
+        [0.72, 0.4, 0.05, 1].map(Math.fround),
+    );
+    expect(w.get(target, MeshMaterial)).toMatchObject(material);
     releaseKey(w, "KeyE");
     step();
     pressKey(w, "KeyE");
     step(60);
     expect(w.storage(Usable).active.get(target)).toBe(0);
+    expect(Array.from(w.get(target, BaseColor)!.color)).toEqual(
+        [0.658, 0.301, 0.117, 1].map(Math.fround),
+    );
+    expect(w.get(target, MeshMaterial)).toMatchObject(material);
     expect(w.storage(Transform).translation.y.get(target)).toBe(y);
 });
 

@@ -44,6 +44,7 @@ import {
 
 import type { EventMark } from "./event-presentation";
 import type { Controls } from "./scenes";
+import { setReaction } from "./shape-color";
 
 export const EventSample = {
     create: () => ({
@@ -134,7 +135,7 @@ const AfterSample: System = {
                 if (world.resolve(event.sensorShape) === sample.sensor) {
                     const visitor = world.resolve(event.visitorBody);
                     if (visitor) {
-                        sample.reactions.add(world.ref(sample.sensor));
+                        setReaction(world, sample.reactions, world.ref(sample.sensor));
                         world.destroy(visitor);
                     }
                     break;
@@ -148,7 +149,7 @@ const AfterSample: System = {
                     for (const kind of [DistanceJoint, PrismaticJoint, RevoluteJoint, WeldJoint]) {
                         if (world.has(joint, kind)) {
                             const body = world.storage(kind).b.get(joint);
-                            sample.reactions.add(world.ref(body));
+                            setReaction(world, sample.reactions, world.ref(body));
                         }
                     }
                     world.destroy(joint);
@@ -170,7 +171,7 @@ const AfterSample: System = {
             for (const ref of [event.bodyA, event.bodyB]) {
                 const body = world.resolve(ref);
                 if (body && world.storage(Body).type.get(body) === BodyType.Dynamic)
-                    sample.reactions.add(ref);
+                    setReaction(world, sample.reactions, ref);
             }
             if (sample.hits.length < 32) sample.hits.push(structuredClone(event));
         }
@@ -651,7 +652,7 @@ function attachDebris(world: World, index: number): void {
         });
     }
     sample.shapeRefs.push(world.ref(eid));
-    sample.reactions.add(world.ref(sample.player));
+    setReaction(world, sample.reactions, world.ref(sample.player));
     world.destroy(debris);
     sample.debris[index] = 0;
 }

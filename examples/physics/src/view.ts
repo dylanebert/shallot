@@ -1,5 +1,6 @@
 import {
     AlphaMode,
+    BaseColor,
     Camera,
     DirectionalLight,
     type EntityRef,
@@ -43,6 +44,7 @@ import {
     shapeMesh,
 } from "@dylanebert/shallot/standard/physics";
 import type { MaterialHandle } from "@dylanebert/shallot/standard/rendering";
+import * as d from "typegpu/data";
 import { benchmarkVillageDrawing } from "./benchmark-village";
 import { drawCastView } from "./cast-presentation";
 import { characterDrawing, drawCharacterView } from "./character-presentation";
@@ -71,22 +73,17 @@ import {
     manifoldDiagnosticDrawing,
 } from "./manifold-diagnostic-presentation";
 import { drawManifold, manifoldGeometry } from "./manifold-presentation";
+import { ShapeMaterial } from "./material";
 import { drawMeshViewerView } from "./mesh-inspector-presentation";
 import { drawPogoRay, pogoDrawing } from "./mover-presentation";
 import { mountPlayerControls } from "./player-controls";
-import {
-    drivenBodies,
-    type ShapeGeometryCache,
-    scenePresentation,
-    shapeMaterial,
-    shapePresentation,
-    shapeRole,
-} from "./presentation";
+import { type ShapeGeometryCache, scenePresentation, shapePresentation } from "./presentation";
 import { castHeightField } from "./queries";
 import { restitutionScenes } from "./restitution";
 import { restitutionLines } from "./restitution-presentation";
 import { RigidBodyState } from "./rigid-body";
 import { type Scene, scenes } from "./scenes";
+import { ShapeMaterials, shapeMaterial } from "./shape-color";
 import { drawTreeBenchmark, treeGroundHeight } from "./tree-presentation";
 import { VillageState } from "./village";
 import { drawVillageView } from "./village-presentation";
@@ -260,10 +257,18 @@ function createView(
     const presentation = scenePresentation(world, scene, geometry);
     const roles = {
         ground: materials.add(presentation.materials.ground),
-        subject: materials.add(presentation.materials.subject),
-        motorized: materials.add(presentation.materials.motorized),
-        sensor: materials.add(presentation.materials.sensor),
+        subject: world
+            .resource(ShapeMaterial)
+            .add({ ...presentation.materials.subject, restingColor: d.vec3f(0.52, 0.29, 0.065) }),
+        motorized: world
+            .resource(ShapeMaterial)
+            .add({ ...presentation.materials.motorized, restingColor: d.vec3f(0.055, 0.29, 0.35) }),
+        sensor: world
+            .resource(ShapeMaterial)
+            .add({ ...presentation.materials.sensor, restingColor: d.vec3f(0.055, 0.29, 0.35) }),
     };
+    for (const [role, handle] of Object.entries(roles))
+        world.resource(ShapeMaterials).set(role as keyof typeof roles, handle);
     const manifoldViews = manifoldGeometry(world).map((geometry, index) => {
         const eid = world.create();
         const mesh = world
@@ -327,12 +332,7 @@ function createView(
         });
     }
     const initial = new Map(presentation.shapes.map((shape) => [world.ref(shape.eid), shape]));
-    const stateMaterials = new Map(
-        Object.entries(roles).map(([role, handle]) => [
-            presentation.materials[role as keyof typeof roles],
-            handle,
-        ]),
-    );
+
     const aimedMoverMaterial = scene === "dynamicMover" ? moverMaterial : undefined;
     let moverOpacity = 1;
     if (aimedMoverMaterial) {
@@ -354,6 +354,8 @@ function createView(
                     ),
                 );
                 const blend = aimBlend * aimBlend * (3 - 2 * aimBlend);
+                const opacity = 1 - 0.7 * blend;
+                if (opacity === moverOpacity) return;
                 orbit.distance.set(camera, radius + blend * (Math.min(radius, 0.8) - radius));
                 orbit.pan.set(
                     camera,
@@ -361,28 +363,20 @@ function createView(
                     pivot[1] + blend * 0.75,
                     pivot[2] + blend * 0.6 * s.right.z,
                 );
-                moverOpacity = 1 - 0.7 * blend;
-                materials.update(aimedMoverMaterial, {
-                    baseColor: [0.04, 0.43, 0.53, moverOpacity],
-                });
+                moverOpacity = opacity;
+                for (const eid of world.query([Shape, BaseColor])) {
+                    if ((world.storage(Shape).body.get(eid) || eid) !== s.entity) continue;
+                    world.storage(BaseColor).color.w.set(eid, opacity);
+                    world.add(
+                        eid,
+                        MeshMaterial,
+                        opacity < 1 ? aimedMoverMaterial : roles.motorized,
+                    );
+                    if (world.has(eid, Gizmo))
+                        world.storage(Gizmo).opacity.set(eid, 0.45 * opacity);
+                }
             },
         });
-    }
-    function materialFor(role: keyof typeof roles, eid: number) {
-        if (
-            aimedMoverMaterial &&
-            (world.storage(Shape).body.get(eid) || eid) === world.resource(DynamicMoverState).entity
-        ) {
-            if (world.has(eid, Gizmo)) world.storage(Gizmo).opacity.set(eid, 0.45 * moverOpacity);
-            if (moverOpacity < 1) return aimedMoverMaterial;
-        }
-        const material = shapeMaterial(world, role, eid);
-        let handle = stateMaterials.get(material);
-        if (!handle) {
-            handle = materials.add(material);
-            stateMaterials.set(material, handle);
-        }
-        return handle;
     }
     const markerMesh = world.resource(Meshes).add({ name: "Grab point", ...sphere(0.5, 16, 12) });
     const markerMaterial = materials.add(
@@ -468,7 +462,6 @@ function createView(
     >();
     const meshKeys = new Map<MeshHandle, object>();
     const labels: number[] = [];
-    const drivenSet = new Set<number>();
     function updateShapes(world: World): void {
         let visible: Set<number> | undefined;
         if (scene === "largeWorld") {
@@ -545,24 +538,11 @@ function createView(
             }
         }
         const sample = world.resource(EventSample);
-        const driven = drivenBodies(world, drivenSet);
         for (const eid of visible ?? world.query([Shape])) {
             if (largeCompound(world, eid)) continue;
             const ref = world.ref(eid);
-            const role = shapeRole(world, eid, driven);
-            if (views.has(ref)) {
-                const handle = materialFor(role, eid);
-                const storage = world.storage(MeshMaterial);
-                if (
-                    storage.material.get(eid) !== handle.material ||
-                    storage.type.get(eid) !== handle.type
-                ) {
-                    storage.type.set(eid, handle.type);
-                    storage.material.set(eid, handle.material);
-                }
-            }
             if (views.has(ref) && meshes.has(views.get(ref)!)) continue;
-            const shape = initial.get(ref) ?? shapePresentation(world, eid, geometry, driven);
+            const shape = initial.get(ref) ?? shapePresentation(world, eid, geometry);
             initial.delete(ref);
             let asset = shared.get(shape.mesh);
             if (!asset) {
@@ -579,14 +559,24 @@ function createView(
             const mesh = asset.mesh;
             asset.users++;
             views.set(ref, mesh);
+            const opacity =
+                aimedMoverMaterial && shape.body === world.resource(DynamicMoverState).entity
+                    ? moverOpacity
+                    : 1;
             world.add(eid, Gizmo, {
                 handle: asset.edges,
                 width: 1,
-                opacity: 0.45,
+                opacity: 0.45 * opacity,
                 depthBias: -0.0001,
             });
             world.add(eid, MeshInstance, { mesh });
-            world.add(eid, MeshMaterial, materialFor(shape.role, eid));
+            world.add(eid, MeshMaterial, opacity < 1 ? aimedMoverMaterial! : roles[shape.role]);
+            if (!world.has(eid, BaseColor)) {
+                const color = shapeMaterial(world, shape.role, eid).baseColor;
+                world.add(eid, BaseColor, {
+                    color: [color[0], color[1], color[2], color[3] * opacity],
+                });
+            }
         }
         drawSensorHitViews(world, camera, (a, b, color, options) =>
             drawLine(world, a, b, color, options),
@@ -768,7 +758,10 @@ function createView(
         meshes.remove(markerMesh);
         if (moverMesh !== undefined) meshes.remove(moverMesh);
         if (groundMesh !== undefined) meshes.remove(groundMesh);
-        for (const material of stateMaterials.values()) materials.remove(material);
+        materials.remove(roles.ground);
+        for (const role of ["subject", "motorized", "sensor"] as const)
+            world.resource(ShapeMaterial).remove(roles[role]);
+        world.resource(ShapeMaterials).clear();
         materials.remove(markerMaterial);
         Object.assign(feedback, GrabFeedback.create());
     };

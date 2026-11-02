@@ -18,6 +18,8 @@ import {
     StepPhysicsSystem,
 } from "@dylanebert/shallot/standard/physics";
 
+import { setReaction } from "./shape-color";
+
 export const SensorSample = {
     create: () => ({
         enabled: false,
@@ -114,10 +116,11 @@ const AfterSensor: System = {
         for (const event of events.sensorBegin.records.slice(0, events.sensorBegin.count)) {
             const sensor = sample.sensors.get(event.sensorShape)!;
             if (sensor.active) zombies.add(event.visitorBody);
-            else sample.reactions.add(event.visitorBody);
+            else setReaction(world, sample.reactions, event.visitorBody);
         }
         for (const event of events.sensorEnd.records.slice(0, events.sensorEnd.count)) {
-            if (world.resolve(event.visitorShape)) sample.reactions.delete(event.visitorBody);
+            if (world.resolve(event.visitorShape))
+                setReaction(world, sample.reactions, event.visitorBody, false);
         }
         // Box3D's set orders zombies by body slot; destroyed slots are reused LIFO.
         for (const ref of [...zombies].sort(

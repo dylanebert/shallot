@@ -21,6 +21,7 @@ import { GeometryPlugin } from "./geometry";
 import { GrabPlugin } from "./grab";
 import { JointSamplePlugin } from "./joints";
 import { ManifoldPlugin } from "./manifold";
+import { ShapeMaterialPlugin } from "./material";
 import { MeshSamplePlugin } from "./mesh";
 import { RagdollPlugin } from "./ragdoll";
 import { RigidBodyPlugin } from "./rigid-body";
@@ -41,6 +42,7 @@ export const AppPlugin: Plugin = {
     },
     dependencies: [
         StandardPhysicsPlugin,
+        ShapeMaterialPlugin,
         EventSamplePlugin,
         BenchmarkSamplePlugin,
         StackingSamplePlugin,

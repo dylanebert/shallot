@@ -20,7 +20,7 @@ import { DynamicMoverState } from "../src/dynamic-mover-scene";
 import { EventSample, EventSamplePlugin } from "../src/events";
 import { GeometricMoverState } from "../src/geometric-mover";
 import { allManifoldNames } from "../src/manifold";
-import { scenePresentation, shapeMaterial } from "../src/presentation";
+import { scenePresentation } from "../src/presentation";
 import { RigidBodyState } from "../src/rigid-body";
 import { MotorizedJoint } from "../src/roles";
 import {
@@ -33,6 +33,7 @@ import {
     scenes,
 } from "../src/scenes";
 import { SensorSample } from "../src/sensor";
+import { shapeMaterial } from "../src/shape-color";
 
 setDefaultTimeout(TIMEOUT.node);
 
@@ -232,7 +233,7 @@ for (const [id, runs] of Object.entries(acceptedRoles)) {
     });
 }
 
-test("sleep changes a body's color without changing its role", async () => {
+test("sleep leaves the authored role color and roughness unchanged", async () => {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     try {
         const [body] = createScene(app.world, "boxStack");
@@ -241,9 +242,7 @@ test("sleep changes a body's color without changing its role", async () => {
         const before = Array.from(shapeMaterial(app.world, "subject", body!).baseColor);
         for (let i = 0; i < 1800 && isAwake(app.world, body!); i++) app.world.tick();
         expect(isAwake(app.world, body!)).toBe(false);
-        expect(Array.from(shapeMaterial(app.world, "subject", body!).baseColor)).not.toEqual(
-            before,
-        );
+        expect(Array.from(shapeMaterial(app.world, "subject", body!).baseColor)).toEqual(before);
         // Compare chromaticity: brightness changes with state and lighting, affordance does not.
         const chromaticity = (color: ArrayLike<number>) => {
             const sum = color[0]! + color[1]! + color[2]!;
@@ -264,10 +263,8 @@ test("sleep changes a body's color without changing its role", async () => {
             expect(distance(tint, chromaticity(awake.baseColor)), role).toBeLessThan(
                 distance(tint, ground),
             );
-            expect(asleep.perceptualRoughness).toBeGreaterThan(awake.perceptualRoughness);
-            expect(asleep.baseColor[0]! + asleep.baseColor[1]! + asleep.baseColor[2]!).toBeLessThan(
-                awake.baseColor[0]! + awake.baseColor[1]! + awake.baseColor[2]!,
-            );
+            expect(asleep.perceptualRoughness).toBe(awake.perceptualRoughness);
+            expect(asleep.baseColor).toEqual(awake.baseColor);
         }
     } finally {
         app.dispose();
