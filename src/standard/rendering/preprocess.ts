@@ -31,6 +31,7 @@ import {
     setComputeBindGroup,
     setComputePipeline,
 } from "../../engine/runtime";
+import { uploadInstanceData } from "./instance-data";
 import { MaterialTypes } from "./material";
 import { MaterialBatches, materialBatch, syncMaterialBatches } from "./material-batch";
 import { EntityMeshInstanceInput, MeshMaterial } from "./material-data";
@@ -459,6 +460,7 @@ export const MeshPreprocessSystem: System = {
     group: "draw",
     after: [BeginFrameSystem],
     update(world) {
+        uploadInstanceData(world);
         const _render = world.resource(RenderContext);
         const _meshPreprocess = world.resource(meshPreprocessKey);
 

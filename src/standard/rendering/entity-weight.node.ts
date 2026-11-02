@@ -20,10 +20,34 @@ import { attachTexture } from "@dylanebert/shallot/rendering";
 import type { MaterialHandle } from "@dylanebert/shallot/standard/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { openGpuApp } from "@dylanebert/shallot/testing/gpu";
+import * as d from "typegpu/data";
+import { component, vec4 } from "../../engine";
+import {
+    applyPbrLighting,
+    extendedMaterial,
+    MaterialPlugin,
+    pbrInputFromStandardMaterial,
+} from "./index";
+import { instanceData, instanceDataTable } from "./instance-data";
+import { meshInstanceTable } from "./preprocess";
 
 setDefaultTimeout(TIMEOUT.node);
 
 const POPULATION = 3 * 2 ** 16;
+const Tint = component("EntityWeightTint", { color: vec4 });
+const Color = d.struct({ color: d.vec4f });
+const colors = instanceData(Tint, Color);
+const Surface = extendedMaterial(Materials, {
+    name: "EntityWeightSurface",
+    instanceData: [colors],
+    fragment: (ctx) => {
+        "use gpu";
+        const input = pbrInputFromStandardMaterial(ctx);
+        input.baseColor = colors.read(ctx, Color({ color: input.baseColor })).color;
+        return applyPbrLighting(input);
+    },
+});
+const SurfacePlugin = MaterialPlugin(Surface);
 
 type Part = { mesh: MeshHandle; material: MaterialHandle };
 
@@ -47,10 +71,10 @@ test("196608 rendered entities bound retained bytes after their first standard-r
     const baseline = retainedHeap();
     const scene: Plugin = {
         name: "EntityWeight",
-        dependencies: [StandardRenderingPlugin],
+        dependencies: [StandardRenderingPlugin, SurfacePlugin],
         initialize(world) {
             const meshes = world.resource(Meshes);
-            const materials = world.resource(Materials);
+            const materials = world.resource(Surface);
             const parts: Part[] = [
                 {
                     mesh: meshes.add({ name: "sphere", ...sphere(0.5, 8, 4) }),
@@ -78,6 +102,12 @@ test("196608 rendered entities bound retained bytes after their first standard-r
         await app.world.gpu.device.queue.onSubmittedWorkDone();
         const bytes = (retainedHeap() - baseline) / POPULATION;
         console.info(`retained bytes/rendered entity: ${bytes.toFixed(3)}`);
+        const instanceBytes = instanceDataTable(app.world, meshInstanceTable(app.world)).buffer
+            .size;
+        console.info(
+            `instance data GPU bytes/rendered entity with no holders: ${(instanceBytes / POPULATION).toFixed(3)}`,
+        );
+        expect(instanceBytes / POPULATION).toBeLessThan(8);
         // Includes each part's components/table rows and late camera/light one-holder columns:
         // eid-indexed raw columns must span their highest holder (CONTRIBUTING: Device and world ownership).
         expect(bytes).toBeLessThanOrEqual(780);

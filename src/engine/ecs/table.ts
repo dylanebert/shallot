@@ -8,10 +8,9 @@ export type TableUploadPath = "none" | "writeBuffer";
 export interface GpuTableOptions {
     /** No CPU backing or upload path; a GPU pass owns every row write. */
     gpuOnly?: boolean;
-    /** @internal Records sharing this table's row assignment, map and active list.
+    /** @internal GPU-only records sharing this table's row assignment, map and active list.
      * The source must belong to the same World and own its rows; only it may change membership.
-     * Record buffers grow together, with independent record generations. CPU-backed followers
-     * gather bound fields and presence for active source rows; absent components contribute zero. */
+     * Record buffers grow together, with independent record generations. */
     rowSource?: GpuTable;
 }
 
@@ -157,9 +156,12 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         }
         this.gpuOnly = options.gpuOnly ?? false;
         this._rowSource = options.rowSource;
-        if (this._rowSource && (this._rowSource._world !== world || this._rowSource._rowSource))
+        if (
+            this._rowSource &&
+            (!this.gpuOnly || this._rowSource._world !== world || this._rowSource._rowSource)
+        )
             throw new Error(
-                `GpuTable "${name}": rowSource requires a row-owning table in the same World`,
+                `GpuTable "${name}": rowSource requires GPU-only records and a row-owning table in the same World`,
             );
         const device = world.gpu.device;
         const bindingLimit = device.limits.maxStorageBufferBindingSize;
@@ -288,7 +290,6 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         }
         this.replaceRecordBuffer(oldCapacity);
         if (!this._rowSource) this.ensureSlotCapacity(capacity);
-        else if (!this.gpuOnly) this.ensureSeedCapacity(capacity);
         for (let i = 0; i < this._rowFollowers.length; i++)
             this._rowFollowers[i]!.reserveSlots(capacity);
     }
@@ -385,8 +386,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
                 field.shadows = bindings
                     .slice(i + 1)
                     .filter((later) => later.fields.some((f) => f.recordName === field.recordName));
-        const rows = this._rowSource ?? this;
-        for (let i = 0; i < rows._activeCount; i++) this.seed(rows._activeRows[i * 2 + 1]);
+        for (let i = 0; i < this._activeCount; i++) this.seed(this._activeRows[i * 2 + 1]);
     }
 
     /** Allocate rows for members of this component without binding component fields. */
@@ -418,9 +418,8 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
                 this.writePresence(eid, binding, present),
             ),
         );
-        const rows = this._rowSource ?? this;
-        const active = rows._activeRows;
-        for (let i = 0; i < rows._activeCount; i++) {
+        const active = this._activeRows;
+        for (let i = 0; i < this._activeCount; i++) {
             const eid = active[i * 2];
             this.writePresence(eid, binding, this._world.has(eid, component));
         }
@@ -477,14 +476,6 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
             ownsRows: false,
         };
         this._componentBindings.push(binding);
-        if (this._rowSource) {
-            this._presenceUnsubscribes.push(
-                this._world.observeMembership(component, (eid) => {
-                    const row = this.rowIndex(eid);
-                    if (row >= 0) this.seed(row);
-                }),
-            );
-        }
         return binding;
     }
 
@@ -617,11 +608,6 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         return this._lastUploadOffset;
     }
 
-    /** Record bytes written by the most recent upload; zero when unchanged. */
-    get lastUploadSize(): number {
-        return this._lastUploadSize;
-    }
-
     /** Gather marked records and upload their range; an engine producer may stage it for the frame. */
     upload(destination: GPUBuffer = this._buffer, packedRange = false): void {
         if (this._disposed) return;
@@ -723,11 +709,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     }
 
     private seed(row: number): void {
-        if (
-            !this._view ||
-            (this._componentBindings.length === 0 && this._presenceBindings.length === 0) ||
-            this._boundDirty[row] !== 0
-        )
+        if (!this._view || this._componentBindings.length === 0 || this._boundDirty[row] !== 0)
             return;
         this._boundDirty[row] = 1;
         this._seedRows[this._seedCount++] = row;
@@ -735,7 +717,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
 
     private fillBoundFields(): void {
         const view = this._view;
-        if (!view) return;
+        if (!view || this._componentBindings.length === 0) return;
         if (this._seedCount === 0) {
             this.fillChangedFields(view);
             return;
@@ -750,30 +732,12 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         const rows = this._seedRows;
         for (let i = 0; i < this._seedCount; i++) {
             const row = rows[i];
-            const source = this._rowSource ?? this;
-            const index = source._activeIndex[row];
+            const index = this._activeIndex[row];
             if (index < 0) continue;
-            const eid = source._activeRows[index * 2];
-            if (this._rowSource) {
-                for (const binding of this._componentBindings)
-                    for (const field of binding.fields)
-                        for (let lane = 0; lane < field.lanes; lane++)
-                            writeLane(
-                                view,
-                                row * this.rowBytes + field.offset + lane * 4,
-                                field.format,
-                                0,
-                            );
-                for (const presence of this._presenceBindings)
-                    this.writePresence(eid, presence, this._world.has(eid, presence.component));
-            }
+            const eid = this._activeRows[index * 2];
             for (const binding of this._componentBindings) {
                 // Other producers may acquire rows in this table without this component.
-                if (
-                    (binding.ownsRows || this._rowSource) &&
-                    !this._world.has(eid, binding.component)
-                )
-                    continue;
+                if (binding.ownsRows && !this._world.has(eid, binding.component)) continue;
                 for (const field of binding.fields) {
                     const column = field.source.column;
                     const sourceBase = eid * field.sourceLanes;
@@ -799,7 +763,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         let kept = 0;
         for (let i = 0; i < this._seedCount; i++) {
             const row = rows[i];
-            if ((this._rowSource ?? this)._activeIndex[row] < 0) rows[kept++] = row;
+            if (this._activeIndex[row] < 0) rows[kept++] = row;
             else this._boundDirty[row] = 0;
         }
         this._seedCount = kept;
@@ -807,9 +771,8 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
 
     // Outside seeded rows, only marked eids can differ from their rows.
     private fillChangedFields(view: DataView): void {
-        const source = this._rowSource ?? this;
-        const eidToRow = source._eidToRow;
-        const activeIndex = source._activeIndex;
+        const eidToRow = this._eidToRow;
+        const activeIndex = this._activeIndex;
         const seeded = this._boundDirty;
         for (const binding of this._componentBindings) {
             for (const field of binding.fields) {
@@ -826,11 +789,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
                         if (encoded === 0) continue;
                         const row = encoded - 1;
                         if (activeIndex[row] < 0 || seeded[row] !== 0) continue;
-                        if (
-                            (binding.ownsRows || this._rowSource) &&
-                            !this._world.has(eid, binding.component)
-                        )
-                            continue;
+                        if (binding.ownsRows && !this._world.has(eid, binding.component)) continue;
                         if (field.shadows.length !== 0 && this.shadowed(eid, field)) continue;
                         const sourceBase = eid * field.sourceLanes;
                         const targetBase = row * this.rowBytes + field.offset;
@@ -853,8 +812,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
 
     private shadowed(eid: number, field: BoundField): boolean {
         for (const later of field.shadows)
-            if ((!this._rowSource && !later.ownsRows) || this._world.has(eid, later.component))
-                return true;
+            if (!later.ownsRows || this._world.has(eid, later.component)) return true;
         return false;
     }
 
@@ -929,10 +887,6 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         indices.fill(-1);
         indices.set(this._activeIndex);
         this._activeIndex = indices;
-        this.ensureSeedCapacity(capacity);
-    }
-
-    private ensureSeedCapacity(capacity: number): void {
         const dirty = new Uint8Array(capacity);
         dirty.set(this._boundDirty);
         this._boundDirty = dirty;
@@ -1015,7 +969,6 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         this._activeRows[activeIndex * 2] = eid;
         this._activeRows[activeIndex * 2 + 1] = row;
         this._activeDirty = true;
-        for (const follower of this._rowFollowers) follower.seed(row);
         this.notifyRow(row, true);
     }
 
