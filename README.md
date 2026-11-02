@@ -4,6 +4,8 @@
 
 webgpu game engine. fast by default, instant iteration, runs where webgpu does.
 
+The CLI runs on Node 22 or newer or Bun 1.4.3 or newer, from an npm or Bun install. Engine development, tests and the optional scaffold use Bun.
+
 ## quick start
 
 ```bash
