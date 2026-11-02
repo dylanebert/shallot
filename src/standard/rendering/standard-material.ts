@@ -166,20 +166,24 @@ export const pbrInputFromStandardMaterial = tgpu.fn(
     const emissiveDx = std.dpdx(emissiveUv);
     const emissiveDy = std.dpdy(emissiveUv);
     let settingsOffset = d.i32(std.textureNumLayers(standardImages.$));
-    if (std.textureDimensions(standardImageSettings.$).x > 1) {
-        const count = d.vec2u(
+    if (
+        material.normalMapTexture >= 0 ||
+        material.metallicRoughnessTexture >= 0 ||
+        material.occlusionTexture >= 0
+    ) {
+        const count = d.vec4u(
             std.round(
                 std.mul(
                     std.textureLoad(
                         standardImageSettings.$,
-                        d.vec2i(1, d.i32(std.textureDimensions(standardImageSettings.$).y) - 1),
+                        d.vec2i(0, d.i32(std.textureDimensions(standardImageSettings.$).y) - 1),
                         0,
-                    ).xy,
+                    ),
                     255,
                 ),
             ),
         );
-        settingsOffset = d.i32(count.x | (count.y << 8));
+        if (count.w === 64) settingsOffset = d.i32(count.x | (count.y << 8));
     }
     if (material.baseColorTexture >= 0) {
         baseColor = std.mul(

@@ -122,33 +122,29 @@ export const sampleImageAt = tgpu.fn(
 )((images, images1024, images2048, sampler, settings, uv, layer, dx, dy, settingsOffset) => {
     "use gpu";
     const settingsHeight = d.i32(std.textureDimensions(settings).y);
-    const lastRow = settingsHeight - std.select(1, 2, std.textureDimensions(settings).x > 1);
-    const s = d.vec4u(
+    let s = d.vec4u(
         std.round(
             std.mul(
-                std.textureLoad(settings, d.vec2i(0, std.min(layer + settingsOffset, lastRow)), 0),
+                std.textureLoad(
+                    settings,
+                    d.vec2i(0, std.min(layer + settingsOffset, settingsHeight - 1)),
+                    0,
+                ),
                 255,
             ),
         ),
     );
-    let location = d.vec4u(0);
-    if (std.textureDimensions(settings).x > 1) {
-        location = d.vec4u(
-            std.round(
-                std.mul(
-                    std.textureLoad(
-                        settings,
-                        d.vec2i(1, std.min(layer + settingsOffset, lastRow)),
-                        0,
-                    ),
-                    255,
-                ),
-            ),
-        );
+    let band = d.u32(0);
+    let selectedLayer = layer;
+    if ((s.w & 128) !== 0) {
+        band = s.w & 3;
+        selectedLayer = d.i32(s.y | (s.z << 8));
+        s = d.vec4u(s.x & 3, (s.x >>> 2) & 3, (s.x >>> 4) & 1, (s.x >>> 5) & 3);
+    } else if (s.w === 64) {
+        s = d.vec4u(0, 0, 1, 3);
     }
-    const selectedLayer = std.select(layer, d.i32(location.y | (location.z << 8)), location.x > 0);
-    if (location.x === 2) return sampleBand(images1024, sampler, s, uv, selectedLayer, dx, dy);
-    if (location.x === 3) return sampleBand(images2048, sampler, s, uv, selectedLayer, dx, dy);
+    if (band === 1) return sampleBand(images1024, sampler, s, uv, selectedLayer, dx, dy);
+    if (band === 2) return sampleBand(images2048, sampler, s, uv, selectedLayer, dx, dy);
     return sampleBand(images, sampler, s, uv, selectedLayer, dx, dy);
 });
 

@@ -70,7 +70,7 @@ export function registerImage(
 ): number {
     const images = world.resource(settings.isSrgb === false ? DataImages : Images);
     const s = settings.sampler;
-    // The sampler texel's alpha byte packs the min filter with the mipmap filter.
+    // Minification and mip filters share the last sampler value's low two bits.
     const sampler = [
         s?.addressModeU ?? 0,
         s?.addressModeV ?? 0,
@@ -125,14 +125,7 @@ export async function warmImages(world: World): Promise<void> {
                     }
                 }),
             );
-            const native = await Promise.all(
-                blobs.map((blob) =>
-                    createImageBitmap(blob, {
-                        premultiplyAlpha: "none",
-                        colorSpaceConversion: "none",
-                    }),
-                ),
-            );
+            const native = await decodeImages(blobs);
             for (const bitmap of native) {
                 const side = Math.max(bitmap.width, bitmap.height);
                 const band = side > 1024 ? 2 : side > 512 ? 1 : 0;
@@ -170,26 +163,39 @@ export async function warmImages(world: World): Promise<void> {
     // A sampled texture keeps sampler metadata out of the storage-buffer binding floor.
     const imageSettings = device.createTexture({
         label: "image-settings",
-        size: [2, settingsCount + 1],
+        size: [1, settingsCount + 1],
         format: "rgba8unorm",
         usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
     });
-    // Texel one holds band+1 and a little-endian 16-bit layer. The final row holds the color count.
-    // Zero location metadata retains band zero at layer=id for externally supplied arrays.
-    const data = new Uint8Array((settingsCount + 1) * 8);
+    // R packs the seven sampler bits; GB hold the 16-bit layer; A marks packed rows and the band.
+    // Unmarked rows retain the original sampler bytes and band zero at layer=id.
+    const data = new Uint8Array((settingsCount + 1) * 4);
     for (const [role, registry] of [images, dataImages].entries()) {
         const offset = role === 0 ? 0 : colorCount;
         for (let id = 0; id < Math.max(1, registry.size); id++) {
-            const row = (offset + id) * 8;
+            const row = (offset + id) * 4;
             const sampler = registry.get(registry.name(id)!)?.sampler ?? [0, 0, 1, 3];
-            data.set(sampler, row);
-            const [band, layer] = locations[role][id] ?? [0, 0];
-            data.set([band, layer & 255, layer >>> 8, 0], row + 4);
+            const location = locations[role][id];
+            if (location) {
+                const [band, layer] = location;
+                data.set(
+                    [
+                        sampler[0] | (sampler[1] << 2) | (sampler[2] << 4) | (sampler[3] << 5),
+                        layer & 255,
+                        layer >>> 8,
+                        128 | (band - 1),
+                    ],
+                    row,
+                );
+            } else {
+                data.set(sampler, row);
+            }
         }
     }
-    data.set([0, 0, 1, 3, colorCount & 255, colorCount >>> 8, 0, 0], settingsCount * 8);
-    device.queue.writeTexture({ texture: imageSettings }, data, { bytesPerRow: 8 }, [
-        2,
+    // The final row's marker distinguishes the color count from a legacy fallback sampler row.
+    data.set([colorCount & 255, colorCount >>> 8, 0, 64], settingsCount * 4);
+    device.queue.writeTexture({ texture: imageSettings }, data, { bytesPerRow: 4 }, [
+        1,
         settingsCount + 1,
     ]);
     world.own(imageSettings);
@@ -304,15 +310,16 @@ export async function imageArray(
     cap = 2048,
     format: GPUTextureFormat = ARRAY_FORMAT,
 ): Promise<GPUTexture> {
-    // straight (non-premultiplied) alpha: the MASK cutout compares `tex.a` and the shader multiplies the
-    // straight rgb, so premultiplying (the browser default) would darken cutout edges and the factor blend
-    const native = await Promise.all(
-        // glTF Images requires ignoring embedded color profiles; texture bytes define the values.
-        blobs.map((b) =>
-            createImageBitmap(b, { premultiplyAlpha: "none", colorSpaceConversion: "none" }),
+    return arrayFromBitmaps(world, device, await decodeImages(blobs), cap, format);
+}
+
+function decodeImages(blobs: Blob[]): Promise<ImageBitmap[]> {
+    // glTF image bytes define the color values. Straight alpha preserves cutout and blend edges.
+    return Promise.all(
+        blobs.map((blob) =>
+            createImageBitmap(blob, { premultiplyAlpha: "none", colorSpaceConversion: "none" }),
         ),
     );
-    return arrayFromBitmaps(world, device, native, cap, format);
 }
 
 /**
