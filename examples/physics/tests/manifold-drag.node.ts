@@ -16,16 +16,16 @@ import { type View, Views } from "@dylanebert/shallot/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { Grab, GrabPlugin } from "../src/grab";
 import {
+    allManifoldNames,
     ManifoldPlugin,
     ManifoldSample,
-    manifoldNames,
     manifoldTransform,
     vector,
 } from "../src/manifold";
 import { createScene } from "../src/scenes";
 
 setDefaultTimeout(TIMEOUT.node);
-for (const scene of manifoldNames)
+for (const scene of allManifoldNames)
     for (const touch of [false, true])
         test(`${scene} ${touch ? "touch" : "pointer"}: only B drags, orbit locks, and Shift never rotates`, async () => {
             const app = await createApp({

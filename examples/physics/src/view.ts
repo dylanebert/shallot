@@ -64,6 +64,10 @@ import { drawHeightFieldView } from "./height-field-presentation";
 import { drawInkPoint } from "./ink-presentation";
 import { drawJointViews } from "./joint-presentation";
 import { ManifoldSample } from "./manifold";
+import {
+    drawManifoldDiagnostics,
+    manifoldDiagnosticDrawing,
+} from "./manifold-diagnostic-presentation";
 import { drawManifold, manifoldGeometry } from "./manifold-presentation";
 import { drawMeshViewerView } from "./mesh-inspector-presentation";
 import { drawPogoRay, pogoDrawing } from "./mover-presentation";
@@ -548,6 +552,7 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         );
         const debugLabels = debugDrawing(world).labels.concat(
             collisionGeometryDrawing(world).labels,
+            manifoldDiagnosticDrawing(world).labels,
         );
         const marks = debugLabels
             .map((mark) => ({ ...mark, end: mark.point }))
@@ -654,6 +659,9 @@ function createView(world: World, scene: Scene, camera: number): () => void {
                 drawMeshViewerView(world, (a, b, color, options) =>
                     drawLine(world, a, b, color, options),
                 );
+            drawManifoldDiagnostics(world, camera, (a, b, color, options) =>
+                drawLine(world, a, b, color, options),
+            );
             drawManifold(world, camera, (a, b, color, options) =>
                 drawLine(world, a, b, color, options),
             );

@@ -256,6 +256,40 @@ for (const [scene, name, before, after] of [
 }
 
 for (const [scene, name, before, after] of [
+    ["hullCulling", "HullCulling", "0.4f, 3.6f, 0.2f", "0.5f, 3.6f, 0.2f"],
+    ["edgeAxisWedge", "EdgeAxisWedge", "b3MakeBoxHull( 2.0f, 0.25f, 1.0f )", "b3MakeBoxHull( 2.1f, 0.25f, 1.0f )"],
+] as const) {
+    test(`${scene}: native diagnostic state and geometry repeat, exercise controls and reject a source mutation`, () => {
+        const start=performance.now(),binary=sampleBinary(),directory=mkdtempSync(join(tmpdir(),"box3d-manifold-diagnostic-")),base=new URL("../../examples/physics/tests/",import.meta.url);
+        const paths={manifold:join(directory,"manifold.jsonl"),diagnostic:join(directory,"diagnostic.jsonl")},env={MANIFOLD_RECORDS:paths.manifold,MANIFOLD_DIAGNOSTICS:paths.diagnostic};
+        const digests=(path:string)=>readFileSync(path,"utf8").trimEnd().split("\n").map(line=>drawingDigest(JSON.parse(line))).join("\n")+"\n";
+        try {
+            for(const controlled of [false,true]) {
+                const stem=scene+(controlled?".controls":""),args=[binary,scene,"600",...(controlled?[fileURLToPath(new URL(`${scene}.controls.txt`,base))]:[])];
+                const hashes=run(args,env),first={manifold:digests(paths.manifold),diagnostic:digests(paths.diagnostic)};
+                equalSampleSteps(hashes,readFileSync(new URL(`${stem}.gold.txt`,base),"utf8"),stem);
+                for(const kind of ["manifold","diagnostic"] as const){expect(first[kind]).toBe(readFileSync(new URL(`${stem}.${kind}.gold.txt`,base),"utf8"));expect(first[kind].trimEnd().split("\n")).toHaveLength(600);}
+                equalSampleSteps(run(args,env),hashes,`${stem} repeat`);
+                for(const kind of ["manifold","diagnostic"] as const)expect(digests(paths[kind])).toBe(first[kind]);
+            }
+            const samples=join(directory,"samples");mkdirSync(samples);mkdirSync(join(directory,"shared"));
+            for(const file of readdirSync(join(process.env.BOX3D!,"samples")))if(file.endsWith(".cpp")||file.endsWith(".h"))copyFileSync(join(process.env.BOX3D!,"samples",file),join(samples,file));
+            copyFileSync(join(process.env.BOX3D!,"shared/benchmarks.c"),join(directory,"shared/benchmarks.c"));copyRobustnessSources(directory);
+            const path=join(samples,"sample_manifold.cpp"),source=readFileSync(path,"utf8"),offset=source.indexOf(`class ${name} :`);
+            expect(offset).toBeGreaterThan(0);expect(source.slice(offset)).toContain(before);
+            writeFileSync(path,source.slice(0,offset)+source.slice(offset).replace(before,after));run([sampleBinary(samples),scene,"600"],env);
+            expect(digests(paths.diagnostic)).not.toBe(readFileSync(new URL(`${scene}.diagnostic.gold.txt`,base),"utf8"));
+            const gestureStem=`${scene}.gizmo`,gestureEnv={...env,MANIFOLD_POSES:fileURLToPath(new URL(`${gestureStem}.poses.gold.txt`,base))},gestureArgs=[binary,scene,"24"],gestureHashes=run(gestureArgs,gestureEnv);
+            equalSampleSteps(gestureHashes,readFileSync(new URL(`${gestureStem}.gold.txt`,base),"utf8"),gestureStem);
+            for(const kind of ["manifold","diagnostic"] as const){expect(digests(paths[kind])).toBe(readFileSync(new URL(`${gestureStem}.${kind}.gold.txt`,base),"utf8"));expect(digests(paths[kind]).trimEnd().split("\n")).toHaveLength(24);}
+            equalSampleSteps(run(gestureArgs,gestureEnv),gestureHashes,`${gestureStem} repeat`);
+            for(const kind of ["manifold","diagnostic"] as const)expect(digests(paths[kind])).toBe(readFileSync(new URL(`${gestureStem}.${kind}.gold.txt`,base),"utf8"));
+            console.log(`${scene} native diagnostics, repeats, controls and mutation: ${(performance.now()-start).toFixed(0)} ms`);
+        }finally{rmSync(directory,{recursive:true,force:true});}
+    });
+}
+
+for (const [scene, name, before, after] of [
     ["sphereVsSphere", "SphereAndSphere", "2.0f };", "2.1f };"],
     ["capsuleVsSphere", "CapsuleAndSphere", "2.0f };", "2.1f };"],
     ["hullVsSphere", "HullAndSphere", "1.0f };", "1.1f };"],

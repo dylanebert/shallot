@@ -19,7 +19,7 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { DynamicMoverState } from "../src/dynamic-mover-scene";
 import { EventSample, EventSamplePlugin } from "../src/events";
 import { GeometricMoverState } from "../src/geometric-mover";
-import { manifoldNames } from "../src/manifold";
+import { allManifoldNames } from "../src/manifold";
 import { scenePresentation, shapeMaterial } from "../src/presentation";
 import { RigidBodyState } from "../src/rigid-body";
 import { MotorizedJoint } from "../src/roles";
@@ -330,7 +330,7 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 id === "hullTransform" ||
                 id === "capsuleMass" ||
                 id === "querySpawn" ||
-                (manifoldNames as readonly string[]).includes(id)
+                (allManifoldNames as readonly string[]).includes(id)
             )
                 expect(presentation.shapes).toHaveLength(0);
             else expect(presentation.shapes.length).toBeGreaterThan(0);
@@ -428,6 +428,8 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 capsuleVsHull: 12,
                 triangleVsCapsule: 12,
                 hullVsHull: 12,
+                hullCulling: 12,
+                edgeAxisWedge: 16,
                 triangleVsHull: 12,
                 boxHull: 10,
                 geometryHull: 2,

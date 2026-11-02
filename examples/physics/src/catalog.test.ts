@@ -121,6 +121,8 @@ test("each picker label selects its scene in its category, exactly once", () => 
                 { id: "capsuleVsCapsule", name: "Capsule vs Capsule" },
                 { id: "capsuleVsHull", name: "Capsule vs Hull" },
                 { id: "capsuleVsSphere", name: "Capsule vs Sphere" },
+                { id: "edgeAxisWedge", name: "Edge Axis Wedge" },
+                { id: "hullCulling", name: "Hull Culling" },
                 { id: "hullVsHull", name: "Hull vs Hull" },
                 { id: "hullVsSphere", name: "Hull vs Sphere" },
                 { id: "sphereVsSphere", name: "Sphere vs Sphere" },

@@ -90,4 +90,80 @@ export function manifoldPanelTests(stepped: boolean) {
                 ).toBe(true);
             }
         });
+    for (const width of [1280, 390])
+        test(`Manifold diagnostic controls and readouts work at ${width}`, async ({ page }) => {
+            await page.setViewportSize({ width, height: width === 390 ? 844 : 720 });
+            const frames = stepped
+                ? null
+                : await holdFrames(page, "[aria-label='Scene navigation']");
+            await page.goto(stepped ? "/tests/controls.html" : "/");
+            if (stepped) await page.waitForFunction(() => "controlsKey" in window);
+            else {
+                await expect(
+                    page.getByRole("button", { name: "Scene", exact: true }),
+                ).toBeEnabled();
+                await expect(page.locator("[data-shallot-loading]")).toHaveCount(0);
+            }
+            const advance = async () => {
+                if (frames) await frames.run();
+                else
+                    await page.evaluate(() =>
+                        (window as unknown as { controlsKey(): number }).controlsKey(),
+                    );
+            };
+            const select = async (name: string) => {
+                await pointerControl(
+                    page,
+                    page.getByRole("button", { name: "Scene", exact: true }),
+                );
+                await pointerControl(
+                    page,
+                    page
+                        .getByRole("region", { name: "Manifold", exact: true })
+                        .getByRole("button", { name, exact: true }),
+                );
+                await advance();
+            };
+            await select("Hull Culling");
+            const panel = page.locator(".controls"),
+                feature = panel.getByLabel("Feature", { exact: true }),
+                height = panel.getByLabel("Height", { exact: true });
+            await expect(feature).toBeDisabled();
+            await pointerControl(
+                page,
+                panel.getByRole("checkbox", { name: "Use cache", exact: true }),
+            );
+            await expect(feature).toBeEnabled();
+            await feature.selectOption("1");
+            await bodyHasFocus(page);
+            await expect(height).toBeDisabled();
+            await pointerControl(
+                page,
+                panel.getByRole("checkbox", { name: "Cylinders", exact: true }),
+            );
+            await expect(height).toBeEnabled();
+            await pointerControl(page, height);
+            expect(Number(await height.inputValue())).toBeGreaterThan(2);
+            await panel.getByLabel("Edge bound", { exact: true }).selectOption("0");
+            await bodyHasFocus(page);
+            await pointerControl(
+                page,
+                panel.getByRole("checkbox", { name: "Culled features", exact: true }),
+            );
+            await advance();
+            await select("Edge Axis Wedge");
+            await expect(panel.getByLabel("Winner", { exact: true })).toHaveText("edge");
+            await expect(panel.getByLabel("Search", { exact: true })).toContainText("found /");
+            await panel.getByLabel("Hull", { exact: true }).selectOption("2");
+            await advance();
+            await pointerControl(
+                page,
+                panel.getByRole("button", { name: "Find Example", exact: true }),
+            );
+            await advance();
+            await bodyHasFocus(page);
+            await expect(panel.getByLabel("Winner", { exact: true })).toHaveText("edge");
+            await expect(panel.getByLabel("Search", { exact: true })).toContainText("found /");
+            expect(await panel.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+        });
 }

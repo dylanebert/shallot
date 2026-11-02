@@ -3,6 +3,8 @@ import { capture } from "./capture";
 
 for (const width of [1280, 390])
     for (const scene of [
+        "hullCulling",
+        "edgeAxisWedge",
         "encroachCast",
         "hull2D",
         "spinningCapsule",
@@ -32,7 +34,7 @@ for (const width of [1280, 390])
                 await expect(
                     page.getByRole("button", { name: "Scene", exact: true }),
                 ).toBeEnabled();
-                if (scene === "hull2D" || scene === "encroachCast")
+                if (["hull2D", "encroachCast", "hullCulling", "edgeAxisWedge"].includes(scene))
                     await page.evaluate(
                         () =>
                             new Promise<void>((resolve) => {

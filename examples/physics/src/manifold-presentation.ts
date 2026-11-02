@@ -85,7 +85,7 @@ export function manifoldGeometry(world: World) {
             role,
         });
     };
-    if (!s.scene) return geometries;
+    if (!s.scene || s.culling || s.wedge) return geometries;
     if (s.scene.startsWith("triangle")) {
         const a = point(s.triangle[0]),
             b = point(s.triangle[1]),

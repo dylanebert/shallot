@@ -1,0 +1,19 @@
+100	Use cache	1
+120	faceA	1
+140	Draw Points	0
+160	Face normals	0
+180	Inscribed spheres	0
+200	Culled features	0
+220	Edge bound	0
+240	Edge bound	1
+260	Cylinders	1
+300	Height	3.5
+340	Radius	1.25
+380	Sides	12
+420	Edge bound	2
+460	Edge bound	3
+500	Face normals	1
+520	Inscribed spheres	1
+540	Culled features	1
+560	Draw Points	1
+580	Use cache	0

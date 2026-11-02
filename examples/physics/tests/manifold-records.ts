@@ -4,19 +4,20 @@ import { type ManifoldPose, ManifoldSample } from "../src/manifold";
 import { manifoldDrawing } from "../src/manifold-presentation";
 export function manifoldRecords(w: World): number[][] {
     const s = w.resource(ManifoldSample),
-        m = s.manifold!;
+        m = s.manifold;
+    const count = m?.pointCount ?? 0;
     const pose = (t: ManifoldPose) => [0, t.p.x, t.p.y, t.p.z, t.q.v.x, t.q.v.y, t.q.v.z, t.q.s];
     const rows = [
         pose(s.a),
         pose(s.b),
         [
             6,
-            m.pointCount,
-            ...(m.pointCount
+            count,
+            ...(count && m
                 ? [m.normal.x, m.normal.y, m.normal.z, m.feature, m.squaredDistance]
                 : [0, 0, 0, 0, 0]),
-            ...m.points
-                .slice(0, m.pointCount)
+            ...(m?.points
+                .slice(0, count)
                 .flatMap((p) => [
                     p.point.x,
                     p.point.y,
@@ -27,7 +28,7 @@ export function manifoldRecords(w: World): number[][] {
                     p.pair.owner2,
                     p.pair.index2,
                     p.triangleIndex,
-                ]),
+                ]) ?? []),
         ],
         [
             7,
@@ -84,6 +85,8 @@ export function manifoldRecords(w: World): number[][] {
         case "triangleVsCapsule":
             capsule();
             break;
+        case "hullCulling":
+        case "edgeAxisWedge":
         case "hullVsHull":
             hull(s.hullA!, 3);
             hull(s.hullB!, 4);

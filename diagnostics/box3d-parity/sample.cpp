@@ -126,9 +126,11 @@ void DrawLine( b3Pos a, b3Pos b, int ) {
     if (characterDrawing || manifoldRecording) characterMarks.push_back({1,a.x,a.y,a.z,b.x,b.y,b.z});
 }
 constexpr float DEFAULT_LINE_THICKNESS_PX = 1;
-constexpr int OVERLAY_THICKNESS_PIXELS = 0, OVERLAY_OCCLUSION_DASHED = 0;
+using OverlayOcclusionMode = int;
+constexpr int OVERLAY_THICKNESS_PIXELS = 0, OVERLAY_OCCLUSION_DASHED = 0, OVERLAY_OCCLUSION_DIM = 1;
 void DrawLineEx(b3Pos a, b3Pos b, int color, float, int, int) { DrawLine(a, b, color); }
 void DrawArrow( b3Pos a, b3Pos b, int ) { if (characterDrawing) characterMarks.push_back({2,a.x,a.y,a.z,b.x,b.y,b.z}); }
+void DrawArrowEx(b3Pos a, b3Pos b, int color, float, int, int, float) { DrawArrow(a,b,color); }
 void DrawWireSphere( b3WorldTransform, const b3Sphere*, int, int ) {}
 void DrawCross(b3Pos, float, int) {}
 void DrawAabb(b3Vec3, b3Vec3, int) {}
@@ -241,8 +243,13 @@ b3HullData* RecordedClone( const b3HullData* hull, b3Transform transform, b3Vec3
     b3HullData* result = b3CloneAndTransformHull( hull, transform, scale ); PrintHull( result ); return result;
 }
 #define IM_ARRAYSIZE(_ARR) ((int)(sizeof(_ARR) / sizeof(*(_ARR))))
+struct ImGuiStyle { b3Vec2 FramePadding = {}; };
 namespace ImGui
 {
+ImGuiStyle& GetStyle() { static ImGuiStyle style; return style; }
+void SetNextItemWidth(float) {}
+b3Vec2 CalcTextSize(const char*) { return {}; }
+float GetFrameHeight() { return 14; }
 void Text( const char*, ... ) {}
 void SameLine() {}
 void PushItemWidth( float ) {}
@@ -490,6 +497,7 @@ int main( int argc, char** argv )
         { "capsuleVsHull", ManifoldSamples::CapsuleAndHull::Create },
         { "triangleVsCapsule", ManifoldSamples::TriangleAndCapsule::Create },
         { "hullVsHull", ManifoldSamples::HullAndHull::Create },
+        { "hullCulling", ManifoldSamples::HullCulling::Create }, { "edgeAxisWedge", ManifoldSamples::EdgeAxisWedge::Create },
         { "triangleVsHull", ManifoldSamples::TriangleAndHull::Create },
         { "crash", Issues::Crash::Create }, { "multiplePrismatic", Issues::MultiplePrismatic::Create },
         { "hullCrash", Issues::HullCrash::Create }, { "convexJitter", Issues::ConvexJitter::Create },
@@ -594,6 +602,8 @@ int main( int argc, char** argv )
 		}
 		fclose( file );
 	}
+    manifoldDiagnosticRecords = getenv("MANIFOLD_DIAGNOSTICS") ? fopen(getenv("MANIFOLD_DIAGNOSTICS"), "w") : nullptr;
+    if (getenv("MANIFOLD_DIAGNOSTICS")) assert(manifoldDiagnosticRecords && (dynamic_cast<ManifoldSamples::HullCulling*>(sample) || dynamic_cast<ManifoldSamples::EdgeAxisWedge*>(sample)));
     manifoldRecords = getenv("MANIFOLD_RECORDS") ? fopen(getenv("MANIFOLD_RECORDS"), "w") : nullptr;
     manifoldRecording = manifoldRecords != nullptr;
     const bool manifoldScene = dynamic_cast<ManifoldSamples::Manifold*>(sample) || dynamic_cast<ManifoldSamples::TriangleManifold*>(sample);
@@ -789,8 +799,12 @@ int main( int argc, char** argv )
         }
         if (manifoldScene) {
             printf("%016llx\n", (unsigned long long)b3HashWorldState(b3GetWorldFromId(sample->m_worldId)));
-            if (manifoldRecords || characterDrawing) sample->Render();
+            if (manifoldRecords || characterDrawing) {
+                if (dynamic_cast<ManifoldSamples::HullCulling*>(sample) || dynamic_cast<ManifoldSamples::EdgeAxisWedge*>(sample)) static_cast<ManifoldSamples::Manifold*>(sample)->ManifoldSamples::Manifold::Render();
+                else sample->Render();
+            }
             if (manifoldRecords) RecordManifold(sample);
+            if (manifoldDiagnosticRecords) RecordManifoldDiagnostics(sample);
         }
         if (!strcmp(argv[1],"rayCurtain") || !strcmp(argv[1],"capsuleCastRay") || !strcmp(argv[1],"shapeCastDebug")) sample->Render();
         if (!strcmp(argv[1],"meshScale") || !strcmp(argv[1],"distanceDebug") || !strcmp(argv[1],"shapeDistance") || !strcmp(argv[1],"timeOfImpact")) printf("%016llx\n", (unsigned long long)b3HashWorldState(b3GetWorldFromId(sample->m_worldId)));
@@ -883,6 +897,7 @@ int main( int argc, char** argv )
         if ((recordQueriesAndBuilds || Collision::geometryRecords) && strcmp(argv[1], "hull2D")) sample->Render();
 	}
     if (manifoldRecords) fclose(manifoldRecords);
+    if (manifoldDiagnosticRecords) fclose(manifoldDiagnosticRecords);
     if (geometryRecords) fclose(geometryRecords);
     if (characterDrawing) fclose(characterDrawing);
     if (bodyQueries) fclose(bodyQueries);

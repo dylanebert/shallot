@@ -9,8 +9,6 @@ import {
     collideTriangleAndCapsule,
     collideTriangleAndHull,
     collideTriangleAndSphere,
-    type HullData,
-    type LocalManifold,
     makeBoxHull,
     makeScaledBoxHull,
     PhysicsWorldDefinition,
@@ -18,96 +16,35 @@ import {
     StandardPhysicsPlugin,
     StepPhysicsSystem,
 } from "@dylanebert/shallot/standard/physics";
+import { stepManifoldDiagnostics } from "./manifold-diagnostics";
+import { manifoldTransform, pose, relative, type Vec, vector } from "./manifold-math";
+import {
+    type CollisionManifoldScene,
+    ManifoldSample,
+    manifoldNames,
+    manifoldPointLimits,
+    sat,
+    simplex,
+} from "./manifold-state";
 import type { Controls } from "./scenes";
 
+export { type ManifoldPose, manifoldRotate, manifoldTransform, vector } from "./manifold-math";
+export {
+    allManifoldNames,
+    ManifoldSample,
+    type ManifoldScene,
+    manifoldNames,
+    manifoldPointLimits,
+} from "./manifold-state";
+
 const f = Math.fround;
-export const manifoldNames = [
-    "sphereVsSphere",
-    "capsuleVsSphere",
-    "hullVsSphere",
-    "triangleVsSphere",
-    "capsuleVsCapsule",
-    "capsuleVsHull",
-    "triangleVsCapsule",
-    "hullVsHull",
-    "triangleVsHull",
-] as const;
-export type ManifoldScene = (typeof manifoldNames)[number];
-export const manifoldPointLimits = [1, 1, 1, 1, 2, 2, 2, 4, 7] as const;
-export const vector = (x = 0, y = 0, z = 0) => ({ x: f(x), y: f(y), z: f(z) });
-type Vec = ReturnType<typeof vector>;
-export type ManifoldPose = { p: Vec; q: { v: Vec; s: number } };
-const pose = (x = 0, y = 0, z = 0): ManifoldPose => ({
-    p: vector(x, y, z),
-    q: { v: vector(), s: 1 },
-});
-const simplex = () => ({ metric: 0, count: 0, indexA: [0, 0, 0, 0], indexB: [0, 0, 0, 0] });
-const sat = () => ({ separation: 0, type: 0, indexA: 0, indexB: 0, hit: 0 });
-export const ManifoldSample = {
-    create: () => ({
-        scene: "" as ManifoldScene | "",
-        a: pose(),
-        b: pose(),
-        sphere: { center: vector(), radius: 1 },
-        capsule: { center1: vector(-2), center2: vector(2), radius: 1 },
-        hullA: null as HullData | null,
-        hullB: null as HullData | null,
-        triangle: [vector(), vector(), vector()] as [Vec, Vec, Vec],
-        simplex: simplex(),
-        sat: sat(),
-        useCache: false,
-        drawPoints: true,
-        manualFeature: 0,
-        manifold: null as LocalManifold | null,
-        tracking: false,
-        origin: vector(),
-        base: vector(),
-    }),
-};
-// Box3D's quaternion rotation, with float intermediates.
-export function manifoldRotate(q: ManifoldPose["q"], p: Vec): Vec {
-    const { x, y, z } = q.v,
-        w = q.s;
-    const tx = f(f(f(y * p.z) - f(z * p.y)) + f(w * p.x)),
-        ty = f(f(f(z * p.x) - f(x * p.z)) + f(w * p.y)),
-        tz = f(f(f(x * p.y) - f(y * p.x)) + f(w * p.z));
-    return vector(
-        f(p.x + f(2 * f(f(y * tz) - f(z * ty)))),
-        f(p.y + f(2 * f(f(z * tx) - f(x * tz)))),
-        f(p.z + f(2 * f(f(x * ty) - f(y * tx)))),
-    );
-}
-export function manifoldTransform(t: ManifoldPose, p: Vec): Vec {
-    const r = manifoldRotate(t.q, p);
-    return vector(f(t.p.x + r.x), f(t.p.y + r.y), f(t.p.z + r.z));
-}
-function relative(a: ManifoldPose, b: ManifoldPose): ManifoldPose {
-    const av = a.q.v,
-        bv = b.q.v,
-        p = vector(b.p.x - a.p.x, b.p.y - a.p.y, b.p.z - a.p.z),
-        w = a.q.s;
-    const tx = f(f(f(av.y * p.z) - f(av.z * p.y)) - f(w * p.x)),
-        ty = f(f(f(av.z * p.x) - f(av.x * p.z)) - f(w * p.y)),
-        tz = f(f(f(av.x * p.y) - f(av.y * p.x)) - f(w * p.z));
-    return {
-        p: vector(
-            f(p.x + f(2 * f(f(av.y * tz) - f(av.z * ty)))),
-            f(p.y + f(2 * f(f(av.z * tx) - f(av.x * tz)))),
-            f(p.z + f(2 * f(f(av.x * ty) - f(av.y * tx)))),
-        ),
-        q: {
-            v: vector(
-                f(f(f(f(bv.y * av.z) - f(bv.z * av.y)) + f(w * bv.x)) - f(b.q.s * av.x)),
-                f(f(f(f(bv.z * av.x) - f(bv.x * av.z)) + f(w * bv.y)) - f(b.q.s * av.y)),
-                f(f(f(f(bv.x * av.y) - f(bv.y * av.x)) + f(w * bv.z)) - f(b.q.s * av.z)),
-            ),
-            s: f(f(w * b.q.s) + f(f(f(av.x * bv.x) + f(av.y * bv.y)) + f(av.z * bv.z))),
-        },
-    };
-}
 export function stepManifold(w: World): void {
     const s = w.resource(ManifoldSample);
     if (!s.scene) return;
+    if (s.scene === "hullCulling" || s.scene === "edgeAxisWedge") {
+        stepManifoldDiagnostics(w);
+        return;
+    }
     if (!s.useCache) {
         s.simplex = simplex();
         s.sat = sat();
@@ -162,7 +99,7 @@ export const ManifoldPlugin: Plugin = {
         },
     ],
 };
-function construct(w: World, scene: ManifoldScene): number[] {
+function construct(w: World, scene: CollisionManifoldScene): number[] {
     const s = w.resource(ManifoldSample);
     Object.assign(s, ManifoldSample.create(), { scene });
     w.resource(PhysicsWorldDefinition).enableAutomaticStep = false;
@@ -318,7 +255,7 @@ export const manifoldScenes = Object.fromEntries(
         },
     ]),
 ) as Record<
-    ManifoldScene,
+    CollisionManifoldScene,
     {
         construct: (w: World) => number[];
         camera: {

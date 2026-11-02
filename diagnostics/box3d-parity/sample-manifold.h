@@ -23,6 +23,15 @@ template<class T> void ManifoldResult(std::vector<std::vector<double>>& rows, T*
     for(int i=0;i<4;i++)rows.back().push_back(c.indexB[i]);
     rows.back().insert(rows.back().end(),{sat.separation,double(sat.type),double(sat.indexA),double(sat.indexB),double(sat.hit)});
 }
+void ManifoldWriteRows(FILE* file, const std::vector<std::vector<double>>& rows) {
+    fprintf(file,"[");
+    for(size_t j=0;j<rows.size();j++) {
+        fprintf(file,"%s[",j?",":"");
+        for(size_t k=0;k<rows[j].size();k++)fprintf(file,"%s%.9g",k?",":"",rows[j][k]);
+        fprintf(file,"]");
+    }
+    fprintf(file,"]\n");
+}
 void RecordManifold(Sample* sample) {
     using namespace ManifoldSamples;
     std::vector<std::vector<double>> rows;
@@ -40,14 +49,10 @@ void RecordManifold(Sample* sample) {
     if(auto* s=dynamic_cast<TriangleAndCapsule*>(sample))ManifoldCapsule(rows,s->m_capsule);
     if(auto* s=dynamic_cast<HullAndHull*>(sample)){ManifoldHull(rows,s->m_hullA,3);ManifoldHull(rows,s->m_hullB,4);}
     if(auto* s=dynamic_cast<TriangleAndHull*>(sample))ManifoldHull(rows,s->m_hull,4);
+    if(auto* s=dynamic_cast<HullCulling*>(sample)){ManifoldHull(rows,s->m_hullA,3);ManifoldHull(rows,s->m_hullB,4);}
+    if(auto* s=dynamic_cast<EdgeAxisWedge*>(sample)){ManifoldHull(rows,s->m_hullA,3);ManifoldHull(rows,s->m_hullB,4);}
     for(const auto& mark:characterMarks) if(mark[0]==0 || mark[0]==1) {
         rows.push_back(mark);rows.back()[0] = mark[0]==1 ? 8 : 9;
     }
-    fprintf(manifoldRecords,"[");
-    for(size_t j=0;j<rows.size();j++) {
-        fprintf(manifoldRecords,"%s[",j?",":"");
-        for(size_t k=0;k<rows[j].size();k++)fprintf(manifoldRecords,"%s%.9g",k?",":"",rows[j][k]);
-        fprintf(manifoldRecords,"]");
-    }
-    fprintf(manifoldRecords,"]\n");
+    ManifoldWriteRows(manifoldRecords,rows);
 }

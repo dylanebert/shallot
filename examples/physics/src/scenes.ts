@@ -30,6 +30,7 @@ import { GeometricMoverState, geometricMoverScene } from "./geometric-mover";
 import { Geometry, geometryScenes } from "./geometry";
 import { jointScenes } from "./joints";
 import { ManifoldSample, manifoldScenes } from "./manifold";
+import { manifoldDiagnosticScenes } from "./manifold-diagnostics";
 import { meshScenes } from "./mesh";
 import { HeightFieldState } from "./mesh-height-field";
 import { MeshCreationState, MeshInspectorState } from "./mesh-inspector";
@@ -60,6 +61,7 @@ export type Scene =
     | keyof typeof collisionScenes
     | keyof typeof debugScenes
     | keyof typeof collisionGeometryScenes
+    | keyof typeof manifoldDiagnosticScenes
     | keyof typeof manifoldScenes
     | keyof typeof geometryScenes
     | keyof typeof ragdollScenes
@@ -197,6 +199,8 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
             { id: "capsuleVsCapsule", name: "Capsule vs Capsule" },
             { id: "capsuleVsHull", name: "Capsule vs Hull" },
             { id: "capsuleVsSphere", name: "Capsule vs Sphere" },
+            { id: "edgeAxisWedge", name: "Edge Axis Wedge" },
+            { id: "hullCulling", name: "Hull Culling" },
             { id: "hullVsHull", name: "Hull vs Hull" },
             { id: "hullVsSphere", name: "Hull vs Sphere" },
             { id: "sphereVsSphere", name: "Sphere vs Sphere" },
@@ -423,6 +427,7 @@ export const scenes = {
     ...collisionGeometryScenes,
     ...geometryScenes,
     ...manifoldScenes,
+    ...manifoldDiagnosticScenes,
     ...ragdollScenes,
     ...shapeScenes,
     ...compoundScenes,
