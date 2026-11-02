@@ -44,6 +44,7 @@ mod geometry_database;
 pub mod height_build;
 pub mod height_query;
 pub mod hull;
+pub mod hull2d;
 mod hull_abi;
 pub mod hull_build;
 pub mod integrate;

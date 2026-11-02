@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 namespace Collision {
 FILE* queries = nullptr;
+FILE* geometryRecords = nullptr;
 void Vector(b3Vec3 v);
 b3DistanceOutput Distance(const b3DistanceInput* input, b3SimplexCache* cache, b3Simplex* simplexes, int capacity);
 b3CastOutput Cast(const b3ShapeCastPairInput* input);
@@ -22,6 +23,16 @@ b3DistanceOutput Distance(const b3DistanceInput* input, b3SimplexCache* cache, b
 }
 b3CastOutput Cast(const b3ShapeCastPairInput* input) {
     auto d=b3ShapeCast(input);
+    if (geometryRecords) {
+        FILE* f=geometryRecords;
+        fprintf(f,"[[-1,%d,%.9g,%d,%.9g]",input->proxyA.count,input->proxyA.radius,input->proxyB.count,input->proxyB.radius);
+        for(int i=0;i<input->proxyA.count;i++) { auto p=input->proxyA.points[i]; fprintf(f,",[0,%.9g,%.9g,%.9g]",p.x,p.y,p.z); }
+        for(int i=0;i<input->proxyB.count;i++) { auto p=input->proxyB.points[i]; fprintf(f,",[1,%.9g,%.9g,%.9g]",p.x,p.y,p.z); }
+        auto t=input->transform; auto v=input->translationB;
+        fprintf(f,",[2,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g]",t.p.x,t.p.y,t.p.z,t.q.v.x,t.q.v.y,t.q.v.z,t.q.s);
+        fprintf(f,",[3,%.9g,%.9g,%.9g,%.9g,%d]",v.x,v.y,v.z,input->maxFraction,input->canEncroach);
+        fprintf(f,",[4,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%d,%d]]\n",d.point.x,d.point.y,d.point.z,d.normal.x,d.normal.y,d.normal.z,d.fraction,d.iterations,d.hit);
+    }
     if(queries) { fprintf(queries,"cast"); Vector(d.point); Vector(d.normal); Float(d.fraction); fprintf(queries," %d %d\n",d.iterations,d.hit); }
     return d;
 }

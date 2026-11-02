@@ -53,6 +53,7 @@ export type {
     PhysicsSensorEvent,
 } from "./events";
 export { PhysicsEvents } from "./events";
+export { hull2D, type Point2D, simplifyHull2D } from "./hull2d";
 export {
     createPhysicsMesh,
     destroyPhysicsMesh,

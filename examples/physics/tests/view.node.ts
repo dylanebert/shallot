@@ -320,6 +320,8 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 id === "castWorld" ||
                 id === "shapeCastDebug" ||
                 id === "distanceDebug" ||
+                id === "encroachCast" ||
+                id === "hull2D" ||
                 id === "shapeDistance" ||
                 id === "timeOfImpact" ||
                 id === "boxHull" ||
@@ -394,6 +396,8 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
             } else expect(presentation.ground).toBeUndefined();
             const extent = {
                 safetyFactor: 20,
+                hull2D: 10,
+                encroachCast: 20,
                 bounceImpulse: 40,
                 boxRestitution: 40,
                 restitutionPropagation: 40,

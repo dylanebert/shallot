@@ -1,0 +1,8 @@
+100	Can Encroach	0
+180	Gap (mm)	0
+240	Angle	-5
+300	Can Encroach	1
+360	Distance	4
+420	Gap (mm)	20
+480	Angle	5
+540	Distance	0

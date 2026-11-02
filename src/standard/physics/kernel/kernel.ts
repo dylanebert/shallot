@@ -16,6 +16,8 @@ export type Kernel = {
     memory: WebAssembly.Memory;
     geometryMass(operation: number): void;
     hullBuildInputPtr(count: number): number;
+    hull2DInputPtr(count: number): number;
+    hull2D(operation: number, count: number, target: number): number;
     hullBuild(operation: number, count: number, budget: number): number;
     nonconvexBuildInputPtr(words: number): number;
     nonconvexBuild(operation: number): number;

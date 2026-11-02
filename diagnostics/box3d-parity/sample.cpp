@@ -562,6 +562,7 @@ int main( int argc, char** argv )
         { "overlapWorld", Collision::OverlapWorld::Create }, { "longRayCast", Collision::LongRayCast::Create },
         { "initialOverlap", Collision::InitialOverlap::Create }, { "capsuleCastRay", Collision::CapsuleCastRay::Create },
         { "shapeCastDebug", Collision::ShapeCastDebug::Create }, { "distanceDebug", Collision::DistanceDebug::Create },
+        { "encroachCast", Collision::EncroachCast::Create }, { "hull2D", Collision::Hull2D::Create },
         { "shapeDistance", Collision::ShapeDistance::Create }, { "timeOfImpact", Collision::TimeOfImpact::Create },
 		{ "box_stack", BoxStack::Create }, { "bridge", Bridge::Create },
 		{ "driving", Driving::Create }, { "gearLift", GearLift::Create }, { "door", Door::Create }, { "distance", DistanceJoint::Create }, { "spherical", SphericalJoint::Create }, { "motionLocks", MotionLocks::Create },
@@ -614,7 +615,9 @@ int main( int argc, char** argv )
     }
     issueHullRecords = !strcmp(argv[1], "hullCrash");
     geometryRecords = getenv("GEOMETRY_RECORDS") ? fopen(getenv("GEOMETRY_RECORDS"), "w") : nullptr;
-    const bool geometryScene = !strcmp(argv[1],"hullCrash") || !strcmp(argv[1],"boxHull") || !strcmp(argv[1],"geometryHull") || !strcmp(argv[1],"hullReduction") || !strcmp(argv[1],"hullTransform") || !strcmp(argv[1],"capsuleMass");
+    const bool geometryScene = !strcmp(argv[1],"hull2D") || !strcmp(argv[1],"hullCrash") || !strcmp(argv[1],"boxHull") || !strcmp(argv[1],"geometryHull") || !strcmp(argv[1],"hullReduction") || !strcmp(argv[1],"hullTransform") || !strcmp(argv[1],"capsuleMass");
+    Collision::geometryRecords = getenv("COLLISION_GEOMETRY_RECORDS") ? fopen(getenv("COLLISION_GEOMETRY_RECORDS"), "w") : nullptr;
+    if (getenv("COLLISION_GEOMETRY_RECORDS")) assert(Collision::geometryRecords && (!strcmp(argv[1], "hull2D") || !strcmp(argv[1], "encroachCast")));
     Collision::queries = getenv("COLLISION_QUERIES") ? fopen(getenv("COLLISION_QUERIES"), "w") : nullptr;
     characterDrawing = getenv("CHARACTER_DRAWING") ? fopen(getenv("CHARACTER_DRAWING"), "w") : nullptr;
     FILE* benchmarkVillageReadouts = getenv("BENCHMARK_VILLAGE_READOUTS") ? fopen(getenv("BENCHMARK_VILLAGE_READOUTS"), "w") : nullptr;
@@ -728,6 +731,7 @@ int main( int argc, char** argv )
         meshBuildCount = 0;
         if (geometryScene) {
             geometryRows.clear();
+            if (!strcmp(argv[1], "hull2D")) sample->Step();
             sample->Render();
             printf("%016llx\n", (unsigned long long)b3HashWorldState(b3GetWorldFromId(sample->m_worldId)));
             if (geometryRecords) {
@@ -740,6 +744,14 @@ int main( int argc, char** argv )
                 fprintf(geometryRecords,"]\n");
             }
         } else sample->Step();
+        if (Collision::geometryRecords && !strcmp(argv[1], "hull2D")) {
+            auto* s = static_cast<Collision::Hull2D*>(sample);
+            FILE* f=Collision::geometryRecords;
+            fprintf(f,"[[-1,%d,%d,%d,%d,%d,%d,%.9g,%d]",s->m_sourceMode,s->m_inputCount,s->m_hullCount,s->m_simplifiedCount,s->m_targetCount,s->m_pointCount,s->m_drawScale,s->m_drawLabels);
+            auto points=[&](b3Point2D* p,int count,int tag) { for(int j=0;j<count;j++) fprintf(f,",[%d,%.9g,%.9g,%.9g,%d]",tag,p[j].p.x,p[j].p.y,p[j].separation,p[j].originalIndex); };
+            points(s->m_inputPoints,s->m_inputCount,0); points(s->m_hullPoints,s->m_hullCount,1); points(s->m_simplifiedPoints,s->m_simplifiedCount,2);
+            fprintf(f,"]\n");
+        }
         if (restitutionReadouts) {
             if (!strcmp(argv[1], "bounceImpulse")) {
                 auto* s = static_cast<BounceImpulse*>(sample);
@@ -868,13 +880,14 @@ int main( int argc, char** argv )
             if (top->m_elapsed > 0) fprintf(readouts, "%.9g %.9g\n", top->m_expectedAngle / top->m_elapsed, top->m_actualAngle / top->m_elapsed);
             else fprintf(readouts, "null null\n");
         }
-        if ( recordQueriesAndBuilds ) sample->Render();
+        if ((recordQueriesAndBuilds || Collision::geometryRecords) && strcmp(argv[1], "hull2D")) sample->Render();
 	}
     if (manifoldRecords) fclose(manifoldRecords);
     if (geometryRecords) fclose(geometryRecords);
     if (characterDrawing) fclose(characterDrawing);
     if (bodyQueries) fclose(bodyQueries);
     if (Collision::queries) fclose(Collision::queries);
+    if (Collision::geometryRecords) fclose(Collision::geometryRecords);
     if (readouts) fclose(readouts);
     if (moverReadouts) fclose(moverReadouts);
     if (dynamicReadouts) fclose(dynamicReadouts);

@@ -64,6 +64,8 @@ test("each picker label selects its scene in its category, exactly once", () => 
                 { id: "capsuleCastRay", name: "Capsule Cast Ray" },
                 { id: "castWorld", name: "Cast World" },
                 { id: "distanceDebug", name: "Distance Debug" },
+                { id: "encroachCast", name: "Encroach Cast" },
+                { id: "hull2D", name: "Hull 2D" },
                 { id: "initialOverlap", name: "Initial Overlap" },
                 { id: "longRayCast", name: "Long Ray Cast" },
                 { id: "meshScale", name: "Mesh Scale" },

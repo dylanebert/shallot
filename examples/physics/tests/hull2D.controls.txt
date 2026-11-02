@@ -1,0 +1,9 @@
+120	Source	1
+180	Point Count	64
+240	Source	2
+300	Target Count	3
+360	Draw Labels	0
+420	Source	0
+480	Regenerate	1
+540	Draw Labels	1
+570	Target Count	6

@@ -46,6 +46,7 @@ import { drawCastView } from "./cast-presentation";
 import { characterDrawing, drawCharacterView } from "./character-presentation";
 import { collisionNames } from "./collision";
 import { debugDrawing, drawCollisionDebug } from "./collision-debug-presentation";
+import { collisionGeometryDrawing, drawCollisionGeometry } from "./collision-geometry-presentation";
 import { drawCollisionView } from "./collision-presentation";
 import { childGeometry, compoundChildren, largeCompound, overlaps } from "./compound-presentation";
 import { ContinuousState } from "./continuous";
@@ -545,7 +546,9 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         drawSensorHitViews(world, camera, (a, b, color, options) =>
             drawLine(world, a, b, color, options),
         );
-        const debugLabels = debugDrawing(world).labels;
+        const debugLabels = debugDrawing(world).labels.concat(
+            collisionGeometryDrawing(world).labels,
+        );
         const marks = debugLabels
             .map((mark) => ({ ...mark, end: mark.point }))
             .concat(
@@ -655,6 +658,9 @@ function createView(world: World, scene: Scene, camera: number): () => void {
                 drawLine(world, a, b, color, options),
             );
             drawGeometry(world, (a, b, color, options) => drawLine(world, a, b, color, options));
+            drawCollisionGeometry(world, camera, (a, b, color, options) =>
+                drawLine(world, a, b, color, options),
+            );
             drawCollisionDebug(world, camera, (a, b, color, options) =>
                 drawLine(world, a, b, color, options),
             );

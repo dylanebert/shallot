@@ -339,6 +339,8 @@ for (const [scene, name, before, after] of [
 }
 
 for (const [scene, name, before, after] of [
+    ["encroachCast", "EncroachCast", "m_gap = 4.0f;", "m_gap = 5.0f;"],
+    ["hull2D", "Hull2D", "m_pointCount = 20;", "m_pointCount = 21;"],
     ["shapeCastDebug", "ShapeCastDebug", "72267.117187500", "70000.000000000"],
     ["distanceDebug", "DistanceDebug", "1.00989532471", "1.10989532471"],
     ["shapeDistance", "ShapeDistance", "{ 0.0f, 1.0f, 0.0f }", "{ 0.0f, 1.1f, 0.0f }"],
@@ -357,18 +359,21 @@ for (const [scene, name, before, after] of [
         const directory = mkdtempSync(join(tmpdir(), "box3d-collision-"));
         const records = join(directory, "queries.txt");
         const base = new URL("../../examples/physics/tests/", import.meta.url);
-        const digests = () => readFileSync(records, "utf8").split("step\n").slice(0, -1).map(recordDigest).join("\n") + "\n";
+        const geometry = scene === "encroachCast" || scene === "hull2D";
+        const kind = geometry ? "geometry" : "queries";
+        const environment: Record<string, string> = geometry ? { COLLISION_GEOMETRY_RECORDS: records } : { COLLISION_QUERIES: records };
+        const digests = () => geometry ? readFileSync(records, "utf8").trimEnd().split("\n").map(line => drawingDigest(JSON.parse(line))).join("\n") + "\n" : readFileSync(records, "utf8").split("step\n").slice(0, -1).map(recordDigest).join("\n") + "\n";
         try {
             for (const controlled of [false, true]) {
                 const sequence = fileURLToPath(new URL(`${scene}.controls.txt`, base));
                 if (controlled && !existsSync(sequence)) continue;
                 const stem = `${scene}${controlled ? ".controls" : ""}`;
                 const args = [binary, scene, "600", ...(controlled ? [sequence] : [])];
-                const hashes = run(args, { COLLISION_QUERIES: records }), queries = digests();
+                const hashes = run(args, environment), queries = digests();
                 equalSampleSteps(hashes, readFileSync(new URL(`${stem}.gold.txt`, base), "utf8"), stem);
-                expect(queries).toBe(readFileSync(new URL(`${stem}.queries.gold.txt`, base), "utf8"));
+                expect(queries).toBe(readFileSync(new URL(`${stem}.${kind}.gold.txt`, base), "utf8"));
                 expect(queries.trimEnd().split("\n")).toHaveLength(600);
-                equalSampleSteps(run(args, { COLLISION_QUERIES: records }), hashes, `${stem} repeat`);
+                equalSampleSteps(run(args, environment), hashes, `${stem} repeat`);
                 expect(digests()).toBe(queries);
             }
             const samples = join(directory, "samples"); mkdirSync(samples); mkdirSync(join(directory, "shared"));
@@ -382,8 +387,8 @@ for (const [scene, name, before, after] of [
             writeFileSync(path, source.slice(0, offset) + source.slice(offset).replace(before, after));
             const controlled = scene === "castWorld", stem = `${scene}${controlled ? ".controls" : ""}`;
             const args = [sampleBinary(samples), scene, "600", ...(controlled ? [fileURLToPath(new URL(`${scene}.controls.txt`, base))] : [])];
-            const hashes = run(args, { COLLISION_QUERIES: records });
-            expect(hashes !== readFileSync(new URL(`${stem}.gold.txt`, base), "utf8") || digests() !== readFileSync(new URL(`${stem}.queries.gold.txt`, base), "utf8")).toBe(true);
+            const hashes = run(args, environment);
+            expect(hashes !== readFileSync(new URL(`${stem}.gold.txt`, base), "utf8") || digests() !== readFileSync(new URL(`${stem}.${kind}.gold.txt`, base), "utf8")).toBe(true);
             console.log(`${scene} native parity, repeats, controls and mutation: ${(performance.now()-start).toFixed(0)} ms`);
         } finally { rmSync(directory, { recursive: true, force: true }); }
     });

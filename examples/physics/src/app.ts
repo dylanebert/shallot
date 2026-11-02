@@ -11,6 +11,7 @@ import { BodySamplePlugin } from "./bodies";
 import { CharacterSamplePlugin } from "./character";
 import { CollisionPlugin } from "./collision";
 import { CollisionDebugPlugin } from "./collision-debug";
+import { CollisionGeometryPlugin } from "./collision-geometry";
 import { ContinuousSamplePlugin } from "./continuous";
 import { DeterminismPlugin } from "./determinism";
 import { DynamicMoverPlugin } from "./dynamic-mover-scene";
@@ -46,6 +47,7 @@ export const AppPlugin: Plugin = {
         RagdollPlugin,
         CollisionPlugin,
         CollisionDebugPlugin,
+        CollisionGeometryPlugin,
         GeometryPlugin,
         ManifoldPlugin,
         MeshSamplePlugin,

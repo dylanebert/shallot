@@ -3,6 +3,8 @@ import { capture } from "./capture";
 
 for (const width of [1280, 390])
     for (const scene of [
+        "encroachCast",
+        "hull2D",
         "spinningCapsule",
         "safetyFactor",
         "sleep",
@@ -30,6 +32,18 @@ for (const width of [1280, 390])
                 await expect(
                     page.getByRole("button", { name: "Scene", exact: true }),
                 ).toBeEnabled();
+                if (scene === "hull2D" || scene === "encroachCast")
+                    await page.evaluate(
+                        () =>
+                            new Promise<void>((resolve) => {
+                                let frames = 20;
+                                const frame = () => {
+                                    if (--frames) requestAnimationFrame(frame);
+                                    else resolve();
+                                };
+                                requestAnimationFrame(frame);
+                            }),
+                    );
                 await capture(page, `${scene}-${width}`);
             } finally {
                 await context.close();

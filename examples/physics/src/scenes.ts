@@ -20,6 +20,7 @@ import { CastState } from "./cast";
 import { CharacterSample, characterScenes } from "./character";
 import { CollisionState, collisionScenes } from "./collision";
 import { CollisionDebug, debugScenes } from "./collision-debug";
+import { collisionGeometryScenes } from "./collision-geometry";
 import { compoundScenes } from "./compound";
 import { continuousScenes } from "./continuous";
 import { DeterminismState, determinismScenes } from "./determinism";
@@ -58,6 +59,7 @@ export type Scene =
     | "village"
     | keyof typeof collisionScenes
     | keyof typeof debugScenes
+    | keyof typeof collisionGeometryScenes
     | keyof typeof manifoldScenes
     | keyof typeof geometryScenes
     | keyof typeof ragdollScenes
@@ -138,6 +140,8 @@ export const categories: { name: string; scenes: { id: Scene; name: string }[] }
             { id: "capsuleCastRay", name: "Capsule Cast Ray" },
             { id: "castWorld", name: "Cast World" },
             { id: "distanceDebug", name: "Distance Debug" },
+            { id: "encroachCast", name: "Encroach Cast" },
+            { id: "hull2D", name: "Hull 2D" },
             { id: "initialOverlap", name: "Initial Overlap" },
             { id: "longRayCast", name: "Long Ray Cast" },
             { id: "meshScale", name: "Mesh Scale" },
@@ -416,6 +420,7 @@ export const scenes = {
     rigidBody: rigidBodyScene,
     ...collisionScenes,
     ...debugScenes,
+    ...collisionGeometryScenes,
     ...geometryScenes,
     ...manifoldScenes,
     ...ragdollScenes,
