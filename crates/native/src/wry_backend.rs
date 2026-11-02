@@ -102,6 +102,50 @@ fn load_icon() -> Option<Icon> {
     Icon::from_rgba(img.into_raw(), w, h).ok()
 }
 
+#[cfg(target_os = "macos")]
+fn prefer_display_refresh_rate(configuration: &objc2_web_kit::WKWebViewConfiguration) {
+    use objc2::runtime::{AnyClass, AnyObject, Bool};
+    use objc2::{msg_send, sel};
+    use std::ffi::{c_char, CStr};
+
+    // Private WebKit API; unavailable selectors or features leave the default unchanged.
+    // https://github.com/userFRM/tauri-plugin-macos-fps/blob/main/src/macos.rs
+    // WKWebView copies its configuration at init; preferences must be set before then.
+    // SAFETY: resumed creates and configures this object on the main thread.
+    unsafe {
+        let Some(class) = AnyClass::get(c"WKPreferences") else {
+            return;
+        };
+        let available: Bool = msg_send![class, respondsToSelector: sel!(_features)];
+        if !available.as_bool() {
+            return;
+        }
+        let preferences = configuration.preferences();
+        let can_set: Bool =
+            msg_send![&*preferences, respondsToSelector: sel!(_setEnabled:forFeature:)];
+        if !can_set.as_bool() {
+            return;
+        }
+        let features: *mut AnyObject = msg_send![class, _features];
+        let count: usize = msg_send![features, count];
+        for index in 0..count {
+            let feature: *mut AnyObject = msg_send![features, objectAtIndex: index];
+            let has_key: Bool = msg_send![feature, respondsToSelector: sel!(key)];
+            if !has_key.as_bool() {
+                continue;
+            }
+            let key: *mut AnyObject = msg_send![feature, key];
+            let key: *const c_char = msg_send![key, UTF8String];
+            if !key.is_null()
+                && CStr::from_ptr(key) == c"PreferPageRenderingUpdatesNear60FPSEnabled"
+            {
+                let _: () = msg_send![&*preferences, _setEnabled: Bool::NO, forFeature: feature];
+                break;
+            }
+        }
+    }
+}
+
 struct App {
     title: String,
     ctx: WebContext,
@@ -145,6 +189,7 @@ impl ApplicationHandler for App {
             "shallot://localhost/".into(),
         );
         let builder = WebViewBuilder::new_with_web_context(&mut self.ctx)
+            .with_url(&url)
             .with_background_color((BG.0, BG.1, BG.2, 255))
             .with_initialization_script_for_main_only(
                 crate::gpu_policy::initialization_script(),
@@ -193,11 +238,22 @@ impl ApplicationHandler for App {
                         .body(Cow::Borrowed(&[] as &[u8]))
                         .unwrap(),
                 }
-            })
-            .with_url(url);
+            });
 
         #[cfg(target_os = "macos")]
-        let builder = builder.with_initialization_script(POINTERLOCK_JS);
+        let builder = {
+            use wry::WebViewBuilderExtMacos;
+            // SAFETY: the marker verifies resumed is running on the main thread.
+            let configuration = unsafe {
+                objc2_web_kit::WKWebViewConfiguration::new(
+                    objc2::MainThreadMarker::new().expect("webview requires the main thread"),
+                )
+            };
+            prefer_display_refresh_rate(&configuration);
+            builder
+                .with_webview_configuration(configuration)
+                .with_initialization_script(POINTERLOCK_JS)
+        };
 
         #[cfg(windows)]
         let builder = builder.with_theme(wry::Theme::Dark);

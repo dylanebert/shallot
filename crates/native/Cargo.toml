@@ -19,7 +19,7 @@ path = "src/helper.rs"
 # the system webview dependencies.
 [features]
 default = ["system"]
-system = ["dep:wry", "dep:winit", "dep:image"]
+system = ["dep:wry", "dep:winit", "dep:image", "dep:objc2", "dep:objc2-web-kit"]
 portable = ["dep:cef", "dep:cef-dll-sys", "dep:objc2", "dep:objc2-app-kit", "dep:image"]
 
 [target.'cfg(target_os = "windows")'.dependencies]
@@ -44,6 +44,11 @@ image = { version = "0.25", default-features = false, features = ["png"], option
 cef = { version = "154", default-features = false, optional = true }
 cef-dll-sys = { version = "154", optional = true }
 objc2 = { version = "0.6", optional = true }
+objc2-web-kit = { version = "0.3", default-features = false, optional = true, features = [
+    "std",
+    "WKWebViewConfiguration",
+    "WKPreferences",
+] }
 objc2-app-kit = { version = "0.3", default-features = false, optional = true, features = [
     "std",
     "NSApplication",
