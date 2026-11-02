@@ -19,7 +19,7 @@ try {
     if (!built.success) throw new Error(built.logs.map(String).join("\n"));
     symlinkSync(join(root, "node_modules"), join(directory, "node_modules"), "junction");
     copyFileSync(join(root, "src/extras/text/Inter-Regular.ttf"), join(directory, "Inter-Regular.ttf"));
-    const child = Bun.spawn(["node", join(directory, "profile.mjs")], {
+    const child = Bun.spawn(["node", join(directory, "profile.mjs"), ...process.argv.slice(2)], {
         stdin: "inherit", stdout: "inherit", stderr: "inherit",
     });
     process.exitCode = await child.exited;

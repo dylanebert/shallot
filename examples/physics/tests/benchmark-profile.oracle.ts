@@ -6,7 +6,7 @@ import { attachTexture } from "@dylanebert/shallot/rendering";
 import { openGpuApp } from "@dylanebert/shallot/testing/gpu";
 import { AppPlugin, Viewer } from "../src/app";
 import { sceneSwitcher } from "../src/sample";
-import { categories } from "../src/scenes";
+import { scenes as allScenes, categories, type Scene } from "../src/scenes";
 
 // bun diagnostics/benchmark-profile/run.ts; hardware timings are observations, not a gate.
 const app = await openGpuApp({
@@ -35,7 +35,12 @@ try {
     for (const camera of world.query([Camera]))
         attachTexture(world, camera, { width: 1280, height: 720 });
     const select = sceneSwitcher(world, world.resource(Viewer));
-    const scenes = categories.find((category) => category.name === "Benchmark")!.scenes;
+    const requested = process.argv.slice(2);
+    for (const id of requested)
+        if (!Object.hasOwn(allScenes, id)) throw new Error(`Unknown scene: ${id}`);
+    const scenes = requested.length
+        ? requested.map((id) => ({ id: id as Scene }))
+        : categories.find((category) => category.name === "Benchmark")!.scenes;
     for (let index = 0; index < scenes.length; index++) {
         while (loadavg()[0]! > 8) await setTimeout(10000);
         const { id } = scenes[index]!;
