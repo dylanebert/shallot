@@ -935,7 +935,7 @@ function compile({ label, force }: Forcer): unknown {
 /**
  * Queue pipeline compilation during `warm`; `createApp` drains after all plugins warm.
  * Create pipelines in a plugin's `initialize` or `warm` and register them here so they compile under
- * the loading screen. Pipeline creation through `world.gpu.device` after the drain warns in every build,
+ * the loading screen. Synchronous pipeline creation through `world.gpu.device` after the drain warns in every build,
  * naming the pipeline, its owner and this rule. Callers using a raw or externally retained device own
  * their preparation. Late compilation is serialized on arrival and its promise must be awaited.
  * Dawn can defer synchronous pipeline compilation until first dispatch; `force` must return pipelines,
@@ -1393,7 +1393,16 @@ export async function requestGPU(
                       counts,
                       limits.maxStorageBuffersPerShaderStage,
                   );
+              };
+              const warnLatePipeline = (
+                  descriptor: GPUComputePipelineDescriptor | GPURenderPipelineDescriptor,
+              ) => {
                   if (owner.resource?.(precompileState).drained) {
+                      const name = descriptor.label || "<unnamed>";
+                      const module =
+                          "compute" in descriptor
+                              ? descriptor.compute.module
+                              : descriptor.vertex.module;
                       const warningOwner =
                           owner.currentSystem ?? shaderOwners.get(module) ?? "unattributed";
                       console.warn(
@@ -1404,6 +1413,7 @@ export async function requestGPU(
               };
               const trackedComputePipeline = (descriptor: GPUComputePipelineDescriptor) => {
                   checkPipeline(descriptor);
+                  warnLatePipeline(descriptor);
                   return createComputePipeline(descriptor);
               };
               const trackedComputePipelineAsync = (descriptor: GPUComputePipelineDescriptor) => {
@@ -1444,6 +1454,7 @@ export async function requestGPU(
               };
               const trackedRenderPipeline = (descriptor: GPURenderPipelineDescriptor) => {
                   checkPipeline(descriptor);
+                  warnLatePipeline(descriptor);
                   if (owner.resource?.(precompileState).drained)
                       return createRenderPipeline(descriptor);
                   descriptor = materializeRenderTargets(descriptor);

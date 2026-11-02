@@ -25,7 +25,7 @@ export * from "./compose";
 /**
  * bundle of components, systems, and lifecycle hooks: the unit of behavior a project enables.
  * Create pipelines in `initialize` or `warm` and register them with `precompile` so they compile under
- * the loading screen. Pipeline creation through `world.gpu.device` after the drain warns in every build,
+ * the loading screen. Synchronous pipeline creation through `world.gpu.device` after the drain warns in every build,
  * naming the pipeline and its owner. Callers using a raw or externally retained device own their preparation.
  */
 export interface Plugin {

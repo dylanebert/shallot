@@ -127,8 +127,5 @@ test("a later camera with another sample count warns instead of eagerly compilin
     expectWarning(
         /Pipeline "lines-4" owned by "CorePipeline\/1" created after the precompile drain\./,
     );
-    expectWarning(
-        /Pipeline "text-4" owned by "CorePipeline\/1" created after the precompile drain\./,
-    );
     world.step(0);
 });

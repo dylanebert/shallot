@@ -1,5 +1,7 @@
 import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
+import tgpu from "typegpu";
+import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { expectWarning } from "../../../scripts/test-console";
 import type { World } from "../ecs";
@@ -127,7 +129,42 @@ test("a scheduled late pipeline names its system owner without coupling the sche
     expect(world.currentSystem).toBeUndefined();
 });
 
-test("each pipeline created after the drain warns once with its name, owner and rule", () => {
+test("late precompile compiles asynchronous render and compute pipelines without warning", async () => {
+    const world = subjects()[0].world;
+    expect(world.resource(precompileState).drained).toBe(true);
+    const vertex = tgpu.vertexFn({ out: { position: d.builtin.position } })(() => {
+        "use gpu";
+        return { position: d.vec4f(0, 0, 0, 1) };
+    });
+    const fragment = tgpu.fragmentFn({ out: d.vec4f })(() => {
+        "use gpu";
+        return d.vec4f(1);
+    });
+    const compute = tgpu.computeFn({ workgroupSize: [1] })(() => {
+        "use gpu";
+    });
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    let compiled = false;
+    try {
+        await precompile(world, "late-async-control", () => {
+            compiled = true;
+            return [
+                world.gpu.root.createRenderPipeline({
+                    vertex,
+                    fragment,
+                    targets: { format: "rgba8unorm" },
+                }),
+                world.gpu.root.createComputePipeline({ compute }),
+            ];
+        });
+        expect(compiled).toBe(true);
+        expect(warn).not.toHaveBeenCalled();
+    } finally {
+        warn.mockRestore();
+    }
+});
+
+test("each pipeline created synchronously after the drain warns once with its name, owner and rule", () => {
     const world = subjects()[0].world;
     expectWarning(
         /Pipeline "late-control" owned by "LateOwner" created after the precompile drain\. Create it in initialize or warm and register it with precompile\./,

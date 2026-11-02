@@ -174,7 +174,7 @@ bun run format                  # biome
 - A test requests the fewest solver threads its claim needs. The solver spins at its stage barriers, so oversubscribing the host makes it slower
 - GPU files run serially on one device with small compositions; each file acquires and warms its independent worlds once in `beforeAll`, and tests time only their work
 - Create pipelines in a plugin's `initialize` or `warm` and register them with `precompile` so they compile under the loading screen.
-  Each pipeline created through `world.gpu.device` after the drain logs one warning in every build, naming the pipeline, its owner and this rule.
+  Each pipeline created synchronously through `world.gpu.device` after the drain logs one warning in every build, naming the pipeline, its owner and this rule.
   Callers creating pipelines on a raw or externally retained device own their preparation.
   Browser subjects install `pipelineWarnings` from `@dylanebert/shallot/testing` to fail on the warning
 - Compiled pipelines are never shared across worlds; a device a loss claim destroys is prepared during that compile step
