@@ -224,15 +224,45 @@ const SCAN_WG = 256;
 const temp = tgpu.workgroupVar(d.arrayOf(d.u32, SCAN_WG));
 const carry = tgpu.workgroupVar(d.u32);
 
-/**
- * Exclusive prefix sum, one workgroup per view slot. Writes instanceCount and firstInstance;
- * firstInstance addresses that slot's instance-capacity-sized region in packedEids.
- * Leaves indexCount and firstIndex unchanged and clears count tallies for the next count pass.
- * baseVertex temporarily holds the tally while scatter uses
- * instanceCount as a cursor; scatter must restore both before drawing.
- * Workgroup-local scanning needs no subgroups and keeps each view's prefix sum independent. @internal
- */
-export function scanKernel() {
+// Tile sums live past the live slots' tallies: views * pairCount + slot * tiles + tile.
+const tileBase = tgpu.fn(
+    [d.u32],
+    d.u32,
+)((slot) => {
+    "use gpu";
+    const pairCount = scanLayout.$.params.pairCount;
+    const tiles = (pairCount + 255) >>> 8;
+    return std.max(scanLayout.$.params.viewCount, 1) * pairCount + slot * tiles;
+});
+
+/** One workgroup per (tile, view slot): the tile's tally sum. @internal */
+export function tileSumKernel() {
+    return tgpu.computeFn({
+        workgroupSize: [SCAN_WG],
+        in: { wid: d.builtin.workgroupId, lid: d.builtin.localInvocationId },
+    })((input) => {
+        "use gpu";
+        const slot = input.wid.y;
+        const pairCount = scanLayout.$.params.pairCount;
+        const local = input.lid.x;
+        const p = input.wid.x * SCAN_WG + local;
+        let c = d.u32(0);
+        if (p < pairCount) c = std.atomicLoad(scanLayout.$.counts[slot * pairCount + p]);
+        temp.$[local] = c;
+        std.workgroupBarrier();
+        let half = d.u32(128);
+        while (half > 0) {
+            if (local < half) temp.$[local] = temp.$[local] + temp.$[local + half];
+            std.workgroupBarrier();
+            half = half >>> 1;
+        }
+        if (local === 0)
+            std.atomicStore(scanLayout.$.counts[tileBase(slot) + input.wid.x], temp.$[0]);
+    });
+}
+
+/** One workgroup per view slot: exclusive prefix over its tile sums, in place. @internal */
+export function tileScanKernel() {
     return tgpu.computeFn({
         workgroupSize: [SCAN_WG],
         in: { wid: d.builtin.workgroupId, lid: d.builtin.localInvocationId },
@@ -240,21 +270,17 @@ export function scanKernel() {
         "use gpu";
         const slot = input.wid.x;
         const pairCount = scanLayout.$.params.pairCount;
+        const tiles = (pairCount + 255) >>> 8;
         const local = input.lid.x;
-        const base = slot * pairCount;
-
+        const base = tileBase(slot);
         if (local === 0) carry.$ = 0;
         std.workgroupBarrier();
-
-        // The loop condition is workgroup-uniform, so its barriers are legal.
-        let tileBase = d.u32(0);
-        while (tileBase < pairCount) {
-            const p = tileBase + local;
-            const inRange = p < pairCount;
-            const idx = base + p;
+        let tile = d.u32(0);
+        while (tile < tiles) {
+            const t = tile + local;
+            const inRange = t < tiles;
             let c = d.u32(0);
-            if (inRange) c = std.atomicLoad(scanLayout.$.counts[idx]);
-
+            if (inRange) c = std.atomicLoad(scanLayout.$.counts[base + t]);
             temp.$[local] = c;
             std.workgroupBarrier();
             let offset = d.u32(1);
@@ -266,24 +292,57 @@ export function scanKernel() {
                 std.workgroupBarrier();
                 offset = offset * 2;
             }
-            const excl = temp.$[local] - c; // inclusive − own = exclusive prefix
-            const tileTotal = temp.$[SCAN_WG - 1]; // every out-of-range lane added 0
-
-            if (inRange) {
-                scanLayout.$.drawArgs[idx].instanceCount = c;
-                scanLayout.$.drawArgs[idx].firstInstance =
-                    slot * scanLayout.$.params.instanceCapacity + carry.$ + excl;
-                // Packed mesh indices require baseVertex = 0 at draw time. Until scatter finishes,
-                // the word preserves the tally while instanceCount serves as the reverse cursor.
-                scanLayout.$.drawArgs[idx].baseVertex = d.i32(c);
-                std.atomicStore(scanLayout.$.counts[idx], 0);
-            }
+            const excl = temp.$[local] - c;
+            const total = temp.$[SCAN_WG - 1];
+            if (inRange) std.atomicStore(scanLayout.$.counts[base + t], carry.$ + excl);
             std.workgroupBarrier();
-            if (local === 0) carry.$ = carry.$ + tileTotal;
+            if (local === 0) carry.$ = carry.$ + total;
             std.workgroupBarrier();
-
-            tileBase = tileBase + SCAN_WG;
+            tile = tile + SCAN_WG;
         }
+    });
+}
+
+/**
+ * Exclusive prefix sum in pair order, one workgroup per (tile, view slot), offset by the tile's
+ * scanned sum. Writes instanceCount and firstInstance;
+ * firstInstance addresses that slot's instance-capacity-sized region in packedEids.
+ * Leaves indexCount and firstIndex unchanged and clears count tallies for the next count pass.
+ * baseVertex temporarily holds the tally while scatter uses instanceCount as a cursor;
+ * scatter restores both before drawing. Workgroup-local scanning needs no subgroups. @internal
+ */
+export function scanKernel() {
+    return tgpu.computeFn({
+        workgroupSize: [SCAN_WG],
+        in: { wid: d.builtin.workgroupId, lid: d.builtin.localInvocationId },
+    })((input) => {
+        "use gpu";
+        const slot = input.wid.y;
+        const pairCount = scanLayout.$.params.pairCount;
+        const local = input.lid.x;
+        const p = input.wid.x * SCAN_WG + local;
+        const inRange = p < pairCount;
+        const idx = slot * pairCount + p;
+        let c = d.u32(0);
+        if (inRange) c = std.atomicLoad(scanLayout.$.counts[idx]);
+        temp.$[local] = c;
+        std.workgroupBarrier();
+        let offset = d.u32(1);
+        while (offset < SCAN_WG) {
+            let add = d.u32(0);
+            if (local >= offset) add = temp.$[local - offset];
+            std.workgroupBarrier();
+            temp.$[local] = temp.$[local] + add;
+            std.workgroupBarrier();
+            offset = offset * 2;
+        }
+        if (!inRange) return;
+        const prefix = std.atomicLoad(scanLayout.$.counts[tileBase(slot) + input.wid.x]);
+        scanLayout.$.drawArgs[idx].instanceCount = c;
+        scanLayout.$.drawArgs[idx].firstInstance =
+            slot * scanLayout.$.params.instanceCapacity + prefix + temp.$[local] - c;
+        scanLayout.$.drawArgs[idx].baseVertex = d.i32(c);
+        std.atomicStore(scanLayout.$.counts[idx], 0);
     });
 }
 

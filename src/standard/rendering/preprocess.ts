@@ -56,6 +56,8 @@ import {
     scanLayout,
     scatterKernel,
     scatterLayout,
+    tileScanKernel,
+    tileSumKernel,
 } from "./pack";
 import {
     countProducers,
@@ -108,7 +110,14 @@ interface MeshPreprocessState {
     scanPipe: TgpuComputePipeline | null;
     scatterPipe: TgpuComputePipeline | null;
     countBound: { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null;
-    scanBound: { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null;
+    scanBound: {
+        pipeline: GPUComputePipeline;
+        tileSum: GPUComputePipeline;
+        tileScan: GPUComputePipeline;
+        groups: GPUBindGroup[];
+    } | null;
+    tileSumPipe: TgpuComputePipeline | null;
+    tileScanPipe: TgpuComputePipeline | null;
     scatterBound: { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null;
     batchCount: number;
     /** each material type's pipelineKeys when draws were last registered */
@@ -372,6 +381,8 @@ function createMeshPreprocessState(): MeshPreprocessState {
         scatterPipe: null,
         countBound: null,
         scanBound: null,
+        tileSumPipe: null,
+        tileScanPipe: null,
         scatterBound: null,
         batchCount: 0,
         pipelineKeys: new Int32Array(0),
@@ -503,10 +514,15 @@ export const MeshPreprocessSystem: System = {
             dispatchWorkgroups2(pass, rows, views);
         }
         countProducers(world, pass);
-        // one workgroup per live view slot; slots past them are never drawn, and a slot that becomes
-        // live again is scanned before its draw
-        setBound(pass, scan);
+        // Only live view slots are scanned; a slot that becomes live again is scanned before its draw.
+        const tiles = Math.ceil(_meshPreprocess.pairCount / 256);
+        setComputePipeline(pass, scan.tileSum);
+        for (let i = 0; i < scan.groups.length; i++) setComputeBindGroup(pass, i, scan.groups[i]!);
+        dispatchWorkgroups2(pass, tiles, views);
+        setComputePipeline(pass, scan.tileScan);
         dispatchWorkgroups(pass, views);
+        setComputePipeline(pass, scan.pipeline);
+        dispatchWorkgroups2(pass, tiles, views);
         if (rows > 0) {
             setBound(pass, scatter);
             dispatchWorkgroups2(pass, rows, views);
@@ -584,7 +600,7 @@ function bindCount(world: World): { pipeline: GPUComputePipeline; groups: GPUBin
     return _meshPreprocess.countBound;
 }
 
-function bindScan(world: World): { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null {
+function bindScan(world: World): MeshPreprocessState["scanBound"] {
     const _meshPreprocess = world.resource(meshPreprocessKey);
     const _meshDraws = world.resource(MeshDrawBuffers);
 
@@ -598,6 +614,8 @@ function bindScan(world: World): { pipeline: GPUComputePipeline; groups: GPUBind
         return null;
     _meshPreprocess.scanBound = {
         pipeline: world.gpu.root.unwrap(_meshPreprocess.scanPipe),
+        tileSum: world.gpu.root.unwrap(_meshPreprocess.tileSumPipe!),
+        tileScan: world.gpu.root.unwrap(_meshPreprocess.tileScanPipe!),
         groups: [
             world.gpu.root.unwrap(
                 world.gpu.root.createBindGroup(scanLayout, {
@@ -747,7 +765,12 @@ function syncBuffers(world: World): void {
             .$usage("storage", "indirect")
             .$name("shallot-draw-args");
         _meshPreprocess.counts = world.gpu.root
-            .createBuffer(d.arrayOf(d.atomic(d.u32), records))
+            .createBuffer(
+                d.arrayOf(
+                    d.atomic(d.u32),
+                    records + _meshPreprocess.viewDim * Math.ceil(_meshPreprocess.pairCount / 256),
+                ),
+            )
             .$usage("storage")
             .$name("shallot-mesh-preprocess-counts");
     }
@@ -1173,6 +1196,12 @@ export function warmMeshPreprocess(world: World): void {
     _meshPreprocess.scanPipe = root
         .createComputePipeline({ compute: scanKernel() })
         .$name("shallot-mesh-preprocess-scan");
+    _meshPreprocess.tileSumPipe = root
+        .createComputePipeline({ compute: tileSumKernel() })
+        .$name("shallot-mesh-preprocess-tile-sum");
+    _meshPreprocess.tileScanPipe = root
+        .createComputePipeline({ compute: tileScanKernel() })
+        .$name("shallot-mesh-preprocess-tile-scan");
     _meshPreprocess.scatterPipe = root
         .createComputePipeline({ compute: scatterKernel() })
         .$name("shallot-mesh-preprocess-scatter");
@@ -1187,7 +1216,7 @@ export function warmMeshPreprocess(world: World): void {
     });
     precompile(world, "shallot-mesh-preprocess-scan", () => {
         const bound = bindScan(world);
-        return bound && [bound.pipeline];
+        return bound && [bound.tileSum, bound.tileScan, bound.pipeline];
     });
     precompile(world, "shallot-mesh-preprocess-scatter", () => {
         const bound = bindScatter(world);
