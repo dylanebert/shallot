@@ -18,7 +18,7 @@ interface Subject {
 }
 
 const configs: Parameters<typeof createApp>[0][] = [];
-const apps = gpuApps(import.meta.path, configs);
+const apps = gpuApps(import.meta.path, configs, { warmFrame: false });
 
 /** Declare one independent world, built in the file's beforeAll; its table is declared at initialize. */
 function subject(

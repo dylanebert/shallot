@@ -70,20 +70,24 @@ import { upscalingKey } from "./upscaling";
 import { Views, viewResourcesKey } from "./view";
 
 setDefaultTimeout(TIMEOUT.node);
-const subjects = gpuApps(import.meta.path, [
-    { defaults: false, plugins: [RenderingPlugin, PointsPlugin] },
-    {
-        defaults: false,
-        plugins: [
-            RenderingPlugin,
-            PointsPlugin,
-            StandardRenderingPlugin,
-            MeshRenderPlugin,
-            CorePipelinePlugin,
-        ],
-    },
-    { defaults: false, plugins: [RenderingPlugin] },
-]);
+const subjects = gpuApps(
+    import.meta.path,
+    [
+        { defaults: false, plugins: [RenderingPlugin, PointsPlugin] },
+        {
+            defaults: false,
+            plugins: [
+                RenderingPlugin,
+                PointsPlugin,
+                StandardRenderingPlugin,
+                MeshRenderPlugin,
+                CorePipelinePlugin,
+            ],
+        },
+        { defaults: false, plugins: [RenderingPlugin] },
+    ],
+    { warmFrame: false },
+);
 
 const coreResources = {
     pointsState,

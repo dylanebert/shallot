@@ -7,6 +7,7 @@ setDefaultTimeout(TIMEOUT.gpu);
 const subjects = gpuApps(
     import.meta.path,
     Array.from({ length: 3 }, () => ({ defaults: false, plugins: [] })),
+    { warmFrame: false },
 );
 
 test("one-shot readback stamps its copy and reuses then releases world staging", async () => {

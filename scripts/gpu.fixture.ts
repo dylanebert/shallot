@@ -157,32 +157,39 @@ export function gpuScene<T>(
     path: string,
     config: Parameters<typeof createApp>[0],
     initialize: (world: World) => T,
+    options?: Parameters<typeof gpuApps>[2],
 ): () => { world: World; scene: T } {
     let scene: T;
-    const apps = gpuApps(path, [
-        {
-            ...config,
-            plugins: [
-                ...config.plugins,
-                {
-                    name: "TestScene",
-                    dependencies: config.plugins,
-                    initialize(world) {
-                        scene = initialize(world);
+    const apps = gpuApps(
+        path,
+        [
+            {
+                ...config,
+                plugins: [
+                    ...config.plugins,
+                    {
+                        name: "TestScene",
+                        dependencies: config.plugins,
+                        initialize(world) {
+                            scene = initialize(world);
+                        },
                     },
-                },
-            ],
-        },
-    ]);
+                ],
+            },
+        ],
+        options,
+    );
     return () => ({ world: apps()[0].world, scene });
 }
 
 /** Prebuild independent worlds on one file device; never share pipelines between worlds.
  * A test whose work fails the device waits for its classified report, so the test that raised it fails.
+ * Each world steps one awaited frame unless warmFrame is false, for a claim about an unstepped world.
  */
 export function gpuApps(
     path: string,
     configs: Parameters<typeof createApp>[0][],
+    { warmFrame = true }: { warmFrame?: boolean } = {},
 ): () => Awaited<ReturnType<typeof createApp>>[] {
     const apps: Awaited<ReturnType<typeof createApp>>[] = [];
     let device: GPUDevice | undefined;
@@ -203,6 +210,12 @@ export function gpuApps(
             const app = await createTestGpuApp({ ...config, device });
             apps.push(app);
             worlds.push(app);
+        }
+        // A driver may compile a pipeline at its first draw (llvmpipe; hosted Metal took 3.8 s), so
+        // one awaited frame charges that to startup and tests time only their work.
+        if (warmFrame) {
+            for (const app of worlds) app.world.step(0);
+            await device.queue.onSubmittedWorkDone();
         }
         return worlds;
     });

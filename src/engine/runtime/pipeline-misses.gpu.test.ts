@@ -23,72 +23,76 @@ function pipeline(world: World, label: string) {
 const warmWarnings: unknown[][] = [];
 let asyncShader: GPUShaderModule;
 let ownedShader: GPUShaderModule;
-const subjects = gpuApps(import.meta.path, [
-    {
-        defaults: false,
-        plugins: [
-            {
-                name: "Control",
-                gpu: {},
-                systems: [
-                    {
-                        name: "late",
-                        group: "draw",
-                        update(world) {
-                            pipeline(world, "scheduled-control");
+const subjects = gpuApps(
+    import.meta.path,
+    [
+        {
+            defaults: false,
+            plugins: [
+                {
+                    name: "Control",
+                    gpu: {},
+                    systems: [
+                        {
+                            name: "late",
+                            group: "draw",
+                            update(world) {
+                                pipeline(world, "scheduled-control");
+                            },
                         },
-                    },
-                ],
-                warm(world) {
-                    const warn = spyOn(console, "warn").mockImplementation((...args) => {
-                        warmWarnings.push(args);
-                    });
-                    try {
-                        ownedShader = withPipelineOwner(world.gpu.device, "ShaderOwner", () =>
-                            world.gpu.device.createShaderModule({
-                                code: "@compute @workgroup_size(1) fn main() {}",
-                            }),
-                        );
-                        const prepared = pipeline(world, "warm-control");
-                        precompile(world, "warm-control", () => [prepared]);
-                    } finally {
-                        warn.mockRestore();
-                    }
-                },
-            },
-        ],
-    },
-    {
-        defaults: false,
-        plugins: [
-            {
-                name: "AsyncOwner",
-                gpu: {},
-                async warm(world) {
-                    await Promise.resolve();
-                    asyncShader = world.gpu.device.createShaderModule({
-                        code: "@compute @workgroup_size(1) fn main() {}",
-                    });
-                },
-                systems: [
-                    {
-                        name: "late",
-                        group: "draw",
-                        update(world) {
-                            world.gpu.device.createComputePipeline({
-                                label: "async-owner-control",
-                                layout: world.gpu.device.createPipelineLayout({
-                                    bindGroupLayouts: [],
+                    ],
+                    warm(world) {
+                        const warn = spyOn(console, "warn").mockImplementation((...args) => {
+                            warmWarnings.push(args);
+                        });
+                        try {
+                            ownedShader = withPipelineOwner(world.gpu.device, "ShaderOwner", () =>
+                                world.gpu.device.createShaderModule({
+                                    code: "@compute @workgroup_size(1) fn main() {}",
                                 }),
-                                compute: { module: asyncShader },
-                            });
-                        },
+                            );
+                            const prepared = pipeline(world, "warm-control");
+                            precompile(world, "warm-control", () => [prepared]);
+                        } finally {
+                            warn.mockRestore();
+                        }
                     },
-                ],
-            },
-        ],
-    },
-]);
+                },
+            ],
+        },
+        {
+            defaults: false,
+            plugins: [
+                {
+                    name: "AsyncOwner",
+                    gpu: {},
+                    async warm(world) {
+                        await Promise.resolve();
+                        asyncShader = world.gpu.device.createShaderModule({
+                            code: "@compute @workgroup_size(1) fn main() {}",
+                        });
+                    },
+                    systems: [
+                        {
+                            name: "late",
+                            group: "draw",
+                            update(world) {
+                                world.gpu.device.createComputePipeline({
+                                    label: "async-owner-control",
+                                    layout: world.gpu.device.createPipelineLayout({
+                                        bindGroupLayouts: [],
+                                    }),
+                                    compute: { module: asyncShader },
+                                });
+                            },
+                        },
+                    ],
+                },
+            ],
+        },
+    ],
+    { warmFrame: false },
+);
 
 test("async warm shader creation retains the late executing system and plugin as owner", () => {
     const world = subjects()[1].world;

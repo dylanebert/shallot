@@ -95,6 +95,7 @@ for (const mask of masks) {
             world.add(entity, Outline, { width: 5.5 });
             return { world, camera, entity, meshes, mesh };
         },
+        { warmFrame: false },
     );
     if (mask === masks[0])
         test("flood targets round odd views up at width 4 and stay full-sized below 2", async () => {
