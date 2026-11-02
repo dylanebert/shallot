@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import {
     chmodSync,
     cpSync,
@@ -15,8 +15,8 @@ import { basename, resolve } from "node:path";
 import { tryPrebuilt } from "./prebuilt";
 import { cargoRuntimeDir, requireRuntimeDir } from "./provenance.js";
 
-const RUST_CRATE = resolve(import.meta.dir, "../../crates/native");
-const DEFAULT_ICON = resolve(import.meta.dir, "../../assets/icon-1024.png");
+const RUST_CRATE = resolve(import.meta.dirname, "../../crates/native");
+const DEFAULT_ICON = resolve(import.meta.dirname, "../../assets/icon-1024.png");
 const WIN_TARGET = "x86_64-pc-windows-msvc";
 const MAC_TARGET = "aarch64-apple-darwin";
 const LINUX_TARGET = "x86_64-unknown-linux-gnu";
@@ -82,10 +82,12 @@ function winPath(p: string): string {
 // incremental lock and the CEF cmake build fail there.
 // Returns the local Windows target directory and its WSL view for reading artifacts.
 function winBuildDir(): { win: string; wsl: string } {
-    const r = Bun.spawnSync(
-        ["powershell.exe", "-NoProfile", "-Command", "[Console]::Write($env:LOCALAPPDATA)"],
-        { stdout: "pipe" },
+    const r = spawnSync(
+        "powershell.exe",
+        ["-NoProfile", "-Command", "[Console]::Write($env:LOCALAPPDATA)"],
+        { stdio: ["ignore", "pipe", "inherit"], maxBuffer: Infinity },
     );
+    if (r.error) throw r.error;
     const local = new TextDecoder().decode(r.stdout).trim().replace(/\r/g, "");
     const win = `${local}\\shallot\\winbuild`;
     const wsl = execSync(`wslpath -u "${win}"`, { encoding: "utf-8" }).trim();
@@ -217,9 +219,9 @@ function cargoBuild(
     // The dev-shell's internal cmd.exe needs a local Windows cwd before switching to the crate's UNC path.
     if (invocation.kind === "devshell") {
         const winCwd = execSync("wslpath -u 'C:\\'", { encoding: "utf-8" }).trim();
-        const r = Bun.spawnSync(
+        const r = spawnSync(
+            "powershell.exe",
             [
-                "powershell.exe",
                 "-NoProfile",
                 "-Command",
                 devShellBuild(
@@ -229,9 +231,10 @@ function cargoBuild(
                     iconPath,
                 ),
             ],
-            { cwd: winCwd, stdout: "pipe", stderr: "inherit" },
+            { cwd: winCwd, stdio: ["ignore", "pipe", "inherit"], maxBuffer: Infinity },
         );
-        if (r.exitCode !== 0) {
+        if (r.error) throw r.error;
+        if (r.status !== 0) {
             console.error(
                 "  windows portable build failed — the host needs the Rust MSVC toolchain plus Visual Studio (or Build Tools) with the C++ workload incl. ATL, which CEF's wrapper requires",
             );

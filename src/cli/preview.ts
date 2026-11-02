@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { basename, posix, relative, resolve } from "node:path";
 import { nativeOutDir } from "../native";
@@ -105,5 +105,9 @@ async function run(
     command: string[],
     options: { cwd?: string; env: Record<string, string | undefined> },
 ): Promise<number> {
-    return Bun.spawn(command, { ...options, stdio: ["inherit", "inherit", "inherit"] }).exited;
+    return new Promise((resolve, reject) => {
+        const child = spawn(command[0]!, command.slice(1), { ...options, stdio: "inherit" });
+        child.once("error", reject);
+        child.once("exit", (code) => resolve(code ?? 1));
+    });
 }

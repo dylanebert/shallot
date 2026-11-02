@@ -149,7 +149,7 @@ beforeAll(() => {
 afterAll(() => removeTestDirectory(root));
 
 test("a packed minimal scaffold with physics starts through pinned Wrangler assets and changes only its link", async () => {
-    const cli = join(project, "node_modules/@dylanebert/shallot/bin/shallot.ts");
+    const cli = join(project, "node_modules/@dylanebert/shallot/dist/cli/shallot.js");
     const scaffold = join(root, "scaffold");
     run([cli, "create", scaffold]);
     const html = join(scaffold, "index.html");
@@ -345,7 +345,7 @@ test("pinned Wrangler resolves an ancestor config's account and, without one, pa
         symlinkSync(join(project, "node_modules"), join(refusing, "node_modules"), "junction");
         const refusal = Bun.spawn({
             ...bunChild([
-                join(project, "node_modules/@dylanebert/shallot/bin/shallot.ts"),
+                join(project, "node_modules/@dylanebert/shallot/dist/cli/shallot.js"),
                 "publish",
             ]),
             cwd: refusing,

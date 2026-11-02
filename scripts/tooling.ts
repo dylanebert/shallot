@@ -13,4 +13,15 @@ for (const entry of ["testing", "vite"] as const) {
     writeFileSync(resolve(OUT, `${entry}.d.ts`), buildProjectDeclaration(entry));
 }
 
-console.log("build-tooling: generated dist/testing.d.ts, dist/vite.d.ts");
+const cli = await Bun.build({
+    entrypoints: [resolve(ROOT, "bin/shallot.ts")],
+    outdir: resolve(OUT, "cli"),
+    target: "node",
+    format: "esm",
+    packages: "external",
+    splitting: true,
+    minify: true,
+});
+if (!cli.success) throw new AggregateError(cli.logs, "CLI bundle failed");
+
+console.log("build-tooling: generated dist/testing.d.ts, dist/vite.d.ts, dist/cli/");

@@ -137,7 +137,12 @@ export function example(name: string): { project: string; manifest: Record<strin
 export function createExample(name: string): void {
     const { scratch, cliProject, tarball, installedPackage } = packedInstall();
     const project = join(scratch, name);
-    const args = ["bun", "run", join(installedPackage, "bin/shallot.ts"), "create", project];
+    const args = [
+        process.execPath,
+        join(installedPackage, "dist/cli/shallot.js"),
+        "create",
+        project,
+    ];
     if (name !== "minimal") args.push("--template", name);
     run(args, cliProject, `shallot create ${name}`);
 

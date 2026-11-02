@@ -157,7 +157,7 @@ test("documented commands resolve and package files are realizable", async () =>
             let reachable = false;
             if (match?.[1] === "bunx") {
                 const bin = resolve(root, "node_modules/.bin", token!);
-                const expected = resolve(root, "bin/shallot.ts");
+                const expected = resolve(root, "dist/cli/shallot.js");
                 reachable =
                     (token === "shallot" &&
                         existsSync(bin) &&

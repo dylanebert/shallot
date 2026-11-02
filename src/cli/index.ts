@@ -331,7 +331,9 @@ export async function main(
         exit(0);
     }
     if (parsed.kind === "skill") {
-        console.log(readFileSync(new URL("./skill.md", import.meta.url), "utf8").trimEnd());
+        console.log(
+            readFileSync(new URL("../../src/cli/skill.md", import.meta.url), "utf8").trimEnd(),
+        );
         exit(0);
     }
     if (parsed.kind === "migrate") {

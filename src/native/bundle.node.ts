@@ -174,18 +174,21 @@ try {
    const standaloneDist = (await import('node:fs')).existsSync(platform === 'mac' ? standalone+'/game.app/Contents/Resources/dist/index.html' : standalone+'/dist/index.html');
    const devShell = nativeOutDir(project,platform,false,portable,true);
    const fs = await import('node:fs');
-   const originalSpawn = Bun.spawn;
-   Bun.spawn = (command, options) => {
-     const args = Array.isArray(command) ? command : [command];
-     const executable = args[0] === 'open' ? args[args.length - 1] : args[0];
+   const cp = await import('node:child_process');
+   const { mock } = await import('bun:test');
+   const { EventEmitter } = await import('node:events');
+   mock.module('node:child_process', () => ({ ...cp, spawn: (command, args, options) => {
+     const executable = command === 'open' ? args[args.length - 1] : command;
      fs.appendFileSync(process.env.FIXTURE_LAUNCH_LOG, JSON.stringify({executable,devUrl:options?.env?.SHALLOT_DEV_URL}) + String.fromCharCode(10));
-     return {exited:Promise.resolve(0)};
-   };
+     const child = new EventEmitter();
+     queueMicrotask(() => child.emit('exit', 0));
+     return child;
+   } }));
    let previewStatus; let standalonePreviewStatus;
    try {
      previewStatus = await previewProject(project,{target:platform,portable,devUrl:'http://127.0.0.1:5173'});
      standalonePreviewStatus = await previewProject(project,{target:platform,portable});
-   } finally { Bun.spawn = originalSpawn; }
+   } finally { mock.restore(); }
    (await import('node:fs')).writeFileSync(process.env.DEV_SEQUENCE_LOG, JSON.stringify({platform,portable,standalone,standaloneDist,devShell,previewStatus,standalonePreviewStatus}));
  }
 } catch(error) {

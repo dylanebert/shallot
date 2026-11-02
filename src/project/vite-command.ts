@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { dirname, resolve } from "node:path";
@@ -55,17 +55,17 @@ export function runVite(
         console.error(error instanceof Error ? error.message : String(error));
         return 1;
     }
-    const result = Bun.spawnSync([process.execPath, viteCli, ...viteCliArgs(command, args)], {
+    const result = spawnSync(process.execPath, [viteCli, ...viteCliArgs(command, args)], {
         cwd: viteCwd(projectDir),
-        stdin: "inherit",
-        stdout: stdout === "quiet" ? "pipe" : stdout,
-        stderr: stdout === "quiet" ? "pipe" : "inherit",
+        maxBuffer: Infinity,
+        stdio: ["inherit", stdout === "quiet" ? "pipe" : stdout, stdout === "quiet" ? "pipe" : "inherit"],
     });
-    if (stdout === "quiet" && result.exitCode !== 0) {
+    if (result.error) throw result.error;
+    if (stdout === "quiet" && result.status !== 0) {
         process.stderr.write(result.stdout ?? "");
         process.stderr.write(result.stderr ?? "");
     }
-    return result.exitCode;
+    return result.status ?? 1;
 }
 
 export function viteCliArgs(command: ViteCommand, args: string[] = []): string[] {

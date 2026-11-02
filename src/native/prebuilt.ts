@@ -136,10 +136,10 @@ async function downloadToBuffer(url: string): Promise<Buffer> {
 
 // Source checkouts may have no published release; only installed packages attempt a versioned fetch.
 function getPackageVersion(): string | null {
-    if (!import.meta.dir.includes("node_modules")) return null;
+    if (!import.meta.dirname.includes("node_modules")) return null;
     try {
         const pkg = JSON.parse(
-            readFileSync(resolve(import.meta.dir, "../..", "package.json"), "utf8"),
+            readFileSync(resolve(import.meta.dirname, "../..", "package.json"), "utf8"),
         );
         return pkg.version ?? null;
     } catch {

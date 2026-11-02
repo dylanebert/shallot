@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
-const PACKAGE_ROOT = resolve(import.meta.dir, "../..");
+const PACKAGE_ROOT = resolve(import.meta.dirname, "../..");
 const ENGINE = "@dylanebert/shallot";
 /** A project's install and build output: ignored by its Git, never copied from a template, never packed. */
 export const PROJECT_OUTPUT = ["node_modules", "dist", "build", ".artifacts", "test-results"];
@@ -314,7 +314,7 @@ bun run preview
 }
 
 function projectAgents(): string {
-    return readFileSync(new URL("./skill.md", import.meta.url), "utf8").replace(
+    return readFileSync(new URL("../../src/cli/skill.md", import.meta.url), "utf8").replace(
         /^---\r?\n[\s\S]*?\r?\n---\r?\n\r?\n/,
         "",
     );

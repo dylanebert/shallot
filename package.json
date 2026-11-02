@@ -8,7 +8,8 @@
     "license": "MIT",
     "packageManager": "bun@1.4.3",
     "engines": {
-        "bun": ">=1.4.3"
+        "bun": ">=1.4.3",
+        "node": ">=22"
     },
     "author": "Dylan Ebert <dylan.ebert@gmail.com>",
     "repository": {
@@ -59,7 +60,7 @@
         "./standard/physics": "./src/standard/physics/index.ts"
     },
     "bin": {
-        "shallot": "./bin/shallot.ts"
+        "shallot": "./dist/cli/shallot.js"
     },
     "files": [
         "src",
