@@ -20,12 +20,19 @@
     <script type="module">
         import { runApp } from "@dylanebert/shallot";
         import { flushSync, mount, unmount } from "svelte";
-        import { AppPlugin, frameScene, selectScene } from "./src/app";
+        import { AppPlugin, frameScene, loadRemainingScenes, selectScene } from "./src/app";
         import Hud from "./src/Hud.svelte";
         import { initialScene, scenes } from "./src/scenes";
-        await runApp({
+        const ready = runApp({
             plugins: [AppPlugin],
             ui(container, world) {
+                // Let the loading screen finish and the initial frames draw before background fetches begin.
+                let loadFrame = 0;
+                void ready.then(() => {
+                    loadFrame = requestAnimationFrame(() => {
+                        loadFrame = requestAnimationFrame(() => loadRemainingScenes(world));
+                    });
+                });
                 let component;
                 const canvas = document.querySelector("canvas");
                 const resize = new ResizeObserver(() => frameScene(world, canvas.clientWidth / canvas.clientHeight));
@@ -40,9 +47,10 @@
                 }
                 const requested = new URL(location.href).searchParams.get("scene");
                 select(requested && Object.hasOwn(scenes, requested) ? requested : initialScene);
-                return () => { resize.disconnect(); void unmount(component); };
+                return () => { cancelAnimationFrame(loadFrame); resize.disconnect(); void unmount(component); };
             },
         });
+        await ready;
     </script>
 </body>
 </html>

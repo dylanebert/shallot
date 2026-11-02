@@ -24,6 +24,8 @@ import { initialScene, modelPath, type Scene, scenes, truckPlacement } from "./s
 
 export const Viewer: Resource<{
     models: Map<Scene, Gltf>;
+    loads: Map<Scene, Promise<void>>;
+    selection: number;
     entities: number[];
     camera: number;
     sun: number;
@@ -34,6 +36,8 @@ export const Viewer: Resource<{
 }> = {
     create: () => ({
         models: new Map(),
+        loads: new Map(),
+        selection: 0,
         entities: [],
         camera: 0,
         sun: 0,
@@ -48,8 +52,11 @@ export function frameScene(world: World, aspect: number) {
     if (viewer.bounds) fitBounds(world, viewer.camera, viewer.bounds, aspect);
 }
 
-export function selectScene(world: World, scene: Scene, aspect = 1) {
+export async function selectScene(world: World, scene: Scene, aspect = 1) {
     const viewer = world.resource(Viewer);
+    const selection = ++viewer.selection;
+    if (!viewer.models.has(scene)) await (viewer.loads.get(scene) ?? loadScene(world, scene));
+    if (viewer.selection !== selection) return;
     for (const eid of viewer.entities) world.destroy(eid);
     for (const eid of viewer.instance?.lightEntities ?? []) world.destroy(eid);
     const lit = viewer.models.get(scene)!.lights.length > 0;
@@ -83,6 +90,28 @@ export function animateScene(world: World, delta: number): void {
     poseGltfScene(world, viewer.instance, animation, time);
 }
 
+function loadScene(
+    world: World,
+    scene: Scene,
+    onProgress?: (progress: number) => void,
+): Promise<void> {
+    const viewer = world.resource(Viewer);
+    const load = loadGltfScene(world, new URL(modelPath(scene), document.baseURI), onProgress).then(
+        (model) => {
+            viewer.models.set(scene, model);
+        },
+    );
+    viewer.loads.set(scene, load);
+    return load;
+}
+
+export function loadRemainingScenes(world: World): void {
+    const viewer = world.resource(Viewer);
+    for (const scene of Object.keys(scenes) as Scene[]) {
+        if (!viewer.loads.has(scene)) void loadScene(world, scene);
+    }
+}
+
 export const AppPlugin: Plugin = {
     name: "GltfApp",
     dependencies: [OrbitPlugin, MeshPlugin, GltfPlugin, DiagnosticsOverlayPlugin],
@@ -110,18 +139,11 @@ export const AppPlugin: Plugin = {
         world.add(viewer.camera, StandardRenderer);
         world.add(viewer.camera, Transform);
         world.add(viewer.camera, Orbit);
-        const names = Object.keys(scenes) as Scene[];
-        let loaded = 0;
-        await Promise.all(
-            names.map(async (scene) => {
-                viewer.models.set(
-                    scene,
-                    await loadGltfScene(world, new URL(modelPath(scene), document.baseURI)),
-                );
-                progress?.(++loaded / names.length);
-            }),
-        );
+        const requested = new URL(location.href).searchParams.get("scene");
+        const scene =
+            requested && Object.hasOwn(scenes, requested) ? (requested as Scene) : initialScene;
+        await loadScene(world, scene, progress);
         const canvas = document.querySelector("canvas")!;
-        selectScene(world, initialScene, canvas.clientWidth / canvas.clientHeight);
+        await selectScene(world, scene, canvas.clientWidth / canvas.clientHeight);
     },
 };
