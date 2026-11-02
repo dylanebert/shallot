@@ -39,7 +39,7 @@ import {
     GlobalTransformHistoryStartSystem,
     PrepareGlobalTransformHistorySystem,
 } from "./global-transform";
-import { blitPipelinesKey, DataImages, ImageBindings, Images } from "./image";
+import { blitPipelinesKey, DataImages, ImageBindings, Images, imageLocationsKey } from "./image";
 import {
     attachTexture,
     BeginFrameSystem,
@@ -105,6 +105,7 @@ const coreResources = {
     Frame,
     blitPipelinesKey,
     ImageBindings,
+    imageLocationsKey,
     Images,
     DataImages,
     compositeCacheKey,

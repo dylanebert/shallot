@@ -22,7 +22,8 @@ export const ImageBindings = {
     }),
 };
 
-const imageLocations = { create: () => [] as number[][][] };
+/** Warm-time [band, layer] per id, indexed [color, data][id], read by resolveImage. */
+export const imageLocationsKey = { create: () => [] as number[][][] };
 
 /**
  * Resolve a registered id after warm to its world-owned texture and array layer. False isSrgb
@@ -35,7 +36,7 @@ export function resolveImage(
     settings: Pick<ImageLoaderSettings, "isSrgb"> = {},
 ): { texture: GPUTexture; layer: number } {
     const data = settings.isSrgb === false;
-    const location = world.resource(imageLocations)[data ? 1 : 0]?.[id];
+    const location = world.resource(imageLocationsKey)[data ? 1 : 0]?.[id];
     const bindings = world.resource(ImageBindings);
     const band = location?.[0] ?? 0;
     const texture = data
@@ -132,7 +133,7 @@ export async function warmImages(world: World): Promise<void> {
     const images = world.resource(Images);
     const dataImages = world.resource(DataImages);
     const device = world.gpu.device;
-    const locations = world.resource(imageLocations);
+    const locations = world.resource(imageLocationsKey);
     locations.length = 0;
     const loadArray = async (
         images: ReturnType<typeof Images.create>,
