@@ -61,6 +61,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - Gameplay and physics read its fixed-tick columns; rendering owns `globalTransformTable(world)` in `core/rendering`, its GPU history and interpolation
 - A placement producer (`Transform`, or a domain's body, skeleton or attachment) adds `GlobalTransform` when missing and never removes it on detachment
 - Physics publishes a body's pose to both `Transform` and `GlobalTransform`, and its linear velocity to `GlobalTransform`; scale still derives from `Transform` and scales the body's shapes and rendered mesh alike
+- A shape attached to another bound body inherits that body's `GlobalTransform`, including scale and discontinuities, until detached
 - Producers write world storage, never the interpolated output; readers never treat `Transform` as the shared world-space result
 - Hierarchy belongs to the domain deriving placement. A general attachment relation enters core only when two examples need the same one
 

@@ -7,6 +7,7 @@ import {
     releaseTransformPose,
     resetInterpolation,
     Transform,
+    TransformRuntime,
 } from "../../core/transform";
 import {
     type EntityRef,
@@ -17,6 +18,7 @@ import {
     type TypedArray,
     type World,
 } from "../../engine";
+import type { ComponentStorage } from "../../engine/ecs";
 import { reportStartup } from "../../engine/runtime";
 import { clamp } from "../../engine/utils";
 import type { AABB, Pos, Quat, Vec3, WorldState, WorldTransform } from "./api";
@@ -202,6 +204,7 @@ interface PhysicsRuntime {
     shapes: Map<number, EntityId>;
     /** Each attached shape's body eid. */
     shapeBodies: EidColumn;
+    attachedShapes: Map<number, number>;
     shapeDependencies: BodyDependencies;
     contactData: ContactDataBuffer;
     sensorData: PhysicsSensorData;
@@ -285,6 +288,7 @@ function newRuntime(): PhysicsRuntime {
         warnedBodyFields: new Set(),
         shapes: new Map(),
         shapeBodies: new EidColumn(),
+        attachedShapes: new Map(),
         shapeDependencies: new BodyDependencies(),
         contactData: new ContactDataBuffer(),
         sensorData: { shapes: [], count: 0 },
@@ -610,6 +614,7 @@ function forget(world: World, runtime: PhysicsRuntime, eid: number): void {
         shapeEid = dependencies.following(shapeEid)
     )
         if (runtime.shapeBodies.get(shapeEid) === eid) {
+            releaseAttachedShape(world, runtime, shapeEid);
             runtime.shapes.delete(shapeEid);
             runtime.shapeBodies.delete(shapeEid);
             runtime.shapeStamps.delete(shapeEid);
@@ -623,6 +628,7 @@ function forget(world: World, runtime: PhysicsRuntime, eid: number): void {
 }
 
 function clearBodies(world: World, runtime: PhysicsRuntime): void {
+    for (const eid of runtime.attachedShapes.keys()) releaseAttachedShape(world, runtime, eid);
     for (const eid of runtime.bodies.keys()) releaseTransformPose(world, eid);
     runtime.bodies.clear();
     runtime.shapes.clear();
@@ -1985,6 +1991,7 @@ function restoreBindings(
     order.entries = b.creationOrder.slice();
     order.count = order.entries.length;
     const state = physicsWorld;
+    for (const eid of runtime.attachedShapes.keys()) releaseAttachedShape(world, runtime, eid);
     for (const eid of runtime.bodies.keys()) releaseTransformPose(world, eid);
     runtime.bodies.clear();
     runtime.shapes.clear();
@@ -2011,6 +2018,7 @@ function restoreBindings(
         };
         runtime.shapes.set(eid, shape);
         runtime.shapeBodies.set(eid, b.shapes[i + 3]);
+        if (eid !== b.shapes[i + 3]) bindAttachedShape(world, runtime, eid, b.shapes[i + 3]);
         runtime.shapeStamps.set(eid, b.shapes[i + 4] as EntityRef);
         rememberShapeEntity(world, runtime, shape, eid, b.shapes[i + 3]);
     }
@@ -2576,6 +2584,48 @@ function solvePhysics(world: World, timeStep: number, subStepCount: number): voi
     const pose = world.storage(Transform);
     pose.translation.writeEncoded(rows.eids, rows.pos);
     pose.rotation.writeEncoded(rows.eids, rows.quat);
+    publishAttachedShapes(world);
+}
+
+function bindAttachedShape(world: World, runtime: PhysicsRuntime, eid: number, body: number): void {
+    if (runtime.attachedShapes.get(eid) === body) return;
+    runtime.attachedShapes.set(eid, body);
+    if (!world.has(eid, GlobalTransform)) world.add(eid, GlobalTransform);
+    claimTransformPose(world, eid, true);
+    resetInterpolation(world, eid);
+}
+
+function releaseAttachedShape(world: World, runtime: PhysicsRuntime, eid: number): void {
+    if (!runtime.attachedShapes.delete(eid)) return;
+    releaseTransformPose(world, eid);
+    if (runtime.bodies.has(eid)) claimTransformPose(world, eid);
+    resetInterpolation(world, eid);
+}
+
+// Keyed by attached shape eid at binding time; publication never scans all shapes.
+function publishAttachedShapes(world: World): void {
+    const runtime = runtimeFor(world);
+    runtime.attachedShapes.forEach(publishAttachedShape, world);
+}
+
+function copyAttachedField(
+    field: ComponentStorage<typeof GlobalTransform>["translation"],
+    eid: number,
+    body: number,
+): void {
+    const column = field.column;
+    const source = body * 4;
+    field.set(eid, column[source], column[source + 1], column[source + 2], column[source + 3]);
+}
+
+function publishAttachedShape(this: World, body: number, eid: number): void {
+    const global = this.storage(GlobalTransform);
+    copyAttachedField(global.translation, eid, body);
+    copyAttachedField(global.rotation, eid, body);
+    copyAttachedField(global.scale, eid, body);
+    copyAttachedField(global.linearVelocity, eid, body);
+    const discontinuities = this.resource(TransformRuntime).discontinuities;
+    if (discontinuities[body >>> 5] & (1 << (body & 31))) resetInterpolation(this, eid);
 }
 
 /** Ordering anchor for producers that move bodies before the automatic solve. */
@@ -2586,7 +2636,10 @@ export const StepPhysicsSystem: System = {
         const definition = world.resource(PhysicsWorldDefinition);
         if (definition.enableAutomaticStep)
             solvePhysics(world, fixedDeltaTime, definition.subStepCount);
-        else applyTransformPoses(world, runtimeFor(world));
+        else {
+            applyTransformPoses(world, runtimeFor(world));
+            publishAttachedShapes(world);
+        }
     },
 };
 
@@ -2686,10 +2739,13 @@ function visitBody(
 }
 
 function removeShape(
+    world: World,
     runtime: PhysicsRuntime,
     eid: number,
     updateBodyMass = runtime.shapeRemovalMass.get(eid) ?? true,
+    preservePlacement = false,
 ): void {
+    if (!preservePlacement) releaseAttachedShape(world, runtime, eid);
     runtime.shapeRemovalMass.delete(eid);
     const shape = runtime.shapes.get(eid);
     const state = runtime.physicsWorld;
@@ -2760,23 +2816,24 @@ function syncShapes(world: World, runtime: PhysicsRuntime, checkScale = true): v
         const mask = candidates.fieldMarks[eid];
         if (!world.has(eid, ShapeComponent)) {
             runtime.shapeDependencies.set(eid, 0);
-            removeShape(runtime, eid);
+            removeShape(world, runtime, eid);
             candidates.positions[eid] = 0;
             candidates.fieldMarks[eid] = 0;
             continue;
         }
-        if (runtime.shapeRemovalMass.has(eid)) removeShape(runtime, eid);
+        if (runtime.shapeRemovalMass.has(eid)) removeShape(world, runtime, eid);
         const updateBodyMass = binding.storage.updateBodyMass.column[eid] !== 0;
         const previousStamp = runtime.shapeStamps.get(eid) as EntityRef;
-        if (previousStamp !== 0 && !world.resolve(previousStamp)) removeShape(runtime, eid);
+        if (previousStamp !== 0 && !world.resolve(previousStamp)) removeShape(world, runtime, eid);
 
         const rawBody = (binding.storage.body.column as Float64Array)[eid] as EntityRef;
         const bodyEid = rawBody === 0 ? eid : world.resolve(rawBody);
         runtime.shapeDependencies.set(eid, bodyEid);
-        const boundBody = runtime.shapeBodies.get(eid);
-        if (boundBody !== 0 && boundBody !== bodyEid) removeShape(runtime, eid, updateBodyMass);
+        const boundBody = runtime.attachedShapes.get(eid) ?? runtime.shapeBodies.get(eid);
+        if (boundBody !== 0 && boundBody !== bodyEid)
+            removeShape(world, runtime, eid, updateBodyMass);
         if (!bodyEid) {
-            removeShape(runtime, eid, updateBodyMass);
+            removeShape(world, runtime, eid, updateBodyMass);
             warnShape(runtime, eid, new Error("body reference is no longer valid"));
             candidates.positions[eid] = 0;
             candidates.fieldMarks[eid] = 0;
@@ -2796,14 +2853,14 @@ function syncShapes(world: World, runtime: PhysicsRuntime, checkScale = true): v
 
         let shape = runtime.shapes.get(eid);
         if (shape && !shapeIsValid(state, shape)) {
-            removeShape(runtime, eid, updateBodyMass);
+            removeShape(world, runtime, eid, updateBodyMass);
             shape = undefined;
         }
         if (shape) {
             try {
                 shapeBodyScale(world, eid);
             } catch (error) {
-                removeShape(runtime, eid, updateBodyMass);
+                removeShape(world, runtime, eid, updateBodyMass);
                 warnShape(runtime, eid, error);
                 candidates.eids[pending] = eid;
                 candidates.positions[eid] = ++pending;
@@ -2828,7 +2885,8 @@ function syncShapes(world: World, runtime: PhysicsRuntime, checkScale = true): v
                         scaleChanged,
                     )
                 ) {
-                    removeShape(runtime, eid, updateBodyMass);
+                    // Kernel geometry changes do not change the placement producer.
+                    removeShape(world, runtime, eid, updateBodyMass, true);
                     shape = undefined;
                 } else {
                     syncShapeFields(world, state, binding, eid, mask, shape, scaleChanged);
@@ -2845,6 +2903,7 @@ function syncShapes(world: World, runtime: PhysicsRuntime, checkScale = true): v
                 shape = marshalShape(world, state, body, eid);
                 runtime.shapes.set(eid, shape);
                 runtime.shapeBodies.set(eid, bodyEid);
+                if (eid !== bodyEid) bindAttachedShape(world, runtime, eid, bodyEid);
                 runtime.shapeStamps.set(eid, runtime.shapeStamps.get(eid) || world.ref(eid));
                 runtime.warnedShapes.delete(eid);
             } catch (error) {
@@ -2889,7 +2948,7 @@ function realizeMemberships(world: World, runtime: PhysicsRuntime): void {
                 }
             } else if (component === ShapeComponent) {
                 runtime.shapeDependencies.set(eid, 0);
-                removeShape(runtime, eid);
+                removeShape(world, runtime, eid);
             } else removeAuthoredJoint(runtime.constraints, state, jointKind, eid);
             continue;
         }

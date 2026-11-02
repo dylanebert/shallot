@@ -11,7 +11,9 @@ export const ShapeKind = {
 } as const;
 export type ShapeKind = (typeof ShapeKind)[keyof typeof ShapeKind];
 
-/** A Box3D shape definition and body-local collision geometry. A zero body reference means this entity. */
+/** A Box3D shape definition and body-local collision geometry. A zero body reference means this entity.
+ * Standard physics publishes another bound body's entire GlobalTransform onto an attached shape,
+ * including scale and discontinuities. Detaching or destroying the body returns placement to Transform. */
 export const Shape = component(
     "Shape",
     {

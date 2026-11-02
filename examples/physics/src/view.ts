@@ -548,19 +548,6 @@ function createView(
         const driven = drivenBodies(world, drivenSet);
         for (const eid of visible ?? world.query([Shape])) {
             if (largeCompound(world, eid)) continue;
-            const body = world.storage(Shape).body.get(eid) || eid;
-            if (body !== eid) {
-                const pose = world.get(body, Transform);
-                if (pose) {
-                    if (!world.has(eid, Transform)) world.add(eid, Transform, pose);
-                    else {
-                        const transform = world.storage(Transform);
-                        transform.translation.set(eid, ...pose.translation);
-                        transform.rotation.set(eid, ...pose.rotation);
-                        transform.scale.set(eid, ...pose.scale);
-                    }
-                }
-            }
             const ref = world.ref(eid);
             const role = shapeRole(world, eid, driven);
             if (views.has(ref)) {

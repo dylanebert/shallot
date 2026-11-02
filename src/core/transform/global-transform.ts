@@ -31,7 +31,8 @@ export const GlobalTransform = component(
 );
 /** Authored world placement, derived into GlobalTransform by TransformPlugin. There is no hierarchy.
  * For a bound body, translation and rotation reach GlobalTransform through physics;
- * scale still derives from Transform and scales the body's shapes and rendered mesh alike. */
+ * scale still derives from Transform and scales the body's shapes and rendered mesh alike.
+ * A shape attached to another bound body instead inherits that body's entire placement. */
 export const Transform = component(
     "Transform",
     { translation: vec3, rotation: vec4, scale: vec3 },
@@ -50,6 +51,7 @@ export const TransformRuntime: Resource<{
     global: ComponentStorage<typeof GlobalTransform>;
     discontinuities: Uint32Array;
     poseClaims: Uint32Array;
+    scaleClaims: Set<number>;
 }> = {
     create(world) {
         return {
@@ -57,12 +59,14 @@ export const TransformRuntime: Resource<{
             global: world.storage(GlobalTransform),
             discontinuities: new Uint32Array(1),
             poseClaims: new Uint32Array(1),
+            scaleClaims: new Set(),
         };
     },
 };
-/** @internal Assigns pose publication to a domain producer; scale still derives from Transform. */
-export function claimTransformPose(world: World, eid: number): void {
+/** @internal Assigns pose publication to a domain producer, optionally including scale. */
+export function claimTransformPose(world: World, eid: number, scale = false): void {
     const runtime = world.resource(TransformRuntime);
+    if (scale) runtime.scaleClaims.add(eid);
     const word = eid >>> 5;
     if (word >= runtime.poseClaims.length) {
         const next = new Uint32Array(Math.max(word + 1, runtime.poseClaims.length * 2));
@@ -73,7 +77,14 @@ export function claimTransformPose(world: World, eid: number): void {
 }
 /** @internal Returns pose publication to Transform derivation. */
 export function releaseTransformPose(world: World, eid: number): void {
-    const claims = world.resource(TransformRuntime).poseClaims;
+    const runtime = world.resource(TransformRuntime);
+    runtime.scaleClaims.delete(eid);
+    const claims = runtime.poseClaims;
+    if (world.has(eid, Transform)) {
+        runtime.placement.translation.markChanged(eid);
+        runtime.placement.rotation.markChanged(eid);
+        runtime.placement.scale.markChanged(eid);
+    }
     const word = eid >>> 5;
     if (word < claims.length) claims[word] &= ~(1 << (eid & 31));
 }
@@ -119,6 +130,7 @@ export function deriveTransforms(world: World): void {
             if (!world.has(eid, Transform)) continue;
             const offset = eid * 4;
             const claimed = (claims & mask) !== 0;
+            const scaleClaimed = runtime.scaleClaims.has(eid);
             let posChanged = false,
                 quatChanged = false,
                 scaleChanged = false;
@@ -132,7 +144,7 @@ export function deriveTransforms(world: World): void {
                     oq[j] = pq[j];
                     quatChanged = true;
                 }
-                if (!Object.is(os[j], ps[j])) {
+                if (!scaleClaimed && !Object.is(os[j], ps[j])) {
                     os[j] = ps[j];
                     scaleChanged = true;
                 }
