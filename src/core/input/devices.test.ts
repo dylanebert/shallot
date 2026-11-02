@@ -264,7 +264,7 @@ test("another world's overlay does not grant keyboard focus", () => {
     }
 });
 
-test("touch clicks never request pointer lock but mouse clicks still do", () => {
+test("touch never requests pointer lock; any mouse button engages without a press edge", () => {
     const fixture = declaredHost();
     const world = browserInputStateWith(fixture.host);
     try {
@@ -286,9 +286,20 @@ test("touch clicks never request pointer lock but mouse clicks still do", () => 
         down("touch");
         fixture.emitCanvas("click", { pointerType: "mouse" });
         expect(fixture.requestCount).toBe(0);
-        down("mouse");
-        fixture.emitCanvas("click", { pointerType: "mouse" });
+        fixture.emitCanvas("pointerdown", {
+            pointerId: 2,
+            pointerType: "mouse",
+            button: 2,
+            buttons: 2,
+            clientX: 30,
+            clientY: 50,
+            preventDefault() {},
+        });
         expect(fixture.requestCount).toBe(1);
+        expect(world.resource(Devices).pointer.right).toBe(false);
+        fixture.emitLockChange();
+        expect(world.resource(Devices).pointer.right).toBe(true);
+        expect(world.resource(Devices).pointer.buttonEvents).toEqual([]);
     } finally {
         world.dispose();
     }

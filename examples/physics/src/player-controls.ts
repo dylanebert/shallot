@@ -65,8 +65,7 @@ export function readPlayerControls(world: World, keys: Keys, forward: Vector, ri
         );
     if ("Aim" in keys)
         keys.Aim = Number(active && (devices.pointer.right || devices.keys.held.has("KeyQ")));
-    if ("Shoot" in keys)
-        keys.Shoot = Number(active && (devices.pointer.left || devices.keys.held.has("KeyF")));
+    if ("Shoot" in keys) keys.Shoot = Number(active && devices.keys.held.has("KeyF"));
     if (ui.sampledTick !== world.time.fixedTick || !active || world.time.paused)
         ui.jumpPending = ui.shootPending = false;
     ui.sampledTick = world.time.fixedTick;

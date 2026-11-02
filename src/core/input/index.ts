@@ -189,8 +189,7 @@ interface BrowserAdapter {
     visibilityChange: () => void;
     pointerLockChange: () => void;
     pointerLockError: () => void;
-    canvasClick: (e: Event) => void;
-    readonly pointerTypes: WeakMap<HTMLCanvasElement, string>;
+    mouseButtons: number;
     lockMove: (e: MouseEvent) => void;
 }
 
@@ -324,8 +323,7 @@ function adapter(world: World, host: InputHost): BrowserAdapter {
         visibilityChange: null!,
         pointerLockChange: null!,
         pointerLockError: null!,
-        canvasClick: null!,
-        pointerTypes: new WeakMap(),
+        mouseButtons: 0,
         lockMove: null!,
     };
     adapters.set(world, created);
@@ -722,7 +720,7 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, world: World): void 
         const target = e.target as HTMLCanvasElement;
         const canvasIndex = a.canvases.get(target);
         if (canvasIndex === undefined) return;
-        a.pointerTypes.set(target, e.pointerType);
+        if (e.pointerType !== "touch") a.mouseButtons = e.buttons;
         window.focus();
         if (e.pointerType === "touch") {
             if (d.touchPoints.size === 0) {
@@ -748,6 +746,8 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, world: World): void 
             } catch {}
         }
         e.preventDefault();
+        if (d.requireLock && e.pointerType !== "touch" && d.pointer.lock.status !== "locked")
+            requestPointerLock(world);
     };
     const overlays = world.resource(OverlayCanvases);
     a.windowPointerDown = (e) => {
@@ -778,6 +778,10 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, world: World): void 
             ownLock(a, element);
             a.lockCanvas = element;
             pointerLockChanged(world, true);
+            // Engagement restores held levels, not the press that requested the lock.
+            d.pointer.left = (a.mouseButtons & 1) !== 0;
+            d.pointer.right = (a.mouseButtons & 2) !== 0;
+            d.pointer.middle = (a.mouseButtons & 4) !== 0;
         } else {
             if (d.pointer.lock.status === "locked") pointerLockChanged(world, false);
             for (const canvas of a.ownedCanvases) {
@@ -791,10 +795,6 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, world: World): void 
         for (const canvas of a.ownedCanvases) {
             if (a.host.document.pointerLockElement !== canvas) releaseOwnedLock(a, canvas);
         }
-    };
-    a.canvasClick = (e) => {
-        if (d.requireLock && a.pointerTypes.get(e.target as HTMLCanvasElement) !== "touch")
-            requestPointerLock(world);
     };
     a.lockMove = (e) => {
         if (d.pointer.lock.status !== "locked") return;
@@ -827,6 +827,7 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, world: World): void 
             return;
         }
         if (e.pointerId !== a.activePointerId) return;
+        a.mouseButtons = e.buttons;
         if (d.pointer.lock.status !== "locked") moveActive(e);
         pointerButtons(world, gatedButtons(d, e.buttons));
         if (e.button === a.activeButton) {
@@ -842,6 +843,7 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, world: World): void 
             return;
         }
         if (e.pointerId !== a.activePointerId) return;
+        a.mouseButtons = 0;
         cancelButtons(d);
         releaseCapture(a);
     };
@@ -853,6 +855,7 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, world: World): void 
             return;
         }
         if (e.pointerId !== a.activePointerId) return;
+        a.mouseButtons = e.buttons;
         if (d.pointer.lock.status !== "locked") {
             e.preventDefault();
             moveActive(e);
@@ -887,7 +890,6 @@ function attachCanvas(a: BrowserAdapter, canvas: HTMLCanvasElement): void {
     listen(a, canvas, "pointerleave", a.pointerLeave as EventListener);
     listen(a, canvas, "wheel", a.wheel as EventListener, { passive: false });
     listen(a, canvas, "contextmenu", a.contextMenu as EventListener);
-    listen(a, canvas, "click", a.canvasClick as EventListener);
 }
 
 function attachGlobal(a: BrowserAdapter): void {
