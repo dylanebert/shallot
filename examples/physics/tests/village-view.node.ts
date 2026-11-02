@@ -1,17 +1,16 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { Camera, MeshInstance, MeshMaterial, qRotate, Shape, Transform } from "@dylanebert/shallot";
+import { Camera, MeshInstance, MeshMaterial, Shape, Transform } from "@dylanebert/shallot";
 import { Gizmo, Orbit } from "@dylanebert/shallot/extras";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { openGpuApp } from "@dylanebert/shallot/testing/gpu";
 import { AppPlugin, Viewer } from "../src/app";
-import { compoundChildren, overlaps } from "../src/compound-presentation";
-import { drawingBounds } from "../src/draw-set";
+import { compoundChildren } from "../src/compound-presentation";
 import { sceneSwitcher } from "../src/sample";
 import { VillageState } from "../src/village";
 
 setDefaultTimeout(TIMEOUT.node);
 for (const scene of ["village", "benchmarkVillage"] as const)
-    test(`${scene} shares child geometry and draws only children overlapping Box3D's camera bounds`, async () => {
+    test(`${scene} retains shared child geometry for GPU culling across camera moves`, async () => {
         const app = await openGpuApp({ plugins: [AppPlugin] });
         try {
             const world = app.world;
@@ -25,14 +24,7 @@ for (const scene of ["village", "benchmarkVillage"] as const)
             const children = compoundChildren(world, owner);
             expect(children).toHaveLength(scene === "village" ? 52500 : 11214);
             function check() {
-                const pose = world.get(camera, Transform)!;
-                const bounds = drawingBounds(
-                    pose.translation,
-                    qRotate(...pose.rotation, 0, 0, -1),
-                    1,
-                    world.storage(Camera).fov.get(camera),
-                );
-                const expected = children.filter((child) => overlaps(child.bounds, bounds));
+                const expected = children;
                 const mover = world.resource(VillageState).entity;
                 const drawn = [...world.query([MeshInstance])].filter(
                     (eid) => eid !== mover && !world.has(eid, Shape),
@@ -50,17 +42,15 @@ for (const scene of ["village", "benchmarkVillage"] as const)
                     expect(world.has(eid, Gizmo)).toBe(true);
                     const child = positions.get(world.get(eid, Transform)!.translation.join(","));
                     expect(child).toBeDefined();
-                    expect(overlaps(child!.bounds, bounds)).toBe(true);
                 }
-                return expected.length;
+                return drawn;
             }
             const opening = check();
-            expect(opening).toBeGreaterThan(0);
+            expect(opening).toHaveLength(children.length);
             world.storage(Orbit).pan.set(camera, 3000, 0, 0);
             world.step(1 / 60);
             await world.frameFence;
-            expect(check()).toBe(0);
-            console.log(`${scene} opening draw set: ${opening} / ${children.length} children`);
+            expect(check()).toEqual(opening);
             select("boxStack");
             expect([...world.query([Shape, MeshInstance])]).toHaveLength(41);
         } finally {

@@ -52,7 +52,7 @@ import { collisionNames } from "./collision";
 import { debugDrawing, drawCollisionDebug } from "./collision-debug-presentation";
 import { collisionGeometryDrawing, drawCollisionGeometry } from "./collision-geometry-presentation";
 import { drawCollisionView } from "./collision-presentation";
-import { childGeometry, compoundChildren, largeCompound, overlaps } from "./compound-presentation";
+import { childGeometry, compoundChildren, largeCompound } from "./compound-presentation";
 import { ContinuousState } from "./continuous";
 import { drawQuerySpawn } from "./determinism-presentation";
 import { drawingBounds, drawSet } from "./draw-set";
@@ -448,13 +448,39 @@ function createView(
         world.add(rings, Transform);
         world.add(rings, Gizmo, { handle: registerGizmo(world, asset), width: 2 });
     }
-    const compoundViews = [...world.query([Shape])]
-        .filter((eid) => largeCompound(world, eid))
-        .flatMap((eid) => compoundChildren(world, eid).map((child) => ({ child, entity: 0 })));
     const childAssets = new Map<
         string,
         { mesh: MeshHandle; edges: ReturnType<typeof registerGizmo> }
     >();
+    const compoundEntities: number[] = [];
+    for (const eid of world.query([Shape])) {
+        if (!largeCompound(world, eid)) continue;
+        for (const child of compoundChildren(world, eid)) {
+            let asset = childAssets.get(child.key);
+            if (!asset) {
+                const geometry = childGeometry(world, child);
+                const edges = new GizmoAsset();
+                for (const [a, b] of geometry.edges) drawLine(edges, a, b, 0x000000);
+                asset = { mesh: meshes.add(geometry.mesh), edges: registerGizmo(world, edges) };
+                childAssets.set(child.key, asset);
+            }
+            const entity = world.create();
+            compoundEntities.push(entity);
+            world.add(entity, Transform, {
+                translation: child.translation,
+                rotation: child.rotation,
+                scale: child.scale,
+            });
+            world.add(entity, MeshInstance, { mesh: asset.mesh });
+            world.add(entity, MeshMaterial, roles.ground);
+            world.add(entity, Gizmo, {
+                handle: asset.edges,
+                width: 1,
+                opacity: 0.45,
+                depthBias: -0.0001,
+            });
+        }
+    }
     const views = new Map<EntityRef, MeshHandle>();
     const shared = new Map<
         object,
@@ -476,46 +502,6 @@ function createView(
                     world.storage(Camera).fov.get(camera),
                 ),
             );
-        }
-        if (compoundViews.length) {
-            const pose = world.get(camera, Transform)!;
-            const bounds = drawingBounds(
-                pose.translation,
-                qRotate(...pose.rotation, 0, 0, -1),
-                typeof window === "undefined" ? 1 : window.innerWidth / window.innerHeight,
-                world.storage(Camera).fov.get(camera),
-            );
-            for (const view of compoundViews) {
-                const child = view.child;
-                if (!overlaps(child.bounds, bounds)) {
-                    if (view.entity) world.destroy(view.entity);
-                    view.entity = 0;
-                    continue;
-                }
-                if (view.entity) continue;
-                let asset = childAssets.get(child.key);
-                if (!asset) {
-                    const geometry = childGeometry(world, child);
-                    const edges = new GizmoAsset();
-                    for (const [a, b] of geometry.edges) drawLine(edges, a, b, 0x000000);
-                    asset = { mesh: meshes.add(geometry.mesh), edges: registerGizmo(world, edges) };
-                    childAssets.set(child.key, asset);
-                }
-                view.entity = world.create();
-                world.add(view.entity, Transform, {
-                    translation: child.translation,
-                    rotation: child.rotation,
-                    scale: child.scale,
-                });
-                world.add(view.entity, MeshInstance, { mesh: asset.mesh });
-                world.add(view.entity, MeshMaterial, roles.ground);
-                world.add(view.entity, Gizmo, {
-                    handle: asset.edges,
-                    width: 1,
-                    opacity: 0.45,
-                    depthBias: -0.0001,
-                });
-            }
         }
         for (const [ref, mesh] of views) {
             const eid = world.resolve(ref);
@@ -747,8 +733,7 @@ function createView(
     return () => {
         disposePlayerControls?.();
         for (const system of systems) world.removeSystem(system);
-        for (const view of compoundViews)
-            if (view.entity && world.exists(view.entity)) world.destroy(view.entity);
+        for (const entity of compoundEntities) if (world.exists(entity)) world.destroy(entity);
         for (const asset of childAssets.values()) meshes.remove(asset.mesh);
         for (const asset of shared.values()) meshes.remove(asset.mesh);
         for (const view of manifoldViews) {

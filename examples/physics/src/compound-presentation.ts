@@ -1,10 +1,8 @@
 import { Compounds, qRotate, Shape, ShapeKind, Transform, type World } from "@dylanebert/shallot";
 import { shapeEdges, shapeMesh } from "@dylanebert/shallot/standard/physics";
-import type { drawingBounds } from "./draw-set";
 
 type Point = [number, number, number];
 type Rotation = [number, number, number, number];
-type Bounds = ReturnType<typeof drawingBounds>;
 type ChildShape = Parameters<typeof shapeMesh>[1];
 export type CompoundChild = {
     shape: ChildShape;
@@ -12,7 +10,6 @@ export type CompoundChild = {
     translation: Point;
     rotation: Rotation;
     scale: Point;
-    bounds: Bounds;
 };
 export function largeCompound(world: World, eid: number): boolean {
     const shape = world.storage(Shape);
@@ -24,16 +21,6 @@ export function largeCompound(world: World, eid: number): boolean {
             (c.meshes?.length ?? 0) +
             (c.spheres?.length ?? 0) >
         2500
-    );
-}
-export function overlaps(a: Bounds, b: Bounds): boolean {
-    return (
-        a.lowerBound.x <= b.upperBound.x &&
-        a.upperBound.x >= b.lowerBound.x &&
-        a.lowerBound.y <= b.upperBound.y &&
-        a.upperBound.y >= b.lowerBound.y &&
-        a.lowerBound.z <= b.upperBound.z &&
-        a.upperBound.z >= b.lowerBound.z
     );
 }
 const identity: Rotation = [0, 0, 0, 1];
@@ -50,7 +37,6 @@ export function compoundChildren(world: World, eid: number): CompoundChild[] {
     const owner = world.get(parent.body || eid, Transform)!;
     const compound = world.resource(Compounds).get(parent.geometry)!;
     const result: CompoundChild[] = [];
-    const meshBounds = new Map<string, [Point, Point]>();
     const base = { ...parent, scale: [1, 1, 1] as Point };
     const add = (
         shape: ChildShape,
@@ -58,23 +44,7 @@ export function compoundChildren(world: World, eid: number): CompoundChild[] {
         position: Point,
         rotation: Rotation = identity,
         scale: Point = [1, 1, 1],
-        local?: [Point, Point],
     ) => {
-        if (!local) {
-            local = meshBounds.get(key);
-            if (!local) {
-                const vertices = shapeMesh(world, shape).vertices;
-                const lo: Point = [Infinity, Infinity, Infinity],
-                    hi: Point = [-Infinity, -Infinity, -Infinity];
-                for (let i = 0; i < vertices.length; i += 8)
-                    for (let axis = 0; axis < 3; axis++) {
-                        lo[axis] = Math.min(lo[axis]!, vertices[i + axis]!);
-                        hi[axis] = Math.max(hi[axis]!, vertices[i + axis]!);
-                    }
-                local = [lo, hi];
-                meshBounds.set(key, local);
-            }
-        }
         const offset = qRotate(
             ...owner.rotation,
             ...(position.map((p, i) => p * owner.scale[i]!) as Point),
@@ -82,28 +52,12 @@ export function compoundChildren(world: World, eid: number): CompoundChild[] {
         const translation = offset.map((p, i) => p + owner.translation[i]!) as Point;
         const q = multiply(owner.rotation, rotation);
         const size = scale.map((v, i) => v * owner.scale[i]!) as Point;
-        const lo: Point = [Infinity, Infinity, Infinity],
-            hi: Point = [-Infinity, -Infinity, -Infinity];
-        for (let corner = 0; corner < 8; corner++) {
-            const p = qRotate(
-                ...q,
-                ...(size.map((s, i) => s * local![(corner >> i) & 1]![i]!) as Point),
-            );
-            for (let i = 0; i < 3; i++) {
-                lo[i] = Math.min(lo[i]!, p[i]! + translation[i]!);
-                hi[i] = Math.max(hi[i]!, p[i]! + translation[i]!);
-            }
-        }
         result.push({
             shape,
             key,
             translation,
             rotation: q,
             scale: size,
-            bounds: {
-                lowerBound: { x: lo[0], y: lo[1], z: lo[2] },
-                upperBound: { x: hi[0], y: hi[1], z: hi[2] },
-            },
         });
     };
     for (const c of compound.capsules ?? []) {
@@ -117,10 +71,6 @@ export function compoundChildren(world: World, eid: number): CompoundChild[] {
             center,
             identity,
             [1, 1, 1],
-            [
-                a.map((x, i) => Math.min(x, b[i]!) - r) as Point,
-                a.map((x, i) => Math.max(x, b[i]!) + r) as Point,
-            ],
         );
     }
     for (const c of compound.hulls ?? [])
@@ -145,10 +95,6 @@ export function compoundChildren(world: World, eid: number): CompoundChild[] {
             c.center,
             identity,
             [c.radius, c.radius, c.radius],
-            [
-                [-1, -1, -1],
-                [1, 1, 1],
-            ],
         );
     return result;
 }
