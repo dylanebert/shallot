@@ -8,7 +8,6 @@ import {
     captureTexture,
     DepthPrepass,
     DirectionalLight,
-    ImageBindings,
     Tonemapping,
     TonemappingMethod,
 } from "@dylanebert/shallot/rendering";
@@ -31,6 +30,7 @@ import { Transform } from "@dylanebert/shallot/transform";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { gpuScene } from "../../../scripts/gpu.fixture";
+import { imageTextures } from "../../core/rendering/image";
 
 setDefaultTimeout(TIMEOUT.node);
 const Composed = extendedMaterial(Materials, {
@@ -113,6 +113,7 @@ const parity = gpuScene(
             usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
         });
         world.own(image);
+        world.resource(imageTextures).textures[0][0] = image;
         world.gpu.device.queue.writeTexture(
             { texture: image },
             new Uint8Array([255, 128, 64, 64, 64, 128, 255, 192]),
@@ -144,7 +145,7 @@ const parity = gpuScene(
         const glossy = world
             .resource(Materials)
             .add(StandardMaterial({ metallic: 0.8, perceptualRoughness: 0.1 }));
-        return { ...scene, image, cases, composed, reference, modified, glossy };
+        return { ...scene, cases, composed, reference, modified, glossy };
     },
 );
 const gradient = gpuScene(
@@ -175,9 +176,8 @@ const gradient = gpuScene(
 test("extended standard preserves alpha and shading with prepass and sun shadows, permits roughness edits and bands lit gradients", async () => {
     const {
         world,
-        scene: { camera, sun, eid, image, cases, composed, reference, modified, glossy },
+        scene: { camera, sun, eid, cases, composed, reference, modified, glossy },
     } = parity();
-    world.resource(ImageBindings).images = image;
     for (const [base, extension] of cases)
         expect(await frame(world, camera, eid, extension)).toEqual(
             await frame(world, camera, eid, base),

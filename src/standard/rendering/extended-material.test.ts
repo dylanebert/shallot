@@ -14,16 +14,28 @@ test("extension layout preserves base binding numbers and starts its bindings at
     });
     for (const variant of [layout, layout.depthVariant]) {
         const entries = Object.entries(variant.entries);
-        expect(entries.slice(0, 13).map(([name]) => name)).toEqual(
+        expect(entries.slice(0, 15).map(([name]) => name)).toEqual(
             Object.keys(Materials.layout.entries),
         );
         expect(entries[100]![0]).toBe("tint");
-        expect(entries.slice(13, 100).every(([, entry]) => entry === null)).toBe(true);
+        expect(entries.slice(15, 100).every(([, entry]) => entry === null)).toBe(true);
     }
     expect(layout.parameters.propTypes).toEqual({
         ...StandardMaterialInput.propTypes,
         steps: d.u32,
     });
+});
+
+test("extension images retain their generated sampler beside binding 100", () => {
+    const layout = extensionLayout(Materials, d.struct({ image: d.i32 }), {
+        detail: { type: "image", field: "image" },
+    });
+    for (const variant of [layout, layout.depthVariant]) {
+        const entries = Object.entries(variant.entries);
+        expect(entries[100]![0]).toBe("detail");
+        expect(entries[101]![0]).toBe("detailSampler");
+        expect(entries[101]![1]).toHaveProperty("sampler", "filtering");
+    }
 });
 
 test("extension fields cannot replace base fields", () => {
@@ -51,7 +63,7 @@ test("extension layout checks merged WebGPU stage budgets", () => {
         ).toThrow("material layout uses 9 vertex storage buffers; WebGPU's limit is 8");
     }
     expect(() =>
-        extensionLayout(Materials, Extension, bindings(5, { type: "texture" }) as never),
+        extensionLayout(Materials, Extension, bindings(7, { type: "texture" }) as never),
     ).toThrow("material layout uses 17 fragment sampled textures; WebGPU's limit is 16");
     expect(() =>
         extensionLayout(

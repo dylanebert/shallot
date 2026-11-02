@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { attachTexture, captureTexture, ImageBindings } from "../../core/rendering";
+import { attachTexture, captureTexture } from "../../core/rendering";
+import { imageTextures } from "../../core/rendering/image";
 import {
     type App,
     Camera,
@@ -277,7 +278,7 @@ beforeAll(async () => {
             { bytesPerRow: 8, rowsPerImage: 2 },
             [2, 2, 1],
         );
-        app.world.resource(ImageBindings).images = texture;
+        app.world.resource(imageTextures).textures[0][0] = texture;
         apps.push(app);
         app.world.step(0);
         app.world.step(0);
@@ -461,7 +462,7 @@ beforeAll(async () => {
                         [size, size, 1],
                     );
                 }
-                app.world.resource(ImageBindings).images = texture;
+                app.world.resource(imageTextures).textures[0][0] = texture;
                 app.world.step(0);
                 app.world.step(0);
                 await captureTexture(app.world, target);

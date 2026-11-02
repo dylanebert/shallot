@@ -61,7 +61,7 @@ export function imageTexture(world: World, id: number, isSrgb = true): GPUTextur
     const role = isSrgb ? 0 : 1;
     const texture = state.textures[role][id];
     if (texture) return texture;
-    if (!state.warned[role].has(id)) {
+    if (id >= 0 && !state.warned[role].has(id)) {
         state.warned[role].add(id);
         console.warn(
             `[Rendering] ${isSrgb ? "color" : "data"} image ${id} has no native texture; binding fallback`,

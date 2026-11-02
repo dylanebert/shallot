@@ -152,7 +152,7 @@ type StandardMaterialOptions = {
 /**
  * Linear colors; emissive is independent of baseColor.
  * baseColorTexture is an id from registerImage before warm; its sampled RGBA multiplies baseColor
- * at mesh UVs. Omit it to leave baseColor untextured, without sampling the image array.
+ * at mesh UVs. Omit it to leave baseColor untextured, without sampling an image.
  */
 export function StandardMaterial(values: StandardMaterialOptions = {}): StandardMaterial {
     return {

@@ -122,8 +122,8 @@ async function draw(kind: "texture" | "uniform" | "sampler", count: number, fog:
     }
 }
 test("transparent extension budget includes registered fog's sampled textures", async () => {
-    await expect(draw("texture", 2, true)).rejects.toThrow(
-        'material "Budget-texture-2" uses 17 fragment sampled textures; WebGPU\'s limit is 16',
+    await expect(draw("texture", 4, true)).rejects.toThrow(
+        'material "Budget-texture-4" uses 17 fragment sampled textures; WebGPU\'s limit is 16',
     );
 });
 test("extension budget refuses uniform buffers above the default per-stage limit", async () => {
@@ -132,14 +132,14 @@ test("extension budget refuses uniform buffers above the default per-stage limit
     );
 });
 test("extension budget refuses samplers above the default per-stage limit", async () => {
-    await expect(draw("sampler", 15, false)).rejects.toThrow(
+    await expect(draw("sampler", 11, false)).rejects.toThrow(
         "material layout uses 17 vertex samplers; WebGPU's limit is 16",
     );
 });
 for (const [kind, count, fog] of [
-    ["texture", 1, true],
+    ["texture", 3, true],
     ["uniform", 6, false],
-    ["sampler", 14, false],
+    ["sampler", 10, false],
 ] as const) {
     test(`extension at the ${kind} budget draws${fog ? " with transparent fog" : ""}`, async () => {
         await draw(kind, count, fog);

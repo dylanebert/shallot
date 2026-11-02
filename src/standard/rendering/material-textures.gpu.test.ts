@@ -12,10 +12,10 @@ import {
     captureTexture,
     DirectionalLight,
     Exposure,
-    ImageBindings,
     Tonemapping,
     TonemappingMethod,
 } from "../../core/rendering";
+import { imageTextures } from "../../core/rendering/image";
 import { Transform } from "../../core/transform";
 import { lookAtRotation } from "../../engine/utils";
 import {
@@ -92,6 +92,7 @@ const apps = gpuApps(import.meta.path, [
                     NormalProbePlugin,
                 ],
                 initialize(world) {
+                    upload(world);
                     const sun = world.create();
                     world.add(sun, Transform, {
                         rotation: lookAtRotation(0, 0, 0, -light.x, -light.y, -light.z),
@@ -225,7 +226,7 @@ const apps = gpuApps(import.meta.path, [
     },
 ]);
 function upload(world: import("../../engine").World) {
-    const bindings = world.resource(ImageBindings);
+    const bindings = world.resource(imageTextures).textures;
     for (const [field, format] of [
         ["images", "rgba8unorm-srgb"],
         ["dataImages", "rgba8unorm"],
@@ -242,12 +243,11 @@ function upload(world: import("../../engine").World) {
             { bytesPerRow: 8 },
             [2, 1, 1],
         );
-        bindings[field] = texture;
+        bindings[field === "images" ? 0 : 1][0] = texture;
     }
 }
 beforeAll(() => {
     const { world } = apps()[0];
-    upload(world);
     console.log("texture shading adapter", world.gpu.adapter);
     world.step(0);
     world.step(0);

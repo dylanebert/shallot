@@ -6,7 +6,7 @@ import {
     attachTexture,
     Camera,
     captureTexture,
-    ImageBindings,
+    imageTextures,
     Tonemapping,
     TonemappingMethod,
 } from "../../core/rendering";
@@ -104,9 +104,9 @@ export function diagnosticChain(): readonly Uint8Array[] {
 }
 
 /**
- * Replaces the world's image array with `layers` copies of the diagnostic texture and its box-filtered
- * mip chain; `generate` instead fills each layer's chain from its base level. Layers listed in
- * `levelColored` instead hold LEVEL_COLORS per level.
+ * Binds `layers` native copies of the diagnostic texture and returns their array for reference reads.
+ * Each has a box-filtered mip chain; `generate` instead fills each layer's chain from its base level.
+ * Layers listed in `levelColored` instead hold LEVEL_COLORS per level.
  */
 export function uploadDiagnosticImages(
     world: World,
@@ -158,7 +158,26 @@ export function uploadDiagnosticImages(
             );
         }
     }
-    world.resource(ImageBindings).images = texture;
+    const encoder = device.createCommandEncoder();
+    for (let layer = 0; layer < layers; layer++) {
+        const native = device.createTexture({
+            size: [IMAGE_SIZE, IMAGE_SIZE],
+            format: "rgba8unorm-srgb",
+            mipLevelCount: levels,
+            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+        });
+        world.own(native);
+        for (let level = 0; level < levels; level++) {
+            const size = IMAGE_SIZE >> level;
+            encoder.copyTextureToTexture(
+                { texture, mipLevel: level, origin: [0, 0, layer] },
+                { texture: native, mipLevel: level },
+                [size, size, 1],
+            );
+        }
+        world.resource(imageTextures).textures[0][layer] = native;
+    }
+    device.queue.submit([encoder.finish()]);
     return texture;
 }
 

@@ -10,7 +10,7 @@ import {
     Tonemapping,
     TonemappingMethod,
 } from "../../core/rendering";
-import { ImageBindings } from "../../core/rendering/image";
+import { imageTextures } from "../../core/rendering/image";
 import { Transform } from "../../core/transform";
 import {
     AlphaMode,
@@ -25,6 +25,8 @@ import {
 
 setDefaultTimeout(TIMEOUT.gpu);
 let imageId = 0;
+let image: GPUTexture;
+const pixels = new Uint8Array(4 * 4 * 4);
 let camera = 0;
 let eid = 0;
 let row: MaterialHandle;
@@ -47,6 +49,7 @@ const subjects = gpuApps(import.meta.path, [
                             type: "image/png",
                         }),
                     );
+                    upload(world);
                     const mesh = world.resource(Meshes).add({
                         name: "two-color-quad",
                         vertices: new Float32Array([
@@ -80,23 +83,26 @@ const subjects = gpuApps(import.meta.path, [
     },
 ]);
 
-test("StandardMaterial samples both image halves at mesh UVs and multiplies baseColor RGBA", async () => {
-    const { world } = subjects()[0];
+function upload(world: import("../../engine").World) {
     const device = world.gpu.device;
     // Dawn has no image decoder; upload the image pixels directly to isolate material sampling.
-    const image = device.createTexture({
+    image = device.createTexture({
         size: [4, 4, 1],
         format: "rgba8unorm-srgb",
         usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
     });
     world.own(image);
-    const pixels = new Uint8Array(4 * 4 * 4);
     for (let y = 0; y < 4; y++) {
         for (let x = 0; x < 4; x++)
             pixels.set(x < 2 ? [255, 0, 0, 255] : [0, 255, 0, 255], (y * 4 + x) * 4);
     }
     device.queue.writeTexture({ texture: image }, pixels, { bytesPerRow: 16 }, [4, 4, 1]);
-    world.resource(ImageBindings).images = image;
+    world.resource(imageTextures).textures[0][0] = image;
+}
+
+test("StandardMaterial samples both image halves at mesh UVs and multiplies baseColor RGBA", async () => {
+    const { world } = subjects()[0];
+    const device = world.gpu.device;
     const materials = world.resource(Materials);
     for (const [factor, byte] of [
         [1, 255],

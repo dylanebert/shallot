@@ -11,7 +11,7 @@ import {
     TonemappingMethod,
     TransparentPhases,
 } from "../../core/rendering";
-import { ImageBindings } from "../../core/rendering/image";
+import { imageTextures } from "../../core/rendering/image";
 import { Transform } from "../../core/transform";
 import {
     AlphaMode,
@@ -229,6 +229,7 @@ const sampled = gpuScene(import.meta.path, alphaWorld, (world) => {
         usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
     });
     world.own(image);
+    world.resource(imageTextures).textures[0][0] = image;
     device.queue.writeTexture(
         { texture: image },
         new Uint8Array([255, 0, 0, 128]),
@@ -251,13 +252,12 @@ const sampled = gpuScene(import.meta.path, alphaWorld, (world) => {
     world.add(camera, StandardRenderer);
     world.add(camera, Tonemapping, { method: TonemappingMethod.None });
     attachTexture(world, camera, { width: 32, height: 32 });
-    return { world, camera, image };
+    return { world, camera };
 });
 test("AlphaToCoverage sharpens a sampled texel just above cutoff to full 4× coverage", async () => {
     const {
-        scene: { world, camera, image },
+        scene: { world, camera },
     } = sampled();
-    world.resource(ImageBindings).images = image;
     world.step(0);
     world.step(0);
     const { rgba } = await captureTexture(world, camera);

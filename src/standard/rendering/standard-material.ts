@@ -1,7 +1,6 @@
 import tgpu, { type TgpuFn } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { ImageBindings, sampleImage, sampleImageAt } from "../../core/rendering";
 import type { World } from "../../engine";
 import { engineLayout, litPbr } from "./engine";
 import { StandardMaterial, StandardMaterialInput } from "./material-data";
@@ -22,46 +21,32 @@ import type { BindResource } from "./pipelines";
 import { Pbr } from "./shade";
 
 const standardLayout = materialLayout(StandardMaterialInput, {
-    images: { type: "texture", dimension: "2d-array" },
-    images1024: { type: "texture", dimension: "2d-array" },
-    images2048: { type: "texture", dimension: "2d-array" },
-    imageSampler: { type: "sampler" },
-    imageSettings: { type: "texture" },
-    dataImages: { type: "texture", dimension: "2d-array" },
-    dataImages1024: { type: "texture", dimension: "2d-array" },
-    dataImages2048: { type: "texture", dimension: "2d-array" },
+    baseColor: { type: "image", field: "baseColorTexture" },
+    normal: { type: "image", field: "normalMapTexture", isSrgb: false },
+    metallicRoughness: { type: "image", field: "metallicRoughnessTexture", isSrgb: false },
+    occlusion: { type: "image", field: "occlusionTexture", isSrgb: false },
+    emissive: { type: "image", field: "emissiveTexture" },
 });
-const standardImages = tgpu.accessor(d.texture2dArray(d.f32), () => standardLayout.$.images);
-const standardDataImages = tgpu.accessor(
-    d.texture2dArray(d.f32),
-    () => standardLayout.$.dataImages,
-);
-const standardImages1024 = tgpu.accessor(
-    d.texture2dArray(d.f32),
-    () => standardLayout.$.images1024,
-);
-const standardImages2048 = tgpu.accessor(
-    d.texture2dArray(d.f32),
-    () => standardLayout.$.images2048,
-);
-const standardDataImages1024 = tgpu.accessor(
-    d.texture2dArray(d.f32),
-    () => standardLayout.$.dataImages1024,
-);
-const standardDataImages2048 = tgpu.accessor(
-    d.texture2dArray(d.f32),
-    () => standardLayout.$.dataImages2048,
-);
-const standardSampler = tgpu.accessor(d.sampler(), () => standardLayout.$.imageSampler);
-const standardImageSettings = tgpu.accessor(
+const baseColorImage = tgpu.accessor(d.texture2d(d.f32), () => standardLayout.$.baseColor);
+const baseColorSampler = tgpu.accessor(d.sampler(), () => standardLayout.$.baseColorSampler);
+const normalImage = tgpu.accessor(d.texture2d(d.f32), () => standardLayout.$.normal);
+const normalSampler = tgpu.accessor(d.sampler(), () => standardLayout.$.normalSampler);
+const metallicRoughnessImage = tgpu.accessor(
     d.texture2d(d.f32),
-    () => standardLayout.$.imageSettings,
+    () => standardLayout.$.metallicRoughness,
 );
+const metallicRoughnessSampler = tgpu.accessor(
+    d.sampler(),
+    () => standardLayout.$.metallicRoughnessSampler,
+);
+const occlusionImage = tgpu.accessor(d.texture2d(d.f32), () => standardLayout.$.occlusion);
+const occlusionSampler = tgpu.accessor(d.sampler(), () => standardLayout.$.occlusionSampler);
+const emissiveImage = tgpu.accessor(d.texture2d(d.f32), () => standardLayout.$.emissive);
+const emissiveSampler = tgpu.accessor(d.sampler(), () => standardLayout.$.emissiveSampler);
 /** The built-in mesh material type. Its type-local table is the sole source of its PBR parameters. */
 export const Materials = materialType({
     name: "StandardMaterial",
     layout: standardLayout,
-    bindings: (world) => world.resource(ImageBindings),
     fragmentInputs: { uv: true, uv1: true, color: true, tangent: true },
     defaults: StandardMaterial(),
     depthPass: { prepass: true, shadows: true },
@@ -165,40 +150,10 @@ export const pbrInputFromStandardMaterial = tgpu.fn(
     const occlusionDy = std.dpdy(occlusionUv);
     const emissiveDx = std.dpdx(emissiveUv);
     const emissiveDy = std.dpdy(emissiveUv);
-    let settingsOffset = d.i32(std.textureNumLayers(standardImages.$));
-    if (
-        material.normalMapTexture >= 0 ||
-        material.metallicRoughnessTexture >= 0 ||
-        material.occlusionTexture >= 0
-    ) {
-        const count = d.vec4u(
-            std.round(
-                std.mul(
-                    std.textureLoad(
-                        standardImageSettings.$,
-                        d.vec2i(0, d.i32(std.textureDimensions(standardImageSettings.$).y) - 1),
-                        0,
-                    ),
-                    255,
-                ),
-            ),
-        );
-        if (count.w === 64) settingsOffset = d.i32(count.x | (count.y << 8));
-    }
     if (material.baseColorTexture >= 0) {
         baseColor = std.mul(
             baseColor,
-            sampleImage(
-                standardImages.$,
-                standardImages1024.$,
-                standardImages2048.$,
-                standardSampler.$,
-                standardImageSettings.$,
-                baseUv,
-                material.baseColorTexture,
-                uvDx,
-                uvDy,
-            ),
+            std.textureSampleGrad(baseColorImage.$, baseColorSampler.$, baseUv, uvDx, uvDy),
         );
     }
     const alphaWidth = std.fwidth(baseColor.a);
@@ -213,17 +168,12 @@ export const pbrInputFromStandardMaterial = tgpu.fn(
     input.emissive = d.vec3f(material.emissive);
     input.unlit = material.unlit;
     if (material.normalMapTexture >= 0 && ctx.tangent.w !== 0) {
-        const tex = sampleImageAt(
-            standardDataImages.$,
-            standardDataImages1024.$,
-            standardDataImages2048.$,
-            standardSampler.$,
-            standardImageSettings.$,
+        const tex = std.textureSampleGrad(
+            normalImage.$,
+            normalSampler.$,
             normalUv,
-            material.normalMapTexture,
             normalDx,
             normalDy,
-            settingsOffset,
         );
         const normal = ctx.rawWorldNormal;
         const tangent = ctx.tangent.xyz;
@@ -242,45 +192,31 @@ export const pbrInputFromStandardMaterial = tgpu.fn(
     if (material.doubleSided !== 0 && !ctx.frontFacing)
         input.worldNormal = std.mul(input.worldNormal, -1);
     if (material.metallicRoughnessTexture >= 0) {
-        const tex = sampleImageAt(
-            standardDataImages.$,
-            standardDataImages1024.$,
-            standardDataImages2048.$,
-            standardSampler.$,
-            standardImageSettings.$,
+        const tex = std.textureSampleGrad(
+            metallicRoughnessImage.$,
+            metallicRoughnessSampler.$,
             metalUv,
-            material.metallicRoughnessTexture,
             metalDx,
             metalDy,
-            settingsOffset,
         );
         input.perceptualRoughness *= tex.g;
         input.metallic *= tex.b;
     }
     if (material.occlusionTexture >= 0) {
-        const tex = sampleImageAt(
-            standardDataImages.$,
-            standardDataImages1024.$,
-            standardDataImages2048.$,
-            standardSampler.$,
-            standardImageSettings.$,
+        const tex = std.textureSampleGrad(
+            occlusionImage.$,
+            occlusionSampler.$,
             occlusionUv,
-            material.occlusionTexture,
             occlusionDx,
             occlusionDy,
-            settingsOffset,
         );
         input.occlusion *= 1 + material.occlusionStrength * (tex.r - 1);
     }
     if (material.emissiveTexture >= 0) {
-        const tex = sampleImage(
-            standardImages.$,
-            standardImages1024.$,
-            standardImages2048.$,
-            standardSampler.$,
-            standardImageSettings.$,
+        const tex = std.textureSampleGrad(
+            emissiveImage.$,
+            emissiveSampler.$,
             emissiveUv,
-            material.emissiveTexture,
             emissiveDx,
             emissiveDy,
         );
@@ -354,7 +290,7 @@ export function extensionLayout<
         index++;
     }
     const extensionEntries = Object.fromEntries(
-        Object.keys(bindings).map((key) => [key, checked.entries[key]]),
+        Object.entries(checked.entries).filter(([key]) => !(key in base.layout.entries)),
     );
     const color = tgpu.bindGroupLayout({ ...entries, ...padding, ...extensionEntries }).$idx(2);
     const depth = tgpu
@@ -371,7 +307,7 @@ export function extensionLayout<
         attributes: checked.attributes,
         depthVariant: depth,
         extension: parameters,
-    }) as ExtensionLayout<B, E>;
+    }) as unknown as ExtensionLayout<B, E>;
 }
 
 type StandardVertex =
@@ -444,14 +380,16 @@ export function extendedMaterial<
               }
             : base.bindings,
         slots: [
-            [standardImages, () => layout.$.images],
-            [standardImages1024, () => layout.$.images1024],
-            [standardImages2048, () => layout.$.images2048],
-            [standardDataImages, () => layout.$.dataImages],
-            [standardDataImages1024, () => layout.$.dataImages1024],
-            [standardDataImages2048, () => layout.$.dataImages2048],
-            [standardSampler, () => layout.$.imageSampler],
-            [standardImageSettings, () => layout.$.imageSettings],
+            [baseColorImage, () => layout.$.baseColor],
+            [baseColorSampler, () => layout.$.baseColorSampler],
+            [normalImage, () => layout.$.normal],
+            [normalSampler, () => layout.$.normalSampler],
+            [metallicRoughnessImage, () => layout.$.metallicRoughness],
+            [metallicRoughnessSampler, () => layout.$.metallicRoughnessSampler],
+            [occlusionImage, () => layout.$.occlusion],
+            [occlusionSampler, () => layout.$.occlusionSampler],
+            [emissiveImage, () => layout.$.emissive],
+            [emissiveSampler, () => layout.$.emissiveSampler],
         ],
         fragment: (extension
             ? tgpu.fn([Context, extension], d.vec4f)(spec.fragment)

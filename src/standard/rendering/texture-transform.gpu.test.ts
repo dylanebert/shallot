@@ -10,10 +10,10 @@ import {
     CameraMode,
     captureTexture,
     Exposure,
-    ImageBindings,
     Tonemapping,
     TonemappingMethod,
 } from "../../core/rendering";
+import { imageTextures } from "../../core/rendering/image";
 import { Transform } from "../../core/transform";
 import {
     extendedMaterial,
@@ -60,6 +60,7 @@ const apps = gpuApps(import.meta.path, [
                 name: "TransformScene",
                 dependencies: [StandardRenderingPlugin, MeshRenderPlugin, probePlugin],
                 initialize(world) {
+                    upload(world);
                     for (const [index, slot] of slots.entries())
                         for (const channel of [0, 1] as const) {
                             const x = subjects.length * 10;
@@ -121,10 +122,8 @@ const apps = gpuApps(import.meta.path, [
 // Linear data encodes a coordinate ramp; color textures store the same ramp in sRGB.
 const encode = (v: number) =>
     Math.round((v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055) * 255);
-beforeAll(() => {
-    const { world } = apps()[0];
-    console.log("texture transform adapter", world.gpu.adapter);
-    const bindings = world.resource(ImageBindings);
+function upload(world: import("../../engine").World) {
+    const bindings = world.resource(imageTextures).textures;
     for (const field of ["images", "dataImages"] as const) {
         const size = 128;
         const texture = world.gpu.device.createTexture({
@@ -147,8 +146,12 @@ beforeAll(() => {
             size,
             1,
         ]);
-        bindings[field] = texture;
+        bindings[field === "images" ? 0 : 1][0] = texture;
     }
+}
+beforeAll(() => {
+    const { world } = apps()[0];
+    console.log("texture transform adapter", world.gpu.adapter);
     world.step(0);
     world.step(0);
 }, TIMEOUT.startup);

@@ -15,6 +15,7 @@ export {
     type ImageSamplerDescriptor,
     imageSampler,
     imageTexture,
+    imageTextures,
     resolveImage,
 } from "./image";
 export { sampleImage, sampleImageAt } from "./image-sampling";

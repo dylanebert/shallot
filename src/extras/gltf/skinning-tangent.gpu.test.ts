@@ -1,4 +1,4 @@
-import { beforeAll, expect, setDefaultTimeout, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import * as d from "typegpu/data";
@@ -12,10 +12,10 @@ import {
     captureTexture,
     DirectionalLight,
     Exposure,
-    ImageBindings,
     Tonemapping,
     TonemappingMethod,
 } from "../../core/rendering";
+import { imageTextures } from "../../core/rendering/image";
 import { Transform } from "../../core/transform";
 import { lookAtRotation } from "../../engine/utils";
 import {
@@ -43,6 +43,7 @@ const apps = gpuApps(import.meta.path, [
                 name: "SkinnedNormalScene",
                 dependencies: [StandardRenderingPlugin, MeshRenderPlugin, GltfPlugin],
                 async initialize(world) {
+                    upload(world);
                     const sun = world.create();
                     world.add(sun, Transform, {
                         rotation: lookAtRotation(0, 0, 0, -light.x, -light.y, -light.z),
@@ -78,8 +79,7 @@ const apps = gpuApps(import.meta.path, [
     },
 ]);
 
-beforeAll(() => {
-    const { world } = apps()[0];
+function upload(world: import("../../engine").World) {
     // Dawn has no bitmap decoder: preserve the importer's normal-texture registration and
     // replace only decoding with the fixture PNG's single RGBA texel.
     const texture = world.gpu.device.createTexture({
@@ -94,8 +94,8 @@ beforeAll(() => {
         { bytesPerRow: 4 },
         [1, 1, 1],
     );
-    world.resource(ImageBindings).dataImages = texture;
-});
+    world.resource(imageTextures).textures[1][0] = texture;
+}
 
 const display = (v: number) =>
     Math.round(Math.min(1, v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055) * 255);

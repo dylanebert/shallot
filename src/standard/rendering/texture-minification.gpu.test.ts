@@ -19,7 +19,8 @@ import { hardwarePlanePipeline, hardwarePlaneReference } from "./receding-plane-
 
 setDefaultTimeout(TIMEOUT.gpu);
 const repeat = { addressModeU: ImageAddressMode.Repeat, addressModeV: ImageAddressMode.Repeat };
-const ids = { hardware: 0, manual: 0, nearest: 0 };
+const ids = { hardware: 0, repeat: 0, nearest: 0 };
+let images: GPUTexture;
 let plane: ReturnType<typeof spawnRecedingPlane>;
 const subjects = gpuApps(import.meta.path, [
     {
@@ -32,9 +33,9 @@ const subjects = gpuApps(import.meta.path, [
                 dependencies: [StandardRenderingPlugin, MeshRenderPlugin],
                 initialize(world) {
                     world.resource(hardwarePlanePipeline);
-                    // The default sampler takes the hardware path; repeat takes the manual one.
+                    images = uploadDiagnosticImages(world, 3);
                     ids.hardware = registerImage(world, new Blob());
-                    ids.manual = registerImage(world, new Blob(), { sampler: repeat });
+                    ids.repeat = registerImage(world, new Blob(), { sampler: repeat });
                     ids.nearest = registerImage(world, new Blob(), {
                         sampler: {
                             ...repeat,
@@ -50,7 +51,7 @@ const subjects = gpuApps(import.meta.path, [
     },
 ]);
 
-// What this covers: the default (hardware) and repeat (manual) paths draw no detail boundary and
+// What this covers: default and repeat samplers draw no detail boundary and
 // match independent hardware filtering or exact CPU trilinear filtering, respectively, from the near
 // rows through lod 4.5; an all-nearest sampler steps and draws only texels of its chain. The nearest
 // readback does not establish which level was selected; image-sampling.gpu.test.ts compares
@@ -71,7 +72,6 @@ let hardwareReference: Awaited<ReturnType<typeof hardwarePlaneReference>>;
 // Upload and reference readback are setup, outside the budget.
 beforeAll(async () => {
     const { world } = subjects()[0];
-    const images = uploadDiagnosticImages(world, 3);
     await capturePlane(world, plane, ids.hardware);
     trilinearReference(320, 180);
     hardwareReference = await hardwarePlaneReference(world, images, 320, 180);
@@ -81,7 +81,7 @@ beforeAll(async () => {
 test("a receding plane minifies as trilinear filtering, without a detail boundary; explicit nearest draws nearest texels", async () => {
     const { world, plane } = scene;
     const paths: Record<string, { slope: number; error: number; lod?: number }> = {};
-    for (const path of ["hardware", "manual"] as const) {
+    for (const path of ["hardware", "repeat"] as const) {
         const [capture] = await capturePlane(world, plane, ids[path]);
         const { error, lod } = referenceError(
             capture,

@@ -9,7 +9,6 @@ import {
     CameraMode,
     captureTexture,
     ImageAddressMode,
-    ImageBindings,
     ImageFilterMode,
     registerImage,
     Tonemapping,
@@ -71,25 +70,9 @@ const subjects = gpuApps(import.meta.path, [
 test("Sprite and StandardMaterial use the same registered address modes and filters outside [0, 1]", async () => {
     const { world } = subjects()[0];
     const device = world.gpu.device;
-    const image = device.createTexture({
-        size: [2, 2, 6],
-        format: "rgba8unorm-srgb",
-        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-    });
-    world.own(image);
-    const pixels = new Uint8Array(2 * 2 * 6 * 4);
-    for (let layer = 0; layer < 6; layer++)
-        pixels.set(
-            [255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255],
-            layer * 16,
-        );
-    device.queue.writeTexture(
-        { texture: image },
-        pixels,
-        { bytesPerRow: 8, rowsPerImage: 2 },
-        [2, 2, 6],
-    );
-    world.resource(ImageBindings).images = image;
+    const pixels = new Uint8Array([
+        255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+    ]);
     for (let id = 0; id < 6; id++) {
         const texture = device.createTexture({
             size: [2, 2],
@@ -97,12 +80,7 @@ test("Sprite and StandardMaterial use the same registered address modes and filt
             usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
         });
         world.own(texture);
-        device.queue.writeTexture(
-            { texture },
-            pixels.subarray(id * 16, (id + 1) * 16),
-            { bytesPerRow: 8 },
-            [2, 2],
-        );
+        device.queue.writeTexture({ texture }, pixels, { bytesPerRow: 8 }, [2, 2]);
         world.resource(imageTextures).textures[0][id] = texture;
     }
     const vertices: number[] = [];
