@@ -208,13 +208,7 @@ test("AlphaToCoverage selects fractional sample coverage on a multisampled targe
     ).toBeLessThanOrEqual(1);
 
     expectWarning(
-        /Pipeline "standard-StandardMaterial-0-1x" owned by "CorePipeline\/1" created after the precompile drain\./,
-    );
-    expectWarning(
         /Pipeline "standard-StandardMaterial-5-1x" owned by "CorePipeline\/1" created after the precompile drain\./,
-    );
-    expectWarning(
-        /Pipeline "standard-VertexMaterial-0-1x" owned by "CorePipeline\/1" created after the precompile drain\./,
     );
     world.storage(Camera).antialias.set(camera, 0);
     world.step(0);

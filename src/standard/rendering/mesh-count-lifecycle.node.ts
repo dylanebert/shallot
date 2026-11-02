@@ -1,13 +1,14 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuScene } from "../../../scripts/gpu.fixture";
-import { Meshes } from "../../core/mesh";
+import { Meshes, MeshInstance } from "../../core/mesh";
 import { meshResourcesKey } from "../../core/mesh/mesh";
 import type { World } from "../../engine";
 import {
     AlphaMode,
     Draws,
     Materials,
+    MeshMaterial,
     MeshRenderPlugin,
     StandardMaterial,
     StandardRenderingPlugin,
@@ -31,7 +32,12 @@ function initialize(world: World, count: number) {
     world.gpu.device.queue.writeBuffer(buffer, 0, new Uint32Array([3, 9]));
     const spec = { ...geometry, name: "count", indirectIndexCount: { buffer }, indexCount: 12 };
     const handles = Array.from({ length: count }, () => meshes.add(spec));
-    return { world, meshes, spec, handles, buffer };
+    const entities = handles.map((mesh) => {
+        const eid = world.create();
+        world.add(eid, MeshInstance, { mesh });
+        return eid;
+    });
+    return { world, meshes, spec, handles, buffer, entities };
 }
 function setup(index: number) {
     const { scene } = subjects[index]();
@@ -138,7 +144,11 @@ test("failed draw publication does not consume a new alpha key before its record
     s.meshes.remove(handle);
     const next = s.meshes.add({ ...s.spec, indexBase: 6 });
     s.world.step(0);
-    s.world.resource(Materials).add(StandardMaterial(), { alphaMode: AlphaMode.Blend });
+    const material = s.world
+        .resource(Materials)
+        .add(StandardMaterial(), { alphaMode: AlphaMode.Blend });
+    s.world.add(s.entities[0]!, MeshMaterial, material);
+    s.world.storage(MeshInstance).mesh.set(s.entities[0]!, next);
     const queue = s.world.gpu.device.queue,
         write = queue.writeBuffer.bind(queue);
     let failures = 0;
@@ -168,6 +178,7 @@ test("a failed existing count-table upload retries the new count instead of trus
     s.meshes.remove(handle);
     const next = s.meshes.add({ ...s.spec, indirectIndexCount: { buffer: s.buffer, offset: 4 } });
     expect(next).not.toBe(handle);
+    s.world.storage(MeshInstance).mesh.set(s.entities[0]!, next);
     const queue = s.world.gpu.device.queue,
         write = queue.writeBuffer.bind(queue);
     let failures = 0;
@@ -198,6 +209,7 @@ test("a failed count binding rebuild retries the unconsumed membership on the ne
     s.world.own(buffer);
     s.world.gpu.device.queue.writeBuffer(buffer, 0, new Uint32Array([6]));
     const mesh = s.meshes.add({ ...s.spec, indirectIndexCount: { buffer } });
+    s.world.storage(MeshInstance).mesh.set(s.entities[0]!, mesh);
     const previousArgs = s.world.resource(MeshDrawBuffers).drawArgs;
     const device = s.world.gpu.device,
         create = device.createBindGroup.bind(device);

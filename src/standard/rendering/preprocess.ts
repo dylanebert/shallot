@@ -151,9 +151,75 @@ export function meshInstanceTable(world: World) {
     return world.resource(meshInstanceTableKey);
 }
 
+const meshPairsKey = {
+    create: () => ({
+        entities: [] as ({ owner: number; mesh: number } | undefined)[],
+        bins: new Map<number, number[]>(),
+        changed: false,
+    }),
+};
+
+function removeMeshPair(world: World, eid: number): void {
+    const state = world.resource(meshPairsKey);
+    const old = state.entities[eid];
+    if (!old || old.owner < 0) return;
+    const bin = state.bins.get(old.owner)!;
+    if (--bin[old.mesh]! === 0) state.changed = true;
+    old.owner = -1;
+}
+
+function prepareMeshPairs(world: World): void {
+    copyMeshAlpha(world);
+    const state = world.resource(meshPairsKey);
+    const material = world.storage(MeshMaterial);
+    const mesh = world.storage(MeshInstance).mesh;
+    const meshes = world.fieldStorage(MeshInstance, "mesh").dirty;
+    const types = world.fieldStorage(MeshMaterial, "type").dirty;
+    const materials = world.fieldStorage(MeshMaterial, "material").dirty;
+    const alpha = world.fieldStorage(MeshMaterial, "alphaMode").dirty;
+    const cull = world.fieldStorage(MeshMaterial, "cullMode").dirty;
+    const words = (world.entityHighWater + 31) >>> 5;
+    for (let word = 0; word < words; word++) {
+        let bits =
+            (meshes[word] ?? 0) |
+            (types[word] ?? 0) |
+            (materials[word] ?? 0) |
+            (alpha[word] ?? 0) |
+            (cull[word] ?? 0);
+        while (bits) {
+            const bit = bits & -bits;
+            bits ^= bit;
+            const eid = (word << 5) + 31 - Math.clz32(bit);
+            if (!world.has(eid, MeshInstance)) continue;
+            const type = material.type.get(eid);
+            const owner =
+                type * PIPELINE_KEY_LIMIT +
+                (world.resource(MaterialTypes).types[type]?.source
+                    ? 0
+                    : pipelineKey(
+                          alphaPipelineKey(material.alphaMode.get(eid)),
+                          material.cullMode.get(eid),
+                      ));
+            const index = world.resource(meshResourcesKey).meshes.index(mesh.get(eid));
+            let old = state.entities[eid];
+            if (index !== undefined && old?.owner === owner && old.mesh === index) continue;
+            removeMeshPair(world, eid);
+            if (index === undefined) continue;
+            let bin = state.bins.get(owner);
+            if (!bin) state.bins.set(owner, (bin = []));
+            const count = bin[index] ?? 0;
+            bin[index] = count + 1;
+            if (!count) state.changed = true;
+            if (!old) state.entities[eid] = old = { owner, mesh: index };
+            old.owner = owner;
+            old.mesh = index;
+        }
+    }
+}
+
 function createMeshInstanceTable(world: World) {
     const table = world.table("meshInstances", EntityMeshInstanceInput);
-    table.setUploadPreparation(copyMeshAlpha);
+    table.setUploadPreparation(prepareMeshPairs);
     table.enableEidLookup();
     return table;
 }
@@ -232,6 +298,7 @@ export function initializeMeshPreprocess(world: World): void {
     world.onDispose(
         world.observeMembership(MeshInstance, (eid, present) => {
             if (present) seedDefault(eid);
+            else removeMeshPair(world, eid);
         }),
     );
     for (const eid of world.query([MeshInstance])) seedDefault(eid);
@@ -462,6 +529,15 @@ function syncBuffers(world: World): void {
     const meshes = world.resource(meshResourcesKey).meshes;
     const meshCount = meshes.capacity;
     const changedMeshes = meshes.version !== _meshPreprocess.meshVersion;
+    if (changedMeshes) {
+        const entities = world.resource(meshPairsKey).entities;
+        const column = world.storage(MeshInstance).mesh;
+        for (let eid = 0; eid < entities.length; eid++) {
+            const pair = entities[eid];
+            if (pair && pair.owner >= 0 && meshes.index(column.get(eid)) === undefined)
+                removeMeshPair(world, eid);
+        }
+    }
     const viewCount = Math.max(1, world.resource(RenderContext).viewCount);
     const producers = world.resource(producerTables).tables.length;
     const growProducers = producers !== _meshPreprocess.producerCount;
@@ -469,6 +545,8 @@ function syncBuffers(world: World): void {
     const growMesh = meshCount > _meshPreprocess.meshCount;
     const growView = viewCount > _meshPreprocess.viewDim;
     const growRows = rowCapacity > _meshPreprocess.rowCapacity;
+    const pairs = world.resource(meshPairsKey);
+    const changedPairs = pairs.changed;
     const growKeys = pipelineKeysChanged(world);
     const keyCount = Math.max(
         _meshPreprocess.keyCount,
@@ -496,7 +574,7 @@ function syncBuffers(world: World): void {
         !growStride &&
         _meshDraws.drawArgs
     ) {
-        if (growKeys) registerDraws(world);
+        if (growKeys || changedPairs) registerDraws(world);
         return;
     }
 
@@ -569,9 +647,7 @@ function syncBuffers(world: World): void {
     if (changedMeshes || staleBounds) writeMeshBounds(world, device);
 
     if (replaceArgs || growView || growRows || staleBounds) unbind(world);
-    // draw records depend only on the meshes, the types' alpha keys and the args buffer, so rows
-    // growth keeps them
-    if (changedMeshes || replaceArgs || growKeys) registerDraws(world);
+    if (changedMeshes || replaceArgs || growKeys || changedPairs) registerDraws(world);
     _meshPreprocess.meshVersion = meshes.version;
 
     // Replaced bindings cannot be used by this frame; submitted work retains its backing storage.
@@ -722,7 +798,10 @@ function publishDraw(
 }
 
 /**
- * Publishes (material type, pipeline key, mesh) draw pairs for keys each type's rows have held.
+ * Publishes occupied (material type, pipeline key, mesh) draw pairs.
+ * Asset-backed types use each instance's resolved key. Source-backed types publish occupied
+ * (type, mesh) bins under every declared source.pipelineKeys key: sources resolve per-row keys
+ * on the GPU, without a CPU change-notification contract.
  * Reuses one CPU record per pair and publishes the current slot image. @internal
  */
 export function publishMeshInstanceDraws(
@@ -755,16 +834,21 @@ export function publishMeshInstanceDraws(
                 state.recheckInstances = true;
             } else rejected?.delete(index);
         }
-        const pipelineKeys = sources[materialType]?.pipelineKeys ?? 0;
         for (let key = 0; key < state.keyCount; key++) {
-            // a key no row has held has no instance; its records stay unwritten and undrawn
-            if (!(pipelineKeys & (1 << key))) continue;
+            const occupied = world
+                .resource(meshPairsKey)
+                .bins.get(materialType * PIPELINE_KEY_LIMIT + (definition.source ? 0 : key));
+            if (
+                !occupied ||
+                (definition.source && !((sources[materialType]?.pipelineKeys ?? 0) & (1 << key)))
+            )
+                continue;
             const alpha = key % ALPHA_PIPELINE_KEY_COUNT;
             const cull = (key - alpha) / ALPHA_PIPELINE_KEY_COUNT;
             for (let index = 0; index < state.meshCount; index++) {
                 const handle = meshes.handleAt(index);
                 const m = handle === undefined ? undefined : meshes.get(handle);
-                if (!m) continue;
+                if (!m || !occupied[index]) continue;
                 if (rejected?.has(index)) continue;
                 const pair =
                     (materialType * state.keyCount + key) *
@@ -883,6 +967,7 @@ function registerDraws(world: World): void {
     const sources = world.resource(MaterialTypes).sources;
     for (let type = 0; type < _meshPreprocess.pipelineKeys.length; type++)
         _meshPreprocess.pipelineKeys[type] = sources[type]?.pipelineKeys ?? 0;
+    world.resource(meshPairsKey).changed = false;
 }
 
 export function initMeshPreprocess(world: World): void {

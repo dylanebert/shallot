@@ -71,6 +71,7 @@ import {
     StandardRenderer,
     VertexMaterialType,
 } from "./index";
+import { isMeshInstanceDraw } from "./preprocess";
 import "../../standard";
 
 const FloorParameters = d.struct({ color: d.vec4f });
@@ -551,6 +552,7 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
         ] as const) {
             const draw = [...world.resource(Draws)].find(
                 (draw) =>
+                    isMeshInstanceDraw(world, draw) &&
                     draw.materialType === materialType &&
                     draw.alphaPipelineKey === alphaPipelineKey &&
                     draw.mesh === cube,

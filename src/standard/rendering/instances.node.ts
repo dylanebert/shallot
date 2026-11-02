@@ -104,12 +104,14 @@ test("changing MeshMaterial type moves the instance to that type's mesh draw on 
         async function counts() {
             device.pushErrorScope("validation");
             world.step();
+            device.queue.writeBuffer(readback, 0, new Uint32Array(10));
             const encoder = device.createCommandEncoder();
             for (const [index, materialType] of [standardType, tintType].entries()) {
                 const draw = Array.from(world.resource(Draws)).find(
                     (candidate) =>
                         candidate.materialType === materialType && candidate.mesh === mesh,
-                )!;
+                );
+                if (!draw) continue;
                 encoder.copyBufferToBuffer(
                     world.gpu.root.unwrap(draw.args.indirect),
                     draw.args.offset ?? 0,

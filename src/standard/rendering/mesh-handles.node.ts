@@ -162,7 +162,7 @@ test("registering a mesh after warm writes the draw-args records once per view s
     }
 });
 
-test("draws are registered only for the alpha keys a material type's rows use, and a new key draws on the next step", async () => {
+test("only occupied pairs draw, and changing material replaces the pair on the next step", async () => {
     const { world } = subjects()[2];
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });
@@ -179,11 +179,8 @@ test("draws are registered only for the alpha keys a material type's rows use, a
     world.step(0);
     world.step(0);
 
-    // every registered type keeps its default row's Opaque draws; no other key has a row
-    const types = world.resource(MaterialTypes).types.filter(Boolean).length;
-    const meshes = world.resource(Meshes).size;
-    expect(types).toBe(2);
-    expect(world.resource(Draws).size).toBe(types * meshes);
+    expect(world.resource(MaterialTypes).types.filter(Boolean).length).toBe(2);
+    expect(world.resource(Draws).size).toBe(1);
     expect(await coveredPixels(world, camera)).toBeGreaterThan(100);
 
     expectWarning(
@@ -194,8 +191,24 @@ test("draws are registered only for the alpha keys a material type's rows use, a
         .add(StandardMaterial({ emissive: [1, 1, 1] }), { alphaMode: AlphaMode.Blend });
     world.storage(MeshMaterial).material.set(eid, blended.material);
     world.step(0);
-    expect(world.resource(Draws).size).toBe((types + 1) * meshes);
+    expect(world.resource(Draws).size).toBe(1);
     expect(await coveredPixels(world, camera)).toBeGreaterThan(100);
+    const shared = world.create();
+    world.add(shared, MeshInstance, { mesh });
+    world.add(shared, MeshMaterial, blended);
+    world.step(0);
+    expect(world.resource(Draws).size).toBe(1);
+    world.destroy(eid);
+    world.step(0);
+    expect(world.resource(Draws).size).toBe(1);
+    const replacement = world.resource(Meshes).add({ name: "replacement", ...quad(0.2) });
+    world.storage(MeshInstance).mesh.set(shared, replacement);
+    world.step(0);
+    expect([...world.resource(Draws)].map((draw) => draw.mesh)).toEqual([replacement]);
+    world.resource(Meshes).remove(replacement);
+    world.step(0);
+    expect(world.resource(Draws).size).toBe(0);
+    world.destroy(shared);
 });
 
 async function coveredPixels(world: ReturnType<typeof subjects>[0]["world"], camera: number) {
