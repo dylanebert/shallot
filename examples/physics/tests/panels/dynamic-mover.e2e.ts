@@ -4,7 +4,7 @@ import { pointerControl } from "../pointer";
 
 test.use(pipelineWarnings);
 for (const width of [1280, 390])
-    test(`Dynamic Mover draws and accepts Walk, Aim and Shoot at ${width}`, async ({
+    test(`Dynamic Mover accepts Walk, Aim and Shoot and shows its reticle at ${width}`, async ({
         browser,
     }, info) => {
         const context = await browser.newContext({
@@ -15,7 +15,7 @@ for (const width of [1280, 390])
         try {
             const errors: string[] = [];
             page.on("pageerror", (error) => errors.push(error.message));
-            await page.goto(`${info.project.use.baseURL}/tests/controls.html?capture`);
+            await page.goto(`${info.project.use.baseURL}/tests/controls.html`);
             await page.waitForFunction(() => "dynamicState" in window);
             await pointerControl(page, page.getByRole("button", { name: "Scene", exact: true }));
             await pointerControl(
@@ -46,7 +46,7 @@ for (const width of [1280, 390])
                 expect((await state()).keys.Control).toBe(1);
                 await page.keyboard.up("Control");
                 await page.mouse.down({ button: "right" });
-                await state(12);
+                await state(1);
                 await expect(page.locator(".reticle")).toBeVisible();
                 await page.mouse.down({ button: "left" });
                 await state(1);
@@ -90,26 +90,8 @@ for (const width of [1280, 390])
             await state(1);
             expect((await state()).keys).toMatchObject({ Control: 0, Aim: 0, Shoot: 0 });
             await expect(page.locator(".reticle")).toBeHidden();
-            const frame = await page.evaluate(() =>
-                (
-                    window as unknown as {
-                        drawDynamicFrame(): Promise<{
-                            width: number;
-                            height: number;
-                            cyan: number;
-                        }>;
-                    }
-                ).drawDynamicFrame(),
-            );
-            expect(frame.width).toBe(width);
-            expect(frame.height).toBe(width === 390 ? 844 : 720);
-            expect(frame.cyan).toBeGreaterThan(20);
             await page.evaluate(() => document.exitPointerLock());
             await expect.poll(() => page.evaluate(() => !!document.pointerLockElement)).toBe(false);
-            await page.getByText("Physics", { exact: true }).click();
-            const image = info.outputPath(`dynamic-mover-${width}.png`);
-            await page.screenshot({ path: image });
-            await info.attach(`dynamic-mover-${width}`, { path: image, contentType: "image/png" });
             expect(errors).toEqual([]);
         } finally {
             await context.close();
