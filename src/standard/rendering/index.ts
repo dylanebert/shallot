@@ -37,6 +37,7 @@ export {
     indirectLightSources,
     registerIndirectLightSource,
 } from "./indirect";
+export { type InstanceData, instanceData } from "./instance-data";
 export {
     DirectionalLightGpu,
     distanceAttenuation,

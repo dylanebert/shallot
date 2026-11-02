@@ -1,4 +1,4 @@
-import type { TgpuAccessor, TgpuBindGroupLayout, TgpuFn } from "typegpu";
+import type { TgpuAccessor, TgpuBindGroupLayout, TgpuFn, TgpuLayoutEntry } from "typegpu";
 import tgpu, { readFromArrayBuffer, writeToArrayBuffer } from "typegpu";
 import type { AnyWgslData, AnyWgslStruct, WgslArray } from "typegpu/data";
 import * as d from "typegpu/data";
@@ -9,6 +9,7 @@ import type { GpuTable, Plugin, Resource, World } from "../../engine";
 import { type ComponentStorage, type LaneFormat, laneLayout, writeLane } from "../../engine/ecs";
 import { validateBindingLimits } from "./binding-limits";
 import { engineLayout } from "./engine";
+import { type InstanceData, registerInstanceData } from "./instance-data";
 import { MeshInstanceInput, MeshMaterial } from "./material-data";
 import { shadowLayout } from "./shadow-layout";
 
@@ -349,6 +350,8 @@ export type MaterialLayout<
     P extends AnyWgslStruct,
 > = TgpuBindGroupLayout<MaterialEntries<B> & MaterialBuiltins & MaterialStreams<P, d.Vec4u>> & {
     readonly parameters: P;
+    /** Component bindings declared with this layout before shaders close over it. */
+    readonly instanceData?: readonly InstanceData[];
     /** @internal Binding declarations used to check merged layouts. */
     readonly bindingSpecs: B;
     readonly attributes: Readonly<Record<string, AnyWgslData>>;
@@ -375,10 +378,12 @@ const depthVerticesEntry = {
 
 /** Declare owned bindings before shader functions so they can close over the layout's typed resources.
  * Per-stage budgets include the renderer's group-0 and group-1 entries. A transparent pipeline also
- * counts registered fog's group-3 entries at preparation. Exceeding a default WebGPU limit is refused. */
+ * counts registered fog's group-3 entries at preparation. Exceeding a default WebGPU limit is refused.
+ * Declare instanceData here when supplying this layout to a material, not in the material spec. */
 export function materialLayout<B extends Record<string, MaterialBinding>, P extends AnyWgslStruct>(
     parameters: P,
     bindings: B,
+    options: { instanceData?: readonly InstanceData[] } = {},
 ): MaterialLayout<B, P> {
     const reserved = [
         "eids",
@@ -386,6 +391,7 @@ export function materialLayout<B extends Record<string, MaterialBinding>, P exte
         "meshInstances",
         "vertices",
         "materialParameters",
+        "instanceData",
     ];
     for (const name of reserved) {
         if (name in bindings)
@@ -417,6 +423,9 @@ export function materialLayout<B extends Record<string, MaterialBinding>, P exte
             ),
         ),
     };
+    const instanceBinding: Record<string, TgpuLayoutEntry> = options.instanceData?.length
+        ? { instanceData: bindingEntry({ type: "storage", element: d.u32 }) }
+        : {};
     const materialParameters = {
         storage: d.arrayOf(parameters),
         access: "readonly" as const,
@@ -428,6 +437,7 @@ export function materialLayout<B extends Record<string, MaterialBinding>, P exte
             materialParameters,
             meshInstances: meshInstancesEntry,
             vertices: colorVerticesEntry,
+            ...instanceBinding,
         })
         .$idx(2);
     validateBindingLimits("material layout", [engineLayout, shadowLayout, color]);
@@ -437,6 +447,7 @@ export function materialLayout<B extends Record<string, MaterialBinding>, P exte
             materialParameters,
             meshInstances: meshInstancesEntry,
             vertices: depthVerticesEntry,
+            ...instanceBinding,
         })
         .$idx(2);
     const attributes = Object.fromEntries(
@@ -446,6 +457,7 @@ export function materialLayout<B extends Record<string, MaterialBinding>, P exte
     );
     return Object.assign(color, {
         parameters,
+        instanceData: options.instanceData,
         bindingSpecs: bindings,
         attributes,
         depthVariant: depth,
@@ -468,6 +480,8 @@ export const MeshVertexInput = d
         world: d.vec4f,
         worldNormal: d.vec3f,
         material: d.u32,
+        /** @internal Mesh-instance row for declaration accessors only. */
+        instanceRow: d.u32,
     })
     .$name("MeshVertexInput");
 
@@ -510,6 +524,8 @@ function materialFragmentContext<
         parameters,
         eid: d.u32,
         row: d.u32,
+        /** @internal Mesh-instance row for declaration accessors only. */
+        instanceRow: d.u32,
         world: d.vec3f,
         /** Normalized interpolated world normal, Bevy's PbrInput.N. */
         worldNormal: d.vec3f,
@@ -703,6 +719,9 @@ export interface MaterialType<
     V extends Record<string, AnyWgslData> = Record<never, never>,
 > extends Resource<MaterialAssets<P>> {
     readonly name: string;
+    /** Component declarations registered before warm; all share one instance storage binding.
+     * With an explicit layout, declare them in materialLayout instead of this spec. */
+    readonly instanceData?: readonly InstanceData[];
     /** @internal Accessor substitutions applied to every pipeline of this type. */
     readonly slots?: readonly (readonly [TgpuAccessor<any>, TgpuAccessor.In<any>])[];
     /** @internal Extension argument reconstructed from the shared parameter row. */
@@ -1232,6 +1251,7 @@ export function registerMaterialType(
         if (prior !== type) throw new Error(`material type "${type.name}" is already registered`);
         return state.ids.get(type)!;
     }
+    registerInstanceData(world, type.instanceData);
     const id = standard ? 0 : state.types.length;
     if (standard && state.types[0])
         throw new Error("StandardMaterial type slot is already registered");
@@ -1298,7 +1318,12 @@ export function materialType<
             | { parameters: P; layout?: never }
         ) & { defaults: d.InferInput<P> },
 ): MaterialType<P, B, V> {
-    const layout = spec.layout ?? materialLayout(spec.parameters!, {});
+    if (spec.layout && spec.instanceData !== undefined)
+        throw new Error(
+            `Material type "${spec.name}": declare instanceData in materialLayout, not the spec with an explicit layout`,
+        );
+    const layout =
+        spec.layout ?? materialLayout(spec.parameters!, {}, { instanceData: spec.instanceData });
     const parameters = layout.parameters;
     if (!spec.name) throw new Error("material type name must not be empty");
     if (spec.vertexTangent && !spec.vertex)
@@ -1315,6 +1340,7 @@ export function materialType<
     definition = {
         ...spec,
         layout,
+        instanceData: layout.instanceData,
         parameters,
         fragment: tgpu.fn(
             [materialFragmentContext<P, V>(parameters, spec.varyings)],

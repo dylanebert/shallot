@@ -68,6 +68,7 @@ import { type Background, Backgrounds, initializeBackgroundState } from "./contr
 import { engineLayout } from "./engine";
 import { fogSource, sealFogSource } from "./fog";
 import { initializeIndirectLightSources, sealIndirectLightSources } from "./indirect";
+import { instanceDataTable } from "./instance-data";
 import {
     initializeLightingState,
     LIGHTING_UNIFORM_SIZE,
@@ -356,6 +357,8 @@ function materialResource(
         case "meshInstances":
             // Entity layers occupy producer-row padding; material fields retain the producer layout.
             return meshInstanceTable(world).buffer;
+        case "instanceData":
+            return instanceDataTable(world, meshInstanceTable(world)).buffer;
         case "materialParameters":
             return type ? materialSource(world, type).table.typed : undefined;
         default:

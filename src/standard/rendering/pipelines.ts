@@ -61,6 +61,7 @@ import {
 import { foggedColor, fogSlot, fogSource, unfoggedColor } from "./fog";
 import type { Recorded } from "./forward";
 import { indirectLightSlot, indirectLightSources } from "./indirect";
+import { instanceDataRoot } from "./instance-data";
 import { viewLighting } from "./lighting";
 import type { MaterialBinding, MaterialLayout, MaterialType } from "./material-type";
 import {
@@ -76,6 +77,7 @@ import {
     varyingValueTypes,
 } from "./material-type";
 import { prepassTextures } from "./prepass-textures";
+import { meshInstanceTable } from "./preprocess";
 import type { Draw } from "./registry";
 import { sampleSunShadow } from "./shade";
 import { ssaoTexture } from "./ssao";
@@ -392,7 +394,7 @@ const producerRow = tgpu.fn(
     d.u32,
 )((instance) => {
     "use gpu";
-    return instance.x === 0xffffffff ? instance.z - 1 : d.u32(0xffffffff);
+    return instance.z === 0 ? d.u32(0xffffffff) : instance.z - 1;
 });
 
 // Bit 31 of the flat material word marks a mirrored instance, one whose placement has an odd count of
@@ -642,6 +644,7 @@ function materialVertexFunction(surface: AnyMaterialType) {
                 vidx: input.vidx,
                 eid: input.eid,
                 row: input.row,
+                instanceRow: input.instanceRow,
                 iid: input.iid,
                 xform: input.xform,
                 world: input.world,
@@ -708,7 +711,8 @@ function colorVertex(surface: AnyMaterialType, clip: boolean, suffix = clip ? "C
                         uv,
                         vidx,
                         eid,
-                        row,
+                        row: eid === 0xffffffff ? row : d.u32(0xffffffff),
+                        instanceRow: eid === 0xffffffff ? d.u32(0xffffffff) : row,
                         iid,
                         xform,
                         world,
@@ -917,7 +921,8 @@ function clipFs(
             const ctx = Ctx();
             ctx.rawWorldNormal = d.vec3f(input.worldNormal);
             ctx.eid = input.eid;
-            ctx.row = input.row;
+            ctx.row = input.eid === 0xffffffff ? input.row : d.u32(0xffffffff);
+            ctx.instanceRow = input.eid === 0xffffffff ? d.u32(0xffffffff) : input.row;
             ctx.world = d.vec3f(input.world);
             ctx.worldNormal = std.normalize(input.worldNormal);
             ctx.uv = needUv ? d.vec2f((input as any).uv) : d.vec2f(0);
@@ -1054,7 +1059,7 @@ ${
         : ""
 }${
     hasVs
-        ? `    let patched = vs(MaterialVertexInput(localPos, localNormal, ${localTangent(surface, mask, "in.vidx")}, uv, vidx, eid, row, iid, xform, world, worldNormal, material));
+        ? `    let patched = vs(MaterialVertexInput(localPos, localNormal, ${localTangent(surface, mask, "in.vidx")}, uv, vidx, eid, select(0xFFFFFFFFu, row, eid == 0xFFFFFFFFu), iid, xform, world, worldNormal, material, select(row, 0xFFFFFFFFu, eid == 0xFFFFFFFFu)));
     world = patched.world;
     worldNormal = patched.worldNormal;
 `
@@ -1169,7 +1174,8 @@ function colorFs(
             receiveLighting(input.world, worldNormal, input.pos);
             const ctx = Ctx();
             ctx.eid = input.eid;
-            ctx.row = input.row;
+            ctx.row = input.eid === 0xffffffff ? input.row : d.u32(0xffffffff);
+            ctx.instanceRow = input.eid === 0xffffffff ? d.u32(0xffffffff) : input.row;
             ctx.world = d.vec3f(input.world);
             ctx.worldNormal = d.vec3f(worldNormal);
             ctx.rawWorldNormal = d.vec3f(input.worldNormal);
@@ -1210,7 +1216,13 @@ function colorFs(
 }
 
 function materialRoot(world: World, surface: AnyMaterialType, fogged = false) {
-    let root = world.gpu.root.with(indirectLightSlot, indirectLightSources(world));
+    let root = instanceDataRoot(
+        world,
+        world.gpu.root.with(indirectLightSlot, indirectLightSources(world)),
+        surface.layout,
+        surface.instanceData,
+        meshInstanceTable(world),
+    );
     const fog = fogged ? fogSource(world) : null;
     if (fog) {
         validateBindingLimits(`material "${surface.name}"`, [
@@ -1675,7 +1687,8 @@ function clipShadowVertex(
                         uv,
                         vidx,
                         eid,
-                        row,
+                        row: eid === 0xffffffff ? row : d.u32(0xffffffff),
+                        instanceRow: eid === 0xffffffff ? d.u32(0xffffffff) : row,
                         iid,
                         xform,
                         world,
@@ -1870,7 +1883,7 @@ function varyingShadowVs(
     var worldNormal = vec3f(xformNormal(xform, localNormal));
 ${
     hasVs
-        ? `    let patched = vs(MaterialVertexInput(localPos, localNormal, ${localTangent(surface, mask, "vidx")}, uv, vidx, eid, row, iid, xform, world, worldNormal, material));
+        ? `    let patched = vs(MaterialVertexInput(localPos, localNormal, ${localTangent(surface, mask, "vidx")}, uv, vidx, eid, select(0xFFFFFFFFu, row, eid == 0xFFFFFFFFu), iid, xform, world, worldNormal, material, select(row, 0xFFFFFFFFu, eid == 0xFFFFFFFFu)));
     world = patched.world;
     worldNormal = patched.worldNormal;
 `
@@ -2000,7 +2013,8 @@ function clipShadowFs(surface: AnyMaterialType, cullMode: number, mask = 0) {
             const ctx = Ctx();
             ctx.rawWorldNormal = d.vec3f(input.worldNormal);
             ctx.eid = input.eid;
-            ctx.row = input.row;
+            ctx.row = input.eid === 0xffffffff ? input.row : d.u32(0xffffffff);
+            ctx.instanceRow = input.eid === 0xffffffff ? d.u32(0xffffffff) : input.row;
             ctx.world = d.vec3f(input.world);
             ctx.worldNormal = std.normalize(input.worldNormal);
             ctx.uv = needUv ? d.vec2f((input as any).uv) : d.vec2f(0);

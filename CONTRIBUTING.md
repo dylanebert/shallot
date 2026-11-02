@@ -95,6 +95,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - Presentation owns tonemapping, grading, dithering and display encoding; [Tonemapping](src/core/rendering/tonemapping-state.ts) owns the per-camera contract
 - `core/mesh` owns mesh data, GPU storage, built-in primitives and `MeshInstance`, independent of rendering
 - `standard/rendering` is the one clustered forward mesh pipeline over both core modules: surfaces, materials, light packing, culling, indirect draws, backgrounds and shadow passes. It records into core's phases
+- Variation across instances is per-instance data, never a material per state
 - Standard contains no effects; they belong in extras
 - Custom materials and backgrounds extend standard through `materialType` with `MaterialPlugin`, and `registerBackground`, never a second standard pipeline
 - Registered images warm into world-owned native-size textures with full mips; material layouts bind each image with its hardware sampler, and CPU consumers use `imageView` after warm

@@ -3,6 +3,7 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { World } from "../../engine";
 import { engineLayout, litPbr } from "./engine";
+import type { InstanceData } from "./instance-data";
 import { StandardMaterial, StandardMaterialInput } from "./material-data";
 import {
     AlphaModeCode,
@@ -262,11 +263,17 @@ export type ExtensionLayout<
  * Base binding numbers are preserved in color and depth layouts. Refuses parameter/binding name
  * collisions and per-stage bindings exceeding WebGPU's default budgets, including the renderer's
  * group-0 and group-1 entries. Transparent pipelines also count registered fog's group-3 entries at
- * preparation. Storage textures are fragment-only. */
+ * preparation. Storage textures are fragment-only. Declare instanceData here when supplying
+ * this layout to extendedMaterial; declarations from the base are inherited. */
 export function extensionLayout<
     E extends d.AnyWgslStruct,
     B extends Record<string, MaterialBinding>,
->(base: typeof Materials, parameters: E, bindings: B): ExtensionLayout<B, E> {
+>(
+    base: typeof Materials,
+    parameters: E,
+    bindings: B,
+    options: { instanceData?: readonly InstanceData[] } = {},
+): ExtensionLayout<B, E> {
     for (const name of Object.keys(parameters.propTypes)) {
         if (name in base.parameters.propTypes)
             throw new Error(`extension parameter "${name}" collides with a base parameter`);
@@ -276,7 +283,12 @@ export function extensionLayout<
             throw new Error(`extension binding "${name}" collides with a base or reserved binding`);
     }
     const merged = d.struct({ ...base.parameters.propTypes, ...parameters.propTypes });
-    const checked = materialLayout(merged, { ...base.layout.bindingSpecs, ...bindings });
+    const declarations = [...(base.instanceData ?? []), ...(options.instanceData ?? [])];
+    const checked = materialLayout(
+        merged,
+        { ...base.layout.bindingSpecs, ...bindings },
+        { instanceData: declarations },
+    );
     const entries = {
         ...base.layout.entries,
         materialParameters: checked.entries.materialParameters,
@@ -303,6 +315,7 @@ export function extensionLayout<
         .$idx(2);
     return Object.assign(color, {
         parameters: merged,
+        instanceData: declarations,
         bindingSpecs: checked.bindingSpecs,
         attributes: checked.attributes,
         depthVariant: depth,
@@ -315,6 +328,8 @@ type StandardVertex =
 type Plain<F> = F & { readonly resourceType?: never };
 type ExtensionSpec<E extends d.AnyWgslStruct> = {
     name: string;
+    /** Without an explicit layout, add component bindings here; otherwise use extensionLayout. */
+    instanceData?: readonly InstanceData[];
     vertexTangent?: true;
     defaults?: d.InferInput<NoInfer<E>>;
     bindings?: (world: World) => Record<string, BindResource>;
@@ -357,13 +372,27 @@ export function extendedMaterial<
             );
     }
     const extension = spec.layout?.extension ?? spec.parameters;
-    const layout = spec.layout ?? (extension ? extensionLayout(base, extension, {}) : base.layout);
+    if (spec.layout && spec.instanceData !== undefined)
+        throw new Error(
+            `Material type "${spec.name}": declare instanceData in materialLayout (extensionLayout for extensions), not the spec with an explicit layout`,
+        );
+    const declarations = [...(base.instanceData ?? []), ...(spec.instanceData ?? [])];
+    const layout =
+        spec.layout ??
+        (extension
+            ? extensionLayout(base, extension, {}, { instanceData: spec.instanceData })
+            : declarations.length
+              ? materialLayout(base.parameters, base.layout.bindingSpecs, {
+                    instanceData: declarations,
+                })
+              : base.layout);
     const Context = (base.fragment as unknown as { shell: { argTypes: [StandardContextSchema] } })
         .shell.argTypes[0];
     const resources = new WeakMap<World, Record<string, BindResource>>();
     const definition: MaterialType<ExtendedParameters<E>, StandardBindings & B> = {
         ...base,
         name: spec.name,
+        instanceData: layout.instanceData,
         layout: layout as ExtensionLayout<B, E>,
         parameters: layout.parameters as ExtendedParameters<E>,
         extension,
