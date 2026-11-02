@@ -109,7 +109,7 @@ interface MeshPreprocessState {
     scanBound: { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null;
     scatterBound: { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null;
     materialTypeCount: number;
-    /** each material type's `pipelineKeys` when draws were last registered */
+    /** each material type's draw-publication key bound when draws were last registered */
     pipelineKeys: Int32Array;
     /** keys per material type in pair indices; see {@link pipelineKeyCount} */
     keyCount: number;
@@ -678,7 +678,8 @@ function pipelineKeysChanged(world: World): boolean {
     const known = world.resource(meshPreprocessKey).pipelineKeys;
     const sources = world.resource(MaterialTypes).sources;
     for (let type = 0; type < known.length; type++)
-        if ((sources[type]?.pipelineKeys ?? 0) !== known[type]) return true;
+        if ((sources[type]?.activePipelineKeys ?? sources[type]?.pipelineKeys ?? 0) !== known[type])
+            return true;
     return false;
 }
 
@@ -800,8 +801,8 @@ function publishDraw(
 /**
  * Publishes occupied (material type, pipeline key, mesh) draw pairs.
  * Asset-backed types use each instance's resolved key. Source-backed types publish occupied
- * (type, mesh) bins under every declared source.pipelineKeys key: sources resolve per-row keys
- * on the GPU, without a CPU change-notification contract.
+ * (type, mesh) bins under source.activePipelineKeys when supplied, otherwise source.pipelineKeys.
+ * This bounds GPU-published per-row keys without requiring CPU per-row change notifications.
  * Reuses one CPU record per pair and publishes the current slot image. @internal
  */
 export function publishMeshInstanceDraws(
@@ -840,7 +841,13 @@ export function publishMeshInstanceDraws(
                 .bins.get(materialType * PIPELINE_KEY_LIMIT + (definition.source ? 0 : key));
             if (
                 !occupied ||
-                (definition.source && !((sources[materialType]?.pipelineKeys ?? 0) & (1 << key)))
+                (definition.source &&
+                    !(
+                        (sources[materialType]?.activePipelineKeys ??
+                            sources[materialType]?.pipelineKeys ??
+                            0) &
+                        (1 << key)
+                    ))
             )
                 continue;
             const alpha = key % ALPHA_PIPELINE_KEY_COUNT;
@@ -966,7 +973,8 @@ function registerDraws(world: World): void {
         world.gpu.device.queue.writeBuffer(target, view * viewStride, slot, 0, viewStride / 4);
     const sources = world.resource(MaterialTypes).sources;
     for (let type = 0; type < _meshPreprocess.pipelineKeys.length; type++)
-        _meshPreprocess.pipelineKeys[type] = sources[type]?.pipelineKeys ?? 0;
+        _meshPreprocess.pipelineKeys[type] =
+            sources[type]?.activePipelineKeys ?? sources[type]?.pipelineKeys ?? 0;
     world.resource(meshPairsKey).changed = false;
 }
 
