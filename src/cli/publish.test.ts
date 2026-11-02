@@ -196,13 +196,16 @@ test("deployment reporting consumes Wrangler's structured result, not its prose"
     );
 });
 
-for (const lock of ["package-lock.json", "bun.lock"]) {
-    test(`${lock}: publish installs missing devDependencies only for Bun, before building`, async () => {
+for (const scenario of ["package-lock.json", "bun.lock", "bun.lock with member Cargo.lock"]) {
+    const lock = scenario === "package-lock.json" ? scenario : "bun.lock";
+    test(`${scenario}: publish installs missing devDependencies only for Bun, before building`, async () => {
         const directory = mkdtempSync(join(root, "dependencies-"));
         // The lock belongs to the workspace, not the member.
         const member = join(directory, "member");
         mkdirSync(member);
         writeFileSync(join(directory, lock), "{}");
+        if (scenario === "bun.lock with member Cargo.lock")
+            writeFileSync(join(member, "Cargo.lock"), "");
         writeFileSync(join(member, "package.json"), JSON.stringify({ name: "game" }));
         const before = () =>
             readdirSync(directory, { recursive: true }).map((path) => {

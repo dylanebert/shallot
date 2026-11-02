@@ -8,7 +8,14 @@ export function installDev(projectDir: string, dependency: string): void {
     let bunProject = false;
     while (true) {
         const locks = readdirSync(directory).filter((name) =>
-            /\.lock$|^bun\.lockb$|(?:^|-)lock\.(?:json|ya?ml)$|^npm-shrinkwrap\.json$/.test(name),
+            [
+                "bun.lock",
+                "bun.lockb",
+                "package-lock.json",
+                "npm-shrinkwrap.json",
+                "yarn.lock",
+                "pnpm-lock.yaml",
+            ].includes(name),
         );
         if (locks.length) {
             bunProject = locks.includes("bun.lock");
