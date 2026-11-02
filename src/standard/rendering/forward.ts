@@ -110,7 +110,7 @@ import {
     initializePipelineState,
     type MaterialGroupEntry,
     meshStreamMask,
-    preparePipelines,
+    prepareMaterialTypes,
     resetPipelineCaches,
     setGroup,
 } from "./pipelines";
@@ -1293,6 +1293,21 @@ function drawTransparent(
 const STANDARD_RENDERER_CAMERAS = [Camera, StandardRenderer];
 const PREPASS_READERS = [MeshInstance, MeshMaterial, GlobalTransform];
 
+/** Compile registered material keys and mesh stream sets, backgrounds, and current camera variants.
+ * Await before spawning draws using newly registered assets after warm. Unprepared keys and later
+ * camera reconfiguration still compile synchronously at draw and warn. During warm, the build drains
+ * compilation. Like three.js compileAsync, late preparation awaits asynchronous native compilation. */
+export function preparePipelines(world: World): Promise<void> {
+    const singleSample = [...world.query(STANDARD_RENDERER_CAMERAS)].some(
+        (eid) => world.storage(Camera).antialias.get(eid) === 0,
+    );
+    const stacked = initialStackedViews(world).some((view) => {
+        const eid = world.resolve(view.camera);
+        return world.has(eid, StandardRenderer) && world.storage(Camera).antialias.get(eid) !== 0;
+    });
+    return prepareMaterialTypes(world, meshInstanceTable(world).capacity, singleSample, stacked);
+}
+
 // Reset owned resources before compilation so layouts and buffers belong to this warm.
 async function prepareStandardRenderer(
     world: World,
@@ -1307,29 +1322,7 @@ async function prepareStandardRenderer(
     world.resource(pointRegather).reset(() => clearGroups(world));
     world.resource(cascadeRegather).reset(() => clearGroups(world));
     // Compile material types and the shared re-gather pipelines before the first draw.
-    await Promise.all([
-        prepareRegather(world, device, capacity),
-        preparePipelines(
-            world,
-            capacity,
-            hasSingleSampleCamera(world),
-            initialStackedViews(world).some((view) => {
-                const eid = world.resolve(view.camera);
-                return (
-                    world.has(eid, StandardRenderer) &&
-                    world.storage(Camera).antialias.get(eid) !== 0
-                );
-            }),
-        ),
-    ]);
-}
-
-/** true when a StandardRenderer camera present at warm draws without antialiasing. */
-function hasSingleSampleCamera(world: World): boolean {
-    const antialias = world.storage(Camera).antialias;
-    for (const eid of world.query(STANDARD_RENDERER_CAMERAS))
-        if (antialias.get(eid) === 0) return true;
-    return false;
+    await Promise.all([prepareRegather(world, device, capacity), preparePipelines(world)]);
 }
 
 // Resolve once, after the pack registers draws and replaces their args buffer and before core's prepass;

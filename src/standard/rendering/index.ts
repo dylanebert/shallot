@@ -24,6 +24,7 @@ export type { FogSource } from "./fog";
 export { FogInput, registerFogSource } from "./fog";
 export {
     CameraBackground,
+    preparePipelines,
     ShadowMapSystem,
     StandardRenderer,
     StandardRenderingPlugin,

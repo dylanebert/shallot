@@ -14,6 +14,7 @@ import {
     decodeTangent,
     decodeUv,
     decodeUv1,
+    flushMeshes,
     type Mesh,
     Meshes,
     MeshQuant,
@@ -1221,19 +1222,6 @@ function materialRoot(world: World, surface: AnyMaterialType, fogged = false) {
     if (surface.readsPrepass?.normal) root = root.with(prepassNormalSlot, prepassNormalRead);
     return root;
 }
-function prepareMaterialPipeline<T extends TgpuRenderPipeline<any>>(
-    world: World,
-    name: string,
-    pipeline: T,
-): T {
-    try {
-        world.gpu.root.unwrap(pipeline);
-    } catch (error) {
-        rethrowMaterialError(name, error);
-    }
-    return pipeline;
-}
-
 /**
  * Compile a `MaterialType`'s opaque color pipeline or its alpha-blended transparent pipeline. Cached
  * by name and exact type/layout identity, so replacing a registry entry after warm cannot inherit the
@@ -2254,20 +2242,17 @@ export function ensureNormalPrepass(
     ));
 }
 
-/** Prepare every material parameter table, pipeline and background at warm, before the first draw.
- * `singleSample` also prepares each material's AA-off variant, for a no-AA camera present at warm.
- * `stacked` prepares AlphaToCoverage for an initially stacked multisampled camera.
- * A camera added or reconfigured after warm may still compile a variant on its first draw and warn. */
-export async function preparePipelines(
+/** Prepare registered material types and backgrounds for the instance table's `capacity`.
+ * `singleSample` includes no-AA variants; `stacked` includes stacked-camera AlphaToCoverage.
+ * Normal-prepass variants follow current camera requests. Compilation is queued at warm and awaited after warm. */
+export async function prepareMaterialTypes(
     world: World,
     capacity: number,
     singleSample = false,
     stacked = false,
 ): Promise<void> {
-    // A material may first acquire a draw in the draw group, after that frame's table upload.
-    // Create its parameter table at warm so the defaults reach the first frame's upload.
-    // TypeGPU defers resolve and device pipeline creation until first use. root.unwrap forces
-    // both at warm so resolution/validation errors surface here, not mid-frame on the first draw.
+    flushMeshes(world);
+    const pipelines = new Map<TgpuRenderPipeline<any>, string>();
     const normalSamples = new Set<number>();
     const normalRequests = world.resource(NormalPrepassRequests);
     for (const eid of world.query([Camera])) {
@@ -2283,6 +2268,8 @@ export async function preparePipelines(
     for (const type of world.resource(MaterialTypes).types) {
         if (!type) continue;
         const source = materialSource(world, type);
+        // A material may first acquire a draw in the draw group, after that frame's table upload.
+        // Create its parameter table here so the defaults reach the first frame's upload.
         source.table;
         const pipelineKeys = source.pipelineKeys;
         const masks = new Set([0]);
@@ -2303,17 +2290,10 @@ export async function preparePipelines(
                 if (singleSample) ensureSingle(world, compiled);
                 for (const samples of normalSamples) {
                     const pipeline = ensureNormalPrepass(world, compiled, samples === 1);
-                    if (pipeline)
-                        precompile(world, precompileScope(world, "standard-normal-prepass"), () =>
-                            prepareMaterialPipeline(world, type.name, pipeline),
-                        );
+                    if (pipeline) pipelines.set(pipeline, type.name);
                 }
-                if (stacked && alphaPipelineKey === AlphaPipelineKey.AlphaToCoverage) {
-                    const pipeline = ensureStacked(world, compiled);
-                    precompile(world, precompileScope(world, "standard-stacked"), () =>
-                        prepareMaterialPipeline(world, type.name, pipeline),
-                    );
-                }
+                if (stacked && alphaPipelineKey === AlphaPipelineKey.AlphaToCoverage)
+                    pipelines.set(ensureStacked(world, compiled), type.name);
                 for (const p of [
                     compiled.color,
                     compiled.transparent,
@@ -2325,14 +2305,25 @@ export async function preparePipelines(
                     compiled.prepassSingle,
                     compiled.stacked,
                 ]) {
-                    if (p) prepareMaterialPipeline(world, type.name, p);
+                    if (p) pipelines.set(p, type.name);
                 }
             }
         }
     }
     for (const bg of world.resource(Backgrounds).values()) {
         const cb = compileBackground(world, bg);
-        world.gpu.root.unwrap(cb.color);
-        world.gpu.root.unwrap(cb.single);
+        pipelines.set(cb.color, bg.name);
+        pipelines.set(cb.single, bg.name);
     }
+    await precompile(world, precompileScope(world, "standard-materials"), () =>
+        [...pipelines].map(([pipeline, name]) => ({
+            async initAsync() {
+                try {
+                    await pipeline.initAsync();
+                } catch (error) {
+                    rethrowMaterialError(name, error);
+                }
+            },
+        })),
+    );
 }

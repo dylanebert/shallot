@@ -536,11 +536,12 @@ function resetStaging(world: World): void {
 }
 
 /**
- * pack staged meshes into families keyed by attribute names and element schemas, each with
+ * @internal Pack staged meshes into families keyed by attribute names and element schemas, each with
  * quantized vertex streams and a shared index buffer. Replace each entry with its slice;
  * earlier families and their entries are untouched.
  * `MeshPlugin.warm` runs it after every `initialize`, and {@link PrepareMeshesSystem} at the
- * start of each draw group; with nothing staged it does nothing.
+ * start of each draw group. Pipeline preparation also calls it before enumerating stream sets.
+ * With nothing staged it does nothing.
  */
 export function flushMeshes(world: World): void {
     const device = world.gpu.device;
