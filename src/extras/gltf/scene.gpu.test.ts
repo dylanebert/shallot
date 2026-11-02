@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, spyOn, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { attachTexture, captureTexture } from "../../core/rendering";
 import { imageTextures } from "../../core/rendering/image";
@@ -26,7 +27,15 @@ import {
 } from "../../index";
 import { openGpuApp as createApp } from "../../project/testing-gpu";
 import { MeshRenderPlugin, StandardRenderingPlugin } from "../../standard/rendering";
-import { type Gltf, loadGltf, loadGltfScene, poseGltfScene, spawnGltfScene } from "./index";
+import {
+    type Gltf,
+    GltfPlugin,
+    loadGltf,
+    loadGltfScene,
+    poseGltfScene,
+    spawnGltfScene,
+} from "./index";
+import { morphFixture, morphFixtureUrl } from "./morph.fixture";
 
 setDefaultTimeout(TIMEOUT.gpu);
 const vertices = new Float32Array([
@@ -495,6 +504,77 @@ test("LINEAR_MIPMAP_NEAREST steps between levels while unspecified minFilter ble
 
 // The synthetic plane has no textures: lighting isolates the back-face normal flip.
 const faceApps: { app: App; target: number; mode: string }[] = [];
+const lateScenes: { app: App; target: number; scene?: Gltf; source: string }[] = [];
+beforeAll(async () => {
+    const morph = morphFixture().json;
+    const skin = JSON.parse(
+        readFileSync(new URL("./fixtures/skin-accessors.gltf", import.meta.url), "utf8"),
+    );
+    skin.materials = [{ doubleSided: true, emissiveFactor: [1, 0.2, 0.1] }];
+    for (const mesh of skin.meshes) for (const primitive of mesh.primitives) primitive.material = 0;
+    const sources = [morphFixtureUrl(skin), morphFixtureUrl(morph)];
+    for (const source of sources) {
+        for (const atWarm of [true, false]) {
+            let target = 0;
+            let scene: Gltf | undefined;
+            const app = await createApp({
+                defaults: false,
+                plugins: [
+                    GltfPlugin,
+                    StandardRenderingPlugin,
+                    MeshRenderPlugin,
+                    {
+                        name: "LateScene",
+                        dependencies: [GltfPlugin, StandardRenderingPlugin, MeshRenderPlugin],
+                        async initialize(world) {
+                            camera(world);
+                            target = cameras.at(-1)!;
+                            if (atWarm) scene = await loadGltfScene(world, source);
+                        },
+                    },
+                ],
+            });
+            apps.push(app);
+            lateScenes.push({ app, target, scene, source });
+        }
+    }
+}, TIMEOUT.startup);
+for (const [index, name] of ["skinned", "morphed"].entries()) {
+    test(`${name} scene loaded after warm at a fixed pose matches warm loading without synchronous pipeline warnings`, async () => {
+        const captures: Uint8ClampedArray[] = [];
+        const warnings: unknown[][] = [];
+        const warn = spyOn(console, "warn").mockImplementation((...args) => {
+            warnings.push(args);
+        });
+        try {
+            for (const subject of lateScenes.slice(index * 2, index * 2 + 2)) {
+                const world = subject.app.world;
+                const scene = subject.scene ?? (await loadGltfScene(world, subject.source));
+                const instance = spawnGltfScene(world, scene);
+                poseGltfScene(
+                    world,
+                    instance,
+                    scene.animations[0] ?? { name: "rest", samplers: [], channels: [] },
+                    0.25,
+                );
+                world.step(0);
+                world.step(0);
+                captures.push((await captureTexture(world, subject.target)).rgba);
+            }
+            expect(captures[1]).toEqual(captures[0]);
+            expect(
+                captures[0]!.some((value, i) => i % 4 !== 3 && value !== captures[0]![i % 4]),
+            ).toBe(true);
+            expect(
+                warnings.filter((args) =>
+                    String(args[0]).includes("created after the precompile drain"),
+                ),
+            ).toEqual([]);
+        } finally {
+            warn.mockRestore();
+        }
+    });
+}
 beforeAll(async () => {
     for (const mode of ["loaded", "direct", "single", "unflipped"] as const) {
         let target = 0;

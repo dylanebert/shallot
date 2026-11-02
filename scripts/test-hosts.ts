@@ -41,6 +41,7 @@ export const ONLY: Readonly<Record<string, readonly NodeJS.Platform[]>> = {
     "examples/gltf": ["darwin", "linux"],
     "src/core/rendering/tests/images": ["darwin", "linux"],
     "src/extras/effect-stack/browser": ["darwin", "linux"],
+    "src/extras/gltf/browser": ["darwin", "linux"],
     // Its cost is DOM-bound, so SwiftShader's runners run it no slower than the other hosts.
     "examples/color-grading": ["linux"],
     // Its one host-sensitive claim is label fit, from text width; it bundles its fonts, which Chromium shapes with

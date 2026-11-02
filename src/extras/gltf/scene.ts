@@ -1,5 +1,11 @@
 import { Meshes, type MeshHandle, MeshInstance } from "../../core/mesh";
-import { DirectionalLight, PointLight, registerImage, SpotLight } from "../../core/rendering";
+import {
+    DirectionalLight,
+    PointLight,
+    prepareImages,
+    registerImage,
+    SpotLight,
+} from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import type { World } from "../../engine/ecs";
 import { composeMat4, decomposeMat4, linearToSrgb, multiplyMat4 } from "../../engine/utils";
@@ -8,6 +14,7 @@ import {
     type MaterialHandle,
     Materials,
     MeshMaterial,
+    preparePipelines,
     StandardMaterial,
 } from "../../standard/rendering";
 import type { GltfAnimation, GltfNode, GltfNodePose } from "./animation";
@@ -60,7 +67,10 @@ export interface GltfPlacement {
     scale?: readonly [number, number, number];
 }
 
-/** Registers the default scene before warm, from the game's async initialize.
+/** Registers the default scene. After warm, awaits its images and registered pipeline variants
+ * before resolving, so spawning the handle can draw immediately without fallback textures or
+ * synchronous pipeline compilation. Before warm, resolves without preparing images or pipelines;
+ * the build owns their preparation.
  * The handle and its mesh, image and material registrations belong to this world until disposal.
  * The handle's decoded data, including animations, is immutable and copied to the kernel.
  * glTF emissive (cd/m²) reaches StandardMaterial.emissive unscaled and is added outside camera
@@ -341,6 +351,7 @@ export async function loadGltfScene(
         unsupported: scene.unsupported,
     };
     registerGltfKernel(handle);
+    await Promise.all([prepareImages(world), preparePipelines(world)]);
     return handle;
 }
 

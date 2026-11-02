@@ -42,6 +42,7 @@ function assets(world: World) {
     return { mesh, material };
 }
 const warmAssets: ReturnType<typeof assets>[] = [];
+let pendingBeforeWarm = false;
 const subjects = gpuApps(
     import.meta.path,
     [true, false].map((atWarm) => ({
@@ -52,18 +53,28 @@ const subjects = gpuApps(
             {
                 name: "PreparationScene",
                 dependencies: [MeshRenderPlugin, StandardRenderingPlugin],
-                initialize(world: World) {
+                async initialize(world: World) {
                     const camera = world.create();
                     world.add(camera, Transform, { translation: [0, 0, 5, 0] });
                     world.add(camera, Camera, { antialias: 0 });
                     world.add(camera, StandardRenderer);
                     attachTexture(world, camera, { width: 64, height: 64 });
-                    if (atWarm) warmAssets.push(assets(world));
+                    if (atWarm) {
+                        const registered = assets(world);
+                        warmAssets.push(registered);
+                        await preparePipelines(world);
+                        pendingBeforeWarm =
+                            world.resource(Meshes).get(registered.mesh)!.pending === true;
+                    }
                 },
             },
         ],
     })),
 );
+
+test("preparation before warm resolves without packing staged meshes; the build owns preparation", () => {
+    expect(pendingBeforeWarm).toBe(true);
+});
 
 test("awaiting preparation after warm draws new alpha, cull and stream keys exactly as preparation at warm without pipeline warnings", async () => {
     const captures = [];
@@ -81,6 +92,16 @@ test("awaiting preparation after warm draws new alpha, cull and stream keys exac
     }
     expect(captures[0]!.some((value, i) => i % 4 !== 3 && value > 64)).toBe(true);
     expect(captures[1]).toEqual(captures[0]);
+});
+
+test("a re-warm failing before material preparation leaves public preparation inactive", async () => {
+    const world = subjects()[1]!.world;
+    await expect(StandardRenderingPlugin.warm!(world)).rejects.toThrow(
+        'duplicate precompile label "standard:prepass-resolve"',
+    );
+    const registered = assets(world);
+    await preparePipelines(world);
+    expect(world.resource(Meshes).get(registered.mesh)!.pending).toBe(true);
 });
 
 function shadowAssets(world: World) {

@@ -149,6 +149,7 @@ interface StandardRendererState {
     warned: Set<string>;
     frameDraws: FrameDraw[];
     frameCount: number;
+    warm: boolean;
     depthReadLayers: number;
     normalReadLayers: number;
     frameDrawPairs: (FrameDraw | null)[];
@@ -193,6 +194,7 @@ function createStandardRendererState(): StandardRendererState {
         warned: new Set(),
         frameDraws: [],
         frameCount: 0,
+        warm: false,
         depthReadLayers: 0,
         normalReadLayers: 0,
         frameDrawPairs: [],
@@ -1283,10 +1285,16 @@ const STANDARD_RENDERER_CAMERAS = [Camera, StandardRenderer];
 const PREPASS_READERS = [MeshInstance, MeshMaterial, GlobalTransform];
 
 /** Compile registered material keys and mesh stream sets, backgrounds, and current camera variants.
+ * Before StandardRenderingPlugin finishes warm, resolves without compiling; the build owns preparation.
  * Await before spawning draws using newly registered assets after warm. Unprepared keys and later
  * camera reconfiguration still compile synchronously at draw and warn. During warm, the build drains
  * compilation. Like three.js compileAsync, late preparation awaits asynchronous native compilation. */
 export function preparePipelines(world: World): Promise<void> {
+    if (!world.resource(standardRendererStateKey).warm) return Promise.resolve();
+    return prepareRegisteredPipelines(world);
+}
+
+function prepareRegisteredPipelines(world: World): Promise<void> {
     const singleSample = [...world.query(STANDARD_RENDERER_CAMERAS)].some(
         (eid) => world.storage(Camera).antialias.get(eid) === 0,
     );
@@ -1304,14 +1312,19 @@ async function prepareStandardRenderer(
     capacity: number,
 ): Promise<void> {
     resetPipelineCaches(world);
-    world.resource(standardRendererStateKey).warned.clear();
+    const state = world.resource(standardRendererStateKey);
+    state.warned.clear();
     resetShadowAtlas(world, device);
     // the lazily-allocated packed list binds at each atlas pipeline's `eids` lane, so allocating it clears
     // the resolved-bind-group cache to rebuild with it
     world.resource(pointRegather).reset(() => clearGroups(world));
     world.resource(cascadeRegather).reset(() => clearGroups(world));
     // Compile material types and the shared re-gather pipelines before the first draw.
-    await Promise.all([prepareRegather(world, device, capacity), preparePipelines(world)]);
+    await Promise.all([
+        prepareRegather(world, device, capacity),
+        prepareRegisteredPipelines(world),
+    ]);
+    state.warm = true;
 }
 
 // Resolve once, after the pack registers draws and replaces their args buffer and before core's prepass;
@@ -1489,6 +1502,7 @@ export const StandardRenderingPlugin: Plugin = {
     },
 
     async warm(world) {
+        world.resource(standardRendererStateKey).warm = false;
         sealIndirectLightSources(world);
         sealFogSource(world);
         if (!world.gpu.device) return;
