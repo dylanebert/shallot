@@ -179,12 +179,10 @@ test("a mesh registered in a draw-group system draws on the following frame with
     expect(rgba).toEqual(await frame("during initialize"));
 });
 
+// Only the instance's StandardMaterial bin draws, so no other material type warns.
 test("a mesh registered directly without quantized streams is skipped with a warning", async () => {
     expectWarning(
         /^standard: draw "mesh:material:StandardMaterial:slab:1" skipped — mesh "slab" has no quantized position\/quant stream$/,
-    );
-    expectWarning(
-        /^standard: draw "mesh:material:VertexMaterial:slab:1" skipped — mesh "slab" has no quantized position\/quant stream$/,
     );
     await frame("directly without streams");
 });
