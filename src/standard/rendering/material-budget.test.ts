@@ -14,6 +14,35 @@ const samplers = (count: number) =>
     Object.fromEntries(
         Array.from({ length: count }, (_, i) => [`s${i}`, { type: "sampler" as const }]),
     );
+test("image bindings count both their textures and hardware samplers", () => {
+    const parameters = d.struct({ color: d.u32, data: d.i32 });
+    const layout = materialLayout(parameters, {
+        color: { type: "image", field: "color" },
+        data: { type: "image", field: "data", isSrgb: false },
+    });
+    expect(layout.entries.color).toHaveProperty("texture");
+    expect(layout.entries.colorSampler).toHaveProperty("sampler", "filtering");
+    expect(layout.entries.dataSampler).toHaveProperty("sampler", "filtering");
+    expect(() =>
+        materialLayout(parameters, { ...samplers(14), color: { type: "image", field: "color" } }),
+    ).not.toThrow();
+    expect(() =>
+        materialLayout(parameters, { ...samplers(15), color: { type: "image", field: "color" } }),
+    ).toThrow(/17 vertex samplers/);
+    expect(() =>
+        materialLayout(parameters, { image: { type: "image", field: "missing" } }),
+    ).toThrow(/u32 or i32/);
+    expect(() => materialLayout(Parameters, { image: { type: "image", field: "value" } })).toThrow(
+        /u32 or i32/,
+    );
+    expect(() =>
+        materialLayout(parameters, {
+            color: { type: "image", field: "color" },
+            colorSampler: { type: "sampler" },
+        }),
+    ).toThrow(/already bound/);
+});
+
 test("material layouts count engine uniform buffers in each shader stage", () => {
     expect(() => materialLayout(Parameters, uniforms(6))).not.toThrow();
     expect(() => materialLayout(Parameters, uniforms(7))).toThrow(

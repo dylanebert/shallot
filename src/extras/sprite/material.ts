@@ -1,13 +1,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import {
-    Billboard,
-    billboardCorner,
-    ImageBindings,
-    sampleImage,
-    xformMat,
-} from "../../core/rendering";
+import { Billboard, billboardCorner, xformMat } from "../../core/rendering";
 import type { World } from "../../engine";
 import { srgbToLinear1 } from "../../engine/utils";
 import { engineLayout, materialLayout, materialType } from "../../standard/rendering";
@@ -46,11 +40,7 @@ export const SpriteSource = {
 };
 
 const layout = materialLayout(SpriteMaterialInput, {
-    images: { type: "texture", dimension: "2d-array" },
-    images1024: { type: "texture", dimension: "2d-array" },
-    images2048: { type: "texture", dimension: "2d-array" },
-    imageSampler: { type: "sampler" },
-    imageSettings: { type: "texture" },
+    image: { type: "image", field: "image" },
 });
 
 /** Fill mask: radial clockwise from 12 o'clock, vertical bottom-up, horizontal left-to-right. */
@@ -76,7 +66,6 @@ const spriteFillMask = tgpu
 
 /** Sprite parameters occupy one table; each row supplies its own AlphaMode. */
 export const SpriteMaterialType = materialType({
-    bindings: (world) => world.resource(ImageBindings),
     name: "SpriteMaterial",
     layout,
     source: SpriteSource,
@@ -116,17 +105,7 @@ export const SpriteMaterialType = materialType({
         "use gpu";
         const sprite = ctx.parameters;
         const uv = d.vec2f(ctx.localPos.x, 1 - ctx.localPos.y);
-        const texel = sampleImage(
-            layout.$.images,
-            layout.$.images1024,
-            layout.$.images2048,
-            layout.$.imageSampler,
-            layout.$.imageSettings,
-            uv,
-            d.i32(sprite.image),
-            std.dpdx(uv),
-            std.dpdy(uv),
-        );
+        const texel = std.textureSample(layout.$.image, layout.$.imageSampler, uv);
         const hex = d.u32(sprite.color);
         const tint = d.vec3f(
             srgbToLinear1(d.f32((hex >>> 16) & 255) / 255),

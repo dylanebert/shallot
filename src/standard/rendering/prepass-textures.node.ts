@@ -402,7 +402,7 @@ for (const antialias of [0, 1]) {
         });
         world.resource(Draws).register({
             name: "public-prepass-reader",
-            materialBatch: materialTypeId(world, RegisteredReader),
+            material: { type: materialTypeId(world, RegisteredReader), material: 0 },
             alphaPipelineKey: AlphaPipelineKey.Opaque,
             mesh: registeredMesh,
             args: { indirect: registeredArgs },

@@ -2,6 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { readFromArrayBuffer } from "typegpu";
 import { gpuApps } from "../../../scripts/gpu.fixture";
+import { expectWarning } from "../../../scripts/test-console";
 import { Anchor } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import { probeBuffer } from "../../engine/runtime";
@@ -39,6 +40,7 @@ const anchors = [
 ];
 
 test("sprite and label pivots follow all nine named anchors, updates, removal and extra defaults", async () => {
+    expectWarning(/color image 0 has no native texture/);
     const { world } = subjects()[0];
     const sprite = world.create();
     world.add(sprite, Transform);

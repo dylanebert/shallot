@@ -9,7 +9,7 @@ import {
     captureTexture,
     DirectionalLight,
 } from "../../core/rendering";
-import { ImageBindings } from "../../core/rendering/image";
+import { imageTextures } from "../../core/rendering/image";
 import { attachView, detachView, Views } from "../../core/rendering/view";
 import { Transform } from "../../core/transform";
 import { lookAtRotation, precompile } from "../../engine";
@@ -122,7 +122,7 @@ test("clip Sprite leaves its alpha hole out of the directional shadow map", asyn
     const {
         scene: { world, atlas },
     } = subject();
-    world.resource(ImageBindings).images = atlas;
+    world.resource(imageTextures).textures[0][0] = atlas;
     const depthPixels = () => readDepth(subject().scene);
 
     world.step(0);
@@ -238,7 +238,7 @@ test("a Screen-billboard Sprite's sun shadow faces the camera the shadows are fi
 test("a depth-only main camera with a presenting sibling records shadows and presents its first frame", async () => {
     const { scene } = depthOnlySubject();
     const { world, camera, sibling, sun, atlas } = scene;
-    world.resource(ImageBindings).images = atlas;
+    world.resource(imageTextures).textures[0][0] = atlas;
     world.storage(DirectionalLight).maximumDistance.set(sun, 8);
     const sprite = world.create();
     world.add(sprite, Transform);

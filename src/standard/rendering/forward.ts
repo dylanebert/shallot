@@ -20,6 +20,8 @@ import {
     CULL_VOLUME_FLOATS,
     DepthPrepassRequests,
     globalTransformTable,
+    imageSampler,
+    imageTexture,
     initialStackedViews,
     MainPassSystem,
     NormalPrepassRequests,
@@ -317,10 +319,9 @@ type FrameDraw = { draw: Draw; r: Recorded };
  * Missing/stale compiled pipelines are compiled synchronously, not silently skipped.
  */
 function record(world: World, draw: Draw, capacity: number): FrameDraw | null {
-    const typeId = world.resource(MaterialBatches).types[draw.materialBatch];
+    const typeId = draw.material.type;
     const type = world.resource(MaterialTypes).types[typeId!];
-    if (!type)
-        return warnSkip(world, draw.name, `material batch ${draw.materialBatch} is not registered`);
+    if (!type) return warnSkip(world, draw.name, `material type ${typeId} is not registered`);
     return recordMaterial(world, draw, type, capacity);
 }
 
@@ -330,7 +331,21 @@ function materialResource(
     name: string,
     type?: MaterialType<any, any, any>,
     bindings = type?.bindings?.(world),
+    row = 0,
+    typeId?: number,
 ): BindResource | undefined {
+    if (type) {
+        const entry = world.resource(MaterialBatches).entries[typeId!];
+        const fields = entry?.fields;
+        for (let i = 0; fields && i < fields.length; i++) {
+            const field = fields[i];
+            if (name !== field.name && name !== field.sampler) continue;
+            const id = entry!.ids[row * fields.length + i]!;
+            return name === field.name
+                ? imageTexture(world, id, field.isSrgb)
+                : imageSampler(world, id, field.isSrgb);
+        }
+    }
     switch (name) {
         case "eids":
             return world.resource(MeshDrawBuffers).packedEids ?? undefined;
@@ -352,6 +367,8 @@ function layoutResources(
     override?: Record<string, BindResource>,
     materialType?: MaterialType<any, any, any>,
     owned = false,
+    row = 0,
+    typeId?: number,
 ):
     | {
           values: Record<string, unknown>;
@@ -367,7 +384,9 @@ function layoutResources(
         if (!entry || name === "vertices") continue;
         const res =
             override?.[name] ??
-            (owned ? undefined : materialResource(world, name, materialType, bindings));
+            (owned
+                ? undefined
+                : materialResource(world, name, materialType, bindings, row, typeId));
         if (!res) return name;
         if (isBuffer(res)) validateMeshBindingOverrides({ entries }, { [name]: res });
         resources.push(res);
@@ -396,6 +415,8 @@ function sameResources(
     mesh: NonNullable<ReturnType<ReturnType<typeof Meshes.create>["get"]>>,
     pointList: GPUBuffer | null,
     cascadeList: GPUBuffer | null,
+    row: number,
+    typeId: number,
 ): boolean {
     const res = g.resources;
     if (
@@ -420,7 +441,8 @@ function sameResources(
                     ? mesh.attributes?.[name]
                     : name === "materialParameters"
                       ? materialSource(world, g.owner).table.typed
-                      : (override?.[name] ?? materialResource(world, name, g.owner, bindings));
+                      : (override?.[name] ??
+                        materialResource(world, name, g.owner, bindings, row, typeId));
         if (live !== res[k]) return false;
     }
     if (pointList && res[k++] !== pointList) return false;
@@ -514,7 +536,18 @@ function recordMaterial(
     const cascadeList = world.resource(cascadeRegather).eids();
     // a steady frame compares the cached entry's identities in place; only a changed resource re-resolves,
     // re-validates the overrides and rebuilds the groups
-    if (prev && sameResources(world, prev, mesh, pointList, cascadeList)) {
+    if (
+        prev &&
+        sameResources(
+            world,
+            prev,
+            mesh,
+            pointList,
+            cascadeList,
+            draw.material.material,
+            draw.material.type,
+        )
+    ) {
         prev.item.draw = draw;
         prev.item.r.t = t;
         return prev.item;
@@ -536,6 +569,9 @@ function recordMaterial(
         surface.layout.entries as Record<string, object>,
         overrides,
         surface,
+        false,
+        draw.material.material,
+        draw.material.type,
     );
     if (typeof resolved === "string")
         return warnSkip(
@@ -667,7 +703,7 @@ function resolveDraw(world: World, draw: Draw, capacity: number, meshCount: numb
         if (reads.normal) state.normalReadLayers |= layers;
     }
     const pair =
-        (draw.materialBatch * meshKeyCount(world) +
+        (materialBatch(world, draw.material.type, draw.material.material) * meshKeyCount(world) +
             pipelineKey(draw.alphaPipelineKey, draw.cullMode ?? CullModeCode.Back)) *
             meshCount +
         world.resource(meshResourcesKey).meshes.index(draw.mesh)!;

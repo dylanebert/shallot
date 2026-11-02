@@ -2,7 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../scripts/gpu.fixture";
 import { attachTexture, Camera, captureTexture } from "../core/rendering";
-import { ImageBindings } from "../core/rendering/image";
+import { imageTextures } from "../core/rendering/image";
 import { Transform } from "../core/transform";
 import { StandardRenderer } from "../standard/rendering";
 import { drawLine, Gizmo, GizmoAsset, LinesPlugin, registerGizmo } from "./lines";
@@ -45,7 +45,7 @@ test("removing and re-adding Sprite, Text and Gizmo removes and restores each dr
         { bytesPerRow: 4 },
         [1, 1, 1],
     );
-    world.resource(ImageBindings).images = image;
+    world.resource(imageTextures).textures[0][0] = image;
     attachTexture(world, camera, { width: 64, height: 64 });
     const entity = world.create();
     world.add(entity, Transform);

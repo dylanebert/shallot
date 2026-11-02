@@ -2,6 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import * as d from "typegpu/data";
 import { gpuScene } from "../../../scripts/gpu.fixture";
+import { expectWarning } from "../../../scripts/test-console";
 import { Meshes, MeshInstance } from "../../core/mesh";
 import {
     Anchor,
@@ -14,7 +15,7 @@ import {
     TonemappingMethod,
     TransparentPhases,
 } from "../../core/rendering";
-import { ImageBindings } from "../../core/rendering/image";
+import { imageTextures } from "../../core/rendering/image";
 import { Transform } from "../../core/transform";
 import type { Plugin, World } from "../../engine";
 import {
@@ -101,10 +102,11 @@ const rotated = gpuScene(import.meta.path, config, (world) => {
     return { world, view, atlas, pane, sprite };
 });
 test("a rotated Blend sprite sorts at its origin-centered sphere and composites over the farther pane", async () => {
+    for (let i = 0; i < 3; i++) expectWarning(/color image 0 has no native texture/);
     const {
         scene: { world, view, atlas, pane, sprite },
     } = rotated();
-    world.resource(ImageBindings).images = atlas;
+    world.resource(imageTextures).textures[0][0] = atlas;
     world.step(0);
     const { rgba } = await captureTexture(world, view);
     const offset = (16 * 32 + 16) * 4;
@@ -127,7 +129,7 @@ test("a consumer sharing a large Sprite row stays visible at the frustum edge wi
     const {
         scene: { world, view, atlas, owner },
     } = sharing();
-    world.resource(ImageBindings).images = atlas;
+    world.resource(imageTextures).textures[0][0] = atlas;
     world.step(0);
     const shared = world.create();
     world.add(shared, Transform, { translation: [4, 0, 0] });
@@ -162,7 +164,7 @@ test("an offscreen Blend sprite contributes no shared transparent phase item", (
     const {
         scene: { world, view, atlas, sprite },
     } = offscreen();
-    world.resource(ImageBindings).images = atlas;
+    world.resource(imageTextures).textures[0][0] = atlas;
     world.step(0);
     expect(world.resource(TransparentPhases).get(view)!.length).toBe(0);
     world.storage(Transform).translation.x.set(sprite, 3.8);

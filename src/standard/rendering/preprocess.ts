@@ -232,7 +232,20 @@ function setMeshPair(world: World, pair: MeshPair, owner: number): void {
     pair.mesh = index;
 }
 
+function queueMaterialRow(world: World, type: number, row: number): void {
+    const consumers = world.resource(meshPairsKey).sources[type]?.consumers[row];
+    if (consumers) for (let i = 0; i < consumers.length; i++) queueMeshPair(world, consumers[i]!);
+}
+
+function syncBatches(world: World): void {
+    const buffer = world.resource(MaterialBatches).buffer;
+    if (!syncMaterialBatches(world, queueMaterialRow)) return;
+    if (world.resource(MaterialBatches).buffer !== buffer) unbind(world);
+    world.resource(meshPairsKey).changed = true;
+}
+
 function settleSourcePairs(world: World): void {
+    syncBatches(world);
     const state = world.resource(meshPairsKey);
     for (let i = 0; i < state.pendingCount; i++) {
         const pair = state.pending[i]!;
@@ -244,13 +257,19 @@ function settleSourcePairs(world: World): void {
             continue;
         }
         const source = entry.source;
+        const external = world.resource(MaterialTypes).types[pair.source]?.source;
+        const material = world.storage(MeshMaterial);
         setMeshPair(
             world,
             pair,
             materialBatch(world, pair.source, pair.row) * PIPELINE_KEY_LIMIT +
                 pipelineKey(
-                    alphaPipelineKey(source.alphaMode(pair.row)),
-                    source.cullMode?.(pair.row) ?? CullModeCode.Back,
+                    alphaPipelineKey(
+                        external ? source.alphaMode(pair.row) : material.alphaMode.get(pair.eid),
+                    ),
+                    external
+                        ? (source.cullMode?.(pair.row) ?? CullModeCode.Back)
+                        : material.cullMode.get(pair.eid),
                 ),
         );
     }
@@ -267,7 +286,6 @@ function removeMeshPair(world: World, eid: number): void {
 }
 
 function prepareMeshPairs(world: World): void {
-    if (syncMaterialBatches(world)) unbind(world);
     copyMeshAlpha(world);
     const state = world.resource(meshPairsKey);
     const material = world.storage(MeshMaterial);
@@ -301,7 +319,7 @@ function prepareMeshPairs(world: World): void {
                     position: -1,
                     queued: false,
                 };
-            if (world.resource(MaterialTypes).types[type]?.source) {
+            if (world.resource(MaterialTypes).sources[type]) {
                 const row = material.material.get(eid);
                 if (pair.source !== type || pair.row !== row) {
                     detachSource(world, pair);
@@ -513,7 +531,6 @@ function cullGroup(world: World): TgpuBindGroup<(typeof cullLayout)["entries"]> 
     if (!_meshPreprocess.cullParams || !_meshPreprocess.meshBounds) return null;
     const meshInstances = meshInstanceTable(world);
     const globalTransforms = globalTransformTable(world);
-    if (syncMaterialBatches(world)) unbind(world);
     const generation = _meshPreprocess.inputGeneration;
     if (
         generation[0] !== meshInstances.generation ||
@@ -644,11 +661,11 @@ function syncBuffers(world: World): void {
     const _meshPreprocess = world.resource(meshPreprocessKey);
     const _meshDraws = world.resource(MeshDrawBuffers);
 
+    settleSourcePairs(world);
     const batchCount = world.resource(MaterialBatches).types.length;
     const changedBatches = batchCount !== _meshPreprocess.batchCount;
     _meshPreprocess.batchCount = batchCount;
     if (batchCount === 0) return;
-    settleSourcePairs(world);
     const meshes = world.resource(meshResourcesKey).meshes;
     const meshCount = meshes.capacity;
     const changedMeshes = meshes.version !== _meshPreprocess.meshVersion;
@@ -719,7 +736,9 @@ function syncBuffers(world: World): void {
 
     let staleArgs: DrawBuffer | null = null;
     let staleCounts: AtomicU32Buffer | null = null;
-    const replaceArgs = growMesh || growView || growProducers || growStride || !_meshDraws.drawArgs;
+    const replaceArgs =
+        !_meshDraws.drawArgs ||
+        d.sizeOf(_meshDraws.drawArgs.dataType) !== records * DRAW_ARG_STRIDE;
     if (replaceArgs) {
         staleArgs = _meshDraws.drawArgs;
         staleCounts = _meshPreprocess.counts;
@@ -850,7 +869,12 @@ function writeMeshBounds(world: World, device: GPUDevice): void {
     );
 }
 
-type DrawSlot = { draw: Draw; active: boolean; seen: boolean };
+type DrawSlot = {
+    draw: Draw;
+    material: { type: number; material: number };
+    active: boolean;
+    seen: boolean;
+};
 
 /** Whether this exact draw is a reserved entity-pair recipe, including pairs with no live rows. @internal */
 export function isMeshInstanceDraw(world: World, draw: Draw): boolean {
@@ -859,7 +883,7 @@ export function isMeshInstanceDraw(world: World, draw: Draw): boolean {
     return (
         index !== undefined &&
         state.drawLookup[0]?.[
-            draw.materialBatch * PIPELINE_KEY_LIMIT +
+            materialBatch(world, draw.material.type, draw.material.material) * PIPELINE_KEY_LIMIT +
                 pipelineKey(draw.alphaPipelineKey, draw.cullMode ?? CullModeCode.Back)
         ]?.[index]?.draw === draw
     );
@@ -891,10 +915,15 @@ function publishDraw(
             table === 0
                 ? `mesh:material:${world.resource(MaterialTypes).types[type]!.name}:batch${batch}:${key}:${index}`
                 : `producer:${producers.tables[table - 1]!.table.name}:${batch}:${key}:${index}`;
+        const material = {
+            type,
+            material: world.resource(MaterialBatches).representatives[batch]!,
+        };
         slot = {
+            material,
             draw: {
                 name,
-                materialBatch: batch,
+                material,
                 alphaPipelineKey: alpha,
                 ...(cull === CullModeCode.Back ? {} : { cullMode: cull }),
                 mesh: handle as MeshHandle,
@@ -909,6 +938,9 @@ function publishDraw(
     if (slot.seen) return;
     slot.seen = true;
     const draw = slot.draw;
+    const row = world.resource(MaterialBatches).representatives[batch]!;
+    slot.material.type = type;
+    slot.material.material = row;
     draw.mesh = handle as MeshHandle;
     draw.args.indirect = indirect;
     draw.args.offset = pair * DRAW_ARG_STRIDE;

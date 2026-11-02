@@ -15,6 +15,7 @@ import {
     Tonemapping,
     TonemappingMethod,
 } from "../../core/rendering";
+import { imageTextures } from "../../core/rendering/image";
 import { Transform } from "../../core/transform";
 import {
     Materials,
@@ -89,6 +90,21 @@ test("Sprite and StandardMaterial use the same registered address modes and filt
         [2, 2, 6],
     );
     world.resource(ImageBindings).images = image;
+    for (let id = 0; id < 6; id++) {
+        const texture = device.createTexture({
+            size: [2, 2],
+            format: "rgba8unorm-srgb",
+            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+        });
+        world.own(texture);
+        device.queue.writeTexture(
+            { texture },
+            pixels.subarray(id * 16, (id + 1) * 16),
+            { bytesPerRow: 8 },
+            [2, 2],
+        );
+        world.resource(imageTextures).textures[0][id] = texture;
+    }
     const vertices: number[] = [];
     for (const [x, y] of [
         [-1, -1],

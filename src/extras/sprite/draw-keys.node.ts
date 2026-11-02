@@ -1,6 +1,7 @@
 import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
+import { expectWarning } from "../../../scripts/test-console";
 import { Meshes, type MeshHandle, MeshInstance } from "../../core/mesh";
 import { Transform } from "../../core/transform";
 import { Draws, StandardRenderingPlugin } from "../../standard/rendering";
@@ -14,6 +15,7 @@ const subjects = gpuApps(import.meta.path, [
 ]);
 
 test("an unplaced Mask sprite publishes no key beside a placed Blend sprite", () => {
+    expectWarning(/color image 0 has no native texture/);
     const { world } = subjects()[0];
     const placed = world.create();
     const unplaced = world.create();
@@ -63,6 +65,7 @@ test("each sprite mesh publishes only the keys its own instances resolve to", ()
 });
 
 test("ten thousand color-animated sprites keep their bins and draw publication unchanged", () => {
+    expectWarning(/color image 0 has no native texture/);
     const { world } = subjects()[1];
     const count = 10_000;
     const frames = 3;

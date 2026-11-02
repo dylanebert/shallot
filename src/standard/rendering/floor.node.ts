@@ -210,6 +210,7 @@ test("pipeline creation refuses the ten-binding light-compact mutation and build
 });
 
 test("standard, custom-material and extras layouts stay within eight buffers", async () => {
+    expectWarning(/color image 0 has no native texture/);
     const adapter = await gpu.requestAdapter();
     if (!adapter) throw new Error("WebGPU adapter unavailable");
     const requiredFeatures = ["indirect-first-instance"] as const;
@@ -553,7 +554,7 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
             const draw = [...world.resource(Draws)].find(
                 (draw) =>
                     isMeshInstanceDraw(world, draw) &&
-                    draw.materialBatch === materialType &&
+                    draw.material.type === materialType &&
                     draw.alphaPipelineKey === alphaPipelineKey &&
                     draw.mesh === cube,
             )!;
@@ -574,7 +575,7 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
         ] as const) {
             const draw = [...world.resource(Draws)].find(
                 (draw) =>
-                    draw.materialBatch === materialTypeId(world, SpriteMaterialType) &&
+                    draw.material.type === materialTypeId(world, SpriteMaterialType) &&
                     draw.alphaPipelineKey === alphaPipelineKey &&
                     draw.mesh === spriteMesh,
             )!;
@@ -585,7 +586,7 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
             expect(new Uint32Array(result.bytes)[1]).toBe(count);
         }
         const defaultDraw = [...world.resource(Draws)].find(
-            (draw) => draw.materialBatch === 0 && draw.mesh === cube,
+            (draw) => draw.material.type === 0 && draw.mesh === cube,
         )!;
         const records = await probeBuffer(world, world.gpu.root.unwrap(defaultDraw.args.indirect));
         const words = new Uint32Array(records.bytes);

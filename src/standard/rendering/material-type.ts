@@ -43,6 +43,11 @@ type StorageAccess = "read" | "write" | "read_write";
  * by sample index; a float one is never filtered, so it binds `unfilterable-float`. A storage texture
  * binds its mip 0 to the fragment stage alone, at most four per material. */
 export type MaterialBinding =
+    /** Binds the native 2D texture and hardware sampler named `<binding>Sampler` of a u32/i32
+     * parameter field. Color ids are the default; isSrgb false selects independent data ids.
+     * Rows split into batches by their image ids at upload. Missing images bind a 1×1 fallback
+     * and warn once per id. Both entries count toward the per-stage binding budgets. */
+    | { type: "image"; field: string; isSrgb?: boolean }
     | { type: "uniform"; struct: AnyWgslStruct }
     | { type: "attribute"; element: AnyWgslData }
     | {
@@ -141,27 +146,31 @@ type SamplerEntryOf<T> = T extends "comparison"
       };
 
 /** @internal The TypeGPU layout entry a material or background binding declares. */
-export type EntryFor<B extends MaterialBinding> = B extends { type: "uniform" }
-    ? { uniform: B["struct"]; visibility: ShaderStage[] }
-    : B extends { type: "storage" | "attribute" }
-      ? {
-            storage: (count: number) => WgslArray<B["element"]>;
-            access: "mutable" | "readonly";
-            visibility: ShaderStage[];
-        }
-      : B extends { type: "texture" }
-        ? TextureEntryOf<
-              OptionOf<B, "sampleType">,
-              OptionOf<B, "dimension">,
-              OptionOf<B, "multisampled">
-          >
-        : B extends { type: "storage-texture" }
-          ? StorageTextureEntryOf<
-                OptionOf<B, "format">,
-                OptionOf<B, "access">,
-                OptionOf<B, "dimension">
-            >
-          : SamplerEntryOf<OptionOf<B, "samplerType">>;
+export type EntryFor<B extends MaterialBinding> = 0 extends 1 & B
+    ? any
+    : B extends { type: "uniform" }
+      ? { uniform: B["struct"]; visibility: ShaderStage[] }
+      : B extends { type: "storage" | "attribute" }
+        ? {
+              storage: (count: number) => WgslArray<B["element"]>;
+              access: "mutable" | "readonly";
+              visibility: ShaderStage[];
+          }
+        : B extends { type: "image" }
+          ? TextureEntry<d.WgslTexture2d<d.F32>>
+          : B extends { type: "texture" }
+            ? TextureEntryOf<
+                  OptionOf<B, "sampleType">,
+                  OptionOf<B, "dimension">,
+                  OptionOf<B, "multisampled">
+              >
+            : B extends { type: "storage-texture" }
+              ? StorageTextureEntryOf<
+                    OptionOf<B, "format">,
+                    OptionOf<B, "access">,
+                    OptionOf<B, "dimension">
+                >
+              : SamplerEntryOf<OptionOf<B, "samplerType">>;
 
 const sampled: Record<Dimension, (channel: d.F32 | d.I32 | d.U32) => d.WgslTexture> = {
     "1d": d.texture1d,
@@ -197,6 +206,8 @@ export function refuseBindings(
         const refuse = (reason: string) => {
             throw new Error(`${owner} binding "${name}" ${reason}`);
         };
+        if (binding.type === "image" && owner === "background")
+            refuse("requires a material parameter row");
         if (binding.type === "storage-texture") {
             if ((binding as { visibility?: readonly ShaderStage[] }).visibility?.includes("vertex"))
                 refuse("is a storage texture, which binds to the fragment stage only");
@@ -246,6 +257,8 @@ export function bindingEntry<B extends MaterialBinding>(binding: B): EntryFor<B>
                       ? ["fragment"]
                       : VS_FS,
             } as EntryFor<B>;
+        case "image":
+            return { texture: d.texture2d(d.f32), visibility: VS_FS } as EntryFor<B>;
         case "texture": {
             if (binding.sampleType === "depth")
                 return {
@@ -322,18 +335,25 @@ type MaterialStreams<P extends AnyWgslStruct, Vertex extends AnyWgslData> = {
         visibility: ShaderStage[];
     };
 };
+type MaterialEntries<B extends Record<string, MaterialBinding>> = {
+    [K in keyof B]: EntryFor<B[K]>;
+} & {
+    [K in keyof B as B[K] extends { type: "image" } ? `${K & string}Sampler` : never]: 0 extends 1 &
+        B[K]
+        ? any
+        : { sampler: "filtering"; visibility: ShaderStage[] };
+};
+
 export type MaterialLayout<
     B extends Record<string, MaterialBinding>,
     P extends AnyWgslStruct,
-> = TgpuBindGroupLayout<
-    { [K in keyof B]: EntryFor<B[K]> } & MaterialBuiltins & MaterialStreams<P, d.Vec4u>
-> & {
+> = TgpuBindGroupLayout<MaterialEntries<B> & MaterialBuiltins & MaterialStreams<P, d.Vec4u>> & {
     readonly parameters: P;
     /** @internal Binding declarations used to check merged layouts. */
     readonly bindingSpecs: B;
     readonly attributes: Readonly<Record<string, AnyWgslData>>;
     readonly depthVariant: TgpuBindGroupLayout<
-        { [K in keyof B]: EntryFor<B[K]> } & MaterialBuiltins & MaterialStreams<P, d.Vec2u>
+        MaterialEntries<B> & MaterialBuiltins & MaterialStreams<P, d.Vec2u>
     >;
 };
 
@@ -372,6 +392,14 @@ export function materialLayout<B extends Record<string, MaterialBinding>, P exte
             throw new Error(`material binding "${name}" is reserved by the mesh renderer`);
     }
     refuseBindings("material", bindings);
+    for (const [name, binding] of Object.entries(bindings)) {
+        if (binding.type !== "image") continue;
+        const field = parameters.propTypes[binding.field];
+        if (field !== d.u32 && field !== d.i32)
+            throw new Error(`material image "${name}" requires a u32 or i32 parameter field`);
+        if (`${name}Sampler` in bindings || reserved.includes(`${name}Sampler`))
+            throw new Error(`material image "${name}" sampler name is already bound`);
+    }
     const builtins = {
         eids: bindingEntry({ type: "storage", element: d.vec4u }),
         globalTransforms: bindingEntry({ type: "storage", element: Xform }),
@@ -379,7 +407,14 @@ export function materialLayout<B extends Record<string, MaterialBinding>, P exte
     const own = {
         ...builtins,
         ...Object.fromEntries(
-            Object.entries(bindings).map(([name, binding]) => [name, bindingEntry(binding)]),
+            Object.entries(bindings).flatMap(([name, binding]) =>
+                binding.type === "image"
+                    ? [
+                          [name, bindingEntry(binding)],
+                          [`${name}Sampler`, bindingEntry({ type: "sampler" })],
+                      ]
+                    : [[name, bindingEntry(binding)]],
+            ),
         ),
     };
     const materialParameters = {

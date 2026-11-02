@@ -375,11 +375,7 @@ export function bgQuant(world: World): GPUBuffer {
 /** the widest `MaterialType` shape (any bindings, any varyings) — the bare `MaterialType` default pins
  *  varyings to `Record<string, never>`, so every internal pipeline helper takes this wider alias to
  *  accept a real varyings-carrying surface (`vertex`) at the call boundary. */
-type AnyMaterialType = MaterialType<
-    any,
-    Record<string, MaterialBinding>,
-    Record<string, AnyWgslData>
->;
+type AnyMaterialType = MaterialType<any, any, Record<string, AnyWgslData>>;
 
 const identityXform = tgpu
     .fn(

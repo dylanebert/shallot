@@ -4,6 +4,7 @@ import { createTestGpuApp } from "../../../scripts/gpu.fixture";
 
 setDefaultTimeout(TIMEOUT.node);
 
+import { expectWarning } from "../../../scripts/test-console";
 import { AudioPlugin, Listener, Sound } from "../../core/audio";
 import { MeshInstance } from "../../core/mesh";
 import {
@@ -29,7 +30,7 @@ import {
     VolumetricLight,
 } from "../../core/rendering";
 import { globalTransformTable } from "../../core/rendering/global-transform";
-import { ImageBindings } from "../../core/rendering/image";
+import { imageSampler, imageTexture } from "../../core/rendering/image";
 import { offscreenTexture } from "../../core/rendering/view";
 import { GlobalTransform } from "../../core/transform";
 import {
@@ -866,13 +867,13 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
             expect([...second.world.query([GlobalTransform])].length).toBeGreaterThan(0);
         }
         if (uses(subject, SpritePlugin)) {
-            const atlasA = first.world.resource(ImageBindings).images;
-            const atlasB = second.world.resource(ImageBindings).images;
-            const samplerA = first.world.resource(ImageBindings).imageSampler;
-            const samplerB = second.world.resource(ImageBindings).imageSampler;
-            expect(atlasA).toBeDefined();
-            expect(atlasB).toBeDefined();
-            expect(atlasA).not.toBe(atlasB);
+            const imageA = imageTexture(first.world, 0);
+            const imageB = imageTexture(second.world, 0);
+            const samplerA = imageSampler(first.world, 0);
+            const samplerB = imageSampler(second.world, 0);
+            expect(imageA).toBeDefined();
+            expect(imageB).toBeDefined();
+            expect(imageA).not.toBe(imageB);
             expect(samplerA).toBeDefined();
             expect(samplerB).toBeDefined();
             expect(samplerA).not.toBe(samplerB);
@@ -985,6 +986,8 @@ for (const content of [FIRST_CONTENT, SECOND_CONTENT]) {
 for (const plugin of everyPlugin) {
     for (const shared of [true, false]) {
         test(`${plugin.name}: components and GPU paths stay isolated on ${shared ? "a shared device" : "separate devices"}`, async () => {
+            if (uses(plugin, SpritePlugin))
+                for (let i = 0; i < 4; i++) expectWarning(/color image 0 has no native texture/);
             await exerciseIsolationPair(shared, plugin);
         });
     }

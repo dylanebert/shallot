@@ -477,7 +477,7 @@ test("posed bounds stay entity-local under translated, nonuniformly scaled place
             (candidate) =>
                 candidate.mesh === cullScene.gltf.primitives[0].mesh &&
                 candidate.alphaPipelineKey === 0 &&
-                candidate.materialBatch === cullScene.gltf.primitives[0].material.type &&
+                candidate.material.type === cullScene.gltf.primitives[0].material.type &&
                 candidate.cullMode === cullScene.gltf.primitives[0].material.cullMode,
         )!;
         const args = await probeBuffer(world, world.gpu.root.unwrap(draw.args.indirect), {
@@ -511,7 +511,7 @@ test("skinned StandardMaterial fits floor color, prepass and shadow layouts and 
             (draw) =>
                 draw.mesh === cullScene.gltf.primitives[0].mesh &&
                 draw.alphaPipelineKey === 0 &&
-                draw.materialBatch ===
+                draw.material.type ===
                     world.storage(MeshMaterial).type.get(cullScene.entities[0]) &&
                 draw.cullMode === cullScene.gltf.primitives[0].material.cullMode,
         );

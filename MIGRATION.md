@@ -97,7 +97,7 @@ materials.add(StandardMaterial({ doubleSided: true }), { cullMode: "none" });
 - `MeshInstanceInput` gains `cullMode: u32` in existing padding; stride and the other offsets are unchanged. A producer row writes its handle's `cullMode`, `0` for back; the entity table's `layers` moves to the next word.
 - `StandardMaterialInput` gains `doubleSided: u32`; `StandardMaterial()` fills it, and a hand-built row writes `0`.
 - A hand-built `Draw` may set `cullMode`; omitted, it culls back faces
-- Rename `Draw.materialType` to `materialBatch`. Each material type currently has one batch with the same numeric id. Producer `MeshInstanceInput.materialType` and `.material` remain unchanged
+- Replace `Draw.materialType` with `material`, the material row whose images the draw binds: `const draw: Draw = { name: "quad", material: handle, mesh, alphaPipelineKey: alphaPipelineKey(handle.alphaMode), args };` where `handle` is returned by `Materials.add`. Producer `MeshInstanceInput.materialType` and `.material` remain unchanged
 
 ## View uniforms use Bevy's matrix names
 

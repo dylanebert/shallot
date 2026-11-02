@@ -1,7 +1,3 @@
-// Array textures support tiling and per-instance layer selection in one draw, but all layers must
-// share dimensions. Group sources by size and resize each group to a common capped square; use
-// sRGB for color maps and a linear format for data maps so sampling preserves their values.
-
 import tgpu, { type TgpuRenderPipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
@@ -21,6 +17,58 @@ export const ImageBindings = {
         imageSettings: null! as GPUTexture,
     }),
 };
+
+/** @internal Native 2D images, indexed by independent color and data ids. */
+export const imageTextures = {
+    create: () => ({
+        textures: [[], []] as GPUTexture[][],
+        samplers: new Map<string, GPUSampler>(),
+        imageSamplers: [[], []] as GPUSampler[][],
+        fallback: [] as GPUTexture[],
+        warned: [new Set<number>(), new Set<number>()],
+    }),
+};
+
+/** @internal Hardware sampler shared by images with equal effective descriptors. */
+export function imageSampler(world: World, id: number, isSrgb = true): GPUSampler {
+    const state = world.resource(imageTextures);
+    const role = isSrgb ? 0 : 1;
+    const cached = state.imageSamplers[role][id];
+    if (cached) return cached;
+    const registry = world.resource(isSrgb ? Images : DataImages);
+    const values = registry.get(registry.name(id)!)?.sampler ?? [0, 0, 1, 3];
+    const key = values.join(",");
+    const cache = world.resource(imageTextures).samplers;
+    let sampler = cache.get(key);
+    if (!sampler) {
+        const address = ["clamp-to-edge", "repeat", "mirror-repeat"] as const;
+        sampler = world.gpu.device.createSampler({
+            addressModeU: address[values[0]],
+            addressModeV: address[values[1]],
+            magFilter: values[2] ? "linear" : "nearest",
+            minFilter: values[3] & 1 ? "linear" : "nearest",
+            mipmapFilter: values[3] & 2 ? "linear" : "nearest",
+        });
+        cache.set(key, sampler);
+    }
+    state.imageSamplers[role][id] = sampler;
+    return sampler;
+}
+
+/** @internal Missing native textures bind a role-local fallback and warn once per id. */
+export function imageTexture(world: World, id: number, isSrgb = true): GPUTexture {
+    const state = world.resource(imageTextures);
+    const role = isSrgb ? 0 : 1;
+    const texture = state.textures[role][id];
+    if (texture) return texture;
+    if (!state.warned[role].has(id)) {
+        state.warned[role].add(id);
+        console.warn(
+            `[Rendering] ${isSrgb ? "color" : "data"} image ${id} has no native texture; binding fallback`,
+        );
+    }
+    return state.fallback[role];
+}
 
 /** Warm-time [band, layer] per id, indexed [color, data][id], read by resolveImage. */
 export const imageLocationsKey = { create: () => [] as number[][][] };
@@ -100,6 +148,7 @@ export function registerImage(
     settings: ImageLoaderSettings = {},
 ): number {
     const images = world.resource(settings.isSrgb === false ? DataImages : Images);
+    world.resource(imageTextures).imageSamplers[settings.isSrgb === false ? 1 : 0].length = 0;
     const s = settings.sampler;
     // Minification and mip filters share the last sampler value's low two bits.
     const sampler = [
@@ -128,7 +177,7 @@ function transparentPixel(): Blob {
     return new Blob([bytes], { type: "image/png" });
 }
 
-/** Decode registered images into size-class arrays with full mips; empty bands bind 1×1 fallbacks. */
+/** Decode once into native 2D textures and size-class arrays, both with full mips and 1×1 fallbacks. */
 export async function warmImages(world: World): Promise<void> {
     const images = world.resource(Images);
     const dataImages = world.resource(DataImages);
@@ -139,6 +188,16 @@ export async function warmImages(world: World): Promise<void> {
         images: ReturnType<typeof Images.create>,
         format: GPUTextureFormat,
     ) => {
+        const role = format === "rgba8unorm-srgb" ? 0 : 1;
+        const own = world.resource(imageTextures);
+        const fallback = device.createTexture({
+            label: "image-native-fallback",
+            size: [1, 1],
+            format,
+            usage: GPUTextureUsage.TEXTURE_BINDING,
+        });
+        world.own(fallback);
+        own.fallback[role] = fallback;
         const bands: ImageBitmap[][] = [[], [], []];
         const rows: number[][] = [];
         locations.push(rows);
@@ -158,7 +217,31 @@ export async function warmImages(world: World): Promise<void> {
                 }),
             );
             const native = await decodeImages(blobs);
-            for (const bitmap of native) {
+            for (const [id, bitmap] of native.entries()) {
+                checkTextureLimits(
+                    "[render] a native image",
+                    { width: bitmap.width, height: bitmap.height, layers: 1 },
+                    device.limits,
+                    "Reduce the image dimensions.",
+                );
+                const texture = device.createTexture({
+                    label: `image-native:${role}:${id}`,
+                    size: [bitmap.width, bitmap.height],
+                    format,
+                    mipLevelCount: mipLevels(Math.max(bitmap.width, bitmap.height)),
+                    usage:
+                        GPUTextureUsage.COPY_DST |
+                        GPUTextureUsage.TEXTURE_BINDING |
+                        GPUTextureUsage.RENDER_ATTACHMENT,
+                });
+                world.own(texture);
+                own.textures[role][id] = texture;
+                imageSampler(world, id, role === 0);
+                device.queue.copyExternalImageToTexture({ source: bitmap }, { texture }, [
+                    bitmap.width,
+                    bitmap.height,
+                ]);
+                genMipmapsLayer(world, device, texture, 0, texture.mipLevelCount, format);
                 const side = Math.max(bitmap.width, bitmap.height);
                 const band = side > 1024 ? 2 : side > 512 ? 1 : 0;
                 rows.push([band, bands[band].length]);

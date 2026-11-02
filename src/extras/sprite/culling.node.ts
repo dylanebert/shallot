@@ -3,6 +3,7 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { readFromArrayBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
+import { expectWarning } from "../../../scripts/test-console";
 import { MeshInstance } from "../../core/mesh";
 import { attachTexture, Billboard, Camera } from "../../core/rendering";
 import { Transform } from "../../core/transform";
@@ -34,6 +35,7 @@ const subjects = gpuApps(import.meta.path, [
 ]);
 
 test("a large anchored world Sprite stays in the camera draw when its quad reaches the frustum", async () => {
+    expectWarning(/color image 0 has no native texture/);
     const { world } = subjects()[0];
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });
@@ -55,7 +57,7 @@ test("a large anchored world Sprite stays in the camera draw when its quad reach
     const mesh = world.storage(MeshInstance).mesh.get(sprite);
     const draw = [...world.resource(Draws)].find(
         (entry) =>
-            entry.materialBatch === type &&
+            entry.material.type === type &&
             entry.alphaPipelineKey === AlphaPipelineKey.Mask &&
             entry.mesh === mesh,
     );
@@ -69,6 +71,7 @@ test("a large anchored world Sprite stays in the camera draw when its quad reach
 });
 
 test("a Sprite spawned before a frame draws in that frame", async () => {
+    expectWarning(/color image 0 has no native texture/);
     const { world } = subjects()[1];
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });
@@ -85,7 +88,7 @@ test("a Sprite spawned before a frame draws in that frame", async () => {
     const mesh = world.storage(MeshInstance).mesh.get(sprite);
     const draw = [...world.resource(Draws)].find(
         (entry) =>
-            entry.materialBatch === type &&
+            entry.material.type === type &&
             entry.alphaPipelineKey === AlphaPipelineKey.Mask &&
             entry.mesh === mesh,
     );

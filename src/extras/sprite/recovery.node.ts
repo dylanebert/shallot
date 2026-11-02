@@ -1,6 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
+import { expectWarning } from "../../../scripts/test-console";
 import { MeshInstance } from "../../core/mesh";
 import { Transform } from "../../core/transform";
 import type { World } from "../../engine";
@@ -22,6 +23,7 @@ function held(world: World, eid: number): unknown[] {
 }
 
 test("a restore between a mesh entity and a published Sprite equals its image", () => {
+    expectWarning(/color image 0 has no native texture/);
     const { world } = subjects()[0];
     const eid = world.create();
     world.add(eid, Transform);

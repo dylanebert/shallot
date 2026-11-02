@@ -1,6 +1,7 @@
 import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
+import { expectWarning } from "../../../scripts/test-console";
 import { MeshInstance } from "../../core/mesh";
 import { Transform } from "../../core/transform";
 import { MaterialAssets, MeshMaterial } from "../../standard/rendering";
@@ -10,6 +11,7 @@ setDefaultTimeout(TIMEOUT.node);
 const subjects = gpuApps(import.meta.path, [{ defaults: false, plugins: [SpritePlugin] }]);
 
 test("changing one field on 10,000 sprites makes no per-sprite JavaScript write", () => {
+    expectWarning(/color image 0 has no native texture/);
     const { world } = subjects()[0];
     const eids: number[] = [];
     for (let i = 0; i < 10_000; i++) {

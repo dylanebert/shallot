@@ -352,8 +352,8 @@ test("different producer meshes and material types have their own indirect draw 
             ).bytes,
         );
         expect(args[1]).toBe(
-            (draw.mesh === s.mesh && draw.materialBatch === s.red.type) ||
-                (draw.mesh === s.otherMesh && draw.materialBatch === s.blue.type)
+            (draw.mesh === s.mesh && draw.material.type === s.red.type) ||
+                (draw.mesh === s.otherMesh && draw.material.type === s.blue.type)
                 ? 1
                 : 0,
         );
@@ -476,8 +476,8 @@ test("mesh growth refreshes live producer pair offsets and draw buffers", async 
             ).bytes,
         );
         expect(args[1]).toBe(
-            (draw.mesh === s.mesh && draw.materialBatch === s.red.type) ||
-                (draw.mesh === s.otherMesh && draw.materialBatch === s.blue.type)
+            (draw.mesh === s.mesh && draw.material.type === s.red.type) ||
+                (draw.mesh === s.otherMesh && draw.material.type === s.blue.type)
                 ? 1
                 : 0,
         );

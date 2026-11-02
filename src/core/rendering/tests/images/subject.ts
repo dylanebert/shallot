@@ -1,6 +1,6 @@
 import { createApp } from "../../../../engine/app";
 import { rawDevice } from "../../../../engine/runtime";
-import { ImageBindings, registerImage } from "../../image";
+import { ImageBindings, imageSampler, imageTextures, registerImage } from "../../image";
 import { RenderingPlugin } from "../../substrate";
 
 // The authored PNG has sRGB primaries, a linear (gamma 1) ICC transfer curve and
@@ -15,7 +15,10 @@ const app = await createApp({
             initialize(world) {
                 registerImage(world, new URL("./linear-rgb.png", import.meta.url).href);
                 // A second, larger source also exercises resizing the registered profile image.
-                if (location.search)
+                if (location.search) {
+                    registerImage(world, new URL("./linear-rgb.png", import.meta.url).href, {
+                        isSrgb: false,
+                    });
                     registerImage(
                         world,
                         new Blob(
@@ -30,10 +33,27 @@ const app = await createApp({
                             { type: "image/png" },
                         ),
                     );
+                }
             },
         },
     ],
 });
+const native = app.world.resource(imageTextures);
+document.body.dataset.native = JSON.stringify(
+    native.textures.map((role) =>
+        role.map((texture) => ({
+            width: texture.width,
+            height: texture.height,
+            format: texture.format,
+            mips: texture.mipLevelCount,
+        })),
+    ),
+);
+if (location.search)
+    document.body.dataset.sharedSampler = String(
+        imageSampler(app.world, 0) === imageSampler(app.world, 1) &&
+            imageSampler(app.world, 0) === imageSampler(app.world, 0, false),
+    );
 // This diagnostic owns its raw readback pipeline, outside the game's pipeline warm-up.
 const device = rawDevice(app.world.gpu.device);
 const texture = app.world.resource(ImageBindings).images;
