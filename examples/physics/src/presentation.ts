@@ -1,4 +1,13 @@
-import { cube, Shape, shapeEdges, shapeMesh, type World } from "@dylanebert/shallot";
+import {
+    cube,
+    type Hull,
+    Hulls,
+    Shape,
+    ShapeKind,
+    shapeEdges,
+    shapeMesh,
+    type World,
+} from "@dylanebert/shallot";
 import { largeCompound } from "./compound-presentation";
 import { controlValues, enabledControls, type Scene, scenes } from "./scenes";
 import { drivenBodies, materials, shapeRole } from "./shape-color";
@@ -11,6 +20,20 @@ type Geometry = {
 };
 export type ShapeGeometryCache = Map<string, Geometry>;
 
+// Hull definitions are immutable, so shapes naming equal hulls through distinct handles share one mesh.
+const hullKeys = new WeakMap<Hull, string>();
+function geometryKey(world: World, kind: number, geometry: number): unknown {
+    const hull = kind === ShapeKind.Hull ? world.resource(Hulls).get(geometry) : undefined;
+    if (!hull) return geometry;
+    let key = hullKeys.get(hull);
+    if (key === undefined) {
+        const { name: _, points, ...rest } = hull;
+        key = JSON.stringify([rest, points && Array.from(points)]);
+        hullKeys.set(hull, key);
+    }
+    return key;
+}
+
 export function shapePresentation(
     world: World,
     eid: number,
@@ -22,7 +45,7 @@ export function shapePresentation(
     const role = shapeRole(world, eid, driven);
     const key = JSON.stringify([
         shape.kind,
-        shape.geometry,
+        geometryKey(world, shape.kind, shape.geometry),
         shape.scale,
         shape.radius,
         shape.sphereCenter,
