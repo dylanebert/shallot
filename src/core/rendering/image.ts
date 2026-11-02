@@ -10,6 +10,7 @@ export const imageTextures = {
         textures: [[], []] as GPUTexture[][],
         loads: [[], []] as (Promise<void> | undefined)[][],
         warm: false,
+        mipLoads: new Map<GPUTextureFormat, Promise<void>>(),
         samplers: new Map<string, GPUSampler>(),
         imageSamplers: [[], []] as GPUSampler[][],
         fallback: [] as GPUTexture[],
@@ -129,13 +130,15 @@ export function registerImage(
         s?.magFilter ?? 1,
         (s?.minFilter ?? 1) | ((s?.mipmapFilter ?? 1) << 1),
     ];
-    let next = images.size;
-    while (images.id(`blob:${next}`) !== undefined) next++;
+    let name: string;
+    if (typeof source === "string") name = `url:${JSON.stringify([source, sampler])}`;
+    else {
+        let next = images.size;
+        while (images.id(`blob:${next}`) !== undefined) next++;
+        name = `blob:${next}`;
+    }
     const id = images.register({
-        name:
-            typeof source === "string"
-                ? `url:${JSON.stringify([source, sampler])}`
-                : `blob:${next}`,
+        name,
         source,
         sampler,
     });
@@ -145,7 +148,7 @@ export function registerImage(
 }
 
 const PIXEL_PNG =
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAADUlEQVR42mNgYGD4DwABBAEAX+XBlwAAAABJRU5ErkJggg==";
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=";
 
 function transparentPixel(): Blob {
     const bytes = Uint8Array.from(atob(PIXEL_PNG), (c) => c.charCodeAt(0));
@@ -167,9 +170,6 @@ export async function warmImages(world: World): Promise<void> {
         world.own(fallback);
         state.fallback[role] = fallback;
     }
-    precompile(world, "image-mipmap", () =>
-        IMAGE_FORMATS.map((format) => blitPipeline(world, format)),
-    );
     state.warm = true;
     for (const [role, images] of [world.resource(Images), world.resource(DataImages)].entries()) {
         for (let id = 0; id < images.size; id++) startImage(world, id, role);
@@ -180,7 +180,7 @@ export async function warmImages(world: World): Promise<void> {
 /**
  * After warm, await the native textures and mip uploads of all color and data images registered
  * before this call. Later registrations are not included. Before warm this is unnecessary and
- * resolves without loading. Failed fetches warn and resolve with a transparent pixel. Disposal
+ * resolves without loading. Failed fetches or decodes warn and resolve with a transparent pixel. Disposal
  * resolves pending preparation without creating or uploading textures for the disposed world.
  */
 export async function prepareImages(world: World): Promise<void> {
@@ -207,33 +207,47 @@ async function loadImage(world: World, id: number, role: number): Promise<void> 
     const images = world.resource(role === 0 ? Images : DataImages);
     const source = images.get(images.name(id)!)!.source;
     const device = world.gpu.device;
-    let blob: Blob;
+    const decode = (blob: Blob) =>
+        createImageBitmap(blob, {
+            premultiplyAlpha: "none",
+            colorSpaceConversion: "none",
+        });
+    let bitmap: ImageBitmap;
     try {
+        let blob: Blob;
         if (typeof source === "string") {
             const response = await fetch(source, { signal: world.signal });
             if (!response.ok) throw new Error(`${response.status}`);
             blob = await response.blob();
         } else blob = source;
+        if (world.disposed) return;
+        // glTF bytes define the color values; straight alpha preserves cutout and blend edges.
+        bitmap = await decode(blob);
     } catch (error) {
         if (world.disposed) return;
         console.warn(`[Rendering] image ${id} (${source}) failed to load:`, error);
-        blob = transparentPixel();
+        bitmap = await decode(transparentPixel());
     }
-    if (world.disposed) return;
-    // glTF bytes define the color values; straight alpha preserves cutout and blend edges.
-    const bitmap = await createImageBitmap(blob, {
-        premultiplyAlpha: "none",
-        colorSpaceConversion: "none",
-    });
     try {
         if (world.disposed) return;
+        const format = IMAGE_FORMATS[role];
+        if (Math.max(bitmap.width, bitmap.height) > 1) {
+            let ready = state.mipLoads.get(format);
+            if (!ready) {
+                ready = precompile(world, `image-mipmap:${role}`, () => [
+                    blitPipeline(world, format),
+                ]);
+                state.mipLoads.set(format, ready);
+            }
+            await ready;
+            if (world.disposed) return;
+        }
         checkTextureLimits(
             "[render] a native image",
             { width: bitmap.width, height: bitmap.height, layers: 1 },
             device.limits,
             "Reduce the image dimensions.",
         );
-        const format = IMAGE_FORMATS[role];
         const texture = device.createTexture({
             label: `image-native:${role}:${id}`,
             size: [bitmap.width, bitmap.height],

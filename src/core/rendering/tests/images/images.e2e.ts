@@ -23,6 +23,7 @@ test("late URL and Blob images match every warm color and data mip without unrel
             loaded: { textures: 4, groups: 12 },
             steady: { textures: 0, groups: 0 },
             disposed: { textures: 0, groups: 0 },
+            corrupt: true,
         }),
     );
 });

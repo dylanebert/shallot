@@ -111,7 +111,29 @@ try {
     const loaded = { textures, groups };
     for (let i = 0; i < 3; i++) await world.step(0);
     const steady = { textures: textures - loaded.textures, groups: groups - loaded.groups };
-    // Both formats must already be compiled even when neither role had images at warm.
+    const warn = console.warn;
+    const warnings: string[] = [];
+    console.warn = (...args) => {
+        warnings.push(String(args[0]));
+        warn(...args);
+    };
+    let corrupt = false;
+    try {
+        const id = registerImage(world, new Blob(["corrupt PNG"], { type: "image/png" }));
+        await prepareImages(world);
+        await prepareImages(world);
+        const texture = imageTexture(world, id);
+        corrupt =
+            texture.width === 1 &&
+            texture.height === 1 &&
+            JSON.stringify(await bytes(texture, 0)) === "[0,0,0,0]" &&
+            warnings.some((warning) =>
+                warning.includes(`image ${id} ([object Blob]) failed to load:`),
+            );
+    } finally {
+        console.warn = warn;
+    }
+    // Each role's first late image prepares its mip pipeline when neither role had images at warm.
     const empty = await createApp({ defaults: false, plugins: [RenderingPlugin] });
     for (const isSrgb of [true, false]) registerImage(empty.world, blob, { isSrgb });
     await prepareImages(empty.world);
@@ -150,7 +172,7 @@ try {
         globalThis.createImageBitmap = decode;
     }
     const disposed = { textures: textures - before.textures, groups: groups - before.groups };
-    document.body.textContent = JSON.stringify({ equal, loaded, steady, disposed });
+    document.body.textContent = JSON.stringify({ equal, loaded, steady, disposed, corrupt });
 } finally {
     counted.createTexture = createTexture;
     counted.createBindGroup = createBindGroup;
