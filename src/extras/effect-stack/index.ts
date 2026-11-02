@@ -9,7 +9,7 @@ import {
     type EffectPass,
     EffectPasses,
     fullscreenVertex,
-    resolveImage,
+    imageView,
     TonemappingSystem,
     Views,
 } from "../../core/rendering";
@@ -309,12 +309,7 @@ export const EffectStackPlugin: Plugin = {
                         if (lutId < 0) {
                             camera.lut = state.defaultLut!;
                         } else {
-                            const { texture, layer } = resolveImage(world, lutId);
-                            camera.lut = texture.createView({
-                                dimension: "2d",
-                                baseArrayLayer: layer,
-                                arrayLayerCount: 1,
-                            });
+                            camera.lut = imageView(world, lutId);
                         }
                         camera.groups = new WeakMap();
                     }

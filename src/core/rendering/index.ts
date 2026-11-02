@@ -9,16 +9,14 @@ export {
 } from "./global-transform";
 export {
     ImageAddressMode,
-    ImageBindings,
     ImageFilterMode,
     type ImageLoaderSettings,
     type ImageSamplerDescriptor,
     imageSampler,
     imageTexture,
     imageTextures,
-    resolveImage,
+    imageView,
 } from "./image";
-export { sampleImage, sampleImageAt } from "./image-sampling";
 export {
     CorePipelinePlugin,
     MainPassSystem,

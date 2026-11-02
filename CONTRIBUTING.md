@@ -96,6 +96,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - `standard/rendering` is the one clustered forward mesh pipeline over both core modules: surfaces, materials, light packing, culling, indirect draws, backgrounds and shadow passes. It records into core's phases
 - Standard contains no effects; they belong in extras
 - Custom materials and backgrounds extend standard through `materialType` with `MaterialPlugin`, and `registerBackground`, never a second standard pipeline
+- Registered images warm into world-owned native-size textures with full mips; material layouts bind each image with its hardware sampler, and CPU consumers use `imageView` after warm
 
 ### Physics
 

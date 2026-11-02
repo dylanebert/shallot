@@ -11,7 +11,7 @@ import {
     TonemappingMethod,
     Views,
 } from "../../core/rendering";
-import { ImageBindings } from "../../core/rendering/image";
+import { imageTextures } from "../../core/rendering/image";
 import { tonemappingStateKey } from "../../core/rendering/tonemapping-state";
 import { offscreenTexture } from "../../core/rendering/view";
 import { Transform } from "../../core/transform";
@@ -147,8 +147,8 @@ test("a custom chromatic LUT changes the fringes and unsetting it restores the d
     const { lower, upper, cube } = stackedScene(world, 1, 512);
     world.add(upper, ChromaticAberration);
     const baseline = await stackedFrame(world, lower);
-    const bindings = world.resource(ImageBindings);
-    const original = bindings.images;
+    const bindings = world.resource(imageTextures);
+    const original = bindings.textures[0][0];
     const lut = world.gpu.device.createTexture({
         size: [3, 1, 1],
         format: "rgba8unorm-srgb",
@@ -161,14 +161,14 @@ test("a custom chromatic LUT changes the fringes and unsetting it restores the d
         { bytesPerRow: 12 },
         [3, 1],
     );
-    bindings.images = lut;
+    bindings.textures[0][0] = lut;
     try {
         world.storage(ChromaticAberration).colorLut.set(upper, 0);
         expect(await stackedFrame(world, lower)).not.toEqual(baseline);
         world.storage(ChromaticAberration).colorLut.set(upper, -1);
         expect(await stackedFrame(world, lower)).toEqual(baseline);
     } finally {
-        bindings.images = original;
+        bindings.textures[0][0] = original;
         for (const eid of [cube, upper, lower]) world.destroy(eid);
         world.step(0);
     }

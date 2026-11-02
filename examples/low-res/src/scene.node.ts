@@ -17,7 +17,7 @@ import {
     type EffectPass,
     EffectPasses,
     fullscreenVertex,
-    ImageBindings,
+    imageTextures,
 } from "@dylanebert/shallot/rendering";
 import {
     beginRenderPass,
@@ -162,7 +162,7 @@ test("the crate's registered sampler preserves hard texel steps across its face"
         { bytesPerRow: 64, rowsPerImage: 16 },
         [16, 16, 1],
     );
-    world.resource(ImageBindings).images = texture;
+    world.resource(imageTextures).textures[0][0] = texture;
     world.storage(Posterize).dither.set(camera, 0);
     const { rgba } = await frame();
     const values = new Set<number>();

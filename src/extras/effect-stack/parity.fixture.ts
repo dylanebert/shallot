@@ -2,7 +2,7 @@ import {
     attachTexture,
     Camera,
     EffectPasses,
-    ImageBindings,
+    imageTextures,
     TonemappingSystem,
     Views,
 } from "../../core/rendering";
@@ -162,8 +162,8 @@ export function parityCapture(): {
                 world.add(camera, LensDistortion, c.name.endsWith("default") ? undefined : c.lens);
             if (c.vignette)
                 world.add(camera, Vignette, c.name.endsWith("default") ? undefined : c.vignette);
-            const bindings = world.resource(ImageBindings);
-            const original = bindings.images;
+            const bindings = world.resource(imageTextures);
+            const original = bindings.textures[0][0];
             if (c.aberration)
                 world.add(
                     camera,
@@ -172,12 +172,12 @@ export function parityCapture(): {
                         ? undefined
                         : { ...c.aberration, colorLut: "custom" in c ? 0 : -1 },
                 );
-            if ("custom" in c) bindings.images = lookup(world, true);
+            if ("custom" in c) bindings.textures[0][0] = lookup(world, true);
             try {
                 world.step(0);
                 return new Uint16Array((await probeTexture(world, output)).bytes as ArrayBuffer);
             } finally {
-                bindings.images = original;
+                bindings.textures[0][0] = original;
             }
         },
     };

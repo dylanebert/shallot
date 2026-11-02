@@ -4,20 +4,6 @@ import * as std from "typegpu/std";
 import { checkTextureLimits, Registry, type World } from "../../engine";
 import { fullscreenVertex } from "./tonemapping";
 
-/** World-local size-class image arrays and sampler, populated at RenderingPlugin warm. */
-export const ImageBindings = {
-    create: () => ({
-        images: null! as GPUTexture,
-        images1024: null! as GPUTexture,
-        images2048: null! as GPUTexture,
-        dataImages: null! as GPUTexture,
-        dataImages1024: null! as GPUTexture,
-        dataImages2048: null! as GPUTexture,
-        imageSampler: null! as GPUSampler,
-        imageSettings: null! as GPUTexture,
-    }),
-};
-
 /** @internal Native 2D images, indexed by independent color and data ids. */
 export const imageTextures = {
     create: () => ({
@@ -70,35 +56,18 @@ export function imageTexture(world: World, id: number, isSrgb = true): GPUTextur
     return state.fallback[role];
 }
 
-/** Warm-time [band, layer] per id, indexed [color, data][id], read by resolveImage. */
-export const imageLocationsKey = { create: () => [] as number[][][] };
-
 /**
- * Resolve a registered id after warm to its world-owned texture and array layer. False isSrgb
- * selects the independent data ids. An id without location metadata selects band zero at layer=id,
- * including externally supplied ImageBindings arrays. The texture lives until world disposal.
+ * After warm, return a 2D view of a registered image's native-size texture. The world owns the
+ * texture until disposal; callers must not destroy it. False isSrgb selects the independent data
+ * ids. An unloaded or unknown id returns a role-local 1×1 fallback view and warns once per
+ * nonnegative id.
  */
-export function resolveImage(
+export function imageView(
     world: World,
     id: number,
     settings: Pick<ImageLoaderSettings, "isSrgb"> = {},
-): { texture: GPUTexture; layer: number } {
-    const data = settings.isSrgb === false;
-    const location = world.resource(imageLocationsKey)[data ? 1 : 0]?.[id];
-    const bindings = world.resource(ImageBindings);
-    const band = location?.[0] ?? 0;
-    const texture = data
-        ? band === 2
-            ? bindings.dataImages2048
-            : band === 1
-              ? bindings.dataImages1024
-              : bindings.dataImages
-        : band === 2
-          ? bindings.images2048
-          : band === 1
-            ? bindings.images1024
-            : bindings.images;
-    return { texture, layer: location?.[1] ?? id };
+): GPUTextureView {
+    return imageTexture(world, id, settings.isSrgb !== false).createView();
 }
 
 /** Addressing outside the image, matching Bevy's ImageAddressMode. */
@@ -121,22 +90,22 @@ export interface ImageSamplerDescriptor {
 
 /** Color interpretation and sampling, matching Bevy's ImageLoaderSettings. */
 export interface ImageLoaderSettings {
-    /** False registers a linear data image; its id belongs to the data array, not the color array. */
+    /** False registers a linear data image; its id belongs to the data registry, not the color registry. */
     isSrgb?: boolean;
     sampler?: ImageSamplerDescriptor;
 }
 
-/** World-local image sources. An empty registry still allocates one fallback layer at warm. */
+/** World-local color image sources, uploaded to native-size textures at warm. */
 export const Images = {
     create: () => new Registry<{ name: string; source: string | Blob; sampler: number[] }>(),
 };
-/** World-local linear images; ids occupy an independent array from color images. */
+/** World-local linear image sources; ids are independent of color image ids. */
 export const DataImages = { create: Images.create };
 
 /**
  * Register before warm, normally in a plugin's initialize. The returned id selects an image in the
- * world's shared sRGB arrays, or its linear data arrays when isSrgb is false. Color and data ids
- * are independent; a consumer must sample the arrays matching the registration's role.
+ * world's native-size sRGB textures, or its linear data textures when isSrgb is false. Color and
+ * data ids are independent; a consumer must select the registration's role.
  * Within one role, URLs with the same effective sampler return the same id; different samplers return distinct ids.
  * Each Blob registration returns a new id, distinct from all URLs. Omitted sampler fields take
  * Bevy's ImagePlugin default, ImageSamplerDescriptor::linear(): clamp-to-edge, linear texel filters
@@ -177,14 +146,12 @@ function transparentPixel(): Blob {
     return new Blob([bytes], { type: "image/png" });
 }
 
-/** Decode once into native 2D textures and size-class arrays, both with full mips and 1×1 fallbacks. */
+/** Decode into native-size 2D textures with full mips and role-local 1×1 fallbacks. */
 export async function warmImages(world: World): Promise<void> {
     const images = world.resource(Images);
     const dataImages = world.resource(DataImages);
     const device = world.gpu.device;
-    const locations = world.resource(imageLocationsKey);
-    locations.length = 0;
-    const loadArray = async (
+    const loadImages = async (
         images: ReturnType<typeof Images.create>,
         format: GPUTextureFormat,
     ) => {
@@ -198,9 +165,6 @@ export async function warmImages(world: World): Promise<void> {
         });
         world.own(fallback);
         own.fallback[role] = fallback;
-        const bands: ImageBitmap[][] = [[], [], []];
-        const rows: number[][] = [];
-        locations.push(rows);
         if (images.size > 0 && typeof createImageBitmap !== "undefined") {
             const blobs = await Promise.all(
                 Array.from({ length: images.size }, async (_, id) => {
@@ -242,100 +206,18 @@ export async function warmImages(world: World): Promise<void> {
                     bitmap.height,
                 ]);
                 genMipmapsLayer(world, device, texture, 0, texture.mipLevelCount, format);
-                const side = Math.max(bitmap.width, bitmap.height);
-                const band = side > 1024 ? 2 : side > 512 ? 1 : 0;
-                rows.push([band, bands[band].length]);
-                bands[band].push(bitmap);
+                bitmap.close();
             }
         }
-        const textures: GPUTexture[] = [];
-        for (const band of bands) {
-            const texture =
-                band.length > 0
-                    ? await arrayFromBitmaps(world, device, band, 2048, format)
-                    : device.createTexture({
-                          label: "images-fallback",
-                          size: [1, 1, 1],
-                          format,
-                          usage: GPUTextureUsage.TEXTURE_BINDING,
-                      });
-            world.own(texture);
-            textures.push(texture);
-        }
-        return textures;
     };
-    const bindings = world.resource(ImageBindings);
-    [bindings.images, bindings.images1024, bindings.images2048] = await loadArray(
-        images,
-        "rgba8unorm-srgb",
-    );
-    [bindings.dataImages, bindings.dataImages1024, bindings.dataImages2048] = await loadArray(
-        dataImages,
-        "rgba8unorm",
-    );
-    const colorCount = Math.max(1, images.size);
-    const settingsCount = colorCount + Math.max(1, dataImages.size);
-    // A sampled texture keeps sampler metadata out of the storage-buffer binding floor.
-    const imageSettings = device.createTexture({
-        label: "image-settings",
-        size: [1, settingsCount + 1],
-        format: "rgba8unorm",
-        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-    });
-    // R packs the seven sampler bits; GB hold the 16-bit layer; A marks packed rows and the band.
-    // Unmarked rows retain the original sampler bytes and band zero at layer=id.
-    const data = new Uint8Array((settingsCount + 1) * 4);
-    for (const [role, registry] of [images, dataImages].entries()) {
-        const offset = role === 0 ? 0 : colorCount;
-        for (let id = 0; id < Math.max(1, registry.size); id++) {
-            const row = (offset + id) * 4;
-            const sampler = registry.get(registry.name(id)!)?.sampler ?? [0, 0, 1, 3];
-            const location = locations[role][id];
-            if (location) {
-                const [band, layer] = location;
-                data.set(
-                    [
-                        sampler[0] | (sampler[1] << 2) | (sampler[2] << 4) | (sampler[3] << 5),
-                        layer & 255,
-                        layer >>> 8,
-                        128 | band,
-                    ],
-                    row,
-                );
-            } else {
-                data.set(sampler, row);
-            }
-        }
-    }
-    // The final row's marker distinguishes the color count from a legacy fallback sampler row.
-    data.set([colorCount & 255, colorCount >>> 8, 0, 64], settingsCount * 4);
-    device.queue.writeTexture({ texture: imageSettings }, data, { bytesPerRow: 4 }, [
-        1,
-        settingsCount + 1,
-    ]);
-    world.own(imageSettings);
-    bindings.imageSettings = imageSettings;
-    bindings.imageSampler = device.createSampler({
-        label: "images",
-        magFilter: "linear",
-        minFilter: "linear",
-        mipmapFilter: "linear",
-    });
+    await loadImages(images, "rgba8unorm-srgb");
+    await loadImages(dataImages, "rgba8unorm");
 }
 
-/** mip levels for a square texture of `size` px: the full chain down to 1×1. */
+/** Full mip-chain length down to 1×1, from the texture's largest dimension in pixels. */
 export function mipLevels(size: number): number {
     return Math.floor(Math.log2(size)) + 1;
 }
-
-/** Square layer size in pixels: largest source dimension, capped at `cap` and floored at 1. */
-export function commonSize(dims: { w: number; h: number }[], cap = 2048): number {
-    let max = 1;
-    for (const dim of dims) max = Math.max(max, dim.w, dim.h);
-    return Math.min(cap, Math.max(1, max));
-}
-
-const ARRAY_FORMAT: GPUTextureFormat = "rgba8unorm-srgb";
 
 // Color mips average in linear space through sRGB sampling/store conversion; data maps use linear formats.
 const blitLayout = tgpu.bindGroupLayout({
@@ -377,7 +259,6 @@ function blitPipeline(world: World, format: GPUTextureFormat): TgpuRenderPipelin
     return pipeline;
 }
 
-// Per-layer submissions let staged builders budget a complete mip chain per frame.
 export function genMipmapsLayer(
     world: World,
     device: GPUDevice,
@@ -412,22 +293,6 @@ export function genMipmapsLayer(
     device.queue.submit([encoder.finish()]);
 }
 
-/**
- * decode `blobs` to a `texture_2d_array`: one layer per blob, all resized to a common (capped) square
- * size, sRGB-encoded, with a full mip chain. The returned texture binds as a surface's
- * `{ type: "texture", dimension: "2d-array" }` and is sampled `array[layer]`. Async (decode); call
- * from a load path, not a hot frame.
- */
-export async function imageArray(
-    world: World,
-    device: GPUDevice,
-    blobs: Blob[],
-    cap = 2048,
-    format: GPUTextureFormat = ARRAY_FORMAT,
-): Promise<GPUTexture> {
-    return arrayFromBitmaps(world, device, await decodeImages(blobs), cap, format);
-}
-
 function decodeImages(blobs: Blob[]): Promise<ImageBitmap[]> {
     // glTF image bytes define the color values. Straight alpha preserves cutout and blend edges.
     return Promise.all(
@@ -435,126 +300,4 @@ function decodeImages(blobs: Blob[]): Promise<ImageBitmap[]> {
             createImageBitmap(blob, { premultiplyAlpha: "none", colorSpaceConversion: "none" }),
         ),
     );
-}
-
-/**
- * Allocates an unfilled array whose layers are `size` pixels square, with `levels` mip levels.
- * Synchronous allocation is separate from uploadLayer so callers can stage uploads across frames.
- * Refuses layer counts and dimensions beyond device limits before texture creation.
- */
-export function allocArray(
-    device: GPUDevice,
-    size: number,
-    layers: number,
-    levels: number,
-    format: GPUTextureFormat = ARRAY_FORMAT,
-): GPUTexture {
-    checkTextureLimits(
-        "[render] an image array (glTF baseColor / sprite atlas)",
-        { width: size, height: size, layers },
-        device.limits,
-        "Reduce the number of distinct textures (array layers) or lower the size cap.",
-    );
-    return device.createTexture({
-        label: "image-array",
-        size: { width: size, height: size, depthOrArrayLayers: Math.max(1, layers) },
-        format,
-        mipLevelCount: levels,
-        usage:
-            GPUTextureUsage.TEXTURE_BINDING |
-            GPUTextureUsage.COPY_DST |
-            GPUTextureUsage.RENDER_ATTACHMENT,
-    });
-}
-
-/**
- * Resamples an already-decoded bitmap to `size` pixels square without decoding again, then uploads
- * one array layer and its mip chain. A staged caller can budget one complete layer per frame.
- */
-export async function uploadLayer(
-    world: World,
-    device: GPUDevice,
-    texture: GPUTexture,
-    bitmap: ImageBitmap,
-    layer: number,
-    size: number,
-    levels: number,
-    format: GPUTextureFormat = ARRAY_FORMAT,
-): Promise<void> {
-    const native = device.createTexture({
-        label: "image-resample-source",
-        size: [bitmap.width, bitmap.height],
-        format,
-        mipLevelCount: mipLevels(Math.max(bitmap.width, bitmap.height)),
-        usage:
-            GPUTextureUsage.COPY_DST |
-            GPUTextureUsage.TEXTURE_BINDING |
-            GPUTextureUsage.RENDER_ATTACHMENT,
-    });
-    device.queue.copyExternalImageToTexture(
-        { source: bitmap },
-        { texture: native },
-        { width: bitmap.width, height: bitmap.height },
-    );
-    try {
-        genMipmapsLayer(world, device, native, 0, native.mipLevelCount, format);
-        // Implicit derivatives choose the source footprint's LOD; trilinear filtering blends
-        // its neighboring mip averages rather than sampling distant level-zero texels.
-        const group = world.gpu.root.createBindGroup(blitLayout, {
-            src: native.createView(),
-            samp: device.createSampler({
-                magFilter: "linear",
-                minFilter: "linear",
-                mipmapFilter: "linear",
-            }),
-        });
-        const encoder = device.createCommandEncoder({ label: "image-resample" });
-        const pass = encoder.beginRenderPass({
-            colorAttachments: [
-                {
-                    view: texture.createView({
-                        dimension: "2d",
-                        baseArrayLayer: layer,
-                        arrayLayerCount: 1,
-                        baseMipLevel: 0,
-                        mipLevelCount: 1,
-                    }),
-                    loadOp: "clear",
-                    storeOp: "store",
-                },
-            ],
-        });
-        pass.setViewport(0, 0, size, size, 0, 1);
-        blitPipeline(world, format).with(group).with(pass).draw(3);
-        pass.end();
-        device.queue.submit([encoder.finish()]);
-    } finally {
-        native.destroy();
-    }
-    genMipmapsLayer(world, device, texture, layer, levels, format);
-}
-
-/**
- * Uploads already-decoded bitmaps sequentially as common-size square array layers with a full mip chain;
- * `cap` is in pixels. Color defaults to sRGB; pass a linear format for data maps.
- * Uploads every layer before returning rather than spreading the work across frames. Callers that need
- * staged uploads use allocArray and uploadLayer; decoding remains the caller's choice.
- */
-export async function arrayFromBitmaps(
-    world: World,
-    device: GPUDevice,
-    native: ImageBitmap[],
-    cap = 2048,
-    format: GPUTextureFormat = ARRAY_FORMAT,
-): Promise<GPUTexture> {
-    const size = commonSize(
-        native.map((b) => ({ w: b.width, h: b.height })),
-        cap,
-    );
-    const levels = mipLevels(size);
-    const texture = allocArray(device, size, native.length, levels, format);
-    for (let layer = 0; layer < native.length; layer++) {
-        await uploadLayer(world, device, texture, native[layer], layer, size, levels, format);
-    }
-    return texture;
 }

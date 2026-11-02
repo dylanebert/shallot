@@ -1,6 +1,6 @@
 import { createApp } from "../../../../engine/app";
 import { rawDevice } from "../../../../engine/runtime";
-import { ImageBindings, imageSampler, imageTextures, registerImage } from "../../image";
+import { imageSampler, imageTextures, imageView, registerImage } from "../../image";
 import { RenderingPlugin } from "../../substrate";
 
 // The authored PNG has sRGB primaries, a linear (gamma 1) ICC transfer curve and
@@ -14,7 +14,7 @@ const app = await createApp({
             name: "ImageProfile",
             initialize(world) {
                 registerImage(world, new URL("./linear-rgb.png", import.meta.url).href);
-                // A second, larger source also exercises resizing the registered profile image.
+                // Larger color and linear data sources exercise native dimensions and role separation.
                 if (location.search) {
                     registerImage(world, new URL("./linear-rgb.png", import.meta.url).href, {
                         isSrgb: false,
@@ -56,16 +56,16 @@ if (location.search)
     );
 // This diagnostic owns its raw readback pipeline, outside the game's pipeline warm-up.
 const device = rawDevice(app.world.gpu.device);
-const texture = app.world.resource(ImageBindings).images;
+const view = imageView(app.world, 0);
 const module = device.createShaderModule({
     code: `
-@group(0) @binding(0) var image: texture_2d_array<f32>;
+@group(0) @binding(0) var image: texture_2d<f32>;
 @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
     let p = array(vec2f(-1, -1), vec2f(3, -1), vec2f(-1, 3));
     return vec4f(p[i], 0, 1);
 }
 @fragment fn fs() -> @location(0) vec4f {
-    return textureLoad(image, vec2i(0), 0, 0);
+    return textureLoad(image, vec2i(0), 0);
 }`,
 });
 const pipeline = device.createRenderPipeline({
@@ -91,7 +91,7 @@ pass.setBindGroup(
     0,
     device.createBindGroup({
         layout: pipeline.getBindGroupLayout(0),
-        entries: [{ binding: 0, resource: texture.createView({ dimension: "2d-array" }) }],
+        entries: [{ binding: 0, resource: view }],
     }),
 );
 pass.draw(3);

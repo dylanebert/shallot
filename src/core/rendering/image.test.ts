@@ -9,7 +9,7 @@ test("image registration accepts a source without a name", () => {
     world.dispose();
 });
 
-test("one source registered in both roles has independent color and linear array ids", () => {
+test("one source registered in both roles has independent color and linear ids", () => {
     const world = new World();
     registerImage(world, "color-only.png");
     const color = registerImage(world, "shared.png");
