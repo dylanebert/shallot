@@ -46,6 +46,7 @@ export {
     AlphaMode,
     AlphaModeCode,
     applyPbrLighting,
+    BaseColor,
     CameraBackground,
     CullModeCode,
     DirectionalLightShadowMap,

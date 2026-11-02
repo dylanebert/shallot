@@ -32,6 +32,7 @@ import { type Plugin, precompile, type World } from "../../engine";
 import { probeBuffer, stampAdapter } from "../../engine/runtime";
 import { type AdapterInfoFacts, classifyAdapter } from "../../engine/runtime/adapter";
 import { EffectStackPlugin, Vignette } from "../../extras/effect-stack";
+import { SkinnedMaterial } from "../../extras/gltf/skinning";
 import { drawLine, Gizmo, GizmoAsset, LinesPlugin, registerGizmo } from "../../extras/lines";
 import {
     instanceLayout as lineInstanceLayout,
@@ -306,6 +307,12 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
         const { world } = app;
         const { camera, spriteEids, captureCompletedFrame, pipeline } = initial!;
         const layouts = {
+            skinnedVertex:
+                storageCount(engineLayout, "vertex") +
+                storageCount(SkinnedMaterial.layout, "vertex"),
+            skinnedFragment:
+                storageCount(engineLayout, "fragment") +
+                storageCount(SkinnedMaterial.layout, "fragment"),
             standardVertex:
                 storageCount(engineLayout, "vertex") + storageCount(Materials.layout, "vertex"),
             standardFragment:
@@ -341,15 +348,17 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
             linesFragment: storageCount(lineLayout, "fragment"),
         };
         expect(layouts).toEqual({
+            skinnedVertex: 8,
+            skinnedFragment: 6,
             standardVertex: 7,
-            standardFragment: 7,
-            floorVertex: 7,
+            standardFragment: 5,
+            floorVertex: 6,
             vertexMaterialVertex: 7,
-            vertexMaterialFragment: 7,
-            attributeVertex: 8,
-            attributeFragment: 8,
-            spriteVertex: 7,
-            spriteFragment: 7,
+            vertexMaterialFragment: 5,
+            attributeVertex: 7,
+            attributeFragment: 5,
+            spriteVertex: 6,
+            spriteFragment: 4,
             spritePublicationCompute: 3,
             textVertex: 6,
             textFragment: 0,
@@ -362,6 +371,7 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
             materialLayout(FloorParameters, {
                 first: { type: "storage", element: d.u32 },
                 second: { type: "storage", element: d.u32 },
+                third: { type: "storage", element: d.u32 },
             }),
         ).toThrow("material layout uses 9 vertex storage buffers; WebGPU's limit is 8");
         console.log("storage buffers per changed pipeline layout", layouts);

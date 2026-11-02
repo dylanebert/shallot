@@ -14,11 +14,15 @@ test("extension layout preserves base binding numbers and starts its bindings at
     });
     for (const variant of [layout, layout.depthVariant]) {
         const entries = Object.entries(variant.entries);
-        expect(entries.slice(0, 15).map(([name]) => name)).toEqual(
-            Object.keys(Materials.layout.entries),
-        );
+        expect(
+            entries.slice(0, Object.keys(Materials.layout.entries).length).map(([name]) => name),
+        ).toEqual(Object.keys(Materials.layout.entries));
         expect(entries[100]![0]).toBe("tint");
-        expect(entries.slice(15, 100).every(([, entry]) => entry === null)).toBe(true);
+        expect(
+            entries
+                .slice(Object.keys(Materials.layout.entries).length, 100)
+                .every(([, entry]) => entry === null),
+        ).toBe(true);
     }
     expect(layout.parameters.propTypes).toEqual({
         ...StandardMaterialInput.propTypes,

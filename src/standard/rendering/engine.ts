@@ -27,12 +27,12 @@ export const engineLayout = tgpu
         pointLights: {
             storage: LightClusters,
             access: "readonly",
-            visibility: ["vertex", "fragment"],
+            visibility: ["fragment"],
         },
         meshQuant: {
             storage: d.arrayOf(MeshQuant),
             access: "readonly",
-            visibility: ["vertex", "fragment"],
+            visibility: ["vertex"],
         },
         prepassDepth: {
             texture: d.texture2d(),
@@ -47,7 +47,7 @@ export const engineLayout = tgpu
         ambientOcclusion: {
             texture: d.texture2d(),
             sampleType: "unfilterable-float",
-            visibility: ["vertex", "fragment"],
+            visibility: ["fragment"],
         },
     })
     .$idx(0);
@@ -143,6 +143,7 @@ const ambientVisibility = tgpu.fn(
     d.f32,
 )(() => {
     "use gpu";
+    if (std.getShaderStage() !== "fragment") return 1;
     if (pointScale.$ === 0) return 1;
     const last = std.sub(d.vec2i(std.textureDimensions(engineLayout.$.ambientOcclusion)), 1);
     return std.textureLoad(
@@ -224,7 +225,7 @@ const litPbrRadiance = tgpu.fn(
             ),
         );
     }
-    if (pointScale.$ !== 0) {
+    if (std.getShaderStage() === "fragment" && pointScale.$ !== 0) {
         const entry = engineLayout.$.pointLights.grid[clusterOf()];
         for (let i = d.u32(0); i < entry.y; i++) {
             const light = PointLightGpu(

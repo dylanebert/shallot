@@ -407,8 +407,8 @@ export function materialLayout<B extends Record<string, MaterialBinding>, P exte
             throw new Error(`material image "${name}" sampler name is already bound`);
     }
     const builtins = {
-        eids: bindingEntry({ type: "storage", element: d.vec4u }),
-        globalTransforms: bindingEntry({ type: "storage", element: Xform }),
+        eids: bindingEntry({ type: "storage", element: d.vec4u, visibility: ["vertex"] }),
+        globalTransforms: bindingEntry({ type: "storage", element: Xform, visibility: ["vertex"] }),
     };
     const own = {
         ...builtins,

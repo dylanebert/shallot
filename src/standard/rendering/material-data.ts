@@ -1,5 +1,5 @@
 import * as d from "typegpu/data";
-import { component, f32, u32 } from "../../engine";
+import { component, f32, u32, vec4 } from "../../engine";
 
 /**
  * One instance's mesh, material and culling row, read by preprocess and the material shaders.
@@ -149,8 +149,13 @@ type StandardMaterialOptions = {
     doubleSided?: boolean;
 };
 
+/** Per-instance linear RGBA replacing StandardMaterial's baseColor, including alpha.
+ * Textures and vertex colors still multiply it. Extended standard materials inherit it;
+ * removing it restores the material's value on the next frame. */
+export const BaseColor = component("BaseColor", { color: vec4 });
+
 /**
- * Linear colors; emissive is independent of baseColor.
+ * Linear colors; emissive is independent of baseColor. BaseColor overrides baseColor per entity.
  * baseColorTexture is an id from registerImage before warm; its sampled RGBA multiplies baseColor
  * at mesh UVs. Omit it to leave baseColor untextured, without sampling an image.
  */

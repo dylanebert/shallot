@@ -3,8 +3,8 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { World } from "../../engine";
 import { engineLayout, litPbr } from "./engine";
-import type { InstanceData } from "./instance-data";
-import { StandardMaterial, StandardMaterialInput } from "./material-data";
+import { type InstanceData, instanceData } from "./instance-data";
+import { BaseColor, StandardMaterial, StandardMaterialInput } from "./material-data";
 import {
     AlphaModeCode,
     MaterialAssets,
@@ -21,13 +21,20 @@ import {
 import type { BindResource } from "./pipelines";
 import { Pbr } from "./shade";
 
-const standardLayout = materialLayout(StandardMaterialInput, {
-    baseColor: { type: "image", field: "baseColorTexture" },
-    normal: { type: "image", field: "normalMapTexture", isSrgb: false },
-    metallicRoughness: { type: "image", field: "metallicRoughnessTexture", isSrgb: false },
-    occlusion: { type: "image", field: "occlusionTexture", isSrgb: false },
-    emissive: { type: "image", field: "emissiveTexture" },
-});
+const ColorFields = d.struct({ color: d.vec4f });
+const baseColors = instanceData(BaseColor, ColorFields);
+
+const standardLayout = materialLayout(
+    StandardMaterialInput,
+    {
+        baseColor: { type: "image", field: "baseColorTexture" },
+        normal: { type: "image", field: "normalMapTexture", isSrgb: false },
+        metallicRoughness: { type: "image", field: "metallicRoughnessTexture", isSrgb: false },
+        occlusion: { type: "image", field: "occlusionTexture", isSrgb: false },
+        emissive: { type: "image", field: "emissiveTexture" },
+    },
+    { instanceData: [baseColors] },
+);
 const baseColorImage = tgpu.accessor(d.texture2d(d.f32), () => standardLayout.$.baseColor);
 const baseColorSampler = tgpu.accessor(d.sampler(), () => standardLayout.$.baseColorSampler);
 const normalImage = tgpu.accessor(d.texture2d(d.f32), () => standardLayout.$.normal);
@@ -120,7 +127,10 @@ export const pbrInputFromStandardMaterial = tgpu.fn(
 )((ctx) => {
     "use gpu";
     const material = ctx.parameters;
-    let baseColor = std.mul(material.baseColor, ctx.color);
+    let baseColor = std.mul(
+        baseColors.read(ctx, ColorFields({ color: material.baseColor })).color,
+        ctx.color,
+    );
     const baseUv = transformUv(
         std.select(ctx.uv, ctx.uv1, material.baseColorChannel === 1),
         material.baseColorTransform,
@@ -448,6 +458,7 @@ const vertexVaryings = { litColor: d.vec4f };
 export const VertexMaterialType = materialType({
     name: "VertexMaterial",
     parameters: StandardMaterialInput,
+    instanceData: [baseColors],
     varyings: vertexVaryings,
     defaults: StandardMaterial(),
     depthPass: { prepass: true, shadows: true },
@@ -459,7 +470,7 @@ export const VertexMaterialType = materialType({
                 worldPosition: input.world.xyz,
                 worldNormal: std.normalize(input.worldNormal),
                 view: std.normalize(std.sub(engineLayout.$.view.eye.xyz, input.world.xyz)),
-                baseColor: d.vec4f(material.baseColor),
+                baseColor: baseColors.read(input, ColorFields({ color: material.baseColor })).color,
                 metallic: material.metallic,
                 perceptualRoughness: material.perceptualRoughness,
                 occlusion: material.occlusion,
