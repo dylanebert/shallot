@@ -1,4 +1,4 @@
-import { expect, setDefaultTimeout, test } from "bun:test";
+import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import tgpu, { readFromArrayBuffer } from "typegpu";
 import * as d from "typegpu/data";
@@ -169,6 +169,62 @@ const proof: Plugin = {
         registerFont(world, FLOOR_FONT);
     },
 };
+
+test("TypeGPU #3308 still warns for nine total storage buffers with eight per stage", async () => {
+    const adapter = await gpu.requestAdapter();
+    if (!adapter) throw new Error("WebGPU adapter unavailable");
+    const device = await adapter.requestDevice();
+    const root = tgpu.initFromDevice({ device });
+    const buffer = (visibility: ("vertex" | "fragment")[]) => ({
+        storage: d.arrayOf(d.f32, 1),
+        visibility,
+    });
+    const layout = tgpu.bindGroupLayout({
+        b0: buffer(["vertex", "fragment"]),
+        b1: buffer(["vertex", "fragment"]),
+        b2: buffer(["vertex", "fragment"]),
+        b3: buffer(["vertex", "fragment"]),
+        b4: buffer(["vertex", "fragment"]),
+        b5: buffer(["vertex", "fragment"]),
+        b6: buffer(["vertex", "fragment"]),
+        b7: buffer(["vertex"]),
+        b8: buffer(["fragment"]),
+    });
+    const vertex = tgpu
+        .vertexFn({ out: { pos: d.builtin.position } })(`{
+        return Out(vec4f(bound.b0[0] + bound.b1[0] + bound.b2[0] + bound.b3[0] + bound.b4[0] + bound.b5[0] + bound.b6[0] + bound.b7[0], 0, 0, 1));
+    }`)
+        .$uses({ bound: layout.$ });
+    const fragment = tgpu
+        .fragmentFn({ out: d.vec4f })(`{
+        return vec4f(bound.b0[0] + bound.b1[0] + bound.b2[0] + bound.b3[0] + bound.b4[0] + bound.b5[0] + bound.b6[0] + bound.b8[0], 0, 0, 1);
+    }`)
+        .$uses({ bound: layout.$ });
+    const warnings: string[] = [];
+    const spy = spyOn(console, "warn").mockImplementation((...args) =>
+        warnings.push(args.join(" ")),
+    );
+    try {
+        const pipeline = root.createRenderPipeline({
+            vertex,
+            fragment,
+            targets: { format: "rgba8unorm" },
+        });
+        await pipeline.initAsync();
+        expect(
+            warnings.some(
+                (message) =>
+                    message.includes("[webgpu-limits-exceeded]") &&
+                    message.includes("storage buffers (9)"),
+            ),
+            "TypeGPU #3308 is fixed: remove the warning escape in pipelines.ts and this test",
+        ).toBe(true);
+    } finally {
+        spy.mockRestore();
+        root.destroy();
+        device.destroy();
+    }
+});
 
 test("pipeline creation refuses the ten-binding light-compact mutation and builds at eight", async () => {
     const adapter = await gpu.requestAdapter();

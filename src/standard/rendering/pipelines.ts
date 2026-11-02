@@ -4,7 +4,7 @@
 // (`record()`) — this file compiles pipelines and caches them by surface name and spec identity.
 
 import type { TgpuBindGroupLayout, TgpuRenderPipeline } from "typegpu";
-import tgpu from "typegpu";
+import tgpu, { warn } from "typegpu";
 import type { AnyData, AnyWgslData, AnyWgslStruct } from "typegpu/data";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
@@ -2347,7 +2347,18 @@ export async function prepareMaterialTypes(
         [...pipelines].map(([pipeline, name]) => ({
             async initAsync() {
                 try {
-                    await pipeline.initAsync();
+                    let pending: Promise<unknown>;
+                    // TypeGPU #3308 counts bindings across stages, not per stage. Material layouts
+                    // enforce the floor themselves. Disable only during synchronous resolution so
+                    // game pipelines keep the warning. reset restores defaults, not prior state:
+                    // TypeGPU has no public way to restore only this kind or preserve a game's disable.
+                    warn.disable("webgpu-limits-exceeded");
+                    try {
+                        pending = pipeline.initAsync();
+                    } finally {
+                        warn.reset();
+                    }
+                    await pending;
                 } catch (error) {
                     rethrowMaterialError(name, error);
                 }
