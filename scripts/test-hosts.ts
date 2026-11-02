@@ -54,6 +54,8 @@ export const ONLY: Readonly<Record<string, readonly NodeJS.Platform[]>> = {
     // five, it is the costliest file (8 min). The packed CLI on macOS stays held by mac-native, packed-gpu and
     // icons-packed.
     "scripts/packed-install.node.ts": ["linux", "win32"],
+    // POSIX signal termination preserves the shell's 128 + signal status; Windows has no such termination status.
+    "src/cli/preview-signal.node.ts": ["darwin", "linux"],
     // Its desktop opener shim is POSIX.
     "scripts/publish-browser-session.node.ts": ["darwin", "linux"],
 };

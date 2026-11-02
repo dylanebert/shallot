@@ -1,5 +1,6 @@
 import { execSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import { constants } from "node:os";
 import { basename, posix, relative, resolve } from "node:path";
 import { nativeOutDir } from "../native";
 import { normalizePath } from "../project";
@@ -108,6 +109,8 @@ async function run(
     return new Promise((resolve, reject) => {
         const child = spawn(command[0]!, command.slice(1), { ...options, stdio: "inherit" });
         child.once("error", reject);
-        child.once("exit", (code) => resolve(code ?? 1));
+        child.once("exit", (code, signal) =>
+            resolve(code ?? (signal ? 128 + constants.signals[signal] : 1)),
+        );
     });
 }

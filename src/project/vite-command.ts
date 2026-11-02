@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { createInterface } from "node:readline";
+import { constants } from "node:os";
 import { dirname, resolve } from "node:path";
 
 export type ViteCommand = "dev" | "build" | "preview";
@@ -65,7 +66,7 @@ export function runVite(
         process.stderr.write(result.stdout ?? "");
         process.stderr.write(result.stderr ?? "");
     }
-    return result.status ?? 1;
+    return result.status ?? (result.signal ? 128 + constants.signals[result.signal] : 1);
 }
 
 export function viteCliArgs(command: ViteCommand, args: string[] = []): string[] {
