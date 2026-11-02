@@ -3,7 +3,12 @@ import type { PlaywrightTestConfig } from "playwright/test";
 
 export const config = {
     testDir: ".",
-    testIgnore: ["**/tests/stepped/**", "**/tests/panels/**", "**/tests/hints/**"],
+    testIgnore: [
+        "**/tests/stepped/**",
+        "**/tests/stepped-controls/**",
+        "**/tests/panels/**",
+        "**/tests/hints/**",
+    ],
     ...BROWSER_CONFIG,
     use: {
         ...BROWSER_CONFIG.use,

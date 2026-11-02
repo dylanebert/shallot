@@ -40,6 +40,15 @@ test("physics hints follow panels on both hosted browser platforms", () => {
         expect(hostFiles(subjects, platform, false)).toEqual(subjects);
 });
 
+test("physics stepped subjects keep the same hosted browser platforms", () => {
+    const subjects = ["examples/physics/tests/stepped", "examples/physics/tests/stepped-controls"];
+    for (const platform of ["linux", "win32"] as const)
+        expect(hostFiles(subjects, platform, true)).toEqual(subjects);
+    expect(hostFiles(subjects, "darwin", true)).toEqual([]);
+    for (const platform of ["darwin", "linux", "win32"] as const)
+        expect(hostFiles(subjects, platform, false)).toEqual(subjects);
+});
+
 test("outside hosted CI, every path runs on every platform", () => {
     for (const platform of ["darwin", "linux", "win32"] as const)
         expect(hostFiles(FILES, platform, false)).toEqual(FILES);
