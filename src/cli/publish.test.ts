@@ -209,8 +209,11 @@ for (const scenario of ["package-lock.json", "bun.lock", "bun.lock with member C
             writeFileSync(join(member, "Cargo.lock"), "");
         writeFileSync(join(member, "package.json"), JSON.stringify({ name: "game" }));
         const before = () =>
-            Array.from(readdirSync(directory, { recursive: true }), normalizePath).map((path) => {
-                const file = join(directory, String(path));
+            Array.from(
+                readdirSync(directory, { recursive: true, encoding: "utf8" }),
+                normalizePath,
+            ).map((path) => {
+                const file = join(directory, path);
                 return [path, statSync(file).isFile() ? readFileSync(file, "utf8") : null];
             });
         const original = before();
