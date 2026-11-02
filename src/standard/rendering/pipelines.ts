@@ -93,32 +93,36 @@ const MULTIPLY_BLEND: GPUBlendState = {
     alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
 };
 
-const alphaColorOutput = tgpu
-    .fn(
-        [d.vec4f, d.u32, d.f32, d.u32],
-        d.vec4f,
-    )((color, alphaMode, alphaCutoff, fallback) => {
-        "use gpu";
-        const mask = alphaMode === AlphaModeCode.Mask;
-        const coverageFallback =
-            fallback === 0xffffffff && alphaMode === AlphaModeCode.AlphaToCoverage;
-        if (mask || coverageFallback) {
-            const cutoff = alphaCutoff;
-            if (color.a < cutoff) std.discard();
-            return d.vec4f(color.rgb, 1);
-        }
-        if (alphaMode === AlphaModeCode.Add) {
-            return d.vec4f(std.mul(color.rgb, color.a), 0);
-        }
-        if (alphaMode === AlphaModeCode.Multiply) {
-            return d.vec4f(std.mul(color.rgb, color.a), color.a);
-        }
-        // Scene alpha is coverage for a camera stacked over others, so opaque ignores material alpha,
-        // as Bevy's alpha_discard does.
-        if (alphaMode === AlphaModeCode.Opaque) return d.vec4f(color.rgb, 1);
-        return d.vec4f(color);
-    })
-    .$name("materialAlphaOutput");
+function alphaColorOutput(mayDiscard: boolean) {
+    return tgpu
+        .fn(
+            [d.vec4f, d.u32, d.f32, d.u32],
+            d.vec4f,
+        )((color, alphaMode, alphaCutoff, fallback) => {
+            "use gpu";
+            const mask = alphaMode === AlphaModeCode.Mask;
+            const coverageFallback =
+                fallback === 0xffffffff && alphaMode === AlphaModeCode.AlphaToCoverage;
+            if (mayDiscard) {
+                if (mask || coverageFallback) {
+                    const cutoff = alphaCutoff;
+                    if (color.a < cutoff) std.discard();
+                    return d.vec4f(color.rgb, 1);
+                }
+            }
+            if (alphaMode === AlphaModeCode.Add) {
+                return d.vec4f(std.mul(color.rgb, color.a), 0);
+            }
+            if (alphaMode === AlphaModeCode.Multiply) {
+                return d.vec4f(std.mul(color.rgb, color.a), color.a);
+            }
+            // Scene alpha is coverage for a camera stacked over others, so opaque ignores material alpha,
+            // as Bevy's alpha_discard does.
+            if (alphaMode === AlphaModeCode.Opaque) return d.vec4f(color.rgb, 1);
+            return d.vec4f(color);
+        })
+        .$name("materialAlphaOutput");
+}
 
 const colorOutput = { color: d.vec4f };
 const coverageOutput = { color: d.vec4f, mask: d.builtin.sampleMask };
@@ -939,7 +943,9 @@ function clipFs(
             ctx.tangent = present.tangent ? d.vec4f(input.tangent) : d.vec4f(0);
             const color = fragment(ctx);
             const cutoff = input.alphaCutoff;
-            if (clip && color.a < cutoff) std.discard();
+            if (clip) {
+                if (color.a < cutoff) std.discard();
+            }
             if (normals) return { color: prepassNormalColor(input.worldNormal) } as never;
         })
         .$name(`${surface.name}ClipFs`);
@@ -1127,7 +1133,9 @@ function colorFs(
     coverage = false,
     cullMode: number = CullModeCode.Back,
     mask = 0,
+    mayDiscard = false,
 ) {
+    const alphaOutput = alphaColorOutput(mayDiscard);
     const readsFacing = cullMode === CullModeCode.None;
     const facing = cullMode === CullModeCode.Back;
     const present = streamFields(surface, mask);
@@ -1192,7 +1200,7 @@ function colorFs(
                 input.world,
                 input.alphaMode,
             );
-            const output = alphaColorOutput(
+            const output = alphaOutput(
                 shaded,
                 input.alphaMode,
                 input.alphaCutoff,
@@ -1279,8 +1287,18 @@ export function compileMaterial<
         (alphaPipelineKey === AlphaPipelineKey.Blend ||
             alphaPipelineKey === AlphaPipelineKey.Premultiplied ||
             alphaPipelineKey === AlphaPipelineKey.Multiply);
-    const fragment = colorFs(surface, false, fogged, false, cullMode, mask);
-    const singleFragment = colorFs(surface, true, fogged, false, cullMode, mask);
+    // Bevy's MAY_DISCARD keeps early hidden-surface removal available to opaque fragments.
+    const mayDiscard = alphaPipelineKey === AlphaPipelineKey.Mask;
+    const fragment = colorFs(surface, false, fogged, false, cullMode, mask, mayDiscard);
+    const singleFragment = colorFs(
+        surface,
+        true,
+        fogged,
+        false,
+        cullMode,
+        mask,
+        mayDiscard || alphaPipelineKey === AlphaPipelineKey.AlphaToCoverage,
+    );
     const name = variantName(surface, alphaPipelineKey, cullMode) + (mask ? `-streams${mask}` : "");
     const base = mask
         ? compileMaterial(world, surface, capacity, alphaPipelineKey, cullMode)
