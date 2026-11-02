@@ -26,14 +26,15 @@ const pipelineCounts: Record<string, number> = {
     "Physics profiling": 0,
     Orbit: 0,
     profiling: 0,
-    "default plugins": 25, // Unlit became a StandardMaterial branch; it no longer compiles its own
-    // color, prepass, point-shadow or cascade-shadow pipeline.
-    "producer table": 28,
-    ScreenSpaceAmbientOcclusion: 30, // two prepass copies, mip reduction, visibility bitmask AO and denoise
-    Fog: 34, // single-sample and multisampled column depth, grid lighting and application; filter and integration
-    Outline: 34, // three mask variants, jump flood, composite, reduce, half flood, distance and half composite
-    EffectStack: 26,
-    Sprite: 30,
+    "default plugins": 27, // Unlit became a StandardMaterial branch; it no longer compiles its own
+    // color, prepass, point-shadow or cascade-shadow pipeline. Mesh preprocess scans draw ranges
+    // through tile-sum and tile-scan pipelines before its local scan.
+    "producer table": 30,
+    ScreenSpaceAmbientOcclusion: 32, // two prepass copies, mip reduction, visibility bitmask AO and denoise
+    Fog: 36, // single-sample and multisampled column depth, grid lighting and application; filter and integration
+    Outline: 36, // three mask variants, jump flood, composite, reduce, half flood, distance and half composite
+    EffectStack: 28,
+    Sprite: 32,
 };
 
 for (const subject of compileSubjects) {
@@ -103,7 +104,7 @@ test("texture presence and UV channel rows add no native pipelines", async () =>
             },
         ],
     });
-    expect(result.pipelines).toBe(25);
+    expect(result.pipelines).toBe(pipelineCounts["default plugins"]);
 });
 
 for (const antialias of [0, 1]) {
@@ -114,7 +115,7 @@ for (const antialias of [0, 1]) {
             (label) => labels.push(label),
             true,
         );
-        expect(result.pipelines).toBe(antialias ? 32 : 36);
+        expect(result.pipelines).toBe(antialias ? 34 : 38);
         expect(result.latePipelines).toBe(0);
         expect(
             labels.filter(
