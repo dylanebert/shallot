@@ -2,7 +2,6 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
-import { expectWarning } from "../../../scripts/test-console";
 import { Meshes, type MeshHandle, MeshInstance } from "../../core/mesh";
 import {
     attachTexture,
@@ -68,10 +67,6 @@ beforeAll(async () => {
                 name: "MorphDepth",
                 dependencies: [StandardRenderingPlugin, MeshRenderPlugin, GltfPlugin],
                 async initialize(world) {
-                    // Headless Dawn has no bitmap decoder; this geometry-only check uses the fallback.
-                    expectWarning(
-                        /^\[Rendering\] data image 0 has no native texture; binding fallback$/,
-                    );
                     camera = world.create();
                     world.add(camera, Transform, { translation: [1.5, 2.6, 6] });
                     world.add(camera, Camera, {

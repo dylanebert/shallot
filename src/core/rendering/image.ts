@@ -15,6 +15,8 @@ export const imageTextures = {
         imageSamplers: [[], []] as GPUSampler[][],
         fallback: [] as GPUTexture[],
         warned: [new Set<number>(), new Set<number>()],
+        // Ids registered before warm on a host with no image decoder, such as Node; they bind silently.
+        undecoded: [0, 0],
     }),
 };
 
@@ -44,13 +46,16 @@ export function imageSampler(world: World, id: number, isSrgb = true): GPUSample
     return sampler;
 }
 
-/** @internal Missing native textures bind a role-local fallback and warn once per id. */
+/**
+ * @internal Missing native textures bind a role-local fallback. One the host could have decoded
+ * warns once per id.
+ */
 export function imageTexture(world: World, id: number, isSrgb = true): GPUTexture {
     const state = world.resource(imageTextures);
     const role = isSrgb ? 0 : 1;
     const texture = state.textures[role][id];
     if (texture) return texture;
-    if (id >= 0 && !state.warned[role].has(id)) {
+    if (id >= state.undecoded[role] && !state.warned[role].has(id)) {
         state.warned[role].add(id);
         console.warn(
             `[Rendering] ${isSrgb ? "color" : "data"} image ${id} has no native texture; binding fallback`,
@@ -63,7 +68,7 @@ export function imageTexture(world: World, id: number, isSrgb = true): GPUTextur
  * After warm, return a 2D view of a registered image's native-size texture. The world owns the
  * texture until disposal; callers must not destroy it. False isSrgb selects the independent data
  * ids. An unloaded or unknown id returns a role-local 1×1 fallback view and warns once per
- * nonnegative id.
+ * nonnegative id, except an id registered before warm on a host with no image decoder.
  */
 export function imageView(
     world: World,
@@ -172,6 +177,7 @@ export async function warmImages(world: World): Promise<void> {
     }
     state.warm = true;
     for (const [role, images] of [world.resource(Images), world.resource(DataImages)].entries()) {
+        if (typeof createImageBitmap === "undefined") state.undecoded[role] = images.size;
         for (let id = 0; id < images.size; id++) startImage(world, id, role);
     }
     await prepareImages(world);
