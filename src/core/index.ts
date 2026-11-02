@@ -66,6 +66,7 @@ export {
     Images,
     NotShadowCaster,
     PointLight,
+    prepareImages,
     RenderingPlugin,
     Resolution,
     registerImage,

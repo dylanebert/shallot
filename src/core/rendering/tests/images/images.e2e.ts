@@ -13,6 +13,20 @@ test("native registered image mips match the original texels' box average within
     expect(maxError).toBeLessThanOrEqual(1);
 });
 
+test("late URL and Blob images match every warm color and data mip without unrelated allocations", async ({
+    page,
+}) => {
+    await page.goto("/late.html");
+    await expect(page.locator("body")).toHaveText(
+        JSON.stringify({
+            equal: true,
+            loaded: { textures: 4, groups: 12 },
+            steady: { textures: 0, groups: 0 },
+            disposed: { textures: 0, groups: 0 },
+        }),
+    );
+});
+
 for (const multiple of [false, true]) {
     test(`registered image ignores its embedded linear RGB profile${multiple ? " alongside larger and data images" : ""}`, async ({
         page,

@@ -680,7 +680,7 @@ export const RenderingPlugin: Plugin = {
 export { computeClipFromWorld, computeViewFromWorld } from "./camera";
 export { Frame, FrameGpu } from "./frame";
 export { CULL_FRUSTUM, CULL_VOLUME_FLOATS } from "./frustum";
-export { Images, registerImage } from "./image";
+export { Images, prepareImages, registerImage } from "./image";
 
 export { RenderContext } from "./render";
 export {
