@@ -20,7 +20,7 @@ The glTF importer now maps these textures, their UV sets, normal scale and occlu
 
 ## Custom materials bind individual images
 
-`ImageBindings`, its shared arrays, `imageSettings` and shared sampler, and `sampleImage` are removed. `registerImage` still returns independent color and data ids. Images retain their native dimensions and full mip chains.
+`ImageBindings`, its shared arrays, `imageSettings` and shared sampler, `sampleImage`, and `imageArray` are removed. Replace `imageArray` with `registerImage(world, source)` during initialization, then use `imageView` or the material image binding kind after warm. `registerImage` still returns independent color and data ids. Images retain their native dimensions and full mip chains.
 
 In `materialLayout`, replace the array and settings bindings with `{ type: "image", field: "textureId" }`, where `textureId` names a `u32` or `i32` field in the material's parameter row. Add `isSrgb: false` for data-image ids. A binding named `map` supplies the 2D texture `layout.$.map` and filtering sampler `layout.$.mapSampler`; sample them with TypeGPU's `std.textureSample` or `std.textureSampleGrad`, without an array layer or settings texture. Each image binding occupies two binding numbers. A `-1` id selects a 1×1 fallback; an unloaded or unknown nonnegative id also selects the fallback and warns once.
 

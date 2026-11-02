@@ -54,8 +54,7 @@ const subjects = gpuApps(import.meta.path, [
 // What this covers: default and repeat samplers draw no detail boundary and
 // match independent hardware filtering or exact CPU trilinear filtering, respectively, from the near
 // rows through lod 4.5; an all-nearest sampler steps and draws only texels of its chain. The nearest
-// readback does not establish which level was selected; image-sampling.gpu.test.ts compares
-// selection against hardware.
+// readback does not establish which level was selected.
 
 // Observed on Apple M4 Max (Metal), 320x180: one selected level steps 230-270 per level of detail
 // within a row or two; filtering between levels stays below 75.

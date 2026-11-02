@@ -3,6 +3,16 @@ import { expect, test } from "../../../../../scripts/browser.fixture";
 
 test.use(pipelineWarnings);
 
+test("native registered image mips match the original texels' box average within one byte", async ({
+    page,
+}) => {
+    await page.goto("/mips.html");
+    await expect(page.locator("body")).toContainText('"maxError":');
+    const { maxError, ...dimensions } = JSON.parse(await page.locator("body").innerText());
+    expect(dimensions).toEqual({ width: 512, height: 512, mips: 10 });
+    expect(maxError).toBeLessThanOrEqual(1);
+});
+
 for (const multiple of [false, true]) {
     test(`registered image ignores its embedded linear RGB profile${multiple ? " alongside larger and data images" : ""}`, async ({
         page,
