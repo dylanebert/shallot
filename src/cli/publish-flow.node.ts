@@ -77,6 +77,7 @@ async function fixture() {
     };
     const packagePath = join(project, "package.json");
     writeFileSync(packagePath, JSON.stringify(manifest, null, 4));
+    writeFileSync(join(project, "bun.lock"), "{}");
     writeFileSync(join(project, "vite.config.js"), "export default {};\n");
     writeFileSync(join(project, "untouched.txt"), "creator's file\n");
     const statePath = join(root, "answers.json"),

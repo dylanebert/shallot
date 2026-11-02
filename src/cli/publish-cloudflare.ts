@@ -70,7 +70,7 @@ export function resolveWrangler(projectDir: string): string | undefined {
     const manifest = JSON.parse(readFileSync(path, "utf8"));
     if (manifest.version !== WRANGLER_VERSION)
         throw new Error(
-            `publish requires wrangler ${WRANGLER_VERSION}; run bun add --dev wrangler@${WRANGLER_VERSION}`,
+            `publish requires wrangler ${WRANGLER_VERSION}; add wrangler@${WRANGLER_VERSION} to the project's devDependencies`,
         );
     return resolve(dirname(path), manifest.bin.wrangler);
 }

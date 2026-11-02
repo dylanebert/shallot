@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import type { APIResponse, Browser, BrowserType, Page } from "playwright";
 import { CROSS_ORIGIN_ISOLATION, contentType } from "../project";
+import { installDev } from "./publish-dependencies";
 import { publishProgress } from "./publish-output";
 
 export interface PublishAsset {
@@ -42,20 +43,23 @@ export async function launchPublishChromium(
     }
 }
 
-export async function projectChromium(projectDir: string): Promise<Browser> {
+export function resolveProjectPlaywright(projectDir: string): string {
     const require = createRequire(join(projectDir, "package.json"));
-    let modulePath: string;
     try {
-        modulePath = require.resolve("playwright");
+        return require.resolve("playwright");
     } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "MODULE_NOT_FOUND") throw error;
         const range = JSON.parse(
             readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
         ).peerDependencies.playwright;
-        throw new Error(
-            `Verification needs this project's Playwright. Run bun add --dev playwright@${range}, then rerun publish.`,
-        );
+        installDev(projectDir, `playwright@${range}`);
+        return require.resolve("playwright");
     }
+}
+
+export async function projectChromium(projectDir: string): Promise<Browser> {
+    const require = createRequire(join(projectDir, "package.json"));
+    const modulePath = resolveProjectPlaywright(projectDir);
     const { chromium } = (await import(modulePath)) as typeof import("playwright");
     try {
         return await launchPublishChromium(chromium);

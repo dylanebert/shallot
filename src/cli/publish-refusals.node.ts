@@ -73,6 +73,9 @@ function fixture(answer: Answer): { project: string; original: string; commands:
         ...(answer.link ? { shallot: { publish: answer.link } } : {}),
     });
     writeFileSync(join(project, "package.json"), original);
+    const playwright = join(project, "node_modules/playwright");
+    mkdirSync(playwright, { recursive: true });
+    writeFileSync(join(playwright, "index.js"), "");
     writeFileSync(
         join(provider, "package.json"),
         JSON.stringify({
@@ -312,10 +315,10 @@ test("a saved account cannot be redirected through the environment", async () =>
     }
 });
 
-test("a missing project Playwright names its install command", async () => {
+test("a missing project Playwright names its devDependency", async () => {
     const project = mkdtempSync(join(root, "no-browser-"));
     writeFileSync(join(project, "package.json"), "{}");
-    await expect(projectChromium(project)).rejects.toThrow("bun add --dev playwright@");
+    await expect(projectChromium(project)).rejects.toThrow("Add playwright@");
 });
 
 test("missing Chromium installs through the project's declared Playwright binary", async () => {

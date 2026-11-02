@@ -3,7 +3,9 @@ import {
     existsSync,
     mkdirSync,
     mkdtempSync,
+    readdirSync,
     readFileSync,
+    rmSync,
     symlinkSync,
     writeFileSync,
 } from "node:fs";
@@ -88,6 +90,24 @@ test("the installed bin runs in a hand-written Node project and without Node und
             else expect(result.exitCode, output).not.toBe(0);
             return output;
         };
+        // This consumer's lockfile, rather than the fixture installer's, owns publish setup.
+        rmSync(join(cliProject, "bun.lock"), { force: true });
+        writeFileSync(join(cliProject, "package-lock.json"), "{}\n");
+        const projectFiles = () =>
+            readdirSync(cliProject)
+                .filter((name) => name !== "node_modules")
+                .map((name) => [name, readFileSync(join(cliProject, name), "utf8")]);
+        const beforePublish = projectFiles();
+        const installed = readdirSync(join(cliProject, "node_modules"));
+        const refusal = run("node", ["publish", "--target", "cloudflare"], false);
+        expect(refusal).toContain(`wrangler@${manifest.devDependencies.wrangler}`);
+        expect(refusal).toContain(
+            `Add wrangler@${manifest.devDependencies.wrangler} to the project's devDependencies`,
+        );
+        expect(refusal).toContain("devDependencies");
+        expect(refusal).not.toContain("bun add");
+        expect(projectFiles()).toEqual(beforePublish);
+        expect(readdirSync(join(cliProject, "node_modules"))).toEqual(installed);
         expect(run("node", ["--version"])).toContain(packageVersion);
         expect(run("node", ["--skill"])).toContain("shallot");
         run("node", ["migrate"]);

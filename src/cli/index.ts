@@ -52,11 +52,14 @@ const commandUsage = {
   wait until the upload is live and verify the public link anonymously with
   Playwright. stdout is the stable play link; progress and verification go to
   stderr. The target is saved in package.json's shallot.publish.
+  Missing Wrangler or Playwright is added to devDependencies only when the
+  project's nearest lockfile is bun.lock. Otherwise publish names the dependency
+  to add and refuses before building.
 
   cloudflare (the default): Workers Static Assets, 20,000 files and 25 MiB per file.
   Wrangler requires Node.js 22 or newer on PATH.
-  Missing pinned Wrangler is added to devDependencies inline. After a successful
-  deploy, shallot.publish (target, name, accountId) is saved in package.json.
+  After a successful deploy, shallot.publish (target, name, accountId) is saved in
+  package.json.
   Wrangler owns login and credentials. The account must match the link.
   First links are checked for name collisions after building, immediately before
   deployment.

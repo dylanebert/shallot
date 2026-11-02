@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -18,6 +17,7 @@ import {
     WRANGLER_VERSION,
     workerExists,
 } from "./publish-cloudflare";
+import { installDev } from "./publish-dependencies";
 import {
     BUTLER_LOGIN_REQUIRED,
     BUTLER_STATUS_TIMEOUT,
@@ -41,6 +41,7 @@ import {
     type PublishAsset,
     type PublishVerification,
     projectChromium,
+    resolveProjectPlaywright,
     verifyPublishedGame,
 } from "./publish-verify";
 
@@ -190,20 +191,6 @@ async function ask(question: string, fallback?: string): Promise<string> {
         );
     } finally {
         input.close();
-    }
-}
-
-function installDev(projectDir: string, dependency: string): void {
-    publishProgress(`Adding ${dependency} to the project's devDependencies.`);
-    const result = spawnSync("bun", ["add", "--dev", dependency], {
-        cwd: projectDir,
-        stdio: ["ignore", "pipe", "pipe"],
-        encoding: "utf8",
-    });
-    if (result.error) throw result.error;
-    if (result.status !== 0) {
-        publishProgress(result.stdout, result.stderr);
-        throw new Error(`Could not install ${dependency}.`);
     }
 }
 
@@ -495,6 +482,7 @@ export async function publishProject(projectDir: string, targetName?: string): P
             !!process.stdin.isTTY && !!process.stdout.isTTY,
         );
         const setup = await target.setup(projectDir, work, interactive, saved);
+        resolveProjectPlaywright(projectDir);
         await buildWeb(projectDir, { outDir: directory, stdout: "quiet" });
         const assets = publishAssets(directory);
         preflightPublish(assets, target.limits);

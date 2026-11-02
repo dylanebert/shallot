@@ -1,18 +1,31 @@
-import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { afterAll, expect, spyOn, test } from "bun:test";
+import * as childProcess from "node:child_process";
+import {
+    mkdirSync,
+    mkdtempSync,
+    readdirSync,
+    readFileSync,
+    rmSync,
+    statSync,
+    writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import * as project from "../project";
 import { parseCliArgs } from "./index";
 import {
     preflightPublish,
     publishHeaders,
     publishInteraction,
+    publishProject,
     readPublishLink,
     savePublishLink,
 } from "./publish";
+import * as cloudflare from "./publish-cloudflare";
 import {
     cloudflareConfig,
     cloudflareDeployment,
+    WRANGLER_VERSION,
     type WranglerResult,
     workerExists,
 } from "./publish-cloudflare";
@@ -182,3 +195,81 @@ test("deployment reporting consumes Wrangler's structured result, not its prose"
         "did not report",
     );
 });
+
+for (const lock of ["package-lock.json", "bun.lock"]) {
+    test(`${lock}: publish installs missing devDependencies only for Bun, before building`, async () => {
+        const directory = mkdtempSync(join(root, "dependencies-"));
+        // The lock belongs to the workspace, not the member.
+        const member = join(directory, "member");
+        mkdirSync(member);
+        writeFileSync(join(directory, lock), "{}");
+        writeFileSync(join(member, "package.json"), JSON.stringify({ name: "game" }));
+        const before = () =>
+            readdirSync(directory, { recursive: true }).map((path) => {
+                const file = join(directory, String(path));
+                return [path, statSync(file).isFile() ? readFileSync(file, "utf8") : null];
+            });
+        const original = before();
+        const installs: string[] = [];
+        const spawn = spyOn(childProcess, "spawnSync").mockImplementation(((
+            command: string,
+            args: readonly string[],
+        ) => {
+            expect(command).toBe("bun");
+            expect(args.slice(0, 2)).toEqual(["add", "--dev"]);
+            const dependency = args[2]!;
+            installs.push(dependency);
+            if (dependency.startsWith("playwright@")) {
+                const module = join(member, "node_modules/playwright");
+                mkdirSync(module, { recursive: true });
+                writeFileSync(join(module, "index.js"), "");
+            }
+            return { status: 0, stdout: "", stderr: "" } as ReturnType<
+                typeof childProcess.spawnSync
+            >;
+        }) as typeof childProcess.spawnSync);
+        const resolver = spyOn(cloudflare, "resolveWrangler").mockImplementation(() =>
+            installs.some((dependency) => dependency.startsWith("wrangler@"))
+                ? "fixture"
+                : undefined,
+        );
+        const run = spyOn(cloudflare, "runWrangler").mockReturnValue({
+            status: 0,
+            stdout: JSON.stringify({
+                loggedIn: true,
+                accounts: [{ id: "a".repeat(32), name: "fixture" }],
+            }),
+            stderr: "",
+            entries: [],
+        });
+        const build = spyOn(project, "buildWeb").mockRejectedValue(new Error("build boundary"));
+        try {
+            const error = await publishProject(member).then(
+                () => "",
+                (error: Error) => error.message,
+            );
+            if (lock === "package-lock.json") {
+                expect(error).toContain(`wrangler@${WRANGLER_VERSION}`);
+                expect(error).toContain("devDependencies");
+                expect(error).not.toMatch(/bun add|npm install|pnpm add|yarn add/);
+                expect(spawn).not.toHaveBeenCalled();
+                expect(before()).toEqual(original);
+            } else {
+                // Missing Playwright is installed in the same inline path, before any build.
+                expect(installs).toEqual([
+                    `wrangler@${WRANGLER_VERSION}`,
+                    `playwright@${JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).peerDependencies.playwright}`,
+                ]);
+            }
+            if (lock === "bun.lock") {
+                expect(error).toBe("build boundary");
+                expect(build).toHaveBeenCalledTimes(1);
+            } else expect(build).not.toHaveBeenCalled();
+        } finally {
+            spawn.mockRestore();
+            resolver.mockRestore();
+            run.mockRestore();
+            build.mockRestore();
+        }
+    });
+}

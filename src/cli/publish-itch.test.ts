@@ -22,6 +22,7 @@ import {
     liveItchBuild,
     waitForItchBuild,
 } from "./publish-itch";
+import * as verify from "./publish-verify";
 
 const recorded = JSON.parse(
     readFileSync(join(import.meta.dir, "fixtures/publish-itch.json"), "utf8"),
@@ -273,6 +274,7 @@ for (const key of ["stored-key", "", " \n", "\u0085", undefined]) {
         process.env.XDG_CONFIG_PATH = identity;
         const ensure = spyOn(itch, "ensureButler").mockResolvedValue("recorded-butler");
         const run = spyOn(itch, "runButler").mockReturnValue(answer("statusCompleted"));
+        const playwright = spyOn(verify, "resolveProjectPlaywright").mockReturnValue("fixture");
         const build = spyOn(projectBuild, "buildWeb").mockRejectedValue(
             new Error("setup accepted; build reached"),
         );
@@ -287,6 +289,7 @@ for (const key of ["stored-key", "", " \n", "\u0085", undefined]) {
             ensure.mockRestore();
             run.mockRestore();
             build.mockRestore();
+            playwright.mockRestore();
             for (const [name, value] of Object.entries(env)) {
                 if (value === undefined) delete process.env[name];
                 else process.env[name] = value;

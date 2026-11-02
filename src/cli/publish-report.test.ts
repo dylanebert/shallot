@@ -88,6 +88,7 @@ for (const scenario of [
                 spyOn(globalThis, "fetch").mockResolvedValue(
                     new Response(null, { status: pending ? 404 : 200 }),
                 ),
+                spyOn(verify, "resolveProjectPlaywright").mockReturnValue("fixture"),
                 spyOn(verify, "projectChromium").mockResolvedValue({
                     close: async () => {
                         seen.push({ stream: "stderr", text: "browser closed\n" });
