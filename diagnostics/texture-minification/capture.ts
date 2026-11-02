@@ -7,6 +7,7 @@ import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { createApp } from "../../src";
 import { genMipmapsLayer, registerImage } from "../../src/core/rendering/image";
 import { probeTexture } from "../../src/engine";
+import { type GltfJson, parse } from "../../src/extras/gltf";
 import { MeshRenderPlugin, StandardRenderingPlugin } from "../../src/standard/rendering";
 import {
     boxLevel,
@@ -96,12 +97,19 @@ function generatedGltf() {
         list.push({ buffer: 0, byteOffset, byteLength: array.byteLength });
         return list;
     }, []);
-    const json = {
+    const json: GltfJson = {
         asset: { version: "2.0" },
         buffers: [{ byteLength: bytes.length }],
         bufferViews: views,
         accessors: [
-            { bufferView: 0, componentType: 5126, count, type: "VEC3", min: [-HALF, 0, NEAR - 2 * HALF], max: [HALF, 0, NEAR] },
+            {
+                bufferView: 0,
+                componentType: 5126,
+                count,
+                type: "VEC3",
+                min: [-HALF, 0, NEAR - 2 * HALF],
+                max: [HALF, 0, NEAR],
+            },
             { bufferView: 1, componentType: 5126, count, type: "VEC3" },
             { bufferView: 2, componentType: 5126, count, type: "VEC2" },
             { bufferView: 3, componentType: 5125, count: PLANE_INDICES.length, type: "SCALAR" },
@@ -141,33 +149,8 @@ function nearestLevel(rgba: Uint8ClampedArray, i: number): number {
 
 await setupGlobals();
 await mkdir(out, { recursive: true });
-// The importer runs in its own checkout, so its pinned Shallot and TypeGPU stay out of this process.
-const gltfCheckout = process.env.SHALLOT_GLTF;
-let imported:
-    | {
-          meshes: { vertices: Float32Array }[];
-          textures: { sampler: Record<string, number> }[];
-          unsupported: string[];
-      }
-    | undefined;
-if (gltfCheckout) {
-    const { json, buffer } = generatedGltf();
-    await writeFile(resolve(out, "plane.gltf"), JSON.stringify(json));
-    await writeFile(resolve(out, "plane.bin"), new Uint8Array(buffer));
-    const script = `import { parse } from "./src/gltf.ts";
-const json = JSON.parse(await Bun.file(${JSON.stringify(resolve(out, "plane.gltf"))}).text());
-const bin = await Bun.file(${JSON.stringify(resolve(out, "plane.bin"))}).arrayBuffer();
-const scene = parse(json, [bin]);
-console.log(JSON.stringify({ vertices: [...scene.meshes[0].vertices], sampler: scene.textures[0].sampler, unsupported: scene.unsupported }));`;
-    const child = Bun.spawnSync(["bun", "-e", script], { cwd: gltfCheckout });
-    if (child.exitCode !== 0) throw new Error(child.stderr.toString());
-    const result = JSON.parse(child.stdout.toString().trim().split("\n").at(-1)!);
-    imported = {
-        meshes: [{ vertices: new Float32Array(result.vertices) }],
-        textures: [{ sampler: result.sampler }],
-        unsupported: result.unsupported,
-    };
-}
+const { json, buffer } = generatedGltf();
+const imported = parse(json, [buffer]);
 const ids: Record<string, number> = {};
 const app = await createApp({
     defaults: false,
@@ -184,10 +167,9 @@ const app = await createApp({
                 ids.nearest = registerImage(world, new Blob(), {
                     sampler: { ...REPEAT, ...NEAREST },
                 });
-                if (imported)
-                    ids.imported = registerImage(world, new Blob(), {
-                        sampler: imported.textures[0].sampler,
-                    });
+                ids.imported = registerImage(world, new Blob(), {
+                    sampler: imported.textures[0].sampler,
+                });
             },
         },
     ],
@@ -223,7 +205,7 @@ for (let level = 0; level < texture.mipLevelCount; level++) {
     above = bytes;
 }
 
-const vertices = imported ? imported.meshes[0].vertices : planeVertices();
+const vertices = imported.meshes[0].vertices;
 const plane = spawnRecedingPlane(world, ids.hardware, SIZES, vertices);
 const report: Record<string, unknown> = {
     adapter,
@@ -267,15 +249,16 @@ for (const [name, list] of Object.entries(captures)) {
         };
     });
 }
-if (imported) {
-    report.importer = {
-        sampler: imported.textures[0].sampler,
-        unsupported: imported.unsupported,
-        identicalToDirectRepeat: captures.imported.every((capture, index) =>
-            capture.rgba.every((byte, i) => byte === captures.manual[index].rgba[i]),
-        ),
-    };
-}
+const importer = {
+    sampler: imported.textures[0].sampler,
+    unsupported: imported.unsupported,
+    identicalToDirectRepeat: captures.imported.every((capture, index) =>
+        capture.rgba.every((byte, i) => byte === captures.manual[index].rgba[i]),
+    ),
+};
+report.importer = importer;
+if (!importer.identicalToDirectRepeat)
+    throw new Error("glTF render differs from direct repeat registration");
 await writeFile(resolve(out, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
 const summary = Object.fromEntries(
     Object.entries(report).map(([key, value]) => [

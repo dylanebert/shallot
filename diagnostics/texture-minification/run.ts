@@ -12,9 +12,8 @@ of pixels whose selected level matches the level the geometry predicts.
 bun diagnostics/texture-minification/run.ts [label]
 ```
 
-Set `SHALLOT_GLTF` to a shallot-gltf checkout to also decode an equivalent
-generated glTF (plane, repeat sampler, unspecified filters) and compare its render with direct
-registration byte for byte.
+Always decodes an equivalent generated glTF (plane, repeat sampler, unspecified filters) with
+the engine's importer and compares its render with direct registration byte for byte.
 */
 
 import { shallot } from "@dylanebert/shallot/bun";

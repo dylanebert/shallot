@@ -4,6 +4,7 @@
 
 ### highlights
 
+- added gltf loading as `@dylanebert/shallot/gltf`, replacing the deprecated `@dylanebert/shallot-gltf` package
 - changed physics reference from box3d `47d7f7cc` to `3362633`, including upstream collision and solver fixes
 - added `Body.safetyFactor`, `PhysicsWorldDefinition.restitutionIterations`, `PhysicsWorldDefinition.enableRestitutionPropagation` and `PhysicsWorldDefinition.isotropicInertiaTolerance`
 - added `MoverJoint` and `PogoJoint`, including carried pogo impulse and velocity

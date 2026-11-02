@@ -49,6 +49,8 @@ interface Accessor {
     byteOffset?: number;
     componentType: number;
     normalized?: boolean;
+    min?: number[];
+    max?: number[];
     count: number;
     type: "SCALAR" | "VEC2" | "VEC3" | "VEC4" | "MAT2" | "MAT3" | "MAT4";
     sparse?: {

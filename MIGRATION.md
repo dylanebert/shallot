@@ -4,6 +4,10 @@ Start with the compiler errors in your app. Search this guide for the old symbol
 
 Code fragments assume an owning `world`, an existing entity `eid`, and the imports named in the surrounding text.
 
+## glTF loading moves into the engine
+
+Remove the deprecated `@dylanebert/shallot-gltf` dependency (`bun remove @dylanebert/shallot-gltf`) and change its imports to `@dylanebert/shallot/gltf`. All previous export names remain available, but `spawnGltfScene(world, gltf, placement)` now returns a `GltfSceneInstance` instead of an entity-id array; use its `.entities` for the spawned ids. Add `GltfPlugin` to the app's plugins when loading scenes with skins or morph targets; static scenes do not require it. CPU-only `parse` and `loadGltf` do not require the plugin.
+
 ## Standard material texture roles and vertex color
 
 `StandardMaterial` now multiplies base color by the mesh's `color` stream, including alpha; an absent stream remains white. It accepts `normalMapTexture`, `metallicRoughnessTexture`, `occlusionTexture` and `emissiveTexture`, with `normalMapChannel`, `metallicRoughnessChannel`, `occlusionChannel` and `emissiveChannel`. `baseColorChannel` also selects the base-color UV set. Channels are `0` (UV) or `1` (UV_1, falling back to UV when absent).
