@@ -14,6 +14,7 @@ import { changeControl } from '../src/scenes';
 import { BodySamplePlugin } from '../src/bodies';
 import { ShapesSamplePlugin } from '../src/shapes';
 import { createViewer } from '../src/view';
+import { ShapeMaterialPlugin } from '../src/material';
 import { VillagePlugin } from '../src/village';
 import { GeometricMoverPlugin, GeometricMoverState } from '../src/geometric-mover';
 import { DynamicMoverPlugin, DynamicMoverState } from '../src/dynamic-mover-scene';
@@ -30,7 +31,7 @@ import { TreeBenchmarkPlugin } from '../src/tree';
 import { Grab, GrabPlugin } from '../src/grab';
 // Controls checks read game state and the DOM; the camera excludes scene geometry and keeps a small canvas.
 const Viewer={create:createViewer};
-const app = await createApp({plugins:[StandardPhysicsPlugin,GrabPlugin,VillagePlugin,TreeBenchmarkPlugin,DeterminismPlugin,WorldSamplePlugin,RobustnessSamplePlugin,ManifoldPlugin,GeometryPlugin,CollisionPlugin,CollisionDebugPlugin,MeshSamplePlugin,ShapesSamplePlugin,BodySamplePlugin,GeometricMoverPlugin,DynamicMoverPlugin,RigidBodyPlugin,EventSamplePlugin,SampleInputPlugin,TextPlugin,OrbitPlugin,LinesPlugin,{name:'SampleViewer',dependencies:[OrbitPlugin],initialize(world){world.resource(Viewer);}}],pixelRatio:0.05,setup(world){world.resource(PhysicsWorldDefinition).workerCount=1;}});
+const app = await createApp({plugins:[StandardPhysicsPlugin,ShapeMaterialPlugin,GrabPlugin,VillagePlugin,TreeBenchmarkPlugin,DeterminismPlugin,WorldSamplePlugin,RobustnessSamplePlugin,ManifoldPlugin,GeometryPlugin,CollisionPlugin,CollisionDebugPlugin,MeshSamplePlugin,ShapesSamplePlugin,BodySamplePlugin,GeometricMoverPlugin,DynamicMoverPlugin,RigidBodyPlugin,EventSamplePlugin,SampleInputPlugin,TextPlugin,OrbitPlugin,LinesPlugin,{name:'SampleViewer',dependencies:[OrbitPlugin],initialize(world){world.resource(Viewer);}}],pixelRatio:0.05,setup(world){world.resource(PhysicsWorldDefinition).workerCount=1;}});
 const world=app.world;
 const container=mountOverlay(document.querySelector('canvas'),world);
 const replace=sceneSwitcher(world,world.resource(Viewer));

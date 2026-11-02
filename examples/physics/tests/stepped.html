@@ -8,12 +8,13 @@ import { captureFrame, worldToViewport } from '@dylanebert/shallot/rendering';
 import { LinesPlugin, OrbitPlugin } from '@dylanebert/shallot/extras';
 import { createScene } from '../src/scenes';
 import { createViewer, GrabFeedback } from '../src/view';
+import { ShapeMaterialPlugin } from '../src/material';
 import { Grab, GrabPlugin } from '../src/grab';
 const params=new URLSearchParams(location.search);
 const scene=params.get('scene') || 'boxStack';
 const bodyIndex=scene==='bridge'?10:scene==='boxStack'?20:0;
 let bodies;
-const app = await createApp({ plugins: [StandardPhysicsPlugin, LinesPlugin, OrbitPlugin, GrabPlugin, {name:'SampleView', dependencies:[MeshPlugin,StandardPhysicsPlugin], initialize(world){
+const app = await createApp({ plugins: [StandardPhysicsPlugin, ShapeMaterialPlugin, LinesPlugin, OrbitPlugin, GrabPlugin, {name:'SampleView', dependencies:[MeshPlugin,StandardPhysicsPlugin], initialize(world){
  createViewer(world)(world,scene);
  const camera=[...world.query([Camera])][0];
  world.storage(Camera).antialias.set(camera,0);
