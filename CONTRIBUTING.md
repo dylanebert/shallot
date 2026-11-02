@@ -246,7 +246,7 @@ sh scripts/lavapipe.sh HEAD sh scripts/browser.sh
 | Checks or documentation only | The changed checks; `bun check`; `bun run lint` |
 
 - A speed claim names its scene, thread count and phase before the A/B; only that phase's verdict decides it, and no difference is not equivalence
-- A code change's final candidate runs once every row's set but the A/B, with every `diagnostics/box3d-parity` oracle
+- A code change's final candidate runs once every row's set but the A/B, with every `diagnostics/box3d-parity` oracle that can fail on it: one whose sources, imports, corpus, kernel or pin it changes
 
 ### CI coverage
 
