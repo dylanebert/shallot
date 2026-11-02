@@ -46,6 +46,8 @@ for (const width of [1280, 390])
                 expect((await state()).keys.Control).toBe(1);
                 await page.keyboard.up("Control");
                 await page.mouse.down({ button: "right" });
+                await state(12);
+                await expect(page.locator(".reticle")).toBeVisible();
                 await page.mouse.down({ button: "left" });
                 await state(1);
                 expect((await state()).keys).toMatchObject({ Control: 0, Aim: 1, Shoot: 1 });
@@ -76,6 +78,7 @@ for (const width of [1280, 390])
                     });
                     await state(1);
                 }
+                await expect(page.locator(".reticle")).toBeVisible();
                 expect((await state()).keys).toMatchObject({ Control: 1, Aim: 1, Shoot: 1 });
                 expect((await state()).balls).toBe(1);
                 await session.send("Input.dispatchTouchEvent", {
@@ -86,6 +89,7 @@ for (const width of [1280, 390])
             }
             await state(1);
             expect((await state()).keys).toMatchObject({ Control: 0, Aim: 0, Shoot: 0 });
+            await expect(page.locator(".reticle")).toBeHidden();
             const frame = await page.evaluate(() =>
                 (
                     window as unknown as {

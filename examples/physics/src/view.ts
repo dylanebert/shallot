@@ -1,4 +1,5 @@
 import {
+    AlphaMode,
     Camera,
     DirectionalLight,
     type EntityRef,
@@ -41,6 +42,7 @@ import {
     shapeEdges,
     shapeMesh,
 } from "@dylanebert/shallot/standard/physics";
+import type { MaterialHandle } from "@dylanebert/shallot/standard/rendering";
 import { benchmarkVillageDrawing } from "./benchmark-village";
 import { drawCastView } from "./cast-presentation";
 import { characterDrawing, drawCharacterView } from "./character-presentation";
@@ -55,7 +57,7 @@ import { drawingBounds, drawSet } from "./draw-set";
 import { drawingHistory } from "./drawing-history";
 import { DrivingState } from "./driving";
 import { dynamicMoverDrawing } from "./dynamic-mover-presentation";
-import { DynamicMoverState } from "./dynamic-mover-scene";
+import { DynamicMoverPlugin, DynamicMoverState } from "./dynamic-mover-scene";
 import { EventSample } from "./events";
 import { GeometricMoverState } from "./geometric-mover";
 import { drawGeometry } from "./geometry-presentation";
@@ -140,7 +142,12 @@ export function createViewer(world: World): (world: World, scene: Scene) => () =
     world.add(camera, StandardRenderer);
     world.add(camera, Orbit);
     world.add(camera, Transform);
-    return (world, scene) => createView(world, scene, camera);
+    const moverMaterial = world
+        .resource(Materials)
+        .add(StandardMaterial({ baseColor: [0.04, 0.43, 0.53, 1], perceptualRoughness: 0.38 }), {
+            alphaMode: AlphaMode.Blend,
+        });
+    return (world, scene) => createView(world, scene, camera, moverMaterial);
 }
 
 export function setSceneCamera(world: World, scene: Scene, camera: number): void {
@@ -198,7 +205,12 @@ export function setSceneCamera(world: World, scene: Scene, camera: number): void
     );
 }
 
-function createView(world: World, scene: Scene, camera: number): () => void {
+function createView(
+    world: World,
+    scene: Scene,
+    camera: number,
+    moverMaterial: MaterialHandle,
+): () => void {
     const systems: System[] = [];
     function addSystem(system: System): void {
         systems.push(system);
@@ -321,7 +333,49 @@ function createView(world: World, scene: Scene, camera: number): () => void {
             handle,
         ]),
     );
+    const aimedMoverMaterial = scene === "dynamicMover" ? moverMaterial : undefined;
+    let moverOpacity = 1;
+    if (aimedMoverMaterial) {
+        let aimBlend = 0;
+        const orbit = world.storage(Orbit);
+        const radius = orbit.distance.get(camera);
+        const pivot = world.get(camera, Orbit)!.pan;
+        addSystem({
+            name: "dynamic-mover-aim-view",
+            group: "setup",
+            after: [DynamicMoverPlugin.systems![0]!],
+            update(world) {
+                const s = world.resource(DynamicMoverState);
+                aimBlend = Math.max(
+                    0,
+                    Math.min(
+                        1,
+                        aimBlend + ((s.keys.Aim ? 1 : -1) * world.time.realDeltaTime) / 0.2,
+                    ),
+                );
+                const blend = aimBlend * aimBlend * (3 - 2 * aimBlend);
+                orbit.distance.set(camera, radius + blend * (Math.min(radius, 0.8) - radius));
+                orbit.pan.set(
+                    camera,
+                    pivot[0] + blend * 0.6 * s.right.x,
+                    pivot[1] + blend * 0.75,
+                    pivot[2] + blend * 0.6 * s.right.z,
+                );
+                moverOpacity = 1 - 0.7 * blend;
+                materials.update(aimedMoverMaterial, {
+                    baseColor: [0.04, 0.43, 0.53, moverOpacity],
+                });
+            },
+        });
+    }
     function materialFor(role: keyof typeof roles, eid: number) {
+        if (
+            aimedMoverMaterial &&
+            (world.storage(Shape).body.get(eid) || eid) === world.resource(DynamicMoverState).entity
+        ) {
+            if (world.has(eid, Gizmo)) world.storage(Gizmo).opacity.set(eid, 0.45 * moverOpacity);
+            return aimedMoverMaterial;
+        }
         const material = shapeMaterial(world, role, eid);
         let handle = stateMaterials.get(material);
         if (!handle) {

@@ -23,6 +23,7 @@ const controls = {
         buttons: [] as HTMLButtonElement[],
         stick: undefined as HTMLDivElement | undefined,
         knob: undefined as HTMLDivElement | undefined,
+        reticle: undefined as HTMLSpanElement | undefined,
     }),
 };
 
@@ -65,6 +66,7 @@ export function readPlayerControls(world: World, keys: Keys, forward: Vector, ri
         );
     if ("Aim" in keys)
         keys.Aim = Number(active && (devices.pointer.right || devices.keys.held.has("KeyQ")));
+    if (ui.reticle) ui.reticle.hidden = !keys.Aim;
     if ("Shoot" in keys) keys.Shoot = Number(active && devices.keys.held.has("KeyF"));
     if (ui.sampledTick !== world.time.fixedTick || !active || world.time.paused)
         ui.jumpPending = ui.shootPending = false;
@@ -125,6 +127,15 @@ export function mountPlayerControls(world: World, dynamicMover = false): () => v
         root = document.createElement("div");
         root.className = "player-controls";
         mountOverlay(document.querySelector("canvas"), world).append(root);
+        if (dynamicMover) {
+            const reticle = document.createElement("span");
+            reticle.className = "reticle";
+            reticle.hidden = true;
+            reticle.style.cssText =
+                "position:absolute;top:50%;left:50%;box-sizing:border-box;width:12px;height:12px;border:1px solid #f0e6d6;border-radius:50%;transform:translate(-50%,-50%);pointer-events:none";
+            root.append(reticle);
+            ui.reticle = reticle;
+        }
         const buttons: [string, string, number][] = [
             ["Jump", "Space", 104],
             ["Sprint", "ShiftLeft", 176],
@@ -177,6 +188,7 @@ export function mountPlayerControls(world: World, dynamicMover = false): () => v
         ui.sampledTick = -1;
         ui.stick = undefined;
         ui.knob = undefined;
+        ui.reticle = undefined;
         releaseKey(world, "Space");
         releaseKey(world, "ShiftLeft");
         for (const key of ["ControlLeft", "KeyQ", "KeyF"]) releaseKey(world, key);
