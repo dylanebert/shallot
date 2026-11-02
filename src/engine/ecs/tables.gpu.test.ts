@@ -55,6 +55,46 @@ async function stepAndValidate(world: World, label: string): Promise<void> {
 const Record = d.struct({ amount: d.f32, tag: d.u32 });
 const Rows = { amount: f32, tag: u32 };
 
+const ObservedRows = component("ObservedRows", { ...Rows });
+const observedRows = subject("ObservedRows", [ObservedRows], (world) => {
+    const table = world.table("observed-rows", Record);
+    table.bindComponent(ObservedRows, { amount: "amount", tag: "tag" });
+    return table;
+});
+
+test("row observers report changed rows and membership, not the enclosing upload span", () => {
+    const { world, table } = observedRows();
+    const eids = Array.from({ length: 3 }, () => {
+        const eid = world.create();
+        world.add(eid, ObservedRows);
+        return eid;
+    });
+    world.step(0);
+    const rows = eids.map((eid) => table.rowIndex(eid));
+    const events: [number, boolean][] = [];
+    const stop = table.observeRows((row, present) => events.push([row, present]));
+    try {
+        world.storage(ObservedRows).amount.set(eids[0]!, 1);
+        world.storage(ObservedRows).tag.set(eids[2]!, 2);
+        world.step(0);
+        expect(events).toEqual([
+            [rows[0]!, true],
+            [rows[2]!, true],
+        ]);
+        events.length = 0;
+        world.storage(ObservedRows).amount.set(eids[0]!, 1);
+        world.step(0);
+        expect(events).toEqual([]);
+        world.remove(eids[1]!, ObservedRows);
+        expect(events).toEqual([[rows[1]!, false]]);
+        events.length = 0;
+        table.markRange(rows[0]!, 1);
+        expect(events).toEqual([[rows[0]!, true]]);
+    } finally {
+        stop();
+    }
+});
+
 const sharedRows = subject("SharedRows", [], (world) => world.table("row-owner", Record));
 
 test("GPU-only records share one row assignment and metadata across growth, reuse and disposal", async () => {

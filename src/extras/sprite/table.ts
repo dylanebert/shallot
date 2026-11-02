@@ -53,30 +53,7 @@ export function createSpriteSource(
     table.bindFields(Anchor, { anchor: "offset" });
     table.bindPresence(Anchor, "flags");
     const sprite = world.storage(Sprite);
-    const terms = [Sprite];
     let keys = 1 << AlphaPipelineKey.Mask;
-    let activeKeys = 0;
-    const rowKeys: (number | undefined)[] = [];
-    const keyCounts = new Uint32Array(AlphaPipelineKey.Blend + 1);
-    const removeKey = (eid: number) => {
-        const key = rowKeys[eid];
-        if (key === undefined) return;
-        if (--keyCounts[key]! === 0) activeKeys &= ~(1 << key);
-        rowKeys[eid] = undefined;
-    };
-    const reconcileKey = (eid: number) => {
-        const mode = sprite.alphaMode.x.get(eid);
-        let key: number;
-        if (mode === AlphaModeCode.Mask) key = AlphaPipelineKey.Mask;
-        else if (mode === AlphaModeCode.Blend) key = AlphaPipelineKey.Blend;
-        else throw new RangeError(`Sprite ${eid}: alphaMode must be SpriteAlphaMode.Mask or Blend`);
-        if (rowKeys[eid] === key) return;
-        removeKey(eid);
-        rowKeys[eid] = key;
-        keyCounts[key]!++;
-        activeKeys |= 1 << key;
-        keys |= 1 << key;
-    };
     const reconcileKeys = () => {
         const dirty = world.fieldStorage(Sprite, "alphaMode").dirty;
         for (let word = 0; word < dirty.length; word++) {
@@ -85,17 +62,18 @@ export function createSpriteSource(
                 const bit = bits & -bits;
                 bits ^= bit;
                 const eid = (word << 5) + 31 - Math.clz32(bit);
-                if (world.has(eid, Sprite)) reconcileKey(eid);
+                if (!world.has(eid, Sprite)) continue;
+                const mode = sprite.alphaMode.x.get(eid);
+                if (mode === AlphaModeCode.Mask) keys |= 1 << AlphaPipelineKey.Mask;
+                else if (mode === AlphaModeCode.Blend) keys |= 1 << AlphaPipelineKey.Blend;
+                else
+                    throw new RangeError(
+                        `Sprite ${eid}: alphaMode must be SpriteAlphaMode.Mask or Blend`,
+                    );
             }
         }
     };
     table.setUploadPreparation(reconcileKeys);
-    world.onDispose(
-        world.observeMembership(Sprite, (eid, present) => {
-            if (!present) removeKey(eid);
-        }),
-    );
-    for (const eid of world.query(terms)) reconcileKey(eid);
     let view: DataView | undefined;
     const alphaOffset = d.memoryLayoutOf(input, (row) => row.alphaMode).offset;
     const sizeOffset = d.memoryLayoutOf(input, (row) => row.size).offset;
@@ -139,10 +117,6 @@ export function createSpriteSource(
         get pipelineKeys() {
             reconcileKeys();
             return keys;
-        },
-        get activePipelineKeys() {
-            reconcileKeys();
-            return activeKeys;
         },
         alphaMode(row: number) {
             return parameters().getFloat32(row * table.rowBytes + alphaOffset, true);

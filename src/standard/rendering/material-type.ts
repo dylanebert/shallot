@@ -649,9 +649,6 @@ export type AlphaPipelineKey = (typeof AlphaPipelineKey)[keyof typeof AlphaPipel
  * alphaMode and cullMode read the selected row for CPU transparent sorting; cullMode omitted is
  * CullModeCode.Back. pipelineKeys is the growing bitset of `1 << pipelineKey(alphaPipelineKey,
  * cullMode)` values the type can draw, including keys reserved for precompilation.
- * activePipelineKeys, when supplied, bounds draw publication to keys held by live rows. It is a
- * subset of pipelineKeys, may shrink, and must be current before MeshPreprocessSystem; omitting it
- * keeps pipelineKeys as the bound for sources whose live keys are not known on the CPU.
  * Rows remain valid for the source's stated lifetime.
  * cullBounds, when supplied, reads the selected row and writes a local-space [x, y, z, radius] sphere
  * into caller-owned scratch during transparent queuing. Shared consumers use the same row's geometry;
@@ -659,7 +656,6 @@ export type AlphaPipelineKey = (typeof AlphaPipelineKey)[keyof typeof AlphaPipel
 export interface MaterialSource<P extends AnyWgslStruct = AnyWgslStruct> {
     readonly table: GpuTable<P>;
     readonly pipelineKeys: number;
-    readonly activePipelineKeys?: number;
     alphaMode(row: number): number;
     cullMode?(row: number): number;
     cullBounds?(row: number, out: Float32Array): void;

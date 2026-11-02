@@ -111,6 +111,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     private _lastUploadSize = 0;
     private _boundFieldsPrepared = false;
     private _consumers: Consumer[] = [];
+    private _rowObservers: ((row: number, present: boolean) => void)[] = [];
 
     private _eidToRow = new Uint32Array(0);
     private _mapCapacity = 0;
@@ -309,6 +310,8 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         const last = firstRow + count - 1;
         this._dirtyFirst = Math.min(this._dirtyFirst, firstRow);
         this._dirtyLast = Math.max(this._dirtyLast, last);
+        if (this._rowObservers.length)
+            for (let row = firstRow; row <= last; row++) this.notifyRow(row, true);
     }
 
     /** Bind component fields to this struct table and use component membership to allocate rows. */
@@ -565,6 +568,19 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         return () => removeConsumer(this._activeConsumers, consumer);
     }
 
+    /** Observe rows changed by bound-field writes or activation/removal; explicit markRange calls
+     * report each marked row. Notifications may repeat within an upload and precede its completion;
+     * consumers must defer reading derived values until all tables have uploaded. @internal */
+    observeRows(observer: (row: number, present: boolean) => void): () => void {
+        if (this._rowSource) return this._rowSource.observeRows(observer);
+        this._rowObservers.push(observer);
+        return () => removeConsumer(this._rowObservers, observer);
+    }
+
+    private notifyRow(row: number, present: boolean): void {
+        for (let i = 0; i < this._rowObservers.length; i++) this._rowObservers[i]!(row, present);
+    }
+
     /** Register reconciliation of fields derived only for this table, immediately before gathering them.
      * Runs even without marked fields, including explicit prepareUpload calls; uploading already prepared
      * fields does not call it again. Must not change another table's inputs. @internal */
@@ -643,6 +659,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     dispose(): void {
         if (this._disposed) return;
         this._disposed = true;
+        this._rowObservers.length = 0;
         if (this._rowSource) {
             const followers = this._rowSource._rowFollowers;
             const index = followers.indexOf(this);
@@ -736,6 +753,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
             }
             this._dirtyFirst = Math.min(this._dirtyFirst, row);
             this._dirtyLast = Math.max(this._dirtyLast, row);
+            this.notifyRow(row, true);
         }
     }
 
@@ -784,6 +802,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
                         if (changed) {
                             this._dirtyFirst = Math.min(this._dirtyFirst, row);
                             this._dirtyLast = Math.max(this._dirtyLast, row);
+                            this.notifyRow(row, true);
                         }
                     }
                 }
@@ -950,6 +969,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         this._activeRows[activeIndex * 2] = eid;
         this._activeRows[activeIndex * 2 + 1] = row;
         this._activeDirty = true;
+        this.notifyRow(row, true);
     }
 
     private deactivateRow(row: number): void {
@@ -964,6 +984,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         this._activeIndex[lastRow] = index;
         this._activeIndex[row] = -1;
         this._activeDirty = true;
+        this.notifyRow(row, false);
     }
 
     private uploadActiveRows(): void {
@@ -981,7 +1002,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     }
 }
 
-function removeConsumer(consumers: Consumer[], consumer: Consumer): void {
+function removeConsumer<T>(consumers: T[], consumer: T): void {
     const index = consumers.indexOf(consumer);
     if (index >= 0) consumers.splice(index, 1);
 }
