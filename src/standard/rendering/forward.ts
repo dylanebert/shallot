@@ -18,26 +18,23 @@ import {
     CorePipelinePlugin,
     CULL_FRUSTUM,
     CULL_VOLUME_FLOATS,
-    DEPTH_FORMAT,
     DepthPrepassRequests,
     globalTransformTable,
     initialStackedViews,
     MainPassSystem,
-    NORMAL_FORMAT,
     NormalPrepassRequests,
     PrepareViewsSystem,
     PrepassSystem,
     RenderContext,
     RenderPhases,
     renderLayers,
-    SAMPLE_COUNT,
     type TransparentPhase,
     Views,
 } from "../../core/rendering";
 import { GlobalTransform } from "../../core/transform";
 import type { Plugin, System, World } from "../../engine";
 import { component, u32 } from "../../engine";
-import { executeRenderBundles, withPipelineOwner } from "../../engine/runtime";
+import { withPipelineOwner } from "../../engine/runtime";
 import {
     cascadeRegather,
     disposeShadowAtlas,
@@ -56,7 +53,7 @@ import {
 } from "./atlas";
 import { boundPipeline } from "./bound";
 import type { BundleDraw, PassBundle } from "./bundle";
-import { bundleChanged, bundleDraw, newPassBundle, recordBundle } from "./bundle";
+import { bundleChanged, bundleDraw, newPassBundle, recordBundle, replayBundle } from "./bundle";
 import {
     CullLightsSystem,
     initializeClusterState,
@@ -172,10 +169,8 @@ interface StandardRendererState {
     lastTransparentGroup0: GPUBindGroup | null;
     lastTransparentGroup1: GPUBindGroup | null;
     lastTransparentGroup2: GPUBindGroup | null;
-    colorBundleDesc: GPURenderBundleEncoderDescriptor & { colorFormats: GPUTextureFormat[] };
     colorBundles: Map<number, PassBundle>;
     colorProgram: BundleDraw[];
-    prepassBundleDesc: GPURenderBundleEncoderDescriptor & { colorFormats: GPUTextureFormat[] };
     prepassBundles: Map<number, PassBundle>;
     prepassProgram: BundleDraw[];
     pointFrames: PointShadowFrame[];
@@ -218,20 +213,8 @@ function createStandardRendererState(): StandardRendererState {
         lastTransparentGroup0: null,
         lastTransparentGroup1: null,
         lastTransparentGroup2: null,
-        colorBundleDesc: {
-            label: "standard-color",
-            colorFormats: [],
-            depthStencilFormat: DEPTH_FORMAT,
-            sampleCount: 1,
-        },
         colorBundles: new Map(),
         colorProgram: [],
-        prepassBundleDesc: {
-            label: "standard-prepass",
-            colorFormats: [],
-            depthStencilFormat: DEPTH_FORMAT,
-            sampleCount: 1,
-        },
         prepassBundles: new Map(),
         prepassProgram: [],
         pointFrames: [],
@@ -702,9 +685,6 @@ function renderPrepass(
 
     if (!view.framebuffer) return;
     const antialias = world.storage(Camera).antialias.get(eid) !== 0;
-    _standardRendererState.prepassBundleDesc.sampleCount = antialias ? SAMPLE_COUNT : 1;
-    _standardRendererState.prepassBundleDesc.colorFormats.length = view.normal ? 1 : 0;
-    if (view.normal) _standardRendererState.prepassBundleDesc.colorFormats[0] = NORMAL_FORMAT;
     if (!antialias) {
         for (let i = 0; i < count; i++) {
             const material = items[i]!.r.t;
@@ -743,23 +723,9 @@ function renderPrepass(
         bundle = newPassBundle();
         _standardRendererState.prepassBundles.set(eid, bundle);
     }
-    if (
-        bundleChanged(
-            bundle,
-            _standardRendererState.prepassProgram,
-            draws,
-            _standardRendererState.prepassBundleDesc,
-        )
-    ) {
-        recordBundle(
-            world,
-            bundle,
-            _standardRendererState.prepassProgram,
-            draws,
-            _standardRendererState.prepassBundleDesc,
-        );
-    }
-    if (bundle.bundle) pass.executeBundles(bundle.replay);
+    if (bundleChanged(bundle, _standardRendererState.prepassProgram, draws))
+        recordBundle(world, bundle, _standardRendererState.prepassProgram, draws);
+    replayBundle(pass, bundle);
     world.gpu.indirect?.("standard:prepass", draws);
 }
 
@@ -906,26 +872,9 @@ function renderColor(
         pass = newPassBundle();
         _standardRendererState.colorBundles.set(bundleKey, pass);
     }
-    _standardRendererState.colorBundleDesc.colorFormats[0] = _render.format;
-    _standardRendererState.colorBundleDesc.sampleCount = aa ? SAMPLE_COUNT : 1;
-    if (
-        bundleChanged(
-            pass,
-            _standardRendererState.colorProgram,
-            draws,
-            _standardRendererState.colorBundleDesc,
-        )
-    ) {
-        recordBundle(
-            world,
-            pass,
-            _standardRendererState.colorProgram,
-            draws,
-            _standardRendererState.colorBundleDesc,
-        );
-    }
-
-    if (pass.bundle) executeRenderBundles(encoded, pass.replay);
+    if (bundleChanged(pass, _standardRendererState.colorProgram, draws))
+        recordBundle(world, pass, _standardRendererState.colorProgram, draws);
+    replayBundle(encoded, pass);
 
     // tally this camera's opaque indirect draws so the profiler derives the injected validation floor;
     // the honest count is post the `if (pipe)` skip, and excludes the backdrop's

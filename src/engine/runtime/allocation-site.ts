@@ -49,13 +49,6 @@ export function setComputeBindGroup(
     pass.setBindGroup(index, group);
 }
 
-export function executeRenderBundles(
-    pass: GPURenderPassEncoder,
-    bundles: readonly GPURenderBundle[],
-): void {
-    pass.executeBundles(bundles);
-}
-
 export function dispatchWorkgroups(pass: GPUComputePassEncoder, x: number): void {
     pass.dispatchWorkgroups(x);
 }
@@ -175,7 +168,7 @@ export const gpuAllocationExpressions = [
     },
     {
         fn: endRenderPass,
-        wrapperSite: "src/engine/runtime/allocation-site.ts:111:30",
+        wrapperSite: "src/engine/runtime/allocation-site.ts:104:30",
         parameters: "pass: GPURenderPassEncoder",
         returnType: "void",
         returns: false,
@@ -183,7 +176,7 @@ export const gpuAllocationExpressions = [
     },
     {
         fn: endComputePass,
-        wrapperSite: "src/engine/runtime/allocation-site.ts:115:31",
+        wrapperSite: "src/engine/runtime/allocation-site.ts:108:31",
         parameters: "pass: GPUComputePassEncoder",
         returnType: "void",
         returns: false,
@@ -191,7 +184,7 @@ export const gpuAllocationExpressions = [
     },
     {
         fn: drawInstances,
-        wrapperSite: "src/engine/runtime/allocation-site.ts:220:30",
+        wrapperSite: "src/engine/runtime/allocation-site.ts:213:30",
         parameters:
             "pass: GPURenderPassEncoder, vertexCount: number, instanceCount: number, firstInstance: number",
         returnType: "void",

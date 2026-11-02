@@ -45,7 +45,7 @@ const VaryingMaterial = materialType({
 
 const plugins = [StandardRenderingPlugin, MeshRenderPlugin, MaterialPlugin(VaryingMaterial)];
 
-// The alpha keys whose pipelines draw opaque, and so are recorded into bundles
+// The alpha keys whose pipelines draw opaque, and so are primed into bundles
 const OPAQUE = 0;
 const MASK = 1;
 const ALPHA_TO_COVERAGE = 5;
@@ -54,12 +54,15 @@ const MODES = [AlphaMode.Opaque, AlphaMode.Mask(0.5), AlphaMode.AlphaToCoverage]
 const SURFACES = ["StandardMaterial", "BundleVaryingMaterial"];
 
 type Bundled = { label: string; fragment: boolean };
+type Sink = { into: Bundled[]; bundledIndirect: number; passIndirect: number };
 
 // WebKit fails `setPipeline` on a bundle encoder given a pipeline with no fragment stage, though Dawn
 // and the spec accept it; this device records each bundled pipeline so the test holds WebKit's rule.
-function bundleRecorder(device: GPUDevice): { into: Bundled[] } {
+// WebKit also replays a bundle holding an indirect draw into new Metal command buffers on every
+// executeBundles (bugs.webkit.org/show_bug.cgi?id=320490); the device counts indirect draws by encoder.
+function bundleRecorder(device: GPUDevice): Sink {
     const fragmentless = new WeakSet<GPURenderPipeline>();
-    const sink = { into: [] as Bundled[] };
+    const sink: Sink = { into: [], bundledIndirect: 0, passIndirect: 0 };
     const create = device.createRenderPipeline.bind(device);
     device.createRenderPipeline = (descriptor) => {
         const pipeline = create(descriptor);
@@ -79,6 +82,28 @@ function bundleRecorder(device: GPUDevice): { into: Bundled[] } {
         encoder.setPipeline = (pipeline) => {
             sink.into.push({ label: pipeline.label, fragment: !fragmentless.has(pipeline) });
             setPipeline(pipeline);
+        };
+        for (const name of ["drawIndirect", "drawIndexedIndirect"] as const) {
+            const indirect = encoder[name].bind(encoder);
+            encoder[name] = (buffer, offset) => {
+                sink.bundledIndirect++;
+                indirect(buffer, offset);
+            };
+        }
+        return encoder;
+    };
+    const createEncoder = device.createCommandEncoder.bind(device);
+    device.createCommandEncoder = (descriptor) => {
+        const encoder = createEncoder(descriptor);
+        const begin = encoder.beginRenderPass.bind(encoder);
+        encoder.beginRenderPass = (passDescriptor) => {
+            const pass = begin(passDescriptor);
+            const indirect = pass.drawIndexedIndirect.bind(pass);
+            pass.drawIndexedIndirect = (buffer, offset) => {
+                sink.passIndirect++;
+                indirect(buffer, offset);
+            };
+            return pass;
         };
         return encoder;
     };
@@ -194,7 +219,8 @@ const subjects = compileGpuFile(import.meta.path, async () => {
     });
     const spotError = await frames(spot.world, device);
 
-    return { owner, lit, spot, scene, sceneError, spotted, spotError };
+    const indirect = { bundled: sink.bundledIndirect, pass: sink.passIndirect };
+    return { owner, lit, spot, scene, sceneError, spotted, spotError, indirect };
 });
 
 function families(): string[] {
@@ -215,7 +241,7 @@ function families(): string[] {
     return out;
 }
 
-test("every pipeline family standard records into a render bundle has a fragment stage", () => {
+test("every pipeline family standard primes into a render bundle has a fragment stage", () => {
     const { scene, sceneError, spotted, spotError } = subjects();
     expect(sceneError).toBeNull();
     expect(spotError).toBeNull();
@@ -225,6 +251,12 @@ test("every pipeline family standard records into a render bundle has a fragment
     const spotFamilies = SURFACES.flatMap((s) => KEYS.map((k) => `standard-point-${s}-${k}`));
     expect(spotFamilies.filter((label) => !spotReached.has(label))).toEqual([]);
     expect([...scene, ...spotted].filter((step) => !step.fragment)).toEqual([]);
+});
+
+test("standard frames draw indirect in their passes, never in a render bundle", () => {
+    const { indirect } = subjects();
+    expect(indirect.bundled).toBe(0);
+    expect(indirect.pass).toBeGreaterThan(0);
 });
 
 afterAll(() => {

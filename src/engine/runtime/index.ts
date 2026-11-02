@@ -15,7 +15,6 @@ export {
     drawInstances,
     endComputePass,
     endRenderPass,
-    executeRenderBundles,
     finishFrameEncoder,
     setComputeBindGroup,
     setComputePipeline,

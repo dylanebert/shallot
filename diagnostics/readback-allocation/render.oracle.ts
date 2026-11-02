@@ -19,7 +19,6 @@ const allocationSource = () => readFileSync(allocationSourcePath, "utf8");
 const bindingWrappers = [
     "setComputePipeline",
     "setComputeBindGroup",
-    "executeRenderBundles",
     "dispatchWorkgroups",
     "dispatchWorkgroups2",
     "dispatchWorkgroupsIndirect",

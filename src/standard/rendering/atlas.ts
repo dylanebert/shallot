@@ -7,11 +7,10 @@ import {
     beginRenderPass,
     endComputePass,
     endRenderPass,
-    executeRenderBundles,
 } from "../../engine/runtime";
 import { boundPipeline } from "./bound";
 import type { BundleDraw, PassBundle } from "./bundle";
-import { bundleChanged, bundleDraw, newPassBundle, recordBundle } from "./bundle";
+import { bundleChanged, bundleDraw, newPassBundle, recordBundle, replayBundle } from "./bundle";
 import { engineLayout } from "./engine";
 import type { Recorded } from "./forward";
 import { engineGroup } from "./pipelines";
@@ -91,7 +90,6 @@ interface AtlasState {
     pointShadowDepth: Omit<GPURenderPassDepthStencilAttachment, "view"> & { view: GPUTextureView };
     pointShadowPass: GPURenderPassDescriptor;
     cascadeRegatherPass: GPUComputePassDescriptor;
-    shadowBundleDesc: GPURenderBundleEncoderDescriptor & { colorFormats: GPUTextureFormat[] };
     compactVP: Float32Array;
     compactMeta: Uint32Array;
     pointBundle: PassBundle;
@@ -178,12 +176,6 @@ function createAtlasState(world: World): AtlasState {
             depthStencilAttachment: pointShadowDepth,
         },
         cascadeRegatherPass: { label: "standard:cascaderegather" },
-        shadowBundleDesc: {
-            label: "standard-shadow",
-            colorFormats: [],
-            depthStencilFormat: DEPTH_FORMAT,
-            sampleCount: 1,
-        },
         compactVP: new Float32Array(0),
         compactMeta: new Uint32Array(0),
         pointBundle: newPassBundle(),
@@ -881,24 +873,10 @@ export function renderPointShadows(
         step.indirect = args;
         step.offset = i * SHADOW_ARG_STRIDE;
     }
-    if (
-        bundleChanged(
-            _atlasState.pointBundle,
-            _atlasState.pointProgram,
-            D,
-            _atlasState.shadowBundleDesc,
-        )
-    ) {
-        recordBundle(
-            world,
-            _atlasState.pointBundle,
-            _atlasState.pointProgram,
-            D,
-            _atlasState.shadowBundleDesc,
-        );
-    }
+    if (bundleChanged(_atlasState.pointBundle, _atlasState.pointProgram, D))
+        recordBundle(world, _atlasState.pointBundle, _atlasState.pointProgram, D);
     const pass = beginRenderPass(encoder, _atlasState.pointShadowPass);
-    if (_atlasState.pointBundle.bundle) executeRenderBundles(pass, _atlasState.pointBundle.replay);
+    replayBundle(pass, _atlasState.pointBundle);
     endRenderPass(pass);
     world.gpu.indirect?.("standard:pointshadow", D);
     commitPointCastersOnSubmit(world);
@@ -1096,17 +1074,10 @@ export function renderCascades(
             bundle = newPassBundle();
             _atlasState.cascadeBundles[b] = bundle;
         }
-        if (bundleChanged(bundle, _atlasState.cascadeProgram, D, _atlasState.shadowBundleDesc)) {
-            recordBundle(
-                world,
-                bundle,
-                _atlasState.cascadeProgram,
-                D,
-                _atlasState.shadowBundleDesc,
-            );
-        }
+        if (bundleChanged(bundle, _atlasState.cascadeProgram, D))
+            recordBundle(world, bundle, _atlasState.cascadeProgram, D);
         const pass = beginRenderPass(encoder, _atlasState.cascadeShadowPass);
-        if (bundle.bundle) executeRenderBundles(pass, bundle.replay);
+        replayBundle(pass, bundle);
         endRenderPass(pass);
         totalDraws += D;
     }
