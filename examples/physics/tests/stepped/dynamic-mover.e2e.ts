@@ -14,8 +14,8 @@ for (const width of [1280, 390]) {
         await page.mouse.move(30, 500);
         await page.mouse.down({ button: "right" });
         await page.waitForFunction(() => document.pointerLockElement !== null);
+        await expect.poll(async () => (await page.evaluate(state)).keys.Aim).toBe(1);
         const aimed = await page.evaluate(state);
-        expect(aimed.keys.Aim).toBe(1);
         await page.mouse.down({ button: "left" });
         const shot = await page.evaluate(state);
         expect(shot.balls).toBe(aimed.balls + 1);

@@ -46,7 +46,7 @@ for (const width of [1280, 390])
                 expect((await state()).keys.Control).toBe(1);
                 await page.keyboard.up("Control");
                 await page.mouse.down({ button: "right" });
-                await state(1);
+                await expect.poll(async () => (await state(1)).keys.Aim).toBe(1);
                 await expect(page.locator(".reticle")).toBeVisible();
                 await page.mouse.down({ button: "left" });
                 await state(1);
