@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as project from "../project";
+import { normalizePath } from "../project/paths";
 import { parseCliArgs } from "./index";
 import {
     preflightPublish,
@@ -208,7 +209,7 @@ for (const scenario of ["package-lock.json", "bun.lock", "bun.lock with member C
             writeFileSync(join(member, "Cargo.lock"), "");
         writeFileSync(join(member, "package.json"), JSON.stringify({ name: "game" }));
         const before = () =>
-            readdirSync(directory, { recursive: true }).map((path) => {
+            Array.from(readdirSync(directory, { recursive: true }), normalizePath).map((path) => {
                 const file = join(directory, String(path));
                 return [path, statSync(file).isFile() ? readFileSync(file, "utf8") : null];
             });
