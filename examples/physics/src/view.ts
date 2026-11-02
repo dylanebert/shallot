@@ -374,7 +374,7 @@ function createView(
             (world.storage(Shape).body.get(eid) || eid) === world.resource(DynamicMoverState).entity
         ) {
             if (world.has(eid, Gizmo)) world.storage(Gizmo).opacity.set(eid, 0.45 * moverOpacity);
-            return aimedMoverMaterial;
+            if (moverOpacity < 1) return aimedMoverMaterial;
         }
         const material = shapeMaterial(world, role, eid);
         let handle = stateMaterials.get(material);
