@@ -46,9 +46,6 @@ try {
         const { id } = scenes[index]!;
         select(id);
         showProfiler(world);
-        const store = world.resource(DiagnosticsStore);
-        for (const diagnostic of store.iter())
-            if (String(diagnostic.path).startsWith("render/")) store.remove(diagnostic.path);
         for (let frame = 0; frame < 10; frame++) {
             world.step(1 / 60);
             await world.frameFence;
