@@ -6,6 +6,7 @@ import { CullVolumes, Xform } from "../../core/rendering";
 import type { World } from "../../engine";
 import { HANDLE_INDEX_MASK } from "../../engine/utils";
 import type { MaterialHandle } from "./material";
+import { batchResolver } from "./material-batch";
 import { MeshInstanceInput } from "./material-data";
 import { ALPHA_PIPELINE_KEY_COUNT, AlphaModeCode, AlphaPipelineKey } from "./material-type";
 import {
@@ -105,7 +106,7 @@ export function registerProducerTable(
 }
 
 export const ProducerDispatch = d.struct({ x: d.u32, y: d.u32, z: d.u32, count: d.u32 });
-export const ProducerParams = d.struct({ capacity: d.u32, pairOffset: d.u32, basePairs: d.u32 });
+export const ProducerParams = d.struct({ capacity: d.u32, pairOffset: d.u32 });
 export const producerArgsLayout = tgpu
     .bindGroupLayout({
         count: { storage: d.atomic(d.u32), access: "mutable" },
@@ -123,6 +124,7 @@ export const producerCullLayout = tgpu
         producer: { uniform: ProducerParams },
         params: { uniform: CullParams },
         cullVolumes: { uniform: CullVolumes },
+        materialBatches: { storage: d.arrayOf(d.u32), access: "readonly" },
     })
     .$idx(0);
 export const producerArgsKernel = tgpu.computeFn({ workgroupSize: [1] })(() => {
@@ -139,6 +141,7 @@ export const producerArgsKernel = tgpu.computeFn({ workgroupSize: [1] })(() => {
     });
 });
 const producerVisible = visibility(producerCullLayout);
+const producerBatch = batchResolver(producerCullLayout);
 const producerPair = tgpu.fn(
     [d.u32, d.u32],
     d.u32,
@@ -147,11 +150,11 @@ const producerPair = tgpu.fn(
     const instance = producerCullLayout.$.instances[row];
     const mid = instance.mesh & HANDLE_INDEX_MASK;
     const params = producerCullLayout.$.params;
-    const basePairs = producerCullLayout.$.producer.basePairs;
+    const batch = producerBatch(instance.materialType, instance.material);
     if (
         mid >= params.meshCount ||
         producerCullLayout.$.meshBounds[mid].handle !== instance.mesh ||
-        instance.materialType >= d.u32(basePairs / (params.keyCount * params.meshCount)) ||
+        batch === 0xffffffff ||
         instance.cullMode >= d.u32(params.keyCount / ALPHA_PIPELINE_KEY_COUNT) ||
         (instance.alphaMode !== AlphaModeCode.Opaque &&
             instance.alphaMode !== AlphaModeCode.Mask &&
@@ -165,9 +168,7 @@ const producerPair = tgpu.fn(
     if (key === AlphaModeCode.AlphaToCoverage) key = AlphaPipelineKey.AlphaToCoverage;
     return (
         producerCullLayout.$.producer.pairOffset +
-        (instance.materialType * params.keyCount +
-            key +
-            instance.cullMode * ALPHA_PIPELINE_KEY_COUNT) *
+        (batch * params.keyCount + key + instance.cullMode * ALPHA_PIPELINE_KEY_COUNT) *
             params.meshCount +
         mid
     );

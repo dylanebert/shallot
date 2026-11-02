@@ -55,7 +55,7 @@ test("a large anchored world Sprite stays in the camera draw when its quad reach
     const mesh = world.storage(MeshInstance).mesh.get(sprite);
     const draw = [...world.resource(Draws)].find(
         (entry) =>
-            entry.materialType === type &&
+            entry.materialBatch === type &&
             entry.alphaPipelineKey === AlphaPipelineKey.Mask &&
             entry.mesh === mesh,
     );
@@ -85,7 +85,7 @@ test("a Sprite spawned before a frame draws in that frame", async () => {
     const mesh = world.storage(MeshInstance).mesh.get(sprite);
     const draw = [...world.resource(Draws)].find(
         (entry) =>
-            entry.materialType === type &&
+            entry.materialBatch === type &&
             entry.alphaPipelineKey === AlphaPipelineKey.Mask &&
             entry.mesh === mesh,
     );

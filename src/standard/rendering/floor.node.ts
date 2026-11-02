@@ -553,7 +553,7 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
             const draw = [...world.resource(Draws)].find(
                 (draw) =>
                     isMeshInstanceDraw(world, draw) &&
-                    draw.materialType === materialType &&
+                    draw.materialBatch === materialType &&
                     draw.alphaPipelineKey === alphaPipelineKey &&
                     draw.mesh === cube,
             )!;
@@ -574,7 +574,7 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
         ] as const) {
             const draw = [...world.resource(Draws)].find(
                 (draw) =>
-                    draw.materialType === materialTypeId(world, SpriteMaterialType) &&
+                    draw.materialBatch === materialTypeId(world, SpriteMaterialType) &&
                     draw.alphaPipelineKey === alphaPipelineKey &&
                     draw.mesh === spriteMesh,
             )!;
@@ -585,7 +585,7 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
             expect(new Uint32Array(result.bytes)[1]).toBe(count);
         }
         const defaultDraw = [...world.resource(Draws)].find(
-            (draw) => draw.materialType === 0 && draw.mesh === cube,
+            (draw) => draw.materialBatch === 0 && draw.mesh === cube,
         )!;
         const records = await probeBuffer(world, world.gpu.root.unwrap(defaultDraw.args.indirect));
         const words = new Uint32Array(records.bytes);

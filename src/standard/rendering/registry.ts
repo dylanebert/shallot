@@ -35,14 +35,14 @@ export interface DrawArgs {
 }
 
 /**
- * materialType is a registered material-type id, alphaPipelineKey selects its phase/variant,
+ * materialBatch is a dense material-batch id, alphaPipelineKey selects its phase/variant,
  * cullMode, a CullModeCode defaulting to back, the faces it does not draw, mesh is a registered
  * mesh handle, and args addresses its indirect record.
  * Owned material bindings resolve from mesh attributes, mesh overrides or the material type's bindings.
  */
 export interface Draw {
     name: string;
-    materialType: number;
+    materialBatch: number;
     alphaPipelineKey: number;
     cullMode?: number;
     mesh: MeshHandle;

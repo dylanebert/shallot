@@ -108,7 +108,7 @@ test("the public material type renders two typed tint rows together and updates 
     expect(readFromArrayBuffer(redRow.bytes, TintParameters).tint).toEqual(d.vec4f(1, 0, 0, 1));
 
     const type = materialTypeId(world, TintMaterial);
-    const draw = [...world.resource(Draws)].find((candidate) => candidate.materialType === type)!;
+    const draw = [...world.resource(Draws)].find((candidate) => candidate.materialBatch === type)!;
     const args = await probeBuffer(world, world.gpu.root.unwrap(draw.args.indirect), {
         offset: draw.args.offset ?? 0,
         size: 20,

@@ -9,6 +9,7 @@ import {
     xformPoint,
 } from "../../core/rendering";
 import { HANDLE_INDEX_MASK } from "../../engine/utils";
+import { batchResolver } from "./material-batch";
 import { EntityMeshInstanceInput } from "./material-data";
 import { ALPHA_PIPELINE_KEY_COUNT, AlphaModeCode, AlphaPipelineKey } from "./material-type";
 import { DrawIndexedIndirect } from "./registry";
@@ -22,7 +23,7 @@ export const CullParams = d.struct({
     meshCount: d.u32,
     instanceCount: d.u32,
     instanceCapacity: d.u32,
-    /** keys per material type in pair indices: six alpha pipeline keys per cull mode held */
+    /** keys per material batch in pair indices: six alpha pipeline keys per cull mode held */
     keyCount: d.u32,
 });
 
@@ -37,6 +38,7 @@ export const cullLayout = tgpu
         globalTransforms: { storage: d.arrayOf(Xform), access: "readonly" },
         globalTransformRows: { storage: d.arrayOf(d.u32), access: "readonly" },
         meshBounds: { storage: d.arrayOf(MeshBounds), access: "readonly" },
+        materialBatches: { storage: d.arrayOf(d.u32), access: "readonly" },
         cullVolumes: { uniform: CullVolumes },
         params: { uniform: CullParams },
     })
@@ -122,8 +124,9 @@ const Pair = d.struct({
     globalTransformRow: d.u32,
 });
 
-// Material-type count is baked; the active row list and pair grid remain dynamic.
-function pairFactory(materialTypeCount: number) {
+const instanceBatch = batchResolver(cullLayout);
+
+function pairFactory() {
     return tgpu
         .fn(
             [d.u32],
@@ -137,11 +140,11 @@ function pairFactory(materialTypeCount: number) {
             const encodedGlobalTransform = cullLayout.$.globalTransformRows[eid];
             const invalidPair = cullLayout.$.params.pairCount;
             const mid = instance.mesh & HANDLE_INDEX_MASK;
-            const materialType = instance.materialType;
+            const batch = instanceBatch(instance.materialType, instance.material);
             const alphaMode = instance.alphaMode;
             const cullMode = instance.cullMode;
             if (
-                materialType >= materialTypeCount ||
+                batch === 0xffffffff ||
                 alphaMode > AlphaModeCode.AlphaToCoverage ||
                 cullMode >= d.u32(cullLayout.$.params.keyCount / ALPHA_PIPELINE_KEY_COUNT) ||
                 mid >= cullLayout.$.params.meshCount ||
@@ -164,7 +167,7 @@ function pairFactory(materialTypeCount: number) {
                 alphaKey = AlphaPipelineKey.AlphaToCoverage;
             return Pair({
                 pair:
-                    (materialType * cullLayout.$.params.keyCount +
+                    (batch * cullLayout.$.params.keyCount +
                         alphaKey +
                         cullMode * ALPHA_PIPELINE_KEY_COUNT) *
                         cullLayout.$.params.meshCount +
@@ -179,8 +182,8 @@ function pairFactory(materialTypeCount: number) {
 }
 
 /** Tally frustum-visible active MeshInstance rows per (view slot, pair); no entity-capacity scan. @internal */
-export function countKernel(materialTypeCount: number) {
-    const pair = pairFactory(materialTypeCount);
+export function countKernel() {
+    const pair = pairFactory();
     return tgpu
         .computeFn({
             workgroupSize: [64],
@@ -285,8 +288,8 @@ export function scanKernel() {
 }
 
 /** Scatter visible identities and MeshInstance rows into matching dense per-view draw lists. @internal */
-export function scatterKernel(materialTypeCount: number) {
-    const pair = pairFactory(materialTypeCount);
+export function scatterKernel() {
+    const pair = pairFactory();
     return tgpu
         .computeFn({
             workgroupSize: [64],

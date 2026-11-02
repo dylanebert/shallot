@@ -169,7 +169,8 @@ test("Premultiplied, Add and Multiply use their independently computed composite
     expect(
         [...world.resource(Draws)].filter(
             (draw) =>
-                draw.materialType === 0 && draw.alphaPipelineKey === AlphaPipelineKey.Premultiplied,
+                draw.materialBatch === 0 &&
+                draw.alphaPipelineKey === AlphaPipelineKey.Premultiplied,
         ),
     ).toHaveLength(1);
 });

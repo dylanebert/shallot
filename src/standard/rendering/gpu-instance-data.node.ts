@@ -176,7 +176,7 @@ test("compute-written eid positions move opaque entities, culling and shadow ver
         world.resource(producer).phase.write(phase);
         world.step(0);
         const draw = [...world.resource(Draws)].find(
-            (entry) => entry.materialType === world.storage(MeshMaterial).type.get(eids[0]!),
+            (entry) => entry.materialBatch === world.storage(MeshMaterial).type.get(eids[0]!),
         )!;
         const args = await probeBuffer(world, world.gpu.root.unwrap(draw.args.indirect), {
             offset: draw.args.offset ?? 0,

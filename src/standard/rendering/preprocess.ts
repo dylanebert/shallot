@@ -32,6 +32,7 @@ import {
     setComputePipeline,
 } from "../../engine/runtime";
 import { MaterialTypes } from "./material";
+import { MaterialBatches, materialBatch, syncMaterialBatches } from "./material-batch";
 import { EntityMeshInstanceInput, MeshMaterial } from "./material-data";
 import {
     ALPHA_PIPELINE_KEY_COUNT,
@@ -109,10 +110,10 @@ interface MeshPreprocessState {
     countBound: { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null;
     scanBound: { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null;
     scatterBound: { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null;
-    materialTypeCount: number;
+    batchCount: number;
     /** each material type's pipelineKeys when draws were last registered */
     pipelineKeys: Int32Array;
-    /** keys per material type in pair indices; see {@link pipelineKeyCount} */
+    /** keys per material batch in pair indices; see {@link pipelineKeyCount} */
     keyCount: number;
     invalidPairs: Map<number, Map<number, { name: string; cause: string }>>;
     pairingMeshes: (Mesh | undefined)[][];
@@ -122,7 +123,7 @@ interface MeshPreprocessState {
     meshVersion: number;
     producerCount: number;
     drawSlots: DrawSlot[];
-    drawLookup: DrawSlot[][];
+    drawLookup: DrawSlot[][][];
     boundsData: Float32Array<ArrayBuffer>;
     boundsWords: Uint32Array<ArrayBuffer>;
     drawData: Uint32Array<ArrayBuffer>;
@@ -246,7 +247,7 @@ function settleSourcePairs(world: World): void {
         setMeshPair(
             world,
             pair,
-            pair.source * PIPELINE_KEY_LIMIT +
+            materialBatch(world, pair.source, pair.row) * PIPELINE_KEY_LIMIT +
                 pipelineKey(
                     alphaPipelineKey(source.alphaMode(pair.row)),
                     source.cullMode?.(pair.row) ?? CullModeCode.Back,
@@ -266,6 +267,7 @@ function removeMeshPair(world: World, eid: number): void {
 }
 
 function prepareMeshPairs(world: World): void {
+    if (syncMaterialBatches(world)) unbind(world);
     copyMeshAlpha(world);
     const state = world.resource(meshPairsKey);
     const material = world.storage(MeshMaterial);
@@ -317,7 +319,7 @@ function prepareMeshPairs(world: World): void {
                 setMeshPair(
                     world,
                     pair,
-                    type * PIPELINE_KEY_LIMIT +
+                    materialBatch(world, type, material.material.get(eid)) * PIPELINE_KEY_LIMIT +
                         pipelineKey(
                             alphaPipelineKey(material.alphaMode.get(eid)),
                             material.cullMode.get(eid),
@@ -353,7 +355,7 @@ function createMeshPreprocessState(): MeshPreprocessState {
         countBound: null,
         scanBound: null,
         scatterBound: null,
-        materialTypeCount: 0,
+        batchCount: 0,
         pipelineKeys: new Int32Array(0),
         keyCount: ALPHA_PIPELINE_KEY_COUNT,
         invalidPairs: new Map(),
@@ -511,6 +513,7 @@ function cullGroup(world: World): TgpuBindGroup<(typeof cullLayout)["entries"]> 
     if (!_meshPreprocess.cullParams || !_meshPreprocess.meshBounds) return null;
     const meshInstances = meshInstanceTable(world);
     const globalTransforms = globalTransformTable(world);
+    if (syncMaterialBatches(world)) unbind(world);
     const generation = _meshPreprocess.inputGeneration;
     if (
         generation[0] !== meshInstances.generation ||
@@ -539,6 +542,7 @@ function cullGroup(world: World): TgpuBindGroup<(typeof cullLayout)["entries"]> 
         globalTransforms: globalTransforms.buffer,
         globalTransformRows,
         meshBounds: _meshPreprocess.meshBounds,
+        materialBatches: world.resource(MaterialBatches).buffer!,
         cullVolumes,
         params: _meshPreprocess.cullParams,
     });
@@ -640,7 +644,10 @@ function syncBuffers(world: World): void {
     const _meshPreprocess = world.resource(meshPreprocessKey);
     const _meshDraws = world.resource(MeshDrawBuffers);
 
-    if (_meshPreprocess.materialTypeCount === 0) return;
+    const batchCount = world.resource(MaterialBatches).types.length;
+    const changedBatches = batchCount !== _meshPreprocess.batchCount;
+    _meshPreprocess.batchCount = batchCount;
+    if (batchCount === 0) return;
     settleSourcePairs(world);
     const meshes = world.resource(meshResourcesKey).meshes;
     const meshCount = meshes.capacity;
@@ -669,7 +676,7 @@ function syncBuffers(world: World): void {
         pipelineKeyCount(world.resource(MaterialTypes).sources),
     );
     const growStride = keyCount > _meshPreprocess.keyCount;
-    if (changedMeshes || growMesh || growView || growKeys || growProducers) {
+    if (changedMeshes || growMesh || growView || growKeys || growProducers || changedBatches) {
         const meshDim = Math.max(_meshPreprocess.meshCount, meshCount);
         const viewDim = growView
             ? Math.min(MAX_SLOTS, Math.max(viewCount, _meshPreprocess.viewDim * 2))
@@ -677,12 +684,13 @@ function syncBuffers(world: World): void {
         rebuildMeshCounts(
             world,
             meshDim,
-            (1 + producers) * _meshPreprocess.materialTypeCount * keyCount * meshDim,
+            (1 + producers) * _meshPreprocess.batchCount * keyCount * meshDim,
             viewDim,
         );
     }
     if (
         !changedMeshes &&
+        !changedBatches &&
         !growMesh &&
         !growView &&
         !growRows &&
@@ -706,7 +714,7 @@ function syncBuffers(world: World): void {
     _meshPreprocess.producerCount = producers;
     _meshPreprocess.keyCount = keyCount;
     _meshPreprocess.pairCount =
-        (1 + producers) * _meshPreprocess.materialTypeCount * keyCount * _meshPreprocess.meshCount;
+        (1 + producers) * _meshPreprocess.batchCount * keyCount * _meshPreprocess.meshCount;
     const records = _meshPreprocess.viewDim * _meshPreprocess.pairCount;
 
     let staleArgs: DrawBuffer | null = null;
@@ -785,7 +793,8 @@ function prepareProducerPack(world: World): void {
         world.gpu.root.unwrap(state.counts!),
         world.gpu.root.unwrap(state.meshDraws.drawArgs!),
         world.gpu.root.unwrap(state.meshDraws.packedEids!),
-        state.materialTypeCount * state.keyCount * state.meshCount,
+        world.gpu.root.unwrap(world.resource(MaterialBatches).buffer!),
+        state.batchCount * state.keyCount * state.meshCount,
     );
 }
 
@@ -798,7 +807,7 @@ function pipelineKeysChanged(world: World): boolean {
     return false;
 }
 
-/** Keys per material type in this World's pair indices, as last sized for draw publication. @internal */
+/** Keys per material batch in this World's pair indices, as last sized for draw publication. @internal */
 export function meshKeyCount(world: World): number {
     return world.resource(meshPreprocessKey).keyCount;
 }
@@ -849,8 +858,8 @@ export function isMeshInstanceDraw(world: World, draw: Draw): boolean {
     const index = world.resource(meshResourcesKey).meshes.index(draw.mesh);
     return (
         index !== undefined &&
-        state.drawLookup[
-            draw.materialType * PIPELINE_KEY_LIMIT +
+        state.drawLookup[0]?.[
+            draw.materialBatch * PIPELINE_KEY_LIMIT +
                 pipelineKey(draw.alphaPipelineKey, draw.cullMode ?? CullModeCode.Back)
         ]?.[index]?.draw === draw
     );
@@ -859,7 +868,7 @@ export function isMeshInstanceDraw(world: World, draw: Draw): boolean {
 function publishDraw(
     world: World,
     table: number,
-    type: number,
+    batch: number,
     alpha: number,
     cull: number,
     handle: number,
@@ -867,10 +876,12 @@ function publishDraw(
     indirect: DrawBuffer,
 ): void {
     const state = world.resource(meshPreprocessKey);
-    const owner =
-        (table * state.materialTypeCount + type) * PIPELINE_KEY_LIMIT + pipelineKey(alpha, cull);
-    let lookup = state.drawLookup[owner];
-    if (!lookup) state.drawLookup[owner] = lookup = [];
+    const type = world.resource(MaterialBatches).types[batch]!;
+    const owner = batch * PIPELINE_KEY_LIMIT + pipelineKey(alpha, cull);
+    let tableLookup = state.drawLookup[table];
+    if (!tableLookup) state.drawLookup[table] = tableLookup = [];
+    let lookup = tableLookup[owner];
+    if (!lookup) tableLookup[owner] = lookup = [];
     const index = world.resource(meshResourcesKey).meshes.index(handle)!;
     let slot = lookup[index];
     const producers = world.resource(producerTables);
@@ -878,12 +889,12 @@ function publishDraw(
         const key = cull === CullModeCode.Back ? `${alpha}` : `${alpha}:cull${cull}`;
         const name =
             table === 0
-                ? `mesh:material:${world.resource(MaterialTypes).types[type]!.name}:${key}:${index}`
-                : `producer:${producers.tables[table - 1]!.table.name}:${type}:${key}:${index}`;
+                ? `mesh:material:${world.resource(MaterialTypes).types[type]!.name}:batch${batch}:${key}:${index}`
+                : `producer:${producers.tables[table - 1]!.table.name}:${batch}:${key}:${index}`;
         slot = {
             draw: {
                 name,
-                materialType: type,
+                materialBatch: batch,
                 alphaPipelineKey: alpha,
                 ...(cull === CullModeCode.Back ? {} : { cullMode: cull }),
                 mesh: handle as MeshHandle,
@@ -914,7 +925,7 @@ function publishDraw(
 }
 
 /**
- * Publishes occupied (material type, pipeline key, mesh) draw pairs.
+ * Publishes occupied (material batch, pipeline key, mesh) draw pairs.
  * Source-backed keys resolve through alphaMode/cullMode after table upload; the table's row
  * notifications invalidate only that row's live mesh consumers. pipelineKeys reserves compilation
  * variants, not draws.
@@ -929,7 +940,9 @@ export function publishMeshInstanceDraws(
     const meshes = world.resource(meshResourcesKey).meshes;
     const state = world.resource(meshPreprocessKey);
     const invalidPairs = state.invalidPairs;
-    for (let materialType = 0; materialType < materialTypes.length; materialType++) {
+    const batches = world.resource(MaterialBatches).types;
+    for (let batch = 0; batch < batches.length; batch++) {
+        const materialType = batches[batch]!;
         const definition = materialTypes[materialType];
         if (!definition) continue;
         let known = state.pairingMeshes[materialType];
@@ -953,7 +966,7 @@ export function publishMeshInstanceDraws(
         for (let key = 0; key < state.keyCount; key++) {
             const occupied = world
                 .resource(meshPairsKey)
-                .bins.get(materialType * PIPELINE_KEY_LIMIT + key);
+                .bins.get(batch * PIPELINE_KEY_LIMIT + key);
             if (!occupied) continue;
             const alpha = key % ALPHA_PIPELINE_KEY_COUNT;
             const cull = (key - alpha) / ALPHA_PIPELINE_KEY_COUNT;
@@ -963,10 +976,10 @@ export function publishMeshInstanceDraws(
                 if (!m || !occupied[index]) continue;
                 if (rejected?.has(index)) continue;
                 const pair =
-                    (materialType * state.keyCount + key) *
-                        (pairCount / (materialTypes.length * state.keyCount)) +
+                    (batch * state.keyCount + key) *
+                        (pairCount / (batches.length * state.keyCount)) +
                     index;
-                publishDraw(world, 0, materialType, alpha, cull, handle!, pair, drawArgs);
+                publishDraw(world, 0, batch, alpha, cull, handle!, pair, drawArgs);
             }
         }
     }
@@ -982,19 +995,21 @@ function publishProducerDraws(world: World, basePairs: number): void {
         for (const material of entry.materials) {
             const definition = types[material.type];
             if (!definition) continue;
+            const batch = materialBatch(world, material.type, material.material);
+            if (batch === 0xffffffff) continue;
             const alphaKey = alphaPipelineKey(material.alphaMode);
             for (const handle of entry.meshes) {
                 const mesh = meshes.get(handle);
                 if (!mesh || materialAttributeError(mesh, definition)) continue;
                 const pair =
                     (tableIndex + 1) * basePairs +
-                    (material.type * state.keyCount + pipelineKey(alphaKey, material.cullMode)) *
+                    (batch * state.keyCount + pipelineKey(alphaKey, material.cullMode)) *
                         state.meshCount +
                     meshes.index(handle)!;
                 publishDraw(
                     world,
                     tableIndex + 1,
-                    material.type,
+                    batch,
                     alphaKey,
                     material.cullMode,
                     handle,
@@ -1057,7 +1072,7 @@ function registerDraws(world: World): void {
     for (let i = 0; i < _meshPreprocess.drawSlots.length; i++)
         _meshPreprocess.drawSlots[i]!.seen = false;
     const basePairs =
-        _meshPreprocess.materialTypeCount * _meshPreprocess.keyCount * _meshPreprocess.meshCount;
+        _meshPreprocess.batchCount * _meshPreprocess.keyCount * _meshPreprocess.meshCount;
     _meshPreprocess.recheckInstances = false;
     publishMeshInstanceDraws(world, _meshDraws.drawArgs, basePairs);
     publishProducerDraws(world, basePairs);
@@ -1086,17 +1101,16 @@ export function initMeshPreprocess(world: World): void {
     unbind(world);
 }
 
-// Warm runs after all initialize hooks, so the registered material-type count is final and can be
-// baked into shaders. Mesh/view counts are not final; defer their buffer sizing to syncBuffers and
-// read their dimensions from cullParams so later mesh registrations or cameras need no recompilation.
+// Warm runs after material registration. Mesh/view dimensions remain dynamic in cullParams.
 export function warmMeshPreprocess(world: World): void {
     const _meshPreprocess = world.resource(meshPreprocessKey);
     const _meshDraws = world.resource(MeshDrawBuffers);
 
     if (!world.gpu.device) return;
     const root = world.gpu.root;
-    _meshPreprocess.materialTypeCount = world.resource(MaterialTypes).types.length;
-    _meshPreprocess.pipelineKeys = new Int32Array(_meshPreprocess.materialTypeCount);
+    syncMaterialBatches(world);
+    _meshPreprocess.batchCount = world.resource(MaterialBatches).types.length;
+    _meshPreprocess.pipelineKeys = new Int32Array(world.resource(MaterialTypes).types.length);
     _meshPreprocess.keyCount = ALPHA_PIPELINE_KEY_COUNT;
     _meshPreprocess.meshCount = 0;
     _meshPreprocess.pairCount = 0;
@@ -1119,16 +1133,16 @@ export function warmMeshPreprocess(world: World): void {
         .createBuffer(CullParams)
         .$usage("uniform")
         .$name("shallot-mesh-preprocess-cull-params");
-    if (_meshPreprocess.materialTypeCount === 0) return;
+    if (_meshPreprocess.batchCount === 0) return;
 
     _meshPreprocess.countPipe = root
-        .createComputePipeline({ compute: countKernel(_meshPreprocess.materialTypeCount) })
+        .createComputePipeline({ compute: countKernel() })
         .$name("shallot-mesh-preprocess-count");
     _meshPreprocess.scanPipe = root
         .createComputePipeline({ compute: scanKernel() })
         .$name("shallot-mesh-preprocess-scan");
     _meshPreprocess.scatterPipe = root
-        .createComputePipeline({ compute: scatterKernel(_meshPreprocess.materialTypeCount) })
+        .createComputePipeline({ compute: scatterKernel() })
         .$name("shallot-mesh-preprocess-scatter");
 
     // Warm hooks run concurrently under Promise.all. Defer allocation and binding to the precompile

@@ -45,6 +45,7 @@ export function syncProducerPack(
     counts: GPUBuffer,
     drawArgs: GPUBuffer,
     packedEids: GPUBuffer,
+    materialBatches: GPUBuffer,
     basePairs: number,
 ): void {
     const tables = world.resource(producerTables).tables;
@@ -57,7 +58,8 @@ export function syncProducerPack(
         state.inputs[1] === params &&
         state.inputs[2] === counts &&
         state.inputs[3] === drawArgs &&
-        state.inputs[4] === packedEids
+        state.inputs[4] === packedEids &&
+        state.inputs[5] === materialBatches
     )
         return;
     const root = world.gpu.root;
@@ -79,7 +81,7 @@ export function syncProducerPack(
                 .$name("shallot-producer-scatter"),
         );
     }
-    state.inputs = [bounds, params, counts, drawArgs, packedEids];
+    state.inputs = [bounds, params, counts, drawArgs, packedEids, materialBatches];
     state.basePairs = basePairs;
     state.tableCount = tables.length;
     state.countGroup = device.createBindGroup({
@@ -104,7 +106,6 @@ export function syncProducerPack(
                 .createBuffer(ProducerParams, {
                     capacity: table.capacity,
                     pairOffset: (i + 1) * basePairs,
-                    basePairs,
                 })
                 .$usage("uniform"),
         );
@@ -128,6 +129,7 @@ export function syncProducerPack(
                 { binding: 4, resource: { buffer: producer } },
                 { binding: 5, resource: { buffer: params } },
                 { binding: 6, resource: { buffer: cullVolumes } },
+                { binding: 7, resource: { buffer: materialBatches } },
             ],
         });
         if (entry) world.retireGpuResource(entry.params);

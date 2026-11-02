@@ -109,7 +109,7 @@ test("changing MeshMaterial type moves the instance to that type's mesh draw on 
             for (const [index, materialType] of [standardType, tintType].entries()) {
                 const draw = Array.from(world.resource(Draws)).find(
                     (candidate) =>
-                        candidate.materialType === materialType && candidate.mesh === mesh,
+                        candidate.materialBatch === materialType && candidate.mesh === mesh,
                 );
                 if (!draw) continue;
                 encoder.copyBufferToBuffer(

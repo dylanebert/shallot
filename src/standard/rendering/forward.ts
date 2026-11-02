@@ -72,6 +72,7 @@ import {
     Lighting,
     writeLighting,
 } from "./lighting";
+import { MaterialBatches, materialBatch } from "./material-batch";
 import { MeshMaterial } from "./material-data";
 import {
     AlphaModeCode,
@@ -316,9 +317,10 @@ type FrameDraw = { draw: Draw; r: Recorded };
  * Missing/stale compiled pipelines are compiled synchronously, not silently skipped.
  */
 function record(world: World, draw: Draw, capacity: number): FrameDraw | null {
-    const type = world.resource(MaterialTypes).types[draw.materialType];
+    const typeId = world.resource(MaterialBatches).types[draw.materialBatch];
+    const type = world.resource(MaterialTypes).types[typeId!];
     if (!type)
-        return warnSkip(world, draw.name, `material type ${draw.materialType} is not registered`);
+        return warnSkip(world, draw.name, `material batch ${draw.materialBatch} is not registered`);
     return recordMaterial(world, draw, type, capacity);
 }
 
@@ -610,7 +612,7 @@ function resolveDraws(world: World, capacity: number): void {
     const state = world.resource(standardRendererStateKey);
     const meshCount = world.resource(meshResourcesKey).meshes.capacity;
     const keyCount = meshKeyCount(world);
-    const pairCount = world.resource(MaterialTypes).types.length * keyCount * meshCount;
+    const pairCount = world.resource(MaterialBatches).types.length * keyCount * meshCount;
     state.frameCount = 0;
     state.depthReadLayers = 0;
     state.normalReadLayers = 0;
@@ -642,8 +644,9 @@ function resolveDraws(world: World, capacity: number): void {
         const row = materials.material.get(eid);
         const alpha = source?.alphaMode(row) ?? materials.alphaMode.get(eid);
         const cull = source ? (source.cullMode?.(row) ?? 0) : materials.cullMode.get(eid);
+        const batch = materialBatch(world, type, row);
         const pair =
-            (type * keyCount + pipelineKey(alphaPipelineKey(alpha), cull)) * meshCount + index;
+            (batch * keyCount + pipelineKey(alphaPipelineKey(alpha), cull)) * meshCount + index;
         if (!state.frameDrawPairs[pair]) continue;
         const layers = renderLayers(world, eid);
         if (reads.depth) state.depthReadLayers |= layers;
@@ -664,7 +667,7 @@ function resolveDraw(world: World, draw: Draw, capacity: number, meshCount: numb
         if (reads.normal) state.normalReadLayers |= layers;
     }
     const pair =
-        (draw.materialType * meshKeyCount(world) +
+        (draw.materialBatch * meshKeyCount(world) +
             pipelineKey(draw.alphaPipelineKey, draw.cullMode ?? CullModeCode.Back)) *
             meshCount +
         world.resource(meshResourcesKey).meshes.index(draw.mesh)!;
@@ -939,8 +942,9 @@ function queueTransparent(world: World, eid: number, view: View, phase: Transpar
         const type = materials.type.get(instanceEid);
         const cull = source ? (source.cullMode?.(row) ?? 0) : materials.cullMode.get(instanceEid);
         const key = pipelineKey(alphaPipelineKey(alphaMode), cull);
+        const batch = materialBatch(world, type, row);
         const pair =
-            (type * keyCount + key) * meshCount +
+            (batch * keyCount + key) * meshCount +
             world.resource(meshResourcesKey).meshes.index(meshId)!;
         if (!state.frameDrawPairs[pair]) continue;
 
