@@ -1,9 +1,9 @@
-import { createApp } from "../../../../engine/app";
-import { ChromaticAberration, EffectStackPlugin } from "../../../../extras/effect-stack";
-import { DEFAULT_PLUGINS } from "../../../../standard";
-import { StandardRenderer } from "../../../../standard/rendering";
-import { Transform } from "../../../transform";
-import { attachTexture, Camera, captureTexture, registerImage } from "../../index";
+import { attachTexture, Camera, captureTexture, registerImage } from "../../../core/rendering";
+import { Transform } from "../../../core/transform";
+import { createApp } from "../../../engine/app";
+import { DEFAULT_PLUGINS } from "../../../standard";
+import { StandardRenderer } from "../../../standard/rendering";
+import { ChromaticAberration, EffectStackPlugin } from "..";
 
 async function whiteImage(size: number): Promise<Blob> {
     const canvas = new OffscreenCanvas(size, size);

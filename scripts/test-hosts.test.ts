@@ -16,11 +16,18 @@ const FILES = [
     "examples/interact",
     "examples/gltf",
     "src/core/rendering/tests/images",
+    "src/extras/effect-stack/browser",
 ];
 
 test("hosted, hostFiles keeps, in order, only the given paths a platform runs, under either separator", () => {
     expect(hostFiles(FILES, "darwin", true)).toEqual(FILES);
-    expect(hostFiles(FILES, "linux", true)).toEqual([FILES[0], FILES[2], FILES[4], FILES[5]]);
+    expect(hostFiles(FILES, "linux", true)).toEqual([
+        FILES[0],
+        FILES[2],
+        FILES[4],
+        FILES[5],
+        FILES[6],
+    ]);
     expect(hostFiles(FILES, "win32", true)).toEqual([FILES[0]]);
 });
 
