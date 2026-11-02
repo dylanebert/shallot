@@ -2,6 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { registerImage } from "@dylanebert/shallot";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
+import { expectWarning } from "../../../scripts/test-console";
 import { Meshes, MeshInstance } from "../../core/mesh";
 import {
     attachTexture,
@@ -132,4 +133,32 @@ test("StandardMaterial samples both image halves at mesh UVs and multiplies base
     expect(Array.from(rgba.subarray((16 * 32 + 22) * 4, (16 * 32 + 22) * 4 + 4))).toEqual([
         0, 188, 0, 255,
     ]);
+});
+
+test("a material's image that lands after warm rebinds its unchanged draw on the next frame", async () => {
+    const { world } = subjects()[0];
+    const device = world.gpu.device;
+    // Node has no decoder, so the late image binds the fallback until its texture lands, as a load would.
+    expectWarning(/color image \d+ has no native texture; binding fallback/);
+    const late = registerImage(world, new Blob([new Uint8Array(0)], { type: "image/png" }));
+    const material = world
+        .resource(Materials)
+        .add(StandardMaterial({ baseColorTexture: late, unlit: true }));
+    world.remove(eid, MeshMaterial);
+    world.add(eid, MeshMaterial, material);
+    world.step(0);
+    world.step(0);
+    const center = (rgba: Uint8ClampedArray) =>
+        Array.from(rgba.subarray((16 * 32 + 16) * 4, (16 * 32 + 16) * 4 + 4));
+    expect(center((await captureTexture(world, camera)).rgba)).not.toEqual([0, 0, 255, 255]);
+    const blue = device.createTexture({
+        size: [1, 1, 1],
+        format: "rgba8unorm-srgb",
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+    world.own(blue);
+    device.queue.writeTexture({ texture: blue }, new Uint8Array([0, 0, 255, 255]), {}, [1, 1, 1]);
+    world.resource(imageTextures).textures[0][late] = blue;
+    world.step(0);
+    expect(center((await captureTexture(world, camera)).rgba)).toEqual([0, 0, 255, 255]);
 });
