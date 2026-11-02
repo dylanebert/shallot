@@ -75,6 +75,18 @@ for (const componentType of [5121, 5123, 5125])
             expect(model.unsupported).toEqual([]);
         });
 
+test("a packed float accessor at a byte offset off its component alignment reads its values", () => {
+    const json = primitive();
+    const buffer = new ArrayBuffer(64);
+    const view = new DataView(buffer);
+    for (let i = 0; i < 15; i++) view.setFloat32(2 + i * 4, i + 0.5, true);
+    json.bufferViews = [{ buffer: 0, byteOffset: 2, byteLength: 60 }];
+    json.accessors![0].bufferView = 0;
+    const vertices = parse(json, [buffer]).meshes[0].vertices;
+    expect(Array.from(vertices.slice(0, 3))).toEqual([0.5, 1.5, 2.5]);
+    expect(Array.from(vertices.slice(32, 35))).toEqual([12.5, 13.5, 14.5]);
+});
+
 test("sparse indices replace a zero-initialized unsigned index accessor", () => {
     const json = primitive();
     const buffer = new ArrayBuffer(8);

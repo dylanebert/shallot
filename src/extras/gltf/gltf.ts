@@ -245,7 +245,23 @@ const UNSIGNED_BYTE = 5121;
 const SHORT = 5122;
 const UNSIGNED_SHORT = 5123;
 const UNSIGNED_INT = 5125;
+const FLOAT = 5126;
 const TRIANGLES = 4;
+const COMPONENT_ARRAYS: Record<
+    number,
+    new (
+        buffer: ArrayBuffer,
+        byteOffset: number,
+        length: number,
+    ) => ArrayLike<number>
+> = {
+    [BYTE]: Int8Array,
+    [UNSIGNED_BYTE]: Uint8Array,
+    [SHORT]: Int16Array,
+    [UNSIGNED_SHORT]: Uint16Array,
+    [UNSIGNED_INT]: Uint32Array,
+    [FLOAT]: Float32Array,
+};
 
 function localMatrix(node: Node, out: Float32Array): Float32Array {
     if (node.matrix) {
@@ -328,6 +344,19 @@ export function readAccessor(
         const view = new DataView(buffers[bv.buffer]);
         const base = (bv.byteOffset ?? 0) + byteOffset;
         const stride = bv.byteStride ?? comps * size;
+        // A tightly packed, aligned, unnormalized run converts in one copy, as three.js
+        // GLTFLoader.loadAccessor views it in place.
+        const values = COMPONENT_ARRAYS[acc.componentType];
+        if (
+            values &&
+            !destinations &&
+            stride === comps * size &&
+            base % size === 0 &&
+            !acc.normalized
+        ) {
+            out.set(new values(buffers[bv.buffer], base, count * comps));
+            return;
+        }
         for (let i = 0; i < count; i++)
             for (let c = 0; c < comps; c++)
                 out[(destinations ? destinations[i] : i) * comps + c] = readComponent(
