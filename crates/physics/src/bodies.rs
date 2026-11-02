@@ -63,6 +63,8 @@ struct Bodies {
     cap: usize,
     next: usize,
     free: Vec<u32>,
+    sleep_changes: Vec<u32>,
+    sleep_change_indices: Vec<usize>,
     isotropic_inertia_tolerance: f32,
 }
 impl Bodies {
@@ -71,6 +73,8 @@ impl Bodies {
         cap: 0,
         next: 0,
         free: Vec::new(),
+        sleep_changes: Vec::new(),
+        sleep_change_indices: Vec::new(),
         isotropic_inertia_tolerance: 0.2,
     };
 }
@@ -168,6 +172,14 @@ unsafe fn geometry_from_sim(
 
 pub unsafe fn set_location(world_index: usize, id: usize, set: usize, index: usize) {
     let body = record_mut(world_index, id);
+    let was_sleeping = body.set_index >= crate::solver_set::FIRST_SLEEPING_SET;
+    let sleeping = set >= crate::solver_set::FIRST_SLEEPING_SET as usize;
+    if was_sleeping != sleeping
+        && *(world(world_index).columns.layout[B_RECORD_EID] as *const u32).add(id) != u32::MAX
+    {
+        mark_sleep_change(world_index, id);
+    }
+    let body = record_mut(world_index, id);
     body.set_index = set as i32;
     body.local_index = index as i32;
     refresh_contact_indices(world_index, id);
@@ -260,6 +272,7 @@ pub extern "C" fn reserve_bodies_in_world(world_index: usize, cap: usize) -> u32
         for id in old..cap {
             *(w.columns.layout[B_RECORD_EID] as *mut u32).add(id) = u32::MAX;
         }
+        w.sleep_change_indices.resize(cap, usize::MAX);
         w.cap = cap;
         1
     }
@@ -272,6 +285,7 @@ pub extern "C" fn body_set_active_world(world: u32) {
 pub extern "C" fn body_set_entity(id: usize, body: usize, eid: u32) {
     unsafe {
         *(world(id).columns.layout[B_RECORD_EID] as *mut u32).add(body) = eid;
+        mark_sleep_change(id, body);
     }
 }
 
@@ -366,6 +380,7 @@ pub extern "C" fn body_destroy_in_world(world_index: usize, id: u32, body: u32) 
             return u32::MAX;
         }
 
+        remove_sleep_change(id as usize, body);
         let previous = *record(id as usize, body);
         let moved = if previous.set_index >= 0 {
             let source = previous.set_index as usize;
@@ -490,9 +505,46 @@ pub unsafe fn restore(id: usize, input: &mut &[u8]) {
     w.cap = w.next;
     let count = regions::read_word(input);
     w.free.clear();
+    w.sleep_changes.clear();
+    w.sleep_change_indices.resize(w.cap, usize::MAX);
+    w.sleep_change_indices.fill(usize::MAX);
     w.free.reserve(count);
     for _ in 0..count {
         w.free.push(regions::read_word(input) as u32);
     }
     w.columns.restore(input);
+}
+
+unsafe fn mark_sleep_change(world_index: usize, body: usize) {
+    let w = world_mut(world_index);
+    if w.sleep_change_indices[body] != usize::MAX {
+        return;
+    }
+    w.sleep_change_indices[body] = w.sleep_changes.len();
+    w.sleep_changes.push(body as u32);
+}
+
+unsafe fn remove_sleep_change(world_index: usize, body: usize) {
+    let w = world_mut(world_index);
+    let index = w.sleep_change_indices[body];
+    if index == usize::MAX {
+        return;
+    }
+    w.sleep_changes.swap_remove(index);
+    w.sleep_change_indices[body] = usize::MAX;
+    if index < w.sleep_changes.len() {
+        w.sleep_change_indices[w.sleep_changes[index] as usize] = index;
+    }
+}
+
+#[export_name = "bodySleepChange"]
+pub unsafe extern "C" fn body_sleep_change(world_index: usize) -> u32 {
+    while let Some(id) = world_mut(world_index).sleep_changes.pop() {
+        world_mut(world_index).sleep_change_indices[id as usize] = usize::MAX;
+        let eid = *(world(world_index).columns.layout[B_RECORD_EID] as *const u32).add(id as usize);
+        if eid != u32::MAX {
+            return eid;
+        }
+    }
+    u32::MAX
 }

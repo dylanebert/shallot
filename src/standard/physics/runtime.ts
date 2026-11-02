@@ -1,6 +1,12 @@
 /// <reference types="@webgpu/types" />
 
-import { Body, BodyType, PhysicsPlugin, Shape as ShapeComponent } from "../../core/physics";
+import {
+    Body,
+    BodyType,
+    PhysicsPlugin,
+    Shape as ShapeComponent,
+    Sleeping,
+} from "../../core/physics";
 import {
     claimTransformPose,
     GlobalTransform,
@@ -596,6 +602,7 @@ function seedGlobalTransform(world: World, eid: number, state: WorldState, body:
 
 function forget(world: World, runtime: PhysicsRuntime, eid: number): void {
     releaseTransformPose(world, eid);
+    if (world.has(eid, Sleeping)) world.remove(eid, Sleeping);
     const dependencies = runtime.shapeDependencies;
     for (
         let shapeEid = dependencies.first(eid);
@@ -1872,7 +1879,7 @@ export function computeBodyAABB(world: World, eid: number) {
     return bounds;
 }
 
-/** Returns the solver's current awake state, or null for a body the solver does not hold: one added or destroyed since the last fixed sync. */
+/** Returns the solver's current awake state, or null for a body the solver does not hold: one added or destroyed since the last fixed sync. Use `Sleeping` for sleep state published at fixed synchronization. */
 export function isAwake(world: World, eid: number): boolean | null {
     const runtime = runtimeFor(world);
     const body = boundBody(world, runtime, eid);
@@ -2001,6 +2008,7 @@ function restoreBindings(
     clearShapeRecreationStates(runtime.shapeRecreationState);
     for (let i = 0; i < b.bodies.length; i += 4) {
         const eid = b.bodies[i];
+        kernel(world).bodySetEntity(state.worldId, b.bodies[i + 1] - 1, eid);
         claimTransformPose(world, eid);
         runtime.bodies.set(eid, {
             index1: b.bodies[i + 1],
@@ -2584,7 +2592,29 @@ function solvePhysics(world: World, timeStep: number, subStepCount: number): voi
     const pose = world.storage(Transform);
     pose.translation.writeEncoded(rows.eids, rows.pos);
     pose.rotation.writeEncoded(rows.eids, rows.quat);
+    publishSleeping(world, runtime);
     publishAttachedShapes(world);
+}
+
+function publishBodySleeping(world: World, runtime: PhysicsRuntime, eid: number): void {
+    const body = boundBody(world, runtime, eid);
+    const state = runtime.physicsWorld;
+    if (!body || !state) return;
+    const sleeping = bodyField(state, body.index1 - 1, BodyField.setIndex) >= SetType.FirstSleeping;
+    if (sleeping && !world.has(eid, Sleeping)) world.add(eid, Sleeping);
+    else if (!sleeping && world.has(eid, Sleeping)) world.remove(eid, Sleeping);
+}
+
+function publishSleeping(world: World, runtime: PhysicsRuntime): void {
+    const state = runtime.physicsWorld;
+    if (!state) return;
+    const k = kernel(world);
+    for (
+        let eid = k.bodySleepChange(state.worldId);
+        eid !== -1;
+        eid = k.bodySleepChange(state.worldId)
+    )
+        publishBodySleeping(world, runtime, eid);
 }
 
 function bindAttachedShape(world: World, runtime: PhysicsRuntime, eid: number, body: number): void {
@@ -2638,6 +2668,7 @@ export const StepPhysicsSystem: System = {
             solvePhysics(world, fixedDeltaTime, definition.subStepCount);
         else {
             applyTransformPoses(world, runtimeFor(world));
+            publishSleeping(world, runtimeFor(world));
             publishAttachedShapes(world);
         }
     },
@@ -2734,6 +2765,7 @@ function visitBody(
     claimTransformPose(world, eid);
     dropFieldCandidate(runtime.bodyCandidates, eid);
     seedGlobalTransform(world, eid, physicsWorld, tb);
+    publishBodySleeping(world, runtime, eid);
     resetInterpolation(world, eid);
     markBodyDependents(runtime, eid);
 }
@@ -3070,7 +3102,7 @@ export const StandardPhysicsPlugin: Plugin = {
     name: "StandardPhysics",
     recovery(world) {
         const order = world.resource(PhysicsCreationOrder);
-        order.components = [...PhysicsPlugin.components!];
+        order.components = PhysicsPlugin.components!.filter((component) => component !== Sleeping);
         for (let kind = 0; kind < order.components.length; kind++) {
             world.onDispose(
                 world.observeMembership(order.components[kind], (eid, present) =>

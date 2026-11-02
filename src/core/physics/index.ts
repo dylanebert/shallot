@@ -133,8 +133,12 @@ export const Body = component(
     },
 );
 
+/** Derived sleep state, published by physics at fixed synchronization. Never author this marker. Static bodies never hold it. */
+export const Sleeping = component("Sleeping", {});
+
 const components = [
     Body,
+    Sleeping,
     Shape,
     DistanceJoint,
     FilterJoint,

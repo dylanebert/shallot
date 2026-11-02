@@ -110,6 +110,7 @@ export type Kernel = {
     solverSetArrayGet(id: number, kind: number, index: number): number;
     bodyLayoutPtr(): number;
     bodySetEntity(world: number, body: number, eid: number): void;
+    bodySleepChange(world: number): number;
     /** The record capacity the resident body region is sized to — the single source of truth for the
      * TS body-store's column-view lengths (bodycolumns.ts). Zero before the kernel first reserves bodies. */
     bodyCap(): number;

@@ -23,6 +23,7 @@ test("core physics exports shared authoring data without engine aliases or analy
         "Shape",
         "ShapeKind",
         "ShapeMaterials",
+        "Sleeping",
         "SphericalJoint",
         "UNIT_CUBE_ID",
         "WeldJoint",
