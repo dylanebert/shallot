@@ -1,9 +1,12 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { createApp } from "@dylanebert/shallot";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { ManifoldPlugin, ManifoldSample } from "../src/manifold";
 import { manifoldDiagnosticDrawing } from "../src/manifold-diagnostic-presentation";
 import { manifoldTransform } from "../src/manifold-math";
 import { createScene } from "../src/scenes";
+
+setDefaultTimeout(TIMEOUT.node);
 
 test("Hull Culling draws retained edges, optional bounds and normals, and support probes", async () => {
     const app = await createApp({
