@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import * as d from "typegpu/data";
 import { generateTangents } from "../../core/mesh";
-import { computeNormals, generateSceneTangents, parse } from "./gltf";
+import { computeNormals, generateSceneTangents, parseGltf } from "./gltf";
 import { DeformationRanges } from "./morph";
 import { morphFixture } from "./morph.fixture";
 import { VertexDeformation } from "./skinning";
@@ -56,7 +56,7 @@ test("morph streams decode sparse and bufferless accessors, missing semantics ar
         { NORMAL: count + 1 },
         { TEXCOORD_0: count + 1, COLOR_0: count + 1 },
     ];
-    const scene = parse(json, buffers);
+    const scene = parseGltf(json, buffers);
     expect(scene.unsupported).toEqual(["morph.COLOR_0", "morph.TEXCOORD_0"]);
     expect([...scene.meshes[0].morphTargets![0].position!]).toEqual([
         0, 0, 0, 2, 3, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -72,7 +72,7 @@ test("morph streams decode sparse and bufferless accessors, missing semantics ar
 test("implicit flat target normals use displaced faces and every delta follows corner expansion", () => {
     const { json, buffers } = morphFixture();
     delete json.meshes![0].primitives[0].attributes.NORMAL;
-    const mesh = parse(json, buffers).meshes[0];
+    const mesh = parseGltf(json, buffers).meshes[0];
     expect(mesh.vertices.length / 8).toBe(6);
     const positions = Float32Array.from(
         { length: 18 },
@@ -101,7 +101,7 @@ test("provided tangents keep provided deltas and absent tangent deltas remain ze
     const primitive = json.meshes![0].primitives[0];
     primitive.attributes.TANGENT = json.accessors!.length - 1;
     primitive.targets![0].TANGENT = primitive.targets![0].NORMAL;
-    const scene = parse(json, buffers);
+    const scene = parseGltf(json, buffers);
     await generateSceneTangents(scene, json, buffers);
     expect(scene.meshes[0].tangent).toEqual(tangents);
     expect(scene.meshes[0].morphTargets![0].tangent).toEqual(
@@ -110,7 +110,7 @@ test("provided tangents keep provided deltas and absent tangent deltas remain ze
     expect(scene.meshes[0].morphTargets![1].tangent).toBeUndefined();
     delete primitive.attributes.NORMAL;
     delete json.materials![0].normalTexture;
-    const flat = parse(json, buffers).meshes[0];
+    const flat = parseGltf(json, buffers).meshes[0];
     expect(flat.tangent).toBeUndefined();
     expect(flat.morphTargets![0].tangent).toBeUndefined();
 });
@@ -122,7 +122,7 @@ test("MikkTSpace splits on every target's corner tangent, remaps all streams, an
     for (const target of primitive.targets!) target.TANGENT = target.POSITION;
     primitive.attributes.TEXCOORD_1 = primitive.attributes.TEXCOORD_0;
     primitive.attributes.COLOR_0 = primitive.attributes.WEIGHTS_0;
-    const scene = parse(json, buffers),
+    const scene = parseGltf(json, buffers),
         source = scene.meshes[0];
     const base = await generateTangents(source);
     expect(base.indices[0]).toBe(base.indices[3]);
@@ -182,11 +182,11 @@ test("node weights override mesh defaults; missing defaults use the first primit
     const primitive = structuredClone(mesh.primitives[0]);
     delete primitive.targets;
     mesh.primitives.unshift(primitive);
-    expect(parse(json, buffers).nodes[0].weights).toEqual([0, 0]);
+    expect(parseGltf(json, buffers).nodes[0].weights).toEqual([0, 0]);
     delete json.nodes![0].weights;
-    expect(parse(json, buffers).nodes[0].weights).toEqual([0.2, 0.1]);
+    expect(parseGltf(json, buffers).nodes[0].weights).toEqual([0.2, 0.1]);
     delete mesh.weights;
-    const scene = parse(json, buffers);
+    const scene = parseGltf(json, buffers);
     expect(scene.nodes[0].weights).toEqual([0, 0]);
     expect(scene.meshes[0].morphTargets).toBeUndefined();
 });

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { type GltfJson, parse } from "./gltf";
+import { type GltfJson, parseGltf } from "./gltf";
 
 function expectVertex(v: Float32Array, base: number, exp: number[]) {
     for (let i = 0; i < 8; i++) {
@@ -39,7 +39,7 @@ test("decodes the same geometry when attributes are tightly packed (no byteStrid
         nodes: [{ mesh: 0 }],
         scenes: [{ nodes: [0] }],
     };
-    const { meshes } = parse(gltf, [buf]);
+    const { meshes } = parseGltf(gltf, [buf]);
     expectVertex(meshes[0].vertices, 0, [1, 2, 3, 0.1, 0, 0, 1, 0.2]);
     expectVertex(meshes[0].vertices, 16, [7, 8, 9, 0.5, 1, 0, 0, 0.6]);
 });
@@ -79,7 +79,7 @@ test("widens ubyte and uint indices to u32", () => {
             nodes: [{ mesh: 0 }],
             scenes: [{ nodes: [0] }],
         };
-        const { meshes } = parse(gltf, [buf]);
+        const { meshes } = parseGltf(gltf, [buf]);
         expect(meshes[0].indices).toBeInstanceOf(Uint32Array);
         expect([...meshes[0].indices]).toEqual([2, 0, 1]);
     }

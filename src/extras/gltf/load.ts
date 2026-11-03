@@ -1,5 +1,11 @@
 import { isGlb, parseGlb } from "./glb";
-import { type GltfJson, type GltfScene, generateSceneTangents, parse, validateAsset } from "./gltf";
+import {
+    type GltfJson,
+    type GltfScene,
+    generateSceneTangents,
+    parseGltf,
+    validateAsset,
+} from "./gltf";
 
 /** Reads a glTF or GLB URL and resolves external and data-URI buffers with the supplied fetch.
  * Generates missing normal-texture tangents using that texture's coordinate set.
@@ -26,7 +32,7 @@ export async function loadGltf(url: string | URL, read: typeof fetch = fetch): P
             return response.arrayBuffer();
         }),
     );
-    const scene = parse(json, buffers);
+    const scene = parseGltf(json, buffers);
     await generateSceneTangents(scene, json, buffers);
     scene.images = scene.images.map((image) =>
         image.uri ? { ...image, uri: new URL(image.uri, base).href } : image,

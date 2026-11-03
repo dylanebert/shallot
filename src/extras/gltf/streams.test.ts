@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { generateTangents } from "../../core/mesh";
-import { type GltfJson, generateSceneTangents, parse } from "./gltf";
+import { type GltfJson, generateSceneTangents, parseGltf } from "./gltf";
 import { loadGltf } from "./load";
 
 async function load(json: GltfJson) {
@@ -40,7 +40,7 @@ for (const set of [0, 1])
                         offset: [0.2, 0.4],
                     },
                 };
-                const scene = parse(json, buffers(json));
+                const scene = parseGltf(json, buffers(json));
                 const source = scene.meshes[0];
                 const coordinates =
                     set === 1
@@ -89,7 +89,7 @@ for (const set of [0, 1])
 
 test("normalTexture.texCoord selects UV_1 for MikkTSpace, not UV_0", async () => {
     const json = model();
-    const source = parse(json, buffers(json)).meshes[0];
+    const source = parseGltf(json, buffers(json)).meshes[0];
     const expected = await generateTangents(source, 1);
     const wrong = await generateTangents(source, 0);
     expect(Array.from(expected.tangent)).not.toEqual(Array.from(wrong.tangent));
@@ -103,7 +103,7 @@ test("normal textures default to UV_0 and generate tangents with flat normals wh
     const json = model();
     delete json.materials![0].normalTexture!.texCoord;
     delete json.meshes![0].primitives[0].attributes.NORMAL;
-    const source = parse(json, buffers(json)).meshes[0];
+    const source = parseGltf(json, buffers(json)).meshes[0];
     const expected = await generateTangents(source);
     expect((await load(json)).meshes[0].tangent).toEqual(expected.tangent);
 });
@@ -115,7 +115,7 @@ for (const flat of [false, true])
         attributes.TEXCOORD_2 = attributes.TEXCOORD_0;
         json.materials![0].normalTexture!.texCoord = 2;
         if (flat) delete attributes.NORMAL;
-        const source = parse(json, buffers(json)).meshes[0];
+        const source = parseGltf(json, buffers(json)).meshes[0];
         const expected = await generateTangents(source, 0);
         const scene = await load(json);
         expect(scene.meshes[0].tangent).toEqual(expected.tangent);
@@ -175,7 +175,7 @@ for (const componentType of [5126, 5121, 5123])
             );
             json.meshes![0].primitives[0].attributes.COLOR_0 = 4;
             json.meshes![0].primitives[0].attributes.TEXCOORD_1 = 5;
-            const scene = parse(json, [...buffers(json), data.buffer]);
+            const scene = parseGltf(json, [...buffers(json), data.buffer]);
             const mesh = scene.meshes[0];
             expect(mesh.color).toEqual(
                 Float32Array.from({ length: 12 }, (_, i) =>
@@ -196,10 +196,10 @@ test("authored tangents retain all four components, but are ignored without NORM
     json.accessors!.push({ bufferView: 4, componentType: 5126, count: 3, type: "VEC4" });
     json.meshes![0].primitives[0].attributes.TANGENT = 4;
     const data = [...buffers(json), tangent.buffer];
-    expect(parse(json, data).meshes[0].tangent).toEqual(tangent);
+    expect(parseGltf(json, data).meshes[0].tangent).toEqual(tangent);
     delete json.meshes![0].primitives[0].attributes.NORMAL;
     delete json.materials;
-    const mesh = parse(json, data).meshes[0];
+    const mesh = parseGltf(json, data).meshes[0];
     expect(mesh.tangent).toBeUndefined();
     expect(mesh.uv1).toEqual(new Float32Array([0, 0, 0, 1, 1, 0]));
 });
@@ -211,7 +211,7 @@ test("higher UV and color sets remain unsupported; absent streams stay absent", 
     attributes.TEXCOORD_2 = 3;
     attributes.COLOR_1 = 1;
     delete attributes.TEXCOORD_1;
-    const scene = parse(json, buffers(json));
+    const scene = parseGltf(json, buffers(json));
     expect(scene.unsupported).toEqual(["COLOR_1", "TEXCOORD_2"]);
     expect(scene.meshes[0].uv1).toBeUndefined();
     expect(scene.meshes[0].color).toBeUndefined();

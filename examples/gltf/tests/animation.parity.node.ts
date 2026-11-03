@@ -15,7 +15,7 @@ import {
     GltfPlugin,
     loadGltfScene,
     MorphedMesh,
-    parse,
+    parseGltf,
     poseGltfScene,
     SkinPalette,
     spawnGltfScene,
@@ -39,7 +39,7 @@ const subjects = gold.records.map((record) => {
             : readFileSync(resolve(dirname(path), buffer.uri!));
         return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
     });
-    return { record, path, json, scene: parse(json, buffers) };
+    return { record, path, json, scene: parseGltf(json, buffers) };
 });
 
 // Float32 accessor/interpolant storage and Float32 world composition, relative to magnitude.

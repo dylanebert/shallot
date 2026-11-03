@@ -775,7 +775,7 @@ export function validateAsset(gltf: GltfJson): void {
 /** Decodes resolved buffers without a device. Required unsupported extensions refuse by name.
  * Instances retain column-major world matrices, including shear; geometry stays mesh-local.
  */
-export function parse(gltf: GltfJson, buffers: ArrayBuffer[]): GltfScene {
+export function parseGltf(gltf: GltfJson, buffers: ArrayBuffer[]): GltfScene {
     validateAsset(gltf);
     const ignored = new Set<string>();
     const scan = (value: unknown): void => {

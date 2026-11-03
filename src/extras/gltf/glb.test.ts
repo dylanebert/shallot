@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { isGlb, parseGlb } from "./glb";
-import { type GltfJson, parse } from "./gltf";
+import { type GltfJson, parseGltf } from "./gltf";
 
 const MAGIC = 0x46546c67;
 const JSON_CHUNK = 0x4e4f534a;
@@ -57,7 +57,7 @@ describe("parseGlb", () => {
         expect(bin).toBeUndefined();
     });
 
-    test("feeds parse end-to-end: a buffer-0 BIN backs the geometry", () => {
+    test("feeds parseGltf end-to-end: a buffer-0 BIN backs the geometry", () => {
         // one tight-packed triangle: 3 positions (VEC3 f32) then 3 ushort indices, all in buffer 0 (the BIN)
         const posLen = 9 * 4;
         const bin = new ArrayBuffer(posLen + 3 * 2);
@@ -84,7 +84,7 @@ describe("parseGlb", () => {
         };
 
         const { json, bin: chunk } = parseGlb(buildGlb(doc, bin));
-        const { meshes } = parse(json, [chunk!]);
+        const { meshes } = parseGltf(json, [chunk!]);
         expect(meshes).toHaveLength(1);
         // first vertex position survives the container round-trip
         expect([meshes[0].vertices[0], meshes[0].vertices[1], meshes[0].vertices[2]]).toEqual([

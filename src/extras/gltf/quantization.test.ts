@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { type GltfJson, parse, readAccessor } from "./gltf";
+import { type GltfJson, parseGltf, readAccessor } from "./gltf";
 
 // KHR_mesh_quantization, Extending Mesh Attributes / Extending Morph Target Attributes.
 const signed = [5120, 5122];
@@ -76,7 +76,7 @@ for (const morph of [false, true]) {
                     nodes: [{ mesh: 0 }],
                     scenes: [{ nodes: [0] }],
                 };
-                const result = parse(gltf, [bytes, base.buffer, normals.buffer]);
+                const result = parseGltf(gltf, [bytes, base.buffer, normals.buffer]);
                 expect(result.unsupported).not.toContain("KHR_mesh_quantization");
                 const mesh = result.meshes[0];
                 const uvMorph = morph && semantic.startsWith("TEXCOORD_");

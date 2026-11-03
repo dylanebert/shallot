@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { composeMat4 } from "../../engine/utils";
-import { type GltfJson, generateSceneTangents, parse } from "./gltf";
+import { type GltfJson, generateSceneTangents, parseGltf } from "./gltf";
 import { loadGltf } from "./load";
 
 function fixture(name = "skin-accessors") {
@@ -30,7 +30,7 @@ test("unused skins outside the default scene are omitted without refusal or unsu
 
 test("skins merge shared and touching joints, include intervening nodes, and keep unrelated siblings separate", () => {
     const { json, buffers } = fixture();
-    const scene = parse(json, buffers);
+    const scene = parseGltf(json, buffers);
     expect(scene.skins.map((skin) => skin.joints)).toEqual([[1, 3], [3, 4], [4], [5]]);
     expect(scene.skins.map((skin) => skin.skeleton)).toEqual([0, 0, 0, 1]);
     expect(scene.skeletons).toEqual([{ bones: [1, 2, 3, 4] }, { bones: [5] }]);
@@ -40,7 +40,7 @@ test("skins merge shared and touching joints, include intervening nodes, and kee
 test("inverse bind matrices default to identity for every joint and retain authored column-major values", () => {
     const { json, buffers } = fixture();
     const identity = composeMat4(0, 0, 0, 0, 0, 0, 1, 1, 1, 1);
-    const scene = parse(json, buffers);
+    const scene = parseGltf(json, buffers);
     for (const skin of scene.skins)
         expect(skin.inverseBindMatrices).toEqual(
             new Float32Array(skin.joints.flatMap(() => [...identity])),
@@ -54,14 +54,14 @@ test("inverse bind matrices default to identity for every joint and retain autho
         count: 2,
     });
     json.skins![0].inverseBindMatrices = json.accessors!.length - 1;
-    expect(parse(json, [...buffers, authored.buffer]).skins[0].inverseBindMatrices).toEqual(
+    expect(parseGltf(json, [...buffers, authored.buffer]).skins[0].inverseBindMatrices).toEqual(
         authored,
     );
 });
 
 test("unorm8 and unorm16 weights dequantize without renormalizing, and uint16 joints retain their values", () => {
     const { json, buffers } = fixture();
-    const scene = parse(json, buffers);
+    const scene = parseGltf(json, buffers);
     expect(scene.meshes[0].weights).toEqual(
         Float32Array.from([64, 191, 0, 0, 128, 127, 0, 0, 255, 0, 0, 0], (value) => value / 255),
     );
@@ -75,7 +75,7 @@ test("unorm8 and unorm16 weights dequantize without renormalizing, and uint16 jo
     json.accessors![1].componentType = 5123;
     json.bufferViews![1].byteLength = joints.byteLength;
     buffers[1] = joints.buffer;
-    expect(parse(json, buffers).meshes[0].joints).toEqual(Float32Array.from(joints));
+    expect(parseGltf(json, buffers).meshes[0].joints).toEqual(Float32Array.from(joints));
 });
 
 test("skin is ignored without both influence streams; further joint and weight sets stay reported by semantic", () => {
@@ -85,16 +85,16 @@ test("skin is ignored without both influence streams; further joint and weight s
     attributes.WEIGHTS_1 = attributes.WEIGHTS_0;
     attributes.JOINTS_2 = attributes.JOINTS_0;
     attributes.WEIGHTS_2 = attributes.WEIGHTS_0;
-    expect(parse(json, buffers).unsupported).toEqual([
+    expect(parseGltf(json, buffers).unsupported).toEqual([
         "JOINTS_1",
         "JOINTS_2",
         "WEIGHTS_1",
         "WEIGHTS_2",
     ]);
     delete attributes.WEIGHTS_0;
-    expect(parse(json, buffers).instances[0].skin).toBe(-1);
+    expect(parseGltf(json, buffers).instances[0].skin).toBe(-1);
     delete attributes.JOINTS_0;
-    expect(parse(json, buffers).instances[0].skin).toBe(-1);
+    expect(parseGltf(json, buffers).instances[0].skin).toBe(-1);
 });
 
 for (const flat of [false, true])
@@ -133,7 +133,7 @@ for (const flat of [false, true])
         primitive.indices = add(new Uint16Array([0, 1, 2, 0, 3, 4]), "SCALAR");
         primitive.material = 0;
         json.materials = [{ normalTexture: { index: 0 } }];
-        const scene = parse(json, buffers);
+        const scene = parseGltf(json, buffers);
         await generateSceneTangents(scene, json, buffers);
         const mesh = scene.meshes[0];
         expect(mesh.vertices.length / 8).toBe(6);

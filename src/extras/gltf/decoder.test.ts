@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { recordArray } from "../../../examples/gltf/tests/records";
 import records from "./fixtures/records.json";
-import { loadGltf, parse } from "./index";
+import { loadGltf, parseGltf } from "./index";
 
 const localFetch: typeof fetch = (async (input: URL | string) => {
     const url = new URL(String(input));
@@ -79,8 +79,8 @@ test("required cut extension refuses by name; optional cuts are listed and norma
     const required = JSON.parse(
         readFileSync(resolve(import.meta.dir, "fixtures/required-draco.gltf"), "utf8"),
     );
-    expect(() => parse(required, [])).toThrow("KHR_draco_mesh_compression");
-    const scene = parse(
+    expect(() => parseGltf(required, [])).toThrow("KHR_draco_mesh_compression");
+    const scene = parseGltf(
         {
             extensionsUsed: ["KHR_materials_clearcoat"],
             // biome-ignore lint/style/useNamingConvention: glTF owns its attribute and extension names.
@@ -109,7 +109,7 @@ test("missing normals split shared corners into flat faces and preserve UVs", ()
     const positions = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]);
     const uv = new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]);
     const indices = new Uint16Array([0, 1, 2, 0, 3, 1]);
-    const scene = parse(
+    const scene = parseGltf(
         {
             bufferViews: [
                 { buffer: 0, byteLength: positions.byteLength },

@@ -6,7 +6,7 @@ Code fragments assume an owning `world`, an existing entity `eid`, and the impor
 
 ## glTF loading moves into the engine
 
-Remove the deprecated `@dylanebert/shallot-gltf` dependency (`bun remove @dylanebert/shallot-gltf`) and change its imports to `@dylanebert/shallot/gltf`. All previous export names remain available, but `spawnGltfScene(world, gltf, placement)` now returns a `GltfSceneInstance` instead of an entity-id array; use its `.entities` for the spawned ids. Add `GltfPlugin` to the app's plugins when loading scenes with skins or morph targets; static scenes do not require it. CPU-only `parse` and `loadGltf` do not require the plugin.
+Remove the deprecated `@dylanebert/shallot-gltf` dependency (`bun remove @dylanebert/shallot-gltf`) and change its imports to `@dylanebert/shallot/gltf`. Rename `parse` to `parseGltf`. `spawnGltfScene(world, gltf, placement)` now returns a `GltfSceneInstance` instead of an entity-id array; use its `.entities` for the spawned ids. Add `GltfPlugin` to the app's plugins when loading scenes with skins or morph targets; static scenes do not require it. CPU-only `parseGltf` and `loadGltf` do not require the plugin.
 
 ## Standard material texture roles and vertex color
 

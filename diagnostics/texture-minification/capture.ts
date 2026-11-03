@@ -7,7 +7,7 @@ import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { createApp } from "../../src";
 import { genMipmapsLayer, registerImage } from "../../src/core/rendering/image";
 import { probeTexture } from "../../src/engine";
-import { type GltfJson, parse } from "../../src/extras/gltf";
+import { type GltfJson, parseGltf } from "../../src/extras/gltf";
 import { MeshRenderPlugin, StandardRenderingPlugin } from "../../src/standard/rendering";
 import {
     boxLevel,
@@ -150,7 +150,7 @@ function nearestLevel(rgba: Uint8ClampedArray, i: number): number {
 await setupGlobals();
 await mkdir(out, { recursive: true });
 const { json, buffer } = generatedGltf();
-const imported = parse(json, [buffer]);
+const imported = parseGltf(json, [buffer]);
 const ids: Record<string, number> = {};
 const app = await createApp({
     defaults: false,

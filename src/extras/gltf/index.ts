@@ -15,7 +15,7 @@ export {
     type GltfScene,
     type GltfSkeleton,
     type GltfSkin,
-    parse,
+    parseGltf,
 } from "./gltf";
 export { loadGltf } from "./load";
 export {

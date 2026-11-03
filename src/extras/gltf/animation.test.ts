@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { evaluateGltfAnimation, type GltfAnimation, type GltfNode, parse } from ".";
+import { evaluateGltfAnimation, type GltfAnimation, type GltfNode, parseGltf } from ".";
 
 const nodes: GltfNode[] = [
     {
@@ -111,7 +111,7 @@ test("CUBICSPLINE uses duration-scaled outgoing and incoming tangents and normal
 });
 
 test("default scene keeps node indices, parent order and decomposed matrix locals; channels without nodes are ignored", () => {
-    const scene = parse(
+    const scene = parseGltf(
         {
             asset: { version: "2.0" },
             nodes: [

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { parse } from "./gltf";
+import { parseGltf } from "./gltf";
 
 for (const slot of [
     "baseColor",
@@ -21,7 +21,7 @@ for (const slot of [
             slot === "baseColor" || slot === "metallicRoughness"
                 ? { pbrMetallicRoughness: { [`${slot}Texture`]: info } }
                 : { [slot === "normalMap" ? "normalTexture" : `${slot}Texture`]: info };
-        const scene = parse(
+        const scene = parseGltf(
             { extensionsRequired: ["KHR_texture_transform"], materials: [source] },
             [],
         );
@@ -47,7 +47,10 @@ for (const strength of [undefined, 0, 0.5, 8])
                 : {
                       [emissiveStrengthExtension]: { emissiveStrength: strength },
                   };
-        const scene = parse({ materials: [{ emissiveFactor: [0.25, 0.5, 1], extensions }] }, []);
+        const scene = parseGltf(
+            { materials: [{ emissiveFactor: [0.25, 0.5, 1], extensions }] },
+            [],
+        );
         expect([...scene.materials[0].emissive]).toEqual(
             [0.25, 0.5, 1].map((value) => value * (strength ?? 1)),
         );
@@ -55,7 +58,7 @@ for (const strength of [undefined, 0, 0.5, 8])
     });
 
 test("emissive strength defaults to one and does not supply an absent factor", () => {
-    const scene = parse(
+    const scene = parseGltf(
         {
             extensionsRequired: ["KHR_materials_emissive_strength"],
             materials: [
@@ -76,7 +79,7 @@ test("emissive strength defaults to one and does not supply an absent factor", (
 });
 
 test("material textures retain their independent UV set, factors and scales without unsupported reports", () => {
-    const scene = parse(
+    const scene = parseGltf(
         {
             materials: [
                 {
@@ -112,7 +115,7 @@ test("material textures retain their independent UV set, factors and scales with
 });
 
 test("texture channels, normal scale and occlusion strength take the specification defaults", () => {
-    const material = parse({ materials: [{}] }, []).materials[0];
+    const material = parseGltf({ materials: [{}] }, []).materials[0];
     expect(material).toMatchObject({
         baseColorChannel: 0,
         normalMapChannel: 0,

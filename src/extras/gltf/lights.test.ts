@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { DirectionalLight, PointLight, SpotLight } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import { World } from "../../engine/ecs";
-import { type GltfJson, parse } from "./gltf";
+import { type GltfJson, parseGltf } from "./gltf";
 import { loadGltfScene, poseGltfScene, spawnGltfScene } from "./scene";
 
 const document: GltfJson = JSON.parse(
@@ -59,7 +59,7 @@ test.each(
 });
 
 test("punctual lights keep scene-node identity and ignore nodes outside the default scene", () => {
-    const scene = parse(document, buffers);
+    const scene = parseGltf(document, buffers);
     expect(scene.unsupported).toEqual([]);
     expect(scene.lights.map((light) => light.type)).toEqual([
         "directional",
