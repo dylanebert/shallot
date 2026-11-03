@@ -34,6 +34,10 @@ In `materialLayout`, replace the array and settings bindings with `{ type: "imag
 
 CPU code needing a registered image view calls `imageView(world, id)` from `@dylanebert/shallot/rendering` after warm. Pass `{ isSrgb: false }` as the third argument for data-image ids. The returned `GPUTextureView` refers to a world-owned texture that lives until world disposal; do not destroy the texture. Unloaded or unknown ids return the role's 1×1 fallback view.
 
+## Sprite rows gain an image rect
+
+`Sprite` gains `rect`, a pixel region `[x, y, width, height]` of its image from the top-left; the default `[0, 0, 0, 0]` shows the whole image. `SpriteMaterialInput` gains `rect: vec4f` after `image`; a hand-built row writes zeros to show the whole image. Derive its stride and offsets with TypeGPU's `sizeOf` and `memoryLayoutOf`.
+
 ## Captures use the rendered target's own size
 
 `captureFrame` now accepts any canvas backing size instead of refusing sizes other than 1280×720. Remove capture-only resizes or writes to `CAPTURE_CONTRACT`; read the actual size from the returned capture. `CAPTURE_CONTRACT` still declares the fixed viewport size and device scale for fixtures.

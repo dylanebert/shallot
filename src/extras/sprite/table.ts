@@ -42,6 +42,7 @@ export function createSpriteSource(
     const table = world.table("sprite-material", input);
     table.bindComponent(Sprite, {
         image: "image",
+        rect: "rect",
         size: "size",
         color: "color",
         opacity: "opacity",
