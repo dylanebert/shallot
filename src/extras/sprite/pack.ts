@@ -1,5 +1,5 @@
 import { Billboard } from "../../core/rendering";
-import { component, f32, u32, vec2 } from "../../engine";
+import { component, f32, u32, vec2, vec4 } from "../../engine";
 import { AlphaModeCode } from "../../standard/rendering";
 
 /** Sprite alpha as [AlphaModeCode, cutoff], stored in Sprite.alphaMode's two lanes. */
@@ -32,6 +32,12 @@ export const Sprite = component(
     {
         /** registered image id (see registerImage) */
         image: u32,
+        /**
+         * Pixel region [x, y, width, height] of the image from its top-left, as Bevy's Sprite.rect;
+         * a zero width or height shows the whole image. Address modes and filtering apply to the
+         * whole image, so UVs past the quad and filter footprints at the edges read beyond the region.
+         */
+        rect: vec4,
         /** quad size in world units, before the transform's scale */
         size: vec2,
         /** hex sRGB tint multiplied into the texture */
@@ -50,6 +56,7 @@ export const Sprite = component(
     {
         defaults: () => ({
             image: 0,
+            rect: [0, 0, 0, 0],
             size: [1, 1],
             color: 0xffffff,
             opacity: 1,
