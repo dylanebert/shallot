@@ -144,7 +144,11 @@ If your project installs Playwright for browser checks or publishing verificatio
 `shallot()` now builds with Vite's `base: "./"` unless your config sets `base`, so the output loads under any path, as itch.io and a subpath host serve it. A game that serves its page at nested routes through the History API sets `base: "/"` in its Vite config to keep root-absolute URLs.
 ## Renderer bindings and prepass targets
 
-`engineLayout` gains `prepassDepth`, `prepassNormal` and `ambientOcclusion` texture bindings. Code constructing its own group 0 must supply them; prefer the renderer's prepared groups. Material and background layouts now validate complete per-stage WebGPU binding budgets, including engine and shadow bindings; transparent pipelines also count registered fog. Reduce owned bindings or their stage visibility if preparation refuses the layout. Custom material varyings are checked against the device's inter-stage-variable limit; reduce varyings if refused.
+`engineLayout` gains `prepassDepth`, `prepassNormal` and `ambientOcclusion` texture bindings. Code constructing its own group 0 must supply them; prefer the renderer's prepared groups.
+
+The `pointLights` and `ambientOcclusion` bindings in `engineLayout` are now fragment-only, rather than visible to both vertex and fragment stages. Its `meshQuant` binding is now vertex-only, rather than visible to both stages. Custom shaders reading these bindings in a removed stage fail validation. Move reads and calculations to the permitted stage and pass needed values through a varying; where a later-stage result is needed by an earlier stage, provide a separate binding visible to that stage instead.
+
+Material and background layouts now validate complete per-stage WebGPU binding budgets, including engine and shadow bindings; transparent pipelines also count registered fog. Reduce owned bindings or their stage visibility if preparation refuses the layout. Custom material varyings are checked against the device's inter-stage-variable limit; reduce varyings if refused.
 
 A `PhaseRenderer.prepass` receives a `NORMAL_FORMAT` color target when `view.normal` is set. Supply a matching pipeline target and write world normals encoded as `normal * 0.5 + 0.5`, or do not enable normal prepasses for a renderer that cannot supply them. Material types reading `prepassDepth` or `prepassNormal` must declare `readsPrepass.depth` or `readsPrepass.normal` respectively.
 
