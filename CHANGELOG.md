@@ -8,6 +8,29 @@
 - changed physics reference from box3d `47d7f7cc` to `3362633`, including upstream collision and solver fixes
 - added `Body.safetyFactor`, `PhysicsWorldDefinition.restitutionIterations`, `PhysicsWorldDefinition.enableRestitutionPropagation` and `PhysicsWorldDefinition.isotropicInertiaTolerance`
 - added `MoverJoint` and `PogoJoint`, including carried pogo impulse and velocity
+- added gltf animation, skinning, morph targets, sparse accessors, core primitive topologies and `KHR_mesh_quantization`, `KHR_texture_transform`, `KHR_materials_emissive_strength` and `KHR_lights_punctual`
+- added standard material normal, metallic-roughness, occlusion and emissive textures, uv selection and per-texture transforms
+- added optional mesh uv1, tangent and color streams, with wasm mikktspace tangent generation
+- added per-instance material data through `instanceData`, with `BaseColor` for standard materials
+- added `Sleeping` on physics bodies and attached shapes, and standalone 2d hull construction and simplification
+- added the remaining pinned box3d samples, including dynamic mover, to the `physics` example
+- changed registered images to native-size textures with full mip chains and independent hardware samplers
+- changed mesh rendering to batch occupied material and mesh rows without indirect render bundles
+- changed the cli to a bundled node executable, runnable with node or bun
+- various bugfixes
+
+### changes
+
+- removed `ImageBindings`, `imageArray` and `sampleImage`; custom materials bind individual images through the `image` binding kind
+- changed `Draw.materialType` to `material`, naming the material row whose images the draw binds
+- changed `MeshQuant.uvScale` to `vec2f` and added `streams`; mesh encode and decode functions use the new schema
+- expanded standard material parameter rows and fragment contexts for texture roles and optional mesh streams
+- restricted engine `pointLights` and `ambientOcclusion` bindings to fragments, and `meshQuant` and material layout's built-in `eids` and `globalTransforms` bindings to vertices
+- removed `executeRenderBundles`; use the webgpu pass's `executeBundles` directly
+- added required `HullData.edgeCosines`, `PhysicsTreeNode.proxyId` and `TransformRuntime.scaleClaims` fields for code constructing those records
+- changed physics tree node indices to topology indices separate from proxy ids; saved tree images from earlier patches must be rebuilt
+
+to update a 0.10 app, run `bunx shallot migrate` or read [`MIGRATION.md`](https://github.com/dylanebert/shallot/blob/v0.10.3/MIGRATION.md).
 
 ## 0.10.2
 
