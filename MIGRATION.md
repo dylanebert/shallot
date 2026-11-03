@@ -16,9 +16,9 @@ Register normal, metallic-roughness and occlusion images with `registerImage(wor
 
 Each texture also accepts its own `baseColorTransform`, `normalMapTransform`, `metallicRoughnessTransform`, `occlusionTransform` or `emissiveTransform`: `{ offset, rotation, scale }`, with identity defaults. Coordinates are scaled, rotated counter-clockwise in radians around the origin, then offset, after selecting the channel.
 
-Use `StandardMaterial()` to fill new row fields. Hand-built `StandardMaterialInput` rows write `-1` for absent texture ids, `0` for all channels, and `1` for `normalMapScale` and `occlusionStrength`. Each transform row writes scalar `offsetX`, `offsetY` and `rotation` as `0`, and `scaleX` and `scaleY` as `1` for identity. Recompute row strides and binding numbers from their schemas. Custom material maps use the image binding kind described below.
+Use `StandardMaterial()` to fill new row fields. Hand-built `StandardMaterialInput` rows write `-1` for absent texture ids, `0` for all channels, and `1` for `normalMapScale` and `occlusionStrength`. Each transform row writes scalar `offsetX`, `offsetY` and `rotation` as `0`, and `scaleX` and `scaleY` as `1` for identity. Recompute row strides and binding numbers from their schemas. This also changes the parameter schema of `Materials`, `VertexMaterialType` and `pbrInputFromStandardMaterial`; use the complete `StandardMaterialInput` schema instead of a copy of the old row. Custom material maps use the image binding kind described below.
 
-Fragment contexts gain `rawWorldNormal`, the unnormalized interpolated world normal (Bevy's `PbrInput.world_normal`). `worldNormal` remains normalized (Bevy's `N`). Use the raw normal with the interpolated tangent for a MikkTSpace normal-map basis, normalizing only the mapped result. Both values come from the existing normal varying.
+Fragment contexts gain `rawWorldNormal`, the unnormalized interpolated world normal (Bevy's `PbrInput.world_normal`). `worldNormal` remains normalized (Bevy's `N`). Use the raw normal with the interpolated tangent for a MikkTSpace normal-map basis, normalizing only the mapped result. Both values come from the existing normal varying. A hand-built context passed to `pbrInputFromStandardMaterial` also supplies `instanceRow` (the instance-data row), `uv1` (falling back to `uv`), `color` (white without vertex color) and `tangent` (zero without a tangent stream); prefer passing the renderer's fragment context.
 
 The glTF importer now maps these textures, their UV sets, normal scale and occlusion strength, and applies vertex color instead of reporting the textures unsupported. It maps `KHR_texture_transform` independently on every texture, including the extension's `texCoord` override. UV sets above 1 remain reported by name.
 
@@ -146,7 +146,7 @@ If your project installs Playwright for browser checks or publishing verificatio
 
 `engineLayout` gains `prepassDepth`, `prepassNormal` and `ambientOcclusion` texture bindings. Code constructing its own group 0 must supply them; prefer the renderer's prepared groups.
 
-The `pointLights` and `ambientOcclusion` bindings in `engineLayout` are now fragment-only, rather than visible to both vertex and fragment stages. Its `meshQuant` binding is now vertex-only, rather than visible to both stages. Custom shaders reading these bindings in a removed stage fail validation. Move reads and calculations to the permitted stage and pass needed values through a varying; where a later-stage result is needed by an earlier stage, provide a separate binding visible to that stage instead.
+The `pointLights` and `ambientOcclusion` bindings in `engineLayout` are now fragment-only, rather than visible to both vertex and fragment stages. Its `meshQuant` binding and `materialLayout`'s built-in `eids` and `globalTransforms` bindings are now vertex-only, rather than visible to both stages. Custom shaders reading these bindings in a removed stage fail validation. Move reads and calculations to the permitted stage and pass needed values through a varying, or supply a separate binding visible to the stage that needs it.
 
 Material and background layouts now validate complete per-stage WebGPU binding budgets, including engine and shadow bindings; transparent pipelines also count registered fog. Reduce owned bindings or their stage visibility if preparation refuses the layout. Custom material varyings are checked against the device's inter-stage-variable limit; reduce varyings if refused.
 
@@ -160,6 +160,18 @@ Camera producers that previously ran before `BeginFrameSystem` must run before t
 
 `PhysicsMesh` and `HeightField` are now unions including generated geometry. Existing literal definitions still work, but code reading their fields must narrow first, for example with `"vertices" in mesh` or `"heights" in field`. Use `Extract<HeightField, { heights: Float32Array }>` for a grid-only height-field annotation and `Extract<PhysicsMesh, { vertices: Float32Array }>` for an explicit mesh definition. An interface cannot extend either union; use a type intersection or a narrowed variant instead.
 
+## Physics hull and tree output records
+
+`HullData` gains `edgeCosines`, one cosine per undirected edge (`edgeCount / 2`). Code constructing or copying these output records must retain the generated values; prefer `createHull` and `makeBoxHull` over hand-built records. Existing readers need no change.
+
+`PhysicsTreeNode` gains `proxyId`, the leaf's proxy ID or `-1` for an internal node. Hand-built node records must supply it. `getPhysicsTreeNode(world, tree, index)` takes a current topology index, not a proxy ID; mutations can relocate nodes. Traverse from `getPhysicsTreeStats(world, tree).root` through `child1` and `child2`, and use a leaf's `proxyId` for proxy operations rather than its node index.
+
+Saved `savePhysicsTree` images from earlier patches are incompatible with `loadPhysicsTree`. Rebuild the tree from source geometry and save a new image with this engine version.
+
+## Transform runtime records track scale claims
+
+`TransformRuntime` gains `scaleClaims: Set<number>`. Code constructing a replacement runtime record must initialize it with `new Set<number>()`; normal `world.resource(TransformRuntime)` creation supplies it. Existing two-argument `claimTransformPose` calls keep deriving scale from `Transform`.
+
 ## Contact events identify compound children
 
 `PhysicsContactEvent` gains `childIndex`, identifying the compound child within its shape pair (`0` for a non-compound pair). Hand-written event records and fixtures must supply it; event consumers can keep reading their existing fields.
@@ -167,6 +179,8 @@ Camera producers that previously ran before `BeginFrameSystem` must run before t
 ## Physics world definitions name automatic stepping
 
 `PhysicsWorldDefinition` gains `enableAutomaticStep`, defaulting to `true`. A complete hand-written definition supplies `enableAutomaticStep: true` to preserve automatic simulation; partial resource configuration keeps the default. Set it to `false` only when calling `stepPhysics` yourself from a fixed system ordered after `StepPhysicsSystem`. The optional `maximumMemory` keeps the shared kernel's default 1 GiB ceiling unless explicitly set.
+
+Complete hand-written definitions also supply `restitutionIterations: 2`, `enableRestitutionPropagation: false` and `isotropicInertiaTolerance: 0.2`, matching the new defaults. Partial resource configuration keeps these defaults. The Box3D reference update changes simulation results and hashes; regenerate version-specific replay expectations rather than comparing hashes across engine versions.
 
 ## CPU-only ticks clear field marks
 
