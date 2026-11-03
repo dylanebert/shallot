@@ -52,7 +52,7 @@ document.body.dataset.native = JSON.stringify(
 if (location.search)
     document.body.dataset.sharedSampler = String(
         imageSampler(app.world, 0) === imageSampler(app.world, 1) &&
-            imageSampler(app.world, 0) === imageSampler(app.world, 0, false),
+            imageSampler(app.world, 0) === imageSampler(app.world, 0, { isSrgb: false }),
     );
 // This diagnostic owns its raw readback pipeline, outside the game's pipeline warm-up.
 const device = rawDevice(app.world.gpu.device);

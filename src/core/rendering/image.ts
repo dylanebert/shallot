@@ -20,8 +20,16 @@ export const imageTextures = {
     }),
 };
 
-/** @internal Hardware sampler shared by images with equal effective descriptors. */
-export function imageSampler(world: World, id: number, isSrgb = true): GPUSampler {
+/**
+ * After warm, return the world-owned hardware sampler shared by images with equal effective
+ * descriptors. False isSrgb selects the independent data ids. Unknown ids use the default sampler.
+ */
+export function imageSampler(
+    world: World,
+    id: number,
+    settings: Pick<ImageLoaderSettings, "isSrgb"> = {},
+): GPUSampler {
+    const isSrgb = settings.isSrgb !== false;
     const state = world.resource(imageTextures);
     const role = isSrgb ? 0 : 1;
     const cached = state.imageSamplers[role][id];
@@ -47,10 +55,17 @@ export function imageSampler(world: World, id: number, isSrgb = true): GPUSample
 }
 
 /**
- * @internal Missing native textures bind a role-local fallback. One the host could have decoded
- * warns once per id.
+ * After warm, return a registered image's native-size texture, owned by the world until disposal;
+ * callers must not destroy it. False isSrgb selects the independent data ids. An unloaded or unknown
+ * id returns a role-local 1×1 fallback and warns once per nonnegative id, except an id registered
+ * before warm on a host with no image decoder.
  */
-export function imageTexture(world: World, id: number, isSrgb = true): GPUTexture {
+export function imageTexture(
+    world: World,
+    id: number,
+    settings: Pick<ImageLoaderSettings, "isSrgb"> = {},
+): GPUTexture {
+    const isSrgb = settings.isSrgb !== false;
     const state = world.resource(imageTextures);
     const role = isSrgb ? 0 : 1;
     const texture = state.textures[role][id];
@@ -75,7 +90,7 @@ export function imageView(
     id: number,
     settings: Pick<ImageLoaderSettings, "isSrgb"> = {},
 ): GPUTextureView {
-    return imageTexture(world, id, settings.isSrgb !== false).createView();
+    return imageTexture(world, id, settings).createView();
 }
 
 /** Addressing outside the image, matching Bevy's ImageAddressMode. */
@@ -266,7 +281,7 @@ async function loadImage(world: World, id: number, role: number): Promise<void> 
         });
         world.own(texture);
         state.textures[role][id] = texture;
-        imageSampler(world, id, role === 0);
+        imageSampler(world, id, { isSrgb: role === 0 });
         device.queue.copyExternalImageToTexture({ source: bitmap }, { texture }, [
             bitmap.width,
             bitmap.height,

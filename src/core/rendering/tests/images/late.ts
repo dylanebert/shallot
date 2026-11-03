@@ -99,7 +99,7 @@ try {
         for (const source of [URL.createObjectURL(blob), blob]) {
             const id = registerImage(world, source, { isSrgb });
             await prepareImages(world);
-            const texture = imageTexture(world, id, isSrgb);
+            const texture = imageTexture(world, id, { isSrgb });
             const original = originals[isSrgb ? 0 : 1][warm[index++]!];
             for (let level = 0; level < original.mipLevelCount; level++)
                 equal &&=

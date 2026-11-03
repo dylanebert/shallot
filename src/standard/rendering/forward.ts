@@ -345,8 +345,8 @@ function materialResource(
             if (name !== field.name && name !== field.sampler) continue;
             const id = entry!.ids[row * fields.length + i]!;
             return name === field.name
-                ? imageTexture(world, id, field.isSrgb)
-                : imageSampler(world, id, field.isSrgb);
+                ? imageTexture(world, id, field)
+                : imageSampler(world, id, field);
         }
     }
     switch (name) {
