@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, expectTypeOf, test } from "bun:test";
 import { evaluateGltfAnimation, type GltfAnimation, type GltfNode, parseGltf } from ".";
 
 const nodes: GltfNode[] = [
@@ -29,7 +29,12 @@ function animation(
 test("evaluation is pure, keeps untargeted properties, and clamps each sampler", () => {
     const clip = animation("translation", [0, 0, 0, 4, 8, 12]);
     const before = structuredClone(nodes);
-    expect(evaluateGltfAnimation(nodes, clip, 2)[0]).toEqual({
+    const pose = evaluateGltfAnimation(nodes, clip, 2)[0];
+    expectTypeOf(pose.translation).toEqualTypeOf<[number, number, number]>();
+    expectTypeOf(pose.rotation).toEqualTypeOf<[number, number, number, number]>();
+    expectTypeOf(pose.scale).toEqualTypeOf<[number, number, number]>();
+    expectTypeOf(pose.weights).toEqualTypeOf<number[]>();
+    expect(pose).toEqual({
         translation: [2, 4, 6],
         rotation: [0, 0, 0, 1],
         scale: [1, 2, 3],

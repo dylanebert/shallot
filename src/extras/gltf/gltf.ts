@@ -138,9 +138,9 @@ interface Node {
     skin?: number;
     children?: number[];
     matrix?: number[];
-    translation?: number[];
-    rotation?: number[];
-    scale?: number[];
+    translation?: [number, number, number];
+    rotation?: [number, number, number, number];
+    scale?: [number, number, number];
 }
 
 export interface GltfMesh {
@@ -947,11 +947,9 @@ export function parseGltf(gltf: GltfJson, buffers: ArrayBuffer[]): GltfScene {
             index,
             parent: parentIndex,
             name: node.name ?? `Node${index}`,
-            translation: trs
-                ? Array.from(trs.subarray(0, 3))
-                : [...(node.translation ?? [0, 0, 0])],
-            rotation: trs ? Array.from(trs.subarray(3, 7)) : [...(node.rotation ?? [0, 0, 0, 1])],
-            scale: trs ? Array.from(trs.subarray(7, 10)) : [...(node.scale ?? [1, 1, 1])],
+            translation: trs ? [trs[0], trs[1], trs[2]] : [...(node.translation ?? [0, 0, 0])],
+            rotation: trs ? [trs[3], trs[4], trs[5], trs[6]] : [...(node.rotation ?? [0, 0, 0, 1])],
+            scale: trs ? [trs[7], trs[8], trs[9]] : [...(node.scale ?? [1, 1, 1])],
             weights: [
                 ...(node.weights ??
                     (node.mesh === undefined ? undefined : gltf.meshes?.[node.mesh].weights) ??
