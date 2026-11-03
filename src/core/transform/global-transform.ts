@@ -63,10 +63,16 @@ export const TransformRuntime: Resource<{
         };
     },
 };
-/** @internal Assigns pose publication to a domain producer, optionally including scale. */
-export function claimTransformPose(world: World, eid: number, scale = false): void {
+/** @internal Assigns translation and rotation publication to a domain producer until
+ * releaseTransformPose. With scale true, the producer also publishes scale; otherwise scale
+ * continues to derive from Transform. A repeated claim retains any existing scale claim. */
+export function claimTransformPose(
+    world: World,
+    eid: number,
+    options: { scale?: boolean } = {},
+): void {
     const runtime = world.resource(TransformRuntime);
-    if (scale) runtime.scaleClaims.add(eid);
+    if (options.scale) runtime.scaleClaims.add(eid);
     const word = eid >>> 5;
     if (word >= runtime.poseClaims.length) {
         const next = new Uint32Array(Math.max(word + 1, runtime.poseClaims.length * 2));

@@ -1,7 +1,14 @@
 import { expect, test } from "bun:test";
 import { component, f32 } from "../../engine/ecs/component";
 import { World } from "../../engine/ecs/world";
-import { deriveTransforms, GlobalTransform, Transform, TransformPlugin } from "./index";
+import {
+    claimTransformPose,
+    deriveTransforms,
+    GlobalTransform,
+    releaseTransformPose,
+    Transform,
+    TransformPlugin,
+} from "./index";
 
 test("TransformPlugin installs processing on a bare World for frames and exact ticks", () => {
     const world = new World();
@@ -72,6 +79,34 @@ test("rotation-only and scale-only writes derive their matching GlobalTransform 
     expect(
         Array.from(world.storage(GlobalTransform).scale.column.slice(eid * 4, eid * 4 + 4)),
     ).toEqual([2, 3, 4, 5]);
+    world.dispose();
+});
+
+test("pose claims leave scale derived unless explicitly claimed, until release", () => {
+    const world = new World();
+    for (const entry of TransformPlugin.components ?? []) world.registry.register(entry);
+    const eid = world.create();
+    world.add(eid, Transform, { translation: [3, 0, 0], scale: [2, 2, 2] });
+    const global = world.storage(GlobalTransform);
+
+    claimTransformPose(world, eid);
+    deriveTransforms(world);
+    expect(global.translation.x.get(eid)).toBe(0);
+    expect(global.scale.x.get(eid)).toBe(2);
+    world.clearChanges();
+
+    claimTransformPose(world, eid, { scale: true });
+    claimTransformPose(world, eid, { scale: false });
+    claimTransformPose(world, eid);
+    world.storage(Transform).scale.set(eid, 4, 4, 4);
+    deriveTransforms(world);
+    expect(global.scale.x.get(eid)).toBe(2);
+    world.clearChanges();
+
+    releaseTransformPose(world, eid);
+    deriveTransforms(world);
+    expect(global.translation.x.get(eid)).toBe(3);
+    expect(global.scale.x.get(eid)).toBe(4);
     world.dispose();
 });
 

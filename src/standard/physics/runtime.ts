@@ -2635,7 +2635,7 @@ function bindAttachedShape(world: World, runtime: PhysicsRuntime, eid: number, b
     shapes.add(eid);
     publishSleepMarker(world, eid, world.has(body, Sleeping));
     if (!world.has(eid, GlobalTransform)) world.add(eid, GlobalTransform);
-    claimTransformPose(world, eid, true);
+    claimTransformPose(world, eid, { scale: true });
     resetInterpolation(world, eid);
 }
 
