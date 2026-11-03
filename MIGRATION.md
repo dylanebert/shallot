@@ -22,6 +22,10 @@ Fragment contexts gain `rawWorldNormal`, the unnormalized interpolated world nor
 
 The glTF importer now maps these textures, their UV sets, normal scale and occlusion strength, and applies vertex color instead of reporting the textures unsupported. It maps `KHR_texture_transform` independently on every texture, including the extension's `texCoord` override. UV sets above 1 remain reported by name.
 
+## Render passes execute bundles directly
+
+`executeRenderBundles(pass, bundles)` is removed. Call `pass.executeBundles(bundles)` directly.
+
 ## Custom materials bind individual images
 
 `ImageBindings`, its shared arrays, `imageSettings` and shared sampler, `sampleImage`, and `imageArray` are removed. Replace `imageArray` with `registerImage(world, source)` during initialization, then use `imageView` or the material image binding kind after warm. `registerImage` still returns independent color and data ids. Images retain their native dimensions and full mip chains.
