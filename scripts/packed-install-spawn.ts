@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } fr
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
-import semver from "semver";
+import { satisfies, tryParseRange } from "verkit";
 
 const INSTALL_TIMEOUT = 60_000;
 
@@ -161,13 +161,13 @@ function checkInstalledRanges(cwd: string, label: string): void {
                     installed?.name === name
                 )
                     continue;
-                const validRange = semver.validRange(range);
-                if (validRange === null) {
+                const parsedRange = tryParseRange(range);
+                if (parsedRange === null) {
                     throw new Error(
                         `${label}: ${pkg.name} ${kind} ${name} range ${spec} installed ${installed?.version ?? "missing"}: unsupported spec`,
                     );
                 }
-                if (!installed || !semver.satisfies(installed.version, validRange)) {
+                if (!installed || !satisfies(installed.version, parsedRange)) {
                     throw new Error(
                         `${label}: ${pkg.name} ${kind} ${name} range ${spec} installed ${installed?.version ?? "missing"}: unmet or unsupported range`,
                     );
