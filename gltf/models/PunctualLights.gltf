@@ -1,0 +1,40 @@
+{
+    "asset": { "version": "2.0", "copyright": "CC0-1.0" },
+    "extensionsUsed": ["KHR_lights_punctual"],
+    "extensionsRequired": ["KHR_lights_punctual"],
+    "extensions": {
+        "KHR_lights_punctual": {
+            "lights": [
+                { "type": "directional", "color": [0.5, 0.25, 1], "intensity": 123 },
+                { "type": "point", "intensity": 7, "range": 11 },
+                { "type": "spot", "intensity": 9, "spot": { "innerConeAngle": 0.2, "outerConeAngle": 0.6 } },
+                { "type": "spot", "spot": {} }
+            ]
+        }
+    },
+    "nodes": [
+        { "translation": [2, 3, 4], "scale": [2, 2, 2], "children": [1, 2, 3, 4] },
+        { "translation": [1, 0, 0], "rotation": [0, 0.7071067811865476, 0, 0.7071067811865476], "extensions": { "KHR_lights_punctual": { "light": 0 } } },
+        { "translation": [1, 0, 0], "rotation": [0, 0.7071067811865476, 0, 0.7071067811865476], "extensions": { "KHR_lights_punctual": { "light": 1 } } },
+        { "translation": [1, 0, 0], "rotation": [0, 0.7071067811865476, 0, 0.7071067811865476], "extensions": { "KHR_lights_punctual": { "light": 2 } } },
+        { "translation": [1, 0, 0], "rotation": [0, 0.7071067811865476, 0, 0.7071067811865476], "extensions": { "KHR_lights_punctual": { "light": 3 } } },
+        { "extensions": { "KHR_lights_punctual": { "light": 0 } } }
+    ],
+    "scenes": [{ "nodes": [0] }],
+    "scene": 0,
+    "buffers": [{ "uri": "data:application/octet-stream;base64,AAAAAAAAgD8AAABAAABAQAAAgEAAAIBAAACgQAAAwEAAAAAAAAAAAAAAAAAAAIA/AAAAAPMENT8AAAAA8wQ1Pw==", "byteLength": 64 }],
+    "bufferViews": [
+        { "buffer": 0, "byteOffset": 0, "byteLength": 8 },
+        { "buffer": 0, "byteOffset": 8, "byteLength": 24 },
+        { "buffer": 0, "byteOffset": 32, "byteLength": 32 }
+    ],
+    "accessors": [
+        { "bufferView": 0, "componentType": 5126, "count": 2, "type": "SCALAR", "min": [0], "max": [1] },
+        { "bufferView": 1, "componentType": 5126, "count": 2, "type": "VEC3" },
+        { "bufferView": 2, "componentType": 5126, "count": 2, "type": "VEC4" }
+    ],
+    "animations": [
+        { "name": "move parent", "samplers": [{ "input": 0, "output": 1 }], "channels": [{ "sampler": 0, "target": { "node": 0, "path": "translation" } }] },
+        { "name": "turn parent", "samplers": [{ "input": 0, "output": 2 }], "channels": [{ "sampler": 0, "target": { "node": 0, "path": "rotation" } }] }
+    ]
+}
