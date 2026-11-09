@@ -502,6 +502,10 @@ export async function runApp(config: AppConfig): Promise<App> {
         // seeded by the first frame's own timestamp (`frameDelta` steps 0 there), never by `now()` here: a
         // rAF timestamp is the frame's vsync-aligned start and can precede a wall-clock seed
         let lastTime = -1;
+        // Firefox cancels a page's running script when the person navigates away, without unwinding
+        // `finally`, and keeps running its frames until the next document commits; a nested event loop
+        // re-enters a step the same way. A frame skips while the world is still mid-step.
+        let stepping = false;
         let pendingFenceWaitMs = 0;
         // the issue time of each fence still in flight, oldest at `fenceHead`: the queue settles fences in
         // submission order, and the in-flight backstop below keeps at most MAX_FRAMES_IN_FLIGHT of them
@@ -530,6 +534,7 @@ export async function runApp(config: AppConfig): Promise<App> {
                     return;
                 // Register the next callback before GPU work, while the browser's paint deadline is open.
                 requestFrame(loop.frame);
+                if (stepping) return;
                 // rAF timestamps exclude callback-delay jitter from simulation and fixed-step interpolation.
                 // The headless setTimeout path supplies no timestamp.
                 const t = timestamp ?? now();
@@ -538,7 +543,12 @@ export async function runApp(config: AppConfig): Promise<App> {
                 lastTime = t;
                 world.fenceWaitSink?.(pendingFenceWaitMs);
                 pendingFenceWaitMs = 0;
-                world.step(dt);
+                stepping = true;
+                try {
+                    world.step(dt);
+                } finally {
+                    stepping = false;
+                }
                 if (!startupReported && dt > 0) {
                     startupReported = true;
                     reportStartup({ kind: "app", adapter: gpu ? { ...gpu.adapter } : undefined });
