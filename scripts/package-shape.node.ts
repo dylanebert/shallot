@@ -15,7 +15,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import semver from "semver";
+import { isRangeSubset, isValidRange } from "verkit";
 import { normalizePath } from "../src/project/paths";
 import { removeTestDirectory } from "./test-directory";
 
@@ -24,28 +24,28 @@ const ENGINE = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
 const TYPEGPU_RANGE = ENGINE.peerDependencies.typegpu as string;
 
 test("Dawn webgpu is an optional peer with the verified development pin", () => {
-    expect(semver.validRange(ENGINE.devDependencies.webgpu)).not.toBeNull();
+    expect(isValidRange(ENGINE.devDependencies.webgpu)).toBe(true);
     expect(ENGINE.peerDependencies.webgpu).toBe(ENGINE.devDependencies.webgpu);
     expect(ENGINE.peerDependenciesMeta.webgpu).toEqual({ optional: true });
     expect(ENGINE.exports["./webgpu"]).toBe("./src/engine/runtime/webgpu.ts");
 });
 
 test("Vite is a supported plugin peer and a Shallot development dependency", () => {
-    expect(semver.validRange(ENGINE.devDependencies.vite)).not.toBeNull();
-    expect(semver.validRange(ENGINE.peerDependencies.vite)).not.toBeNull();
-    expect(semver.subset(ENGINE.devDependencies.vite, ENGINE.peerDependencies.vite)).toBe(true);
+    expect(isValidRange(ENGINE.devDependencies.vite)).toBe(true);
+    expect(isValidRange(ENGINE.peerDependencies.vite)).toBe(true);
+    expect(isRangeSubset(ENGINE.devDependencies.vite, ENGINE.peerDependencies.vite)).toBe(true);
     expect(ENGINE.dependencies.vite).toBeUndefined();
 });
 
 test("the script-only Babel parser is a development dependency", () => {
     expect(ENGINE.dependencies["@babel/parser"]).toBeUndefined();
-    expect(semver.validRange(ENGINE.devDependencies["@babel/parser"])).not.toBeNull();
+    expect(isValidRange(ENGINE.devDependencies["@babel/parser"])).toBe(true);
 });
 
 // c9caa355 dropped an unused Playwright peer; the published ./testing now imports Playwright's types,
 // so it is an optional peer, as webgpu is for ./webgpu, and stays the engine's own dev dependency.
 test("Playwright is an optional peer for ./testing and the engine's dev dependency", () => {
-    expect(semver.validRange(ENGINE.devDependencies.playwright)).not.toBeNull();
+    expect(isValidRange(ENGINE.devDependencies.playwright)).toBe(true);
     expect(ENGINE.peerDependencies.playwright).toBe(ENGINE.devDependencies.playwright);
     expect(ENGINE.peerDependenciesMeta.playwright).toEqual({ optional: true });
 });

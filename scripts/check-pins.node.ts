@@ -36,8 +36,7 @@ test("documented dependency and Bun pins match their manifests", async () => {
         webgpu: { manifest: "package.json", field: "peerDependencies" },
         "unplugin-typegpu": { manifest: "package.json", field: "dependencies" },
         typescript: { manifest: "package.json", field: "devDependencies" },
-        semver: { manifest: "package.json", field: "devDependencies" },
-        "@types/semver": { manifest: "package.json", field: "devDependencies" },
+        verkit: { manifest: "package.json", field: "devDependencies" },
     };
 
     const declared: Record<string, string> = {};
