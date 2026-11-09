@@ -1,5 +1,5 @@
 {
     "extends": "./tsconfig.base.json",
-    "include": ["src", "bin", "examples", "scripts", "crates/physics/scripts", "diagnostics"],
-    "exclude": ["**/dist", "**/build"]
+    "files": [],
+    "references": [{ "path": "./tsconfig.src.json" }, { "path": "./tsconfig.tools.json" }]
 }

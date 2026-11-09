@@ -34,6 +34,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 
 ### GPU floor
 
+- Browser source uses ES2022 built-ins within Chrome 113's WebGPU floor; host tooling and tests may use ESNext
 - Shallot's engine and packages stay within WebGPU's default limits, including eight storage-buffer bindings per shader stage
 - Device acquisition uses the enabled plugins' declared requirements, never adapter maxima
 - A floor-device proof requests only the composition's required features, with no `requiredLimits`, builds and draws the covered pipeline families and examples, and records the adapter identity, granted features and limits

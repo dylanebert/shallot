@@ -1,0 +1,22 @@
+{
+    "extends": "./tsconfig.base.json",
+    "compilerOptions": {
+        "lib": ["ES2022", "DOM", "DOM.Iterable"],
+        "types": ["@webgpu/types"]
+    },
+    "include": ["src/**/*.ts", "src/**/*.js", "examples/*/src/**/*.ts", "examples/*/src/**/*.js", "examples/*/src/**/*.svelte"],
+    "exclude": [
+        "src/cli",
+        "src/native",
+        "src/project",
+        "**/*.entry.ts",
+        "**/oracle",
+        "**/*.test.ts",
+        "**/*.e2e.ts",
+        "**/*.node.ts",
+        "**/*.oracle.ts",
+        "**/*.fixture.ts",
+        "**/fixtures",
+        "**/browser"
+    ]
+}

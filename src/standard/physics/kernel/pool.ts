@@ -11,7 +11,8 @@ export function maxWorkers(stackSize: number): number {
 function clockPause(): boolean {
     return performance.now() >= 0;
 }
-export const solverPause = typeof Atomics.pause === "function" ? Atomics.pause : clockPause;
+const pause = (Atomics as typeof Atomics & { pause?: () => void }).pause;
+export const solverPause = typeof pause === "function" ? pause : clockPause;
 
 const WORKER_SRC = `
 const boot = (d, post) => {

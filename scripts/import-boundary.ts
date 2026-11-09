@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { builtinModules } from "node:module";
 import { relative, resolve, sep } from "node:path";
 import { parse } from "@babel/parser";
@@ -129,7 +129,8 @@ function gameTierAt(src: string, file: string): string | undefined {
 
 // TypeScript 7 no longer exports the legacy JS resolver; its compiler trace uses the same resolver and project options.
 function moduleResolutions(root: string): Map<string, ModuleResolution> {
-    const project = resolve(root, "tsconfig.json");
+    const toolsProject = resolve(root, "tsconfig.tools.json");
+    const project = existsSync(toolsProject) ? toolsProject : resolve(root, "tsconfig.json");
     const result = Bun.spawnSync(
         [TSC, "--project", project, "--noEmit", "--traceResolution", "--pretty", "false"],
         { cwd: root, stdout: "pipe", stderr: "pipe" },
