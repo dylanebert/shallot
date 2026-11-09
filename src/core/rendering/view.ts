@@ -379,8 +379,62 @@ export function attachCanvas(world: World, eid: number, canvas: HTMLCanvasElemen
         alphaMode: "premultiplied",
         usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
     });
+    surfaces.delete(context);
     _views.set(eid, view);
     _canvasViews.set(canvas, { world, view });
+}
+
+interface SurfaceState {
+    reconfigures: number;
+    error: GPUError | null;
+}
+
+const surfaces = new WeakMap<GPUCanvasContext, SurfaceState>();
+const SURFACE_RECONFIGURES = 3;
+
+/** Acquire under an acquisition-only validation scope; other GPU work stays outside it.
+ * A failed acquisition repairs the canvas backing and configuration on its next frame.
+ * Three consecutive failed reconfigures fail permanently, naming the canvas viewport. */
+export function acquireCanvasTexture(world: World, view: View): GPUTexture | undefined {
+    const context = view.context!;
+    let state = surfaces.get(context);
+    if (!state) {
+        state = { reconfigures: 0, error: null };
+        surfaces.set(context, state);
+    }
+    const device = rawDevice(world.gpu.device);
+    const canvas = view.canvas!;
+    const limit = device.limits.maxTextureDimension2D;
+    // Invalid Chromium textures can retain the requested dimensions. Repair the
+    // backing before acquisition; dimensions of the returned texture cannot validate it.
+    const invalidBacking =
+        canvas.width === 0 || canvas.height === 0 || canvas.width > limit || canvas.height > limit;
+    if (state.error || invalidBacking) {
+        if (state.reconfigures >= SURFACE_RECONFIGURES)
+            throw new Error(
+                `Canvas surface ${view.canvas!.id || `viewport ${view.viewportIndex}`} failed after ${SURFACE_RECONFIGURES} reconfigures: ${state.error?.message ?? "backing dimensions outside device limits"}`,
+            );
+        const inputs = _sizeInputs.get(view);
+        canvas.width = Math.max(1, Math.min(limit, inputs?.[6] ?? view.width));
+        canvas.height = Math.max(1, Math.min(limit, inputs?.[7] ?? view.height));
+        context.configure(context.getConfiguration()!);
+        state.reconfigures++;
+        state.error = null;
+    }
+    device.pushErrorScope("validation");
+    let texture: GPUTexture;
+    try {
+        texture = context.getCurrentTexture();
+    } finally {
+        const current = state;
+        void device.popErrorScope().then((error) => {
+            current.error = error;
+            if (!error) current.reconfigures = 0;
+        });
+    }
+    // WebKit returns an empty invalid texture on a surface acquisition failure. Do not
+    // use it while the acquisition's validation scope settles: that would cause cascaded errors.
+    return texture.width > 0 && texture.height > 0 ? texture : undefined;
 }
 
 /**

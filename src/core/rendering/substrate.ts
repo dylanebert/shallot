@@ -62,6 +62,7 @@ import { SAMPLE_COUNT } from "./targets";
 import { warmUpscaling } from "./upscaling";
 
 import {
+    acquireCanvasTexture,
     bindCamera,
     clearOffscreens,
     clearScratch,
@@ -463,6 +464,8 @@ export const BeginFrameSystem: System = {
             _renderFrame.depthOnlyViews[depthOnly] = view;
             depthOnly++;
         }
+        let acquiredContext: GPUCanvasContext | null = null;
+        let acquiredTexture: GPUTexture | undefined;
         for (let i = 0; i < targetEids.length; i++) {
             const eid = targetEids[i]!;
             const view = targetViews[i]!;
@@ -478,7 +481,11 @@ export const BeginFrameSystem: System = {
                 console.warn(presentingViewRefusal(eid));
                 continue;
             }
-            const texture = view.texture ?? view.context!.getCurrentTexture();
+            if (view.context && view.context !== acquiredContext) {
+                acquiredContext = view.context;
+                acquiredTexture = acquireCanvasTexture(world, view);
+            }
+            const texture = view.texture ?? acquiredTexture;
             if (view.context) {
                 view.canvasTexture = texture;
                 view.canvasTextureReused = view.surfaceTexture === texture;
