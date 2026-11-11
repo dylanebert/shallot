@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect } from "bun:test";
 import {
+    copyFileSync,
     existsSync,
     mkdirSync,
     mkdtempSync,
@@ -9,8 +10,9 @@ import {
     writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { devModels } from "../examples/gltf/dev-assets";
 import { normalizePath } from "../src/project/paths";
 import { packedInstall as runPackedInstall } from "./packed-install-spawn";
 import { removeTestDirectory } from "./test-directory";
@@ -155,6 +157,15 @@ export function createExample(name: string): void {
     delete manifest.devDependencies["svelte-check"];
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 4)}\n`);
     writeFileSync(join(project, "no-preload.toml"), "[test]\n");
+    // The gltf build fetches its picker's models from GitHub; the repo's synced copies keep the network out.
+    if (name === "gltf")
+        for (const { path } of devModels.flatMap((model) => model.files)) {
+            const source = join(ROOT, "examples/gltf/public/assets", path);
+            if (!existsSync(source)) continue;
+            const destination = join(project, "public/assets", path);
+            mkdirSync(dirname(destination), { recursive: true });
+            copyFileSync(source, destination);
+        }
     writeFileSync(
         join(project, "src/packed-tgsl.test.ts"),
         `import { expect, test } from "bun:test";
