@@ -19,6 +19,7 @@ import {
 } from "../../standard/rendering";
 import type { GltfAnimation, GltfNode, GltfNodePose } from "./animation";
 import type { GltfScene, GltfSkeleton, GltfSkin } from "./gltf";
+import { basisImageSource } from "./image";
 import { initializeGltfGlobals, poseKernel, registerGltfKernel, writeKernelPose } from "./kernel";
 import { loadGltf } from "./load";
 import {
@@ -73,6 +74,9 @@ export interface GltfPlacement {
  * the build owns their preparation.
  * The handle and its mesh, image and material registrations belong to this world until disposal.
  * Supports KHR_meshopt_compression and EXT_meshopt_compression without fetching fallback buffers.
+ * KHR_texture_basisu selects device-supported compression without fetching fallback images;
+ * DFD transfer functions must match the texture's color or data role. Single-level KTX2 images
+ * under mip samplers decode to RGBA8 for generated mips. The transcoder loads only for KTX2.
  * The handle's decoded data, including animations, is immutable and copied to the kernel.
  * glTF emissive (cd/m²) reaches StandardMaterial.emissive unscaled and is added outside camera
  * exposure, as Bevy's default; glTF leaves its screen brightness to the client's exposure.
@@ -111,7 +115,9 @@ export async function loadGltfScene(
         const image = scene.images[texture.image];
         const id = registerImage(
             world,
-            image.uri ?? new Blob([image.bytes!.slice().buffer], { type: image.mimeType }),
+            image.mimeType === "image/ktx2" || image.uri?.split(/[?#]/)[0].endsWith(".ktx2")
+                ? basisImageSource(image, isSrgb, texture.mipmaps)
+                : (image.uri ?? new Blob([image.bytes!.slice().buffer], { type: image.mimeType })),
             { sampler: texture.sampler, isSrgb },
         );
         textures.set(key, id);

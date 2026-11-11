@@ -1,4 +1,4 @@
-import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
+import { afterAll, expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import {
     MeshInstance,
     MeshPlugin,
@@ -17,6 +17,8 @@ import { isMeshInstanceDraw } from "../../standard/rendering/preprocess";
 import { Draws } from "../../standard/rendering/registry";
 
 setDefaultTimeout(TIMEOUT.node);
+let restoreFetch: (() => void) | undefined;
+afterAll(() => restoreFetch?.());
 const subjects = gpuApps(import.meta.path, [
     {
         defaults: false,
@@ -31,21 +33,18 @@ const subjects = gpuApps(import.meta.path, [
                 async initialize(world) {
                     await syncAssets();
                     const fetch = spyOn(globalThis, "fetch").mockImplementation(fileFetch);
-                    try {
-                        for (const scene of Object.keys(scenes) as Scene[]) {
-                            models.set(
-                                scene,
-                                await loadGltfScene(
-                                    world,
-                                    new URL(
-                                        `../../../examples/gltf/public/${modelPath(scene)}`,
-                                        import.meta.url,
-                                    ),
+                    restoreFetch = () => fetch.mockRestore();
+                    for (const scene of Object.keys(scenes) as Scene[]) {
+                        models.set(
+                            scene,
+                            await loadGltfScene(
+                                world,
+                                new URL(
+                                    `../../../examples/gltf/public/${modelPath(scene)}`,
+                                    import.meta.url,
                                 ),
-                            );
-                        }
-                    } finally {
-                        fetch.mockRestore();
+                            ),
+                        );
                     }
                     // Draw occupancy needs image identity, not decoded pixels on headless Dawn.
                     for (const [role, registry] of [Images, DataImages].entries()) {

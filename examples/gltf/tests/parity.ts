@@ -148,7 +148,9 @@ export function parity(category: string) {
             try {
                 console.log(`glTF parity ${category}/${id}`, app.world.gpu.adapter);
                 expect(model!.primitives.length).toBe(reference.instances.length);
-                expect<unknown>(decoded.textures).toEqual(reference.textures);
+                expect<unknown>(
+                    decoded.textures.map(({ mipmaps: _, ...texture }) => texture),
+                ).toEqual(reference.textures);
                 for (const [i, primitive] of model!.primitives.entries()) {
                     const ref = reference.instances[i];
                     const label = `${category}/${id} primitive ${i}`;

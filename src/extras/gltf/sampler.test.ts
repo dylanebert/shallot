@@ -20,6 +20,7 @@ for (const min of [9728, 9729, 9984, 9985, 9986, 9987, undefined]) {
             minFilter: min !== undefined && [9728, 9984, 9986].includes(min) ? 0 : 1,
             mipmapFilter: min === undefined || min === 9986 || min === 9987 ? 1 : 0,
         });
+        expect(scene.textures[0].mipmaps).toBe(min !== 9728 && min !== 9729);
         expect(scene.unsupported).toEqual([]);
     });
 }

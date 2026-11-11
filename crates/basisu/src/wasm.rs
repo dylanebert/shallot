@@ -1,5 +1,5 @@
 //! Owned KTX2 input and output at the JavaScript boundary.
-use crate::{Ktx2, Model, Target, UastcTarget};
+use crate::{Channels, Ktx2, Model, Target, Transfer, UastcTarget};
 struct Image {
     bytes: Vec<u8>,
     output: Vec<u8>,
@@ -60,6 +60,8 @@ pub unsafe extern "C" fn info(handle: usize, field: usize) -> usize {
         1 => ktx.height,
         2 => ktx.levels.len(),
         3 => usize::from(ktx.model == Model::Uastc),
+        8 => usize::from(ktx.transfer == Transfer::Srgb),
+        9 => usize::from(ktx.channels == Channels::Rgba),
         _ => 0,
     }
 }

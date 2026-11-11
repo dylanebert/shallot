@@ -14,16 +14,22 @@ import {
 
 test("the picker demonstrates each promise once without shrinking the regression corpus", () => {
     const listed = categories.flatMap((category) => category.scenes.map((scene) => scene.id));
-    expect(listed.length).toBe(23);
+    expect(listed.length).toBe(25);
     expect(new Set(listed).size).toBe(listed.length);
-    expect(manifest.models).toHaveLength(43);
+    expect(manifest.models).toHaveLength(45);
     expect(
         Object.fromEntries(
             categories.map((category) => [category.name, category.scenes.map((scene) => scene.id)]),
         ),
     ).toEqual({
         lighting: ["LightsPunctualLamp"],
-        compression: ["MeshoptCubeTest", "BrainStemMeshopt", "BrainStemMeshoptEXT"],
+        compression: [
+            "StainedGlassLamp",
+            "AnisotropyBarnLamp",
+            "MeshoptCubeTest",
+            "BrainStemMeshopt",
+            "BrainStemMeshoptEXT",
+        ],
         animation: ["AnimatedTriangle", "CesiumMan", "SkinnedNormal", "AnimatedMorphCube"],
         geometry: ["MeshPrimitiveModes", "VertexColorTest", "QuantizedMorphCube"],
         transforms: ["OrientationTest", "NegativeScaleTest"],

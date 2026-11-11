@@ -36,6 +36,8 @@ export function openBasisImage(source: Uint8Array) {
         throw new Error(message);
     }
     return {
+        transfer: k.info(handle, 8) ? "srgb" : "linear",
+        hasAlpha: k.info(handle, 9) !== 0,
         width: k.info(handle, 0),
         height: k.info(handle, 1),
         levels: k.info(handle, 2),

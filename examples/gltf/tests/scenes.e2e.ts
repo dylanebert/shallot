@@ -5,10 +5,10 @@ import { scenePixels } from "./scenes";
 
 test.use({ ...pipelineWarnings, deviceScaleFactor: 1 });
 
-for (const [width, height, columns] of [
-    [1280, 720, 6],
-    [1512, 982, 7],
-    [390, 844, 1],
+for (const [width, height, columns, occupied] of [
+    [1280, 720, 6, 5],
+    [1512, 982, 7, 7],
+    [390, 844, 1, 1],
 ]) {
     test.describe(`${width}x${height}`, () => {
         const phone = width === 390;
@@ -57,7 +57,7 @@ for (const [width, height, columns] of [
                     (section) => section.fragments === 1 && section.breakInside === "avoid",
                 ),
             ).toBe(true);
-            expect(new Set(sections.map((section) => section.x)).size).toBe(columns);
+            expect(new Set(sections.map((section) => section.x)).size).toBe(occupied);
             const category = categories[categories.length - 1]!;
             const scene = category.scenes[0]!;
             const choice = page

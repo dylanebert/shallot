@@ -27,7 +27,9 @@ for (const { fixture, textures, instances } of records.records) {
     test(`${fixture}: geometry, world placement and mapped material match specification records`, async () => {
         const path = resolve(import.meta.dir, "fixtures", fixture);
         const result = await loadGltf(new URL(`file://${path}`), localFetch);
-        expect<unknown>(result.textures).toEqual(textures);
+        expect<unknown>(result.textures.map(({ mipmaps: _, ...texture }) => texture)).toEqual(
+            textures,
+        );
         expect(result.instances.length).toBe(instances.length);
         for (const [i, instance] of result.instances.entries()) {
             const mesh = result.meshes[instance.mesh];

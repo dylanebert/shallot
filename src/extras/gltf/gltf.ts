@@ -237,7 +237,7 @@ export interface GltfScene {
     }[];
     materials: GltfMaterial[];
     images: { uri?: string; bytes?: Uint8Array; mimeType?: string }[];
-    textures: { image?: number; sampler: ImageSamplerDescriptor }[];
+    textures: { image?: number; sampler: ImageSamplerDescriptor; mipmaps: boolean }[];
     unsupported: string[];
 }
 const COMPONENTS = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT2: 4, MAT3: 9, MAT4: 16 } as const;
@@ -760,6 +760,7 @@ function supportedExtension(name: string): boolean {
         name === "KHR_meshopt_compression" ||
         name === "EXT_meshopt_compression" ||
         name === "KHR_texture_transform" ||
+        name === "KHR_texture_basisu" ||
         name === "KHR_materials_emissive_strength" ||
         name === "KHR_lights_punctual"
     );
@@ -854,12 +855,27 @@ export function parseGltf(gltf: GltfJson, buffers: ArrayBuffer[]): GltfScene {
             : wrap === 33648
               ? ImageAddressMode.MirrorRepeat
               : ImageAddressMode.Repeat;
-    const textures = (gltf.textures ?? []).map((texture) => {
+    const basisImages = new Set<number>();
+    const textures = (gltf.textures ?? []).map((texture, index) => {
+        const basis = texture.extensions?.KHR_texture_basisu as { source: number } | undefined;
+        if (
+            basis !== undefined &&
+            (!Number.isInteger(basis?.source) || !gltf.images?.[basis.source])
+        )
+            throw new Error(`texture ${index}: KHR_texture_basisu invalid source`);
+        if (
+            basis &&
+            gltf.images![basis.source].mimeType !== undefined &&
+            gltf.images![basis.source].mimeType !== "image/ktx2"
+        )
+            throw new Error(`texture ${index}: KHR_texture_basisu requires image/ktx2`);
+        if (basis) basisImages.add(basis.source);
         const sampler =
             texture.sampler === undefined ? undefined : gltf.samplers?.[texture.sampler];
         const min = sampler?.minFilter ?? 9987;
         return {
-            image: texture.source,
+            image: basis === undefined ? texture.source : basis.source,
+            mipmaps: min !== 9728 && min !== 9729,
             sampler: {
                 addressModeU: addressMode(sampler?.wrapS),
                 addressModeV: addressMode(sampler?.wrapT),
@@ -1023,11 +1039,12 @@ export function parseGltf(gltf: GltfJson, buffers: ArrayBuffer[]): GltfScene {
         instances,
         materials,
         textures,
-        images: (gltf.images ?? []).map((image) => {
-            if (image.bufferView === undefined) return { uri: image.uri, mimeType: image.mimeType };
+        images: (gltf.images ?? []).map((image, index) => {
+            const mimeType = basisImages.has(index) ? "image/ktx2" : image.mimeType;
+            if (image.bufferView === undefined) return { uri: image.uri, mimeType };
             const view = gltf.bufferViews![image.bufferView];
             return {
-                mimeType: image.mimeType,
+                mimeType,
                 bytes: new Uint8Array(buffers[view.buffer], view.byteOffset ?? 0, view.byteLength),
             };
         }),

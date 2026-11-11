@@ -22,6 +22,8 @@ export const scenes = {
     SkinnedNormal: { promise: "animation" },
     AnimatedMorphCube: { promise: "animation" },
     QuantizedMorphCube: { promise: "geometry" },
+    StainedGlassLamp: { promise: "compression" },
+    AnisotropyBarnLamp: { promise: "compression" },
     MeshoptCubeTest: { promise: "compression" },
     BrainStemMeshopt: { promise: "compression" },
     BrainStemMeshoptEXT: { promise: "compression" },
@@ -44,13 +46,15 @@ export const categories = [
 export const samples = categories.flatMap((category) => category.scenes);
 export const initialScene = samples[0].id;
 export const modelPath = (scene: Scene) =>
-    scene === "MeshoptCubeTest"
-        ? "assets/Models/MeshoptCubeTest/glTF-Meshopt/MeshoptCubeTest.gltf"
-        : scene === "BrainStemMeshopt" || scene === "BrainStemMeshoptEXT"
-          ? `assets/Models/BrainStem/${scene === "BrainStemMeshopt" ? "glTF-Meshopt" : "glTF-Meshopt-EXT"}/BrainStem.gltf`
-          : scene === "QuantizedMorphCube"
-            ? "assets/Models/AnimatedMorphCube/glTF-Quantized/AnimatedMorphCube.gltf"
-            : scene === "SkinnedNormal"
-              ? "models/SkinnedNormal.gltf"
-              : `assets/Models/${scene}/glTF/${scene}.gltf`;
+    scene === "StainedGlassLamp" || scene === "AnisotropyBarnLamp"
+        ? `assets/Models/${scene}/glTF-KTX-BasisU/${scene}.gltf`
+        : scene === "MeshoptCubeTest"
+          ? "assets/Models/MeshoptCubeTest/glTF-Meshopt/MeshoptCubeTest.gltf"
+          : scene === "BrainStemMeshopt" || scene === "BrainStemMeshoptEXT"
+            ? `assets/Models/BrainStem/${scene === "BrainStemMeshopt" ? "glTF-Meshopt" : "glTF-Meshopt-EXT"}/BrainStem.gltf`
+            : scene === "QuantizedMorphCube"
+              ? "assets/Models/AnimatedMorphCube/glTF-Quantized/AnimatedMorphCube.gltf"
+              : scene === "SkinnedNormal"
+                ? "models/SkinnedNormal.gltf"
+                : `assets/Models/${scene}/glTF/${scene}.gltf`;
 export const truckPlacement: GltfPlacement = { translation: [0, -0.5, 0], scale: [0.7, 0.7, 0.7] };
