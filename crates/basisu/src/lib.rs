@@ -2,7 +2,10 @@
 //! Altered source: checked Rust slices; no array, cube, HDR or primaries conversion.
 //! Copyright 2016–2026 Binomial LLC. See ../licenses/{LICENSE,NOTICE}-basis-universal.
 
+mod entropy;
+mod etc1s;
 mod zstd;
+pub use etc1s::Target;
 
 type Result<T> = std::result::Result<T, &'static str>;
 

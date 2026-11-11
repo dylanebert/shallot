@@ -27,7 +27,8 @@ run("cmake", ["-S", source, "-B", build, "-DCMAKE_BUILD_TYPE=Release", "-DBASISU
 run("cmake", ["--build", build, "-j", "8"]);
 run("clang", ["-O2", "-c", join(source, "zstd/zstddeclib.c"), "-o", join(build, "zstd.o")]);
 const reference = join(build, "reference");
-run("clang++", ["-std=c++17", "-O2", `-I${source}/transcoder`, `-I${source}/zstd`, join(import.meta.dir, "reference.cpp"), join(source, "transcoder/basisu_transcoder.cpp"), join(build, "zstd.o"), "-o", reference]);
+// WebAssembly's scalar arithmetic does not contract multiply/add into FMA.
+run("clang++", ["-std=c++17", "-O2", "-ffp-contract=off", `-I${source}/transcoder`, `-I${source}/zstd`, join(import.meta.dir, "reference.cpp"), join(source, "transcoder/basisu_transcoder.cpp"), join(build, "zstd.o"), "-o", reference]);
 
 // Deterministic 8x8 TGA; the pinned encoder does not infer red/RG DFD channel
 // IDs from swizzles, so only those metadata IDs are assigned after encoding.
@@ -64,6 +65,7 @@ for (const [name, args, channels] of [
 }
 const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 const manifest: string[] = ["# asset level length sha256"];
+const transcodes: string[] = ["# asset level target length sha256"];
 const files: { path: string; sha256: string }[] = [];
 function record(path: string, name: string) {
     const bytes = readFileSync(path);
@@ -74,6 +76,14 @@ function record(path: string, name: string) {
         const decoded = readFileSync(output);
         manifest.push([name, level, decoded.length, digest(decoded)].join("\t"));
         unlinkSync(output);
+        if (bytes.readUInt32LE(44) === 1) {
+            for (const target of ["etc1", "etc2-rgba", "bc7", "rgba8"]) {
+                run(reference, [path, String(level), output, target]);
+                const decoded = readFileSync(output);
+                transcodes.push([name, level, target, decoded.length, digest(decoded)].join("\t"));
+                unlinkSync(output);
+            }
+        }
     }
 }
 for (const model of ["StainedGlassLamp", "AnisotropyBarnLamp"]) {
@@ -109,5 +119,6 @@ for (const bit of [0x10, 0x08]) {
 unlinkSync(frameInput);
 console.log("pinned reference: unused frame bit matches uastc-red level 0 digest; reserved bit refused");
 writeFileSync(join(destination, "levels.tsv"), `${manifest.join("\n")}\n`);
+writeFileSync(join(destination, "etc1s.tsv"), `${transcodes.join("\n")}\n`);
 writeFileSync(join(destination, "inputs.json"), `${JSON.stringify({ commit: assetsRevision, decoder: revision, files }, null, 2)}\n`);
 console.log(`${manifest.length - 1} recorded levels`);
