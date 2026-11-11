@@ -1,6 +1,6 @@
 //! Scalar port of zstddeclib.c bundled with Basis Universal 073eb6a0.
-//! FSE/Huffman tables and sequence order follow the reference; bit readers use
-//! checked slices instead of word lookahead and wild copies.
+//! FSE/Huffman tables, word lookahead and sequence order follow the reference;
+//! lookahead pads the final word and match copies stay inside initialized slices.
 //! Copyright (c) 2016-present, Facebook, Inc. See ../licenses/LICENSE-zstd.
 use super::{le, Result};
 
@@ -23,17 +23,8 @@ impl<'a> Bits<'a> {
     fn forward(bytes: &'a [u8]) -> Self {
         Self { bytes, pos: 0 }
     }
-    fn reverse(bytes: &'a [u8]) -> Result<Self> {
-        let last = *bytes.last().ok_or("empty bitstream")?;
-        if last == 0 {
-            return Err("missing bitstream marker");
-        }
-        Ok(Self {
-            bytes,
-            pos: (bytes.len() - 1) * 8 + (7 - last.leading_zeros()) as usize,
-        })
-    }
-    fn peek_at(&self, pos: usize, n: usize) -> Result<usize> {
+    #[inline(always)]
+    fn peek_at(&mut self, pos: usize, n: usize) -> Result<usize> {
         if n > 31
             || pos
                 .checked_add(n)
@@ -41,20 +32,25 @@ impl<'a> Bits<'a> {
         {
             return Err("truncated bits");
         }
-        let mut value = 0;
-        for i in 0..n {
-            value |= usize::from((self.bytes[(pos + i) / 8] >> ((pos + i) % 8)) & 1) << i;
+        if n == 0 {
+            return Ok(0);
         }
-        Ok(value)
+        Ok(((lookahead(&self.bytes[pos / 8..]) >> (pos & 7)) & ((1u64 << n) - 1)) as usize)
     }
     fn read(&mut self, n: usize) -> Result<usize> {
         let v = self.peek_at(self.pos, n)?;
         self.pos += n;
         Ok(v)
     }
-    fn back(&mut self, n: usize) -> Result<usize> {
-        self.pos = self.pos.checked_sub(n).ok_or("bitstream underflow")?;
-        self.peek_at(self.pos, n)
+}
+#[inline(always)]
+fn lookahead(tail: &[u8]) -> u64 {
+    if let Some(bytes) = tail.first_chunk::<8>() {
+        u64::from_le_bytes(*bytes)
+    } else {
+        let mut bytes = [0u8; 8];
+        bytes[..tail.len()].copy_from_slice(tail);
+        u64::from_le_bytes(bytes)
     }
 }
 #[derive(Clone, Copy, Default)]
@@ -204,10 +200,92 @@ impl Fse {
     }
 }
 
-#[derive(Default)]
+// HUF's BIT_DStream state: a high-end lookahead word and consumed-bit count.
+// Reloads are bounds checked; a short first word is padded locally.
+struct DStream<'a> {
+    bytes: &'a [u8],
+    word: u64,
+    consumed: usize,
+    remaining: usize,
+}
+impl<'a> DStream<'a> {
+    fn new(bytes: &'a [u8]) -> Result<Self> {
+        let last = *bytes.last().ok_or("empty bitstream")?;
+        if last == 0 {
+            return Err("missing bitstream marker");
+        }
+        let mut stream = Self {
+            bytes,
+            word: 0,
+            consumed: 0,
+            remaining: (bytes.len() - 1) * 8 + (7 - last.leading_zeros()) as usize,
+        };
+        stream.reload();
+        Ok(stream)
+    }
+    #[inline(always)]
+    fn reload(&mut self) {
+        let start = self.remaining.div_ceil(8).saturating_sub(8);
+        self.word = lookahead(&self.bytes[start..]);
+        self.consumed = 64 - (self.remaining - start * 8);
+    }
+    #[inline(always)]
+    fn peek(&mut self, n: usize) -> usize {
+        if self.remaining < n {
+            if self.consumed + n > 64 {
+                self.reload();
+            }
+            ((self.word & ((1u64 << self.remaining) - 1)) << (n - self.remaining)) as usize
+        } else {
+            self.look(n)
+        }
+    }
+    #[inline(always)]
+    fn look(&mut self, n: usize) -> usize {
+        if self.consumed + n > 64 {
+            self.reload();
+        }
+        // Wasm shifts mask their count. wrapping_shr preserves that defined
+        // operation for a zero-width read at bit 64; its value mask is zero.
+        (self.word.wrapping_shr((64 - self.consumed - n) as u32) & ((1u64 << n) - 1)) as usize
+    }
+    #[inline(always)]
+    fn skip(&mut self, n: usize) -> Result<()> {
+        self.remaining = self.remaining.checked_sub(n).ok_or("bitstream underflow")?;
+        self.consumed += n;
+        Ok(())
+    }
+    #[inline(always)]
+    fn back(&mut self, n: usize) -> Result<usize> {
+        // FSE logs are <=9 and sequence extra widths are <=31, validated
+        // when their tables are built. Payload bits cannot change the width.
+        debug_assert!(n <= 31);
+        if n > self.remaining {
+            return Err("bitstream underflow");
+        }
+        Ok(self.take(n))
+    }
+    #[inline(always)]
+    fn take(&mut self, n: usize) -> usize {
+        debug_assert!(n <= 31 && n <= self.remaining);
+        let value = self.look(n);
+        self.remaining -= n;
+        self.consumed += n;
+        value
+    }
+}
 struct Huffman {
     log: usize,
-    table: Vec<(u8, usize)>,
+    // HUF_DEltX1 is two bytes: consumed bits, then the decoded byte.
+    table: Box<[u16; 2048]>,
+}
+impl Default for Huffman {
+    fn default() -> Self {
+        Self {
+            log: 0,
+            table: Box::new([0; 2048]),
+        }
+    }
 }
 impl Huffman {
     fn read(r: &mut Reader<'_>) -> Result<Self> {
@@ -224,7 +302,7 @@ impl Huffman {
         } else {
             let mut input = Reader(r.take(size)?);
             let fse = Fse::read(&mut input, 255, 6)?;
-            let mut bits = Bits::reverse(input.0)?;
+            let mut bits = DStream::new(input.0)?;
             let mut states = [bits.back(fse.log)?, bits.back(fse.log)?];
             let mut turn = 0;
             loop {
@@ -233,7 +311,7 @@ impl Huffman {
                 if weights.len() > 255 {
                     return Err("too many Huffman weights");
                 }
-                if entry.bits > bits.pos {
+                if entry.bits > bits.remaining {
                     weights.push(fse.entry(states[turn ^ 1])?.symbol);
                     break;
                 }
@@ -266,35 +344,107 @@ impl Huffman {
         {
             return Err("invalid Huffman ranks");
         }
-        let mut table = Vec::with_capacity(1 << log);
+        let mut table = Box::new([0; 2048]);
+        let mut at = 0;
         for weight in 1..=log {
             for (symbol, &w) in weights.iter().enumerate() {
                 if w == weight {
-                    table.resize(table.len() + (1 << (w - 1)), (symbol as u8, log + 1 - w));
+                    let end = at + (1 << (w - 1));
+                    table
+                        .get_mut(at..end)
+                        .ok_or("invalid Huffman table")?
+                        .fill(((symbol as u16) << 8) | (log + 1 - w) as u16);
+                    at = end;
                 }
             }
         }
-        if table.len() != 1 << log {
+        if at != 1 << log {
             return Err("invalid Huffman table");
         }
         Ok(Self { log, table })
     }
-    fn stream(&self, source: &[u8], count: usize, output: &mut Vec<u8>) -> Result<()> {
-        if self.table.is_empty() {
+    #[inline(always)]
+    fn symbol(&self, bits: &mut DStream<'_>) -> Result<u8> {
+        let index = bits.peek(self.log);
+        // log <= 11; masking exposes the fixed HUF table's bound to wasm.
+        let entry = self.table[index & 2047];
+        let n = usize::from(entry & 255);
+        bits.skip(n)?;
+        Ok((entry >> 8) as u8)
+    }
+    #[inline(always)]
+    fn symbol_fast(&self, bits: &mut DStream<'_>) -> u8 {
+        debug_assert!(self.log > 0 && self.log <= 11);
+        debug_assert!(bits.consumed + self.log <= 64 && bits.remaining >= self.log);
+        let index = bits
+            .word
+            .wrapping_shr((64 - bits.consumed - self.log) as u32);
+        let entry = self.table[(index as usize) & ((1 << self.log) - 1) & 2047];
+        let used = usize::from(entry & 255);
+        bits.remaining -= used;
+        bits.consumed += used;
+        (entry >> 8) as u8
+    }
+    fn stream(&self, source: &[u8], output: &mut [u8]) -> Result<()> {
+        if self.log == 0 {
             return Err("missing Huffman table");
         }
-        let mut bits = Bits::reverse(source)?;
-        for _ in 0..count {
-            let index = if bits.pos >= self.log {
-                bits.peek_at(bits.pos - self.log, self.log)?
-            } else {
-                bits.peek_at(0, bits.pos)? << (self.log - bits.pos)
-            };
-            let (symbol, n) = self.table[index];
-            bits.back(n)?;
-            output.push(symbol);
+        let mut bits = DStream::new(source)?;
+        for byte in output {
+            *byte = self.symbol(&mut bits)?;
         }
-        if bits.pos != 0 {
+        if bits.remaining != 0 {
+            return Err("extra Huffman bits");
+        }
+        Ok(())
+    }
+    fn streams4(&self, sources: [&[u8]; 4], output: &mut [u8], part: usize) -> Result<()> {
+        if self.log == 0 {
+            return Err("missing Huffman table");
+        }
+        let mut a = DStream::new(sources[0])?;
+        let mut b = DStream::new(sources[1])?;
+        let mut c = DStream::new(sources[2])?;
+        let mut d = DStream::new(sources[3])?;
+        let (out_a, tail) = output.split_at_mut(part);
+        let (out_b, tail) = tail.split_at_mut(part);
+        let (out_c, out_d) = tail.split_at_mut(part);
+        // HUF_decompress4X1_usingDTable_internal_body interleaves four
+        // independent reverse streams into their preallocated output spans.
+        let mut at = 0;
+        // HUF_decompress4X1 decodes four symbols per stream between reloads.
+        // Each code uses <=11 bits, so 44 real bits and four output bytes
+        // bound the entire group. The checked tail handles shorter streams.
+        while at + 4 <= out_d.len()
+            && a.remaining >= 44
+            && b.remaining >= 44
+            && c.remaining >= 44
+            && d.remaining >= 44
+        {
+            a.reload();
+            b.reload();
+            c.reload();
+            d.reload();
+            for i in at..at + 4 {
+                out_a[i] = self.symbol_fast(&mut a);
+                out_b[i] = self.symbol_fast(&mut b);
+                out_c[i] = self.symbol_fast(&mut c);
+                out_d[i] = self.symbol_fast(&mut d);
+            }
+            at += 4;
+        }
+        for i in at..out_d.len() {
+            out_a[i] = self.symbol(&mut a)?;
+            out_b[i] = self.symbol(&mut b)?;
+            out_c[i] = self.symbol(&mut c)?;
+            out_d[i] = self.symbol(&mut d)?;
+        }
+        for i in out_d.len()..part {
+            out_a[i] = self.symbol(&mut a)?;
+            out_b[i] = self.symbol(&mut b)?;
+            out_c[i] = self.symbol(&mut c)?;
+        }
+        if a.remaining | b.remaining | c.remaining | d.remaining != 0 {
             return Err("extra Huffman bits");
         }
         Ok(())
@@ -330,12 +480,141 @@ const OF_NORM: &[i16] = &[
     1, 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -1, -1, -1, -1, -1,
 ];
 
+// ZSTD_seqSymbol packs the next-state base, both bit counts and the
+// additional-bit base value into the decode table, not separate hot lookups.
+#[derive(Clone, Copy, Default)]
+struct SeqSymbol {
+    next: u16,
+    extra: u8,
+    bits: u8,
+    value: u32,
+}
+struct SeqTable {
+    log: usize,
+    initialized: bool,
+    table: Box<[SeqSymbol; 512]>,
+}
+impl Default for SeqTable {
+    fn default() -> Self {
+        Self {
+            log: 0,
+            initialized: false,
+            table: Box::new([SeqSymbol::default(); 512]),
+        }
+    }
+}
+impl SeqTable {
+    fn mode(
+        &mut self,
+        r: &mut Reader<'_>,
+        mode: usize,
+        norm: &[i16],
+        log: usize,
+        values: &[usize],
+        extras: &[usize],
+    ) -> Result<()> {
+        if mode == 3 {
+            return if !self.initialized {
+                Err("missing repeated FSE table")
+            } else {
+                Ok(())
+            };
+        }
+        let mut fse = Fse::default();
+        Fse::mode(r, mode, &mut fse, norm, log, values.len() - 1)?;
+        self.log = fse.log;
+        if fse.table.len() > 512 {
+            return Err("FSE table too large");
+        }
+        for (dst, entry) in self.table.iter_mut().zip(&fse.table) {
+            if entry.base + (1 << entry.bits) > fse.table.len() {
+                return Err("invalid FSE next-state range");
+            }
+            *dst = SeqSymbol {
+                next: entry.base as u16,
+                bits: entry.bits as u8,
+                extra: extras[entry.symbol] as u8,
+                value: values[entry.symbol] as u32,
+            };
+        }
+        self.initialized = true;
+        Ok(())
+    }
+    #[inline(always)]
+    fn entry(&self, state: usize) -> SeqSymbol {
+        // Initial states have log<=9 bits, and mode validates every next-state
+        // range. This exposes the fixed table bound without unchecked reads.
+        self.table[state & 511]
+    }
+}
+const OF_BITS: [usize; 32] = {
+    let mut values = [0; 32];
+    let mut i = 0;
+    while i < 32 {
+        values[i] = i;
+        i += 1;
+    }
+    values
+};
+const OF_BASE: [usize; 32] = {
+    let mut values = OF_BITS;
+    let mut i = 2;
+    while i < 32 {
+        values[i] = (1usize << i) - 3;
+        i += 1;
+    }
+    values
+};
+// ZSTD_decompressSequences writes through a cursor into one frame allocation.
+// All bytes are initialized, but only bytes before pos are match history.
+struct Output {
+    bytes: Vec<u8>,
+    pos: usize,
+}
+impl Output {
+    #[inline(always)]
+    fn len(&self) -> usize {
+        self.pos
+    }
+    #[inline(always)]
+    fn extend_from_slice(&mut self, bytes: &[u8]) {
+        self.bytes[self.pos..self.pos + bytes.len()].copy_from_slice(bytes);
+        self.pos += bytes.len();
+    }
+    #[inline(always)]
+    fn copy_match(&mut self, offset: usize, length: usize) {
+        let end = self.pos + length;
+        let mut dst = self.pos;
+        let mut distance = offset;
+        // ZSTD_overlapCopy8 expands short-distance patterns before wildcopy.
+        // The initialized frame allocation has 8 bytes of writable padding;
+        // logical output bounds and match-history bounds are checked by block.
+        if distance < 8 {
+            for i in 0..8 {
+                self.bytes[dst + i] = self.bytes[dst + i - distance];
+            }
+            dst += 8;
+            distance *= 8usize.div_ceil(distance);
+        }
+        while dst < end {
+            let src = dst - distance;
+            let chunk: [u8; 8] = self.bytes[src..src + 8].try_into().unwrap();
+            self.bytes[dst..dst + 8].copy_from_slice(&chunk);
+            dst += 8;
+        }
+        self.pos = end;
+    }
+    fn resize(&mut self, length: usize, byte: u8) {
+        self.bytes[self.pos..length].fill(byte);
+        self.pos = length;
+    }
+}
 #[derive(Default)]
 struct Context {
     huf: Huffman,
-    ll: Fse,
-    ml: Fse,
-    of: Fse,
+    ll: SeqTable,
+    ml: SeqTable,
+    of: SeqTable,
     reps: [usize; 3],
 }
 impl Context {
@@ -378,8 +657,9 @@ impl Context {
             if kind == 2 {
                 self.huf = Huffman::read(&mut compressed)?;
             }
+            output.resize(count, 0);
             if code == 0 {
-                self.huf.stream(compressed.0, count, &mut output)?;
+                self.huf.stream(compressed.0, &mut output)?;
             } else {
                 if count < 6 {
                     return Err("four-stream literals too short");
@@ -393,11 +673,13 @@ impl Context {
                 if part * 3 > count {
                     return Err("invalid literal split");
                 }
-                for size in sizes {
-                    self.huf.stream(compressed.take(size)?, part, &mut output)?;
-                }
-                self.huf
-                    .stream(compressed.0, count - part * 3, &mut output)?;
+                let sources = [
+                    compressed.take(sizes[0])?,
+                    compressed.take(sizes[1])?,
+                    compressed.take(sizes[2])?,
+                    compressed.0,
+                ];
+                self.huf.streams4(sources, &mut output, part)?;
             }
         }
         Ok(output)
@@ -405,7 +687,7 @@ impl Context {
     fn block(
         &mut self,
         source: &[u8],
-        output: &mut Vec<u8>,
+        output: &mut Output,
         limit: usize,
         window: usize,
     ) -> Result<()> {
@@ -427,29 +709,45 @@ impl Context {
             if modes & 3 != 0 {
                 return Err("reserved sequence mode bits");
             }
-            Fse::mode(&mut r, modes >> 6, &mut self.ll, LL_NORM, 6, 35)?;
-            Fse::mode(&mut r, (modes >> 4) & 3, &mut self.of, OF_NORM, 5, 31)?;
-            Fse::mode(&mut r, (modes >> 2) & 3, &mut self.ml, ML_NORM, 6, 52)?;
-            let mut bits = Bits::reverse(r.0)?;
+            self.ll
+                .mode(&mut r, modes >> 6, LL_NORM, 6, LL_BASE, LL_BITS)?;
+            self.of
+                .mode(&mut r, (modes >> 4) & 3, OF_NORM, 5, &OF_BASE, &OF_BITS)?;
+            self.ml
+                .mode(&mut r, (modes >> 2) & 3, ML_NORM, 6, ML_BASE, ML_BITS)?;
+            let mut bits = DStream::new(r.0)?;
             let mut ll = bits.back(self.ll.log)?;
             let mut of = bits.back(self.of.log)?;
             let mut ml = bits.back(self.ml.log)?;
             for i in 0..count {
-                let l = self.ll.entry(ll)?;
-                let o = self.of.entry(of)?;
-                let m = self.ml.entry(ml)?;
-                let offset = if o.symbol > 1 {
-                    let v = (1usize << o.symbol) - 3 + bits.back(o.symbol)?;
+                let l = self.ll.entry(ll);
+                let o = self.of.entry(of);
+                let m = self.ml.entry(ml);
+                // Bound the complete sequence before consuming any fields.
+                // Tables validate all widths; reads retain their word reloads
+                // but need not recheck this same stream budget six times.
+                let state_bits = if i + 1 < count {
+                    usize::from(l.bits) + usize::from(m.bits) + usize::from(o.bits)
+                } else {
+                    0
+                };
+                let total =
+                    usize::from(o.extra) + usize::from(m.extra) + usize::from(l.extra) + state_bits;
+                if total > bits.remaining {
+                    return Err("bitstream underflow");
+                }
+                let offset = if o.extra > 1 {
+                    let v = o.value as usize + bits.take(usize::from(o.extra));
                     self.reps = [v, self.reps[0], self.reps[1]];
                     v
-                } else if o.symbol == 0 {
-                    let zero = usize::from(l.symbol == 0);
+                } else if o.extra == 0 {
+                    let zero = usize::from(l.value == 0);
                     let v = self.reps[zero];
                     self.reps[1] = self.reps[zero ^ 1];
                     self.reps[0] = v;
                     v
                 } else {
-                    let v = 1 + usize::from(l.symbol == 0) + bits.back(1)?;
+                    let v = 1 + usize::from(l.value == 0) + bits.take(1);
                     let offset = if v == 3 {
                         self.reps[0].checked_sub(1).ok_or("invalid repeat offset")?
                     } else {
@@ -462,8 +760,18 @@ impl Context {
                     self.reps[0] = offset;
                     offset
                 };
-                let match_length = ML_BASE[m.symbol] + bits.back(ML_BITS[m.symbol])?;
-                let literal_length = LL_BASE[l.symbol] + bits.back(LL_BITS[l.symbol])?;
+                let match_length = m.value as usize
+                    + if m.extra != 0 {
+                        bits.take(usize::from(m.extra))
+                    } else {
+                        0
+                    };
+                let literal_length = l.value as usize
+                    + if l.extra != 0 {
+                        bits.take(usize::from(l.extra))
+                    } else {
+                        0
+                    };
                 if literal_length + match_length > limit.saturating_sub(output.len()) {
                     return Err("sequence exceeds output");
                 }
@@ -471,16 +779,14 @@ impl Context {
                 if offset == 0 || offset > output.len().min(window) {
                     return Err("invalid match offset");
                 }
-                for _ in 0..match_length {
-                    output.push(output[output.len() - offset]);
-                }
+                output.copy_match(offset, match_length);
                 if i + 1 < count {
-                    ll = l.base + bits.back(l.bits)?;
-                    ml = m.base + bits.back(m.bits)?;
-                    of = o.base + bits.back(o.bits)?;
+                    ll = usize::from(l.next) + bits.take(usize::from(l.bits));
+                    ml = usize::from(m.next) + bits.take(usize::from(m.bits));
+                    of = usize::from(o.next) + bits.take(usize::from(o.bits));
                 }
             }
-            if bits.pos != 0 {
+            if bits.remaining != 0 {
                 return Err("extra sequence bits");
             }
         }
@@ -533,10 +839,15 @@ pub(super) fn decompress(source: &[u8], length: usize) -> Result<Vec<u8>> {
             return Err("Zstandard content size mismatch");
         }
     }
-    let mut output = Vec::new();
-    output
-        .try_reserve_exact(length)
+    let mut bytes = Vec::new();
+    let padded = length
+        .checked_add(8)
+        .ok_or("Zstandard output size overflow")?;
+    bytes
+        .try_reserve_exact(padded)
         .map_err(|_| "Zstandard output allocation failed")?;
+    bytes.resize(padded, 0);
+    let mut output = Output { bytes, pos: 0 };
     let mut context = Context {
         reps: [1, 4, 8],
         ..Default::default()
@@ -571,14 +882,15 @@ pub(super) fn decompress(source: &[u8], length: usize) -> Result<Vec<u8>> {
     }
     if flags & 4 != 0 {
         let expected = r.number(4)? as u32;
-        if xxhash64(&output) as u32 != expected {
+        if xxhash64(&output.bytes[..output.pos]) as u32 != expected {
             return Err("Zstandard checksum mismatch");
         }
     }
     if !r.0.is_empty() || output.len() != length {
         return Err("Zstandard length mismatch");
     }
-    Ok(output)
+    output.bytes.truncate(output.pos);
+    Ok(output.bytes)
 }
 
 // XXH64, used by the reference's optional frame checksum.
@@ -650,6 +962,54 @@ mod tests {
     const RAW: &[u8] = b"\x28\xb5\x2f\xfd\x20\x03\x19\x00\x00abc";
     const RLE: &[u8] = b"\x28\xb5\x2f\xfd\x20\x20\x03\x01\x00a";
 
+    #[test]
+    fn reverse_lookahead_matches_bits_at_every_word_and_tail_boundary() {
+        let mut source = std::array::from_fn::<_, 16, _>(|i| (i * 37 + 11) as u8);
+        source[15] = 0x80;
+        for consumed in 0..=127 {
+            for width in 0..=31 {
+                let mut stream = DStream::new(&source).unwrap();
+                stream.skip(consumed).unwrap();
+                let remaining = 127 - consumed;
+                if width > remaining {
+                    assert!(stream.back(width).is_err());
+                } else {
+                    let start = remaining - width;
+                    let expected = (0..width).fold(0usize, |v, i| {
+                        v | (usize::from((source[(start + i) / 8] >> ((start + i) % 8)) & 1) << i)
+                    });
+                    assert_eq!(
+                        stream.back(width).unwrap(),
+                        expected,
+                        "consumed {consumed}, width {width}"
+                    );
+                }
+            }
+        }
+    }
+    #[test]
+    fn overlap_copy_matches_forward_bytes_with_only_eight_padding_bytes() {
+        for offset in 1..=32 {
+            for length in 1..=96 {
+                let mut expected: Vec<u8> = (0..32).map(|i| (i * 17 + 3) as u8).collect();
+                let mut output = Output {
+                    bytes: vec![0; 32 + length + 8],
+                    pos: 32,
+                };
+                output.bytes[..32].copy_from_slice(&expected);
+                for _ in 0..length {
+                    expected.push(expected[expected.len() - offset]);
+                }
+                output.copy_match(offset, length);
+                assert_eq!(
+                    &output.bytes[..output.pos],
+                    expected,
+                    "offset {offset}, length {length}"
+                );
+                assert_eq!(output.bytes[32 + length + 7], 0);
+            }
+        }
+    }
     #[test]
     fn raw_block() {
         assert_eq!(decompress(RAW, 3).unwrap(), b"abc");

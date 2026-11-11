@@ -7,10 +7,7 @@ mod tables;
 use tables::{BC7_ALPHA, BC7_COLOR, BC7_SOLID, EAC};
 
 fn selector_range(s: &Selector) -> (usize, usize, usize) {
-    let lo = *s.iter().min().unwrap();
-    let hi = *s.iter().max().unwrap();
-    let unique = (0..4).filter(|v| s.contains(v)).count();
-    (lo, hi, unique)
+    (usize::from(s.lo), usize::from(s.hi), usize::from(s.unique))
 }
 fn range_index(lo: usize, hi: usize) -> usize {
     [(0, 3), (1, 3), (0, 2), (1, 2), (2, 3), (0, 1)]
@@ -23,15 +20,7 @@ pub(super) fn etc1(out: &mut [u8], e: Endpoint, s: &Selector) {
         out[i] = (c << 3) as u8;
     }
     out[3] = ((e.intensity << 5) | (e.intensity << 2) | 2) as u8;
-    let mut bits = 0u32;
-    for y in 0..4 {
-        for x in 0..4 {
-            let v = [3, 2, 0, 1][s[y * 4 + x]];
-            bits |= (v & 1) << (x * 4 + y);
-            bits |= (v >> 1) << (x * 4 + y + 16);
-        }
-    }
-    out[4..].copy_from_slice(&bits.to_be_bytes());
+    out[4..].copy_from_slice(&s.bytes);
 }
 pub(super) fn eac(out: &mut [u8], alpha: Option<(Endpoint, &Selector)>) {
     let Some((e, s)) = alpha else {
@@ -50,7 +39,7 @@ pub(super) fn eac(out: &mut [u8], alpha: Option<(Endpoint, &Selector)>) {
     let mut bits = 0u64;
     for y in 0..4 {
         for x in 0..4 {
-            bits |= u64::from((t[2] >> (s[y * 4 + x] * 3)) & 7) << (45 - (y + x * 4) * 3);
+            bits |= u64::from((t[2] >> (s.get(y * 4 + x) * 3)) & 7) << (45 - (y + x * 4) * 3);
         }
     }
     out[2..].copy_from_slice(&bits.to_be_bytes()[2..]);

@@ -4,8 +4,12 @@
 
 mod entropy;
 mod etc1s;
+mod uastc;
+#[cfg(target_arch = "wasm32")]
+mod wasm;
 mod zstd;
 pub use etc1s::Target;
+pub use uastc::UastcTarget;
 
 type Result<T> = std::result::Result<T, &'static str>;
 

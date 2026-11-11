@@ -17,7 +17,43 @@ pub(super) struct Endpoint {
     pub color: [usize; 3],
     pub intensity: usize,
 }
-pub(super) type Selector = [usize; 16];
+// Basis Universal's selector palette retains packed rows, ETC1 bits and flags.
+pub(super) struct Selector {
+    rows: [u8; 4],
+    bytes: [u8; 4],
+    lo: u8,
+    hi: u8,
+    unique: u8,
+}
+impl Selector {
+    fn new(rows: [u8; 4]) -> Self {
+        let mut bits = 0u32;
+        let mut histogram = 0u8;
+        for (y, &row) in rows.iter().enumerate() {
+            for x in 0..4 {
+                let s = (row >> (x * 2)) & 3;
+                histogram |= 1 << s;
+                let v = [3, 2, 0, 1][usize::from(s)];
+                bits |= (v & 1) << (x * 4 + y);
+                bits |= (v >> 1) << (x * 4 + y + 16);
+            }
+        }
+        Self {
+            rows,
+            bytes: bits.to_be_bytes(),
+            lo: histogram.trailing_zeros() as u8,
+            hi: (7 - histogram.leading_zeros()) as u8,
+            unique: histogram.count_ones() as u8,
+        }
+    }
+    #[inline(always)]
+    fn get(&self, i: usize) -> usize {
+        usize::from((self.rows[i / 4] >> ((i % 4) * 2)) & 3)
+    }
+    fn map<T>(&self, mut f: impl FnMut(usize) -> T) -> [T; 16] {
+        std::array::from_fn(|i| f(self.get(i)))
+    }
+}
 pub(super) const MODIFIERS: [[i32; 4]; 8] = [
     [-8, -2, 2, 8],
     [-17, -5, 5, 17],
@@ -35,14 +71,14 @@ impl Endpoint {
         })
     }
 }
-struct Tables {
+pub(crate) struct Tables {
     endpoints: Vec<Endpoint>,
     selectors: Vec<Selector>,
     models: [Huffman; 4],
     history: usize,
 }
 impl Tables {
-    fn new(image: &Ktx2<'_>) -> Result<Self> {
+    pub(crate) fn new(image: &Ktx2<'_>) -> Result<Self> {
         let global = image.global_data;
         let ne = le(range(global, 0, 2)?);
         let ns = le(range(global, 2, 2)?);
@@ -103,7 +139,7 @@ impl Tables {
         let mut previous = [0; 4];
         let mut selectors = Vec::with_capacity(ns);
         for i in 0..ns {
-            let mut s = [0; 16];
+            let mut rows = [0; 4];
             for y in 0..4 {
                 let byte = if raw || i == 0 {
                     b.get(8)?
@@ -114,11 +150,9 @@ impl Tables {
                     return Err("invalid selector delta");
                 }
                 previous[y] = byte;
-                for x in 0..4 {
-                    s[y * 4 + x] = (byte >> (x * 2)) & 3;
-                }
+                rows[y] = byte as u8;
             }
-            selectors.push(s);
+            selectors.push(Selector::new(rows));
         }
         let mut b = Bits::new(payloads[2]);
         let models = [b.table()?, b.table()?, b.table()?, b.table()?];
@@ -136,14 +170,19 @@ impl Tables {
             history,
         })
     }
-    fn slice(&self, bytes: &[u8], nx: usize, ny: usize) -> Result<Vec<(usize, usize)>> {
+    fn slice(
+        &self,
+        bytes: &[u8],
+        nx: usize,
+        ny: usize,
+        mut output: impl FnMut(usize, usize, usize),
+    ) -> Result<()> {
         let mut b = Bits::new(bytes);
         let mut history = vec![0; self.history];
         let mut rover = self.history / 2;
         let mut rows = [vec![(0, 0); nx], vec![(0, 0); nx]];
         let (mut pred_bits, mut prev_pred, mut repeat, mut prev_endpoint, mut selector_run) =
             (0, 0, 0, 0, 0);
-        let mut blocks = Vec::with_capacity(nx * ny);
         for y in 0..ny {
             for x in 0..nx {
                 let row = y & 1;
@@ -226,19 +265,30 @@ impl Tables {
                 if endpoint >= self.endpoints.len() || selector >= ns {
                     return Err("invalid BasisLZ codebook index");
                 }
-                blocks.push((endpoint, selector));
+                output(y * nx + x, endpoint, selector);
             }
         }
         if repeat != 0 {
             return Err("unfinished endpoint predictor run");
         }
-        Ok(blocks)
+        Ok(())
     }
 }
 impl Ktx2<'_> {
     /// Transcodes one ETC1S level, tightly packed in block order or RGBA pixel rows.
     /// ETC1 drops alpha; the other targets retain it. Video slices are refused.
     pub fn transcode_etc1s(&self, level: usize, target: Target) -> Result<Vec<u8>> {
+        if self.model != Model::Etc1s {
+            return Err("not an ETC1S image");
+        }
+        self.transcode_etc1s_with_tables(level, target, &Tables::new(self)?)
+    }
+    pub(crate) fn transcode_etc1s_with_tables(
+        &self,
+        level: usize,
+        target: Target,
+        tables: &Tables,
+    ) -> Result<Vec<u8>> {
         if self.model != Model::Etc1s {
             return Err("not an ETC1S image");
         }
@@ -255,7 +305,6 @@ impl Ktx2<'_> {
         }
         .filter(|&n| n <= 256 * 1024 * 1024)
         .ok_or("ETC1S output too large")?;
-        let tables = Tables::new(self)?;
         let desc = range(self.global_data, 20 + level * 20, 20)?;
         if word(desc, 0)? != 0 {
             return Err("ETC1S video image flags unsupported");
@@ -264,33 +313,28 @@ impl Ktx2<'_> {
         if rgb_len == 0 {
             return Err("missing ETC1S color slice");
         }
-        let color = tables.slice(range(data, word(desc, 4)?, rgb_len)?, nx, ny)?;
         let has_alpha = matches!(self.channels, Channels::Rgba | Channels::RedGreen);
-        let alpha = if has_alpha {
-            let n = word(desc, 16)?;
-            if n == 0 {
-                return Err("missing ETC1S alpha slice");
-            }
-            Some(tables.slice(range(data, word(desc, 12)?, n)?, nx, ny)?)
-        } else {
-            None
-        };
         let mut out = vec![0; size];
-        for (i, &(e, s)) in color.iter().enumerate() {
+        let mut color = Vec::new();
+        if matches!(target, Target::Bc7) {
+            color.reserve_exact(nx * ny);
+        }
+        // transcode_slice writes each decoded block directly to its target.
+        // Only BC7's subsequent chroma filter needs the color index map.
+        tables.slice(range(data, word(desc, 4)?, rgb_len)?, nx, ny, |i, e, s| {
             let endpoint = tables.endpoints[e];
             let selector = &tables.selectors[s];
-            let a = alpha.as_ref().map(|a| {
-                let (e, s) = a[i];
-                (tables.endpoints[e], &tables.selectors[s])
-            });
             match target {
                 Target::Etc1 => targets::etc1(&mut out[i * 8..i * 8 + 8], endpoint, selector),
                 Target::Etc2Rgba => {
                     targets::etc1(&mut out[i * 16 + 8..i * 16 + 16], endpoint, selector);
-                    targets::eac(&mut out[i * 16..i * 16 + 8], a);
+                    if !has_alpha {
+                        targets::eac(&mut out[i * 16..i * 16 + 8], None);
+                    }
                 }
                 Target::Bc7 => {
                     targets::bc7_color(&mut out[i * 16..i * 16 + 16], endpoint, selector);
+                    color.push((e, s));
                 }
                 Target::Rgba8 => {
                     for y in 0..4 {
@@ -300,25 +344,47 @@ impl Ktx2<'_> {
                             if px < width && py < height {
                                 let at = (py * width + px) * 4;
                                 out[at..at + 3]
-                                    .copy_from_slice(&endpoint.pixel(selector[y * 4 + x]));
-                                out[at + 3] = a.map_or(255, |(e, s)| e.pixel(s[y * 4 + x])[1]);
+                                    .copy_from_slice(&endpoint.pixel(selector.get(y * 4 + x)));
+                                out[at + 3] = 255;
                             }
                         }
                     }
                 }
             }
-        }
+        })?;
         if matches!(target, Target::Bc7) {
             targets::chroma_filter(&mut out, nx, ny, &color, &tables.endpoints);
-            if let Some(alpha) = alpha {
-                for (i, (e, s)) in alpha.into_iter().enumerate() {
-                    targets::bc7_alpha(
-                        &mut out[i * 16..i * 16 + 16],
-                        tables.endpoints[e],
-                        &tables.selectors[s],
-                    );
-                }
+        }
+        if has_alpha {
+            let n = word(desc, 16)?;
+            if n == 0 {
+                return Err("missing ETC1S alpha slice");
             }
+            tables.slice(range(data, word(desc, 12)?, n)?, nx, ny, |i, e, s| {
+                let endpoint = tables.endpoints[e];
+                let selector = &tables.selectors[s];
+                match target {
+                    Target::Etc1 => (),
+                    Target::Etc2Rgba => {
+                        targets::eac(&mut out[i * 16..i * 16 + 8], Some((endpoint, selector)))
+                    }
+                    Target::Bc7 => {
+                        targets::bc7_alpha(&mut out[i * 16..i * 16 + 16], endpoint, selector)
+                    }
+                    Target::Rgba8 => {
+                        for y in 0..4 {
+                            for x in 0..4 {
+                                let px = i % nx * 4 + x;
+                                let py = i / nx * 4 + y;
+                                if px < width && py < height {
+                                    out[(py * width + px) * 4 + 3] =
+                                        endpoint.pixel(selector.get(y * 4 + x))[1];
+                                }
+                            }
+                        }
+                    }
+                }
+            })?;
         }
         Ok(out)
     }

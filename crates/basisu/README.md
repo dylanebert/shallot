@@ -10,6 +10,9 @@ ETC2 RGBA (EAC A8), BC7 mode 5 and RGBA8, through the pinned reference's default
 transcode path, including its BC7 chroma filter. The Rust entry is
 `Ktx2::transcode_etc1s(level, Target)`; output is tightly packed blocks or pixel
 rows. ETC1 drops alpha; the other three targets preserve it.
+`uastc.tsv` hashes every UASTC level in ASTC 4×4, BC7 and RGBA8. The Rust
+entry is `Ktx2::transcode_uastc(level, UastcTarget)`; RGBA8 uses the reference's
+linear ASTC interpolation, independently of the image's transfer declaration.
 
 Regenerate with clean checkouts:
 
@@ -61,6 +64,49 @@ reference-digest assertion to fail, restoring the source after every run.
 Malformed BasisLZ tests explicitly catch panics: structural and entropy failures
 must be errors; arbitrary entropy bit flips may still encode valid images.
 
+## WebAssembly entry
+
+`src/extras/gltf/basisu.ts` owns the JavaScript boundary. `openBasisImage` copies
+its KTX2 input into WebAssembly; `transcode` returns independently owned target
+bytes, including Zstandard decompression where required; `dispose` releases the
+input and last output. Importing this module instantiates nothing until an image
+is opened. It is not re-exported by the glTF barrel.
+
+```sh
+bun crates/basisu/scripts/build.ts
+bun test scripts/check-basisu.test.ts src/extras/gltf/basisu.test.ts
+bun diagnostics/basisu-records/uastc-mutations.ts
+BASIS_UNIVERSAL=/path/to/basis-universal bun diagnostics/basisu-records/timing.oracle.ts
+```
+
+The build stamps its Rust sources and build inputs, as the other crate artifacts
+do. The JavaScript test checks all 264 ETC1S and 438 UASTC target records through
+the built artifact. The mutation check requires each target's reference-digest assertion
+to fail on perturbed output, then restores the source.
+
+The timing oracle runs three fresh Bun processes. It compares complete models,
+with input/output copies, image setup, every image level and optional Zstandard,
+in the M4 Max's selected targets: ETC1S to ETC1 or ETC2 RGBA, UASTC to ASTC 4×4.
+It alternates order during warmup, calibration and eight sampled batches and
+reports median milliseconds per model. The reference is Binomial's committed
+`webgl/transcoder/build/basis_transcoder.js` and `.wasm`, through `KTX2File`.
+Commit `32c7b74` built that pair from `3784d52`; the transcoder, Zstandard and
+WebGL transcoder inputs are unchanged between `3784d52` and `073eb6a0`.
+The oracle checks the pin, clean checkout, unchanged inputs and matching output
+before timing. Timings are measurements, not test assertions.
+
+```sh
+BASIS_UNIVERSAL=/path/to/basis-universal bun diagnostics/basisu-records/attribution.oracle.ts
+```
+
+The attribution oracle requires the native extractor built by `generate.ts`.
+It verifies each extracted level against its record and compares both JavaScript
+entries on an equivalent KTX2 without supercompression. It reports setup,
+disposal, observed JavaScript boundary copies, ETC1, ETC2 RGBA, ASTC without
+Zstandard, and the compressed-minus-control ASTC time. That last value is a net
+Zstandard increment, not an independently timed decoder. Each invocation is one
+fresh process; run it three times alongside the full-model timing oracle.
+
 ## Attribution
 
 The StainedGlassLamp records derive from **Stained Glass Lamp**, Eric Chadwick,
@@ -73,4 +119,4 @@ Copyright 2023 Wayfair, LLC,
 <https://github.com/KhronosGroup/glTF-Sample-Assets/tree/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/AnisotropyBarnLamp>.
 
 The records hash extracted, Zstandard-decompressed and ETC1S-transcoded
-texture data. Model license notices are in `crates/basisu/licenses`.
+and UASTC-transcoded texture data. Model license notices are in `crates/basisu/licenses`.

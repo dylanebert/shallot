@@ -1,28 +1,64 @@
 //! Basis Universal 073eb6a0's LSB-first bit reader and canonical Huffman tables.
-//! Altered source: checked Rust reads and canonical decoding without speculative padding.
+//! Altered source: checked word lookahead, with local zero padding at the tail.
+//! The reference's 10-bit Huffman lookup precedes canonical long-code decoding.
 //! Copyright 2016–2026 Binomial LLC. See ../licenses/{LICENSE,NOTICE}-basis-universal.
 use crate::Result;
 
 pub struct Bits<'a> {
     bytes: &'a [u8],
     position: usize,
+    word: u64,
+    available: usize,
 }
 impl<'a> Bits<'a> {
     pub fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, position: 0 }
+        Self {
+            bytes,
+            position: 0,
+            word: 0,
+            available: 0,
+        }
     }
+    #[inline(always)]
     pub fn get(&mut self, count: usize) -> Result<usize> {
-        if count > 32
-            || self.position.checked_add(count).ok_or("bit overflow")? > self.bytes.len() * 8
-        {
+        if count > 32 {
+            return Err("invalid BasisLZ bit width");
+        }
+        let value = (self.lookahead(count) & ((1u64 << count) - 1)) as usize;
+        self.consume(count)?;
+        Ok(value)
+    }
+    #[inline(always)]
+    fn lookahead(&mut self, count: usize) -> u64 {
+        // bitwise_decoder retains and shifts its bit buffer between symbols.
+        // Refill only when the requested width exceeds its available bits.
+        if self.available < count {
+            let start = self.position / 8;
+            let tail = &self.bytes[start..];
+            self.word = if let Some(bytes) = tail.first_chunk::<8>() {
+                u64::from_le_bytes(*bytes)
+            } else {
+                let mut bytes = [0u8; 8];
+                bytes[..tail.len()].copy_from_slice(tail);
+                u64::from_le_bytes(bytes)
+            };
+            let shift = self.position & 7;
+            self.word >>= shift;
+            self.available = 64 - shift;
+        }
+        self.word
+    }
+    #[inline(always)]
+    fn consume(&mut self, count: usize) -> Result<()> {
+        let next = self.position.checked_add(count).ok_or("bit overflow")?;
+        if next > self.bytes.len() * 8 {
             return Err("truncated BasisLZ bits");
         }
-        let mut value = 0;
-        for i in 0..count {
-            value |= usize::from((self.bytes[self.position / 8] >> (self.position % 8)) & 1) << i;
-            self.position += 1;
-        }
-        Ok(value)
+        debug_assert!(count <= self.available);
+        self.word >>= count;
+        self.available -= count;
+        self.position = next;
+        Ok(())
     }
     pub fn vlc(&mut self, chunk: usize) -> Result<usize> {
         let mut value = 0u32;
@@ -94,6 +130,7 @@ pub struct Huffman {
     first: [usize; 17],
     offsets: [usize; 17],
     symbols: Vec<usize>,
+    lookup: Box<[u32; 1024]>,
 }
 impl Huffman {
     fn new(sizes: &[usize]) -> Result<Self> {
@@ -127,11 +164,25 @@ impl Huffman {
                 next[size] += 1;
             }
         }
+        // Basis Universal's cHuffmanFastLookupBits is 10. Low bits contain
+        // the symbol; high bits contain the number of consumed input bits.
+        let mut lookup = Box::new([0; 1024]);
+        for size in 1..=10 {
+            for rank in 0..counts[size] {
+                let code = first[size] + rank;
+                let reversed = code.reverse_bits() >> (usize::BITS as usize - size);
+                let entry = symbols[offsets[size] + rank] as u32 | ((size as u32) << 16);
+                for suffix in 0..(1 << (10 - size)) {
+                    lookup[reversed | (suffix << size)] = entry;
+                }
+            }
+        }
         Ok(Self {
             counts,
             first,
             offsets,
             symbols,
+            lookup,
         })
     }
     pub fn require(&self) -> Result<()> {
@@ -141,7 +192,14 @@ impl Huffman {
             Ok(())
         }
     }
+    #[inline(always)]
     pub fn decode(&self, bits: &mut Bits<'_>) -> Result<usize> {
+        let entry = self.lookup[(bits.lookahead(10) & 1023) as usize];
+        let size = (entry >> 16) as usize;
+        if size != 0 {
+            bits.consume(size)?;
+            return Ok((entry & 65535) as usize);
+        }
         self.require()?;
         let mut code = 0;
         for size in 1..=16 {

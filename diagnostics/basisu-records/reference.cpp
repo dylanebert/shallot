@@ -29,6 +29,7 @@ int main(int argc, char **argv) {
         const std::string target(argv[4]);
         if (target == "etc1") format = basist::transcoder_texture_format::cTFETC1_RGB;
         else if (target == "etc2-rgba") format = basist::transcoder_texture_format::cTFETC2_RGBA;
+        else if (target == "astc") format = basist::transcoder_texture_format::cTFASTC_4x4_RGBA;
         else if (target == "bc7") format = basist::transcoder_texture_format::cTFBC7_RGBA;
         else if (target == "rgba8") format = basist::transcoder_texture_format::cTFRGBA32;
         else return 6;

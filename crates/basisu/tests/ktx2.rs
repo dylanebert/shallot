@@ -122,6 +122,46 @@ fn every_etc1s_target_is_bit_equal() {
 }
 
 #[test]
+fn every_uastc_target_is_bit_equal() {
+    use shallot_basisu::UastcTarget;
+    let assets = records();
+    let manifest = std::fs::read_to_string(directory().join("records/uastc.tsv")).unwrap();
+    let mut counts = [0; 3];
+    for line in manifest.lines().filter(|s| !s.starts_with('#')) {
+        let f: Vec<_> = line.split('\t').collect();
+        let asset = assets.iter().find(|a| a.0 == f[0]).unwrap();
+        let image = Ktx2::parse(&asset.1).unwrap();
+        let level = f[1].parse().unwrap();
+        let (index, target) = match f[2] {
+            "astc" => (0, UastcTarget::Astc),
+            "bc7" => (1, UastcTarget::Bc7),
+            "rgba8" => (2, UastcTarget::Rgba8),
+            _ => panic!("unknown target"),
+        };
+        let actual = image
+            .transcode_uastc(level, target)
+            .unwrap_or_else(|e| panic!("{} level {level} {}: {e}", f[0], f[2]));
+        let hash = format!("{:x}", Sha256::digest(&actual));
+        assert_eq!(
+            (actual.len(), hash.as_str()),
+            (f[3].parse().unwrap(), f[4]),
+            "{} level {level} {}",
+            f[0],
+            f[2]
+        );
+        counts[index] += 1;
+    }
+    let levels: usize = assets
+        .iter()
+        .filter(|a| Ktx2::parse(&a.1).unwrap().model == Model::Uastc)
+        .map(|a| a.2.len())
+        .sum();
+    assert!(levels > 0);
+    assert_eq!(counts, [levels; 3]);
+    println!("UASTC bit-equal levels by target: {counts:?}");
+}
+
+#[test]
 fn malformed_basislz_is_refused_without_panics() {
     use shallot_basisu::Target;
     let targets = [Target::Etc1, Target::Etc2Rgba, Target::Bc7, Target::Rgba8];

@@ -66,6 +66,7 @@ for (const [name, args, channels] of [
 const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 const manifest: string[] = ["# asset level length sha256"];
 const transcodes: string[] = ["# asset level target length sha256"];
+const uastc: string[] = ["# asset level target length sha256"];
 const files: { path: string; sha256: string }[] = [];
 function record(path: string, name: string) {
     const bytes = readFileSync(path);
@@ -76,11 +77,12 @@ function record(path: string, name: string) {
         const decoded = readFileSync(output);
         manifest.push([name, level, decoded.length, digest(decoded)].join("\t"));
         unlinkSync(output);
-        if (bytes.readUInt32LE(44) === 1) {
-            for (const target of ["etc1", "etc2-rgba", "bc7", "rgba8"]) {
+        {
+            const etc1s = bytes.readUInt32LE(44) === 1;
+            for (const target of etc1s ? ["etc1", "etc2-rgba", "bc7", "rgba8"] : ["astc", "bc7", "rgba8"]) {
                 run(reference, [path, String(level), output, target]);
                 const decoded = readFileSync(output);
-                transcodes.push([name, level, target, decoded.length, digest(decoded)].join("\t"));
+                (etc1s ? transcodes : uastc).push([name, level, target, decoded.length, digest(decoded)].join("\t"));
                 unlinkSync(output);
             }
         }
@@ -120,5 +122,6 @@ unlinkSync(frameInput);
 console.log("pinned reference: unused frame bit matches uastc-red level 0 digest; reserved bit refused");
 writeFileSync(join(destination, "levels.tsv"), `${manifest.join("\n")}\n`);
 writeFileSync(join(destination, "etc1s.tsv"), `${transcodes.join("\n")}\n`);
+writeFileSync(join(destination, "uastc.tsv"), `${uastc.join("\n")}\n`);
 writeFileSync(join(destination, "inputs.json"), `${JSON.stringify({ commit: assetsRevision, decoder: revision, files }, null, 2)}\n`);
 console.log(`${manifest.length - 1} recorded levels`);

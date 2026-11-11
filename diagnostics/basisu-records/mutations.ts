@@ -44,7 +44,7 @@ for (const [name, before] of [
     ["RLE", "output.resize(start + size, r.number(1)? as u8);"],
     ["compressed", "2 => context.block(r.take(size)?, &mut output, limit, window)?,"],
 ] as const) {
-    const after = name === "compressed" ? '2 => return Err("perturbed compressed block"),' : `${before}\noutput[start] ^= 1;`;
+    const after = name === "compressed" ? '2 => return Err("perturbed compressed block"),' : `${before}\noutput.bytes[start] ^= 1;`;
     mutations.push([`Zstandard ${name} block`, decoder, before, after, `--lib zstd::tests::${name === "RLE" ? "rle" : name}_block`]);
 }
 mutations.push(["Zstandard reserved block refusal", decoder, '_ => return Err("reserved Zstandard block type"),', "_ => output.extend_from_slice(r.take(size)?),", "--lib zstd::tests::reserved_block"]);
