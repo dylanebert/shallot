@@ -87,8 +87,10 @@ to fail on perturbed output, then restores the source.
 The timing oracle runs three fresh Bun processes. It compares complete models,
 with input/output copies, image setup, every image level and optional Zstandard,
 in the M4 Max's selected targets: ETC1S to ETC1 or ETC2 RGBA, UASTC to ASTC 4×4.
-It alternates order during warmup, calibration and eight sampled batches and
-reports median milliseconds per model. The reference is Binomial's committed
+It alternates order during warmup, calibration and 256 sampled batches and
+reports minimum milliseconds per model, following meshoptimizer's
+`tools/codecbench.cpp` maximum-throughput statistic. It also reports the first
+128 batches' minimum so later improvement remains visible. The reference is Binomial's committed
 `webgl/transcoder/build/basis_transcoder.js` and `.wasm`, through `KTX2File`.
 Commit `32c7b74` built that pair from `3784d52`; the transcoder, Zstandard and
 WebGL transcoder inputs are unchanged between `3784d52` and `073eb6a0`.
@@ -104,8 +106,26 @@ It verifies each extracted level against its record and compares both JavaScript
 entries on an equivalent KTX2 without supercompression. It reports setup,
 disposal, observed JavaScript boundary copies, ETC1, ETC2 RGBA, ASTC without
 Zstandard, and the compressed-minus-control ASTC time. That last value is a net
-Zstandard increment, not an independently timed decoder. Each invocation is one
-fresh process; run it three times alongside the full-model timing oracle.
+Zstandard increment, not an independently timed decoder. Each entry/control
+and component keeps its independent minimum over 256 interleaved observations
+after four warmups; component minima do not sum to a measured model run.
+Each invocation is one fresh process; run it three times alongside the
+full-model timing oracle. Repeat each three-process or three-page sweep
+independently. Compare each entry's best per-model minimum across the three
+replicas for sweep repeatability, retaining all per-replica observations;
+those can still reflect contention.
+
+```sh
+BASIS_UNIVERSAL=/path/to/basis-universal bun diagnostics/basisu-records/browser.oracle.ts
+BASIS_UNIVERSAL=/path/to/basis-universal bun diagnostics/basisu-records/browser.oracle.ts --attribution
+```
+
+The browser oracle requires installed Google Chrome and launches it headlessly
+through Playwright. It runs the same comparison or attribution loop as Bun in
+three fresh pages, with both entries in each page. Inputs are verified before
+serving; output equality is checked in the page before measuring. The attribution
+mode requires the same native extractor. `--profile` additionally writes Chrome
+CPU profiles under `test-results`, outside the repository's records.
 
 ## Attribution
 

@@ -50,6 +50,9 @@ for (const [name, before] of [
 mutations.push(["Zstandard reserved block refusal", decoder, '_ => return Err("reserved Zstandard block type"),', "_ => output.extend_from_slice(r.take(size)?),", "--lib zstd::tests::reserved_block"]);
 mutations.push(["Zstandard unused frame bit ignored", decoder, "flags & 0x08 != 0", "flags & 0x18 != 0", "--lib zstd::tests::unused_frame_bit_matches_reference"]);
 mutations.push(["Zstandard reserved frame bit refused", decoder, "flags & 0x08 != 0", "false", "--lib zstd::tests::reserved_frame_bit_is_refused"]);
+mutations.push(["Zstandard literal copy bounds", decoder, "length > lit.0.len() - 8", "false", "--lib zstd::tests::literal_copy_uses_only_initialized_padding_and_refuses_overconsumption"]);
+mutations.push(["Zstandard literal copy bytes", decoder, "let chunk: [u8; 8] = lit.0[src..src + 8].try_into().unwrap();", "let chunk: [u8; 8] = [0; 8];", "--lib zstd::tests::literal_copy_uses_only_initialized_padding_and_refuses_overconsumption"]);
+mutations.push(["Zstandard reverse bit budget", decoder, "self.end - self.consumed", "self.end", "--lib zstd::tests::reverse_lookahead_matches_bits_at_every_word_and_tail_boundary"]);
 const originals = new Map([parser, decoder].map((path) => [path, readFileSync(resolve(root, path), "utf8")]));
 try {
     for (const [name, path, before, after, selection] of mutations) {

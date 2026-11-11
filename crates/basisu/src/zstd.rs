@@ -206,7 +206,8 @@ struct DStream<'a> {
     bytes: &'a [u8],
     word: u64,
     consumed: usize,
-    remaining: usize,
+    // Source-bit position of the loaded word's high end, including padding.
+    end: usize,
 }
 impl<'a> DStream<'a> {
     fn new(bytes: &'a [u8]) -> Result<Self> {
@@ -218,24 +219,31 @@ impl<'a> DStream<'a> {
             bytes,
             word: 0,
             consumed: 0,
-            remaining: (bytes.len() - 1) * 8 + (7 - last.leading_zeros()) as usize,
+            end: (bytes.len() - 1) * 8 + (7 - last.leading_zeros()) as usize,
         };
         stream.reload();
         Ok(stream)
     }
     #[inline(always)]
+    fn remaining(&self) -> usize {
+        self.end - self.consumed
+    }
+    #[inline(always)]
     fn reload(&mut self) {
-        let start = self.remaining.div_ceil(8).saturating_sub(8);
+        let remaining = self.remaining();
+        let start = remaining.div_ceil(8).saturating_sub(8);
         self.word = lookahead(&self.bytes[start..]);
-        self.consumed = 64 - (self.remaining - start * 8);
+        self.consumed = 64 - (remaining - start * 8);
+        self.end = remaining + self.consumed;
     }
     #[inline(always)]
     fn peek(&mut self, n: usize) -> usize {
-        if self.remaining < n {
+        let remaining = self.remaining();
+        if remaining < n {
             if self.consumed + n > 64 {
                 self.reload();
             }
-            ((self.word & ((1u64 << self.remaining) - 1)) << (n - self.remaining)) as usize
+            ((self.word & ((1u64 << remaining) - 1)) << (n - remaining)) as usize
         } else {
             self.look(n)
         }
@@ -251,7 +259,9 @@ impl<'a> DStream<'a> {
     }
     #[inline(always)]
     fn skip(&mut self, n: usize) -> Result<()> {
-        self.remaining = self.remaining.checked_sub(n).ok_or("bitstream underflow")?;
+        if n > self.remaining() {
+            return Err("bitstream underflow");
+        }
         self.consumed += n;
         Ok(())
     }
@@ -260,16 +270,15 @@ impl<'a> DStream<'a> {
         // FSE logs are <=9 and sequence extra widths are <=31, validated
         // when their tables are built. Payload bits cannot change the width.
         debug_assert!(n <= 31);
-        if n > self.remaining {
+        if n > self.remaining() {
             return Err("bitstream underflow");
         }
         Ok(self.take(n))
     }
     #[inline(always)]
     fn take(&mut self, n: usize) -> usize {
-        debug_assert!(n <= 31 && n <= self.remaining);
+        debug_assert!(n <= 31 && n <= self.remaining());
         let value = self.look(n);
-        self.remaining -= n;
         self.consumed += n;
         value
     }
@@ -311,7 +320,7 @@ impl Huffman {
                 if weights.len() > 255 {
                     return Err("too many Huffman weights");
                 }
-                if entry.bits > bits.remaining {
+                if entry.bits > bits.remaining() {
                     weights.push(fse.entry(states[turn ^ 1])?.symbol);
                     break;
                 }
@@ -375,13 +384,12 @@ impl Huffman {
     #[inline(always)]
     fn symbol_fast(&self, bits: &mut DStream<'_>) -> u8 {
         debug_assert!(self.log > 0 && self.log <= 11);
-        debug_assert!(bits.consumed + self.log <= 64 && bits.remaining >= self.log);
+        debug_assert!(bits.consumed + self.log <= 64 && bits.remaining() >= self.log);
         let index = bits
             .word
             .wrapping_shr((64 - bits.consumed - self.log) as u32);
         let entry = self.table[(index as usize) & ((1 << self.log) - 1) & 2047];
         let used = usize::from(entry & 255);
-        bits.remaining -= used;
         bits.consumed += used;
         (entry >> 8) as u8
     }
@@ -393,7 +401,7 @@ impl Huffman {
         for byte in output {
             *byte = self.symbol(&mut bits)?;
         }
-        if bits.remaining != 0 {
+        if bits.remaining() != 0 {
             return Err("extra Huffman bits");
         }
         Ok(())
@@ -416,10 +424,10 @@ impl Huffman {
         // Each code uses <=11 bits, so 44 real bits and four output bytes
         // bound the entire group. The checked tail handles shorter streams.
         while at + 4 <= out_d.len()
-            && a.remaining >= 44
-            && b.remaining >= 44
-            && c.remaining >= 44
-            && d.remaining >= 44
+            && a.remaining() >= 44
+            && b.remaining() >= 44
+            && c.remaining() >= 44
+            && d.remaining() >= 44
         {
             a.reload();
             b.reload();
@@ -444,7 +452,7 @@ impl Huffman {
             out_b[i] = self.symbol(&mut b)?;
             out_c[i] = self.symbol(&mut c)?;
         }
-        if a.remaining | b.remaining | c.remaining | d.remaining != 0 {
+        if a.remaining() | b.remaining() | c.remaining() | d.remaining() != 0 {
             return Err("extra Huffman bits");
         }
         Ok(())
@@ -581,6 +589,32 @@ impl Output {
         self.bytes[self.pos..self.pos + bytes.len()].copy_from_slice(bytes);
         self.pos += bytes.len();
     }
+    // ZSTD_execSequence literal wildcopy, bounded to the eight initialized
+    // padding bytes in these allocations. Reader retains that padding.
+    #[inline(always)]
+    fn copy_literals(&mut self, lit: &mut Reader<'_>, length: usize) -> Result<()> {
+        if length == 0 {
+            return Ok(());
+        }
+        if length > lit.0.len() - 8 {
+            return Err("truncated Zstandard");
+        }
+        let end = self.pos + length;
+        let mut dst = self.pos;
+        let mut src = 0;
+        loop {
+            let chunk: [u8; 8] = lit.0[src..src + 8].try_into().unwrap();
+            self.bytes[dst..dst + 8].copy_from_slice(&chunk);
+            dst += 8;
+            src += 8;
+            if dst >= end {
+                break;
+            }
+        }
+        lit.0 = &lit.0[length..];
+        self.pos = end;
+        Ok(())
+    }
     #[inline(always)]
     fn copy_match(&mut self, offset: usize, length: usize) {
         let end = self.pos + length;
@@ -692,7 +726,8 @@ impl Context {
         window: usize,
     ) -> Result<()> {
         let mut r = Reader(source);
-        let literals = self.literals(&mut r)?;
+        let mut literals = self.literals(&mut r)?;
+        literals.resize(literals.len() + 8, 0);
         let mut lit = Reader(&literals);
         let n = r.number(1)?;
         let count = match n {
@@ -733,7 +768,7 @@ impl Context {
                 };
                 let total =
                     usize::from(o.extra) + usize::from(m.extra) + usize::from(l.extra) + state_bits;
-                if total > bits.remaining {
+                if total > bits.remaining() {
                     return Err("bitstream underflow");
                 }
                 let offset = if o.extra > 1 {
@@ -772,28 +807,29 @@ impl Context {
                     } else {
                         0
                     };
-                if literal_length + match_length > limit.saturating_sub(output.len()) {
-                    return Err("sequence exceeds output");
-                }
-                output.extend_from_slice(lit.take(literal_length)?);
-                if offset == 0 || offset > output.len().min(window) {
-                    return Err("invalid match offset");
-                }
-                output.copy_match(offset, match_length);
                 if i + 1 < count {
                     ll = usize::from(l.next) + bits.take(usize::from(l.bits));
                     ml = usize::from(m.next) + bits.take(usize::from(m.bits));
                     of = usize::from(o.next) + bits.take(usize::from(o.bits));
                 }
+                if literal_length + match_length > limit.saturating_sub(output.len()) {
+                    return Err("sequence exceeds output");
+                }
+                output.copy_literals(&mut lit, literal_length)?;
+                if offset == 0 || offset > output.len().min(window) {
+                    return Err("invalid match offset");
+                }
+                output.copy_match(offset, match_length);
             }
-            if bits.remaining != 0 {
+            if bits.remaining() != 0 {
                 return Err("extra sequence bits");
             }
         }
-        if lit.0.len() > limit.saturating_sub(output.len()) {
+        let remaining = &lit.0[..lit.0.len() - 8];
+        if remaining.len() > limit.saturating_sub(output.len()) {
             return Err("literals exceed output");
         }
-        output.extend_from_slice(lit.0);
+        output.extend_from_slice(remaining);
         Ok(())
     }
 }
@@ -984,6 +1020,29 @@ mod tests {
                         "consumed {consumed}, width {width}"
                     );
                 }
+            }
+        }
+    }
+    #[test]
+    fn literal_copy_uses_only_initialized_padding_and_refuses_overconsumption() {
+        for length in 0..=96 {
+            for first in 0..=length {
+                let mut source: Vec<u8> = (0..length).map(|i| (i * 37 + 11) as u8).collect();
+                source.resize(length + 8, 0);
+                let mut reader = Reader(&source);
+                let mut output = Output {
+                    bytes: vec![0; length + 8],
+                    pos: 0,
+                };
+                output.copy_literals(&mut reader, first).unwrap();
+                output.copy_literals(&mut reader, length - first).unwrap();
+                assert_eq!(&output.bytes[..length], &source[..length]);
+                assert_eq!(output.len(), length);
+                assert_eq!(reader.0.len(), 8);
+                assert_eq!(output.bytes[length + 7], 0);
+                assert!(output.copy_literals(&mut reader, 1).is_err());
+                assert_eq!(output.len(), length);
+                assert_eq!(reader.0.len(), 8);
             }
         }
     }
