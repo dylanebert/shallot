@@ -9,6 +9,7 @@ const apps = gpuApps(import.meta.path, [
     { defaults: false, plugins: [ProfilePlugin] },
     { defaults: false, plugins: [ProfilePlugin] },
     { defaults: false, plugins: [ProfilePlugin] },
+    { defaults: false, plugins: [ProfilePlugin] },
 ]);
 
 test("nonempty frames beyond timestamp capacity are unsampled, counted, and never relabeled or zero-filled", async () => {
@@ -157,8 +158,8 @@ test("GPU frame total unions unordered overlapping intervals and sums disjoint i
     try {
         world.step(1 / 120);
         for (const [intervals, union, passSum] of [
-            [[4n, 8n, 1n, 6n, 2n, 3n, 10n, 12n], 9, 12],
-            [[8n, 11n, 1n, 3n, 15n, 16n, 20n, 22n], 8, 8],
+            [[4n, 8n, 1n, 6n, 2n, 3n, 10n, 12n], 9, 6],
+            [[8n, 11n, 1n, 3n, 15n, 16n, 20n, 22n], 8, 6],
         ] as const) {
             for (let i = 0; i < 4; i++) world.gpu.span!("union");
             world.step(1 / 120);
@@ -180,6 +181,55 @@ test("GPU frame total unions unordered overlapping intervals and sums disjoint i
             expect(
                 [...diagnosticEntries(store, "render/", "/elapsed_gpu")].map(([name]) => name),
             ).toEqual(["union"]);
+        }
+    } finally {
+        pool.request = request;
+    }
+});
+
+test("GPU pass rows measure serial spans and overlapping progress in submission order", async () => {
+    const world = apps()[3].world;
+    const names = ["serial", "serial", "chain", "chain", "contained", "after-contained"];
+    if (!world.gpu.device.features.has("timestamp-query")) {
+        world.step(1 / 120);
+        for (const name of names) expect(world.gpu.span!(name)).toBeUndefined();
+        world.step(1 / 120);
+        const store = world.resource(DiagnosticsStore);
+        for (const name of names) expect(store.get(`render/${name}/elapsed_gpu`)).toBeUndefined();
+        return;
+    }
+    const pool = world.readback;
+    const request = pool.request;
+    let complete!: (result: { bytes: ArrayBuffer; frame: number; fixedTick: number }) => void;
+    pool.request = () =>
+        new Promise((resolve) => {
+            complete = resolve;
+        });
+    try {
+        world.step(1 / 120);
+        for (const name of names) expect(world.gpu.span!(name)).toBeDefined();
+        world.step(1 / 120);
+        complete({
+            bytes: new BigUint64Array(
+                [1n, 3n, 5n, 8n, 7n, 12n, 10n, 16n, 11n, 13n, 14n, 18n].map((n) => n * 1_000_000n),
+            ).buffer,
+            frame: 1,
+            fixedTick: 0,
+        });
+        await Promise.resolve();
+        world.step(1 / 120);
+        const store = world.resource(DiagnosticsStore);
+        // Serial spans sum to 2 + 3; the chain adds (12 - 8) + (16 - 12).
+        // A contained pass adds zero and cannot lower the latest end for the next row.
+        for (const [name, value] of [
+            ["serial", 5],
+            ["chain", 8],
+            ["contained", 0],
+            ["after-contained", 2],
+        ] as const) {
+            const samples = [...store.get(`render/${name}/elapsed_gpu`)!.measurements()];
+            expect(samples.at(-2)!.value).toBe(value);
+            expect(samples.at(-1)!.value).toBe(0);
         }
     } finally {
         pool.request = request;

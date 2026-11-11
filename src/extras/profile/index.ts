@@ -372,13 +372,20 @@ class DiagnosticsRecorder {
                 const data = new BigUint64Array(slot.bytes);
                 const order = this._intervalOrder;
                 order.length = slot.count;
+                // Godot's consecutive-timestamp delta, bounded by each WebGPU span: rows
+                // measure progress beyond earlier submitted passes, not overlapping wait time.
+                let maxEnd = 0n;
                 for (let i = 0; i < slot.count; i++) {
                     order[i] = i;
                     const name = slot.passes[i];
+                    const begin = data[i * 2];
+                    const end = data[i * 2 + 1];
+                    const start = begin > maxEnd ? begin : maxEnd;
                     this._gpu.add(
                         this.paths(name).gpu,
-                        Number(data[i * 2 + 1] - data[i * 2]) / 1e6,
+                        Number(end > start ? end - start : 0n) / 1e6,
                     );
+                    if (end > maxEnd) maxEnd = end;
                 }
                 // Pass envelopes can overlap on tile GPUs. Count their union, not exclusive costs
                 // or the first-to-last envelope, which would include gaps between passes.
@@ -1050,11 +1057,14 @@ const ProfileRenderSystem: System = {
 };
 
 /**
- * Records CPU/GPU spans, memory and pipeline compilation into the World's DiagnosticsStore.
+ * Records CPU/GPU timings, memory and pipeline compilation into the World's DiagnosticsStore.
  * Add DiagnosticsOverlayPlugin separately for the F3 HUD.
  * Tracking starts at device acquisition, independent of plugin order. Composed systems
  * may record phase timings through the world's record sink; this plugin adds no simulation.
- * Repeated spans sum per presented frame; missing spans sample zero. CPU publishes at the next
+ * Each render/<span>/elapsed_gpu row measures its end minus the latest earlier pass end in
+ * submission order, starting no earlier than its own begin and clamped to zero. Nonoverlapping
+ * passes read their spans; contained passes read zero. frame/elapsed_gpu remains the span union.
+ * Repeated labels sum per presented frame; missing spans sample zero. CPU publishes at the next
  * frame begin, GPU after readback in sampled-frame order. Smoothing uses unscaled frame time.
  * Saturated GPU readbacks leave unsampled gaps, counted cumulatively in render/gpu_unsampled_frames.
  */
