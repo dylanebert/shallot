@@ -1,0 +1,2 @@
+# name input_sha256 reason
+fixtures/reject-too-compressed	685c6fbe0e65db06dde4ae039394c18acc5143498d340a7348cd642635cd2a42	sequential face-count bound exceeds remaining bytes / 3

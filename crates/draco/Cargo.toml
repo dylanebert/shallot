@@ -1,0 +1,11 @@
+[package]
+name = "shallot-draco"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dev-dependencies]
+sha2 = "0.10"

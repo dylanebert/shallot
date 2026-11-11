@@ -2815,6 +2815,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "shallot-draco"
+version = "0.10.0"
+dependencies = [
+ "sha2",
+]
+
+[[package]]
 name = "shallot-gltf"
 version = "0.10.0"
 dependencies = [
