@@ -631,7 +631,13 @@ async function initRender(world: World): Promise<void> {
 
 /** Camera/view state and frame scheduling without a renderer; included by MeshRenderPlugin. */
 export const RenderingPlugin: Plugin = {
-    gpu: {},
+    gpu: {
+        preferredFeatures: [
+            "texture-compression-bc",
+            "texture-compression-etc2",
+            "texture-compression-astc",
+        ],
+    },
     dependencies: [TransformPlugin],
     name: "Rendering",
     systems: [

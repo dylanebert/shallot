@@ -118,9 +118,53 @@ export interface ImageLoaderSettings {
     sampler?: ImageSamplerDescriptor;
 }
 
+/** Device compression families, matching Bevy's CompressedImageFormats. */
+export const CompressedImageFormats = { BC: 1, ETC2: 2, ASTC_LDR: 4 } as const;
+export type CompressedImageFormats = number;
+
+/** Linear storage format; registration's color role selects its sRGB variant. */
+export type ImageFormat =
+    | "rgba8unorm"
+    | "etc2-rgb8unorm"
+    | "etc2-rgba8unorm"
+    | "bc7-rgba-unorm"
+    | "astc-4x4-unorm";
+
+/**
+ * Tightly packed levels in descending mip order, starting at the native size in pixels.
+ * Compressed native dimensions must be multiples of four; each level includes whole edge blocks.
+ * Bytes remain caller-owned and must stay unchanged until prepareImages resolves.
+ */
+export interface Image {
+    format: ImageFormat;
+    width: number;
+    height: number;
+    levels: readonly Uint8Array[];
+}
+
+/** Resolved at warm against the device's enabled compression families; errors reject preparation. */
+export type ImageSource = (formats: CompressedImageFormats) => Image | Promise<Image>;
+
+const compression = {
+    rgba8unorm: 0,
+    "etc2-rgb8unorm": CompressedImageFormats.ETC2,
+    "etc2-rgba8unorm": CompressedImageFormats.ETC2,
+    "bc7-rgba-unorm": CompressedImageFormats.BC,
+    "astc-4x4-unorm": CompressedImageFormats.ASTC_LDR,
+};
+
+function compressedFormats(device: GPUDevice): CompressedImageFormats {
+    return (
+        (device.features.has("texture-compression-bc") ? CompressedImageFormats.BC : 0) |
+        (device.features.has("texture-compression-etc2") ? CompressedImageFormats.ETC2 : 0) |
+        (device.features.has("texture-compression-astc") ? CompressedImageFormats.ASTC_LDR : 0)
+    );
+}
+
 /** World-local color image sources, uploaded to native-size textures at warm. */
 export const Images = {
-    create: () => new Registry<{ name: string; source: string | Blob; sampler: number[] }>(),
+    create: () =>
+        new Registry<{ name: string; source: string | Blob | ImageSource; sampler: number[] }>(),
 };
 /** World-local linear image sources; ids are independent of color image ids. */
 export const DataImages = { create: Images.create };
@@ -131,13 +175,15 @@ export const DataImages = { create: Images.create };
  * world's native-size sRGB textures, or its linear data textures when isSrgb is false. Color and
  * data ids are independent; a consumer must select the registration's role.
  * Within one role, URLs with the same effective sampler return the same id; different samplers return distinct ids.
- * Each Blob registration returns a new id, distinct from all URLs. Omitted sampler fields take
+ * Each Blob or level-source registration returns a new id, distinct from all URLs. Level sources
+ * resolve against enabled device compression families; their supplied levels upload unchanged.
+ * A single RGBA8 level gets a full generated mip chain. Omitted sampler fields take
  * Bevy's ImagePlugin default, ImageSamplerDescriptor::linear(): clamp-to-edge, linear texel filters
  * and linear filtering between levels of the full mip chain.
  */
 export function registerImage(
     world: World,
-    source: string | Blob,
+    source: string | Blob | ImageSource,
     settings: ImageLoaderSettings = {},
 ): number {
     const images = world.resource(settings.isSrgb === false ? DataImages : Images);
@@ -177,7 +223,7 @@ function transparentPixel(): Blob {
 
 const IMAGE_FORMATS = ["rgba8unorm-srgb", "rgba8unorm"] as const;
 
-/** Decode into native-size 2D textures with full mips and role-local 1×1 fallbacks. */
+/** Load native-size 2D textures and role-local 1×1 fallbacks. Supplied mip chains stay intact. */
 export async function warmImages(world: World): Promise<void> {
     const state = world.resource(imageTextures);
     for (const [role, format] of IMAGE_FORMATS.entries()) {
@@ -201,7 +247,8 @@ export async function warmImages(world: World): Promise<void> {
 /**
  * After warm, await the native textures and mip uploads of all color and data images registered
  * before this call. Later registrations are not included. Before warm this is unnecessary and
- * resolves without loading. Failed fetches or decodes warn and resolve with a transparent pixel. Disposal
+ * resolves without loading. Failed fetches or decodes warn and resolve with a transparent pixel.
+ * Level-source failures, unsupported formats and invalid levels reject preparation. Disposal
  * resolves pending preparation without creating or uploading textures for the disposed world.
  */
 export async function prepareImages(world: World): Promise<void> {
@@ -223,11 +270,18 @@ function startImage(world: World, id: number, role: number): void {
 }
 
 async function loadImage(world: World, id: number, role: number): Promise<void> {
-    if (typeof createImageBitmap === "undefined") return;
     const state = world.resource(imageTextures);
     const images = world.resource(role === 0 ? Images : DataImages);
     const source = images.get(images.name(id)!)!.source;
     const device = world.gpu.device;
+    if (typeof source === "function") {
+        const formats = compressedFormats(device);
+        const image = await source(formats);
+        if (world.disposed) return;
+        await uploadImage(world, id, role, image, formats);
+        return;
+    }
+    if (typeof createImageBitmap === "undefined") return;
     const decode = (blob: Blob) =>
         createImageBitmap(blob, {
             premultiplyAlpha: "none",
@@ -290,6 +344,83 @@ async function loadImage(world: World, id: number, role: number): Promise<void> 
     } finally {
         bitmap.close();
     }
+}
+
+async function uploadImage(
+    world: World,
+    id: number,
+    role: number,
+    image: Image,
+    formats: CompressedImageFormats,
+): Promise<void> {
+    const { width, height, levels } = image;
+    const family = compression[image.format];
+    if (family && !(formats & family))
+        throw new Error(`[Rendering] unsupported image format ${image.format}`);
+    const format: GPUTextureFormat = role === 0 ? `${image.format}-srgb` : image.format;
+    const compressed = family !== 0;
+    const block = compressed ? 4 : 1;
+    const bytes = image.format === "etc2-rgb8unorm" ? 8 : compressed ? 16 : 4;
+    if (
+        !Number.isInteger(width) ||
+        !Number.isInteger(height) ||
+        width < 1 ||
+        height < 1 ||
+        !levels.length ||
+        levels.length > mipLevels(Math.max(width, height)) ||
+        (compressed && (width % block || height % block))
+    )
+        throw new Error(`[Rendering] invalid image dimensions or levels for ${format}`);
+    checkTextureLimits(
+        "[render] a native image",
+        { width, height, layers: 1 },
+        world.gpu.device.limits,
+        "Reduce the image dimensions.",
+    );
+    for (const [level, data] of levels.entries()) {
+        const w = Math.max(1, width >> level),
+            h = Math.max(1, height >> level);
+        if (data.byteLength !== Math.ceil(w / block) * Math.ceil(h / block) * bytes)
+            throw new Error(`[Rendering] invalid image level ${level} for ${format}`);
+    }
+    const generate = !compressed && levels.length === 1;
+    const count = generate ? mipLevels(Math.max(width, height)) : levels.length;
+    const state = world.resource(imageTextures);
+    if (generate && count > 1) {
+        let ready = state.mipLoads.get(format);
+        if (!ready) {
+            ready = precompile(world, `image-mipmap:${role}`, () => [blitPipeline(world, format)]);
+            state.mipLoads.set(format, ready);
+        }
+        await ready;
+        if (world.disposed) return;
+    }
+    const device = world.gpu.device;
+    const texture = device.createTexture({
+        label: `image-native:${role}:${id}`,
+        size: [width, height],
+        format,
+        mipLevelCount: count,
+        usage:
+            GPUTextureUsage.COPY_DST |
+            GPUTextureUsage.COPY_SRC |
+            GPUTextureUsage.TEXTURE_BINDING |
+            (generate ? GPUTextureUsage.RENDER_ATTACHMENT : 0),
+    });
+    world.own(texture);
+    for (const [level, data] of levels.entries()) {
+        const w = Math.max(1, width >> level),
+            h = Math.max(1, height >> level);
+        device.queue.writeTexture(
+            { texture, mipLevel: level },
+            data,
+            { bytesPerRow: Math.ceil(w / block) * bytes, rowsPerImage: Math.ceil(h / block) },
+            [Math.ceil(w / block) * block, Math.ceil(h / block) * block],
+        );
+    }
+    if (generate) genMipmapsLayer(world, device, texture, 0, count, format);
+    state.textures[role][id] = texture;
+    imageSampler(world, id, { isSrgb: role === 0 });
 }
 
 /** Full mip-chain length down to 1×1, from the texture's largest dimension in pixels. */

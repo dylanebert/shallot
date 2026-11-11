@@ -153,8 +153,14 @@ async function buildFailure(config: Parameters<typeof createApp>[0]): Promise<st
     }
 }
 
-test("rendering features are required and the built-in storage floor is the device default", () => {
-    expect(RenderingPlugin.gpu).toEqual({});
+test("rendering prefers three compression features, requires none, and keeps the device-default storage floor", () => {
+    expect(RenderingPlugin.gpu).toEqual({
+        preferredFeatures: [
+            "texture-compression-bc",
+            "texture-compression-etc2",
+            "texture-compression-astc",
+        ],
+    });
     expect(StandardRenderingPlugin.gpu).toEqual({ features: ["indirect-first-instance"] });
 });
 

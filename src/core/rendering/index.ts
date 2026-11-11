@@ -8,10 +8,14 @@ export {
     readRenderGlobalTransform,
 } from "./global-transform";
 export {
+    CompressedImageFormats,
+    type Image,
     ImageAddressMode,
     ImageFilterMode,
+    type ImageFormat,
     type ImageLoaderSettings,
     type ImageSamplerDescriptor,
+    type ImageSource,
     imageSampler,
     imageTexture,
     imageTextures,
