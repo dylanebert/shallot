@@ -1,0 +1,98 @@
+{
+  "commit": "2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf",
+  "decoder": "073eb6a0a34a23d77e75e54f41dcd9653a52da83",
+  "files": [
+    {
+      "path": "StainedGlassLamp/glTF-KTX-BasisU/StainedGlassLamp_base_basecolor.ktx2",
+      "sha256": "0b8d3376f0f1dc58b804756256a3b38ae6279b6aeb22ba24475ee9eaeb867daa"
+    },
+    {
+      "path": "StainedGlassLamp/glTF-KTX-BasisU/StainedGlassLamp_base_emissive.ktx2",
+      "sha256": "a354583d8f7e6605a57797d3d70a1b6032b416380f5782654f8fcaad4ec59658"
+    },
+    {
+      "path": "StainedGlassLamp/glTF-KTX-BasisU/StainedGlassLamp_base_normal.ktx2",
+      "sha256": "ed9e50d14137ee380095ec108050ad828025abd68521bae9ff8598752c0ec8b2"
+    },
+    {
+      "path": "StainedGlassLamp/glTF-KTX-BasisU/StainedGlassLamp_base_occlusion-rough-metal.ktx2",
+      "sha256": "b5d9e7021a9f2c7a0403000e8a8c7e4e806a97647f409c76441b7395f638382f"
+    },
+    {
+      "path": "StainedGlassLamp/glTF-KTX-BasisU/StainedGlassLamp_bulbs_occlusion.ktx2",
+      "sha256": "54c646ddc5bcdbe5bcdeed17c22e47bfde61fba43739c395e656a9defd3807ee"
+    },
+    {
+      "path": "StainedGlassLamp/glTF-KTX-BasisU/StainedGlassLamp_glass_basecolor-alpha.ktx2",
+      "sha256": "c29e86278b417f34d9221f509cb21b30348364905f875db7914fed102f64cdc8"
+    },
+    {
+      "path": "StainedGlassLamp/glTF-KTX-BasisU/StainedGlassLamp_glass_emissive.ktx2",
+      "sha256": "dcf80976e11ac51b2bac8f34a697e9f6392c2b4065e9c053d2dbc024b4a97976"
+    },
+    {
+      "path": "StainedGlassLamp/glTF-KTX-BasisU/StainedGlassLamp_glass_normal.ktx2",
+      "sha256": "1444cc1ae65d2b3a8b84c7d82dc0d179de7deef8608a7a4e32dc837546392f1d"
+    },
+    {
+      "path": "StainedGlassLamp/glTF-KTX-BasisU/StainedGlassLamp_glass_occlusion-rough-metal.ktx2",
+      "sha256": "7d7f1aa17aff14d025320eb6062964bc59764e42f2218e42ec0d4feacd223ced"
+    },
+    {
+      "path": "StainedGlassLamp/glTF-KTX-BasisU/StainedGlassLamp_glass_transmission-clearcoat.ktx2",
+      "sha256": "ea3fff36824c0d4715a87d84fc7e4caaee74381e5b19b69e031bfb94f831a9da"
+    },
+    {
+      "path": "StainedGlassLamp/glTF-KTX-BasisU/StainedGlassLamp_grill_basecolor-alpha.ktx2",
+      "sha256": "1ad2e5f610b99ea673ea332818d4a43413808253966266436cbfba810c62dd42"
+    },
+    {
+      "path": "StainedGlassLamp/glTF-KTX-BasisU/StainedGlassLamp_grill_emissive.ktx2",
+      "sha256": "bb90c9fa9ae0666666e18e91155e3c812b25509d54f7f05c28bd3572de1eef86"
+    },
+    {
+      "path": "StainedGlassLamp/glTF-KTX-BasisU/StainedGlassLamp_grill_normal.ktx2",
+      "sha256": "9123bdcb18e8bc04be404dc6cb72b90b33f715306b58035084d22e1b066c4c26"
+    },
+    {
+      "path": "StainedGlassLamp/glTF-KTX-BasisU/StainedGlassLamp_grill_occlusion-rough-metal.ktx2",
+      "sha256": "99c46448580ad86a5cf503437bb530f90391abdb3a736d18dd789f24efc0d8ab"
+    },
+    {
+      "path": "StainedGlassLamp/glTF-KTX-BasisU/StainedGlassLamp_hardware_basecolor.ktx2",
+      "sha256": "f96c1526e96abd9c19bba3667cc08aeec529f73e0fccfb9d5cb37be41c791c2f"
+    },
+    {
+      "path": "StainedGlassLamp/glTF-KTX-BasisU/StainedGlassLamp_hardware_emissive.ktx2",
+      "sha256": "a3e32214faaddc3de6c747e466c279e72b308c8c2618918d28a9e443b78414c5"
+    },
+    {
+      "path": "StainedGlassLamp/glTF-KTX-BasisU/StainedGlassLamp_hardware_normal.ktx2",
+      "sha256": "b89f5e1e15949442af898f0af5670ac993d903ee8a99aee3cb3bd4792525fa7e"
+    },
+    {
+      "path": "StainedGlassLamp/glTF-KTX-BasisU/StainedGlassLamp_hardware_occlusion-rough-metal.ktx2",
+      "sha256": "c296f1794f96c79dbfa05211dd0a77d962d02e05277c0adee0fadc0d6948d045"
+    },
+    {
+      "path": "StainedGlassLamp/glTF-KTX-BasisU/StainedGlassLamp_steel_occlusion.ktx2",
+      "sha256": "a391ac6160d7d07a7922e16541a5d6eb4aab39282e3e7c96a01a66a1d203af26"
+    },
+    {
+      "path": "AnisotropyBarnLamp/glTF-KTX-BasisU/AnisotropyBarnLamp_anisotropy.ktx2",
+      "sha256": "4f2ee6ad27b50eb1497c73369d42154234c23d06292d4163cb61c0e65a02c68a"
+    },
+    {
+      "path": "AnisotropyBarnLamp/glTF-KTX-BasisU/AnisotropyBarnLamp_basecolor.ktx2",
+      "sha256": "9887c98d487f2415f9221f37c14f185edfded7c9438e83ce75a753ae27a4ae53"
+    },
+    {
+      "path": "AnisotropyBarnLamp/glTF-KTX-BasisU/AnisotropyBarnLamp_normalbump.ktx2",
+      "sha256": "c04db9be21ca5f2d57c86854b9608c240e13b47e7d7329b696b62a79b262f839"
+    },
+    {
+      "path": "AnisotropyBarnLamp/glTF-KTX-BasisU/AnisotropyBarnLamp_occlusionroughnessmetal.ktx2",
+      "sha256": "73a1ba6dfa0fbf1b1edc158b119623acbff894d62ce5ac3edaa20bedfe812383"
+    }
+  ]
+}

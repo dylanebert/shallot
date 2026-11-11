@@ -2808,6 +2808,13 @@ name = "shallot-audio"
 version = "0.10.0"
 
 [[package]]
+name = "shallot-basisu"
+version = "0.10.0"
+dependencies = [
+ "sha2",
+]
+
+[[package]]
 name = "shallot-gltf"
 version = "0.10.0"
 dependencies = [
