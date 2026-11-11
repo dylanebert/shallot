@@ -55,6 +55,7 @@ class DiagnosticsRecorder {
     private _cpu!: FrameTimings;
     private _gpu!: FrameTimings;
     private readonly _gpuClock = new Float64Array(1);
+    private readonly _intervalOrder: number[] = [];
     gpuTiming: "available" | "requires timestamp-query" = "requires timestamp-query";
     // Per-frame CPU-counted indirect draws for the overlay's validation-floor estimate.
     readonly indirect = new Map<string, number>();
@@ -104,6 +105,7 @@ class DiagnosticsRecorder {
     attach(device: GPUDevice, capacity = 2048): void {
         if (this._querySet) return;
         const retire = (path: string) => {
+            if (!path.startsWith("render/")) return;
             const label = path.slice(7, path.lastIndexOf("/"));
             this._paths.delete(label === "%" ? "" : decodeLabel(label));
         };
@@ -368,13 +370,33 @@ class DiagnosticsRecorder {
             this._pending--;
             if (slot.count > 0) {
                 const data = new BigUint64Array(slot.bytes);
+                const order = this._intervalOrder;
+                order.length = slot.count;
                 for (let i = 0; i < slot.count; i++) {
+                    order[i] = i;
                     const name = slot.passes[i];
                     this._gpu.add(
                         this.paths(name).gpu,
                         Number(data[i * 2 + 1] - data[i * 2]) / 1e6,
                     );
                 }
+                // Pass envelopes can overlap on tile GPUs. Count their union, not exclusive costs
+                // or the first-to-last envelope, which would include gaps between passes.
+                order.sort((a, b) => (data[a * 2] < data[b * 2] ? -1 : 1));
+                let begin = data[order[0] * 2];
+                let end = data[order[0] * 2 + 1];
+                let total = 0n;
+                for (let i = 1; i < order.length; i++) {
+                    const nextBegin = data[order[i] * 2];
+                    const nextEnd = data[order[i] * 2 + 1];
+                    if (nextBegin > end) {
+                        total += end - begin;
+                        begin = nextBegin;
+                    }
+                    if (nextEnd > end) end = nextEnd;
+                }
+                // Frame diagnostics live outside Bevy's render/<span>/elapsed_gpu pass namespace.
+                this._gpu.add("frame/elapsed_gpu", Number(total + end - begin) / 1e6);
             }
             this._free.push(slot);
             this._gpuClock[0] = slot.time;
@@ -707,8 +729,8 @@ function createOverlay(): Overlay {
 
     const frameGroup = el("div", { paddingTop: "2px" });
     const fenceRow = makeRow(frameGroup);
-    // Fence wait is a pipelined residual affected by CPU/GPU overlap and vsync/rAF pacing.
-    fenceRow.label.textContent = "fence wait";
+    // Submit-to-completion latency overlaps CPU work on subsequent frames; it is not a CPU stall.
+    fenceRow.label.textContent = "gpu latency";
     const gapRow = makeRow(frameGroup);
     gapRow.label.textContent = "gap (vsync/throttle)";
     const fixedRow = makeRow(frameGroup);
@@ -732,7 +754,7 @@ function createOverlay(): Overlay {
     const unsampledRow = makeRow(gpu.body);
     unsampledRow.label.textContent = "unsampled frames";
     unsampledRow.row.style.display = "none";
-    // Dawn's indirect-draw validation estimate is GPU work, not additive to the pipelined fence wait.
+    // Dawn's indirect-draw validation estimate is GPU work, not additive to GPU latency.
     const indirectCaption = el("div", {
         display: "flex",
         alignItems: "baseline",
@@ -815,7 +837,9 @@ function createOverlay(): Overlay {
             unsampledRow.value.textContent = String(unsampled);
             unsampledRow.row.style.display = unsampled > 0 ? "flex" : "none";
             gpu.totalEl.textContent =
-                gpuTiming === "available" ? gpuFlush.total.toFixed(2) + " ms" : gpuTiming;
+                gpuTiming === "available"
+                    ? msFmt(store.get("frame/elapsed_gpu")?.smoothed() ?? 0)
+                    : gpuTiming;
             renderPool(gpuPool, gpuFlush.rows);
 
             const indirectFlush = flushPool(indirectPool, (v) =>
@@ -877,7 +901,8 @@ function collectViewport(): ViewportData | null {
     };
 }
 
-function* diagnosticEntries(
+/** @internal */
+export function* diagnosticEntries(
     store: DiagnosticsStore,
     prefix: string,
     field: string,
@@ -892,7 +917,8 @@ function* diagnosticEntries(
     }
 }
 
-function collectStats(store: DiagnosticsStore): OverlayData {
+/** @internal */
+export function collectStats(store: DiagnosticsStore): OverlayData {
     const value = (path: string) => store.get(path)?.value() ?? 0;
     const rawMs = store.get("frame_time")?.smoothed() ?? 0;
     const fenceWaitMs = store.get("frame/fence_wait")?.smoothed() ?? 0;
@@ -914,9 +940,7 @@ function collectStats(store: DiagnosticsStore): OverlayData {
         fenceWaitMs,
         gapMs: Math.max(
             0,
-            rawMs -
-                cpuTotal(new Map(diagnosticEntries(store, "render/", "/elapsed_cpu"))) -
-                fenceWaitMs,
+            rawMs - cpuTotal(new Map(diagnosticEntries(store, "render/", "/elapsed_cpu"))),
         ),
         fixedSteps: value("fixed_steps"),
         throttled: value("throttled") !== 0,

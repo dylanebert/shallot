@@ -2,10 +2,11 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { DiagnosticsStore } from "../../engine";
-import { ProfilePlugin } from "./index";
+import { diagnosticEntries, ProfilePlugin } from "./index";
 
 setDefaultTimeout(TIMEOUT.gpu);
 const apps = gpuApps(import.meta.path, [
+    { defaults: false, plugins: [ProfilePlugin] },
     { defaults: false, plugins: [ProfilePlugin] },
     { defaults: false, plugins: [ProfilePlugin] },
 ]);
@@ -57,6 +58,12 @@ test("nonempty frames beyond timestamp capacity are unsampled, counted, and neve
             (sample) => sample.time > 0,
         );
         expect(samples.map((sample) => sample.value)).toEqual([1, 2, 3, 4, 0]);
+        expect([...store.get("frame/elapsed_gpu")!.measurements()]).toEqual([
+            ...store.get("render/capacity/elapsed_gpu")!.measurements(),
+        ]);
+        expect(store.get("frame/elapsed_gpu")!.smoothed()).toBe(
+            store.get("render/capacity/elapsed_gpu")!.smoothed(),
+        );
         expect(samples.map((sample) => Math.round(sample.time * 120))).toEqual([1, 2, 3, 4, 7]);
         expect(store.get("render/unsampled/elapsed_gpu")).toBeUndefined();
         expect(store.get("render/gpu_unsampled_frames")?.value()).toBe(2);
@@ -104,6 +111,9 @@ test("GPU frames sum repeated passes and idle frames cannot overtake a delayed t
         await Promise.resolve();
         world.step(1 / 120);
         const diagnostic = store.get("render/retired/elapsed_gpu")!;
+        expect([...store.get("frame/elapsed_gpu")!.measurements()]).toEqual([
+            ...diagnostic.measurements(),
+        ]);
         expect(
             [...diagnostic.measurements()]
                 .filter((sample) => sample.time > 0)
@@ -117,6 +127,60 @@ test("GPU frames sum repeated passes and idle frames cannot overtake a delayed t
         for (let i = 0; i < 120; i++) world.step(1 / 120);
         expect(diagnostic.value()).toBe(0);
         expect(diagnostic.smoothed()!).toBeLessThan(0.005);
+    } finally {
+        pool.request = request;
+    }
+});
+
+test("GPU frame total unions unordered overlapping intervals and sums disjoint intervals without becoming a pass row", async () => {
+    const world = apps()[2].world;
+    if (!world.gpu.device.features.has("timestamp-query")) {
+        const store = world.resource(DiagnosticsStore);
+        for (let frame = 0; frame < 6; frame++) {
+            expect(world.gpu.span!("union")).toBeUndefined();
+            world.step(1 / 120);
+            expect(store.get("frame/elapsed_gpu")).toBeUndefined();
+            // The overlay uses this availability flag instead of displaying a numeric GPU total.
+            expect(store.get("render/timestamp_query")?.value()).toBe(0);
+            expect([...diagnosticEntries(store, "render/", "/elapsed_gpu")]).toEqual([]);
+        }
+        expect(world.readback.allocated).toBe(0);
+        return;
+    }
+    const pool = world.readback;
+    const request = pool.request;
+    let complete!: (result: { bytes: ArrayBuffer; frame: number; fixedTick: number }) => void;
+    pool.request = () =>
+        new Promise((resolve) => {
+            complete = resolve;
+        });
+    try {
+        world.step(1 / 120);
+        for (const [intervals, union, passSum] of [
+            [[4n, 8n, 1n, 6n, 2n, 3n, 10n, 12n], 9, 12],
+            [[8n, 11n, 1n, 3n, 15n, 16n, 20n, 22n], 8, 8],
+        ] as const) {
+            for (let i = 0; i < 4; i++) world.gpu.span!("union");
+            world.step(1 / 120);
+            complete({
+                bytes: new BigUint64Array(intervals.map((n) => n * 1_000_000n)).buffer,
+                frame: 1,
+                fixedTick: 0,
+            });
+            await Promise.resolve();
+            world.step(1 / 120);
+            const store = world.resource(DiagnosticsStore);
+            // The current empty frame follows the injected sample in the same drain.
+            const samples = [...store.get("frame/elapsed_gpu")!.measurements()];
+            expect(samples.at(-2)!.value).toBe(union);
+            expect(samples.at(-1)!.value).toBe(0);
+            const pass = [...store.get("render/union/elapsed_gpu")!.measurements()];
+            expect(pass.at(-2)!.value).toBe(passSum);
+            expect(samples.map((s) => s.time)).toEqual(pass.map((s) => s.time));
+            expect(
+                [...diagnosticEntries(store, "render/", "/elapsed_gpu")].map(([name]) => name),
+            ).toEqual(["union"]);
+        }
     } finally {
         pool.request = request;
     }
