@@ -1,6 +1,9 @@
 //! glTF pose evaluation. Arithmetic stays f64 until an authored f32 storage boundary.
 use std::slice;
 
+pub mod meshopt;
+mod meshopt_abi;
+
 #[cfg(test)]
 mod tests;
 

@@ -70,6 +70,7 @@
         "LICENSE-BOX3D",
         "crates/audio/pkg",
         "crates/mikktspace/licenses",
+        "crates/gltf/licenses",
         "crates/native",
         "assets/icon-1024.png",
         "!assets/branding/**",

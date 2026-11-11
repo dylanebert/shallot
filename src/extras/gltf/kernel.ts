@@ -7,6 +7,31 @@ import { MorphedMesh, SkinnedMesh, SkinPalette } from "./skinning";
 
 interface Kernel {
     memory: WebAssembly.Memory;
+    decodeMeshoptAttributes(
+        destination: number,
+        count: number,
+        stride: number,
+        source: number,
+        sourceLength: number,
+        filter: number,
+        khr: number,
+    ): number;
+    decodeMeshoptTriangles(
+        destination: number,
+        count: number,
+        stride: number,
+        source: number,
+        sourceLength: number,
+    ): number;
+    decodeMeshoptIndices(
+        destination: number,
+        count: number,
+        stride: number,
+        source: number,
+        sourceLength: number,
+    ): number;
+    meshoptAlloc(bytes: number): number;
+    meshoptFree(ptr: number, bytes: number): void;
     alloc(count: number): number;
     freeLanes(ptr: number, count: number): void;
     assetNew(ptr: number, count: number): number;
@@ -24,6 +49,69 @@ function kernel(): Kernel {
     }
     return wasm;
 }
+interface MeshoptView {
+    count: number;
+    byteStride: number;
+    mode: string;
+    filter?: string;
+}
+const meshoptFilters = ["NONE", "OCTAHEDRAL", "QUATERNION", "EXPONENTIAL", "COLOR"];
+
+/** Decodes one compressed view into caller-owned bytes; errors name the buffer view. */
+export function decodeMeshoptView(
+    index: number,
+    view: MeshoptView,
+    source: Uint8Array,
+    output: Uint8Array,
+    khr: boolean,
+): void {
+    const { count, byteStride, mode } = view;
+    const filter = meshoptFilters.indexOf(view.filter ?? "NONE");
+    if (
+        !Number.isInteger(count) ||
+        count < 1 ||
+        count > 0xffffffff ||
+        !Number.isInteger(byteStride) ||
+        byteStride < 1 ||
+        byteStride > 256 ||
+        count * byteStride !== output.length ||
+        source.length + output.length > 0x7ffffff8
+    ) {
+        throw new Error(`bufferView ${index}: meshopt invalid count, stride or byteLength`);
+    }
+    const k = kernel();
+    const bytes = source.length + output.length;
+    const ptr = k.meshoptAlloc(bytes);
+    const input = ptr + output.length;
+    try {
+        const heap = new Uint8Array(k.memory.buffer);
+        heap.set(source, input);
+        let result = -1;
+        if (mode === "ATTRIBUTES") {
+            result = k.decodeMeshoptAttributes(
+                ptr,
+                count,
+                byteStride,
+                input,
+                source.length,
+                filter,
+                khr ? 1 : 0,
+            );
+        } else if (filter === 0) {
+            if (mode === "TRIANGLES")
+                result = k.decodeMeshoptTriangles(ptr, count, byteStride, input, source.length);
+            if (mode === "INDICES")
+                result = k.decodeMeshoptIndices(ptr, count, byteStride, input, source.length);
+        }
+        if (result) {
+            throw new Error(`bufferView ${index}: invalid meshopt stream, mode, stride or filter`);
+        }
+        output.set(heap.subarray(ptr, ptr + output.length));
+    } finally {
+        k.meshoptFree(ptr, bytes);
+    }
+}
+
 const paths = ["translation", "rotation", "scale", "weights"] as const;
 function array(data: number[], values: ArrayLike<number>) {
     data.push(values.length);

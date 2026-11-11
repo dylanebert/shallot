@@ -1,0 +1,58 @@
+{
+  "commit": "2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf",
+  "decoder": "f0a684f11ead064e176775c9b796f82a55910e92",
+  "files": [
+    {
+      "path": "MeshoptCubeTest/glTF/MeshoptCubeTest.gltf",
+      "sha256": "8721150e3409425acf83aa21986e55880360ab084c17e96409c25fac53477f72"
+    },
+    {
+      "path": "MeshoptCubeTest/glTF/MeshoptCubeTest.bin",
+      "sha256": "6578c1d82c5cc2b228e9513e37f348ca89cdb24b5985aa0567efef8d3c014360"
+    },
+    {
+      "path": "MeshoptCubeTest/glTF-Meshopt/MeshoptCubeTest.gltf",
+      "sha256": "b5947609f3d8aba58de3d43101df3b635ffaaab5849431f8518af6a98a040433"
+    },
+    {
+      "path": "MeshoptCubeTest/glTF-Meshopt/MeshoptCubeTest.bin",
+      "sha256": "6578c1d82c5cc2b228e9513e37f348ca89cdb24b5985aa0567efef8d3c014360"
+    },
+    {
+      "path": "BrainStem/glTF-Meshopt/BrainStem.gltf",
+      "sha256": "a011abbef412e2eb7269dc4f5c3be10dac0145e3c6ef39ff239afacd7d402990"
+    },
+    {
+      "path": "BrainStem/glTF-Meshopt/BrainStem.bin",
+      "sha256": "e18cbda514dd7626dcdf36730881a3f9c26def1d84c55b178b932e5c533c44c5"
+    },
+    {
+      "path": "BrainStem/glTF-Meshopt-EXT/BrainStem.gltf",
+      "sha256": "75901f9abeff5bf01cff350d08843cc2e93eabd9f99dc52e9552462a26bbd6e0"
+    },
+    {
+      "path": "BrainStem/glTF-Meshopt-EXT/BrainStem.bin",
+      "sha256": "ac004b976aa36cd65e03c485cae40aa85341f6653c9795aef2f223cefe14c8c2"
+    },
+    {
+      "path": "DragonAttenuation/glTF-Meshopt/DragonAttenuation.gltf",
+      "sha256": "ddff9776c3d02d8c1229e005f9bd8b079f416a3417c8473e205a97dedc2ab98a"
+    },
+    {
+      "path": "DragonAttenuation/glTF-Meshopt/DragonAttenuation.bin",
+      "sha256": "499e074502fd9fe508ce792684532489627152bb1d850a0f675c2a4a91533360"
+    },
+    {
+      "path": "DragonAttenuation/glTF-Meshopt-EXT/DragonAttenuation.gltf",
+      "sha256": "db72d70b3127f67f12015106a3f3201416ebd7fadd853144167570f4eb87ff73"
+    },
+    {
+      "path": "DragonAttenuation/glTF-Meshopt-EXT/DragonAttenuation.bin",
+      "sha256": "b3e53e88e00dda5525e5cb652a0fd414a09a4b1b0be21fabe3927ec44d63b35d"
+    }
+  ],
+  "oracle": {
+    "path": "js/meshopt_decoder.mjs",
+    "sha256": "10b313edaa0e322b0c1b46443f6c8b186b42139fe1eca189d50c09511d0ebedc"
+  }
+}

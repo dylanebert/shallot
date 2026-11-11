@@ -2812,6 +2812,7 @@ name = "shallot-gltf"
 version = "0.10.0"
 dependencies = [
  "libm",
+ "sha2",
 ]
 
 [[package]]
