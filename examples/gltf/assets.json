@@ -7,6 +7,21 @@
         { "name": "SkinnedNormal", "path": "models/SkinnedNormal.gltf", "license": "CC0-1.0", "sha256": "fa648612c0e8d4ca35b48ab8e0ada4abd5d063982278fd5ba43429c10a959678" }
     ],
     "models": [
+        { "name": "MeshoptCubeTest", "license": "Models/MeshoptCubeTest/LICENSE.md", "files": [
+            { "path": "Models/MeshoptCubeTest/LICENSE.md", "sha256": "63fc4b5080289c3640c904dcf5adb3a6122a707928164d7520f46b3051da8ac3" },
+            { "path": "Models/MeshoptCubeTest/glTF-Meshopt/MeshoptCubeTest.bin", "sha256": "6578c1d82c5cc2b228e9513e37f348ca89cdb24b5985aa0567efef8d3c014360" },
+            { "path": "Models/MeshoptCubeTest/glTF-Meshopt/MeshoptCubeTest.gltf", "sha256": "b5947609f3d8aba58de3d43101df3b635ffaaab5849431f8518af6a98a040433" },
+            { "path": "Models/MeshoptCubeTest/glTF-Meshopt/col0.png", "sha256": "250410286de74c532ee877b51b039228742a2e4d7fd611dce29230e841ab75f7" },
+            { "path": "Models/MeshoptCubeTest/glTF-Meshopt/col1.png", "sha256": "10a6db3432385dceaacb15a66f94ce79c6c2460d9b1ef1f25c3399bd2d0ee521" },
+            { "path": "Models/MeshoptCubeTest/glTF-Meshopt/col2.png", "sha256": "28f15b21a88b213315e13cdcb7914007934e69f3ed8b8dc9495f469d865d57e7" },
+            { "path": "Models/MeshoptCubeTest/glTF-Meshopt/col3.png", "sha256": "d518c528b85d9c2c5915c5822b152ac8c162da1bc11a9581e5486d53ebaeb11a" },
+            { "path": "Models/MeshoptCubeTest/glTF-Meshopt/col4.png", "sha256": "8f5659a0451392c567217b432a6c83f65a6c22eb3a225e853daa45ec847abdb3" },
+            { "path": "Models/MeshoptCubeTest/glTF-Meshopt/row0.png", "sha256": "a26715d56e91e83b19e336174494bd3e39cfc3a5f1b6f1166951a9ec38bf6baa" },
+            { "path": "Models/MeshoptCubeTest/glTF-Meshopt/row1.png", "sha256": "8b005615419b1efb98d3cce2fd9529fc53bd34337a317aece8cd4a7558053ec4" },
+            { "path": "Models/MeshoptCubeTest/glTF-Meshopt/row2.png", "sha256": "b4e1d53d2a5492adc2d148b19b421733fb23edf1a0aded6fea1ec11c710f11b0" },
+            { "path": "Models/MeshoptCubeTest/glTF-Meshopt/row3.png", "sha256": "ae96accde34a0a35ffe63a2fa4f777eaeacf6d3157e6ef69ba5da285949d7f77" },
+            { "path": "Models/MeshoptCubeTest/glTF-Meshopt/row4.png", "sha256": "689cf0ae16c22125a4a1ad44e0431aed1a92a101def096161d133ec56906bca3" }
+        ] },
         { "name": "LightsPunctualLamp", "license": "Models/LightsPunctualLamp/LICENSE.md", "files": [
             { "path": "Models/LightsPunctualLamp/LICENSE.md", "sha256": "44100aecf907abd0460eff3c437323643c565929f61df7c408a3d6966332e8b6" },
             { "path": "Models/LightsPunctualLamp/glTF/LightsPunctualLamp.data.bin", "sha256": "817275cb2c1e2efa74432ef64b5f05313f8a28c1132a6d2a96fb6cb8f344fca9" },
@@ -113,7 +128,11 @@
         { "name": "BrainStem", "license": "Models/BrainStem/LICENSE.md", "files": [
             { "path": "Models/BrainStem/LICENSE.md", "sha256": "55b6fce3643e5a1101b7df76ae564f4c0b1de730e8189f4dc3fdcd311ed6f90d" },
             { "path": "Models/BrainStem/glTF/BrainStem.gltf", "sha256": "8fc99ed74161aa79573236f9a457e238b0649993dfb41234fd7f6eafad696b75" },
-            { "path": "Models/BrainStem/glTF/BrainStem0.bin", "sha256": "1418d04d972655b9b1907d3d51438cd150e19016716e107bb949cd4379ac5cdb" }
+            { "path": "Models/BrainStem/glTF/BrainStem0.bin", "sha256": "1418d04d972655b9b1907d3d51438cd150e19016716e107bb949cd4379ac5cdb" },
+            { "path": "Models/BrainStem/glTF-Meshopt/BrainStem.bin", "sha256": "e18cbda514dd7626dcdf36730881a3f9c26def1d84c55b178b932e5c533c44c5" },
+            { "path": "Models/BrainStem/glTF-Meshopt/BrainStem.gltf", "sha256": "a011abbef412e2eb7269dc4f5c3be10dac0145e3c6ef39ff239afacd7d402990" },
+            { "path": "Models/BrainStem/glTF-Meshopt-EXT/BrainStem.bin", "sha256": "ac004b976aa36cd65e03c485cae40aa85341f6653c9795aef2f223cefe14c8c2" },
+            { "path": "Models/BrainStem/glTF-Meshopt-EXT/BrainStem.gltf", "sha256": "75901f9abeff5bf01cff350d08843cc2e93eabd9f99dc52e9552462a26bbd6e0" }
         ] },
         { "name": "InterpolationTest", "license": "Models/InterpolationTest/LICENSE.md", "files": [
             { "path": "Models/InterpolationTest/LICENSE.md", "sha256": "3a3762ba63cc52e52bbaa65f8f187e02cf05d7256e750ede4c40db611169e7e7" },

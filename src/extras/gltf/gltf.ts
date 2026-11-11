@@ -453,6 +453,12 @@ function triangleIndices(gltf: GltfJson, buffers: ArrayBuffer[], prim: Primitive
                   { length: gltf.accessors![prim.attributes.POSITION].count },
                   (_, i) => i,
               );
+    const vertices = gltf.accessors![prim.attributes.POSITION].count;
+    for (const index of indices)
+        if (index >= vertices)
+            throw new Error(
+                `glTF indices accessor ${prim.indices}: index ${index} exceeds vertex count ${vertices}`,
+            );
     if (prim.mode === 5 || prim.mode === 6) {
         const source = indices;
         indices = new Uint32Array((source.length - 2) * 3);
@@ -751,6 +757,8 @@ function supportedExtension(name: string): boolean {
     return (
         name === "KHR_materials_unlit" ||
         name === "KHR_mesh_quantization" ||
+        name === "KHR_meshopt_compression" ||
+        name === "EXT_meshopt_compression" ||
         name === "KHR_texture_transform" ||
         name === "KHR_materials_emissive_strength" ||
         name === "KHR_lights_punctual"

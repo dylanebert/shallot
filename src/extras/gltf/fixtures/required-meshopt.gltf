@@ -3,9 +3,12 @@
     "extensionsUsed": ["EXT_meshopt_compression"],
     "extensionsRequired": ["EXT_meshopt_compression"],
     "buffers": [
-        { "uri": "compressed.bin", "byteLength": 16 },
+        { "uri": "data:application/octet-stream;base64,oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "byteLength": 45 },
         { "byteLength": 36, "extensions": { "EXT_meshopt_compression": { "fallback": true } } }
     ],
+    "accessors": [{ "bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3" }],
+    "meshes": [{ "primitives": [{ "attributes": { "POSITION": 0 } }] }],
+    "nodes": [{ "mesh": 0 }],
     "bufferViews": [
         {
             "buffer": 1,
@@ -14,7 +17,7 @@
             "extensions": {
                 "EXT_meshopt_compression": {
                     "buffer": 0,
-                    "byteLength": 16,
+                    "byteLength": 45,
                     "byteStride": 12,
                     "count": 3,
                     "mode": "ATTRIBUTES"

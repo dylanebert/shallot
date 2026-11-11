@@ -72,6 +72,7 @@ export interface GltfPlacement {
  * synchronous pipeline compilation. Before warm, resolves without preparing images or pipelines;
  * the build owns their preparation.
  * The handle and its mesh, image and material registrations belong to this world until disposal.
+ * Supports KHR_meshopt_compression and EXT_meshopt_compression without fetching fallback buffers.
  * The handle's decoded data, including animations, is immutable and copied to the kernel.
  * glTF emissive (cd/m²) reaches StandardMaterial.emissive unscaled and is added outside camera
  * exposure, as Bevy's default; glTF leaves its screen brightness to the client's exposure.

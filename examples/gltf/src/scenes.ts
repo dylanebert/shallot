@@ -22,6 +22,9 @@ export const scenes = {
     SkinnedNormal: { promise: "animation" },
     AnimatedMorphCube: { promise: "animation" },
     QuantizedMorphCube: { promise: "geometry" },
+    MeshoptCubeTest: { promise: "compression" },
+    BrainStemMeshopt: { promise: "compression" },
+    BrainStemMeshoptEXT: { promise: "compression" },
 } as const;
 export type Scene = keyof typeof scenes;
 export const categories = [
@@ -31,6 +34,7 @@ export const categories = [
     "textures",
     "animation",
     "lighting",
+    "compression",
 ].map((name) => ({
     name,
     scenes: (Object.keys(scenes) as Scene[])
@@ -40,9 +44,13 @@ export const categories = [
 export const samples = categories.flatMap((category) => category.scenes);
 export const initialScene = samples[0].id;
 export const modelPath = (scene: Scene) =>
-    scene === "QuantizedMorphCube"
-        ? "assets/Models/AnimatedMorphCube/glTF-Quantized/AnimatedMorphCube.gltf"
-        : scene === "SkinnedNormal"
-          ? "models/SkinnedNormal.gltf"
-          : `assets/Models/${scene}/glTF/${scene}.gltf`;
+    scene === "MeshoptCubeTest"
+        ? "assets/Models/MeshoptCubeTest/glTF-Meshopt/MeshoptCubeTest.gltf"
+        : scene === "BrainStemMeshopt" || scene === "BrainStemMeshoptEXT"
+          ? `assets/Models/BrainStem/${scene === "BrainStemMeshopt" ? "glTF-Meshopt" : "glTF-Meshopt-EXT"}/BrainStem.gltf`
+          : scene === "QuantizedMorphCube"
+            ? "assets/Models/AnimatedMorphCube/glTF-Quantized/AnimatedMorphCube.gltf"
+            : scene === "SkinnedNormal"
+              ? "models/SkinnedNormal.gltf"
+              : `assets/Models/${scene}/glTF/${scene}.gltf`;
 export const truckPlacement: GltfPlacement = { translation: [0, -0.5, 0], scale: [0.7, 0.7, 0.7] };
