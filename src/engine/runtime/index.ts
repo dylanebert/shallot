@@ -4,6 +4,7 @@ export * from "./adapter";
 export {
     beginComputePass,
     beginRenderPass,
+    continueAcquisitionScope,
     continueSubmissionFence,
     createFrameEncoder,
     dispatchWorkgroups,
@@ -16,6 +17,7 @@ export {
     endComputePass,
     endRenderPass,
     finishFrameEncoder,
+    popAcquisitionScope,
     setComputeBindGroup,
     setComputePipeline,
     setIndexBuffer,

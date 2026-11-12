@@ -3,7 +3,7 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { EntityRef, World } from "../../engine";
 import { resizeViewport, Viewports } from "../../engine";
-import { rawDevice } from "../../engine/runtime";
+import { continueAcquisitionScope, popAcquisitionScope, rawDevice } from "../../engine/runtime";
 import { Camera, CameraViewport, Resolution } from "./camera";
 import { type CameraRect, cameraRect } from "./camera-viewport";
 import { CULL_VOLUME_FLOATS } from "./frustum";
@@ -387,6 +387,7 @@ export function attachCanvas(world: World, eid: number, canvas: HTMLCanvasElemen
 interface SurfaceState {
     reconfigures: number;
     error: GPUError | null;
+    settle: (error: GPUError | null) => void;
 }
 
 const surfaces = new WeakMap<GPUCanvasContext, SurfaceState>();
@@ -399,7 +400,15 @@ export function acquireCanvasTexture(world: World, view: View): GPUTexture | und
     const context = view.context!;
     let state = surfaces.get(context);
     if (!state) {
-        state = { reconfigures: 0, error: null };
+        const current: SurfaceState = {
+            reconfigures: 0,
+            error: null,
+            settle: (error) => {
+                current.error = error;
+                if (!error) current.reconfigures = 0;
+            },
+        };
+        state = current;
         surfaces.set(context, state);
     }
     const device = rawDevice(world.gpu.device);
@@ -426,11 +435,7 @@ export function acquireCanvasTexture(world: World, view: View): GPUTexture | und
     try {
         texture = context.getCurrentTexture();
     } finally {
-        const current = state;
-        void device.popErrorScope().then((error) => {
-            current.error = error;
-            if (!error) current.reconfigures = 0;
-        });
+        continueAcquisitionScope(popAcquisitionScope(device), state.settle);
     }
     // WebKit returns an empty invalid texture on a surface acquisition failure. Do not
     // use it while the acquisition's validation scope settles: that would cause cascaded errors.

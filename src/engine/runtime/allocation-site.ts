@@ -109,6 +109,17 @@ export function endComputePass(pass: GPUComputePassEncoder): void {
     pass.end();
 }
 
+export function popAcquisitionScope(device: GPUDevice): Promise<GPUError | null> {
+    return device.popErrorScope();
+}
+
+export function continueAcquisitionScope(
+    scope: Promise<GPUError | null>,
+    settle: (error: GPUError | null) => void,
+): void {
+    scope.then(settle);
+}
+
 export const gpuAllocationExpressions = [
     {
         fn: createFrameEncoder,
@@ -184,12 +195,28 @@ export const gpuAllocationExpressions = [
     },
     {
         fn: drawInstances,
-        wrapperSite: "src/engine/runtime/allocation-site.ts:213:30",
+        wrapperSite: "src/engine/runtime/allocation-site.ts:240:30",
         parameters:
             "pass: GPURenderPassEncoder, vertexCount: number, instanceCount: number, firstInstance: number",
         returnType: "void",
         returns: false,
         expression: "pass.draw(vertexCount, instanceCount, 0, firstInstance)",
+    },
+    {
+        fn: popAcquisitionScope,
+        wrapperSite: "src/engine/runtime/allocation-site.ts:112:36",
+        parameters: "device: GPUDevice",
+        returnType: "Promise<GPUError | null>",
+        returns: true,
+        expression: "device.popErrorScope()",
+    },
+    {
+        fn: continueAcquisitionScope,
+        wrapperSite: "src/engine/runtime/allocation-site.ts:116:41",
+        parameters: "scope: Promise<GPUError | null>, settle: (error: GPUError | null) => void",
+        returnType: "void",
+        returns: false,
+        expression: "scope.then(settle)",
     },
 ] as const;
 

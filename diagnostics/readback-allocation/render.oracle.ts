@@ -115,6 +115,8 @@ test("allocation exceptions require each named wrapper to keep its complete sign
         "endRenderPass",
         "endComputePass",
         "drawInstances",
+        "popAcquisitionScope",
+        "continueAcquisitionScope",
     ]);
     expect(gpuAllocationExpressions.map((entry) => entry.expression)).toEqual([
         "device.createCommandEncoder(descriptor)",
@@ -127,6 +129,8 @@ test("allocation exceptions require each named wrapper to keep its complete sign
         "pass.end()",
         "pass.end()",
         "pass.draw(vertexCount, instanceCount, 0, firstInstance)",
+        "device.popErrorScope()",
+        "scope.then(settle)",
     ]);
     const passEnds = gpuAllocationExpressions.filter((entry) => entry.expression === "pass.end()");
     expect(passEnds.map((entry) => entry.fn.name)).toEqual(["endRenderPass", "endComputePass"]);
