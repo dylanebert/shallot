@@ -170,30 +170,37 @@ export type CompoundDrawChild = {
 // Requested observations use the same kernel primitive encoder as the public draw.
 export function readShapeMesh(world: WorldState, shape: number): Mesh {
     const k = kernel(world.ecsState);
-    const start = k.worldDrawShape(world.worldId, shape);
+    const start = k.worldDrawShape(world.worldId, shape) >>> 0;
     try {
-        return drawMesh(new DataView(k.memory.buffer), k.worldDrawPtr() + start * 4 + 40);
+        return drawMesh(new DataView(k.memory.buffer), (k.worldDrawPtr() >>> 0) + start * 4 + 40);
     } finally {
         k.worldDrawRelease(start);
     }
 }
 export function readShapeHeightField(world: WorldState, shape: number): HeightFieldData {
     const k = kernel(world.ecsState);
-    const start = k.worldDrawShape(world.worldId, shape);
+    const start = k.worldDrawShape(world.worldId, shape) >>> 0;
     try {
-        return drawHeightField(new DataView(k.memory.buffer), k.worldDrawPtr() + start * 4 + 52);
+        return drawHeightField(
+            new DataView(k.memory.buffer),
+            (k.worldDrawPtr() >>> 0) + start * 4 + 52,
+        );
     } finally {
         k.worldDrawRelease(start);
     }
 }
 export function readCompoundChildren(world: WorldState, shape: number): CompoundDrawChild[] {
     const k = kernel(world.ecsState);
-    const start = k.worldDrawShape(world.worldId, shape);
+    const start = k.worldDrawShape(world.worldId, shape) >>> 0;
     try {
         const v = new DataView(k.memory.buffer),
-            end = k.worldDrawPtr() + k.worldDrawLen() * 4;
+            end = (k.worldDrawPtr() >>> 0) + (k.worldDrawLen() >>> 0) * 4;
         const children: CompoundDrawChild[] = [];
-        for (let o = k.worldDrawPtr() + start * 4; o < end; o += v.getUint32(o + 4, true) * 4) {
+        for (
+            let o = (k.worldDrawPtr() >>> 0) + start * 4;
+            o < end;
+            o += v.getUint32(o + 4, true) * 4
+        ) {
             const type = v.getUint32(o, true),
                 p = o + 40;
             const geometry =

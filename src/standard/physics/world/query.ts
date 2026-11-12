@@ -377,7 +377,7 @@ export function bodyCollideMover(
     q.mover(mover.center1, mover.center2, mover.radius);
     const results: BodyPlaneHit[] = [];
     const previous = setQueryCallback(world.ecsState, (_kind, id, data) => {
-        const f = new Float32Array(k.memory.buffer, data, 10);
+        const f = new Float32Array(k.memory.buffer, data >>> 0, 10);
         results.push({
             shape: id,
             plane: {

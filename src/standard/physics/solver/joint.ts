@@ -76,7 +76,7 @@ export function defaultJointDef(): JointDef {
 export function writeJointDefinition(world: WorldState, def: JointDef): number {
     const k = kernel(world.ecsState);
     k.bodySetActiveWorld(world.worldId);
-    const ptr = k.jointDefinitionPtr(world.worldId);
+    const ptr = k.jointDefinitionPtr(world.worldId) >>> 0;
     const { words, floats } = jointViews(k);
     const o = ptr >>> 2;
     words[o] = def.bodyIdA;

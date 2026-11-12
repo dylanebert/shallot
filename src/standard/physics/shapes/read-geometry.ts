@@ -9,7 +9,7 @@ type Scratch = { k: Kernel; f: Float32Array; u: Uint32Array; output: DataView };
 const scratch = new WeakMap<Kernel, Scratch>();
 function prepare(words = 32): Scratch {
     const k = kernel(undefined);
-    const ptr = k.geometryReadInputPtr(words);
+    const ptr = k.geometryReadInputPtr(words) >>> 0;
     let s = scratch.get(k);
     if (!s) {
         s = {
@@ -37,7 +37,7 @@ function transform(s: Scratch, t: Transform): void {
     s.f[6] = t.q.s;
 }
 function result(s: Scratch, operation: number): number {
-    const ptr = s.k.geometryRead(operation);
+    const ptr = s.k.geometryRead(operation) >>> 0;
     if (s.output.buffer !== s.k.memory.buffer) s.output = new DataView(s.k.memory.buffer);
     return ptr;
 }

@@ -10,7 +10,7 @@ const scratch = new WeakMap<Kernel, Scratch>();
 function prepare(world: World | undefined, count = 0): [Kernel, Float32Array] {
     const k = kernel(world);
     kernelState(world).hullBuilds++;
-    const ptr = k.hullBuildInputPtr(count);
+    const ptr = k.hullBuildInputPtr(count) >>> 0;
     let views = scratch.get(k);
     if (!views) {
         views = { input: new Float32Array(0), view: new DataView(k.memory.buffer) };
@@ -26,7 +26,7 @@ function prepare(world: World | undefined, count = 0): [Kernel, Float32Array] {
     return [k, views.input];
 }
 function result(k: Kernel, operation: number, count = 0, budget = 0): HullData | null {
-    const ptr = k.hullBuild(operation, count, budget);
+    const ptr = k.hullBuild(operation, count, budget) >>> 0;
     if (ptr === 0) return null;
     const views = scratch.get(k)!;
     if (views.view.buffer !== k.memory.buffer) views.view = new DataView(k.memory.buffer);

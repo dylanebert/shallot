@@ -14,6 +14,7 @@ export function kernelInputHash(root: string): string {
             "rust-toolchain.toml",
             "scripts/wasm-opt.ts",
             "scripts/rust-remap.ts",
+            "scripts/wasm-memory.ts",
             "crates/build-inputs.ts",
             "crates/physics/Cargo.toml",
             "crates/physics/.cargo/config.toml",

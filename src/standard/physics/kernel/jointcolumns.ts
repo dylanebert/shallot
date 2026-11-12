@@ -27,7 +27,7 @@ export function jointArrayKey(world: WorldState, joint: Joint): number {
         : GRAPH_COLOR_COUNT + jointField(world, joint, JointField.setIndex);
 }
 export function jointArrayCount(world: WorldState, key: number): number {
-    return jointKernel(world).jointArrayCount(key);
+    return jointKernel(world).jointArrayCount(key) >>> 0;
 }
 export function jointAt(world: WorldState, key: number, index: number): Joint {
     return jointKernel(world).jointReadWord(key, index, J_JOINT_ID);
@@ -52,7 +52,7 @@ export function readJointFlag(
     mask: number,
 ): boolean {
     const k = jointKernel(world);
-    const byte = k.jointSimPtr(joint) + (field & 0xffff) + (31 - Math.clz32(mask));
+    const byte = (k.jointSimPtr(joint) >>> 0) + (field & 0xffff) + (31 - Math.clz32(mask));
     return ((jointViews(k).words[byte >>> 2] >>> ((byte & 3) * 8)) & 0xff) !== 0;
 }
 export function readJointVec3(
@@ -104,7 +104,7 @@ export function collectJointEvents(world: WorldState): void {
 }
 export function readJointEventUserData(world: WorldState): void {
     const k = jointKernel(world);
-    const count = k.eventCount(world.worldId, 5);
+    const count = k.eventCount(world.worldId, 5) >>> 0;
     if (world.jointEventUserDataCount === 0) world.jointEventUserData.fill(null);
     if (count === 0) return;
     let words = eventViews.get(world);

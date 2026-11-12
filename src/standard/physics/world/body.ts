@@ -72,7 +72,7 @@ export function bodyIsValid(world: WorldState, id: EntityId): boolean {
     const k = kernel(world.ecsState);
     return (
         body >= 0 &&
-        body < k.bodyLength(world.worldId) &&
+        body < k.bodyLength(world.worldId) >>> 0 &&
         k.bodyAlive(world.worldId, body) !== 0 &&
         k.bodyGeneration(world.worldId, body) === id.generation
     );
@@ -417,9 +417,9 @@ export function releaseGeometryIdentities(world: WorldState): void {
 function releaseGeometryIdentity(this: WorldState, _value: unknown, identity: number): void {
     const k = kernel(this.ecsState);
     if (
-        k.geometryDatabaseLookup(this.worldId, 4, identity) === 0 &&
-        k.geometryDatabaseLookup(this.worldId, 2, identity) === 0 &&
-        k.geometryDatabaseLookup(this.worldId, 1, identity) === 0
+        k.geometryDatabaseLookup(this.worldId, 4, identity) >>> 0 === 0 &&
+        k.geometryDatabaseLookup(this.worldId, 2, identity) >>> 0 === 0 &&
+        k.geometryDatabaseLookup(this.worldId, 1, identity) >>> 0 === 0
     )
         this.geometryIdentityValues.delete(identity);
 }

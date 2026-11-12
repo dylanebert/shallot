@@ -117,8 +117,8 @@ function prepare(world: World) {
     const state = world.resource(queryState);
     if (state.buffer !== k.memory.buffer) {
         state.buffer = k.memory.buffer;
-        state.input = new Float32Array(state.buffer, k.collisionInputPtr(), 850);
-        state.output = new Float32Array(state.buffer, k.collisionOutputPtr(), 1600);
+        state.input = new Float32Array(state.buffer, k.collisionInputPtr() >>> 0, 850);
+        state.output = new Float32Array(state.buffer, k.collisionOutputPtr() >>> 0, 1600);
     }
     return state;
 }

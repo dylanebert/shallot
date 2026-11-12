@@ -69,8 +69,8 @@ export function setJointDrawScale(world: WorldState, id: number, value: number):
     jointViews(k).floats[(k.jointRecordPtr() >>> 2) + id * JOINT_RECORD_WORDS + 12] = f32(value);
 }
 export function jointCapacity(world: WorldState): number {
-    return jointKernel(world).jointRecordCapacity();
+    return jointKernel(world).jointRecordCapacity() >>> 0;
 }
 export function jointCount(world: WorldState): number {
-    return jointKernel(world).jointRecordCount();
+    return jointKernel(world).jointRecordCount() >>> 0;
 }

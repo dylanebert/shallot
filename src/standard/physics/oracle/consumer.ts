@@ -370,24 +370,25 @@ function runBaseCase(item: OracleCase): unknown {
                 b = vec(sphereB.center);
             const p = vec((input.transformBtoA as Record<string, unknown>).translation);
             const k = kernel(undefined);
-            const count = k.collideSpheresGeo(
-                a.x,
-                a.y,
-                a.z,
-                f32(String(sphereA.radius)),
-                b.x,
-                b.y,
-                b.z,
-                f32(String(sphereB.radius)),
-                p.x,
-                p.y,
-                p.z,
-                0,
-                0,
-                0,
-                1,
-            );
-            const out = new Float32Array(k.memory.buffer, k.geoOutPtr(), 4 + count * 5);
+            const count =
+                k.collideSpheresGeo(
+                    a.x,
+                    a.y,
+                    a.z,
+                    f32(String(sphereA.radius)),
+                    b.x,
+                    b.y,
+                    b.z,
+                    f32(String(sphereB.radius)),
+                    p.x,
+                    p.y,
+                    p.z,
+                    0,
+                    0,
+                    0,
+                    1,
+                ) >>> 0;
+            const out = new Float32Array(k.memory.buffer, k.geoOutPtr() >>> 0, 4 + count * 5);
             return {
                 normal: outVec({ x: out[1], y: out[2], z: out[3] }),
                 pointCount: u32hex(count),
@@ -550,10 +551,14 @@ function runBaseCase(item: OracleCase): unknown {
                 const k = kernel(world.ecsState);
                 const pointerA = hullDatabaseIndex(world, a);
                 const pointerB = hullDatabaseIndex(world, b);
-                const count = k.collideHullsGeo(pointerA, pointerB, 1.25, 0.1, 0, 0, 0, 0, 1);
-                const out = new Float32Array(k.memory.buffer, k.geoOutPtr(), 4 + count * 5);
+                const count = k.collideHullsGeo(pointerA, pointerB, 1.25, 0.1, 0, 0, 0, 0, 1) >>> 0;
+                const out = new Float32Array(k.memory.buffer, k.geoOutPtr() >>> 0, 4 + count * 5);
                 const words = new Uint32Array(out.buffer, out.byteOffset, out.length);
-                const triangles = new Int32Array(k.memory.buffer, k.geoTriangleOutPtr(), count);
+                const triangles = new Int32Array(
+                    k.memory.buffer,
+                    k.geoTriangleOutPtr() >>> 0,
+                    count,
+                );
                 return {
                     normal: vbits({ x: out[1], y: out[2], z: out[3] }),
                     pointCount: i32hex(count),

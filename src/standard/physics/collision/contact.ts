@@ -50,7 +50,7 @@ export function contactIsValid(world: WorldState, id: EntityId): boolean {
 
 export function contactCapacity(world: WorldState): number {
     const k = kernel(world.ecsState);
-    return k.contactCapacity(world.worldId);
+    return k.contactCapacity(world.worldId) >>> 0;
 }
 /** Independent list of live contact ids for requested observation. */
 export function contactIds(world: WorldState): number[] {
@@ -61,7 +61,7 @@ export function contactIds(world: WorldState): number[] {
 }
 export function contactCount(world: WorldState): number {
     const k = kernel(world.ecsState);
-    return k.contactCount(world.worldId);
+    return k.contactCount(world.worldId) >>> 0;
 }
 
 export type ManifoldPoint = {
@@ -88,7 +88,7 @@ export type Manifold = {
 export function awakeContactCount(world: WorldState): number {
     const k = kernel(world.ecsState);
     k.bodySetActiveWorld(world.worldId);
-    return k.awakeContactCount();
+    return k.awakeContactCount() >>> 0;
 }
 export function awakeContactGet(world: WorldState, index: number): number {
     const k = kernel(world.ecsState);

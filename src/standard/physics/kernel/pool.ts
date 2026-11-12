@@ -24,12 +24,12 @@ const boot = (d, post) => {
         materialCallback() { throw new Error("physics: worker invoked a user material callback"); },
         collisionCallback() { throw new Error("physics: worker invoked a user collision callback"); },
         allocationFailed() { throw new Error("physics: shared kernel allocation failed at the " + d.memoryMaximum + " byte ceiling; increase PhysicsWorldDefinition.maximumMemory (up to 4294967296 bytes)."); },
-        kernelPanic(p, n) { console.error("physics kernel " + new TextDecoder().decode(new Uint8Array(d.memory.buffer, p, n).slice())); }
+        kernelPanic(p, n) { console.error("physics kernel " + new TextDecoder().decode(new Uint8Array(d.memory.buffer, p >>> 0, n >>> 0).slice())); }
     } }).exports;
     ex.__stack_pointer.value = d.stackTop;
     ex.__wasm_init_tls(d.tlsBase);
     ex.workerRegister();
-    post({ index: d.index, stackPointer: ex.__stack_pointer.value, tlsBase: ex.__tls_base.value });
+    post({ index: d.index, stackPointer: ex.__stack_pointer.value >>> 0, tlsBase: ex.__tls_base.value >>> 0 });
     try { ex.workerMain(d.testFault ? 1 : 0); }
     catch (e) { ex.workerFault(); throw e; }
 };
@@ -118,7 +118,7 @@ export async function createPool(
 ): Promise<Pool> {
     scheduler.schedulerStart();
     // The flag lives in the module's static data; this view remains valid when shared memory grows.
-    const fault = new Int32Array(memory.buffer, scheduler.schedulerFaultPtr(), 1);
+    const fault = new Int32Array(memory.buffer, scheduler.schedulerFaultPtr() >>> 0, 1);
     const base = stackTop - stackSize;
     const spawns = await Promise.allSettled(
         Array.from({ length: count }, (_, i) =>

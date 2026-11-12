@@ -84,7 +84,7 @@ export abstract class KernelViews {
     refreshViews(): void {
         if (this._refreshing) return;
         const k = kernel(this.ecsState);
-        const selected = k.activeWorld();
+        const selected = k.activeWorld() >>> 0;
         this._refreshing = true;
         try {
             this.deriveViews();

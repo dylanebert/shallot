@@ -45,7 +45,7 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
         world.invH = k.stepInvH();
         if (timeStep > 0 && ++world.stepIndex === 1)
             reportStartup({ kind: "physics-step", threads: threads(world.ecsState) });
-        world.bodyStore.syncCount = k.bodySyncCount();
+        world.bodyStore.syncCount = k.bodySyncCount() >>> 0;
         world.bodyStore.refreshViews();
         world.manifoldStore.refreshViews();
         world.shapeStore.refreshViews();

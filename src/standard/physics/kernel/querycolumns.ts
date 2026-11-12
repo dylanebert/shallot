@@ -37,12 +37,12 @@ export class QueryColumns extends KernelViews {
         const k = kernel(this.ecsState);
         const memory = k.memory.buffer;
         if (this.input.buffer !== memory || this.input.byteLength === 0) {
-            this.input = new Float32Array(memory, k.shapeQueryInputPtr(), 398);
-            this.cast = new Float32Array(memory, k.shapeQueryOutputPtr(), 12);
-            this.headerU = new Uint32Array(memory, k.worldQueryHeaderPtr(), 20);
-            this.headerF = new Float32Array(memory, k.worldQueryHeaderPtr(), 20);
-            this.resultU = new Uint32Array(memory, k.worldQueryResultPtr(), 80);
-            this.resultF = new Float32Array(memory, k.worldQueryResultPtr(), 80);
+            this.input = new Float32Array(memory, k.shapeQueryInputPtr() >>> 0, 398);
+            this.cast = new Float32Array(memory, k.shapeQueryOutputPtr() >>> 0, 12);
+            this.headerU = new Uint32Array(memory, k.worldQueryHeaderPtr() >>> 0, 20);
+            this.headerF = new Float32Array(memory, k.worldQueryHeaderPtr() >>> 0, 20);
+            this.resultU = new Uint32Array(memory, k.worldQueryResultPtr() >>> 0, 80);
+            this.resultF = new Float32Array(memory, k.worldQueryResultPtr() >>> 0, 80);
         }
     }
 

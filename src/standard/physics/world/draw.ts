@@ -123,14 +123,14 @@ export function worldDraw(world: WorldState, draw: DebugDraw, maskBits: bigint):
         state.hi = hi32(maskBits);
         state.lo = lo32(maskBits);
     }
-    const start = k.worldDraw(world.worldId, flags, state.hi, state.lo, world.invH);
-    const end = k.worldDrawLen();
+    const start = k.worldDraw(world.worldId, flags, state.hi, state.lo, world.invH) >>> 0;
+    const end = k.worldDrawLen() >>> 0;
     try {
         for (let position = start; position < end; ) {
             // A nested draw may relocate the buffer or grow linear memory.
             if (state.view.buffer !== k.memory.buffer) state.view = new DataView(k.memory.buffer);
             const v = state.view;
-            const o = k.worldDrawPtr() + position * 4;
+            const o = (k.worldDrawPtr() >>> 0) + position * 4;
             position += v.getUint32(o + 4, true);
             const kind = v.getUint32(o, true),
                 color = v.getUint32(o + 8, true),

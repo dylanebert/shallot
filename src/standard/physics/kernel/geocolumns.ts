@@ -25,7 +25,7 @@ export class GeometryUploadScratch {
 export function stageHullUpload(world: WorldState, hull: HullData): number {
     const k = kernel(world.ecsState);
     const bytes = hullByteCount(hull);
-    const ptr = k.hullUploadBuffer(world.worldId, bytes);
+    const ptr = k.hullUploadBuffer(world.worldId, bytes) >>> 0;
     const s = (world.geometryUploadScratch ??= new GeometryUploadScratch());
     s.views(k.memory.buffer);
     writeHullImage(hull, s.bytes, s.u, s.f, s.hashes, ptr);
@@ -55,7 +55,7 @@ export function acquireGeometryData<T extends object>(
         pointer = k.geometryDatabaseAdd(world.worldId, kind, identity, 0, 1) >>> 0;
     } else {
         const image = serialize(data);
-        const input = k.geometryUploadBuffer(world.worldId, image.byteLength);
+        const input = k.geometryUploadBuffer(world.worldId, image.byteLength) >>> 0;
         const scratch = (world.geometryUploadScratch ??= new GeometryUploadScratch());
         scratch.views(k.memory.buffer);
         scratch.bytes.set(image, input);

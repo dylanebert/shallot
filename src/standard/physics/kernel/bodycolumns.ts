@@ -62,14 +62,14 @@ export class BodyStore extends KernelViews {
     protected deriveViews(): void {
         const k = kernel(this.ecsState);
         k.bodySetActiveWorld(this.worldId);
-        const cap = k.bodyCap();
+        const cap = k.bodyCap() >>> 0;
         if (cap === 0) return;
         const buf = k.memory.buffer;
         if (this.memoryF.buffer !== buf || this.memoryF.byteLength !== buf.byteLength) {
             this.memoryF = new Float32Array(buf);
             this.memoryU = new Uint32Array(buf);
         }
-        const ptr = k.bodyLayoutPtr();
+        const ptr = k.bodyLayoutPtr() >>> 0;
         if (this._layout.buffer !== buf || this._layout.byteOffset !== ptr)
             this._layout = new Uint32Array(buf, ptr, N_BODY);
         const layout = this._layout;
@@ -131,13 +131,13 @@ export class BodyStore extends KernelViews {
         if (set === SetType.Awake) return this;
         const k = kernel(this.ecsState);
         k.bodySetActiveWorld(this.worldId);
-        const ptr = k.solverSetLayout(set);
+        const ptr = k.solverSetLayout(set) >>> 0;
         const old = this.#setColumns.get(set);
         const layout =
             old?.layout.buffer === k.memory.buffer && old.layout.byteOffset === ptr
                 ? old.layout
                 : new Uint32Array(k.memory.buffer, ptr, 6);
-        const count = k.solverSetBodyCount(set);
+        const count = k.solverSetBodyCount(set) >>> 0;
         if (
             old &&
             old.simF.buffer === k.memory.buffer &&
@@ -398,7 +398,7 @@ export function simOffset(world: WorldState, ref: number): number {
     const k = kernel(world.ecsState);
     return (
         (ref < 0
-            ? k.bodyColumnPtr(world.worldId, -ref - 1, B_SIM)
-            : k.simColumnPtr(world.worldId, bodySimSet(ref), bodySimIndex(ref), B_SIM)) >>> 2
+            ? k.bodyColumnPtr(world.worldId, -ref - 1, B_SIM) >>> 0
+            : k.simColumnPtr(world.worldId, bodySimSet(ref), bodySimIndex(ref), B_SIM) >>> 0) >>> 2
     );
 }

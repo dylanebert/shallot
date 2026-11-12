@@ -4,7 +4,7 @@ export const MIKKTSPACE_ARTIFACT = "src/core/mesh/mikktspace.wasm.ts";
 
 export function mikktspaceInputHash(root: string): string {
     return buildInputHash(root, [
-        "Cargo.toml", "rust-toolchain.toml", "scripts/wasm-opt.ts", "scripts/rust-remap.ts",
+        "Cargo.toml", "rust-toolchain.toml", "scripts/wasm-opt.ts", "scripts/rust-remap.ts", "scripts/wasm-memory.ts",
         "crates/build-inputs.ts", "crates/mikktspace/Cargo.toml",
         "crates/mikktspace/scripts/inputs.ts", "crates/mikktspace/scripts/build.ts",
     ], ["crates/mikktspace/src"], "shallot-mikktspace");

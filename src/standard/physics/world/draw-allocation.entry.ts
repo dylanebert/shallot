@@ -27,21 +27,17 @@ export default async function create(input: string) {
             if (input === "buffer" || input === "nested-buffer") {
                 q.prepare(draw.drawingBounds.lowerBound);
                 q.bounds(draw.drawingBounds);
-                const start = k.worldDraw(world.worldId, 31, 0xffffffff, 0xffffffff, world.invH);
-                if (k.worldDrawLen() === start)
+                const start =
+                    k.worldDraw(world.worldId, 31, 0xffffffff, 0xffffffff, world.invH) >>> 0;
+                if (k.worldDrawLen() >>> 0 === start)
                     throw new Error("draw subject emitted no primitives");
                 if (input === "nested-buffer") {
-                    const nested = k.worldDraw(
-                        world.worldId,
-                        1,
-                        0xffffffff,
-                        0xffffffff,
-                        world.invH,
-                    );
-                    if (nested <= start || k.worldDrawLen() <= nested)
+                    const nested =
+                        k.worldDraw(world.worldId, 1, 0xffffffff, 0xffffffff, world.invH) >>> 0;
+                    if (nested <= start || k.worldDrawLen() >>> 0 <= nested)
                         throw new Error("nested draw lost its pending stream");
                     k.worldDrawRelease(nested);
-                    if (k.worldDrawLen() !== nested)
+                    if (k.worldDrawLen() >>> 0 !== nested)
                         throw new Error("nested draw failed to release its stream");
                 }
                 k.worldDrawRelease(start);

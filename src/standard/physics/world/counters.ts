@@ -52,7 +52,7 @@ export class WorldCountersBuffer {
     private _words = new Int32Array(0);
 
     read(k: Kernel, world: number): PhysicsWorldCounters {
-        const pointer = k.worldCounters(world);
+        const pointer = k.worldCounters(world) >>> 0;
         if (this._words.buffer !== k.memory.buffer || this._words.byteOffset !== pointer)
             this._words = new Int32Array(k.memory.buffer, pointer, 50);
         const words = this._words;

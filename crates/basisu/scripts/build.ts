@@ -2,11 +2,12 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { $ } from "bun";
 import { rustSourceRemaps } from "../../../scripts/rust-remap";
+import { WASM_MEMORY_FLAG } from "../../../scripts/wasm-memory";
 import { optimize, version } from "../../../scripts/wasm-opt";
 import { BASISU_ARTIFACT, basisuInputHash } from "./inputs";
 
 const root = resolve(import.meta.dir, "../../..");
-const flags = ["--remap-path-prefix=crates/basisu/=", ...rustSourceRemaps()].join(" ");
+const flags = [WASM_MEMORY_FLAG, "--remap-path-prefix=crates/basisu/=", ...rustSourceRemaps()].join(" ");
 await $`cargo build --locked -p shallot-basisu --target wasm32-unknown-unknown --release`.cwd(root).env({ ...process.env, RUSTFLAGS: flags });
 const raw = resolve(root, "target/wasm32-unknown-unknown/release/shallot_basisu.wasm");
 const output = resolve(root, "target/shallot_basisu.opt.wasm");

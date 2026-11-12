@@ -944,7 +944,7 @@ export function kernelViewKey(world: World | undefined, state = kernelState(worl
     const k = kernel(world);
     const buffer = k.memory.buffer;
     if (state.viewEpoch === null || state.viewEpoch.buffer !== buffer) {
-        state.viewEpoch = new Uint32Array(buffer, k.viewEpochPtr(), 1);
+        state.viewEpoch = new Uint32Array(buffer, k.viewEpochPtr() >>> 0, 1);
         state.viewRevision++;
     }
     const value = state.viewEpoch[0];
@@ -961,7 +961,7 @@ function queryReturnView(runtime: KernelState): Float32Array {
     if (runtime.queryReturnF?.buffer !== instance.memory.buffer) {
         runtime.queryReturnF = new Float32Array(
             instance.memory.buffer,
-            instance.worldQueryResultPtr() + QUERY_RETURN_WORD * 4,
+            (instance.worldQueryResultPtr() >>> 0) + QUERY_RETURN_WORD * 4,
             1,
         );
     }
@@ -1023,7 +1023,7 @@ export function clockImport(memory: () => WebAssembly.Memory): (pointer: number)
 /** A checked kernel's panic message, printed before its abort traps; release kernels never import it. */
 function panicImport(memory: () => WebAssembly.Memory): (pointer: number, length: number) => void {
     return (pointer, length) => {
-        const bytes = new Uint8Array(memory().buffer, pointer, length).slice();
+        const bytes = new Uint8Array(memory().buffer, pointer >>> 0, length >>> 0).slice();
         console.error(`physics kernel ${new TextDecoder().decode(bytes)}`);
     };
 }
@@ -1291,7 +1291,7 @@ async function multi(runtime: KernelState, want: number): Promise<void> {
                   module,
                   memory,
                   count,
-                  exports.__stack_pointer.value as number,
+                  (exports.__stack_pointer.value as number) >>> 0,
                   SHARED_STACK_SIZE,
                   exports,
                   false,

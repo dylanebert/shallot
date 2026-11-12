@@ -5,13 +5,13 @@ import type { HullData } from "./hull";
 
 function input(world?: World): Float32Array {
     const k = kernel(world);
-    const ptr = k.hullBuildInputPtr(2);
+    const ptr = k.hullBuildInputPtr(2) >>> 0;
     return new Float32Array(k.memory.buffer, ptr, 16);
 }
 function result(operation: number, world?: World): MassData {
     const k = kernel(world);
     k.geometryMass(operation);
-    const r = new Float32Array(k.memory.buffer, k.hullBuildInputPtr(2), 13);
+    const r = new Float32Array(k.memory.buffer, k.hullBuildInputPtr(2) >>> 0, 13);
     return {
         mass: r[0],
         center: { x: r[1], y: r[2], z: r[3] },

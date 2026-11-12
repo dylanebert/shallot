@@ -10,7 +10,7 @@ export function islandField(world: WorldState, id: number, field: number): numbe
     return islandKernel(world).islandField(id, field);
 }
 export function islandArrayCount(world: WorldState, id: number, kind: number): number {
-    return islandKernel(world).islandArrayCount(id, kind);
+    return islandKernel(world).islandArrayCount(id, kind) >>> 0;
 }
 export function islandArrayGet(
     world: WorldState,

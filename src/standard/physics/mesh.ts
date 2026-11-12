@@ -69,7 +69,7 @@ export function createPhysicsMesh(world: World, definition: PhysicsMesh): Physic
         nodes,
         nodeBounds,
     };
-    live.set(report, kernel(world).nonconvexRetain());
+    live.set(report, kernel(world).nonconvexRetain() >>> 0);
     return report;
 }
 

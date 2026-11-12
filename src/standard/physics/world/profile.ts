@@ -35,7 +35,7 @@ let timings = new Float32Array(0);
 /** Read the kernel's profile into the reusable API observation. */
 export function readStepProfile(world: WorldState): void {
     const k = kernel(world.ecsState);
-    const ptr = k.stepProfilePtr(world.worldId);
+    const ptr = k.stepProfilePtr(world.worldId) >>> 0;
     if (timings.buffer !== k.memory.buffer) timings = new Float32Array(k.memory.buffer);
     const start = ptr >>> 2;
     const p = world.profile;

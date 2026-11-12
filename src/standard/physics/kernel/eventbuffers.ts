@@ -14,7 +14,7 @@ export const EventKind = {
 } as const;
 
 export function eventCount(world: WorldState, kind: number): number {
-    return kernel(world.ecsState).eventCount(world.worldId, kind);
+    return kernel(world.ecsState).eventCount(world.worldId, kind) >>> 0;
 }
 
 /** A fresh public id from a resident event, including its capture-time world and generation. */

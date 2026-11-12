@@ -173,8 +173,8 @@ export function snapshot(state: WorldState, bindings?: unknown): PhysicsSnapshot
     if (state.locked) throw new Error("physics: cannot snapshot a world while it is stepping");
     assertQueryWorld(state.ecsState, state.worldId);
     const k = kernel(state.ecsState);
-    const length = k.worldSnapshot(state.worldId);
-    const pointer = k.worldSnapshotBuffer(length);
+    const length = k.worldSnapshot(state.worldId) >>> 0;
+    const pointer = k.worldSnapshotBuffer(length) >>> 0;
     const stores = snapshotStores(state);
     const opaque = new WeakSet<object>();
     for (const data of state.geometryIdentityValues.values()) opaque.add(data);
@@ -248,7 +248,7 @@ export function restore(state: WorldState, snapshot: PhysicsSnapshot): void {
         );
     }
     const k = kernel(state.ecsState);
-    const pointer = k.worldSnapshotBuffer(snapshot.bytes.byteLength);
+    const pointer = k.worldSnapshotBuffer(snapshot.bytes.byteLength) >>> 0;
     new Uint8Array(k.memory.buffer, pointer, snapshot.bytes.byteLength).set(snapshot.bytes);
     k.worldRestore(state.worldId);
     k.worldSetCustomFilterCallback(

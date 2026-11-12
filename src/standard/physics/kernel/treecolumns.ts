@@ -316,7 +316,7 @@ export function query(
             return { nodeVisits: out[14], leafVisits: out[15] };
         }
         t.store.refreshIfStale();
-        const state = t.store.reserveTreeWork(d, 6);
+        const state = t.store.reserveTreeWork(d, 6) >>> 0;
         k.treeQuery(
             0,
             t.treeIndex,

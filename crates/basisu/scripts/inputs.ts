@@ -4,7 +4,7 @@ export const BASISU_ARTIFACT = "src/extras/gltf/basisu.wasm.ts";
 
 export function basisuInputHash(root: string): string {
     return buildInputHash(root, [
-        "Cargo.toml", "rust-toolchain.toml", "scripts/wasm-opt.ts", "scripts/rust-remap.ts",
+        "Cargo.toml", "rust-toolchain.toml", "scripts/wasm-opt.ts", "scripts/rust-remap.ts", "scripts/wasm-memory.ts",
         "crates/build-inputs.ts", "crates/basisu/Cargo.toml",
         "crates/basisu/scripts/inputs.ts", "crates/basisu/scripts/build.ts",
     ], ["crates/basisu/src"], "shallot-basisu");

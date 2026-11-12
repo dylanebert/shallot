@@ -545,7 +545,7 @@ export function getSensorData(world: WorldState, shape: Shape): Visitor[] {
     const k = kernel(world.ecsState);
     const index = shapeSensorIndex(world, shape);
     const result: Visitor[] = [];
-    for (let i = 0, count = k.sensorVisitorCount(world.worldId, index); i < count; ++i) {
+    for (let i = 0, count = k.sensorVisitorCount(world.worldId, index) >>> 0; i < count; ++i) {
         result.push({
             shapeId: k.sensorVisitorWord(world.worldId, index, i, 0),
             generation: k.sensorVisitorWord(world.worldId, index, i, 1),

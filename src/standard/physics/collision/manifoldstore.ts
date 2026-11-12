@@ -67,10 +67,10 @@ export class ManifoldStore extends KernelViews {
     }
     protected deriveViews(): void {
         const k = kernel(this.ecsState);
-        const cap = k.contactRecordCapacity(this.worldId);
+        const cap = k.contactRecordCapacity(this.worldId) >>> 0;
         k.bodySetActiveWorld(this.worldId);
         const buf = k.memory.buffer;
-        const pointer = k.manifoldLayoutPtr();
+        const pointer = k.manifoldLayoutPtr() >>> 0;
         if (this._layout.buffer !== buf || this._layout.byteOffset !== pointer)
             this._layout = new Uint32Array(buf, pointer, 1);
         const address = this._layout[0];

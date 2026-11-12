@@ -65,7 +65,7 @@ function input(
     encroach: boolean,
 ): void {
     const k = kernel(undefined);
-    const r = new Float32Array(k.memory.buffer, k.shapeQueryInputPtr(), 398);
+    const r = new Float32Array(k.memory.buffer, k.shapeQueryInputPtr() >>> 0, 398);
     r.fill(0);
     r.set([
         transform.p.x,
@@ -90,7 +90,7 @@ function input(
 }
 function output(): CastOutput {
     const k = kernel(undefined);
-    const r = new Float32Array(k.memory.buffer, k.shapeQueryOutputPtr(), 12);
+    const r = new Float32Array(k.memory.buffer, k.shapeQueryOutputPtr() >>> 0, 12);
     return {
         hit: r[0] !== 0,
         fraction: r[1],
@@ -166,8 +166,8 @@ export function kernelMover(
         );
         const k = kernel(undefined);
         // This fixture takes no snapshots; borrow their byte staging buffer for caller-owned output.
-        const ptr = k.worldSnapshotBuffer(capacity * 40);
-        const count = k.shapeQueryMover(world.worldId, id, ptr, capacity, 1);
+        const ptr = k.worldSnapshotBuffer(capacity * 40) >>> 0;
+        const count = k.shapeQueryMover(world.worldId, id, ptr, capacity, 1) >>> 0;
         const f = new Float32Array(k.memory.buffer, ptr, count * 10);
         for (let i = 0; i < count; ++i) {
             const o = i * 10;

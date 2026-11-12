@@ -7,10 +7,10 @@ function active(world: WorldState) {
     return k;
 }
 export function createSolverSet(world: WorldState): number {
-    return active(world).solverSetCreate();
+    return active(world).solverSetCreate() >>> 0;
 }
 export function solverSetCount(world: WorldState): number {
-    return active(world).solverSetCount();
+    return active(world).solverSetCount() >>> 0;
 }
 export function solverSetIndex(world: WorldState, set: number): number {
     return active(world).solverSetIndex(set);
@@ -19,10 +19,10 @@ export function wakeSolverSet(world: WorldState, set: number): void {
     active(world).solverSetWake(set);
 }
 export function setBodyCount(world: WorldState, set: number): number {
-    return active(world).solverSetBodyCount(set);
+    return active(world).solverSetBodyCount(set) >>> 0;
 }
 export function setArrayCount(world: WorldState, set: number, kind: number): number {
-    return active(world).solverSetArrayCount(set, kind);
+    return active(world).solverSetArrayCount(set, kind) >>> 0;
 }
 export function setArrayGet(world: WorldState, set: number, kind: number, index: number): number {
     return active(world).solverSetArrayGet(set, kind, index);

@@ -91,13 +91,13 @@ function prepare(world: World, capacity: number): Scratch {
         s = world.resource(scratch);
     if (s.buffer !== k.memory.buffer) {
         s.buffer = k.memory.buffer;
-        const p = k.manifoldInputPtr();
+        const p = k.manifoldInputPtr() >>> 0;
         s.f = new Float32Array(s.buffer, p, 16384);
         s.u = new Uint32Array(s.buffer, p, 16384);
         s.bytes = new Uint8Array(s.buffer, p, 65536);
         s.hashes = new BigUint64Array(s.buffer, p, 8192);
-        s.o = new Float32Array(s.buffer, k.manifoldOutputPtr(), 512);
-        s.ou = new Uint32Array(s.buffer, k.manifoldOutputPtr(), 512);
+        s.o = new Float32Array(s.buffer, k.manifoldOutputPtr() >>> 0, 512);
+        s.ou = new Uint32Array(s.buffer, k.manifoldOutputPtr() >>> 0, 512);
     }
     s.u.fill(0, 0, 128);
     s.u[0] = capacity;

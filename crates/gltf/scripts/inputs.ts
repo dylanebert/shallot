@@ -4,7 +4,7 @@ export const GLTF_ARTIFACT = "src/extras/gltf/gltf.wasm.ts";
 
 export function gltfInputHash(root: string): string {
     return buildInputHash(root, [
-        "Cargo.toml", "rust-toolchain.toml", "scripts/wasm-opt.ts", "scripts/rust-remap.ts",
+        "Cargo.toml", "rust-toolchain.toml", "scripts/wasm-opt.ts", "scripts/rust-remap.ts", "scripts/wasm-memory.ts",
         "crates/build-inputs.ts", "crates/gltf/Cargo.toml",
         "crates/gltf/scripts/inputs.ts", "crates/gltf/scripts/build.ts",
     ], ["crates/gltf/src"], "shallot-gltf");

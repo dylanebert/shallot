@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { $ } from "bun";
 import { audioInputHash } from "../crates/audio/scripts/audio-inputs";
 import { rustSourceRemaps } from "./rust-remap";
+import { WASM_MEMORY_FLAG } from "./wasm-memory";
 import { optimize } from "./wasm-opt";
 
 const pkgRoot = resolve(import.meta.dir, "..");
@@ -15,6 +16,7 @@ if (!existsSync(audioPkg)) mkdirSync(audioPkg);
 // RUSTFLAGS replaces the crate config, so repeat its SIMD and workspace-prefix flags.
 const rustflags = [
     "-C target-feature=+simd128",
+    WASM_MEMORY_FLAG,
     "--remap-path-prefix=crates/audio/=",
     ...rustSourceRemaps(),
 ].join(" ");

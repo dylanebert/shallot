@@ -9,7 +9,7 @@ type Scratch = { floats: Float32Array; words: Uint32Array; view: DataView };
 const scratch = new WeakMap<Kernel, Scratch>();
 function prepare(world: World | undefined, count = 0): [Kernel, Scratch] {
     const k = kernel(world);
-    const ptr = k.nonconvexBuildInputPtr(count);
+    const ptr = k.nonconvexBuildInputPtr(count) >>> 0;
     let s = scratch.get(k);
     if (!s) {
         s = {
@@ -30,7 +30,7 @@ function prepare(world: World | undefined, count = 0): [Kernel, Scratch] {
     return [k, s];
 }
 function result(k: Kernel, operation: number): MeshData | HeightFieldData | null {
-    const ptr = k.nonconvexBuild(operation);
+    const ptr = k.nonconvexBuild(operation) >>> 0;
     if (ptr === 0) return null;
     const s = scratch.get(k)!;
     if (s.view.buffer !== k.memory.buffer) s.view = new DataView(k.memory.buffer);

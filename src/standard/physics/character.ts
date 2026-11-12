@@ -130,11 +130,11 @@ function moveCharacter(world: World, eid: number): void {
     const k = queryColumns(state).prepare(position);
     const memory = k.memory.buffer;
     if (s.input.buffer !== memory) {
-        s.input = new Float32Array(memory, k.characterInputPtr(), 27);
-        s.inputU = new Uint32Array(memory, k.characterInputPtr(), 27);
-        s.slope = new Float64Array(memory, k.characterInputPtr() + 80, 1);
-        s.output = new Float32Array(memory, k.characterOutputPtr(), 63);
-        s.outputU = new Uint32Array(memory, k.characterOutputPtr(), 63);
+        s.input = new Float32Array(memory, k.characterInputPtr() >>> 0, 27);
+        s.inputU = new Uint32Array(memory, k.characterInputPtr() >>> 0, 27);
+        s.slope = new Float64Array(memory, (k.characterInputPtr() >>> 0) + 80, 1);
+        s.output = new Float32Array(memory, k.characterOutputPtr() >>> 0, 63);
+        s.outputU = new Uint32Array(memory, k.characterOutputPtr() >>> 0, 63);
     }
     const input = s.input;
     const offset = eid * 4;
@@ -164,8 +164,8 @@ function moveCharacter(world: World, eid: number): void {
     input[26] = state.maxLinearSpeed;
     k.characterMove(state.worldId, bodyId);
     if (s.output.buffer !== k.memory.buffer) {
-        s.output = new Float32Array(k.memory.buffer, k.characterOutputPtr(), 63);
-        s.outputU = new Uint32Array(k.memory.buffer, k.characterOutputPtr(), 63);
+        s.output = new Float32Array(k.memory.buffer, k.characterOutputPtr() >>> 0, 63);
+        s.outputU = new Uint32Array(k.memory.buffer, k.characterOutputPtr() >>> 0, 63);
     }
     const result = s.output,
         words = s.outputU;

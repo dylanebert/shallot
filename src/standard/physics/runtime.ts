@@ -1623,7 +1623,7 @@ export function getLocalPoint(world: World, eid: number, point: Pos): Vec3 | nul
     const body = boundBody(world, runtime, eid);
     if (!state || !body) return null;
     const k = kernel(state.ecsState);
-    const ptr = k.bodyLocalPoint(state.worldId, body.index1 - 1, point.x, point.y, point.z);
+    const ptr = k.bodyLocalPoint(state.worldId, body.index1 - 1, point.x, point.y, point.z) >>> 0;
     const p = new Float32Array(k.memory.buffer, ptr, 3);
     return { x: p[0], y: p[1], z: p[2] };
 }
@@ -1770,7 +1770,7 @@ export function getContactData(
     if (!queryShapeEntities(world, runtime, b.index1 - 1, context) || context.shapeEid !== shapeB)
         return null;
     const k = kernel(world);
-    const pointer = k.contactQuery(state.worldId, a.index1 - 1, b.index1 - 1, childIndex);
+    const pointer = k.contactQuery(state.worldId, a.index1 - 1, b.index1 - 1, childIndex) >>> 0;
     return pointer ? runtime.contactData.read(k, pointer, childIndex, state) : null;
 }
 
@@ -1817,7 +1817,7 @@ export function getSensorData(world: World, sensorShape: number): PhysicsSensorD
     let count = 0;
     if (index !== -1) {
         const k = kernel(world);
-        for (let i = 0, n = k.sensorVisitorCount(state.worldId, index); i < n; i++) {
+        for (let i = 0, n = k.sensorVisitorCount(state.worldId, index) >>> 0; i < n; i++) {
             const id = k.sensorVisitorWord(state.worldId, index, i, 0);
             const generation = k.sensorVisitorWord(state.worldId, index, i, 1);
             if (

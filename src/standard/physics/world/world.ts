@@ -414,11 +414,11 @@ export function destroyWorld(world: WorldState): void {
 /** @returns entity counts for a world (b3World_GetCounters). */
 export function worldCounters(world: WorldState): Counters {
     return {
-        bodyCount: kernel(world.ecsState).bodyCount(world.worldId),
-        shapeCount: kernel(world.ecsState).shapeCount(world.worldId),
+        bodyCount: kernel(world.ecsState).bodyCount(world.worldId) >>> 0,
+        shapeCount: kernel(world.ecsState).shapeCount(world.worldId) >>> 0,
         contactCount: contactCount(world),
         jointCount: jointCount(world),
-        islandCount: islandKernel(world).islandCount(),
+        islandCount: islandKernel(world).islandCount() >>> 0,
     };
 }
 

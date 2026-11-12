@@ -8,12 +8,12 @@ let result = new Float32Array(0);
 
 function upload(planes: CollisionPlane[], count: number) {
     const k = kernel(undefined);
-    const ptr = k.moverPlanesPtr(count);
+    const ptr = k.moverPlanesPtr(count) >>> 0;
     if (buffer !== k.memory.buffer || capacity < count) {
         buffer = k.memory.buffer;
         capacity = count;
         values = new Float32Array(buffer, ptr, count * 7);
-        result = new Float32Array(buffer, k.moverOutputPtr(), 4);
+        result = new Float32Array(buffer, k.moverOutputPtr() >>> 0, 4);
     } else if (values.byteOffset !== ptr) {
         values = new Float32Array(buffer, ptr, capacity * 7);
     }

@@ -85,10 +85,10 @@ export class ShapeStore extends KernelViews {
     protected deriveViews(): void {
         const k = kernel(this.ecsState);
         k.shapeSetActiveWorld(this._worldId);
-        const cap = k.shapeCap();
+        const cap = k.shapeCap() >>> 0;
         if (cap === 0) return;
         const buf = k.memory.buffer;
-        const ptr = k.shapeLayoutPtr();
+        const ptr = k.shapeLayoutPtr() >>> 0;
         if (this._layout.buffer !== buf || this._layout.byteOffset !== ptr)
             this._layout = new Uint32Array(buf, ptr, 3);
         const layout = this._layout;
@@ -107,7 +107,7 @@ export class ShapeStore extends KernelViews {
         )
             this.fatF = new Float32Array(buf, layout[2], cap * FAT_STRIDE);
         if (this.geometryOutput.buffer !== buf)
-            this.geometryOutput = new Float32Array(buf, k.shapeGeometryOutputPtr(), 13);
+            this.geometryOutput = new Float32Array(buf, k.shapeGeometryOutputPtr() >>> 0, 13);
         if (this.materialU.buffer !== buf || this.materialU.byteLength !== buf.byteLength) {
             this.materialU = new Uint32Array(buf);
             this.materialF = new Float32Array(buf);
@@ -122,7 +122,8 @@ export class ShapeStore extends KernelViews {
         materials: SurfaceMaterial[] | SurfaceMaterial,
     ): void {
         const count = Array.isArray(materials) ? materials.length : 1;
-        const ptr = kernel(world.ecsState).shapeAllocateMaterials(world.worldId, shape, count);
+        const ptr =
+            kernel(world.ecsState).shapeAllocateMaterials(world.worldId, shape, count) >>> 0;
         for (let i = 0; i < count; ++i) {
             const o = ptr / 4 + i * MATERIAL_STRIDE;
             const m = Array.isArray(materials) ? materials[i] : materials;
@@ -168,7 +169,7 @@ export class ShapeStore extends KernelViews {
         if (count === 0) throw new Error(`physics: no material on shape ${shape}`);
         if (index < 0 || index >= count)
             throw new Error(`physics: no material ${index} on shape ${shape}`);
-        const o = k.shapeMaterialPtr(this._worldId, shape) / 4 + index * MATERIAL_STRIDE;
+        const o = (k.shapeMaterialPtr(this._worldId, shape) >>> 0) / 4 + index * MATERIAL_STRIDE;
         const f = this.materialF;
         out.friction = f[o];
         out.restitution = f[o + 1];
@@ -185,7 +186,7 @@ export class ShapeStore extends KernelViews {
     userMaterialIdAt(shape: Shape, index: number): bigint {
         const k = kernel(this.ecsState);
         if (k.shapeMaterialCount(this._worldId, shape) >>> 0 === 0) return 0n;
-        const o = k.shapeMaterialPtr(this._worldId, shape) / 4 + index * MATERIAL_STRIDE;
+        const o = (k.shapeMaterialPtr(this._worldId, shape) >>> 0) / 4 + index * MATERIAL_STRIDE;
         return this.userMaterialId(o);
     }
 }
@@ -202,7 +203,7 @@ export function readShapeMaterials(world: WorldState, shape: Shape): SurfaceMate
     k.shapeSetActiveWorld(world.worldId);
     const count = k.shapeMaterialCount(world.worldId, shape) >>> 0;
     if (count === 0) return [];
-    const ptr = k.shapeMaterialPtr(world.worldId, shape);
+    const ptr = k.shapeMaterialPtr(world.worldId, shape) >>> 0;
     const buf = k.memory.buffer;
     const u = new Uint32Array(buf, ptr, count * MATERIAL_STRIDE);
     const f = new Float32Array(buf, ptr, count * MATERIAL_STRIDE);

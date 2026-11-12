@@ -14,6 +14,7 @@ export function audioInputHash(root: string): string {
             "rust-toolchain.toml",
             "scripts/wasm-opt.ts",
             "scripts/rust-remap.ts",
+            "scripts/wasm-memory.ts",
             "scripts/audio.ts",
             "crates/build-inputs.ts",
             "crates/audio/Cargo.toml",

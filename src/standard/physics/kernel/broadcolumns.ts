@@ -60,7 +60,7 @@ export class BroadStore extends KernelViews {
     protected deriveViews(): void {
         const k = kernel(this.ecsState);
         k.bodySetActiveWorld(this.worldId);
-        const ptr = k.broadLayoutPtr();
+        const ptr = k.broadLayoutPtr() >>> 0;
         const buf = k.memory.buffer;
         if (this.#layout.buffer !== buf || this.#layout.byteOffset !== ptr)
             this.#layout = new Uint32Array(buf, ptr, N_BROAD);
@@ -69,7 +69,7 @@ export class BroadStore extends KernelViews {
         for (let i = 0; i < 3; ++i) {
             const t = this.trees[i];
             if (t === undefined) continue;
-            const cap = k.broadTreeCap(i);
+            const cap = k.broadTreeCap(i) >>> 0;
             if (cap === 0) {
                 t.nf = EMPTY_F;
                 t.ni = EMPTY_I;

@@ -25,7 +25,7 @@ function compute(world: World, points: readonly Point2D[], target?: number): Poi
             );
     }
     const k = kernel(world);
-    const input = k.hull2DInputPtr(points.length);
+    const input = k.hull2DInputPtr(points.length) >>> 0;
     const data = new DataView(k.memory.buffer);
     for (let i = 0; i < points.length; i++) {
         const p = points[i]!;
@@ -35,7 +35,7 @@ function compute(world: World, points: readonly Point2D[], target?: number): Poi
         data.setFloat32(at + 8, p.separation, true);
         data.setInt32(at + 12, p.originalIndex, true);
     }
-    const result = k.hull2D(Number(target !== undefined), points.length, target ?? 0);
+    const result = k.hull2D(Number(target !== undefined), points.length, target ?? 0) >>> 0;
     const header = new Uint32Array(k.memory.buffer, result, 2);
     const output = new DataView(k.memory.buffer);
     const pointsOut: Point2D[] = [];

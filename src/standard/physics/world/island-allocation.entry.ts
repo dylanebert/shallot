@@ -78,7 +78,7 @@ export default async function create() {
                 );
                 addIslandBody(
                     state,
-                    kernel.islandCreate(SetType.Awake),
+                    kernel.islandCreate(SetType.Awake) >>> 0,
                     bodyField(state, body, BodyField.id),
                 );
                 kernel.contactLinkWorld(state.worldId, bridge);

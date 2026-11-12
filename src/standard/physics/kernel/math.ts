@@ -4,8 +4,8 @@ import { kernel } from "./kernel";
 // Parity inputs and expected intermediates must retain Box3D's arithmetic.
 function read(operation: number, input: number[]): Float32Array {
     const k = kernel(undefined);
-    new Float32Array(k.memory.buffer, k.mathInputPtr(), 18).set(input);
-    return new Float32Array(k.memory.buffer, k.mathRead(operation), 9);
+    new Float32Array(k.memory.buffer, k.mathInputPtr() >>> 0, 18).set(input);
+    return new Float32Array(k.memory.buffer, k.mathRead(operation) >>> 0, 9);
 }
 const v = (a: Vec3) => [a.x, a.y, a.z];
 const q = (a: Quat) => [...v(a.v), a.s];
@@ -37,7 +37,7 @@ export const quaternion = {
     fromAxisAngle: (axis: Vec3, angle: number) => quaternionResult(6, [...v(axis), angle]),
     normalize: (a: Quat): Quat => {
         const k = kernel(undefined);
-        const ptr = k.mathNormalizeQuat(a.v.x, a.v.y, a.v.z, a.s);
+        const ptr = k.mathNormalizeQuat(a.v.x, a.v.y, a.v.z, a.s) >>> 0;
         const out = new Float32Array(k.memory.buffer, ptr, 4);
         return { v: { x: out[0], y: out[1], z: out[2] }, s: out[3] };
     },

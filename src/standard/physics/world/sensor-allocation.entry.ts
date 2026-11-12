@@ -52,7 +52,7 @@ export default async function create(input: string) {
     )!;
     world.step(1 / 60);
     const sensorIndex = shapeField(state, sensor, ShapeField.sensorIndex);
-    if (kernel(state.ecsState).sensorVisitorCount(state.worldId, sensorIndex) !== count)
+    if (kernel(state.ecsState).sensorVisitorCount(state.worldId, sensorIndex) >>> 0 !== count)
         throw new Error("allocation subject's sensor does not hold every box");
     const platformBody = physicsBodyIndex(world, platform);
     if (platformBody < 0) throw new Error("allocation subject platform has no solver body");
@@ -65,13 +65,13 @@ export default async function create(input: string) {
             bodySetLinearVelocity(state, platformBody, velocity);
             world.step(1 / 60);
             if (
-                k.eventCount(state.worldId, EventKind.SensorBegin) !== 0 ||
-                k.eventCount(state.worldId, EventKind.SensorEnd) !== 0 ||
-                k.eventCount(state.worldId, EventKind.ContactBegin) !== 0 ||
-                k.eventCount(state.worldId, EventKind.ContactEnd) !== 0 ||
-                k.eventCount(state.worldId, EventKind.ContactHit) !== 0 ||
-                k.eventCount(state.worldId, EventKind.Joint) !== 0 ||
-                k.eventCount(state.worldId, EventKind.PendingSensorEnd) !== 0
+                k.eventCount(state.worldId, EventKind.SensorBegin) >>> 0 !== 0 ||
+                k.eventCount(state.worldId, EventKind.SensorEnd) >>> 0 !== 0 ||
+                k.eventCount(state.worldId, EventKind.ContactBegin) >>> 0 !== 0 ||
+                k.eventCount(state.worldId, EventKind.ContactEnd) >>> 0 !== 0 ||
+                k.eventCount(state.worldId, EventKind.ContactHit) >>> 0 !== 0 ||
+                k.eventCount(state.worldId, EventKind.Joint) >>> 0 !== 0 ||
+                k.eventCount(state.worldId, EventKind.PendingSensorEnd) >>> 0 !== 0
             )
                 throw new Error("allocation subject's sensor overlaps changed in steady play");
             if (awakeContactCount(state) !== count)
