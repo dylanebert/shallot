@@ -1,4 +1,4 @@
-use shallot_draco::decode_faces;
+use shallot_draco::{decode, decode_faces};
 use std::{
     alloc::{GlobalAlloc, Layout, System},
     cell::Cell,
@@ -10,11 +10,24 @@ struct Meter {
     calls: usize,
     allocated: usize,
     budget: usize,
+    largest: usize,
+    live: usize,
+    peak: usize,
     fail_at: Option<usize>,
     denied: bool,
 }
-thread_local! { static METER: Cell<Meter> = const { Cell::new(Meter { active: false, calls: 0, allocated: 0, budget: 0, fail_at: None, denied: false }) }; }
+thread_local! { static METER: Cell<Meter> = const { Cell::new(Meter { active: false, calls: 0, allocated: 0, budget: 0, largest: 0, live: 0, peak: 0, fail_at: None, denied: false }) }; }
 struct Allocator;
+// Live bytes for peak memory; frees of memory allocated before metering saturate.
+fn release(size: usize) {
+    let _ = METER.try_with(|cell| {
+        let mut meter = cell.get();
+        if meter.active {
+            meter.live = meter.live.saturating_sub(size);
+            cell.set(meter);
+        }
+    });
+}
 fn admit(size: usize) -> bool {
     METER
         .try_with(|cell| {
@@ -23,11 +36,14 @@ fn admit(size: usize) -> bool {
                 return true;
             }
             let call = meter.calls;
+            meter.largest = meter.largest.max(size);
             meter.calls += 1;
             let allowed =
-                meter.fail_at != Some(call) && size <= meter.budget.saturating_sub(meter.allocated);
+                meter.fail_at != Some(call) && size <= meter.budget.saturating_sub(meter.live);
             if allowed {
                 meter.allocated += size;
+                meter.live += size;
+                meter.peak = meter.peak.max(meter.live);
             } else {
                 meter.denied = true;
             }
@@ -53,12 +69,14 @@ unsafe impl GlobalAlloc for Allocator {
     }
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
         if admit(size) {
+            release(layout.size());
             unsafe { System.realloc(ptr, layout, size) }
         } else {
             std::ptr::null_mut()
         }
     }
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        release(layout.size());
         unsafe { System.dealloc(ptr, layout) };
     }
 }
@@ -274,4 +292,104 @@ fn every_fixture_allocation_can_fail_without_aborting() {
             );
         }
     }
+}
+
+#[test]
+fn every_fixture_attribute_allocation_can_fail_without_aborting() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+    for row in include_str!("records/faces.tsv")
+        .lines()
+        .filter(|line| line.starts_with("fixtures/"))
+    {
+        let fields: Vec<_> = row.split('\t').collect();
+        let faces: usize = fields[1].parse().unwrap();
+        let points: usize = fields.last().unwrap().parse().unwrap();
+        let bytes = std::fs::read(root.join(format!("{}.drc", fields[0]))).unwrap();
+        let ids: Vec<u32> = include_str!("records/attributes.tsv")
+            .lines()
+            .filter(|line| line.split('\t').next() == Some(fields[0]))
+            .map(|line| line.split('\t').nth(2).unwrap().parse().unwrap())
+            .collect();
+        let (baseline, meter) = measured(64 * 1024 * 1024, None, || {
+            decode(&bytes, faces, points, &ids)
+        });
+        assert!(baseline.is_ok(), "{} baseline", fields[0]);
+        // Stage 1's bound: the 4 MiB rANS lookup, then caller-count-sized buffers
+        // (at most 255 components of 8 bytes per point or corner).
+        let bound = 4 << 20 | (points.max(3 * faces) * 255 * 8);
+        assert!(meter.largest <= bound, "{}: {meter:?}", fields[0]);
+        for failure in 0..meter.calls {
+            let (result, attempt) = measured(64 * 1024 * 1024, Some(failure), || {
+                decode(&bytes, faces, points, &ids)
+            });
+            assert!(
+                attempt.denied && result.is_err(),
+                "{} allocation {failure}",
+                fields[0]
+            );
+        }
+    }
+}
+
+#[test]
+fn declared_attribute_counts_stay_within_64_kib() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    // sequential-u8 ends with zero attribute decoders: replace that byte with
+    // one decoder whose attribute count, then component count, is far too large.
+    let mut base = std::fs::read(root.join("sequential-u8.drc")).unwrap();
+    assert_eq!(base.pop(), Some(0));
+    let mut count = base.clone();
+    count.push(1);
+    varint(600_000_000, &mut count);
+    let mut components = base.clone();
+    components.extend_from_slice(&[1, 1, 4, 10, 255, 0, 0, 0]);
+    // The 255-component float64 attribute is sized by the caller's 255 points.
+    for (name, bytes, budget) in [
+        ("attributes", count, 64 * 1024),
+        ("components", components, 64 * 1024 + 255 * 255 * 8),
+    ] {
+        let (result, meter) = measured(budget, None, || decode(&bytes, 3, 255, &[0]));
+        assert!(result.is_err(), "{name} accepted");
+        assert!(
+            meter.allocated <= budget && !meter.denied,
+            "{name}: {meter:?}"
+        );
+    }
+}
+
+#[test]
+fn unrequested_attributes_are_freed_once_decoded() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let mut bytes = std::fs::read(root.join("sequential-u8.drc")).unwrap();
+    assert_eq!(bytes.pop(), Some(0));
+    // One decoder of 2,000 int32 attributes of 255 components at the caller's
+    // 255 points: 260 KB each, 1 GB if all were kept, in a 24 KB stream. Each
+    // has no prediction and zero-width raw values.
+    let count = 2000;
+    bytes.push(1);
+    varint(count, &mut bytes);
+    for id in 0..count {
+        bytes.extend_from_slice(&[4, 5, 255, 0]);
+        varint(id, &mut bytes);
+    }
+    bytes.extend(std::iter::repeat_n(1, count));
+    for _ in 0..count {
+        bytes.extend_from_slice(&[0xfe, 0, 0]);
+    }
+    assert!(bytes.len() < 24 * 1024);
+    let one = 255 * 255 * 4;
+    let (result, meter) = measured(64 * 1024 * 1024, None, || decode(&bytes, 3, 255, &[7]));
+    let mesh = result.unwrap();
+    assert_eq!(mesh.attributes.len(), 1);
+    assert_eq!(mesh.attributes[0].unique_id, 7);
+    // Peak live bytes: the kept attribute plus one decoding at a time.
+    assert!(meter.peak <= 4 * one + 512 * 1024, "{meter:?}");
+    println!("peak {} bytes for {count} attributes", meter.peak);
+    let (result, _) = measured(64 * 1024 * 1024, None, || {
+        decode(&bytes, 3, 255, &[count as u32])
+    });
+    assert_eq!(
+        result.err(),
+        Some("requested Draco attribute unique id is not in the stream")
+    );
 }

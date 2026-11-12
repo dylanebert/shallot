@@ -1,14 +1,14 @@
 // Port of Draco 55462882: mesh_edgebreaker_decoder_impl.cc,
 // mesh_edgebreaker_traversal{,_valence}_decoder.h and mesh_attribute_corner_table.cc.
 use crate::{
-    allocation::push,
+    allocation::{filled, push},
     buffer::{Bits, Reader},
     entropy::{self, Binary},
     Result,
 };
 use std::collections::HashMap;
 
-const INVALID: usize = usize::MAX;
+pub(crate) const INVALID: usize = usize::MAX;
 const C: u32 = 0;
 const S: u32 = 1;
 const L: u32 = 3;
@@ -17,16 +17,7 @@ const E: u32 = 7;
 const TOPOLOGY_ERROR: &str = "invalid Draco Edgebreaker topology";
 const ALLOCATION_ERROR: &str = "Draco Edgebreaker allocation failed";
 
-fn filled<T: Clone>(count: usize, value: T) -> Result<Vec<T>> {
-    let mut values = Vec::new();
-    values
-        .try_reserve_exact(count)
-        .map_err(|_| ALLOCATION_ERROR)?;
-    values.resize(count, value);
-    Ok(values)
-}
-
-fn next(c: usize) -> usize {
+pub(crate) fn next(c: usize) -> usize {
     if c == INVALID {
         INVALID
     } else if c % 3 == 2 {
@@ -36,7 +27,7 @@ fn next(c: usize) -> usize {
     }
 }
 
-fn previous(c: usize) -> usize {
+pub(crate) fn previous(c: usize) -> usize {
     if c == INVALID {
         INVALID
     } else if c.is_multiple_of(3) {
@@ -46,10 +37,10 @@ fn previous(c: usize) -> usize {
     }
 }
 
-struct CornerTable {
-    vertices: Vec<usize>,
-    opposites: Vec<usize>,
-    leftmost: Vec<usize>,
+pub(crate) struct CornerTable {
+    pub vertices: Vec<usize>,
+    pub opposites: Vec<usize>,
+    pub leftmost: Vec<usize>,
     holes: Vec<bool>,
     max_faces: usize,
     max_vertices: usize,
@@ -100,7 +91,7 @@ impl CornerTable {
             .ok_or(TOPOLOGY_ERROR)
     }
 
-    fn opposite(&self, c: usize) -> usize {
+    pub fn opposite(&self, c: usize) -> usize {
         self.opposites.get(c).copied().unwrap_or(INVALID)
     }
 
@@ -139,11 +130,11 @@ impl CornerTable {
         Ok(())
     }
 
-    fn swing_left(&self, c: usize) -> usize {
+    pub fn swing_left(&self, c: usize) -> usize {
         next(self.opposite(next(c)))
     }
 
-    fn swing_right(&self, c: usize) -> usize {
+    pub fn swing_right(&self, c: usize) -> usize {
         previous(self.opposite(previous(c)))
     }
 
@@ -519,18 +510,21 @@ fn connectivity(
     Ok(())
 }
 
-struct Attribute {
-    edges: Vec<bool>,
+/// MeshAttributeCornerTable: base connectivity cut along one attribute's seams.
+pub(crate) struct SeamTable {
+    pub edges: Vec<bool>,
     on_seam: Vec<bool>,
-    vertices: Vec<usize>,
+    pub vertices: Vec<usize>,
+    pub leftmost: Vec<usize>,
 }
 
-impl Attribute {
+impl SeamTable {
     fn new(table: &CornerTable) -> Result<Self> {
         Ok(Self {
             edges: filled(table.vertices.len(), false)?,
             on_seam: filled(table.leftmost.len(), false)?,
             vertices: filled(table.vertices.len(), INVALID)?,
+            leftmost: Vec::new(),
         })
     }
 
@@ -565,6 +559,8 @@ impl Attribute {
             let mut id = count;
             count += 1;
             let mut first = c;
+            let leftmost = self.leftmost.len();
+            push(&mut self.leftmost, c)?;
             if self.on_seam[v] {
                 let mut act = self.swing_left(table, first);
                 let mut steps = 0;
@@ -581,6 +577,7 @@ impl Attribute {
                 return Err(TOPOLOGY_ERROR);
             }
             self.vertices[first] = id;
+            self.leftmost[leftmost] = first;
             let mut act = table.swing_right(first);
             let mut steps = 0;
             while act != INVALID && act != first {
@@ -591,6 +588,7 @@ impl Attribute {
                 if self.edges[next(act)] {
                     id = count;
                     count += 1;
+                    push(&mut self.leftmost, act)?;
                 }
                 self.vertices[act] = id;
                 act = table.swing_right(act);
@@ -602,7 +600,7 @@ impl Attribute {
 
 fn assign_points(
     table: &CornerTable,
-    attributes: &[Attribute],
+    attributes: &[SeamTable],
     expected_points: usize,
 ) -> Result<Vec<[u32; 3]>> {
     let mut points = filled(table.vertices.len(), u32::MAX)?;
@@ -694,12 +692,19 @@ fn assign_points(
     Ok(faces)
 }
 
+/// Decoded connectivity and the tables its attribute decoders traverse.
+pub(crate) struct Connectivity {
+    pub faces: Vec<[u32; 3]>,
+    pub table: CornerTable,
+    pub seams: Vec<SeamTable>,
+}
+
 /// Decode bitstream 2.2 connectivity, leaving the reader at attribute decoders.
 pub(crate) fn decode(
     r: &mut Reader<'_>,
     expected_faces: usize,
     expected_points: usize,
-) -> Result<Vec<[u32; 3]>> {
+) -> Result<Connectivity> {
     let valence = match r.byte()? {
         0 => false,
         1 => return Err("deprecated Draco predictive Edgebreaker is not supported"),
@@ -747,7 +752,7 @@ pub(crate) fn decode(
     )?;
     let mut attribute_tables = Vec::new();
     for _ in 0..attributes {
-        push(&mut attribute_tables, Attribute::new(&table)?)?;
+        push(&mut attribute_tables, SeamTable::new(&table)?)?;
     }
     for c in 0..table.vertices.len() {
         let opp = table.opposite(c);
@@ -763,7 +768,12 @@ pub(crate) fn decode(
     for attribute in &mut attribute_tables {
         attribute.recompute_vertices(&table)?;
     }
-    assign_points(&table, &attribute_tables, expected_points)
+    let faces = assign_points(&table, &attribute_tables, expected_points)?;
+    Ok(Connectivity {
+        faces,
+        table,
+        seams: attribute_tables,
+    })
 }
 
 #[cfg(test)]
@@ -785,7 +795,7 @@ mod tests {
             let mut bytes = encoded.to_vec();
             bytes.extend_from_slice(&[0x87, 0x43]);
             let mut r = Reader::new(&bytes);
-            assert_eq!(decode(&mut r, 4, 4).unwrap(), CLOSED_FACES);
+            assert_eq!(decode(&mut r, 4, 4).unwrap().faces, CLOSED_FACES);
             assert_eq!(r.offset, encoded.len());
             assert_eq!(r.take(2).unwrap(), &[0x87, 0x43]);
         }
@@ -794,20 +804,28 @@ mod tests {
     #[test]
     fn caller_counts_bound_header_and_require_final_point_count() {
         assert_eq!(
-            decode(&mut Reader::new(STANDARD_CLOSED), 5, 4).unwrap_err(),
+            decode(&mut Reader::new(STANDARD_CLOSED), 5, 4)
+                .err()
+                .unwrap(),
             "Draco face count mismatch"
         );
         assert_eq!(
-            decode(&mut Reader::new(STANDARD_CLOSED), 4, 3).unwrap_err(),
+            decode(&mut Reader::new(STANDARD_CLOSED), 4, 3)
+                .err()
+                .unwrap(),
             "Draco point count mismatch"
         );
         assert_eq!(
-            decode(&mut Reader::new(STANDARD_CLOSED), 4, 5).unwrap_err(),
+            decode(&mut Reader::new(STANDARD_CLOSED), 4, 5)
+                .err()
+                .unwrap(),
             "Draco point count mismatch"
         );
         for points in [4, 5, 7] {
             assert_eq!(
-                decode(&mut Reader::new(STANDARD_SEAMS), 2, points).unwrap_err(),
+                decode(&mut Reader::new(STANDARD_SEAMS), 2, points)
+                    .err()
+                    .unwrap(),
                 "Draco point count mismatch"
             );
         }
@@ -816,7 +834,7 @@ mod tests {
     #[test]
     fn attribute_seams_split_points_in_pinned_vertex_order() {
         let mut r = Reader::new(STANDARD_SEAMS);
-        assert_eq!(decode(&mut r, 2, 6).unwrap(), [[0, 1, 4], [2, 5, 3]]);
+        assert_eq!(decode(&mut r, 2, 6).unwrap().faces, [[0, 1, 4], [2, 5, 3]]);
         assert_eq!(r.offset, STANDARD_SEAMS.len());
     }
 
@@ -855,7 +873,8 @@ mod tests {
     #[test]
     fn predictive_traversal_is_refused_by_name() {
         assert!(decode(&mut Reader::new(&[1]), 0, 0)
-            .unwrap_err()
+            .err()
+            .unwrap()
             .contains("predictive"));
     }
 
@@ -897,8 +916,8 @@ mod tests {
     #[test]
     fn interior_seam_rotation_uses_first_attribute_with_a_discontinuity() {
         let table = tetrahedron();
-        let mut a = Attribute::new(&table).unwrap();
-        let mut b = Attribute::new(&table).unwrap();
+        let mut a = SeamTable::new(&table).unwrap();
+        let mut b = SeamTable::new(&table).unwrap();
         // Each seam loop encloses one face. At vertex zero the clockwise fan
         // is [0, 7, 11], with a discontinuity at 7 for A and at 11 for B.
         for c in [6, 7, 8] {

@@ -76,6 +76,45 @@ for (let context = 0; context < 6; context++) add(`valence.context.${context + 2
 
 add("attributes.none", "edgebreaker.rs", "if attributes.is_empty() {", `if attributes.is_empty() { ${refusal}`);
 add("attributes.connectivity", "edgebreaker.rs", "let mut count = 0u32;", `${refusal}\n        let mut count = 0u32;`);
+// Attribute paths: each must turn a recorded attribute output red.
+function attribute(name: string, file: string, before: string, after: string) {
+    add(`attribute.${name}`, file, before, after, "records", "every_recorded_attribute_is_bit_equal_to_the_pinned_decoder");
+}
+attribute("decoder.generic", "attributes.rs", "values.copy_from_slice(bytes);", "values.copy_from_slice(bytes);\n                    values[0] ^= 1;");
+attribute("decoder.integer", "attributes.rs", "out.copy_from_slice(&value.to_le_bytes()[..size]);", "out.copy_from_slice(&(value ^ 1).to_le_bytes()[..size]);");
+attribute("decoder.quantization", "attributes.rs", "quantization.min[i % components]", "quantization.min[(i + 1) % components]");
+attribute("decoder.normals", "attributes.rs", "tool.unit_vector(st[0], st[1])", "tool.unit_vector(st[1], st[0])");
+for (const [name, type] of [["u8", "Uint8"], ["i8", "Int8"], ["u16", "Uint16"], ["i16", "Int16"], ["u32", "Uint32"], ["i32", "Int32"]]) attribute(`integer.${name}`, "attributes.rs", "out.copy_from_slice(&value.to_le_bytes()[..size]);", `if attribute.data_type == DataType::${type} { ${refusal} }\n                        out.copy_from_slice(&value.to_le_bytes()[..size]);`);
+attribute("sequencer.linear", "attributes.rs", "ids.extend(0..points as u32);", "ids.extend(0..points.saturating_sub(1) as u32);");
+attribute("traversal.depth-first", "attributes.rs", "0 => Order::DepthFirst,", "0 => Order::PredictionDegree,");
+attribute("traversal.prediction-degree", "attributes.rs", "1 => Order::PredictionDegree,", "1 => Order::DepthFirst,");
+attribute("traversal.corner", "attributes.rs", "let corner = element != 0;", "let corner = element == 7;");
+attribute("prediction.none", "attributes.rs", "if method != -2 {", "if method != -3 {");
+attribute("prediction.dropped", "attributes.rs", "        (_, 1) => Transform::wrap(),\n        _ => return None,", "        _ => Transform::wrap(),");
+attribute("values.compressed", "attributes.rs", "*value = symbol as i32;", "*value = (symbol ^ 2) as i32;");
+attribute("values.raw.4", "attributes.rs", "bytes[..width].copy_from_slice(r.take(width)?);", `if width == 4 { ${refusal} }\n            bytes[..width].copy_from_slice(r.take(width)?);`);
+attribute("values.raw.narrow", "attributes.rs", "bytes[..width].copy_from_slice(r.take(width)?);", `if width < 4 { ${refusal} }\n            bytes[..width].copy_from_slice(r.take(width)?);`);
+attribute("prediction.delta", "prediction.rs", "let mut at = components;", "let mut at = components + components;");
+attribute("prediction.parallelogram", "prediction.rs", "if parallelogram(p, corner, mesh, data, components, &mut pred)? {", "if parallelogram(p, corner, mesh, data, components, &mut pred)? && p % 2 == 0 {");
+attribute("prediction.parallelogram.fallback", "prediction.rs", "                    } else {\n                        let previous = prior(data, at, components);", `                    } else {\n                        ${refusal}\n                        let previous = prior(data, at, components);`);
+attribute("prediction.multi-parallelogram", "prediction.rs", "*pred = pred.wrapping_add(*single);", "*pred = pred.wrapping_sub(*single);");
+attribute("prediction.multi-parallelogram.fallback", "prediction.rs", "self.average_or_previous(&mut pred, count, data, p, components)?;", `if count == 0 { ${refusal} }\n                    self.average_or_previous(&mut pred, count, data, p, components)?;`);
+attribute("prediction.constrained-multi-parallelogram", "prediction.rs", "if count == 4 {", "if count == 3 {");
+attribute("prediction.constrained-multi-parallelogram.crease", "prediction.rs", "if !*self.creases[context]", "if *self.creases[context]");
+attribute("prediction.constrained-multi-parallelogram.fallback", "prediction.rs", "self.average_or_previous(&mut pred, used, data, p, components)?;", `if used == 0 { ${refusal} }\n                    self.average_or_previous(&mut pred, used, data, p, components)?;`);
+attribute("prediction.tex-coords-deprecated", "prediction.rs", "let pnus = pn_uv[0] * s + n_uv[0];", "let pnus = pn_uv[0] * s - n_uv[0];");
+attribute("prediction.tex-coords-portable", "prediction.rs", "let root = int_sqrt(cx_norm.wrapping_mul(pn_norm)) as i64;", "let root = int_sqrt(cx_norm.wrapping_mul(pn_norm)) as i64 + 1;");
+attribute("prediction.tex-coords-portable.equal", "prediction.rs", "return Ok([p_uv[0] as i32, p_uv[1] as i32]);", "return Ok([p_uv[1] as i32, p_uv[0] as i32]);");
+attribute("prediction.tex-coords-portable.orientation", "prediction.rs", "let orientation = self.pop_orientation()?;", "let orientation = !self.pop_orientation()?;");
+attribute("prediction.tex-coords-portable.fallback", "prediction.rs", "let offset = if next < p {", "let offset = if next < p && p % 2 == 0 {");
+attribute("prediction.geometric-normal", "prediction.rs", "tool.canonicalize_vector(&mut normal);", "tool.canonicalize_vector(&mut normal);\n                    normal.swap(1, 2);");
+attribute("prediction.geometric-normal.flip", "prediction.rs", "normal = normal.map(i32::wrapping_neg);", "normal = normal.map(|v| v);");
+attribute("transform.wrap", "prediction.rs", "let (low, high) = (r.i32()?, r.i32()?);", "let (low, high) = (r.i32()?.wrapping_add(1), r.i32()?);");
+attribute("transform.wrap.clamp", "prediction.rs", "i64::from(pred.clamp(min, max))", "i64::from(pred)");
+attribute("transform.wrap.high", "prediction.rs", "value -= i64::from(max_dif);", "value -= i64::from(max_dif) - 1;");
+attribute("transform.wrap.low", "prediction.rs", "value += i64::from(max_dif);", "value += i64::from(max_dif) - 1;");
+attribute("transform.octahedron", "prediction.rs", "(pred[0] as u32).wrapping_sub(center) as i32,", "(pred[0] as u32).wrapping_sub(center + 1) as i32,");
+attribute("transform.octahedron-canonicalized", "prediction.rs", "pred[0].wrapping_sub(tool.center),", "pred[0].wrapping_sub(tool.center + 1),");
 const missingPaths = Object.keys(coverage).filter((path) => !mutations.some((mutation) => mutation.name === path));
 if (missingPaths.length) throw new Error(`recorded decoder paths without mutations: ${missingPaths.join(", ")}`);
 

@@ -12,6 +12,8 @@ inline long long &record_end() { static long long value = -1; return value; }
 inline long long &record_size() { static long long value = 0; return value; }
 inline std::set<std::string> &record_paths() { static std::set<std::string> value; return value; }
 inline void record_path(const char *path) { if (record_active()) record_paths().insert(path); }
+inline bool &record_attribute_active() { static bool value = false; return value; }
+inline void record_attribute(const char *path) { if (record_attribute_active()) record_paths().insert(path); }
 #endif
 `);
     function patch(file: string, edits: [string, string][]) {
@@ -68,6 +70,62 @@ inline void record_path(const char *path) { if (record_active()) record_paths().
     ]);
     patch("compression/entropy/ans.h", [
         ["    while (ans_.state < l_rans_base && ans_.buf_offset > 0) {", "    while (ans_.state < l_rans_base && ans_.buf_offset > 0) {\n      record_path(\"rans.symbol.renormalize\");"],
+    ]);
+    const attribute = (path: string) => `record_attribute("attribute.${path}");`;
+    patch("compression/point_cloud/point_cloud_decoder.cc", [
+        ["  if (!DecodePointAttributes()) {", "  record_attribute_active() = true;\n  if (!DecodePointAttributes()) {"],
+    ]);
+    patch("compression/mesh/mesh_sequential_decoder.cc", [
+        ["  // Always create the basic attribute decoder.", `  ${attribute("sequencer.linear")}`],
+    ]);
+    patch("compression/mesh/mesh_edgebreaker_decoder_impl.cc", [
+        ["    if (traversal_method == MESH_TRAVERSAL_PREDICTION_DEGREE) {", `    if (traversal_method == MESH_TRAVERSAL_PREDICTION_DEGREE) {\n      ${attribute("traversal.prediction-degree")}`],
+        ["    } else if (traversal_method == MESH_TRAVERSAL_DEPTH_FIRST) {", `    } else if (traversal_method == MESH_TRAVERSAL_DEPTH_FIRST) {\n      ${attribute("traversal.depth-first")}`],
+        ["    // Per-corner attribute decoder.", `    ${attribute("traversal.corner")}`],
+    ]);
+    patch("compression/attributes/sequential_attribute_decoders_controller.cc", [
+        ["    case SEQUENTIAL_ATTRIBUTE_ENCODER_GENERIC:", `    case SEQUENTIAL_ATTRIBUTE_ENCODER_GENERIC:\n      ${attribute("decoder.generic")}`],
+        ["    case SEQUENTIAL_ATTRIBUTE_ENCODER_INTEGER:", `    case SEQUENTIAL_ATTRIBUTE_ENCODER_INTEGER:\n      ${attribute("decoder.integer")}`],
+        ["    case SEQUENTIAL_ATTRIBUTE_ENCODER_QUANTIZATION:", `    case SEQUENTIAL_ATTRIBUTE_ENCODER_QUANTIZATION:\n      ${attribute("decoder.quantization")}`],
+        ["    case SEQUENTIAL_ATTRIBUTE_ENCODER_NORMALS:", `    case SEQUENTIAL_ATTRIBUTE_ENCODER_NORMALS:\n      ${attribute("decoder.normals")}`],
+    ]);
+    patch("compression/attributes/sequential_integer_attribute_decoder.cc", [
+        ["  if (prediction_scheme_method != PREDICTION_NONE) {", `  if (prediction_scheme_method == PREDICTION_NONE) ${attribute("prediction.none")}\n  if (prediction_scheme_method != PREDICTION_NONE) {`],
+        ["        static_cast<PredictionSchemeTransformType>(prediction_transform_type));", `        static_cast<PredictionSchemeTransformType>(prediction_transform_type));\n    if (!prediction_scheme_) ${attribute("prediction.dropped")}`],
+        ["  if (compressed > 0) {", `  if (compressed > 0) {\n    ${attribute("values.compressed")}`],
+        ["    if (num_bytes == DataTypeLength(DT_INT32)) {", `    if (num_bytes == DataTypeLength(DT_INT32)) {\n      ${attribute("values.raw.4")}`],
+        ["      if (in_buffer->remaining_size() <", `      ${attribute("values.raw.narrow")}\n      if (in_buffer->remaining_size() <`],
+        ...([["UINT8", "uint8_t", "u8"], ["INT8", "int8_t", "i8"], ["UINT16", "uint16_t", "u16"], ["INT16", "int16_t", "i16"], ["UINT32", "uint32_t", "u32"], ["INT32", "int32_t", "i32"]] as const).map(([dt, type, name]): [string, string] => [`    case DT_${dt}:\n      StoreTypedValues<${type}>(num_values);`, `    case DT_${dt}:\n      ${attribute(`integer.${name}`)}\n      StoreTypedValues<${type}>(num_values);`]),
+    ]);
+    const schemes = "compression/attributes/prediction_schemes/";
+    for (const [file, name] of [["prediction_scheme_delta_decoder.h", "delta"], ["mesh_prediction_scheme_parallelogram_decoder.h", "parallelogram"], ["mesh_prediction_scheme_multi_parallelogram_decoder.h", "multi-parallelogram"], ["mesh_prediction_scheme_constrained_multi_parallelogram_decoder.h", "constrained-multi-parallelogram"], ["mesh_prediction_scheme_tex_coords_decoder.h", "tex-coords-deprecated"], ["mesh_prediction_scheme_tex_coords_portable_decoder.h", "tex-coords-portable"]]) {
+        const edits: [string, string][] = [["  this->transform().Init(num_components);", `  ${attribute(`prediction.${name}`)}\n  this->transform().Init(num_components);`]];
+        if (name.includes("parallelogram")) edits.push(["      const int src_offset = (p - 1) * num_components;", `      ${attribute(`prediction.${name}.fallback`)}\n      const int src_offset = (p - 1) * num_components;`]);
+        if (name.startsWith("constrained")) edits.push(["        const bool is_crease = is_crease_edge_[context][pos];", `        const bool is_crease = is_crease_edge_[context][pos];\n        if (is_crease) ${attribute(`prediction.${name}.crease`)}`]);
+        patch(schemes + file, edits);
+    }
+    patch(schemes + "mesh_prediction_scheme_geometric_normal_decoder.h", [
+        ["  this->SetQuantizationBits(this->transform().quantization_bits());", `  ${attribute("prediction.geometric-normal")}\n  this->SetQuantizationBits(this->transform().quantization_bits());`],
+        ["    if (flip_normal_bit_decoder_.DecodeNextBit()) {", `    if (flip_normal_bit_decoder_.DecodeNextBit()) {\n      ${attribute("prediction.geometric-normal.flip")}`],
+    ]);
+    patch(schemes + "mesh_prediction_scheme_tex_coords_portable_predictor.h", [
+        ["    if (p_uv == n_uv) {", `    if (p_uv == n_uv) {\n      ${attribute("prediction.tex-coords-portable.equal")}`],
+        ["        const bool orientation = orientations_.back();", `        const bool orientation = orientations_.back();\n        ${attribute("prediction.tex-coords-portable.orientation")}`],
+        ["  if (next_data_id < data_id) {", `  ${attribute("prediction.tex-coords-portable.fallback")}\n  if (next_data_id < data_id) {`],
+    ]);
+    patch(schemes + "prediction_scheme_wrap_decoding_transform.h", [
+        ["    if (min_value > max_value) {", `    ${attribute("transform.wrap")}\n    if (min_value > max_value) {`],
+        ["      if (value > this->max_value()) {", `      if (value > this->max_value()) {\n        ${attribute("transform.wrap.high")}`],
+        ["      } else if (value < this->min_value()) {", `      } else if (value < this->min_value()) {\n        ${attribute("transform.wrap.low")}`],
+    ]);
+    patch(schemes + "prediction_scheme_wrap_transform_base.h", [
+        ["      if (predicted_val[i] > max_value_) {", `      if (predicted_val[i] > max_value_ || predicted_val[i] < min_value_) ${attribute("transform.wrap.clamp")}\n      if (predicted_val[i] > max_value_) {`],
+    ]);
+    patch(schemes + "prediction_scheme_normal_octahedron_decoding_transform.h", [
+        ["    return this->set_max_quantized_value(max_quantized_value);", `    ${attribute("transform.octahedron")}\n    return this->set_max_quantized_value(max_quantized_value);`],
+    ]);
+    patch(schemes + "prediction_scheme_normal_octahedron_canonicalized_decoding_transform.h", [
+        ["    if (this->quantization_bits() < 2) {", `    ${attribute("transform.octahedron-canonicalized")}\n    if (this->quantization_bits() < 2) {`],
     ]);
     patch("compression/entropy/symbol_decoding.cc", [
         ["  if (scheme == SYMBOL_CODING_TAGGED) {", "  if (scheme == SYMBOL_CODING_TAGGED) {\n    record_path(\"symbols.tagged\");"],

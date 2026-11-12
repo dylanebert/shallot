@@ -1,7 +1,24 @@
-# Draco header and connectivity records
+# Draco mesh decoder records
+
+`shallot_draco::decode(bytes, expected_faces, expected_points, attributes) -> Result<Mesh>`
+decodes a Draco **2.2 triangle mesh**: faces, and each attribute whose unique
+id is in `attributes` (in glTF, the extension's `attributes` values), in its
+Draco data type with its point-to-value map. A requested id the stream does
+not hold is refused by name. `Attribute::points(data_type)` gives
+the values for every point in a requested type, as the pinned
+`Decoder::GetAttributeDataArrayForAllPoints` (what three.js `DRACOLoader`
+calls) gives them, refusing where it refuses; `Mesh::attribute(unique_id)` finds
+an attribute as `GetAttributeByUniqueId`. A glTF accessor's `normalized` is a
+flag on the output, not a conversion. Attribute decoding covers what the pinned
+default build (`DRACO_BACKWARDS_COMPATIBILITY` on) takes for 2.2: generic,
+integer, quantization and normal decoders; delta, parallelogram,
+multi-parallelogram, constrained multi-parallelogram, deprecated and portable
+texture-coordinate and geometric-normal prediction; wrap, octahedron and
+canonicalized octahedron transforms; linear, depth-first, prediction-degree and
+per-corner traversals.
 
 `shallot_draco::decode_faces(bytes: &[u8], expected_faces: usize, expected_points: usize)
--> Result<Vec<[u32; 3]>>` decodes Draco **2.2 triangle-mesh connectivity** into
+-> Result<Vec<[u32; 3]>>` decodes Draco **2.2 triangle-mesh connectivity** only, into
 the pinned decoder's face and
 point-index order. It supports sequential raw and compressed indices, standard
 and valence Edgebreaker traversal, rANS raw/tagged symbols, topology splits,
@@ -79,6 +96,34 @@ are small, committed `.drc` files, generated through the pinned C++ encoder API.
 `licenses` contains the upstream port's Apache 2.0 license and authors, and each
 corpus model's license notice.
 
+## Attribute records
+
+`tests/records/attributes.tsv` records, for every attribute of every recorded
+stream, its descriptor and the SHA-256 of `points()` in its decoded type and in
+each type the corpus's accessors request for its unique id; fixtures record all
+seven output types. Every row, the decoded type's included, comes from the pinned
+wrapper, the path the importer uses; it refuses int64, uint64, float64 and bool
+output even for an attribute in that type, recorded as `refused`. The generator builds the reference with `-ffp-contract=off` and
+checks every corpus row against Google's committed `draco_decoder_gltf.wasm`
+(see erratum 9). `attribute.*` keys in `coverage.json` name the attribute paths
+each stream takes, traced only while attributes decode; all 40 are taken.
+
+Paths no corpus stream takes come from encoder fixtures:
+`attributes-sequential`, `-edgebreaker` and `-raw` (every integer width,
+64-bit, float64 and bool generic attributes, normalized and not,
+`PREDICTION_NONE`, raw values of 4 and fewer bytes) through `ExpertEncoder`.
+The pinned encoder contains the multi-parallelogram and deprecated
+texture-coordinate predictors and the non-canonicalized octahedron transform
+but never selects them, nor a delta transform for integers; `fixtures.cpp`
+reaches them through protected hooks (`HookedEdgebreaker`, `HookedController`)
+that construct those pinned encoder classes: `prediction-multi-parallelogram`,
+`prediction-tex-coords-deprecated`, `normals-octahedron-geometric`,
+`normals-octahedron-delta` and `prediction-dropped`. The glTF wasm build omits
+backwards compatibility and decodes methods 2 and 3 as delta, which gives
+wrong values for those streams: the 2.2 text defines multi-parallelogram
+decoding (`prediction.multi.parallelogram.decoder.md`) as the default build
+decodes it. Those two fixtures are held to the default build only.
+
 ## Allocation bounds
 
 `tests/memory.rs` meters decoder allocations on the calling thread. The
@@ -96,6 +141,24 @@ then denied in turn: each denial must return an error rather than abort the
 process. This covers metadata copies/stacks, entropy tables/output, topology
 maps/stacks, valences, seam tables, point maps and output faces. The test budget
 is allocator fault injection, not an additional runtime format restriction.
+
+Attribute allocations are sized by the caller's counts: at most
+`max(points, 3 × faces) × 255 components × 8 bytes`, beside stage 1's 4 MiB rANS
+lookup; every accepted fixture's full `decode` stays within that and survives
+each allocation being denied in turn. A declared attribute count of 600 million
+stays within 64 KiB. Peak memory follows the request: unrequested attributes
+are decoded and dropped, keeping only the first `POSITION`'s portable values
+and map, the one parent a prediction reads. A 24 KB stream of 2,000
+unrequested 255-component attributes at 255 points peaks at about 1 MB live,
+where keeping them would take 1 GB
+(`unrequested_attributes_are_freed_once_decoded`).
+
+Attribute truncation and bit flips are a deterministic sample in
+`truncated_and_corrupted_attributes_are_refused_without_panics`: 16 boundaries
+and 64 bits of each fixture's attribute bytes, 2 and 2 of each corpus stream.
+Where the pinned decoder is undefined on malformed input (out-of-range
+indexing, division by zero, a fan that never returns), the port returns an
+error; signed arithmetic wraps, as WebAssembly defines it.
 
 ## Measured paths and fixtures
 
@@ -245,6 +308,37 @@ undefined or host-dependent C++ behavior requires a separate decision.
    bounds. Metadata uses fallible vectors and in-place key sorting, not scans
    of preceding siblings; `metadata_handles_many_distinct_entries_and_children`
    covers 40,000 of each.
+
+9. **Dequantized normals follow non-contracted float arithmetic.** The
+   pinned `QuantizedOctahedralCoordsToUnitVector` computes `s * scale - 1`
+   and `x*x + y*y + z*z`; Apple clang on arm64 fuses these into
+   multiply-adds by default, x86-64 and Google's shipped wasm do not. 383
+   normal attributes in 374 streams differ in their last bit between the
+   two native builds. Records use `-ffp-contract=off`, which equals
+   `draco_decoder_gltf.wasm` on every corpus row; the port does not fuse.
+10. **Attribute decoding the text omits or states otherwise.** The text
+    decodes integer values only when the method is not `PREDICTION_NONE`,
+    has no raw (uncompressed) values, reads the attribute data id as UI8,
+    treats every non-normal non-integer decoder as quantization, stores
+    integers without a type cast, and specifies different dequantization
+    (`|v| × (1/max) × range`) and octahedral-to-vector arithmetic. The
+    pinned decoder reads the compressed flag and values for every method
+    (`attributes-sequential`'s `PREDICTION_NONE` attribute), reads raw values
+    of 0–4 bytes (`attributes-raw`), reads the data id as int8 with −1 for
+    positions, copies generic values raw, casts integers to the attribute's
+    type, dequantizes as `q × (range / max) + min`, and decodes normals as
+    above; the corpus records hold those arithmetics. It treats every element
+    type other than 0 as per-corner. It decodes multi-parallelogram,
+    deprecated texture coordinates and the non-canonicalized octahedron
+    transform. A method the factory does not pair with the transform falls
+    back to delta, and on sequential connectivity every mesh method is delta.
+    An integer decoder whose transform is not wrap, or a normal decoder whose
+    transform is neither octahedron, reads the transform byte and applies no
+    prediction (`prediction-dropped`). It refuses a wrap range of
+    `i32::MAX` or more, a reversed range, an even or out-of-range octahedron
+    maximum, a negative or oversized portable orientation count, more crease
+    flags or deprecated orientations than corners, and zero points. Each
+    fixture is a regression row in `attributes.tsv`.
 
 Header flags not used for metadata are ignored, as by the reference; they are
 not a reserved-bit rejection rule in these tests.

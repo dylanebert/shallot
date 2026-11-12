@@ -42,6 +42,12 @@ impl<'a> Reader<'a> {
         }
         Err("Draco varint overflow")
     }
+    pub fn i32(&mut self) -> Result<i32> {
+        Ok(i32::from_le_bytes(self.take(4)?.try_into().unwrap()))
+    }
+    pub fn f32(&mut self) -> Result<f32> {
+        Ok(f32::from_le_bytes(self.take(4)?.try_into().unwrap()))
+    }
     pub fn count(&mut self) -> Result<usize> {
         usize::try_from(self.varint(32)?).map_err(|_| "Draco count overflow")
     }

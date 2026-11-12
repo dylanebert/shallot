@@ -1,11 +1,15 @@
-//! Draco 2.2 triangle-mesh connectivity decoding.
+//! Draco 2.2 triangle-mesh decoding, bit-equal to Draco 1.5.9's decoder.
 //!
-//! `decode_faces` consumes the header, metadata and connectivity. Attribute
-//! decoding and validation of the remaining stream are outside this entry.
+//! `decode` returns faces and attributes; `decode_faces` stops after connectivity.
 mod allocation;
+mod attributes;
 mod buffer;
 mod edgebreaker;
 mod entropy;
+mod prediction;
+mod traversal;
+
+pub use attributes::{Attribute, AttributeType, DataType};
 
 use allocation::{copy, push};
 use buffer::Reader;
@@ -101,6 +105,53 @@ fn metadata(r: &mut Reader<'_>) -> Result<Metadata> {
     }
 }
 
+/// A decoded mesh: faces over `points` points, and each attribute's values.
+pub struct Mesh {
+    pub faces: Vec<[u32; 3]>,
+    pub points: usize,
+    pub attributes: Vec<Attribute>,
+}
+
+impl Mesh {
+    /// The first attribute with `unique_id`, as `GetAttributeByUniqueId`.
+    pub fn attribute(&self, unique_id: u32) -> Option<&Attribute> {
+        self.attributes.iter().find(|a| a.unique_id == unique_id)
+    }
+}
+
+/// Decodes a mesh only when its counts match the caller's trusted geometry
+/// counts, keeping the attributes whose unique ids are `attributes` (in glTF,
+/// the extension's `attributes` values) and refusing an id the stream lacks.
+pub fn decode(
+    bytes: &[u8],
+    expected_faces: usize,
+    expected_points: usize,
+    attributes: &[u32],
+) -> Result<Mesh> {
+    let header = parse_header(bytes)?;
+    let mut r = Reader::new(bytes);
+    r.take(header.size)?;
+    let (faces, connectivity) = match header.method {
+        Method::Sequential => (sequential(&mut r, expected_faces, expected_points)?, None),
+        Method::Edgebreaker => {
+            let mut connectivity = edgebreaker::decode(&mut r, expected_faces, expected_points)?;
+            (std::mem::take(&mut connectivity.faces), Some(connectivity))
+        }
+    };
+    let attributes = attributes::decode(
+        &mut r,
+        &faces,
+        expected_points,
+        connectivity.as_ref(),
+        attributes,
+    )?;
+    Ok(Mesh {
+        faces,
+        points: expected_points,
+        attributes,
+    })
+}
+
 /// Decodes connectivity only when its counts match the caller's trusted geometry counts.
 pub fn decode_faces(
     bytes: &[u8],
@@ -112,7 +163,9 @@ pub fn decode_faces(
     r.take(header.size)?;
     match header.method {
         Method::Sequential => sequential(&mut r, expected_faces, expected_points),
-        Method::Edgebreaker => edgebreaker::decode(&mut r, expected_faces, expected_points),
+        Method::Edgebreaker => {
+            Ok(edgebreaker::decode(&mut r, expected_faces, expected_points)?.faces)
+        }
     }
 }
 
