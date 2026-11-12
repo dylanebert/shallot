@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Capture } from "@dylanebert/shallot/rendering";
+import { type Capture, RenderingPlugin } from "@dylanebert/shallot/rendering";
 import { pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, type Page, test } from "playwright/test";
 
@@ -13,6 +13,7 @@ type BrowserDeviceRecord = {
         isFallbackAdapter?: boolean;
     };
     timestampsAvailable: boolean;
+    adapterFeatures: string[];
     requestedFeatures: string[];
     requestedLimits: Record<string, number | undefined>;
     features: string[];
@@ -83,6 +84,7 @@ test("the preview serves its isolated page and presents its first frame", async 
                     isFallbackAdapter: info.isFallbackAdapter,
                 },
                 timestampsAvailable: this.features.has("timestamp-query"),
+                adapterFeatures: [...this.features],
                 requestedFeatures: [...(descriptor?.requiredFeatures ?? [])].sort(),
                 requestedLimits: { ...(descriptor?.requiredLimits ?? {}) },
                 features: [...device.features]
@@ -118,8 +120,11 @@ test("the preview serves its isolated page and presents its first frame", async 
     console.info(`First-person browser device: ${JSON.stringify(device)}`);
     const floorFeatures = [
         "indirect-first-instance",
+        ...(RenderingPlugin.gpu?.preferredFeatures ?? []).filter((feature) =>
+            device.adapterFeatures.includes(feature),
+        ),
         ...(device.timestampsAvailable ? ["timestamp-query"] : []),
-    ];
+    ].sort();
     expect(device.requestedFeatures).toEqual(floorFeatures);
     expect(device.requestedLimits).not.toHaveProperty("maxStorageBuffersPerShaderStage");
     expect(device.features).toEqual(floorFeatures);

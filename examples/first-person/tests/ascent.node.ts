@@ -9,6 +9,7 @@ import {
     type createApp,
     GlobalTransform,
     GroundState,
+    RenderingPlugin,
     Shape,
     Transform,
 } from "@dylanebert/shallot";
@@ -25,11 +26,14 @@ await setupGlobals();
 async function openApp(): Promise<{
     app: Awaited<ReturnType<typeof createApp>>;
     deviceRequest: GPUDeviceDescriptor | undefined;
+    adapterFeatures: ReadonlySet<string>;
 }> {
     let deviceRequest: GPUDeviceDescriptor | undefined;
+    let adapterFeatures: ReadonlySet<string> = new Set();
     const requestDevice = GPUAdapter.prototype.requestDevice;
     GPUAdapter.prototype.requestDevice = async function (descriptor) {
         deviceRequest = descriptor;
+        adapterFeatures = new Set(this.features);
         return requestDevice.call(this, descriptor);
     };
     try {
@@ -51,6 +55,7 @@ async function openApp(): Promise<{
                 ],
             }),
             deviceRequest,
+            adapterFeatures,
         };
     } finally {
         GPUAdapter.prototype.requestDevice = requestDevice;
@@ -100,7 +105,7 @@ function goalReached(
 }
 
 test("tick-addressed PlayerInput clears the route goals and captures the resulting frame", async () => {
-    const { app, deviceRequest } = await openApp();
+    const { app, deviceRequest, adapterFeatures } = await openApp();
     try {
         const { world } = app;
         const route = world.resource(Route).entities;
@@ -149,7 +154,13 @@ test("tick-addressed PlayerInput clears the route goals and captures the resulti
         if (!device)
             throw new Error(`goal "final-frame" failed at tick ${tick - 1}: no rendering device`);
         console.info(`first-person ascent adapter: ${adapter.class} (${adapter.identity})`);
-        const floorFeatures = ["indirect-first-instance"];
+        // The floor, plus the features RenderingPlugin prefers that this adapter offers.
+        const floorFeatures = [
+            "indirect-first-instance",
+            ...(RenderingPlugin.gpu?.preferredFeatures ?? []).filter((feature) =>
+                adapterFeatures.has(feature),
+            ),
+        ].sort();
         const grantedFeatures = [...device.features]
             .filter((feature) => feature !== "core-features-and-limits")
             .sort();

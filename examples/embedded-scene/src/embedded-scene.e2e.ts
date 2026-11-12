@@ -1,5 +1,6 @@
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { RenderingPlugin } from "@dylanebert/shallot/rendering";
 import { expect, expectStartupAlert, type Page, releasing, test } from "../tests/browser-fixture";
 
 const CAPTURE_ENTRY = resolve(
@@ -32,6 +33,7 @@ declare global {
         __startupDeviceLoss?: boolean;
         __subjectDeviceRecord?: {
             identity: string;
+            adapterFeatures: string[];
             requestedFeatures: string[];
             requestedLimits: Record<string, number | undefined>;
             features: string[];
@@ -693,6 +695,7 @@ test("embedded-scene progress stays in its owned frame and reaches the bar; its 
                     [info.vendor, info.architecture, info.device, info.description]
                         .filter((value) => typeof value === "string" && value.trim() !== "")
                         .join(" ") || "unidentified",
+                adapterFeatures: [...this.features],
                 requestedFeatures: [...(descriptor?.requiredFeatures ?? [])].sort(),
                 requestedLimits: { ...(descriptor?.requiredLimits ?? {}) },
                 features: [...device.features]
@@ -757,7 +760,13 @@ test("embedded-scene progress stays in its owned frame and reaches the bar; its 
             );
             expect(held.progressBar, "the real page owns a progress bar during loading").toBe(true);
             expect(held.device?.identity, "the subject adapter identity was recorded").toBeTruthy();
-            const floorFeatures = ["indirect-first-instance"];
+            // The floor, plus the features RenderingPlugin prefers that this adapter offers.
+            const floorFeatures = [
+                "indirect-first-instance",
+                ...(RenderingPlugin.gpu?.preferredFeatures ?? []).filter((feature) =>
+                    held.device?.adapterFeatures.includes(feature),
+                ),
+            ].sort();
             expect(held.device?.requestedFeatures).toEqual(floorFeatures);
             expect(held.device?.features).toEqual(floorFeatures);
             expect(held.device?.requestedLimits).not.toHaveProperty(

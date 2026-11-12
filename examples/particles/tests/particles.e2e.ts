@@ -1,4 +1,5 @@
 import { mkdirSync, writeFileSync } from "node:fs";
+import { RenderingPlugin } from "@dylanebert/shallot/rendering";
 import { pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, type Page, test } from "playwright/test";
 
@@ -13,7 +14,11 @@ declare global {
     interface Window {
         particles: {
             adapter: { class: string; identity: string };
-            requests: { requiredLimits?: Record<string, number>; requiredFeatures?: string[] }[];
+            requests: {
+                requiredLimits?: Record<string, number>;
+                requiredFeatures?: string[];
+                adapterFeatures: string[];
+            }[];
             evidence(): Promise<Evidence>;
             walk(count?: number): { before: number; after: number };
             profiler(): void;
@@ -108,7 +113,14 @@ test.describe("one composed view", () => {
             expect(value).toBe(0);
         }
         expect([...(requests[0].requiredFeatures ?? [])].sort()).toEqual(
-            ["indirect-first-instance", "timestamp-query"]
+            [
+                "indirect-first-instance",
+                // The features RenderingPlugin prefers that this adapter offers.
+                ...(RenderingPlugin.gpu?.preferredFeatures ?? []).filter((feature) =>
+                    requests[0].adapterFeatures.includes(feature),
+                ),
+                "timestamp-query",
+            ]
                 .filter(
                     (feature) =>
                         feature !== "timestamp-query" ||
