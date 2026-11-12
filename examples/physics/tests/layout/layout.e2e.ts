@@ -1,7 +1,7 @@
 import { holdFrames, pipelineWarnings } from "@dylanebert/shallot/testing";
 import { type Browser, expect, type Page, test } from "playwright/test";
-import { formatValue } from "../src/control-format";
-import { categories, type Scene, scenes } from "../src/scenes";
+import { formatValue } from "../../src/control-format";
+import { categories, type Scene, scenes } from "../../src/scenes";
 
 test.use(pipelineWarnings);
 

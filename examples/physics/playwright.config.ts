@@ -8,6 +8,7 @@ export const config = {
         "**/tests/stepped-controls/**",
         "**/tests/panels/**",
         "**/tests/hints/**",
+        "**/tests/layout/**",
     ],
     ...BROWSER_CONFIG,
     use: {
