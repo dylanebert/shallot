@@ -9,7 +9,7 @@
 - added device-resolved image sources for compressed textures and supplied mip chains
 - fixed browser canvas acquisition recovery, Firefox frame re-entry and tonemapping lut decoding on older browsers
 - fixed overlapping gpu profile totals and frame latency reporting
-- fixed physics shared-memory pointers above 2 gib and capped wasm kernel memory at 2 gib
+- fixed physics shared-memory pointers above 2 gib and capped unshared wasm kernel memory at 2 gib, retaining 4 gib for shared physics
 - fixed line clipping against authored camera bounds with infinite reverse-z
 - fixed material binding tuple inference for typescript consumers
 - fixed failed image preparation reporting and reduced physics shape-mesh allocations
