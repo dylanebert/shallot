@@ -39,6 +39,9 @@ export const ONLY: Readonly<Record<string, readonly NodeJS.Platform[]>> = {
     // as non-conformant (https://issues.chromium.org/issues/536046187). Windows layout and input stay held by
     // the subjects every host keeps.
     "examples/gltf": ["darwin", "linux"],
+    // Its claims fail on a real GPU; SwiftShader adds only frame time, which 2,560 skinned, shadowed CesiumMan stretch
+    // past a screenshot's 60 s wait (run 43272315430).
+    "examples/gltf/tests/crowd": ["darwin"],
     "src/core/rendering/tests/images": ["darwin", "linux"],
     "src/extras/effect-stack/browser": ["darwin", "linux"],
     "src/extras/gltf/browser": ["darwin", "linux"],

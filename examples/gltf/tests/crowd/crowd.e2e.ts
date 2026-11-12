@@ -1,6 +1,6 @@
 import { holdFrames, pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, test } from "playwright/test";
-import { scenePixels } from "./scenes";
+import { scenePixels } from "../scenes";
 
 test.use({
     ...pipelineWarnings,
