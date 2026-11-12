@@ -115,10 +115,11 @@ for (const feature of [
     "texture-compression-bc",
     undefined,
 ] as const) {
-    test(`${feature ?? "no compression"}: every BasisU fixture uploads the selected reference target at every level`, async () => {
-        if (feature) expect(adapter.features.has(feature)).toBe(true);
+    // An adapter without the feature holds the target the transcoder falls back to on a device lacking it.
+    const granted = feature && adapter.features.has(feature) ? feature : undefined;
+    test(`${feature ?? "no compression"}: every BasisU fixture uploads the selected reference target at every level${feature && !granted ? ", falling back where the adapter lacks it" : ""}`, async () => {
         const device = await (await navigator.gpu.requestAdapter())!.requestDevice({
-            requiredFeatures: feature ? [feature] : [],
+            requiredFeatures: granted ? [granted] : [],
         });
         device.pushErrorScope("validation");
         const app = await createApp({
@@ -141,13 +142,13 @@ for (const feature of [
                     const target =
                         single && mipmaps
                             ? "rgba8"
-                            : record.codec === "uastc" && feature === "texture-compression-astc"
+                            : record.codec === "uastc" && granted === "texture-compression-astc"
                               ? "astc"
-                              : record.codec === "etc1s" && feature === "texture-compression-etc2"
+                              : record.codec === "etc1s" && granted === "texture-compression-etc2"
                                 ? file.includes("-alpha")
                                     ? "etc2-rgba"
                                     : "etc1"
-                                : feature === "texture-compression-bc"
+                                : granted === "texture-compression-bc"
                                   ? "bc7"
                                   : "rgba8";
                     const id = registerImage(

@@ -63,53 +63,73 @@ async function read(
 }
 
 for (const [feature, flag, formats] of families) {
-    test(`${feature}: linear and sRGB levels round trip and disabled formats reject by name`, async () => {
-        expect(adapter.features.has(feature)).toBe(true);
-        const device = await (await navigator.gpu.requestAdapter())!.requestDevice({
-            requiredFeatures: [feature],
-        });
-        device.pushErrorScope("validation");
-        const app = await createApp({
-            defaults: false,
-            plugins: [RenderingPlugin],
-            device,
-            adapter,
-        });
-        try {
-            for (const format of formats)
-                for (const isSrgb of [false, true]) {
-                    const bytes = format === "etc2-rgb8unorm" ? 8 : 16;
-                    const levels = [8, 4, 2, 1].map((size, level) =>
-                        Uint8Array.from(
-                            { length: Math.ceil(size / 4) ** 2 * bytes },
-                            (_, i) => (i * 13 + level * 37) & 255,
-                        ),
-                    );
-                    let calls = 0;
-                    const id = registerImage(
-                        app.world,
-                        (supported) => {
-                            expect(supported).toBe(flag);
-                            calls++;
-                            return { format, width: 8, height: 8, levels };
-                        },
-                        { isSrgb },
-                    );
-                    await prepareImages(app.world);
-                    expect(calls).toBe(1);
-                    const texture = imageTexture(app.world, id, { isSrgb });
-                    expect(texture.format).toBe(isSrgb ? `${format}-srgb` : format);
-                    for (let level = 0; level < levels.length; level++) {
-                        const rows = Math.ceil(Math.max(1, 8 >> level) / 4);
-                        expect(await read(device, texture, level, rows, rows * bytes)).toEqual(
-                            levels[level],
+    const offered = adapter.features.has(feature);
+    test(`${feature}: ${offered ? "linear and sRGB levels round trip" : "an adapter without it leaves the family unsupported"} and disabled formats reject by name`, async () => {
+        if (!offered) {
+            // RenderingPlugin prefers the feature; on this adapter its device lacks it, so the family is refused.
+            const app = await createApp({ defaults: false, plugins: [RenderingPlugin] });
+            try {
+                expect(app.world.gpu.device?.features.has(feature)).toBe(false);
+                registerImage(app.world, (supported) => {
+                    expect(supported & flag).toBe(0);
+                    return {
+                        format: formats[0] as ImageFormat,
+                        width: 4,
+                        height: 4,
+                        levels: [new Uint8Array(16)],
+                    };
+                });
+                await expect(prepareImages(app.world)).rejects.toThrow(formats[0]);
+            } finally {
+                app.dispose();
+            }
+        } else {
+            const device = await (await navigator.gpu.requestAdapter())!.requestDevice({
+                requiredFeatures: [feature],
+            });
+            device.pushErrorScope("validation");
+            const app = await createApp({
+                defaults: false,
+                plugins: [RenderingPlugin],
+                device,
+                adapter,
+            });
+            try {
+                for (const format of formats)
+                    for (const isSrgb of [false, true]) {
+                        const bytes = format === "etc2-rgb8unorm" ? 8 : 16;
+                        const levels = [8, 4, 2, 1].map((size, level) =>
+                            Uint8Array.from(
+                                { length: Math.ceil(size / 4) ** 2 * bytes },
+                                (_, i) => (i * 13 + level * 37) & 255,
+                            ),
                         );
+                        let calls = 0;
+                        const id = registerImage(
+                            app.world,
+                            (supported) => {
+                                expect(supported).toBe(flag);
+                                calls++;
+                                return { format, width: 8, height: 8, levels };
+                            },
+                            { isSrgb },
+                        );
+                        await prepareImages(app.world);
+                        expect(calls).toBe(1);
+                        const texture = imageTexture(app.world, id, { isSrgb });
+                        expect(texture.format).toBe(isSrgb ? `${format}-srgb` : format);
+                        for (let level = 0; level < levels.length; level++) {
+                            const rows = Math.ceil(Math.max(1, 8 >> level) / 4);
+                            expect(await read(device, texture, level, rows, rows * bytes)).toEqual(
+                                levels[level],
+                            );
+                        }
                     }
-                }
-            expect(await device.popErrorScope()).toBeNull();
-        } finally {
-            app.dispose();
-            device.destroy();
+                expect(await device.popErrorScope()).toBeNull();
+            } finally {
+                app.dispose();
+                device.destroy();
+            }
         }
         const bare = await (await navigator.gpu.requestAdapter())!.requestDevice();
         const other = await createApp({
