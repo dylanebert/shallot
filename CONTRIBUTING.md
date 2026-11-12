@@ -159,7 +159,7 @@ bun run format                  # biome
 
 - Module promises are tested beside their owners and through public examples; test names state claims
 - A change to an example also runs the engine tests that read it, `rg -l 'examples/<name>' src scripts diagnostics`, apart from manual oracles
-- Shared timeouts and browser configuration live in [the `./testing` subpath](src/project/testing.js). Ceilings catch hangs and runaway work, not performance regressions; [slow-test warnings](scripts/report-slow-tests.ts) name the remedy
+- Shared timeouts and browser configuration live in [the `./testing` subpath](src/project/testing.js). Ceilings catch hangs and runaway work, not performance regressions; hosted [slow-test warnings](scripts/report-slow-tests.ts) fire above half the CI ceiling and name the remedy
 
 | Tier | Files | Timeout |
 |---|---|---|

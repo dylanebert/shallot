@@ -38,7 +38,7 @@ test("a missing or malformed browser JUnit report fails instead of losing the wa
         }
         writeFileSync(
             report,
-            '<testsuites time="31"><testsuite time="1"><testcase name="page" time="1" /></testsuite></testsuites>',
+            '<testsuites time="151"><testsuite time="1"><testcase name="page" time="1" /></testsuite></testsuites>',
         );
         const child = Bun.spawnSync({
             ...bunChild([
@@ -53,7 +53,7 @@ test("a missing or malformed browser JUnit report fails instead of losing the wa
         });
         expect(child.exitCode, child.stderr.toString()).toBe(0);
         expect(child.stdout.toString()).toContain(
-            'subject "examples/embedded-scene" took 31000.00 ms',
+            'subject "examples/embedded-scene" took 151000.00 ms; over half its browser CI ceiling 300000 ms',
         );
         writeFileSync(output, "existing=value\n");
         const flaky = Bun.spawnSync({

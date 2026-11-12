@@ -1,5 +1,5 @@
 import { appendFileSync } from "node:fs";
-import { BUDGET } from "@dylanebert/shallot/testing";
+import { CEILING } from "@dylanebert/shallot/testing";
 import type { JSONReport, JSONReportSuite } from "playwright/types/testReporter";
 import { normalizePath } from "../src/project/paths";
 
@@ -117,13 +117,13 @@ export function slowTests(report: string, log = "", subject?: string): SlowTest[
         if (!completeXml(report) || !Number.isFinite(seconds) || seconds < 0)
             throw new Error("invalid JUnit browser subject duration");
         const timeMs = seconds * 1000;
-        if (timeMs > BUDGET.browser / 2)
+        if (timeMs > CEILING.browser / 2)
             slow.push({
                 name: subject,
                 file: subject,
                 tier: "browser",
                 timeMs,
-                budget: BUDGET.browser,
+                budget: CEILING.browser,
             });
         return slow;
     }
@@ -136,7 +136,7 @@ export function slowTests(report: string, log = "", subject?: string): SlowTest[
             throw new Error(`invalid JUnit testcase: ${match[0]}`);
 
         const tier = tierForFile(file);
-        const budget = BUDGET[tier];
+        const budget = CEILING[tier];
         const timeMs = seconds * 1000;
         if (timeMs <= budget / 2) continue;
         slow.push({ name, file, tier, timeMs, budget, adapter: adapterForFile(log, file) });
@@ -211,7 +211,7 @@ function escapeProperty(value: string): string {
 
 /** CONTRIBUTING, Verification: what a warning asks of whoever reads it. */
 const REMEDY =
-    "if it recurs on other runs, make it cheaper, split it or move it to a heavier tier; one slow runner needs nothing";
+    "approaching the CI hang ceiling: make it cheaper, split it or move it to a heavier tier";
 
 export function warningAnnotation(test: SlowTest, host: string): string {
     const duration = `${test.timeMs.toFixed(2)} ms`;
@@ -220,7 +220,7 @@ export function warningAnnotation(test: SlowTest, host: string): string {
         `${test.tier === "browser" && !test.subject ? "subject" : "test"} ${JSON.stringify(test.name)} took ${duration}`,
         test.subject
             ? `over half its Playwright project timeout ${test.budget} ms`
-            : `over half its ${test.tier} speed budget ${test.budget} ms`,
+            : `over half its ${test.tier} CI ceiling ${test.budget} ms`,
         `host ${host}`,
         ...(test.adapter ? [`adapter ${test.adapter}`] : []),
         REMEDY,
