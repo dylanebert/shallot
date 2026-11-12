@@ -70,12 +70,22 @@ impl<'a> Bits<'a> {
         {
             return Err("truncated Draco bits");
         }
-        let mut value = 0;
-        for bit in 0..count {
-            value |= u32::from((self.bytes[self.offset / 8] >> (self.offset % 8)) & 1) << bit;
-            self.offset += 1;
-        }
-        Ok(value)
+        // Least-significant bit first, across byte boundaries.
+        let first = self.offset / 8;
+        let value = match self.bytes.get(first..first + 8) {
+            Some(window) => u64::from_le_bytes(window.try_into().unwrap()),
+            None => {
+                let mut value = 0u64;
+                let last = (self.offset + count as usize).div_ceil(8);
+                for (i, &byte) in self.bytes[first..last].iter().enumerate() {
+                    value |= u64::from(byte) << (8 * i);
+                }
+                value
+            }
+        };
+        let value = (value >> (self.offset % 8)) & ((1u64 << count) - 1);
+        self.offset += count as usize;
+        Ok(value as u32)
     }
     pub fn consumed(&self) -> usize {
         self.offset.div_ceil(8)

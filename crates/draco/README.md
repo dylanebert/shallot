@@ -47,6 +47,45 @@ methods are errors. Truncated or structurally corrupt connectivity returns an
 error, not a panic. Draco has no payload checksum: arbitrary bit changes can
 encode another valid mesh and are not universally detectable.
 
+## WebAssembly entry
+
+`src/extras/gltf/draco.ts` owns the JavaScript boundary.
+`decodeDraco(stream, faces, points, [{ id, type }])` copies the stream into
+WebAssembly, decodes it with `decode`'s inputs, and returns `faces`
+(`Uint32Array`, three indices per face) and, per request in order, the
+attribute's `components` and its values for every point as `type`'s typed array.
+Each result owns its memory; the WebAssembly output is freed before it returns.
+Every refusal, the decoder's or the entry's own (counts, ids, types), throws an
+`Error` naming it. Importing the module instantiates nothing until a stream is
+decoded. It is not re-exported by the glTF barrel.
+
+```sh
+bun crates/draco/scripts/build.ts
+bun test scripts/check-draco.test.ts src/extras/gltf/draco.test.ts
+DRACO=/path/to/draco bun diagnostics/draco-records/timing.oracle.ts
+DRACO=/path/to/draco bun diagnostics/draco-records/browser.oracle.ts
+```
+
+The build stamps its Rust sources and build inputs, as the other crate
+artifacts do. The JavaScript test decodes every recorded stream through the
+built artifact, requesting each recorded unique id and output type, and
+requires its faces, components and values to equal the records and each
+recorded refusal to throw.
+
+The timing oracles run three fresh Bun processes and three fresh Chrome pages.
+Each batch decodes every corpus stream of one model through one entry, with
+its input and output copies. The reference is Draco's committed
+`javascript/draco_decoder_gltf.wasm` through `draco_wasm_wrapper_gltf.js` at
+the pin, called as three.js `DRACOLoader`'s worker calls it: a `Decoder` per
+stream, `GetEncodedGeometryType`, `DecodeArrayToMesh`, then
+`GetAttributeDataArrayForAllPoints` and `GetTrianglesUInt32Array` into
+`_malloc`ed memory sliced out. Both entries request each stream's corpus
+accessors' unique ids and types. The oracles check the pin, a clean checkout
+and byte-equal output before timing, then follow
+`diagnostics/basisu-records`: alternating warmup, calibration to at least
+100 ms and 256 sampled batches per entry, reporting each model's minimum and
+the first 128 batches' minimum. Timings are measurements, not test assertions.
+
 ## Pinned records
 
 `tests/records/faces.tsv` records face count, flattened output byte length and

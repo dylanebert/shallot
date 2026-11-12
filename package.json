@@ -74,6 +74,8 @@
         "crates/basisu/licenses/LICENSE-basis-universal",
         "crates/basisu/licenses/LICENSE-zstd",
         "crates/basisu/licenses/NOTICE-basis-universal",
+        "crates/draco/licenses/Draco.txt",
+        "crates/draco/licenses/Draco-AUTHORS.txt",
         "crates/native",
         "assets/icon-1024.png",
         "!assets/branding/**",

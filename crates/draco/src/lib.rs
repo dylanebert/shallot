@@ -8,6 +8,8 @@ mod edgebreaker;
 mod entropy;
 mod prediction;
 mod traversal;
+#[cfg(target_arch = "wasm32")]
+mod wasm;
 
 pub use attributes::{Attribute, AttributeType, DataType};
 

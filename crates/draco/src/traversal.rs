@@ -3,7 +3,7 @@
 // mesh_attribute_indices_encoding_data.h.
 use crate::{
     allocation::{filled, push},
-    edgebreaker::{next, previous, CornerTable, SeamTable, INVALID},
+    edgebreaker::{face, neighbours, next, previous, CornerTable, SeamTable, INVALID},
     Result,
 };
 
@@ -23,13 +23,6 @@ pub(crate) trait Corners {
     }
     fn swing_right(&self, c: usize) -> usize {
         previous(self.opposite(previous(c)))
-    }
-    fn left_corner(&self, c: usize) -> usize {
-        if c == INVALID {
-            INVALID
-        } else {
-            self.opposite(previous(c))
-        }
     }
     fn right_corner(&self, c: usize) -> usize {
         if c == INVALID {
@@ -95,6 +88,37 @@ impl Corners for AttributeCorners<'_> {
     }
 }
 
+/// The table an attribute traverses, dispatched statically in its hot loops.
+#[derive(Clone, Copy)]
+pub(crate) enum Table<'a> {
+    Base(&'a CornerTable),
+    Seams(&'a AttributeCorners<'a>),
+}
+
+macro_rules! delegate {
+    ($($name:ident($($arg:ident: $ty:ty),*) -> $out:ty;)*) => {
+        impl Corners for Table<'_> {
+            $(
+                #[inline]
+                fn $name(&self, $($arg: $ty),*) -> $out {
+                    match self {
+                        Table::Base(table) => table.$name($($arg),*),
+                        Table::Seams(table) => table.$name($($arg),*),
+                    }
+                }
+            )*
+        }
+    };
+}
+delegate! {
+    num_vertices() -> usize;
+    num_corners() -> usize;
+    opposite(c: usize) -> usize;
+    vertex(c: usize) -> usize;
+    leftmost(v: usize) -> usize;
+    is_on_boundary(v: usize) -> bool;
+}
+
 /// MeshAttributeIndicesEncodingData. Unvisited vertices map to value zero, as
 /// `std::vector::resize` leaves them in the pinned decoder.
 #[derive(Default)]
@@ -111,21 +135,26 @@ impl Encoding {
         })
     }
 
+    #[inline(always)]
+    /// Records value `count`; `points` and `value_to_corner` are pre-sized
+    /// to the vertex count, which bounds the values one traversal visits.
     fn visit(
         &mut self,
         faces: &[[u32; 3]],
-        points: &mut Vec<u32>,
+        points: &mut [u32],
+        count: usize,
         vertex: usize,
         corner: usize,
     ) -> Result<()> {
-        let point = faces.get(corner / 3).ok_or(TRAVERSAL_ERROR)?[corner % 3];
-        let value = i32::try_from(self.value_to_corner.len()).map_err(|_| TRAVERSAL_ERROR)?;
+        let point = faces.get(face(corner)).ok_or(TRAVERSAL_ERROR)?[corner - 3 * face(corner)];
+        let value = i32::try_from(count).map_err(|_| TRAVERSAL_ERROR)?;
         *self
             .vertex_to_value
             .get_mut(vertex)
             .ok_or(TRAVERSAL_ERROR)? = value;
-        push(points, point)?;
-        push(&mut self.value_to_corner, corner)
+        *points.get_mut(count).ok_or(TRAVERSAL_ERROR)? = point;
+        *self.value_to_corner.get_mut(count).ok_or(TRAVERSAL_ERROR)? = corner;
+        Ok(())
     }
 }
 
@@ -142,18 +171,20 @@ struct Visits {
 
 impl Visits {
     fn face(&self, c: usize) -> bool {
-        c == INVALID || self.faces.get(c / 3).copied().unwrap_or(true)
+        c == INVALID || self.faces.get(face(c)).copied().unwrap_or(true)
     }
     fn vertex(&self, v: usize) -> Result<bool> {
         self.vertices.get(v).copied().ok_or(TRAVERSAL_ERROR)
     }
     // Marks `v` and reports it to the observer if it was unvisited.
+    #[inline(always)]
     fn visit(&mut self, context: &mut Observer<'_>, v: usize, corner: usize) -> Result<()> {
         if !self.vertex(v)? {
             self.vertices[v] = true;
             context
                 .encoding
-                .visit(context.faces, context.points, v, corner)?;
+                .visit(context.faces, context.points, context.count, v, corner)?;
+            context.count += 1;
         }
         Ok(())
     }
@@ -162,7 +193,8 @@ impl Visits {
 struct Observer<'a> {
     faces: &'a [[u32; 3]],
     encoding: &'a mut Encoding,
-    points: &'a mut Vec<u32>,
+    points: &'a mut [u32],
+    count: usize,
 }
 
 /// MeshTraversalSequencer::GenerateSequence: the point order in which the
@@ -173,10 +205,8 @@ pub(crate) fn sequence(
     faces: &[[u32; 3]],
     encoding: &mut Encoding,
 ) -> Result<Vec<u32>> {
-    let mut points = Vec::new();
-    points
-        .try_reserve(table.num_vertices())
-        .map_err(|_| "Draco allocation failed")?;
+    let mut points = filled(table.num_vertices(), 0)?;
+    encoding.value_to_corner = filled(table.num_vertices(), 0)?;
     let mut visits = Visits {
         faces: filled(table.num_faces(), false)?,
         vertices: filled(table.num_vertices(), false)?,
@@ -185,6 +215,7 @@ pub(crate) fn sequence(
         faces,
         encoding,
         points: &mut points,
+        count: 0,
     };
     match order {
         Order::DepthFirst => {
@@ -211,6 +242,9 @@ pub(crate) fn sequence(
             }
         }
     }
+    let count = observer.count;
+    encoding.value_to_corner.truncate(count);
+    points.truncate(count);
     Ok(points)
 }
 
@@ -240,7 +274,7 @@ fn depth_first(
             continue;
         }
         loop {
-            visits.faces[corner / 3] = true;
+            visits.faces[face(corner)] = true;
             let vertex = table.vertex(corner);
             if vertex == INVALID {
                 return Err(TRAVERSAL_ERROR);
@@ -256,8 +290,8 @@ fn depth_first(
                     continue;
                 }
             }
-            let right = table.right_corner(corner);
-            let left = table.left_corner(corner);
+            let (next, previous) = neighbours(corner);
+            let (right, left) = (table.opposite(next), table.opposite(previous));
             match (visits.face(right), visits.face(left)) {
                 (true, true) => {
                     stack.pop();
@@ -299,10 +333,10 @@ fn prediction_degree(
             continue;
         }
         loop {
-            visits.faces[corner / 3] = true;
+            visits.faces[face(corner)] = true;
             visits.visit(observer, table.vertex(corner), corner)?;
-            let right = table.right_corner(corner);
-            let left = table.left_corner(corner);
+            let (next, previous) = neighbours(corner);
+            let (right, left) = (table.opposite(next), table.opposite(previous));
             let right_visited = visits.face(right);
             if !visits.face(left) {
                 let priority = priority_of(table, visits, degree, left)?;

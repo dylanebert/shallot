@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 /** Every built Rust kernel, as committed: a base64 TypeScript module or a raw `.wasm`. */
 export const KERNELS = [
     "src/extras/gltf/basisu.wasm.ts",
+    "src/extras/gltf/draco.wasm.ts",
     "src/extras/gltf/gltf.wasm.ts",
     "src/core/mesh/mikktspace.wasm.ts",
     "src/standard/physics/kernel/kernel.wasm.ts",

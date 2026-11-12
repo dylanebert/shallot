@@ -9,11 +9,12 @@ use crate::{
     edgebreaker::Connectivity,
     entropy,
     prediction::{MeshData, Method, Octahedron, Positions, Scheme, Transform},
-    traversal::{sequence, AttributeCorners, Corners, Encoding, Order},
+    traversal::{sequence, AttributeCorners, Corners, Encoding, Order, Table},
     Result,
 };
 
 const ATTRIBUTE_ERROR: &str = "invalid Draco attribute data";
+const MISSING_VALUE: &str = "Draco point has no attribute value";
 
 /// Draco's `DataType`, numbered as in the bitstream.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -101,6 +102,24 @@ impl Attribute {
         }
     }
 
+    fn gather<const N: usize>(&self, mut out: Vec<u8>) -> Result<Vec<u8>> {
+        let values = self.values.as_chunks::<N>().0;
+        match &self.map {
+            None => out.extend_from_slice(
+                values
+                    .get(..self.points)
+                    .ok_or(MISSING_VALUE)?
+                    .as_flattened(),
+            ),
+            Some(map) => {
+                for &index in map.get(..self.points).ok_or(MISSING_VALUE)? {
+                    out.extend_from_slice(values.get(index as usize).ok_or(MISSING_VALUE)?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
     /// Values for every point in `data_type`, little-endian, as the pinned
     /// `Decoder::GetAttributeDataArrayForAllPoints` gives them.
     pub fn points(&self, data_type: DataType) -> Result<Vec<u8>> {
@@ -123,18 +142,27 @@ impl Attribute {
         )
         .map_err(|_| "Draco allocation failed")?;
         if data_type == self.data_type {
-            for point in 0..self.points {
-                let start = self
-                    .index(point)
-                    .checked_mul(stride)
-                    .ok_or(ATTRIBUTE_ERROR)?;
-                out.extend_from_slice(
-                    self.values
-                        .get(start..start + stride)
-                        .ok_or("Draco point has no attribute value")?,
-                );
-            }
-            return Ok(out);
+            // Fixed-width copies for the common strides, not a call per point.
+            return match stride {
+                4 => self.gather::<4>(out),
+                8 => self.gather::<8>(out),
+                12 => self.gather::<12>(out),
+                16 => self.gather::<16>(out),
+                _ => {
+                    for point in 0..self.points {
+                        let start = self
+                            .index(point)
+                            .checked_mul(stride)
+                            .ok_or(ATTRIBUTE_ERROR)?;
+                        out.extend_from_slice(
+                            self.values
+                                .get(start..start + stride)
+                                .ok_or(MISSING_VALUE)?,
+                        );
+                    }
+                    Ok(out)
+                }
+            };
         }
         let width = self.data_type.size();
         for point in 0..self.points {
@@ -144,7 +172,7 @@ impl Attribute {
                 let bytes = self
                     .values
                     .get(at..at.saturating_add(width))
-                    .ok_or("Draco point has no attribute value")?;
+                    .ok_or(MISSING_VALUE)?;
                 convert(bytes, self.data_type, data_type, self.normalized, &mut out)
                     .ok_or("Draco attribute value does not fit the requested type")?;
             }
@@ -495,9 +523,9 @@ pub(crate) fn decode(
             }
             Sequencer::Traversal { order, corner, .. } => {
                 let base = base.unwrap();
-                let table: &dyn Corners = match &seams {
-                    Some(seams) if corner => seams,
-                    _ => base,
+                let table = match &seams {
+                    Some(seams) if corner => Table::Seams(seams),
+                    _ => Table::Base(base),
                 };
                 // Value maps are sized for whichever table the decoder may use.
                 let vertices = seams
@@ -505,7 +533,10 @@ pub(crate) fn decode(
                     .map_or(0, |seams| seams.num_vertices())
                     .max(base.num_vertices());
                 let mut values = Encoding::new(vertices)?;
-                let ids = sequence(table, order, faces, &mut values)?;
+                let ids = match table {
+                    Table::Base(table) => sequence(table, order, faces, &mut values)?,
+                    Table::Seams(table) => sequence(table, order, faces, &mut values)?,
+                };
                 let mut points_to_values = filled(points, u32::MAX)?;
                 for (corner, &point) in faces.iter().flatten().enumerate() {
                     let value = *values
@@ -522,23 +553,25 @@ pub(crate) fn decode(
                 ids
             }
         };
-        for &id in decoder.attributes.iter().filter(|&&id| keep(id)) {
+        // The last kept attribute takes the map; the others copy it.
+        let kept = decoder.attributes.iter().filter(|&&id| keep(id)).count();
+        for (index, &id) in decoder
+            .attributes
+            .iter()
+            .filter(|&&id| keep(id))
+            .enumerate()
+        {
             attributes[id].map = match &map {
+                Some(_) if index + 1 == kept => map.take(),
                 None => None,
-                Some(map) => {
-                    let mut copy = Vec::new();
-                    copy.try_reserve_exact(map.len())
-                        .map_err(|_| "Draco allocation failed")?;
-                    copy.extend_from_slice(map);
-                    Some(copy)
-                }
+                Some(map) => Some(copy_map(map)?),
             };
         }
         let mesh = match (decoder.sequencer, &encoding) {
             (Sequencer::Traversal { corner, .. }, Some(encoding)) => Some(MeshData {
                 table: match &seams {
-                    Some(seams) if corner => seams,
-                    _ => base.unwrap(),
+                    Some(seams) if corner => Table::Seams(seams),
+                    _ => Table::Base(base.unwrap()),
                 },
                 encoding,
             }),
@@ -644,17 +677,22 @@ pub(crate) fn decode(
                     let max = ((1u32 << quantization.bits) - 1) as i32;
                     let delta = quantization.range / max as f32;
                     let components = usize::from(attribute.components);
-                    for (i, (out, value)) in attribute
+                    for (out, values) in attribute
                         .values
-                        .as_chunks_mut::<4>()
-                        .0
-                        .iter_mut()
-                        .zip(portable.unwrap())
-                        .enumerate()
+                        .chunks_exact_mut(4 * components)
+                        .zip(portable.unwrap().chunks_exact(components))
                     {
-                        let value = *value as f32 * delta;
-                        let value = value + quantization.min[i % components];
-                        out.copy_from_slice(&value.to_le_bytes());
+                        for ((out, value), min) in out
+                            .as_chunks_mut::<4>()
+                            .0
+                            .iter_mut()
+                            .zip(values)
+                            .zip(&quantization.min)
+                        {
+                            let value = *value as f32 * delta;
+                            let value = value + min;
+                            out.copy_from_slice(&value.to_le_bytes());
+                        }
                     }
                 }
                 Kind::Normals => {
@@ -688,6 +726,14 @@ pub(crate) fn decode(
         }
     }
     Ok(out)
+}
+
+fn copy_map(map: &[u32]) -> Result<Vec<u32>> {
+    let mut copy = Vec::new();
+    copy.try_reserve_exact(map.len())
+        .map_err(|_| "Draco allocation failed")?;
+    copy.extend_from_slice(map);
+    Ok(copy)
 }
 
 /// SequentialIntegerAttributeDecoder::DecodeValues: the attribute's portable values.
@@ -743,20 +789,22 @@ fn integer_values<'a>(
     if count > u32::MAX as usize {
         return Err(ATTRIBUTE_ERROR);
     }
-    let mut values = filled(count, 0i32)?;
     if entries == 0 {
         return Err("Draco attribute has no values");
     }
+    let mut values;
     if r.byte()? > 0 {
-        let symbols = entropy::symbols(r, count, components)?;
-        for (value, symbol) in values.iter_mut().zip(symbols) {
-            *value = symbol as i32;
-        }
+        // Reinterpreted in place: the collect reuses the symbols' allocation.
+        values = entropy::symbols(r, count, components)?
+            .into_iter()
+            .map(|symbol| symbol as i32)
+            .collect::<Vec<_>>();
     } else {
         let width = usize::from(r.byte()?);
         if width > 4 || r.remaining() < width * count {
             return Err("invalid Draco raw attribute width");
         }
+        values = filled(count, 0i32)?;
         for value in &mut values {
             let mut bytes = [0; 4];
             bytes[..width].copy_from_slice(r.take(width)?);

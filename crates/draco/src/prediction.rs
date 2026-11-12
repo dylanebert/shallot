@@ -7,7 +7,7 @@ use crate::{
     buffer::Reader,
     edgebreaker::{next, previous, INVALID},
     entropy::Binary,
-    traversal::{Corners, Encoding},
+    traversal::{Corners, Encoding, Table},
     Result,
 };
 
@@ -255,6 +255,23 @@ impl Transform {
 
     /// ComputeOriginalValue(pred, data[at..] as corrections, data[at..] as output).
     fn apply(&self, pred: &[i32], data: &mut [i32], at: usize) -> Result<()> {
+        self.apply_to(pred, data.get_mut(at..).ok_or(PREDICTION_ERROR)?)
+    }
+
+    /// `apply` predicting from the `components` values before `at`.
+    fn apply_prior(&self, data: &mut [i32], at: usize, components: usize) -> Result<()> {
+        let (head, tail) = data.split_at_mut(at);
+        let pred = &head[at - components..];
+        if pred.len() >= 2 {
+            return self.apply_to(pred, tail);
+        }
+        // The octahedron transforms read two components, zero past the prior.
+        let mut padded = [0; 2];
+        padded[..pred.len()].copy_from_slice(pred);
+        self.apply_to(&padded, tail)
+    }
+
+    fn apply_to(&self, pred: &[i32], data: &mut [i32]) -> Result<()> {
         match self {
             &Transform::Wrap {
                 components,
@@ -262,7 +279,7 @@ impl Transform {
                 max,
                 max_dif,
             } => {
-                let out = data.get_mut(at..at + components).ok_or(PREDICTION_ERROR)?;
+                let out = data.get_mut(..components).ok_or(PREDICTION_ERROR)?;
                 for (out, &pred) in out
                     .iter_mut()
                     .zip(pred.get(..components).ok_or(PREDICTION_ERROR)?)
@@ -277,7 +294,7 @@ impl Transform {
                 }
             }
             Transform::Octahedron(tool) => {
-                let out = data.get_mut(at..at + 2).ok_or(PREDICTION_ERROR)?;
+                let out = data.get_mut(..2).ok_or(PREDICTION_ERROR)?;
                 let center = tool.center as u32;
                 let mut p = [
                     (pred[0] as u32).wrapping_sub(center) as i32,
@@ -300,7 +317,7 @@ impl Transform {
                 out[1] = (o[1] as u32).wrapping_add(center) as i32;
             }
             Transform::Canonical(tool) => {
-                let out = data.get_mut(at..at + 2).ok_or(PREDICTION_ERROR)?;
+                let out = data.get_mut(..2).ok_or(PREDICTION_ERROR)?;
                 let mut p = [
                     pred[0].wrapping_sub(tool.center),
                     pred[1].wrapping_sub(tool.center),
@@ -385,7 +402,7 @@ impl Positions<'_> {
 }
 
 pub(crate) struct MeshData<'a> {
-    pub table: &'a dyn Corners,
+    pub table: Table<'a>,
     pub encoding: &'a Encoding,
 }
 
@@ -529,8 +546,7 @@ impl<'a> Scheme<'a> {
                     if parallelogram(p, corner, mesh, data, components, &mut pred)? {
                         self.transform.apply(&pred, data, at)?;
                     } else {
-                        let previous = prior(data, at, components);
-                        self.transform.apply(&previous, data, at)?;
+                        self.transform.apply_prior(data, at, components)?;
                     }
                 }
             }
@@ -545,7 +561,7 @@ impl<'a> Scheme<'a> {
                     while corner != INVALID {
                         step(&mut steps, mesh)?;
                         if parallelogram(p, corner, mesh, data, components, &mut single)? {
-                            for (pred, single) in pred.iter_mut().zip(&single) {
+                            for (pred, single) in pred[..components].iter_mut().zip(&single) {
                                 *pred = pred.wrapping_add(*single);
                             }
                             count += 1;
@@ -601,7 +617,7 @@ impl<'a> Scheme<'a> {
                                 .ok_or(PREDICTION_ERROR)?
                             {
                                 used += 1;
-                                for (pred, value) in pred.iter_mut().zip(candidate) {
+                                for (pred, value) in pred[..components].iter_mut().zip(candidate) {
                                     *pred = pred.wrapping_add(*value);
                                 }
                             }
@@ -648,8 +664,7 @@ impl<'a> Scheme<'a> {
         self.transform.apply(&zero, data, 0)?;
         let mut at = components;
         while at < data.len() {
-            let previous = prior(data, at, components);
-            self.transform.apply(&previous, data, at)?;
+            self.transform.apply_prior(data, at, components)?;
             at += components;
         }
         Ok(())
@@ -665,8 +680,7 @@ impl<'a> Scheme<'a> {
     ) -> Result<()> {
         let at = p * components;
         if count == 0 {
-            let previous = prior(data, at, components);
-            self.transform.apply(&previous, data, at)
+            self.transform.apply_prior(data, at, components)
         } else {
             for value in &mut pred[..components] {
                 *value /= count;
@@ -965,10 +979,4 @@ fn int_sqrt(number: u64) -> u64 {
             return root;
         }
     }
-}
-
-fn prior(data: &[i32], at: usize, components: usize) -> [i32; 256] {
-    let mut out = [0; 256];
-    out[..components].copy_from_slice(&data[at - components..at]);
-    out
 }

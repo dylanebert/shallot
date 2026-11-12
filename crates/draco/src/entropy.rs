@@ -1,5 +1,6 @@
 // Port of Draco's compression/entropy/{ans.h,rans_symbol_decoder.h,symbol_decoding.cc}.
 use crate::{
+    allocation::filled,
     buffer::{Bits, Reader},
     Result,
 };
@@ -77,19 +78,24 @@ impl<'a> Binary<'a> {
 
 struct Symbols<'a> {
     state: State<'a>,
-    precision: u32,
+    precision_bits: u32,
     probabilities: Vec<(u32, u32)>,
     lookup: Vec<u32>,
 }
 impl<'a> Symbols<'a> {
     fn new(r: &mut Reader<'a>, bits: u32) -> Result<Self> {
-        let precision = 1u32 << ((3 * bits) / 2).clamp(12, 20);
+        let precision_bits = ((3 * bits) / 2).clamp(12, 20);
+        let precision = 1u32 << precision_bits;
         let count = r.count()?;
         if count / 64 > r.remaining() {
             return Err("invalid Draco rANS alphabet size");
         }
         let mut probabilities = Vec::new();
         let mut lookup = Vec::new();
+        // At most 2^20 entries; reserved once rather than regrown per symbol.
+        lookup
+            .try_reserve_exact(precision as usize)
+            .map_err(|_| "Draco entropy allocation failed")?;
         let mut cumulative = 0u32;
         let mut i = 0;
         while i < count {
@@ -135,18 +141,19 @@ impl<'a> Symbols<'a> {
         let state = State::new(r.take(size)?, precision * 4, 4)?;
         Ok(Self {
             state,
-            precision,
+            precision_bits,
             probabilities,
             lookup,
         })
     }
+    #[inline(always)]
     fn read(&mut self) -> u32 {
         self.state.normalize();
-        let remainder = self.state.value % self.precision;
+        let remainder = self.state.value & ((1 << self.precision_bits) - 1);
         let symbol = self.lookup[remainder as usize];
         let (probability, cumulative) = self.probabilities[symbol as usize];
         self.state.value =
-            (self.state.value / self.precision) * probability + remainder - cumulative;
+            (self.state.value >> self.precision_bits) * probability + remainder - cumulative;
         symbol
     }
 }
@@ -158,19 +165,18 @@ pub(crate) fn symbols(r: &mut Reader<'_>, count: usize, components: usize) -> Re
     if components == 0 || !count.is_multiple_of(components) {
         return Err("invalid Draco symbol components");
     }
-    // rANS can encode arbitrary runs in very few bytes. Grow only as values are decoded.
-    let mut values = Vec::new();
+    // `count` comes from the caller's counts; it is allocated only once the
+    // symbol tables decode.
+    let mut values;
     match r.byte()? {
         0 => {
             let mut decoder = Symbols::new(r, 5)?;
-            values
-                .try_reserve_exact(count)
-                .map_err(|_| "Draco symbol allocation failed")?;
+            values = filled(count, 0)?;
             let mut bits = Bits::new(&r.bytes[r.offset..]);
-            for _ in (0..count).step_by(components) {
+            for group in values.chunks_exact_mut(components) {
                 let width = decoder.read();
-                for _ in 0..components {
-                    values.push(bits.read(width)?);
+                for value in group {
+                    *value = bits.read(width)?;
                 }
             }
             r.take(bits.consumed())?;
@@ -181,11 +187,9 @@ pub(crate) fn symbols(r: &mut Reader<'_>, count: usize, components: usize) -> Re
                 return Err("invalid Draco raw symbol bit length");
             }
             let mut decoder = Symbols::new(r, width)?;
-            values
-                .try_reserve_exact(count)
-                .map_err(|_| "Draco symbol allocation failed")?;
-            for _ in 0..count {
-                values.push(decoder.read());
+            values = filled(count, 0)?;
+            for value in &mut values {
+                *value = decoder.read();
             }
         }
         _ => return Err("invalid Draco symbol coding scheme"),

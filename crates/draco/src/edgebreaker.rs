@@ -17,10 +17,29 @@ const E: u32 = 7;
 const TOPOLOGY_ERROR: &str = "invalid Draco Edgebreaker topology";
 const ALLOCATION_ERROR: &str = "Draco Edgebreaker allocation failed";
 
+/// `c / 3`. WebAssembly engines divide by a constant with a division
+/// instruction; corners fit in 32 bits, where this multiply is exact.
+pub(crate) fn face(c: usize) -> usize {
+    match u32::try_from(c) {
+        Ok(c) => ((u64::from(c) * 0xAAAA_AAAB) >> 33) as usize,
+        Err(_) => c / 3,
+    }
+}
+
+/// The next and previous corners of valid corner `c`, from one face index.
+pub(crate) fn neighbours(c: usize) -> (usize, usize) {
+    let first = 3 * face(c);
+    match c - first {
+        0 => (c + 1, c + 2),
+        1 => (c + 1, c - 1),
+        _ => (first, c - 1),
+    }
+}
+
 pub(crate) fn next(c: usize) -> usize {
     if c == INVALID {
         INVALID
-    } else if c % 3 == 2 {
+    } else if c - 3 * face(c) == 2 {
         c - 2
     } else {
         c + 1
@@ -30,7 +49,7 @@ pub(crate) fn next(c: usize) -> usize {
 pub(crate) fn previous(c: usize) -> usize {
     if c == INVALID {
         INVALID
-    } else if c.is_multiple_of(3) {
+    } else if c == 3 * face(c) {
         c + 2
     } else {
         c - 1
@@ -56,6 +75,14 @@ impl CornerTable {
             max_faces,
             max_vertices,
         }
+    }
+
+    fn reserve(&mut self, corners: usize, vertices: usize) -> Result<()> {
+        let error = |_| ALLOCATION_ERROR;
+        self.vertices.try_reserve_exact(corners).map_err(error)?;
+        self.opposites.try_reserve_exact(corners).map_err(error)?;
+        self.leftmost.try_reserve_exact(vertices).map_err(error)?;
+        self.holes.try_reserve_exact(vertices).map_err(error)
     }
 
     // Grow only when a face/vertex is decoded, not from untrusted header counts.
@@ -132,6 +159,11 @@ impl CornerTable {
 
     pub fn swing_left(&self, c: usize) -> usize {
         next(self.opposite(next(c)))
+    }
+
+    /// `swing_right` of the corner whose previous corner is `previous`.
+    fn swing_right_of(&self, previous: usize) -> usize {
+        self::previous(self.opposite(previous))
     }
 
     pub fn swing_right(&self, c: usize) -> usize {
@@ -524,7 +556,13 @@ impl SeamTable {
             edges: filled(table.vertices.len(), false)?,
             on_seam: filled(table.leftmost.len(), false)?,
             vertices: filled(table.vertices.len(), INVALID)?,
-            leftmost: Vec::new(),
+            leftmost: {
+                let mut leftmost = Vec::new();
+                leftmost
+                    .try_reserve_exact(table.leftmost.len())
+                    .map_err(|_| ALLOCATION_ERROR)?;
+                leftmost
+            },
         })
     }
 
@@ -582,16 +620,18 @@ impl SeamTable {
             let mut steps = 0;
             while act != INVALID && act != first {
                 table.walk_step(&mut steps)?;
-                if table.vertex(act)? != v || self.vertices[act] != INVALID {
+                let slot = self.vertices.get_mut(act).ok_or(TOPOLOGY_ERROR)?;
+                if table.vertices.get(act) != Some(&v) || *slot != INVALID {
                     return Err(TOPOLOGY_ERROR);
                 }
-                if self.edges[next(act)] {
+                let (next, previous) = neighbours(act);
+                if self.edges[next] {
                     id = count;
                     count += 1;
                     push(&mut self.leftmost, act)?;
                 }
-                self.vertices[act] = id;
-                act = table.swing_right(act);
+                *slot = id;
+                act = table.swing_right_of(previous);
             }
         }
         Ok(())
@@ -743,6 +783,8 @@ pub(crate) fn decode(
     let mut events = split_events(r, faces)?;
     let mut traversal = Traversal::new(r, valence, attributes, faces)?;
     let mut table = CornerTable::new(faces, max_vertices);
+    // Sized by the caller's face and point counts, which the stream matched.
+    table.reserve(faces * 3, vertices)?;
     connectivity(
         &mut table,
         &mut traversal,
@@ -756,7 +798,7 @@ pub(crate) fn decode(
     }
     for c in 0..table.vertices.len() {
         let opp = table.opposite(c);
-        if opp != INVALID && opp / 3 < c / 3 {
+        if opp != INVALID && face(opp) < face(c) {
             continue;
         }
         for (attribute, decoder) in attribute_tables.iter_mut().zip(&mut traversal.seams) {
