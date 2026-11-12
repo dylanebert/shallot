@@ -248,13 +248,28 @@ export async function warmImages(world: World): Promise<void> {
  * After warm, await the native textures and mip uploads of all color and data images registered
  * before this call. Later registrations are not included. Before warm this is unnecessary and
  * resolves without loading. Failed fetches or decodes warn and resolve with a transparent pixel.
- * Level-source failures, unsupported formats and invalid levels reject preparation. Disposal
- * resolves pending preparation without creating or uploading textures for the disposed world.
+ * Level-source failures, unsupported formats and invalid levels reject each preparation that
+ * includes the failed load and began before a preparation reported it; one that starts after the
+ * report resolves, and the id binds its role fallback. Disposal resolves pending
+ * preparation without creating or uploading textures for the disposed world.
  */
 export async function prepareImages(world: World): Promise<void> {
     if (world.disposed) return;
-    const state = world.resource(imageTextures);
-    await Promise.all([...state.loads[0], ...state.loads[1]]);
+    const { loads } = world.resource(imageTextures);
+    let reported = false;
+    await Promise.all(
+        loads.flatMap((role) =>
+            role.map((load, id) =>
+                load?.catch((error) => {
+                    // Promise.all rejects with the first catch to run; only that failure is
+                    // reported, and later preparations resolve with its id on the role fallback.
+                    if (!reported && role[id] === load) role[id] = Promise.resolve();
+                    reported = true;
+                    throw error;
+                }),
+            ),
+        ),
+    );
 }
 
 function startImage(world: World, id: number, role: number): void {
@@ -262,11 +277,15 @@ function startImage(world: World, id: number, role: number): void {
     if (state.loads[role][id]) return;
     const signal = world.signal;
     const load = loadImage(world, id, role);
-    state.loads[role][id] = new Promise<void>((resolve, reject) => {
+    const settled = new Promise<void>((resolve, reject) => {
         const abort = () => resolve();
         signal.addEventListener("abort", abort, { once: true });
         load.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
     });
+    // Stored rejected until a preparation reports it; handled here so an unawaited failure is
+    // not unhandled, and named by imageTexture's one fallback warning when bound.
+    settled.catch(() => {});
+    state.loads[role][id] = settled;
 }
 
 async function loadImage(world: World, id: number, role: number): Promise<void> {

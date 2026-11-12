@@ -1,4 +1,4 @@
-import { expect, setDefaultTimeout, test } from "bun:test";
+import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { createApp } from "../../engine";
@@ -6,6 +6,7 @@ import {
     CompressedImageFormats,
     type ImageFormat,
     imageTexture,
+    imageTextures,
     prepareImages,
     registerImage,
 } from "./image";
@@ -178,5 +179,72 @@ test("one RGBA8 level generates its full mip chain", async () => {
     } finally {
         app.dispose();
         device.destroy();
+    }
+});
+
+test("a failed level source rejects the preparations that began before it was reported, then binds the fallback with one warning", async () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    const app = await createApp({ defaults: false, plugins: [RenderingPlugin] });
+    try {
+        const pixel = () => ({
+            format: "rgba8unorm" as const,
+            width: 1,
+            height: 1,
+            levels: [new Uint8Array(4)],
+        });
+        // Two preparations pending when the failure settles both reject; a later one resolves.
+        const first = registerImage(app.world, () => {
+            throw new Error("first source failed");
+        });
+        const turn = () => new Promise((resolve) => setImmediate(resolve));
+        // A handler attached in the same turn: the rejection can settle before expect's would.
+        const outcome = (preparation: Promise<void>) =>
+            preparation.then(
+                () => "resolved",
+                (error: Error) => error.message,
+            );
+        const pending = [outcome(prepareImages(app.world)), outcome(prepareImages(app.world))];
+        expect(await Promise.all(pending)).toEqual(["first source failed", "first source failed"]);
+        expect(await outcome(prepareImages(app.world))).toBe("resolved");
+        // A failure with no preparation pending is kept until one reports it.
+        let fail!: (error: Error) => void;
+        const second = registerImage(app.world, () => new Promise((_, reject) => (fail = reject)));
+        fail(new Error("second source failed"));
+        await turn();
+        expect(await outcome(prepareImages(app.world))).toBe("second source failed");
+        expect(await outcome(prepareImages(app.world))).toBe("resolved");
+        // Only the failure that rejects a preparation is reported; a later one in it stays stored.
+        const fails: ((error: Error) => void)[] = [];
+        const [third, fourth] = [0, 1].map(() =>
+            registerImage(app.world, () => new Promise((_, reject) => fails.push(reject))),
+        );
+        const both = outcome(prepareImages(app.world));
+        fails[0](new Error("third source failed"));
+        expect(await both).toBe("third source failed");
+        fails[1](new Error("fourth source failed"));
+        await turn();
+        expect(await outcome(prepareImages(app.world))).toBe("fourth source failed");
+        expect(await outcome(prepareImages(app.world))).toBe("resolved");
+        const later = registerImage(app.world, pixel);
+        await prepareImages(app.world);
+        const { fallback } = app.world.resource(imageTextures);
+        expect(imageTexture(app.world, later)).not.toBe(fallback[0]);
+        // Bound twice: the fallback warning does not repeat.
+        for (const id of [first, second, third, fourth, first, second, third, fourth])
+            expect(imageTexture(app.world, id)).toBe(fallback[0]);
+        // A failure no preparation ever awaits: its rejection settles in microtasks, and Bun ends
+        // each event loop turn by handling rejected promises (src/event_loop/README.md at
+        // bun-v1.4.3), failing this test if one is unhandled, before the next turn's setImmediate.
+        registerImage(app.world, () => Promise.reject(new Error("unawaited source failed")));
+        await turn();
+        const warnings = warn.mock.calls.map((call) => call.map(String).join(" "));
+        // The rejection carries the cause; binding the fallback names each id once.
+        for (const id of [first, second, third, fourth])
+            expect(warnings.filter((warning) => warning.includes(`image ${id} `))).toEqual([
+                `[Rendering] color image ${id} has no native texture; binding fallback`,
+            ]);
+    } finally {
+        app.dispose();
+        warn.mockRestore();
     }
 });

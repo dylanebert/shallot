@@ -1,4 +1,4 @@
-import { expect, setDefaultTimeout, test } from "bun:test";
+import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -7,9 +7,12 @@ import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import inputs from "../../../crates/basisu/tests/records/inputs.json";
 import { syncFiles } from "../../../examples/gltf/sync";
 import { bunChild } from "../../../scripts/bun-child";
+import { MeshPlugin } from "../../core/mesh";
 import { imageTexture, prepareImages, RenderingPlugin, registerImage } from "../../core/rendering";
 import { createApp } from "../../engine";
+import { MeshRenderPlugin, StandardRenderingPlugin } from "../../standard/rendering";
 import { basisImageSource } from "./image";
+import { loadGltfScene } from "./scene";
 
 setDefaultTimeout(TIMEOUT.node);
 test("a scene without KTX2 imports no transcoder", async () => {
@@ -181,3 +184,57 @@ for (const feature of [
         }
     });
 }
+
+test("a refused KTX2 rejects its own scene, not a later untextured one", async () => {
+    const vertices = Buffer.from(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]).buffer);
+    const triangle = (textured: boolean) =>
+        `data:model/gltf+json,${encodeURIComponent(
+            JSON.stringify({
+                asset: { version: "2.0" },
+                scenes: [{ nodes: [0] }],
+                nodes: [{ mesh: 0 }],
+                meshes: [
+                    {
+                        primitives: [
+                            { attributes: { POSITION: 0 }, ...(textured && { material: 0 }) },
+                        ],
+                    },
+                ],
+                accessors: [
+                    {
+                        bufferView: 0,
+                        componentType: 5126,
+                        count: 3,
+                        type: "VEC3",
+                        min: [0, 0, 0],
+                        max: [1, 1, 0],
+                    },
+                ],
+                bufferViews: [{ buffer: 0, byteLength: 36 }],
+                buffers: [
+                    {
+                        byteLength: 36,
+                        uri: `data:application/octet-stream;base64,${vertices.toString("base64")}`,
+                    },
+                ],
+                ...(textured && {
+                    materials: [{ pbrMetallicRoughness: { baseColorTexture: { index: 0 } } }],
+                    textures: [{ source: 0 }],
+                    // Three bytes are no KTX2 container.
+                    images: [{ uri: "data:image/ktx2;base64,AAAA", mimeType: "image/ktx2" }],
+                }),
+            }),
+        )}`;
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    const app = await createApp({
+        defaults: false,
+        plugins: [StandardRenderingPlugin, MeshRenderPlugin, MeshPlugin],
+    });
+    try {
+        await expect(loadGltfScene(app.world, triangle(true))).rejects.toThrow("truncated KTX2");
+        expect((await loadGltfScene(app.world, triangle(false))).primitives).toHaveLength(1);
+    } finally {
+        app.dispose();
+        warn.mockRestore();
+    }
+});
