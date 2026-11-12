@@ -1,5 +1,5 @@
 import { parse } from "@babel/parser";
-import { BROWSER_CEILING, TIMEOUT } from "@dylanebert/shallot/testing";
+import { BROWSER_CEILING, BUDGET, CEILING, TIMEOUT } from "@dylanebert/shallot/testing";
 
 /** Check declarations, not elapsed time. Delay timers inside tests are not tier declarations. */
 export function timeoutErrors(path: string, text: string): string[] {
@@ -306,7 +306,19 @@ export function browserCommandErrors(text: string): string[] {
 
 export function packageTimeoutErrors(text: string): string[] {
     const command = JSON.parse(text).scripts?.test ?? "";
-    return command === "bun test --preload ./scripts/test-timeout.ts"
+    return command === `bun test --timeout ${BUDGET.cheap}`
         ? []
-        : ["package.json: test must preload scripts/test-timeout.ts"];
+        : ["package.json: test must pass --timeout BUDGET.cheap"];
+}
+
+export function workflowTimeoutErrors(text: string): string[] {
+    const commands = text.split("\n").filter((line) => line.includes("bun run test "));
+    const errors: string[] = [];
+    if (commands.length === 0) errors.push("test.yml: missing cheap tier command");
+    for (const command of commands) {
+        const timeouts = [...command.matchAll(/--timeout(?:=|\s+)(\S+)/g)];
+        if (timeouts.at(-1)?.[1] !== String(CEILING.cheap))
+            errors.push("test.yml: cheap tier must pass --timeout CEILING.cheap last");
+    }
+    return errors;
 }

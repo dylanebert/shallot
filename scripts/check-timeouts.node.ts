@@ -3,13 +3,23 @@ import { resolve } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { Glob } from "bun";
 import { normalizePath } from "../src/project/paths";
-import { browserCommandErrors, packageTimeoutErrors, timeoutErrors } from "./timeout-policy";
+import {
+    browserCommandErrors,
+    packageTimeoutErrors,
+    timeoutErrors,
+    workflowTimeoutErrors,
+} from "./timeout-policy";
 
 setDefaultTimeout(TIMEOUT.node);
 
 test("test tiers and browser subjects follow the shared timeouts", async () => {
     const root = resolve(import.meta.dir, "..");
     const errors = packageTimeoutErrors(await Bun.file(resolve(root, "package.json")).text());
+    errors.push(
+        ...workflowTimeoutErrors(
+            await Bun.file(resolve(root, ".github/workflows/test.yml")).text(),
+        ),
+    );
     errors.push(
         ...browserCommandErrors(await Bun.file(resolve(root, "scripts/browser.sh")).text()),
     );

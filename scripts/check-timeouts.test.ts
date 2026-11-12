@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
 import { BROWSER_CEILING, BUDGET, CEILING, TIMEOUT } from "@dylanebert/shallot/testing";
-import { browserCommandErrors, packageTimeoutErrors, timeoutErrors } from "./timeout-policy";
+import {
+    browserCommandErrors,
+    packageTimeoutErrors,
+    timeoutErrors,
+    workflowTimeoutErrors,
+} from "./timeout-policy";
 
 const cheap =
     'import { test } from "bun:test"; import { CEILING, BUDGET, TIMEOUT } from "@dylanebert/shallot/testing";';
@@ -208,9 +213,7 @@ test("the browser runner selects the declared timeout and one worker", () => {
 
 test("package test timeout follows the cheap tier and manual oracles remain unbounded", () => {
     expect(
-        packageTimeoutErrors(
-            JSON.stringify({ scripts: { test: "bun test --preload ./scripts/test-timeout.ts" } }),
-        ),
+        packageTimeoutErrors(JSON.stringify({ scripts: { test: "bun test --timeout 250" } })),
     ).toEqual([]);
     expect(
         packageTimeoutErrors(
@@ -221,4 +224,13 @@ test("package test timeout follows the cheap tier and manual oracles remain unbo
     expect(
         timeoutErrors("subject.oracle.ts", `${cheap} test("manual", () => {}, TIMEOUT.startup);`),
     ).toEqual([]);
+});
+
+test("CI cheap commands use the ceiling even after the package budget", () => {
+    expect(workflowTimeoutErrors(`run: bun run test --timeout ${CEILING.cheap}`)).toEqual([]);
+    expect(workflowTimeoutErrors("run: bun run test")).toHaveLength(1);
+    expect(
+        workflowTimeoutErrors(`run: bun run test --timeout ${CEILING.cheap} --timeout 250`),
+    ).toHaveLength(1);
+    expect(workflowTimeoutErrors("run: bun run test --timeout 250")).toHaveLength(1);
 });
