@@ -265,6 +265,20 @@ export function poseKernel(
     time = 0,
 ): void {
     const asset = assets.get(instance.gltf)!;
+    const s = asset.scratch;
+    refresh(instance.gltf, s);
+    const morph = world.storage(MorphedMesh);
+    for (let i = 0; i < instance.entities.length; i++) {
+        const eid = instance.entities[i];
+        s.input[i * 2] = world.has(eid, SkinnedMesh) ? 1 : 0;
+        s.input[i * 2 + 1] = world.has(eid, MorphedMesh) ? morph.weightCount.get(eid) + 1 : 0;
+    }
+    runPose(instance.gltf, animation, time);
+    globalCopies.get(instance)!.set(s.globals);
+    copyPoses(s.poses, instance.poses);
+}
+function runPose(gltf: Gltf, animation: GltfAnimation | undefined, time: number): Scratch {
+    const asset = assets.get(gltf)!;
     let clip = 0;
     if (animation) {
         clip = asset.animations.get(animation) ?? 0;
@@ -274,17 +288,20 @@ export function poseKernel(
         }
     }
     const s = asset.scratch;
-    refresh(instance.gltf, s);
-    const morph = world.storage(MorphedMesh);
-    for (let i = 0; i < instance.entities.length; i++) {
-        const eid = instance.entities[i];
-        s.input[i * 2] = world.has(eid, SkinnedMesh) ? 1 : 0;
-        s.input[i * 2 + 1] = world.has(eid, MorphedMesh) ? morph.weightCount.get(eid) + 1 : 0;
-    }
     kernel().pose(asset.ptr, clip, time);
-    refresh(instance.gltf, s);
-    globalCopies.get(instance)!.set(s.globals);
-    copyPoses(s.poses, instance.poses);
+    refresh(gltf, s);
+    return s;
+}
+/** Borrowed kernel output, overwritten by the next pose; no entity placement is evaluated. */
+export function bakeKernelPose(gltf: Gltf, animation: GltfAnimation, time: number): Scratch {
+    const s = assets.get(gltf)!.scratch;
+    refresh(gltf, s);
+    for (let i = 0; i < gltf.primitives.length; i++) {
+        const p = gltf.primitives[i];
+        s.input[i * 2] = p.skin >= 0 ? 1 : 0;
+        s.input[i * 2 + 1] = p.morphReach ? p.morphReach.length + 1 : 0;
+    }
+    return runPose(gltf, animation, time);
 }
 export function writeKernelPose(world: World, instance: GltfSceneInstance, i: number): void {
     const s = assets.get(instance.gltf)!.scratch;

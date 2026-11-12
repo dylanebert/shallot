@@ -5,6 +5,7 @@ export {
     type GltfNode,
     type GltfNodePose,
 } from "./animation";
+export { bakeGltfAnimation, type GltfBake, releaseGltfBake, setGltfBakedFrame } from "./bake";
 export { isGlb, parseGlb } from "./glb";
 export {
     type GltfJson,
@@ -30,6 +31,7 @@ export {
     spawnGltfScene,
 } from "./scene";
 export {
+    BakedFrame,
     deformationBindings,
     deformationVertex,
     GltfPlugin,

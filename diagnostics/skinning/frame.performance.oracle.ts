@@ -26,6 +26,9 @@ import {
     GltfPlugin,
     loadGltf,
     loadGltfScene,
+    bakeGltfAnimation,
+    type GltfBake,
+    setGltfBakedFrame,
     poseGltfScene,
     setGltfLeaderPose,
     SkinPalette,
@@ -74,7 +77,7 @@ const FILE = {
 };
 // 2560 is the largest crowd whose compute-deformed rows fit one default 128 MiB storage binding.
 const POPULATIONS = process.env.SKINNING_POPULATIONS?.split(",").map(Number) ?? [640, 1280, 2560];
-const ALL_MODES = ["static", "vertex", "compute", "unskinned", "shipped", "followers"] as const;
+const ALL_MODES = ["static", "vertex", "compute", "unskinned", "shipped", "followers", "baked"] as const;
 type Mode = (typeof ALL_MODES)[number];
 const MODES: readonly Mode[] = process.env.SKINNING_MODES?.split(",").map((mode) => {
     if (!ALL_MODES.includes(mode as Mode)) throw new Error(`Unknown skinning mode: ${mode}`);
@@ -400,6 +403,7 @@ interface Crowd {
     mesh: MeshHandle;
     camera: number;
     instances?: GltfSceneInstance[];
+    bake?: GltfBake;
 }
 const CrowdState = { create: () => ({ value: undefined as Crowd | undefined }) };
 
@@ -417,7 +421,7 @@ function crowdPlugin(
         dependencies: [
             StandardRenderingPlugin,
             MeshRenderPlugin,
-            ...(mode === "shipped" || mode === "followers" || mode === "unskinned"
+            ...(mode === "shipped" || mode === "followers" || mode === "baked" || mode === "unskinned"
                 ? [GltfPlugin]
                 : [MaterialPlugin(VertexSkinned), MaterialPlugin(ComputeSkinned)]),
         ],
@@ -438,15 +442,16 @@ function crowdPlugin(
                 perceptualRoughness: 0.7,
             });
             const material =
-                mode === "static" || mode === "shipped" || mode === "followers" || mode === "unskinned"
+                mode === "static" || mode === "shipped" || mode === "followers" || mode === "baked" || mode === "unskinned"
                     ? world.resource(Materials).add(values)
                     : mode === "vertex"
                       ? world.resource(VertexSkinned).add({ ...values, skinPad: 0 })
                       : world.resource(ComputeSkinned).add({ ...values, skinPad: 0 });
-            const shipped = mode === "shipped" || mode === "followers" || mode === "unskinned";
+            const shipped = mode === "shipped" || mode === "followers" || mode === "baked" || mode === "unskinned";
             const gltf = shipped
                 ? await loadGltfScene(world, Bun.pathToFileURL(join(ASSETS, FILE.path)))
                 : undefined;
+            const bake = mode === "baked" ? bakeGltfAnimation(world, gltf!, gltf!.animations[0]!, 30) : undefined;
             const instances: GltfSceneInstance[] = [];
             if (mode === "followers") {
                 for (let i = 0; i < 8; i++) {
@@ -497,7 +502,10 @@ function crowdPlugin(
                         rotation: [0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2)],
                     });
                     if (mode === "followers") setGltfLeaderPose(world, instance, instances[i % 8]!);
-                    else instances.push(instance);
+                    else {
+                        instances.push(instance);
+                        if (bake) setGltfBakedFrame(world, instance, bake, 0);
+                    }
                     if (mode === "unskinned") {
                         for (let p = 0; p < instance.entities.length; p++) {
                             const eid = instance.entities[p]!;
@@ -554,6 +562,7 @@ function crowdPlugin(
                 mesh,
                 camera,
                 instances: shipped ? instances : undefined,
+                bake,
             };
             if (shipped) return;
             const device = world.gpu.device;
@@ -881,11 +890,12 @@ test("report CesiumMan crowd CPU paths and pipelined GPU frames", async () => {
                                 time += Time.FIXED_DT;
                                 if (mode === "static" || mode === "unskinned") return;
                                 const start = performance.now();
-                                if (mode === "shipped" || mode === "followers") {
+                                if (mode === "shipped" || mode === "followers" || mode === "baked") {
                                     for (let i = 0; i < crowd.instances!.length; i++) {
                                         const instance = crowd.instances![i]!;
                                         const t = (time + hash(i * 2 + 1) * skin.duration) % skin.duration;
-                                        poseGltfScene(world, instance, instance.gltf.animations[0]!, t);
+                                        if (crowd.bake) setGltfBakedFrame(world, instance, crowd.bake, Math.round(t * crowd.bake.rate));
+                                        else poseGltfScene(world, instance, instance.gltf.animations[0]!, t);
                                     }
                                     const elapsed = performance.now() - start;
                                     if (measured) cpu.path.push(elapsed);
@@ -968,6 +978,9 @@ test("report CesiumMan crowd CPU paths and pipelined GPU frames", async () => {
                                 expect(crowd.instances).toHaveLength(8);
                                 expect(world.resource(SkinPalette).extent).toBe(8 * J);
                                 for (const eid of crowd.eids) expect(world.has(eid, SkinnedMesh)).toBe(false);
+                            } else if (mode === "baked") {
+                                expect(world.resource(SkinPalette).extent).toBe(crowd.bake!.frameCount * J);
+                                for (const eid of crowd.eids) expect(world.has(eid, SkinnedMesh)).toBe(false);
                             } else if (mode !== "static" && mode !== "unskinned") {
                                 expectBoundsEnclose(world, skin, crowd);
                             }
@@ -1025,7 +1038,7 @@ test("report CesiumMan crowd CPU paths and pipelined GPU frames", async () => {
                                 p95: record["cpu-path-p95"],
                             };
                             console.info(
-                                `[skinning] population=${population} view=${view.name} passes=${passes} mode=${mode} vertices-per-pass=${population * V} palette-bytes=${mode === "static" || mode === "unskinned" ? 0 : (mode === "followers" ? 8 : population) * J * 64} deformed-bytes=${mode === "compute" ? population * V * 16 : 0} ${JSON.stringify(record, (_, v) => (typeof v === "number" ? Number(v.toFixed(3)) : v))}`,
+                                `[skinning] population=${population} view=${view.name} passes=${passes} mode=${mode} vertices-per-pass=${population * V} palette-bytes=${mode === "static" || mode === "unskinned" ? 0 : (mode === "followers" ? 8 : mode === "baked" ? crowd.bake!.frameCount : population) * J * 64} deformed-bytes=${mode === "compute" ? population * V * 16 : 0} ${JSON.stringify(record, (_, v) => (typeof v === "number" ? Number(v.toFixed(3)) : v))}`,
                             );
                         } finally {
                             app.dispose();
@@ -1038,6 +1051,13 @@ test("report CesiumMan crowd CPU paths and pipelined GPU frames", async () => {
                         const path = paths[`${key}/shipped`]!;
                         const gpu = throughput[`${key}/shipped`]!;
                         console.info(`[skinning-summary] population=${population} view=${view.name} passes=${passes} cpu-path-median-ms=${path.median.toFixed(3)} cpu-path-p95-ms=${path.p95.toFixed(3)} gpu-frame-ms=${gpu.toFixed(3)} cpu/gpu=${(path.median / gpu).toFixed(3)} fits=${path.median <= gpu} shipped-cost-over-unskinned-ms=${(gpu - throughput[`${key}/unskinned`]!).toFixed(3)}`);
+                    }
+                    if (MODES.includes("baked")) {
+                        const key = `${population}/${view.name}/${passes}/baked`;
+                        const path = paths[key]!;
+                        const gpu = throughput[key]!;
+                        expect(path.median).toBeLessThanOrEqual(gpu);
+                        console.info(`[skinning-summary] population=${population} mode=baked view=${view.name} passes=${passes} cpu-path-median-ms=${path.median.toFixed(3)} cpu-path-p95-ms=${path.p95.toFixed(3)} gpu-frame-ms=${gpu.toFixed(3)} cpu/gpu=${(path.median / gpu).toFixed(3)} fits=${path.median <= gpu}`);
                     }
                     if (MODES.includes("followers")) {
                         const key = `${population}/${view.name}/${passes}/followers`;

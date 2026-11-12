@@ -3,7 +3,7 @@ import * as d from "typegpu/data";
 import { Meshes, createApp, Camera, StandardRenderer, Transform, AmbientLight, PointLight, MeshInstance, DirectionalLight, SpotLight, type World } from "../../src/index";
 import { LinesPlugin, drawLine, drawArrow, drawWireBox, GizmoAsset, Gizmo, registerGizmo } from "../../src/extras/lines";
 import { ProfilePlugin } from "../../src/extras/profile";
-import { GltfPlugin, loadGltfScene, poseGltfScene, spawnGltfScene } from "../../src/extras/gltf";
+import { bakeGltfAnimation, setGltfBakedFrame, GltfPlugin, loadGltfScene, poseGltfScene, spawnGltfScene } from "../../src/extras/gltf";
 import { skinningFixtureUrl } from "../../src/extras/gltf/skinning.fixture";
 import { BackgroundContext, backgroundLayout, CameraBackground, registerProducerTable, Materials, ScreenSpaceAmbientOcclusion, ScreenSpaceAmbientOcclusionPlugin, StandardMaterial, registerBackground } from "../../src/standard/rendering";
 import { RenderContext } from "../../src/core/rendering";
@@ -46,6 +46,9 @@ export default async function create(input = "", device?: GPUDevice) {
     const initialize = async (world: World) => {
     const skinned = await loadGltfScene(world, skinningFixtureUrl());
     const skinnedInstance = spawnGltfScene(world, skinned);
+    const bake = bakeGltfAnimation(world, skinned, skinned.animations[0], 30);
+    const bakedInstance = spawnGltfScene(world, skinned, { translation: [2, 0, 0] });
+    setGltfBakedFrame(world, bakedInstance, bake, 0);
     let context: CanvasContext;
     const canvas = {
         width: 32, height: 24, style: { imageRendering: "auto" },
@@ -120,6 +123,7 @@ export default async function create(input = "", device?: GPUDevice) {
     let frame = 0;
     const compose = () => {
         poseGltfScene(world, skinnedInstance, skinned.animations[0], times[1 + frame % 60]!);
+        setGltfBakedFrame(world, bakedInstance, bake, frame % bake.frameCount);
         materialValues.perceptualRoughness = 0.25 + (frame % 60) / 120;
         materials.update(material, materialValues);
         drawLine(world, a, b, 0xffaa55);

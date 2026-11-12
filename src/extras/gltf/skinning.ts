@@ -43,6 +43,20 @@ export const MorphedMesh = component("MorphedMesh", { firstWeight: u32, weightCo
 /** Deformation source; the generation-checked reference becomes missing after destruction. */
 export const LeaderPose = component("LeaderPose", { leader: entity });
 const followers = [LeaderPose];
+/** A whole baked frame, resolved through the world's live bake registry at upload.
+ * Derived by setGltfBakedFrame; use that function to attach or change frames. */
+export const BakedFrame = component("BakedFrame", { bake: u32, primitive: u32, frame: u32 });
+const bakedEntities = [BakedFrame];
+export interface BakedRows {
+    frameCount: number;
+    firstJoint: number;
+    jointCount: number;
+    firstWeight: number;
+    weightCount: number;
+    joints: number[];
+    weights: number[];
+    bounds: Float32Array;
+}
 
 /** CPU staging and world-owned textures. extent is the allocated joint high-water mark, including holes. */
 export const SkinPalette = {
@@ -50,6 +64,8 @@ export const SkinPalette = {
 };
 class Palette {
     enabled = false;
+    readonly bakes = new Map<number, BakedRows>();
+    nextBake = 1;
     readonly ranges = new DeformationRanges();
     get extent(): number {
         return this.ranges.extent;
@@ -82,8 +98,8 @@ class Palette {
         this._world = world;
         this.morph = new MorphTextures(world);
     }
-    allocate(count: number): number {
-        const first = this.ranges.allocate(count, JointsPerRow * 8192, "SkinnedMesh palette");
+    allocate(count: number, name = "SkinnedMesh palette"): number {
+        const first = this.ranges.allocate(count, JointsPerRow * 8192, name);
         this.growPalette(Math.max(1, Math.ceil(this.extent / JointsPerRow)));
         return first;
     }
@@ -119,6 +135,7 @@ class Palette {
                     column.length,
                     weightColumn.length,
                     this._world.fieldStorage(LeaderPose, "leader").column.length,
+                    this._world.fieldStorage(BakedFrame, "bake").column.length,
                 ) / PaletteWidth,
             ),
         );
@@ -161,6 +178,33 @@ class Palette {
                     bounds.w.get(leader),
                 );
             else bounds.set(eid, 0, 0, 0, -1);
+        }
+        const baked = this._world.storage(BakedFrame);
+        for (const eid of this._world.query(bakedEntities)) {
+            const rows = this.bakes.get(baked.bake.get(eid));
+            if (!rows) {
+                bounds.set(eid, 0, 0, 0, -1);
+                continue;
+            }
+            const p = baked.primitive.get(eid);
+            const frame = baked.frame.get(eid);
+            const jc = rows.joints[p + 1] - rows.joints[p];
+            const wc = rows.weights[p + 1] - rows.weights[p];
+            this._offsets[eid * 4] = jc
+                ? rows.firstJoint + frame * rows.jointCount + rows.joints[p] + 1
+                : 0;
+            this._offsets[eid * 4 + 1] = wc
+                ? rows.firstWeight + frame * rows.weightCount + rows.weights[p] + 1
+                : 0;
+            this._offsets[eid * 4 + 2] = wc;
+            const b = (frame * (rows.joints.length - 1) + p) * 4;
+            bounds.set(
+                eid,
+                rows.bounds[b],
+                rows.bounds[b + 1],
+                rows.bounds[b + 2],
+                rows.bounds[b + 3],
+            );
         }
         this.morph.upload();
         this.bindings.morphWeights = this.morph.bindings.morphWeights;
@@ -338,17 +382,29 @@ const UploadDeformationsSystem: System = {
         world.resource(SkinPalette).upload();
     },
 };
-/** glTF morphing and skinning, with entity-owned weight and palette ranges. Replacement materials
+/** glTF morphing and skinning, reading entity-owned, shared or baked rows. Replacement materials
  * require deformationBindings and deformationVertex to deform (one storage buffer, four textures). */
 export const GltfPlugin: Plugin = {
     name: "Gltf",
     gpu: {},
-    components: [SkinnedMesh, MorphedMesh, LeaderPose],
+    components: [SkinnedMesh, MorphedMesh, LeaderPose, BakedFrame],
     dependencies: [MeshPlugin, MaterialPlugin(SkinnedMaterial)],
     systems: [UploadDeformationsSystem],
     initialize(world) {
         const palette = world.resource(SkinPalette);
         palette.enabled = true;
+        world.onDispose(() => {
+            for (const rows of palette.bakes.values()) {
+                if (rows.jointCount)
+                    palette.release(rows.firstJoint, rows.jointCount * rows.frameCount);
+                if (rows.weightCount)
+                    palette.morph.ranges.release(
+                        rows.firstWeight,
+                        rows.weightCount * rows.frameCount,
+                    );
+            }
+            palette.bakes.clear();
+        });
         world.onDispose(
             world.observeMembership(SkinnedMesh, (eid, present) => {
                 const storage = world.storage(SkinnedMesh);

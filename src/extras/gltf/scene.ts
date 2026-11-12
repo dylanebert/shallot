@@ -23,6 +23,7 @@ import { basisImageSource } from "./image";
 import { initializeGltfGlobals, poseKernel, registerGltfKernel, writeKernelPose } from "./kernel";
 import { loadGltf } from "./load";
 import {
+    BakedFrame,
     LeaderPose,
     MorphedMesh,
     SkinnedMaterial,
@@ -529,7 +530,7 @@ export function setGltfLeaderPose(
     if (follower.gltf !== leader.gltf) throw new Error("Leader Pose requires the same Gltf");
     if (follower === leader) throw new Error("Leader Pose cannot follow itself");
     for (const eid of leader.entities)
-        if (world.has(eid, LeaderPose))
+        if (world.has(eid, LeaderPose) || world.has(eid, BakedFrame))
             throw new Error("Leader Pose requires a leader owning its pose");
     const leaders = world.storage(LeaderPose).leader;
     for (const eid of world.query([LeaderPose])) {
@@ -543,6 +544,7 @@ export function setGltfLeaderPose(
         const eid = follower.entities[i];
         world.remove(eid, SkinnedMesh);
         world.remove(eid, MorphedMesh);
+        world.remove(eid, BakedFrame);
         world.add(eid, LeaderPose, { leader: leader.entities[i] });
     }
 }

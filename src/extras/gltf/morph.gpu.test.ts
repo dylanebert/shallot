@@ -27,6 +27,7 @@ import {
     StandardRenderer,
     StandardRenderingPlugin,
 } from "../../standard/rendering";
+import { bakeGltfAnimation, releaseGltfBake, setGltfBakedFrame } from "./bake";
 import type { GltfScene } from "./gltf";
 import { loadGltf } from "./load";
 import { morphFixture, morphFixtureUrl } from "./morph.fixture";
@@ -39,6 +40,7 @@ import {
     spawnGltfScene,
 } from "./scene";
 import {
+    BakedFrame,
     deformationBindings,
     deformationVertex,
     GltfPlugin,
@@ -518,6 +520,234 @@ for (const ordering of ["follow a follower", "make a leader follow"] as const)
                 for (const eid of instance.entities) world.destroy(eid);
         }
     });
+
+test("every baked frame is bit-equal to live palette, morph weights and bounds; GPU deformation survives release and row reuse in bind pose", async () => {
+    const world = app.world,
+        source = scenes[1],
+        gltf = source.instance.gltf;
+    const palette = world.resource(SkinPalette);
+    const live = spawnGltfScene(world, gltf),
+        baked = spawnGltfScene(world, gltf);
+    const le = live.entities[0],
+        be = baked.entities[0],
+        se = source.instance.entities[0];
+    const mesh = world.storage(MeshInstance).mesh.get(se);
+    world.storage(MeshInstance).mesh.set(le, mesh);
+    world.storage(MeshInstance).mesh.set(be, mesh);
+    world.remove(se, MeshInstance);
+    world.remove(be, MeshMaterial);
+    const material = world
+        .resource(ReadMorph)
+        .add({ pad: 0 }, { alphaMode: AlphaMode.Blend, cullMode: "none" });
+    world.add(le, MeshMaterial, material);
+    const bake = bakeGltfAnimation(world, gltf, gltf.animations[0], 3);
+    const read = async () => {
+        world.tick();
+        world.step(1 / 60);
+        world.step(1 / 60);
+        return new Float32Array((await probeTexture(world, world.resource(Results))).bytes);
+    };
+    const bits = (array: Float32Array) =>
+        Array.from(new Uint32Array(array.buffer, array.byteOffset, array.length));
+    const b = world.storage(MeshInstance).cullBounds;
+    try {
+        expect(bake.frameCount).toBe(
+            Math.ceil(Math.max(...gltf.animations[0].samplers.map((s) => s.input.at(-1)!)) * 3) + 1,
+        );
+        setGltfBakedFrame(world, baked, bake, 0);
+        expect(world.has(be, SkinnedMesh)).toBe(false);
+        expect(world.has(be, MorphedMesh)).toBe(false);
+        const rows = palette.bakes.get(world.storage(BakedFrame).bake.get(be))!;
+        for (let f = 0; f < bake.frameCount; f++) {
+            poseGltfScene(world, live, gltf.animations[0], f / bake.rate);
+            const j = world.storage(SkinnedMesh).firstJoint.get(le) * 16;
+            const w = world.storage(MorphedMesh).firstWeight.get(le);
+            const bj = (rows.firstJoint + f * rows.jointCount) * 16;
+            const bw = rows.firstWeight + f * rows.weightCount;
+            expect(bits(palette.matrices.subarray(bj, bj + rows.jointCount * 16))).toEqual(
+                bits(palette.matrices.subarray(j, j + rows.jointCount * 16)),
+            );
+            expect(bits(palette.morph.weights.subarray(bw, bw + rows.weightCount))).toEqual(
+                bits(palette.morph.weights.subarray(w, w + rows.weightCount)),
+            );
+            expect(bits(rows.bounds.subarray(f * 4, f * 4 + 4))).toEqual(
+                bits(new Float32Array([b.x.get(le), b.y.get(le), b.z.get(le), b.w.get(le)])),
+            );
+            world.remove(be, MeshMaterial);
+            world.add(le, MeshMaterial, material);
+            const expected = await read();
+            world.remove(le, MeshMaterial);
+            world.add(be, MeshMaterial, material);
+            setGltfBakedFrame(world, baked, bake, f);
+            const actual = await read();
+            for (let v = 0; v < source.decoded.meshes[0].vertices.length / 8; v++) {
+                const o = (source.base + v) * 24;
+                expect(bits(actual.subarray(o, o + 12))).toEqual(
+                    bits(expected.subarray(o, o + 12)),
+                );
+            }
+        }
+        releaseGltfBake(world, bake);
+        releaseGltfBake(world, bake);
+        expect(() => setGltfBakedFrame(world, baked, bake, 0)).toThrow(/released/);
+        const replacement = bakeGltfAnimation(world, gltf, gltf.animations[0], 3);
+        const replacementRows = [...palette.bakes.values()].find((r) => r !== rows)!;
+        expect(replacementRows.firstJoint).toBeLessThanOrEqual(rows.firstJoint);
+        expect(
+            replacementRows.firstJoint + replacementRows.jointCount * replacement.frameCount,
+        ).toBeGreaterThan(rows.firstJoint);
+        expect(replacementRows.firstWeight).toBeLessThanOrEqual(rows.firstWeight);
+        expect(
+            replacementRows.firstWeight + replacementRows.weightCount * replacement.frameCount,
+        ).toBeGreaterThan(rows.firstWeight);
+        const bind = await read();
+        expect([b.x.get(be), b.y.get(be), b.z.get(be), b.w.get(be)]).toEqual([0, 0, 0, -1]);
+        for (let v = 0; v < source.decoded.meshes[0].vertices.length / 8; v++) {
+            const o = (source.base + v) * 24;
+            for (let k = 0; k < 3; k++) close(bind[o + k], bind[o + 12 + k]);
+        }
+        releaseGltfBake(world, replacement);
+        expect(() => bakeGltfAnimation(world, gltf, gltf.animations[0], 1e9)).toThrow(
+            /glTF bake.*8192 rows/,
+        );
+    } finally {
+        releaseGltfBake(world, bake);
+        world.destroy(le);
+        world.destroy(be);
+        world.add(se, MeshInstance, { mesh });
+    }
+});
+
+test("every frame of morph-only and multi-primitive bakes preserves the live kernel's bits", () => {
+    const world = app.world,
+        palette = world.resource(SkinPalette);
+    const bits = (array: Float32Array) =>
+        Array.from(new Uint32Array(array.buffer, array.byteOffset, array.length));
+    for (const instance of [
+        scenes[0].instance,
+        scenes[2].instance,
+        ...corpus.map((c) => c.instance),
+    ]) {
+        const { gltf } = instance;
+        if (!gltf.animations.length) continue;
+        const bake = bakeGltfAnimation(world, gltf, gltf.animations[0], 3);
+        const rows = [...palette.bakes.values()].at(-1)!;
+        try {
+            for (let f = 0; f < bake.frameCount; f++) {
+                poseGltfScene(world, instance, gltf.animations[0], f / bake.rate);
+                for (let p = 0; p < gltf.primitives.length; p++) {
+                    const eid = instance.entities[p],
+                        primitive = gltf.primitives[p];
+                    if (primitive.skin >= 0) {
+                        const n = gltf.skins[primitive.skin].joints.length * 16;
+                        const a = (rows.firstJoint + f * rows.jointCount + rows.joints[p]) * 16;
+                        const b = world.storage(SkinnedMesh).firstJoint.get(eid) * 16;
+                        expect(bits(palette.matrices.subarray(a, a + n))).toEqual(
+                            bits(palette.matrices.subarray(b, b + n)),
+                        );
+                    }
+                    if (primitive.morphReach) {
+                        const n = primitive.morphReach.length;
+                        const a = rows.firstWeight + f * rows.weightCount + rows.weights[p];
+                        const b = world.storage(MorphedMesh).firstWeight.get(eid);
+                        expect(bits(palette.morph.weights.subarray(a, a + n))).toEqual(
+                            bits(palette.morph.weights.subarray(b, b + n)),
+                        );
+                    }
+                    if (primitive.skin >= 0 || primitive.morphReach) {
+                        const b = world.storage(MeshInstance).cullBounds;
+                        const a = (f * gltf.primitives.length + p) * 4;
+                        expect(bits(rows.bounds.subarray(a, a + 4))).toEqual(
+                            bits(
+                                new Float32Array([
+                                    b.x.get(eid),
+                                    b.y.get(eid),
+                                    b.z.get(eid),
+                                    b.w.get(eid),
+                                ]),
+                            ),
+                        );
+                    }
+                }
+            }
+        } finally {
+            releaseGltfBake(world, bake);
+        }
+    }
+});
+
+test("baked frames preserve Leader Pose's one-level ownership rules without partial mutation", () => {
+    const world = app.world,
+        gltf = scenes[1].instance.gltf;
+    const leader = spawnGltfScene(world, gltf),
+        follower = spawnGltfScene(world, gltf),
+        third = spawnGltfScene(world, gltf);
+    const bake = bakeGltfAnimation(world, gltf, gltf.animations[0], 2);
+    try {
+        setGltfLeaderPose(world, follower, leader);
+        expect(() => setGltfBakedFrame(world, follower, bake, 0)).toThrow(/follower/);
+        expect(() => setGltfBakedFrame(world, leader, bake, 0)).toThrow(/followers/);
+        expect(world.has(leader.entities[0], SkinnedMesh)).toBe(true);
+        expect(world.has(follower.entities[0], LeaderPose)).toBe(true);
+        setGltfBakedFrame(world, third, bake, 0);
+        expect(() => setGltfLeaderPose(world, leader, third)).toThrow(/leader owning its pose/);
+        expect(() => setGltfBakedFrame(world, third, bake, -1)).toThrow(/out of range/);
+        expect(() => setGltfBakedFrame(world, third, bake, bake.frameCount)).toThrow(
+            /out of range/,
+        );
+    } finally {
+        releaseGltfBake(world, bake);
+        for (const instance of [follower, leader, third])
+            for (const eid of instance.entities) world.destroy(eid);
+    }
+});
+
+test("capacity refusals name the bake and roll back palette allocation when weights are full", async () => {
+    const isolated = await openGpuApp({ defaults: false, plugins: [GltfPlugin] });
+    const world = isolated.world;
+    const gltf = await loadGltfScene(world, morphFixtureUrl(morphFixture().json));
+    const palette = world.resource(SkinPalette);
+    try {
+        for (const kind of ["joints", "weights"] as const) {
+            const extent = palette.extent,
+                weights = palette.morph.ranges.extent,
+                count = palette.bakes.size;
+            const n = kind === "joints" ? 64 * 8192 - extent : 256 * 8192 - weights;
+            const first = kind === "joints" ? palette.allocate(n) : palette.morph.allocate(n);
+            const full = palette.extent,
+                fullWeights = palette.morph.ranges.extent;
+            try {
+                expect(() => bakeGltfAnimation(world, gltf, gltf.animations[0], 3)).toThrow(
+                    `glTF bake "${gltf.animations[0].name}"`,
+                );
+                expect(palette.extent).toBe(full);
+                expect(palette.morph.ranges.extent).toBe(fullWeights);
+                expect(palette.bakes.size).toBe(count);
+            } finally {
+                if (kind === "joints") palette.release(first, n);
+                else palette.morph.ranges.release(first, n);
+            }
+            expect(palette.extent).toBe(extent);
+            expect(palette.morph.ranges.extent).toBe(weights);
+        }
+    } finally {
+        isolated.dispose();
+    }
+});
+
+test("world disposal releases bake-owned palette and weight ranges and invalidates the registry", async () => {
+    const isolated = await openGpuApp({ defaults: false, plugins: [GltfPlugin] });
+    const world = isolated.world;
+    const gltf = await loadGltfScene(world, morphFixtureUrl(morphFixture().json));
+    const palette = world.resource(SkinPalette);
+    bakeGltfAnimation(world, gltf, gltf.animations[0], 3);
+    expect(palette.extent).toBeGreaterThan(0);
+    expect(palette.morph.ranges.extent).toBeGreaterThan(0);
+    isolated.dispose();
+    expect(palette.bakes.size).toBe(0);
+    expect(palette.extent).toBe(0);
+    expect(palette.morph.ranges.extent).toBe(0);
+});
 
 test("a morphed vertex outside its base sphere remains visible", async () => {
     const world = cullApp.world;
