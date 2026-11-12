@@ -13,9 +13,9 @@ on:
         options: [node]
 
 jobs:
-  replica-line-clipping-followup:
+  replica-line-clipping-six-claims:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 75
     defaults:
       run:
         shell: bash
@@ -40,95 +40,66 @@ jobs:
             node --version
             dpkg-query -W mesa-vulkan-drivers libvulkan1
             node -e '\''import("webgpu").then(async ({create,globals}) => { Object.assign(globalThis, globals); const a=await create([]).requestAdapter(); if(!a)throw new Error("no adapter"); console.log(JSON.stringify({icd:process.env.VK_ICD_FILENAMES,info:{vendor:a.info.vendor,architecture:a.info.architecture,device:a.info.device,description:a.info.description,fallback:a.info.isFallbackAdapter},features:[...a.features].sort()})); (await a.requestDevice()).destroy(); })'\''
-          ' 2>&1 | tee followup-adapter.log
+          ' 2>&1 | tee six-claims-adapter.log
           image=$(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep '^shallot-lavapipe-amd64:')
-          docker image inspect "$image" --format '{{.Id}} {{json .RepoTags}}' | tee -a followup-adapter.log
-      - name: Baseline only seven failed rendering and allocation claims
+          docker image inspect "$image" --format '{{.Id}} {{json .RepoTags}}' | tee -a six-claims-adapter.log
+      - name: Observe exactly six missing claims and narrow baseline only new failures
         run: |
-          sh scripts/lavapipe.sh "$BASELINE" sh -c 'bun test ./src/core/rendering/compressed-image.node.ts ./src/extras/gltf/basisu-import.node.ts ./diagnostics/readback-allocation/render.oracle.ts --test-name-pattern "texture-compression-(etc2|astc):|steady (render|background|ambient occlusion) allocates"' 2>&1 | tee followup-baseline-rendering.log
-      - name: Baseline only embedded-scene requestedFeatures claim
-        if: ${{ always() && !cancelled() }}
-        run: |
-          sh scripts/lavapipe.sh "$BASELINE" sh -c '
-            timeout=$(bun -e '\''import { TIMEOUT } from "./src/project/testing.js"; console.log(TIMEOUT.browser)'\'')
-            bunx playwright test -c examples/embedded-scene --grep "embedded-scene progress stays in its owned frame and reaches the bar; its description remains hit-testable" --global-timeout="$timeout" --workers=1 --reporter=list
-          ' 2>&1 | tee followup-baseline-embedded.log
-      - name: Candidate only remaining browser subjects continue on every red
-        if: ${{ always() && !cancelled() }}
-        run: |
-          cat > "$RUNNER_TEMP/remaining-browser.sh" <<'SCRIPT'
-          set -eu
-          subjects=$(find examples scripts src -type f \( -name 'vite.config.ts' -o -name 'playwright.config.ts' \) -exec dirname {} \; | sort -u)
-          for subject in $subjects; do
-            test -f "$subject/vite.config.ts"
-            test -f "$subject/playwright.config.ts"
-          done
-          subjects=$(bun scripts/test-hosts.ts $subjects)
-          printf 'ORDINARY_INVENTORY\n%s\n' "$subjects"
-          test "$(printf '%s\n' "$subjects" | wc -l)" -eq 52
-          previous=$(printf '%s\n' "$subjects" | awk '{print} $0 == "examples/embedded-scene" {exit}')
-          expected=$(printf '%s\n' examples/ambient-occlusion examples/bloom examples/city examples/color-grading examples/day-night-cycle examples/day-night-cycle/tests/frames examples/embedded-scene)
-          test "$previous" = "$expected"
-          remaining=$(printf '%s\n' "$subjects" | awk 'seen {print} $0 == "examples/embedded-scene" {seen=1}')
-          test "$(printf '%s\n' "$remaining" | wc -l)" -eq 45
-          failures=0
-          observed=0
-          empty=0
-          for subject in $remaining; do
-            if [ -z "$(find "$subject" -name node_modules -prune -o -type f -name '*.e2e.ts' -print)" ]; then
-              printf 'NO_BROWSER_CHECKS %s\n' "$subject"
-              empty=$((empty + 1))
-              continue
-            fi
-            observed=$((observed + 1))
-            timeout=$(bun -e 'import { TIMEOUT } from "./src/project/testing.js"; console.log(TIMEOUT.browser)')
-            printf 'Browser subject: %s\n' "$subject"
-            report=$(mktemp)
-            json_report=$(mktemp)
-            status=0
-            PLAYWRIGHT_JUNIT_OUTPUT_FILE="$report" PLAYWRIGHT_JSON_OUTPUT_FILE="$json_report" bunx playwright test -c "$subject" --global-timeout="$timeout" --workers=1 --output="$subject/test-results" --reporter=list,junit,json || status=$?
-            bun scripts/report-slow-tests.ts "$report" "" "$subject" "$json_report" || status=$?
-            printf 'SUBJECT_RESULT %s %s\n' "$subject" "$status"
-            node -e '
-              const fs=require("node:fs");
-              let report; try {report=JSON.parse(fs.readFileSync(process.argv[2],"utf8"));} catch { console.log("FOLLOWUP_UNCLASSIFIED "+process.argv[1]+" missing JSON result"); process.exit(0); }
-              const titles=[];
-              const visit=s=>{for(const spec of s.specs??[])if(spec.tests.some(t=>t.status==="unexpected"))titles.push(spec.title);for(const child of s.suites??[])visit(child);};
-              visit(report);
-              console.log("SUBJECT_COUNTS "+JSON.stringify({subject:process.argv[1],stats:report.stats}));
-              if(titles.length)console.log("FOLLOWUP_FAILURE "+JSON.stringify({subject:process.argv[1],titles:[...new Set(titles)]}));
-            ' "$subject" "$json_report"
-            rm -f "$report" "$json_report"
-            if [ "$status" -ne 0 ]; then failures=$((failures + 1)); fi
-          done
-          printf 'REMAINING_COVERAGE observed=%s empty=%s failed_subjects=%s\n' "$observed" "$empty" "$failures"
-          test $((observed + empty)) -eq 45
-          test "$failures" -eq 0
-          SCRIPT
-          sh scripts/lavapipe.sh "$CANDIDATE" sh -c "$(cat "$RUNNER_TEMP/remaining-browser.sh")" 2>&1 | tee followup-remaining-browser.log
-      - name: Narrow baseline only newly failed named browser claims
-        if: ${{ always() && !cancelled() }}
-        run: |
-          python3 - <<'PY' 2>&1 | tee followup-new-browser-baselines.log
+          python3 - <<'PY' 2>&1 | tee six-claims-results.log
           import json, os, re, subprocess
-          from pathlib import Path
-          log = Path('followup-remaining-browser.log').read_text()
-          failures = [json.loads(line.removeprefix('FOLLOWUP_FAILURE ')) for line in log.splitlines() if line.startswith('FOLLOWUP_FAILURE ')]
-          script = '''
+          cases = [
+              ('examples/particles', "spawn, mid-stir and profiler captures use the game's composed first-person view"),
+              *[('examples/gltf', category + ' models switch on the same canvas without horizontal scroll') for category in ['materials', 'textures', 'animation', 'lighting', 'compression']],
+          ]
+          print('EXPECTED_SELECTION ' + json.dumps(cases), flush=True)
+          script = r'''
+          set -eu
+          subject=$1
+          title=$2
+          pattern=$3
+          listed=$(mktemp)
+          bunx playwright test -c "$subject" --grep "$pattern" --list --reporter=json > "$listed"
+          node -e '
+            const fs=require("node:fs"); const report=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const specs=[];
+            const visit=s=>{specs.push(...(s.specs??[]));for(const child of s.suites??[])visit(child);};visit(report);
+            const titles=specs.flatMap(s=>s.tests.map(()=>s.title));
+            console.log("SELECTED_TESTS "+JSON.stringify({expected:process.argv[2],titles,count:titles.length}));
+            if(titles.length!==1||titles[0]!==process.argv[2])process.exit(2);
+          ' "$listed" "$title"
+          rm -f "$listed"
           timeout=$(bun -e 'import { TIMEOUT } from "./src/project/testing.js"; console.log(TIMEOUT.browser)')
-          bunx playwright test -c "$1" --grep "$2" --global-timeout="$timeout" --workers=1 --reporter=list
+          report=$(mktemp)
+          json_report=$(mktemp)
+          status=0
+          PLAYWRIGHT_JUNIT_OUTPUT_FILE="$report" PLAYWRIGHT_JSON_OUTPUT_FILE="$json_report" bunx playwright test -c "$subject" --grep "$pattern" --global-timeout="$timeout" --workers=1 --output="$subject/test-results" --reporter=list,junit,json || status=$?
+          bun scripts/report-slow-tests.ts "$report" "" "$subject" "$json_report" || status=$?
+          node -e '
+            const fs=require("node:fs");const report=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+            console.log("CLAIM_STATS "+JSON.stringify({subject:process.argv[2],title:process.argv[3],stats:report.stats}));
+          ' "$json_report" "$subject" "$title"
+          rm -f "$report" "$json_report"
+          exit "$status"
           '''
-          for failure in failures:
-              print('NAMED_BASELINE_DOUBT ' + json.dumps(failure), flush=True)
-              pattern = '|'.join(re.escape(title) + '$' for title in failure['titles'])
-              result = subprocess.run(['sh', 'scripts/lavapipe.sh', os.environ['BASELINE'], 'sh', '-c', script, 'sh', failure['subject'], pattern])
-              print('NEW_BASELINE_RESULT ' + json.dumps({'subject': failure['subject'], 'exit': result.returncode}), flush=True)
-          print('NEW_BASELINE_SUBJECTS ' + str(len(failures)), flush=True)
+          failed = 0
+          for subject, title in cases:
+              pattern = re.escape(title) + '$'
+              print('CANDIDATE_CLAIM ' + json.dumps({'source': os.environ['CANDIDATE'], 'subject': subject, 'title': title}), flush=True)
+              command = ['sh', 'scripts/lavapipe.sh', os.environ['CANDIDATE'], 'sh', '-c', script, 'sh', subject, title, pattern]
+              result = subprocess.run(command)
+              print('CANDIDATE_RESULT ' + json.dumps({'subject': subject, 'title': title, 'exit': result.returncode}), flush=True)
+              if result.returncode:
+                  failed += 1
+                  print('NAMED_BASELINE_DOUBT ' + json.dumps({'source': os.environ['BASELINE'], 'subject': subject, 'title': title}), flush=True)
+                  command[2] = os.environ['BASELINE']
+                  baseline = subprocess.run(command)
+                  print('BASELINE_RESULT ' + json.dumps({'subject': subject, 'title': title, 'exit': baseline.returncode}), flush=True)
+          print('SIX_CLAIM_COVERAGE ' + json.dumps({'selected': len(cases), 'failed': failed}), flush=True)
+          raise SystemExit(1 if failed else 0)
           PY
       - name: Retain text evidence only
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: replica-line-clipping-followup-text
-          path: followup-*.log
+          name: replica-line-clipping-six-claims-text
+          path: six-claims-*.log
           if-no-files-found: error
