@@ -413,7 +413,7 @@ export function materialLayout<B extends Record<string, MaterialBinding>, P exte
     const own = {
         ...builtins,
         ...Object.fromEntries(
-            Object.entries(bindings).flatMap(([name, binding]) =>
+            Object.entries(bindings).flatMap(([name, binding]): [string, TgpuLayoutEntry][] =>
                 binding.type === "image"
                     ? [
                           [name, bindingEntry(binding)],
