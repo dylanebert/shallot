@@ -130,14 +130,18 @@ export function setGltfBakedFrame(
     if (!world.resource(SkinPalette).bakes.has(id)) throw new Error("glTF bake is released");
     if (!Number.isInteger(frame) || frame < 0 || frame >= bake.frameCount)
         throw new Error("glTF baked frame is out of range");
-    for (const eid of instance.entities)
-        if (world.has(eid, LeaderPose))
-            throw new Error("glTF baked frame refuses a Leader Pose follower");
-    const leaders = world.storage(LeaderPose).leader;
-    for (const eid of world.query(followers))
-        if (instance.entities.includes(leaders.get(eid)))
-            throw new Error("glTF baked frame refuses an instance with followers");
     const storage = world.storage(BakedFrame);
+    // setGltfLeaderPose refuses a leader holding BakedFrame and removes it from a follower, so an
+    // instance whose deforming entities all hold BakedFrame neither follows nor has followers.
+    if (!attached(world, instance)) {
+        for (const eid of instance.entities)
+            if (world.has(eid, LeaderPose))
+                throw new Error("glTF baked frame refuses a Leader Pose follower");
+        const leaders = world.storage(LeaderPose).leader;
+        for (const eid of world.query(followers))
+            if (instance.entities.includes(leaders.get(eid)))
+                throw new Error("glTF baked frame refuses an instance with followers");
+    }
     for (let p = 0; p < instance.entities.length; p++) {
         const primitive = instance.gltf.primitives[p];
         if (primitive.skin < 0 && !primitive.morphReach) continue;
@@ -151,4 +155,16 @@ export function setGltfBakedFrame(
             storage.frame.set(eid, frame);
         }
     }
+}
+
+function attached(world: World, instance: GltfSceneInstance): boolean {
+    for (let p = 0; p < instance.entities.length; p++) {
+        const primitive = instance.gltf.primitives[p];
+        if (
+            (primitive.skin >= 0 || primitive.morphReach) &&
+            !world.has(instance.entities[p], BakedFrame)
+        )
+            return false;
+    }
+    return true;
 }
