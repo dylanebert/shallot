@@ -30,12 +30,21 @@ import {
 import type { GltfScene } from "./gltf";
 import { loadGltf } from "./load";
 import { morphFixture, morphFixtureUrl } from "./morph.fixture";
-import { type GltfSceneInstance, loadGltfScene, poseGltfScene, spawnGltfScene } from "./scene";
+import {
+    clearGltfLeaderPose,
+    type GltfSceneInstance,
+    loadGltfScene,
+    poseGltfScene,
+    setGltfLeaderPose,
+    spawnGltfScene,
+} from "./scene";
 import {
     deformationBindings,
     deformationVertex,
     GltfPlugin,
+    LeaderPose,
     MorphedMesh,
+    SkinnedMesh,
     SkinPalette,
 } from "./skinning";
 
@@ -393,6 +402,120 @@ for (const sample of recorded)
                 const expected = sample.worlds[1].matrix;
                 for (let i = 0; i < 16; i++) close(scene.instance.globals[1][i], expected[i]);
             }
+        }
+    });
+
+test("Leader Pose shares skin and morph positions and normals under its own placement, owns no ranges, and survives leader eid reuse in bind pose", async () => {
+    const world = app.world;
+    const source = scenes[1];
+    const sourceEid = source.instance.entities[0];
+    const mesh = world.storage(MeshInstance).mesh.get(sourceEid);
+    const gltf = source.instance.gltf;
+    const leader = spawnGltfScene(world, gltf);
+    const follower = spawnGltfScene(world, gltf, { translation: [3, 2, 1], scale: [2, 1, 0.5] });
+    const le = leader.entities[0],
+        fe = follower.entities[0];
+    const material = world
+        .resource(ReadMorph)
+        .add({ pad: 0 }, { alphaMode: AlphaMode.Blend, cullMode: "none" });
+    world.storage(MeshInstance).mesh.set(le, mesh);
+    world.storage(MeshInstance).mesh.set(fe, mesh);
+    world.remove(sourceEid, MeshInstance);
+    world.remove(fe, MeshMaterial);
+    world.add(le, MeshMaterial, material);
+    const read = async () => {
+        world.tick();
+        world.step(1 / 60);
+        world.step(1 / 60);
+        return new Float32Array((await probeTexture(world, world.resource(Results))).bytes);
+    };
+    const bounds = world.storage(MeshInstance).cullBounds;
+    const sphere = (eid: number) => [
+        bounds.x.get(eid),
+        bounds.y.get(eid),
+        bounds.z.get(eid),
+        bounds.w.get(eid),
+    ];
+    try {
+        poseGltfScene(world, leader, gltf.animations[0], 0.6);
+        const extent = world.resource(SkinPalette).extent;
+        setGltfLeaderPose(world, follower, leader);
+        expect(world.has(fe, SkinnedMesh)).toBe(false);
+        expect(world.has(fe, MorphedMesh)).toBe(false);
+        expect(world.resource(SkinPalette).extent).toBeLessThanOrEqual(extent);
+        const posed = await read();
+        world.remove(le, MeshMaterial);
+        world.add(fe, MeshMaterial, material);
+        const shared = await read();
+        expect(sphere(fe)).toEqual(sphere(le));
+        for (let v = 0; v < source.decoded.meshes[0].vertices.length / 8; v++) {
+            const o = (source.base + v) * 24;
+            const normal = [posed[o + 4] / 2, posed[o + 5], posed[o + 6] * 2];
+            for (let k = 0; k < 3; k++) {
+                close(shared[o + k], posed[o + k] * [2, 1, 0.5][k] + [3, 2, 1][k]);
+                close(shared[o + 4 + k], normal[k]);
+            }
+        }
+        world.destroy(le);
+        const replacement = spawnGltfScene(world, gltf);
+        expect(replacement.entities[0]).toBe(le);
+        world.remove(le, MeshMaterial);
+        poseGltfScene(world, replacement, gltf.animations[0], 0.9);
+        const bind = await read();
+        expect(world.storage(LeaderPose).leader.get(fe)).toBe(0);
+        expect(sphere(fe)).toEqual([0, 0, 0, -1]);
+        for (let v = 0; v < source.decoded.meshes[0].vertices.length / 8; v++) {
+            const o = (source.base + v) * 24;
+            const sourceNormal = normalize(Array.from(bind.subarray(o + 16, o + 19)));
+            const normal = [sourceNormal[0] / 2, sourceNormal[1], sourceNormal[2] * 2];
+            for (let k = 0; k < 3; k++) {
+                close(bind[o + k], bind[o + 12 + k] * [2, 1, 0.5][k] + [3, 2, 1][k]);
+                close(bind[o + 4 + k], normal[k]);
+            }
+        }
+        clearGltfLeaderPose(world, follower);
+        expect(world.has(fe, LeaderPose)).toBe(false);
+        expect(world.has(fe, SkinnedMesh)).toBe(true);
+        expect(world.has(fe, MorphedMesh)).toBe(true);
+    } finally {
+        world.destroy(le);
+        world.destroy(fe);
+        world.add(sourceEid, MeshInstance, { mesh });
+    }
+});
+
+for (const ordering of ["follow a follower", "make a leader follow"] as const)
+    test(`Leader Pose refuses to ${ordering} before changing any ranges or relations`, () => {
+        const world = app.world;
+        const gltf = scenes[1].instance.gltf;
+        const leader = spawnGltfScene(world, gltf);
+        const follower = spawnGltfScene(world, gltf);
+        const third = spawnGltfScene(world, gltf);
+        try {
+            setGltfLeaderPose(world, follower, leader);
+            const extent = world.resource(SkinPalette).extent;
+            const weights = world.resource(SkinPalette).morph.ranges.extent;
+            if (ordering === "follow a follower")
+                expect(() => setGltfLeaderPose(world, third, follower)).toThrow(
+                    /Leader Pose.*leader owning its pose/,
+                );
+            else
+                expect(() => setGltfLeaderPose(world, leader, third)).toThrow(
+                    /Leader Pose.*has followers/,
+                );
+            expect(world.resource(SkinPalette).extent).toBe(extent);
+            expect(world.resource(SkinPalette).morph.ranges.extent).toBe(weights);
+            expect(world.storage(LeaderPose).leader.get(follower.entities[0])).toBe(
+                leader.entities[0],
+            );
+            for (const instance of [leader, third]) {
+                expect(world.has(instance.entities[0], LeaderPose)).toBe(false);
+                expect(world.has(instance.entities[0], SkinnedMesh)).toBe(true);
+                expect(world.has(instance.entities[0], MorphedMesh)).toBe(true);
+            }
+        } finally {
+            for (const instance of [follower, leader, third])
+                for (const eid of instance.entities) world.destroy(eid);
         }
     });
 

@@ -3,7 +3,7 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { MeshInstance, MeshPlugin } from "../../core/mesh";
 import { Xform, xformNormal, xformPoint, xformQuat } from "../../core/rendering";
-import { component, type Plugin, type System, u32, type World } from "../../engine";
+import { component, entity, type Plugin, type System, u32, type World } from "../../engine";
 import {
     applyPbrLighting,
     extendedMaterial,
@@ -40,6 +40,9 @@ export const SkinnedMesh = component("SkinnedMesh", { firstJoint: u32, jointCoun
 /** Weight range owned by membership. firstWeight is derived; weightCount is supplied on attachment
  * and stays unchanged until removal. Removal frees the range and resets its cull override. */
 export const MorphedMesh = component("MorphedMesh", { firstWeight: u32, weightCount: u32 });
+/** Deformation source; the generation-checked reference becomes missing after destruction. */
+export const LeaderPose = component("LeaderPose", { leader: entity });
+const followers = [LeaderPose];
 
 /** CPU staging and world-owned textures. extent is the allocated joint high-water mark, including holes. */
 export const SkinPalette = {
@@ -111,7 +114,13 @@ class Palette {
         const weightColumn = this._world.fieldStorage(MorphedMesh, "firstWeight").column;
         const height = Math.max(
             1,
-            Math.ceil(Math.max(column.length, weightColumn.length) / PaletteWidth),
+            Math.ceil(
+                Math.max(
+                    column.length,
+                    weightColumn.length,
+                    this._world.fieldStorage(LeaderPose, "leader").column.length,
+                ) / PaletteWidth,
+            ),
         );
         if (height > 8192)
             throw new Error(
@@ -132,6 +141,26 @@ class Palette {
         for (let eid = 0; eid < weightColumn.length; eid++) {
             this._offsets[eid * 4 + 1] = weightCounts[eid] === 0 ? 0 : weightColumn[eid] + 1;
             this._offsets[eid * 4 + 2] = weightCounts[eid];
+        }
+        const leaders = this._world.storage(LeaderPose).leader;
+        const bounds = this._world.storage(MeshInstance).cullBounds;
+        for (const eid of this._world.query(followers)) {
+            const leader = leaders.get(eid);
+            this._offsets[eid * 4] =
+                leader && this._world.has(leader, SkinnedMesh) ? column[leader] + 1 : 0;
+            this._offsets[eid * 4 + 1] =
+                leader && this._world.has(leader, MorphedMesh) ? weightColumn[leader] + 1 : 0;
+            this._offsets[eid * 4 + 2] =
+                leader && this._world.has(leader, MorphedMesh) ? weightCounts[leader] : 0;
+            if (leader)
+                bounds.set(
+                    eid,
+                    bounds.x.get(leader),
+                    bounds.y.get(leader),
+                    bounds.z.get(leader),
+                    bounds.w.get(leader),
+                );
+            else bounds.set(eid, 0, 0, 0, -1);
         }
         this.morph.upload();
         this.bindings.morphWeights = this.morph.bindings.morphWeights;
@@ -314,7 +343,7 @@ const UploadDeformationsSystem: System = {
 export const GltfPlugin: Plugin = {
     name: "Gltf",
     gpu: {},
-    components: [SkinnedMesh, MorphedMesh],
+    components: [SkinnedMesh, MorphedMesh, LeaderPose],
     dependencies: [MeshPlugin, MaterialPlugin(SkinnedMaterial)],
     systems: [UploadDeformationsSystem],
     initialize(world) {

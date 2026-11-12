@@ -19,18 +19,21 @@ export {
 } from "./gltf";
 export { loadGltf } from "./load";
 export {
+    clearGltfLeaderPose,
     type Gltf,
     type GltfPlacement,
     type GltfPrimitive,
     type GltfSceneInstance,
     loadGltfScene,
     poseGltfScene,
+    setGltfLeaderPose,
     spawnGltfScene,
 } from "./scene";
 export {
     deformationBindings,
     deformationVertex,
     GltfPlugin,
+    LeaderPose,
     MorphedMesh,
     SkinnedMaterial,
     SkinnedMesh,

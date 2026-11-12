@@ -23,6 +23,7 @@ import { basisImageSource } from "./image";
 import { initializeGltfGlobals, poseKernel, registerGltfKernel, writeKernelPose } from "./kernel";
 import { loadGltf } from "./load";
 import {
+    LeaderPose,
     MorphedMesh,
     SkinnedMaterial,
     SkinnedMesh,
@@ -509,6 +510,62 @@ function validateTransform(
             throw new Error(
                 `glTF node "${node}": composed transform has shear or cannot be represented as TRS`,
             );
+}
+
+/** Shares a leader's deformation primitive for primitive; both instances must use the same Gltf.
+ * Releases the follower's palette and weight ranges. Placement remains the follower's own Transform;
+ * rigid parts placed by animated nodes stay where spawned unless poseGltfScene is called separately.
+ * Refuses a leader that follows another instance, or a follower that already has followers: the
+ * leader owns its pose and sharing is one level only. Destroying it leaves bind pose and mesh bounds,
+ * even when its eid or ranges are reused. Bounds and rows are resolved at draw upload.
+ */
+export function setGltfLeaderPose(
+    world: World,
+    follower: GltfSceneInstance,
+    leader: GltfSceneInstance,
+): void {
+    if (follower.gltf.world !== world || leader.gltf.world !== world)
+        throw new Error("glTF handle belongs to another world");
+    if (follower.gltf !== leader.gltf) throw new Error("Leader Pose requires the same Gltf");
+    if (follower === leader) throw new Error("Leader Pose cannot follow itself");
+    for (const eid of leader.entities)
+        if (world.has(eid, LeaderPose))
+            throw new Error("Leader Pose requires a leader owning its pose");
+    const leaders = world.storage(LeaderPose).leader;
+    for (const eid of world.query([LeaderPose])) {
+        const source = leaders.get(eid);
+        if (source && follower.entities.includes(source))
+            throw new Error("Leader Pose cannot follow: this instance has followers");
+    }
+    for (let i = 0; i < follower.entities.length; i++) {
+        const primitive = follower.gltf.primitives[i];
+        if (primitive.skin < 0 && !primitive.morphReach) continue;
+        const eid = follower.entities[i];
+        world.remove(eid, SkinnedMesh);
+        world.remove(eid, MorphedMesh);
+        world.add(eid, LeaderPose, { leader: leader.entities[i] });
+    }
+}
+
+/** Stops sharing and restores entity-owned deformation ranges in rest pose.
+ * Placement is unchanged. Call poseGltfScene to choose a subsequent animation pose.
+ */
+export function clearGltfLeaderPose(world: World, instance: GltfSceneInstance): void {
+    if (instance.gltf.world !== world) throw new Error("glTF handle belongs to another world");
+    for (let i = 0; i < instance.entities.length; i++) {
+        const eid = instance.entities[i];
+        if (!world.has(eid, LeaderPose)) continue;
+        world.remove(eid, LeaderPose);
+        const primitive = instance.gltf.primitives[i];
+        if (primitive.skin >= 0)
+            world.add(eid, SkinnedMesh, {
+                jointCount: instance.gltf.skins[primitive.skin].joints.length,
+            });
+        if (primitive.morphReach)
+            world.add(eid, MorphedMesh, { weightCount: primitive.morphReach.length });
+    }
+    poseKernel(world, instance);
+    for (let i = 0; i < instance.entities.length; i++) writeKernelPose(world, instance, i);
 }
 
 /** Poses a spawned scene at time in seconds, clamped per sampler, without playback or blending.
