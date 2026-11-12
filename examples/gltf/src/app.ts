@@ -19,6 +19,7 @@ import {
     poseGltfScene,
     spawnGltfScene,
 } from "@dylanebert/shallot/gltf";
+import { animateCrowd, clearCrowd, createCrowd, crowdBounds } from "./crowd";
 import { fitBounds, sceneAngles, sceneBounds } from "./framing";
 import { initialScene, modelPath, type Scene, scenes, truckPlacement } from "./scenes";
 
@@ -57,20 +58,28 @@ export async function selectScene(world: World, scene: Scene, aspect = 1) {
     const selection = ++viewer.selection;
     if (!viewer.models.has(scene)) await (viewer.loads.get(scene) ?? loadScene(world, scene));
     if (viewer.selection !== selection) return;
+    clearCrowd(world);
     for (const eid of viewer.entities) world.destroy(eid);
     for (const eid of viewer.instance?.lightEntities ?? []) world.destroy(eid);
     const lit = viewer.models.get(scene)!.lights.length > 0;
     world.resource(GlobalAmbientLight).brightness = lit ? 0 : 380;
     if (viewer.sun) world.storage(DirectionalLight).illuminance.set(viewer.sun, lit ? 0 : 6000);
     viewer.active = scene;
-    viewer.instance = spawnGltfScene(
-        world,
-        viewer.models.get(scene)!,
-        scene === "CesiumMilkTruck" ? truckPlacement : {},
-    );
-    viewer.entities = viewer.instance.entities;
+    viewer.instance =
+        scene === "CesiumManCrowd"
+            ? null
+            : spawnGltfScene(
+                  world,
+                  viewer.models.get(scene)!,
+                  scene === "CesiumMilkTruck" ? truckPlacement : {},
+              );
+    viewer.entities = viewer.instance?.entities ?? [];
+    if (scene === "CesiumManCrowd") createCrowd(world, viewer.models.get(scene)!);
     animateScene(world, 0);
-    viewer.bounds = sceneBounds(viewer.models.get(scene)!, scene);
+    viewer.bounds =
+        scene === "CesiumManCrowd"
+            ? crowdBounds(viewer.models.get(scene)!)
+            : sceneBounds(viewer.models.get(scene)!, scene);
     const view = sceneAngles(scene);
     const orbit = world.storage(Orbit);
     orbit.yaw.set(viewer.camera, view.yaw);
@@ -79,6 +88,10 @@ export async function selectScene(world: World, scene: Scene, aspect = 1) {
 }
 export function animateScene(world: World, delta: number): void {
     const viewer = world.resource(Viewer);
+    if (viewer.active === "CesiumManCrowd") {
+        animateCrowd(world, delta);
+        return;
+    }
     if (!viewer.active || !viewer.instance) return;
     const animation = viewer.models.get(viewer.active)!.animations[0];
     if (!animation) return;

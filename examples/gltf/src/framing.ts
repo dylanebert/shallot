@@ -38,6 +38,7 @@ export function fitBounds(world: World, camera: number, bounds: Gltf["bounds"], 
 }
 
 export function sceneAngles(scene: Scene) {
+    if (scene === "CesiumManCrowd") return { yaw: 0, pitch: Math.PI / 6 };
     // Sample Renderer UserCamera.resetView starts level and front-on.
     if (scene === "TwoSidedPlane") {
         // Its normal is +Y: start below the sheet so the double-sided underside is visible.

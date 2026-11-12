@@ -1,7 +1,22 @@
 <script lang="ts">
     import "./controls.css";
+    import { onMount } from "svelte";
+    import type { World } from "@dylanebert/shallot";
+    import { Crowd, type CrowdMode, crowdCount, leaderCount, setCrowdMode } from "./crowd";
     import { categories, samples, type Scene } from "./scenes";
-    let { scene, select }: { scene: Scene; select: (scene: Scene) => void } = $props();
+    let { scene, select, world }: { scene: Scene; select: (scene: Scene) => void; world: World } = $props();
+    const modes: CrowdMode[] = ["live", "shared", "baked"];
+    let mode = $state<CrowdMode>("live");
+    let costs = $state<Record<CrowdMode, number | null>>({ live: null, shared: null, baked: null });
+    onMount(() => {
+        const timer = setInterval(() => {
+            if (scene !== "CesiumManCrowd") return;
+            const crowd = world.resource(Crowd);
+            mode = crowd.mode;
+            costs = { ...crowd.costs };
+        }, 250);
+        return () => clearInterval(timer);
+    });
     let open = $state(false);
     let picker: HTMLElement;
     function step(direction: number) {
@@ -63,3 +78,23 @@
         <button tabindex="-1" onfocus={(event) => event.currentTarget.blur()} aria-label="Next scene" onclick={() => step(1)}>&gt;</button>
     </nav>
 </section>
+{#if scene === "CesiumManCrowd"}
+    <details open class="ec controls" aria-label="CesiumManCrowd controls">
+        <summary class="panel-title">Crowd</summary>
+        <div class="fields">
+            <div class="row"><span>Instances</span><output>{crowdCount}</output></div>
+            <div class="row">
+                <label for="pose-mode">Pose</label>
+                <select id="pose-mode" bind:value={mode} onchange={() => setCrowdMode(world, mode)}>
+                    {#each modes as option}<option value={option}>{option}</option>{/each}
+                </select>
+            </div>
+            <div class="row"><span>Leaders</span><output>{leaderCount}</output></div>
+            <div class="row"><span>Bake rate</span><output>30 Hz</output></div>
+            <h2 class="section-title">Pose CPU · ms/tick</h2>
+            {#each modes as option}
+                <div class="row"><span>{option}</span><output aria-label={`${option} CPU`}>{costs[option] === null ? "—" : costs[option]!.toFixed(3)}</output></div>
+            {/each}
+        </div>
+    </details>
+{/if}

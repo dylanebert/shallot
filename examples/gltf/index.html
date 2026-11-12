@@ -43,7 +43,7 @@
                     const url = new URL(location.href);
                     url.searchParams.set("scene", scene);
                     history.replaceState(null, "", url);
-                    flushSync(() => { component = mount(Hud, { target: container, props: { scene, select } }); });
+                    flushSync(() => { component = mount(Hud, { target: container, props: { scene, select, world } }); });
                 }
                 const requested = new URL(location.href).searchParams.get("scene");
                 select(requested && Object.hasOwn(scenes, requested) ? requested : initialScene);

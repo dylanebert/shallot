@@ -19,6 +19,7 @@ export const scenes = {
     CesiumMilkTruck: { promise: "textures" },
     AnimatedTriangle: { promise: "animation" },
     CesiumMan: { promise: "animation" },
+    CesiumManCrowd: { promise: "animation" },
     SkinnedNormal: { promise: "animation" },
     AnimatedMorphCube: { promise: "animation" },
     QuantizedMorphCube: { promise: "geometry" },
@@ -51,17 +52,19 @@ export const samples = categories.flatMap((category) => category.scenes);
 export const initialScene = samples[0].id;
 const draco = (scene: Scene) => scene.endsWith("Draco") && scene.slice(0, -"Draco".length);
 export const modelPath = (scene: Scene) =>
-    draco(scene)
-        ? `assets/Models/${draco(scene)}/glTF-Draco/${draco(scene)}.gltf`
-        : scene === "StainedGlassLamp" || scene === "AnisotropyBarnLamp"
-          ? `assets/Models/${scene}/glTF-KTX-BasisU/${scene}.gltf`
-          : scene === "MeshoptCubeTest"
-            ? "assets/Models/MeshoptCubeTest/glTF-Meshopt/MeshoptCubeTest.gltf"
-            : scene === "BrainStemMeshopt" || scene === "BrainStemMeshoptEXT"
-              ? `assets/Models/BrainStem/${scene === "BrainStemMeshopt" ? "glTF-Meshopt" : "glTF-Meshopt-EXT"}/BrainStem.gltf`
-              : scene === "QuantizedMorphCube"
-                ? "assets/Models/AnimatedMorphCube/glTF-Quantized/AnimatedMorphCube.gltf"
-                : scene === "SkinnedNormal"
-                  ? "models/SkinnedNormal.gltf"
-                  : `assets/Models/${scene}/glTF/${scene}.gltf`;
+    scene === "CesiumManCrowd"
+        ? "assets/Models/CesiumMan/glTF/CesiumMan.gltf"
+        : draco(scene)
+          ? `assets/Models/${draco(scene)}/glTF-Draco/${draco(scene)}.gltf`
+          : scene === "StainedGlassLamp" || scene === "AnisotropyBarnLamp"
+            ? `assets/Models/${scene}/glTF-KTX-BasisU/${scene}.gltf`
+            : scene === "MeshoptCubeTest"
+              ? "assets/Models/MeshoptCubeTest/glTF-Meshopt/MeshoptCubeTest.gltf"
+              : scene === "BrainStemMeshopt" || scene === "BrainStemMeshoptEXT"
+                ? `assets/Models/BrainStem/${scene === "BrainStemMeshopt" ? "glTF-Meshopt" : "glTF-Meshopt-EXT"}/BrainStem.gltf`
+                : scene === "QuantizedMorphCube"
+                  ? "assets/Models/AnimatedMorphCube/glTF-Quantized/AnimatedMorphCube.gltf"
+                  : scene === "SkinnedNormal"
+                    ? "models/SkinnedNormal.gltf"
+                    : `assets/Models/${scene}/glTF/${scene}.gltf`;
 export const truckPlacement: GltfPlacement = { translation: [0, -0.5, 0], scale: [0.7, 0.7, 0.7] };

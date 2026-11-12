@@ -14,7 +14,7 @@ import {
 
 test("the picker demonstrates each promise once without shrinking the regression corpus", () => {
     const listed = categories.flatMap((category) => category.scenes.map((scene) => scene.id));
-    expect(listed.length).toBe(29);
+    expect(listed.length).toBe(30);
     expect(new Set(listed).size).toBe(listed.length);
     expect(manifest.models).toHaveLength(46);
     expect(
@@ -34,7 +34,13 @@ test("the picker demonstrates each promise once without shrinking the regression
             "DuckDraco",
             "MorphPrimitivesTestDraco",
         ],
-        animation: ["AnimatedTriangle", "CesiumMan", "SkinnedNormal", "AnimatedMorphCube"],
+        animation: [
+            "AnimatedTriangle",
+            "CesiumMan",
+            "CesiumManCrowd",
+            "SkinnedNormal",
+            "AnimatedMorphCube",
+        ],
         geometry: ["MeshPrimitiveModes", "VertexColorTest", "QuantizedMorphCube"],
         transforms: ["OrientationTest", "NegativeScaleTest"],
         materials: [

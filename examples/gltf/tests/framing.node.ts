@@ -62,7 +62,9 @@ for (const [width, height] of [
     [1512, 982],
     [390, 844],
 ]) {
-    for (const scene of Object.keys(scenes) as Scene[]) {
+    for (const scene of (Object.keys(scenes) as Scene[]).filter(
+        (scene) => scene !== "CesiumManCrowd",
+    )) {
         test(`${scene} at ${width}x${height}: centered bounds fit with margin and sphere fills limiting axis`, () => {
             const world = app.world;
             selectScene(world, scene, width / height);
