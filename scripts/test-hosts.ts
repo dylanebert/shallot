@@ -63,6 +63,8 @@ export const ONLY: Readonly<Record<string, readonly NodeJS.Platform[]>> = {
     "scripts/packed-install.node.ts": ["linux", "win32"],
     // POSIX signal termination preserves the shell's 128 + signal status; Windows has no such termination status.
     "src/cli/preview-signal.node.ts": ["darwin", "linux"],
+    // The release publisher runs on Ubuntu; its boundary model executes that job's POSIX shell and tools.
+    "scripts/release.node.ts": ["linux"],
     // Its desktop opener shim is POSIX.
     "scripts/publish-browser-session.node.ts": ["darwin", "linux"],
 };

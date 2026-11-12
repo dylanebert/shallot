@@ -266,7 +266,7 @@ test("an out-of-range project TypeGPU fails before either module evaluates", () 
 test("release creation passes --prerelease only for hyphenated tags", () => {
     const workflow = readFileSync(join(ROOT, ".github/workflows/release.yml"), "utf8");
     const argsBlock = workflow.match(
-        /release_args=\(--verify-tag --generate-notes\)\n\s+if \[\[ "\$RELEASE_TAG" == \*-\* \]\]; then\n\s+release_args\+=\(--prerelease\)\n\s+fi/,
+        /release_args=\(--verify-tag --notes-file release-notes\.md\)\n\s+if \[\[ "\$RELEASE_TAG" == \*-\* \]\]; then\n\s+release_args\+=\(--prerelease\)\n\s+fi/,
     )?.[0];
     if (!argsBlock) throw new Error("release.yml has no recognized prerelease argument logic");
     expect(workflow).toContain(`gh release create "$RELEASE_TAG" "\${release_args[@]}" \\\n`);
@@ -288,8 +288,8 @@ test("release creation passes --prerelease only for hyphenated tags", () => {
         const args = result.stdout.toString().trim().split("\n");
         expect(args).toEqual(
             prerelease
-                ? ["--verify-tag", "--generate-notes", "--prerelease"]
-                : ["--verify-tag", "--generate-notes"],
+                ? ["--verify-tag", "--notes-file", "release-notes.md", "--prerelease"]
+                : ["--verify-tag", "--notes-file", "release-notes.md"],
         );
         console.log(`${tag}: ${args.join(" ")}`);
     }

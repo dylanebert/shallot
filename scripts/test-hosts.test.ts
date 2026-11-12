@@ -53,6 +53,15 @@ test("physics stepped subjects keep the same hosted browser platforms", () => {
         expect(hostFiles(subjects, platform, false)).toEqual(subjects);
 });
 
+test("release shell model runs on its Linux publisher host in CI", () => {
+    const files = ["scripts/release.node.ts"];
+    expect(hostFiles(files, "linux", true)).toEqual(files);
+    expect(hostFiles(files, "darwin", true)).toEqual([]);
+    expect(hostFiles(files, "win32", true)).toEqual([]);
+    for (const platform of ["darwin", "linux", "win32"] as const)
+        expect(hostFiles(files, platform, false)).toEqual(files);
+});
+
 test("outside hosted CI, every path runs on every platform", () => {
     for (const platform of ["darwin", "linux", "win32"] as const)
         expect(hostFiles(FILES, platform, false)).toEqual(FILES);

@@ -9,9 +9,8 @@
 #   • push to tag v*  → builds, assembles, AND attaches archives + SHA256SUMS to the GitHub Release.
 #   • workflow_dispatch → builds and assembles the SAME archives, but uploads them as RUN ARTIFACTS
 #     only. A dispatch run MUST NOT create, mutate, or upload to any release. The release-upload
-#     step (below, in the `checksums` job) carries `if: startsWith(github.ref, 'refs/tags/v')' so a
-#     dispatch run (whose github.ref is a branch ref, never a tag) cannot reach it. Do NOT remove that
-#     gate — it is the only thing keeping a dry run from publishing.
+#     step requires both a push event and a release tag ref, so dispatch at a branch or tag
+#     cannot publish.
 
 name: release
 
@@ -169,38 +168,11 @@ jobs:
           name: SHA256SUMS
           path: SHA256SUMS
 
-      # TAG-ONLY: attach archives + SHA256SUMS to the GitHub Release.
-      # The if: gate is the dry-run safety property — a workflow_dispatch run's github.ref is a
-      # branch ref (refs/heads/<branch>), never refs/tags/v*, so this step is skipped on dispatch.
-      # Do NOT remove or broaden this condition.
-      #
-      # CREATE-IF-MISSING: a first tag push has no GitHub Release object yet, so
-      # `gh release upload` alone would fail "release not found". The step branches on
-      # `gh release view` (an explicit branch, not a `||` chain
-      # that would swallow an unrelated failure): if the Release is absent it is created with
-      # --verify-tag (the tag is guaranteed present — the workflow is tag-triggered) and
-      # --generate-notes, attaching the archives at creation; if it already exists the upload
-      # uses --clobber so a re-run after a partial upload converges instead of erroring on the
-      # first already-present asset.
-      #
-      # Uses `gh` (preinstalled on GitHub runners) rather than a third-party action. The glob
-      # `archives/shallot-native-*.tar.gz` makes a zero-match an error: bash passes the unmatched
-      # literal to gh, which fails because the file does not exist — so a partial assembly cannot
-      # publish a SHA256SUMS with no archives beside it.
-      #
-      # GH_REPO, not a checkout: the checksums job's only inputs are the downloaded build artifacts
-      # — it has no source tree and needs none. `gh` with no repo context fails "fatal: not a git
-      # repository" (run 32543662094), and that failure hits *both* branches of the step: `gh
-      # release view` fails identically, which is why the run took the else branch at all. One env
-      # line — `GH_REPO: ${{ github.repository }}` — lets `gh` resolve the repo from the env and
-      # then verify the tag against the *remote* API rather than a local clone (gh manual:
-      # `--verify-tag` aborts when the tag doesn't exist in the *remote* repository). So the guard
-      # stays: dropping `--verify-tag` would only address the sub-command the error was reported
-      # against and leave the branch predicate broken. No `actions/checkout` step is added — the
-      # job's only inputs are downloaded artifacts, and a clone would be dead weight that reintroduces
-      # the git dependency the env line removes.
+      # Do not broaden this guard: dispatch must never publish, even at a release tag.
+      # New releases use tagged changelog copy; asset retries preserve existing notes.
+      # GH_REPO supplies context without a checkout; --verify-tag requires a remote tag.
       - name: Attach archives to release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
@@ -211,7 +183,18 @@ jobs:
               archives/shallot-native-*.tar.gz \
               SHA256SUMS
           else
-            release_args=(--verify-tag --generate-notes)
+            gh api "repos/$GH_REPO/contents/CHANGELOG.md" \
+              -H 'Accept: application/vnd.github.raw+json' \
+              -X GET -f ref="$RELEASE_TAG" > tagged-changelog.md
+            awk -v heading="## ${RELEASE_TAG#v}" '
+              /^## / { if (selected) exit; selected = ($0 == heading); next }
+              selected { print }
+            ' tagged-changelog.md > release-notes.md
+            if ! grep -q '[^[:space:]]' release-notes.md; then
+              echo "Missing or empty changelog entry for $RELEASE_TAG" >&2
+              exit 1
+            fi
+            release_args=(--verify-tag --notes-file release-notes.md)
             if [[ "$RELEASE_TAG" == *-* ]]; then
               release_args+=(--prerelease)
             fi
