@@ -1,4 +1,4 @@
-import { expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import {
     Body,
     BodyType,
@@ -23,9 +23,12 @@ import { createViewer, GrabFeedback } from "../src/view";
 
 setDefaultTimeout(TIMEOUT.node);
 
-test("scene presentation releases old meshes, systems and grab feedback in the running app", async () => {
+let app: Awaited<ReturnType<typeof openGpuApp>>;
+let select: ReturnType<typeof sceneSwitcher>;
+// One running app carries every category, so each category's first scene is switched from the last one's.
+beforeAll(async () => {
     const Viewer = { create: createViewer };
-    const app = await openGpuApp({
+    app = await openGpuApp({
         plugins: [
             StandardPhysicsPlugin,
             ShapeMaterialPlugin,
@@ -44,12 +47,14 @@ test("scene presentation releases old meshes, systems and grab feedback in the r
             },
         ],
     });
-    try {
+    select = sceneSwitcher(app.world, app.world.resource(Viewer));
+});
+afterAll(() => app?.dispose());
+
+for (const category of categories.filter((category) => category.name !== "Benchmark")) {
+    test(`${category.name} scene presentation releases old meshes, systems and grab feedback in the running app`, () => {
         const world = app.world;
-        const select = sceneSwitcher(world, world.resource(Viewer));
-        for (const { id: scene } of categories
-            .filter((category) => category.name !== "Benchmark")
-            .flatMap((category) => category.scenes)) {
+        for (const { id: scene } of category.scenes) {
             select(scene);
             const meshes = world.resource(Meshes);
             if (scene === "sensor") {
@@ -126,7 +131,5 @@ test("scene presentation releases old meshes, systems and grab feedback in the r
             world.step(0);
             expect(meshes.size, `${scene} after presentation`).toBe(freshCount);
         }
-    } finally {
-        app.dispose();
-    }
-});
+    });
+}
