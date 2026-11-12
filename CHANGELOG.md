@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.10.4
+
+### highlights
+
+- added gltf `KHR_meshopt_compression` and `EXT_meshopt_compression`, `KHR_texture_basisu` textures and Draco 2.2 triangle meshes through `KHR_draco_mesh_compression`
+- added gltf Leader Pose sharing and baked animation frames, with a crowd scene in the `gltf` example
+- added device-resolved image sources for compressed textures and supplied mip chains
+- fixed browser canvas acquisition recovery, Firefox frame re-entry and tonemapping lut decoding on older browsers
+- fixed overlapping gpu profile totals and frame latency reporting
+- fixed physics shared-memory pointers above 2 gib and capped wasm kernel memory at 2 gib
+- fixed line clipping against authored camera bounds with infinite reverse-z
+- fixed material binding tuple inference for typescript consumers
+- fixed failed image preparation reporting and reduced physics shape-mesh allocations
+
 ## 0.10.3
 
 ### highlights
