@@ -54,6 +54,7 @@ export const ONLY: Readonly<Record<string, readonly NodeJS.Platform[]>> = {
     "examples/physics": ["linux", "win32"],
     "examples/physics/tests/panels": ["linux", "win32"],
     "examples/physics/tests/hints": ["linux", "win32"],
+    "examples/physics/tests/layout": ["linux", "win32"],
     "examples/physics/tests/stepped": ["linux", "win32"],
     "examples/physics/tests/stepped-controls": ["linux", "win32"],
     // Its packaging classes are Windows paths and Linux case; macOS adds none, and there, on runners GitHub caps at

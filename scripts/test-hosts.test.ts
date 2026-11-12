@@ -31,8 +31,12 @@ test("hosted, hostFiles keeps, in order, only the given paths a platform runs, u
     expect(hostFiles(FILES, "win32", true)).toEqual([FILES[0]]);
 });
 
-test("physics hints follow panels on both hosted browser platforms", () => {
-    const subjects = ["examples/physics/tests/panels", "examples/physics/tests/hints"];
+test("physics hints and layout follow panels on both hosted browser platforms", () => {
+    const subjects = [
+        "examples/physics/tests/panels",
+        "examples/physics/tests/hints",
+        "examples/physics/tests/layout",
+    ];
     for (const platform of ["linux", "win32"] as const)
         expect(hostFiles(subjects, platform, true)).toEqual(subjects);
     expect(hostFiles(subjects, "darwin", true)).toEqual([]);
