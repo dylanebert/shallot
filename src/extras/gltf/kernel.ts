@@ -239,13 +239,24 @@ function rebuildViews(gltf: Gltf, s: Scratch): void {
         offset += joints * 16;
     }
 }
+// Named properties: a keyed load by path name was most of the copy's cost.
 function copyPoses(source: Float64Array, poses: GltfNodePose[]): void {
-    let offset = 0;
-    for (let i = 0; i < poses.length; i++)
-        for (let p = 0; p < paths.length; p++) {
-            const value = poses[i][paths[p]];
-            for (let c = 0; c < value.length; c++) value[c] = source[offset++];
-        }
+    let o = 0;
+    for (let i = 0; i < poses.length; i++) {
+        const { translation: t, rotation: r, scale: s, weights: w } = poses[i];
+        t[0] = source[o];
+        t[1] = source[o + 1];
+        t[2] = source[o + 2];
+        r[0] = source[o + 3];
+        r[1] = source[o + 4];
+        r[2] = source[o + 5];
+        r[3] = source[o + 6];
+        s[0] = source[o + 7];
+        s[1] = source[o + 8];
+        s[2] = source[o + 9];
+        o += 10;
+        for (let c = 0; c < w.length; c++) w[c] = source[o++];
+    }
 }
 export function poseKernel(
     world: World,

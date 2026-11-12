@@ -7,11 +7,15 @@ fn node(index: usize, parent: i32, x: f64) -> Node {
         pose: vec![x, 0., 0., 0., 0., 0., 1., 1., 1., 1., 0.25],
     }
 }
+fn scene(nodes: Vec<Node>) -> Asset {
+    Asset::new(nodes, vec![], vec![])
+}
 fn animation(mode: usize, path: usize, output: Vec<f64>) -> Animation {
     Animation {
+        inputs: vec![vec![1., 3.]],
         samplers: vec![Sampler {
             mode,
-            input: vec![1., 3.],
+            input: 0,
             output,
         }],
         channels: vec![Channel {
@@ -23,18 +27,18 @@ fn animation(mode: usize, path: usize, output: Vec<f64>) -> Animation {
 }
 #[test]
 fn step_clamps_and_retains_unchanneled_properties() {
-    let nodes = [node(4, -1, 7.)];
+    let nodes = scene(vec![node(4, -1, 7.)]);
     let clip = animation(0, 3, vec![2., 6.]);
     let mut poses = vec![0.; 11];
     for (time, expected) in [(-1., 2.), (1., 2.), (2., 2.), (3., 6.), (10., 6.)] {
         evaluate(&nodes, Some(&clip), time, &mut poses);
         assert_eq!(poses[10], expected);
-        assert_eq!(poses[..10], nodes[0].pose[..10]);
+        assert_eq!(poses[..10], nodes.nodes[0].pose[..10]);
     }
 }
 #[test]
 fn linear_interpolates_and_ignores_channels_outside_scene() {
-    let nodes = [node(4, -1, 7.)];
+    let nodes = scene(vec![node(4, -1, 7.)]);
     let mut clip = animation(1, 0, vec![0., 2., 4., 4., 6., 8.]);
     clip.channels.push(Channel {
         sampler: 0,
@@ -47,7 +51,7 @@ fn linear_interpolates_and_ignores_channels_outside_scene() {
 }
 #[test]
 fn linear_rotation_uses_shortest_arc_and_near_equal_limit() {
-    let nodes = [node(4, -1, 0.)];
+    let nodes = scene(vec![node(4, -1, 0.)]);
     let mut poses = vec![0.; 11];
     let clip = animation(1, 1, vec![0., 0., 0., 1., 0., 0., -1., 0.]);
     evaluate(&nodes, Some(&clip), 2., &mut poses);
@@ -58,8 +62,52 @@ fn linear_rotation_uses_shortest_arc_and_near_equal_limit() {
     assert_eq!(&poses[3..7], &[0., 0., 0., 1.]);
 }
 #[test]
+fn linear_rotation_matches_the_specification_slerp_far_below_f32() {
+    let nodes = scene(vec![node(4, -1, 0.)]);
+    let mut poses = vec![0.; 11];
+    let mut seed = 0x9e37_79b9_7f4a_7c15_u64;
+    let mut unit = |near: Option<[f64; 4]>| {
+        let mut q = [0.; 4];
+        for c in 0..4 {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            let r = (seed >> 11) as f64 / (1_u64 << 53) as f64 * 2. - 1.;
+            q[c] = near.map_or(r, |n| n[c] + r * 1e-6);
+        }
+        let length = q.iter().map(|v| v * v).sum::<f64>().sqrt();
+        q.map(|v| v / length)
+    };
+    for i in 0..10_000 {
+        let q0 = unit(None);
+        let q1 = unit((i % 2 == 1).then_some(q0));
+        let t = f64::from(i % 97) / 97.;
+        evaluate(
+            &nodes,
+            Some(&animation(1, 1, [q0, q1].concat())),
+            1. + 2. * t,
+            &mut poses,
+        );
+        let dot: f64 = (0..4).map(|c| q0[c] * q1[c]).sum();
+        let angle = libm::acos(dot.abs().min(1.));
+        let (a, b) = if angle < 1e-6 {
+            (1. - t, t)
+        } else {
+            let sin = libm::sin(angle);
+            (
+                libm::sin((1. - t) * angle) / sin,
+                libm::sin(t * angle) / sin,
+            )
+        };
+        for c in 0..4 {
+            let expected = a * q0[c] + dot.signum() * b * q1[c];
+            assert!((poses[3 + c] - expected).abs() < 1e-14);
+        }
+    }
+}
+#[test]
 fn cubic_scales_tangents_by_duration_and_normalizes_only_interior_rotations() {
-    let nodes = [node(4, -1, 0.)];
+    let nodes = scene(vec![node(4, -1, 0.)]);
     let mut poses = vec![0.; 11];
     let clip = animation(2, 3, vec![0., 2., 4., 0., 6., 0.]);
     evaluate(&nodes, Some(&clip), 2., &mut poses);
@@ -82,11 +130,7 @@ fn cubic_scales_tangents_by_duration_and_normalizes_only_interior_rotations() {
 fn globals_compose_parent_first_at_f32_boundaries() {
     let mut root = node(0, -1, 3.);
     root.pose[7] = 2.;
-    let a = Asset {
-        nodes: vec![root, node(1, 0, 4.)],
-        skins: vec![],
-        primitives: vec![],
-    };
+    let a = Asset::new(vec![root, node(1, 0, 4.)], vec![], vec![]);
     let mut i = Scratch {
         poses: a.nodes.iter().flat_map(|n| n.pose.clone()).collect(),
         globals: vec![0.; 32],
@@ -113,7 +157,7 @@ fn palette_and_sphere_include_inverse_binds_empty_joints_and_morph_reach() {
     write_skin_pose(&skin, &boxes, &global, 0.5, &mut palette, &mut bounds);
     assert_eq!(palette[12], 2.);
     assert_eq!(&bounds[..3], &[2., 0., 0.]);
-    assert_eq!(bounds[3], (libm::sqrt(36. + 9. + 9.) / 2.) as f32);
+    assert_eq!(bounds[3], ((36_f64 + 9. + 9.).sqrt() / 2.) as f32);
     let p = Primitive {
         pose_offset: 0,
         skin: -1,
@@ -131,17 +175,17 @@ fn palette_and_sphere_include_inverse_binds_empty_joints_and_morph_reach() {
 
 #[test]
 fn present_zero_weight_count_resets_unskinned_cull_bounds() {
-    let a = Asset {
-        nodes: vec![node(0, -1, 0.)],
-        skins: vec![],
-        primitives: vec![Primitive {
+    let a = Asset::new(
+        vec![node(0, -1, 0.)],
+        vec![],
+        vec![Primitive {
             pose_offset: 0,
             skin: -1,
             boxes: vec![],
             reach: vec![3.],
             bounds: vec![1., 2., 3., 4.],
         }],
-    };
+    );
     let mut h = Handle::new(a);
     h.scratch.input[1] = 1;
     h.scratch.output.fill(99.);
@@ -154,11 +198,7 @@ fn present_zero_weight_count_resets_unskinned_cull_bounds() {
 
 #[test]
 fn standalone_evaluation_does_not_require_parent_first_nodes() {
-    let a = Asset {
-        nodes: vec![node(4, 1, 7.), node(5, -1, 0.)],
-        skins: vec![],
-        primitives: vec![],
-    };
+    let a = Asset::new(vec![node(4, 1, 7.), node(5, -1, 0.)], vec![], vec![]);
     let clip = animation(1, 0, vec![0., 2., 4., 4., 6., 8.]);
     let mut h = Handle::new(a);
     unsafe {
@@ -173,11 +213,7 @@ fn standalone_evaluation_does_not_require_parent_first_nodes() {
 
 #[test]
 fn asset_reuses_scratch_across_poses() {
-    let mut h = Handle::new(Asset {
-        nodes: vec![node(4, -1, 0.)],
-        skins: vec![],
-        primitives: vec![],
-    });
+    let mut h = Handle::new(Asset::new(vec![node(4, -1, 0.)], vec![], vec![]));
     let clip = animation(1, 0, vec![0., 2., 4., 4., 6., 8.]);
     let poses = h.scratch.poses.as_ptr();
     let globals = h.scratch.globals.as_ptr();

@@ -206,6 +206,7 @@ bun run format                  # biome
 - Performance uses counted work and same-machine ratio oracles; real-hardware timings name the hardware and are reported, never asserted
 - An oracle is a separate measurement: run when its claim or tool changes, its result recorded in its commit message, and repeated only for a named doubt; the tree keeps the tool, never a run's output
 - Rendering performance: [shared transparent-phase oracle](src/core/rendering/shared-transparent.oracle.ts) for CPU work, [render allocation oracle](diagnostics/readback-allocation/render.oracle.ts) for heap, and [first-person allocation oracle](diagnostics/first-person-allocation/allocation.oracle.ts) for the shipped browser loop. Their assertions own the measured scopes and admitted allocations
+- glTF pose speed: `bun diagnostics/gltf-pose/ab.ts` with `gltf.wasm.ts` variants in the loop; the [skinning frame oracle](diagnostics/skinning/frame.performance.oracle.ts) checks the final candidate's `cpu-path-fits`
 
 | Claim | Tool / tier |
 |---|---|

@@ -1,4 +1,5 @@
 //! glTF pose evaluation. Arithmetic stays f64 until an authored f32 storage boundary.
+use std::collections::BTreeMap;
 use std::slice;
 
 pub mod meshopt;
@@ -25,11 +26,16 @@ struct Primitive {
 }
 struct Asset {
     nodes: Vec<Node>,
+    /// Every node's rest pose, in node order.
+    rest: Vec<f64>,
+    /// Pose offset by glTF node index; `usize::MAX` where the scene lacks the node.
+    targets: Vec<usize>,
     skins: Vec<Skin>,
     primitives: Vec<Primitive>,
 }
 struct Sampler {
-    input: Vec<f64>,
+    /// Index into `Animation::inputs`; samplers with equal key times share one.
+    input: usize,
     output: Vec<f64>,
     mode: usize,
 }
@@ -39,6 +45,7 @@ struct Channel {
     path: usize,
 }
 struct Animation {
+    inputs: Vec<Vec<f64>>,
     samplers: Vec<Sampler>,
     channels: Vec<Channel>,
 }
@@ -52,10 +59,29 @@ struct Handle {
     asset: Asset,
     scratch: Scratch,
 }
+impl Asset {
+    fn new(nodes: Vec<Node>, skins: Vec<Skin>, primitives: Vec<Primitive>) -> Self {
+        let mut targets = vec![usize::MAX; nodes.iter().map(|n| n.index + 1).max().unwrap_or(0)];
+        let mut start = 0;
+        for node in &nodes {
+            if targets[node.index] == usize::MAX {
+                targets[node.index] = start;
+            }
+            start += node.pose.len();
+        }
+        Self {
+            rest: nodes.iter().flat_map(|n| n.pose.iter().copied()).collect(),
+            nodes,
+            targets,
+            skins,
+            primitives,
+        }
+    }
+}
 impl Handle {
     fn new(asset: Asset) -> Self {
         let scratch = Scratch {
-            poses: vec![0.; asset.nodes.iter().map(|n| n.pose.len()).sum()],
+            poses: vec![0.; asset.rest.len()],
             globals: vec![0.; asset.nodes.len() * 16],
             input: vec![0; asset.primitives.len() * 2],
             output: vec![0.; output_len(&asset)],
@@ -132,12 +158,7 @@ pub unsafe extern "C" fn asset_new(ptr: *const f64, count: usize) -> *mut std::f
             }
         })
         .collect();
-    Box::into_raw(Box::new(Handle::new(Asset {
-        nodes,
-        skins,
-        primitives,
-    })))
-    .cast()
+    Box::into_raw(Box::new(Handle::new(Asset::new(nodes, skins, primitives)))).cast()
 }
 /// # Safety
 /// Input is a live serialized animation of `count` f64 lanes.
@@ -147,11 +168,22 @@ pub unsafe extern "C" fn animation_new(ptr: *const f64, count: usize) -> *mut st
         data: slice::from_raw_parts(ptr, count),
         cursor: 0,
     };
+    let mut inputs: Vec<Vec<f64>> = vec![];
+    let mut shared = BTreeMap::new();
     let samplers = (0..r.integer())
-        .map(|_| Sampler {
-            mode: r.integer(),
-            input: r.array(),
-            output: r.array(),
+        .map(|_| {
+            let mode = r.integer();
+            let keys = r.array();
+            let bits: Vec<u64> = keys.iter().map(|k| k.to_bits()).collect();
+            let input = *shared.entry(bits).or_insert_with(|| {
+                inputs.push(keys);
+                inputs.len() - 1
+            });
+            Sampler {
+                mode,
+                input,
+                output: r.array(),
+            }
         })
         .collect();
     let channels = (0..r.integer())
@@ -161,7 +193,12 @@ pub unsafe extern "C" fn animation_new(ptr: *const f64, count: usize) -> *mut st
             path: r.integer(),
         })
         .collect();
-    Box::into_raw(Box::new(Animation { samplers, channels })).cast()
+    Box::into_raw(Box::new(Animation {
+        inputs,
+        samplers,
+        channels,
+    }))
+    .cast()
 }
 fn output_len(a: &Asset) -> usize {
     a.primitives
@@ -202,45 +239,47 @@ pub unsafe extern "C" fn destroy(handle: *mut std::ffi::c_void, kind: usize) {
     }
 }
 
-fn evaluate(nodes: &[Node], animation: Option<&Animation>, time: f64, poses: &mut [f64]) {
-    let mut start = 0;
-    for node in nodes {
-        poses[start..start + node.pose.len()].copy_from_slice(&node.pose);
-        start += node.pose.len();
+fn key(input: &[f64], time: f64) -> usize {
+    let mut low = 0;
+    let mut high = input.len() - 1;
+    while low < high {
+        let middle = (low + high).div_ceil(2);
+        if input[middle] <= time {
+            low = middle;
+        } else {
+            high = middle - 1;
+        }
     }
+    low
+}
+fn evaluate(asset: &Asset, animation: Option<&Animation>, time: f64, poses: &mut [f64]) {
+    poses.copy_from_slice(&asset.rest);
     let Some(animation) = animation else {
         return;
     };
+    // Adjacent channels sharing key times share one search.
+    let mut searched = (usize::MAX, 0);
     for channel in &animation.channels {
-        let mut index = 0;
-        let mut start = 0;
-        while index < nodes.len() && nodes[index].index != channel.node {
-            start += nodes[index].pose.len();
-            index += 1;
-        }
-        if index == nodes.len() {
+        let Some(&target) = asset.targets.get(channel.node) else {
+            continue;
+        };
+        if target == usize::MAX {
             continue;
         }
-        start += [0, 3, 7, 10][channel.path];
+        let start = target + [0, 3, 7, 10][channel.path];
         let Sampler {
             input,
             output,
             mode,
         } = &animation.samplers[channel.sampler];
+        if searched.0 != *input {
+            searched = (*input, key(&animation.inputs[*input], time));
+        }
+        let input = &animation.inputs[*input];
         let cubic = *mode == 2;
         let stride = if cubic { 3 } else { 1 };
         let width = output.len() / input.len() / stride;
-        let mut low = 0;
-        let mut high = input.len() - 1;
-        while low < high {
-            let middle = (low + high).div_ceil(2);
-            if input[middle] <= time {
-                low = middle;
-            } else {
-                high = middle - 1;
-            }
-        }
-        let key = low;
+        let key = searched.1;
         let offset = (key * stride + usize::from(cubic)) * width;
         let value = &mut poses[start..start + width];
         value.copy_from_slice(&output[offset..offset + width]);
@@ -264,7 +303,7 @@ fn evaluate(nodes: &[Node], animation: Option<&Animation>, time: f64, poses: &mu
                         let v = v / max;
                         sum += v * v;
                     }
-                    let length = max * libm::sqrt(sum);
+                    let length = max * sum.sqrt();
                     for v in value {
                         *v /= length;
                     }
@@ -275,16 +314,16 @@ fn evaluate(nodes: &[Node], animation: Option<&Animation>, time: f64, poses: &mu
                     dot += value[c] * output[next + c];
                 }
                 let sign = if dot < 0. { -1. } else { 1. };
-                let angle = libm::acos(js_min(dot.abs(), 1.));
-                let a = if angle < 1e-6 {
-                    1. - t
+                let cos = js_min(dot.abs(), 1.);
+                // sin θ = √((1 - cos θ)(1 + cos θ)) and θ = atan2(sin θ, cos θ), as three.js
+                // slerpFlat takes θ; sin((1 - t)θ) = sin θ cos tθ - cos θ sin tθ.
+                let sin = ((1. - cos) * (1. + cos)).sqrt();
+                let angle = libm::atan2(sin, cos);
+                let (a, b) = if angle < 1e-6 {
+                    (1. - t, t)
                 } else {
-                    libm::sin((1. - t) * angle) / libm::sin(angle)
-                };
-                let b = if angle < 1e-6 {
-                    t
-                } else {
-                    libm::sin(t * angle) / libm::sin(angle)
+                    let (sin_t, cos_t) = libm::sincos(t * angle);
+                    ((sin * cos_t - cos * sin_t) / sin, sin_t / sin)
                 };
                 for c in 0..width {
                     value[c] = a * value[c] + sign * b * output[next + c];
@@ -319,7 +358,7 @@ pub unsafe extern "C" fn evaluate_only(
     let a = &h.asset;
     let i = &mut h.scratch;
     evaluate(
-        &a.nodes,
+        a,
         animation.cast::<Animation>().as_ref(),
         time,
         &mut i.poses,
@@ -361,13 +400,12 @@ fn compose(p: &[f64]) -> [f32; 16] {
     ]
 }
 fn multiply(a: &[f32], b: &[f32], out: &mut [f32]) {
-    for r in 0..4 {
-        for c in 0..4 {
-            out[c * 4 + r] = (f64::from(a[r]) * f64::from(b[c * 4])
-                + f64::from(a[r + 4]) * f64::from(b[c * 4 + 1])
-                + f64::from(a[r + 8]) * f64::from(b[c * 4 + 2])
-                + f64::from(a[r + 12]) * f64::from(b[c * 4 + 3]))
-                as f32;
+    let a: [f64; 16] = std::array::from_fn(|i| f64::from(a[i]));
+    for c in 0..4 {
+        let b: [f64; 4] = std::array::from_fn(|k| f64::from(b[c * 4 + k]));
+        for r in 0..4 {
+            out[c * 4 + r] =
+                (a[r] * b[0] + a[r + 4] * b[1] + a[r + 8] * b[2] + a[r + 12] * b[3]) as f32;
         }
     }
 }
@@ -441,7 +479,7 @@ fn write_skin_pose(
     for a in 0..3 {
         bounds[a] = ((min[a] + max[a]) / 2.) as f32;
     }
-    bounds[3] = (libm::sqrt(dx * dx + dy * dy + dz * dz) / 2.) as f32;
+    bounds[3] = ((dx * dx + dy * dy + dz * dz).sqrt() / 2.) as f32;
 }
 /// # Safety
 /// Handles are live, belong to this asset, and do not alias. Null animation selects rest pose.
@@ -455,7 +493,7 @@ pub unsafe extern "C" fn pose(
     let a = &h.asset;
     let i = &mut h.scratch;
     evaluate(
-        &a.nodes,
+        a,
         animation.cast::<Animation>().as_ref(),
         time,
         &mut i.poses,
