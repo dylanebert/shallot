@@ -14,9 +14,9 @@ import {
 
 test("the picker demonstrates each promise once without shrinking the regression corpus", () => {
     const listed = categories.flatMap((category) => category.scenes.map((scene) => scene.id));
-    expect(listed.length).toBe(25);
+    expect(listed.length).toBe(29);
     expect(new Set(listed).size).toBe(listed.length);
-    expect(manifest.models).toHaveLength(45);
+    expect(manifest.models).toHaveLength(46);
     expect(
         Object.fromEntries(
             categories.map((category) => [category.name, category.scenes.map((scene) => scene.id)]),
@@ -29,6 +29,10 @@ test("the picker demonstrates each promise once without shrinking the regression
             "MeshoptCubeTest",
             "BrainStemMeshopt",
             "BrainStemMeshoptEXT",
+            "AvocadoDraco",
+            "BrainStemDraco",
+            "DuckDraco",
+            "MorphPrimitivesTestDraco",
         ],
         animation: ["AnimatedTriangle", "CesiumMan", "SkinnedNormal", "AnimatedMorphCube"],
         geometry: ["MeshPrimitiveModes", "VertexColorTest", "QuantizedMorphCube"],

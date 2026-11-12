@@ -757,6 +757,7 @@ function supportedExtension(name: string): boolean {
     return (
         name === "KHR_materials_unlit" ||
         name === "KHR_mesh_quantization" ||
+        name === "KHR_draco_mesh_compression" ||
         name === "KHR_meshopt_compression" ||
         name === "EXT_meshopt_compression" ||
         name === "KHR_texture_transform" ||
@@ -894,6 +895,10 @@ export function parseGltf(gltf: GltfJson, buffers: ArrayBuffer[]): GltfScene {
     const meshEntries = (gltf.meshes ?? []).map((mesh, meshIndex) => {
         const entries: number[] = [];
         for (const [primitiveIndex, prim] of mesh.primitives.entries()) {
+            if (prim.extensions?.KHR_draco_mesh_compression !== undefined)
+                throw new Error(
+                    `mesh ${meshIndex} primitive ${primitiveIndex}: KHR_draco_mesh_compression is undecoded; loadGltf decodes it`,
+                );
             for (const semantic of Object.keys(prim.attributes)) {
                 if (
                     ![

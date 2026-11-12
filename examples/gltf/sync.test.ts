@@ -17,8 +17,8 @@ test("dev server syncs exactly the picker's whole manifest models", () => {
     expect(devModels.map((model) => model.name).sort()).toEqual(
         expected.map((model) => model.name).sort(),
     );
-    expect(devModels).toHaveLength(22);
-    expect(devModels.flatMap((model) => model.files)).toHaveLength(187);
+    expect(devModels).toHaveLength(25);
+    expect(devModels.flatMap((model) => model.files)).toHaveLength(228);
     for (const model of devModels) {
         expect(model.files.some((file) => file.path === model.license)).toBe(true);
     }

@@ -1,3 +1,4 @@
+import { decodeDracoPrimitives } from "./draco-primitives";
 import { isGlb, parseGlb } from "./glb";
 import {
     type GltfJson,
@@ -6,14 +7,25 @@ import {
     parseGltf,
     validateAsset,
 } from "./gltf";
-
 import { decodeMeshoptViews, meshoptFallbacks } from "./meshopt";
 
 /** Reads a glTF or GLB URL and resolves external and data-URI buffers with the supplied fetch.
  * Generates missing normal-texture tangents using that texture's coordinate set.
+ * Decodes KHR_draco_mesh_compression primitives, importing the decoder only when one is present.
  * Image sources are returned without decoding; loading performs no GPU work.
  */
 export async function loadGltf(url: string | URL, read: typeof fetch = fetch): Promise<GltfScene> {
+    const { base, json, buffers } = await resolveGltf(url, read);
+    const scene = parseGltf(json, buffers);
+    await generateSceneTangents(scene, json, buffers);
+    scene.images = scene.images.map((image) =>
+        image.uri ? { ...image, uri: new URL(image.uri, base).href } : image,
+    );
+    return scene;
+}
+
+/** Fetches a glTF's buffers and decodes its compressed views and primitives, ready for parseGltf. */
+export async function resolveGltf(url: string | URL, read: typeof fetch) {
     const base = new URL(url);
     const response = await read(base);
     if (!response.ok) throw new Error(`glTF load failed: ${base} (${response.status})`);
@@ -37,10 +49,6 @@ export async function loadGltf(url: string | URL, read: typeof fetch = fetch): P
         }),
     );
     decodeMeshoptViews(json, buffers);
-    const scene = parseGltf(json, buffers);
-    await generateSceneTangents(scene, json, buffers);
-    scene.images = scene.images.map((image) =>
-        image.uri ? { ...image, uri: new URL(image.uri, base).href } : image,
-    );
-    return scene;
+    await decodeDracoPrimitives(json, buffers);
+    return { base, json, buffers };
 }

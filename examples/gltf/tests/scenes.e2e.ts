@@ -7,7 +7,7 @@ test.use({ ...pipelineWarnings, deviceScaleFactor: 1 });
 
 for (const [width, height, columns, occupied] of [
     [1280, 720, 6, 5],
-    [1512, 982, 7, 7],
+    [1512, 982, 7, 5],
     [390, 844, 1, 1],
 ]) {
     test.describe(`${width}x${height}`, () => {

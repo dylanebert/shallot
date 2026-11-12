@@ -75,8 +75,12 @@ export interface GltfPlacement {
  * The handle and its mesh, image and material registrations belong to this world until disposal.
  * Supports KHR_meshopt_compression and EXT_meshopt_compression without fetching fallback buffers.
  * KHR_texture_basisu selects device-supported compression without fetching fallback images;
- * DFD transfer functions must match the texture's color or data role. Single-level KTX2 images
- * under mip samplers decode to RGBA8 for generated mips. The transcoder loads only for KTX2.
+ * DFD transfer functions must match the texture's color or data role.
+ * Single-level KTX2 images under mip samplers decode to RGBA8 for generated mips. The transcoder
+ * loads only for KTX2. KHR_draco_mesh_compression decodes Draco 2.2 triangle meshes: TRIANGLE_STRIP
+ * primitives, other bitstream versions and point clouds are refused by name, as are an accessor
+ * whose count differs from its decoded data and one sized past 2 GiB.
+ * The decoder loads only for Draco.
  * The handle's decoded data, including animations, is immutable and copied to the kernel.
  * glTF emissive (cd/m²) reaches StandardMaterial.emissive unscaled and is added outside camera
  * exposure, as Bevy's default; glTF leaves its screen brightness to the client's exposure.

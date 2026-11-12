@@ -76,7 +76,10 @@
             { "path": "Models/MorphPrimitivesTest/LICENSE.md", "sha256": "c5cb97e22a9ce3b298c9d7c4def7f4f40af73c52b69818a30f773e78c699bf54" },
             { "path": "Models/MorphPrimitivesTest/glTF/MorphPrimitivesTest.bin", "sha256": "59ec1d7ca5c8d7605b69aa57cee3da2994384831a290e5271ecd963002c31c76" },
             { "path": "Models/MorphPrimitivesTest/glTF/MorphPrimitivesTest.gltf", "sha256": "a51388b330a49586388e052dc66f74e95cdbc1efcdddea4248f65e200e1d335a" },
-            { "path": "Models/MorphPrimitivesTest/glTF/uv_texture.jpg", "sha256": "d498c54b30f096b663b161f37ee64397253d6fa15ee4f8c03082c890f6065031" }
+            { "path": "Models/MorphPrimitivesTest/glTF/uv_texture.jpg", "sha256": "d498c54b30f096b663b161f37ee64397253d6fa15ee4f8c03082c890f6065031" },
+            { "path": "Models/MorphPrimitivesTest/glTF-Draco/MorphPrimitivesTest.bin", "sha256": "4c600738509168bd0dfad3b67bf8ff9b9ae0bf331b7a1531958029ff9d76e14d" },
+            { "path": "Models/MorphPrimitivesTest/glTF-Draco/MorphPrimitivesTest.gltf", "sha256": "6133d2a743b536dca87be279deeef1e1c50761ee9a932814561696221db576d4" },
+            { "path": "Models/MorphPrimitivesTest/glTF-Draco/uv_texture.jpg", "sha256": "d498c54b30f096b663b161f37ee64397253d6fa15ee4f8c03082c890f6065031" }
         ] },
         { "name": "MorphStressTest", "license": "Models/MorphStressTest/LICENSE.md", "files": [
             { "path": "Models/MorphStressTest/LICENSE.md", "sha256": "d71442a3656e7ba9f1ac39cdc814a1f18051ce6792d895528d0fa3226595a26a" },
@@ -103,18 +106,25 @@
         { "name": "RiggedSimple", "license": "Models/RiggedSimple/LICENSE.md", "files": [
             { "path": "Models/RiggedSimple/LICENSE.md", "sha256": "4e6210accf90bdeaad0c18494410a99a34c1a6db7fcb681d7347f0c93f1e9f8b" },
             { "path": "Models/RiggedSimple/glTF/RiggedSimple.gltf", "sha256": "18cd3e4d50ecadc93f6b6a720a4ee0d5154443c2fa331bc0dd3bef7499c02eb0" },
-            { "path": "Models/RiggedSimple/glTF/RiggedSimple0.bin", "sha256": "b18e39089acca03219a7a3aa4dd3f00eaedebf438bc3bd58fdcda855f64eafe6" }
+            { "path": "Models/RiggedSimple/glTF/RiggedSimple0.bin", "sha256": "b18e39089acca03219a7a3aa4dd3f00eaedebf438bc3bd58fdcda855f64eafe6" },
+            { "path": "Models/RiggedSimple/glTF-Draco/RiggedSimple.gltf", "sha256": "ef345d43419377a4a1c255b1a779723e3d2d3b4321ee33b1f9833840306d5449" },
+            { "path": "Models/RiggedSimple/glTF-Draco/RiggedSimple0.bin", "sha256": "c0196c3e1d642ea4d78898c0b4e9b1644828a2083145264fb5f9b18b0fb29229" }
         ] },
         { "name": "RiggedFigure", "license": "Models/RiggedFigure/LICENSE.md", "files": [
             { "path": "Models/RiggedFigure/LICENSE.md", "sha256": "7e6c51b3129aafef4c626283fc18cab4298d73a7f3ee746058b5f211b6b95165" },
             { "path": "Models/RiggedFigure/glTF/RiggedFigure.gltf", "sha256": "ca84ebbf6084d755ff7ac81b3b7c8bc388da68c8aa4b2cf236503b07d3858cc6" },
-            { "path": "Models/RiggedFigure/glTF/RiggedFigure0.bin", "sha256": "28baa193dbc2f8bfad9cb8c13ae16191c592725ea3b2b22b7f05ab701618ce27" }
+            { "path": "Models/RiggedFigure/glTF/RiggedFigure0.bin", "sha256": "28baa193dbc2f8bfad9cb8c13ae16191c592725ea3b2b22b7f05ab701618ce27" },
+            { "path": "Models/RiggedFigure/glTF-Draco/RiggedFigure.gltf", "sha256": "25039daae7c4cd7394b39180341fd2519af82d6ac6ca2e8bec737cb9866b6d69" },
+            { "path": "Models/RiggedFigure/glTF-Draco/RiggedFigure0.bin", "sha256": "ef8c02bf4d186b058d21d5615bd133e75ec5be46f23cc4943d2543d745ede5cb" }
         ] },
         { "name": "CesiumMan", "license": "Models/CesiumMan/LICENSE.md", "files": [
             { "path": "Models/CesiumMan/LICENSE.md", "sha256": "6fc08173a20bf7843098948be999b0492db2f748c074cd1cc83bc15e95bac8a4" },
             { "path": "Models/CesiumMan/glTF/CesiumMan.gltf", "sha256": "bbb66a129c906e015620197b683edbc6e7a27510169ffa5adec2114046f14919" },
             { "path": "Models/CesiumMan/glTF/CesiumMan_data.bin", "sha256": "2115d3c8df0519cea62f7def76d66d2346c5ac2216319859d3c79e3784dafd3f" },
-            { "path": "Models/CesiumMan/glTF/CesiumMan_img0.jpg", "sha256": "35d278c7b7b0b9e22881b2c435e41ce8659f230c776ef8780b4a5087abbefaa1" }
+            { "path": "Models/CesiumMan/glTF/CesiumMan_img0.jpg", "sha256": "35d278c7b7b0b9e22881b2c435e41ce8659f230c776ef8780b4a5087abbefaa1" },
+            { "path": "Models/CesiumMan/glTF-Draco/CesiumMan.gltf", "sha256": "5993c2f730e0f638a08809517b894f9d18e55cdbcbb7d7a257cae759ead53df5" },
+            { "path": "Models/CesiumMan/glTF-Draco/CesiumMan_data.bin", "sha256": "9163e503db5931c7a7012e67d006a8fa9bfff55ce29ec8ca7cdc205652bc948c" },
+            { "path": "Models/CesiumMan/glTF-Draco/CesiumMan_img0.jpg", "sha256": "35d278c7b7b0b9e22881b2c435e41ce8659f230c776ef8780b4a5087abbefaa1" }
         ] },
         { "name": "Fox", "license": "Models/Fox/LICENSE.md", "files": [
             { "path": "Models/Fox/LICENSE.md", "sha256": "4fb16547e78b0358641d1bd6706b66318974396fd3d67cac41f4150b7cf42e5c" },
@@ -134,7 +144,9 @@
             { "path": "Models/BrainStem/glTF-Meshopt/BrainStem.bin", "sha256": "e18cbda514dd7626dcdf36730881a3f9c26def1d84c55b178b932e5c533c44c5" },
             { "path": "Models/BrainStem/glTF-Meshopt/BrainStem.gltf", "sha256": "a011abbef412e2eb7269dc4f5c3be10dac0145e3c6ef39ff239afacd7d402990" },
             { "path": "Models/BrainStem/glTF-Meshopt-EXT/BrainStem.bin", "sha256": "ac004b976aa36cd65e03c485cae40aa85341f6653c9795aef2f223cefe14c8c2" },
-            { "path": "Models/BrainStem/glTF-Meshopt-EXT/BrainStem.gltf", "sha256": "75901f9abeff5bf01cff350d08843cc2e93eabd9f99dc52e9552462a26bbd6e0" }
+            { "path": "Models/BrainStem/glTF-Meshopt-EXT/BrainStem.gltf", "sha256": "75901f9abeff5bf01cff350d08843cc2e93eabd9f99dc52e9552462a26bbd6e0" },
+            { "path": "Models/BrainStem/glTF-Draco/BrainStem.gltf", "sha256": "d5f35c011854baa9ba8bc89e076f0a3c5a3b64f7b956c5378bfb0b99041c9c40" },
+            { "path": "Models/BrainStem/glTF-Draco/BrainStem0.bin", "sha256": "39346163441a1d03258052be80befcb17933f6bae4606aab7deb4f95258ba85c" }
         ] },
         { "name": "InterpolationTest", "license": "Models/InterpolationTest/LICENSE.md", "files": [
             { "path": "Models/InterpolationTest/LICENSE.md", "sha256": "3a3762ba63cc52e52bbaa65f8f187e02cf05d7256e750ede4c40db611169e7e7" },
@@ -185,6 +197,14 @@
                 {
                     "path": "LICENSES/CC-BY-4.0.txt",
                     "sha256": "c8041334a99cb48852b2139253cbde5f8ac87e27f124aed51223e0d5bf0080eb"
+                },
+                {
+                    "path": "Models/Box/glTF-Draco/Box.bin",
+                    "sha256": "610dc6e08aba7c2720c8e4ec0578efd91cf2d88a5e638dab7811a22f0235bf2e"
+                },
+                {
+                    "path": "Models/Box/glTF-Draco/Box.gltf",
+                    "sha256": "3c46acecdfa90b012ec9052d8a1dfa61358e6d56a9e333504189cc78a2de4d1b"
                 }
             ]
         },
@@ -437,6 +457,18 @@
                 {
                     "path": "LICENSES/CC-BY-4.0.txt",
                     "sha256": "c8041334a99cb48852b2139253cbde5f8ac87e27f124aed51223e0d5bf0080eb"
+                },
+                {
+                    "path": "Models/CesiumMilkTruck/glTF-Draco/CesiumMilkTruck.gltf",
+                    "sha256": "f2ed3e8c0cf73bd73709fe7ff62b5d29afd49f48cdac6a59674291e6e40e503d"
+                },
+                {
+                    "path": "Models/CesiumMilkTruck/glTF-Draco/CesiumMilkTruck.jpg",
+                    "sha256": "5041b9dcdc5c1587648d829fee1f2e4df373befb29aaf15742d39f83d64e7e2e"
+                },
+                {
+                    "path": "Models/CesiumMilkTruck/glTF-Draco/CesiumMilkTruck_data.bin",
+                    "sha256": "a9ec68ba84a345ccb5509c324a013b471c8d1ea96ac305a273c0d3332aacc373"
                 }
             ]
         },
@@ -707,7 +739,12 @@
             { "path": "Models/Avocado/glTF-Quantized/Avocado.gltf", "sha256": "0cb153be897b36ca62e7c08f6f9921c764063d791e4cef249b95c928bc324b85" },
             { "path": "Models/Avocado/glTF-Quantized/Avocado_baseColor.png", "sha256": "385dce948c3b9e8bc93e1c930d796e72b02cbd474b121a160d577de95ebbb48f" },
             { "path": "Models/Avocado/glTF-Quantized/Avocado_normal.png", "sha256": "25783c211761b7e32497fdd3e2490f3bac05b738e5e2bc62fc5b78a270bb4e50" },
-            { "path": "Models/Avocado/glTF-Quantized/Avocado_roughnessMetallic.png", "sha256": "33ee80f7ccfd36825acfbd5ef0a51326bea49e33efed852dca44798798bd6901" }
+            { "path": "Models/Avocado/glTF-Quantized/Avocado_roughnessMetallic.png", "sha256": "33ee80f7ccfd36825acfbd5ef0a51326bea49e33efed852dca44798798bd6901" },
+            { "path": "Models/Avocado/glTF-Draco/Avocado.bin", "sha256": "535123a66a19c0427298d0bbe81b0ba5efa6d8155b7c659e11c23d8c6d6fe2c6" },
+            { "path": "Models/Avocado/glTF-Draco/Avocado.gltf", "sha256": "63ec45999c1df77adc3837857c95d16dde7aee062b4a1d4475ca968514ec8609" },
+            { "path": "Models/Avocado/glTF-Draco/Avocado_baseColor.png", "sha256": "385dce948c3b9e8bc93e1c930d796e72b02cbd474b121a160d577de95ebbb48f" },
+            { "path": "Models/Avocado/glTF-Draco/Avocado_normal.png", "sha256": "25783c211761b7e32497fdd3e2490f3bac05b738e5e2bc62fc5b78a270bb4e50" },
+            { "path": "Models/Avocado/glTF-Draco/Avocado_roughnessMetallic.png", "sha256": "33ee80f7ccfd36825acfbd5ef0a51326bea49e33efed852dca44798798bd6901" }
         ] },
         { "name": "Duck", "license": "Models/Duck/LICENSE.md", "files": [
             { "path": "Models/Duck/LICENSE.md", "sha256": "f97057a519a1dfab15a5503dc4bd0051c190c272dabbb5cf02e23961e06bc2aa" },
@@ -716,7 +753,10 @@
             { "path": "Models/Duck/glTF/DuckCM.png", "sha256": "8aedb428cbb815dffea650fe75bff032ea240f00ccad2f64dc8f62a0c5e30313" },
             { "path": "Models/Duck/glTF-Quantized/Duck.bin", "sha256": "a8f5a07454ca7bf0e6f8e029c7c626b71b6b60703b9e8240b78d849f01c3dbcb" },
             { "path": "Models/Duck/glTF-Quantized/Duck.gltf", "sha256": "a0522c4c01b3a9f168ca95ed18810947c730d0bedb9ce8c3b46c7a58ba196821" },
-            { "path": "Models/Duck/glTF-Quantized/DuckCM.png", "sha256": "8aedb428cbb815dffea650fe75bff032ea240f00ccad2f64dc8f62a0c5e30313" }
+            { "path": "Models/Duck/glTF-Quantized/DuckCM.png", "sha256": "8aedb428cbb815dffea650fe75bff032ea240f00ccad2f64dc8f62a0c5e30313" },
+            { "path": "Models/Duck/glTF-Draco/Duck.bin", "sha256": "f59b26a8caf37e4f8a2fac83407bc4f2a78fe76b24f943ca48f3add34462744e" },
+            { "path": "Models/Duck/glTF-Draco/Duck.gltf", "sha256": "022457ac914363a8a175b3f28bb2539f90315b7e44a03157cc0f9e5a651c56df" },
+            { "path": "Models/Duck/glTF-Draco/DuckCM.png", "sha256": "8aedb428cbb815dffea650fe75bff032ea240f00ccad2f64dc8f62a0c5e30313" }
         ] },
         { "name": "Lantern", "license": "Models/Lantern/LICENSE.md", "files": [
             { "path": "Models/Lantern/LICENSE.md", "sha256": "bb3a06704566d7d31e719e098203a18ddebd4735a5fa65baa25ea39958a5c31c" },
@@ -731,7 +771,20 @@
             { "path": "Models/Lantern/glTF-Quantized/Lantern_baseColor.png", "sha256": "a2d6aa660f0b9ce46b3863e955248454e73be96063218b799af9f750e0f7be71" },
             { "path": "Models/Lantern/glTF-Quantized/Lantern_emissive.png", "sha256": "eafa6390501d537f5bbcf92c64ad1c39d2493aef4508e9cc9d537771efe8bad7" },
             { "path": "Models/Lantern/glTF-Quantized/Lantern_normal.png", "sha256": "3318a4d3bef8be53c192d87b7401145493774126c54a22e50e1269f9476065fa" },
-            { "path": "Models/Lantern/glTF-Quantized/Lantern_roughnessMetallic.png", "sha256": "01b8105756fd86f13e66602f85ee03e7e5daf22a8531f32bef8bbe678cf38cf6" }
+            { "path": "Models/Lantern/glTF-Quantized/Lantern_roughnessMetallic.png", "sha256": "01b8105756fd86f13e66602f85ee03e7e5daf22a8531f32bef8bbe678cf38cf6" },
+            { "path": "Models/Lantern/glTF-Draco/Lantern.bin", "sha256": "d1fd7356f178e69480fbec43dfcf029f5e94c4d9d1db124886391fe3279c138b" },
+            { "path": "Models/Lantern/glTF-Draco/Lantern.gltf", "sha256": "8539e26c7547bcd72374f1aad72090506d1dd8a2435e11531f30093078818038" },
+            { "path": "Models/Lantern/glTF-Draco/Lantern_baseColor.png", "sha256": "a2d6aa660f0b9ce46b3863e955248454e73be96063218b799af9f750e0f7be71" },
+            { "path": "Models/Lantern/glTF-Draco/Lantern_emissive.png", "sha256": "eafa6390501d537f5bbcf92c64ad1c39d2493aef4508e9cc9d537771efe8bad7" },
+            { "path": "Models/Lantern/glTF-Draco/Lantern_normal.png", "sha256": "3318a4d3bef8be53c192d87b7401145493774126c54a22e50e1269f9476065fa" },
+            { "path": "Models/Lantern/glTF-Draco/Lantern_roughnessMetallic.png", "sha256": "01b8105756fd86f13e66602f85ee03e7e5daf22a8531f32bef8bbe678cf38cf6" }
+        ] },
+        { "name": "CarConcept", "license": "Models/CarConcept/LICENSE.md", "files": [
+            { "path": "Models/CarConcept/LICENSE.md", "sha256": "657c9c5e7a85decee5d2f7dfb537b5053443051deff72708c3caad0a2904f0a5" },
+            { "path": "Models/CarConcept/glTF/CarConcept.data.bin", "sha256": "5cd6ceb6a502dc3c79863c2f11c06f6aa7474e53367bb212b3e3c3f1e7611d20" },
+            { "path": "Models/CarConcept/glTF/CarConcept.gltf", "sha256": "1a2395a86bdef0a1e9b3d3875bb056f688c624c19cf27c867b6d5cde6f37722f" },
+            { "path": "Models/CarConcept/glTF-KTX-BasisU-Draco/CarConcept.data.bin", "sha256": "157d1a7ba13b1aa512db25c36cb805c95ec5a96709e9de1a5fa084dd7487658e" },
+            { "path": "Models/CarConcept/glTF-KTX-BasisU-Draco/CarConcept.gltf", "sha256": "8bdd76afb00f6b430a0bfb4112ecf67c3c6307d27ebd8298ab92047aefca6cfd" }
         ] }
     ]
 }
