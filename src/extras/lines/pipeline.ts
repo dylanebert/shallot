@@ -32,8 +32,49 @@ export const triangleVertex = tgpu.fn(
     return d.vec3f(a);
 });
 
+const polygonVertex = tgpu.fn(
+    [d.vec3f, d.vec3f, d.vec3f, d.vec3f, d.u32],
+    d.vec3f,
+)((a, b, c, last, index) => {
+    "use gpu";
+    if (index === 5) return d.vec3f(last);
+    if (index === 4) return d.vec3f(c);
+    return triangleVertex(a, b, c, index);
+});
+
+// Near clipping precedes bias so behind-eye vertices cannot cut away visible head geometry.
+// A triangle cut by one plane has at most four vertices, fitting the segment's six corners.
+export const nearTriangleVertex = tgpu.fn(
+    [d.vec3f, d.vec3f, d.vec3f, d.vec3f, d.u32],
+    d.vec4f,
+)((a, b, c, distance, index) => {
+    "use gpu";
+    if (distance.x < 0 && distance.y < 0 && distance.z < 0) return d.vec4f(a, 0);
+    if (distance.x >= 0 && distance.y >= 0 && distance.z >= 0)
+        return d.vec4f(triangleVertex(a, b, c, index), 1);
+    let ab = d.vec3f(a);
+    let bc = d.vec3f(b);
+    let ca = d.vec3f(c);
+    if (distance.x < 0 !== distance.y < 0)
+        ab = std.mix(a, b, distance.x / (distance.x - distance.y));
+    if (distance.y < 0 !== distance.z < 0)
+        bc = std.mix(b, c, distance.y / (distance.y - distance.z));
+    if (distance.z < 0 !== distance.x < 0)
+        ca = std.mix(c, a, distance.z / (distance.z - distance.x));
+    if (distance.x < 0) {
+        if (distance.y < 0) return d.vec4f(triangleVertex(ca, bc, c, index), 1);
+        if (distance.z < 0) return d.vec4f(triangleVertex(ab, b, bc, index), 1);
+        return d.vec4f(polygonVertex(ab, b, c, ca, index), 1);
+    }
+    if (distance.y < 0) {
+        if (distance.z < 0) return d.vec4f(triangleVertex(a, ab, ca, index), 1);
+        return d.vec4f(polygonVertex(a, ab, bc, c, index), 1);
+    }
+    return d.vec4f(polygonVertex(a, b, bc, ca, index), 1);
+});
+
 const viewLayout = tgpu
-    .bindGroupLayout({ view: { uniform: ViewUniforms, visibility: ["vertex"] } })
+    .bindGroupLayout({ view: { uniform: ViewUniforms, visibility: ["vertex", "fragment"] } })
     .$idx(0);
 export const lineLayout = tgpu
     .bindGroupLayout({
@@ -64,7 +105,7 @@ export const instanceLayout = tgpu
 
 const LineVertex = tgpu.vertexFn({
     in: { vertex: d.builtin.vertexIndex, instance: d.builtin.instanceIndex },
-    out: { position: d.builtin.position, rgba: d.vec4f, edge: d.vec2f },
+    out: { position: d.builtin.position, rgba: d.vec4f, edge: d.vec2f, cameraDepth: d.f32 },
 })((input) => {
     "use gpu";
     const instance = instanceLayout.$.instances[input.instance];
@@ -78,7 +119,12 @@ const LineVertex = tgpu.vertexFn({
     if (retained) {
         const row = instanceLayout.$.globalTransformRows[instance.eid];
         if (row === 0) {
-            return { position: d.vec4f(0), rgba: d.vec4f(0), edge: d.vec2f(0) };
+            return {
+                position: d.vec4f(0),
+                rgba: d.vec4f(0),
+                edge: d.vec2f(0),
+                cameraDepth: d.f32(0),
+            };
         }
         worldFromLocal = xformMat(Xform(instanceLayout.$.globalTransforms[row - 1]));
     }
@@ -105,38 +151,55 @@ const LineVertex = tgpu.vertexFn({
     }
     const view = viewLayout.$.view;
     if (seg.triangle !== 0) {
-        const point = triangleVertex(a, b, c, index);
+        const depths = d.vec3f(
+            -std.mul(view.viewFromWorld, d.vec4f(a, 1)).z,
+            -std.mul(view.viewFromWorld, d.vec4f(b, 1)).z,
+            -std.mul(view.viewFromWorld, d.vec4f(c, 1)).z,
+        );
+        const point = nearTriangleVertex(
+            a,
+            b,
+            c,
+            std.sub(depths, d.vec3f(view.projection.x)),
+            index,
+        );
         return {
-            position: biasClipDepth(std.mul(view.clipFromWorld, d.vec4f(point, 1)), bias),
-            rgba,
+            position: biasClipDepth(std.mul(view.clipFromWorld, d.vec4f(point.xyz, 1)), bias),
+            rgba: std.mul(rgba, point.w),
             edge: d.vec2f(0, 1),
+            cameraDepth: -std.mul(view.viewFromWorld, d.vec4f(point.xyz, 1)).z,
         };
     }
-    const quad = lineQuad(
+    const quad = cameraLineQuad(
         std.mul(view.clipFromWorld, d.vec4f(a, 1)),
         std.mul(view.clipFromWorld, d.vec4f(b, 1)),
         view.resolution,
         t,
         edge,
         width,
+        view.projection,
     );
     return {
         position: biasClipDepth(quad.clip, bias),
         rgba: std.mul(rgba, quad.tint),
         edge: quad.edge,
+        cameraDepth: view.projection.x,
     };
 });
 
-const LineFragment = tgpu.fragmentFn({ in: { rgba: d.vec4f, edge: d.vec2f }, out: d.vec4f })(
-    (input) => {
-        "use gpu";
-        const width = std.fwidth(input.edge.x);
-        const alpha =
-            d.f32(1) -
-            std.smoothstep(input.edge.y - width, input.edge.y + width, std.abs(input.edge.x));
-        return d.vec4f(input.rgba.xyz, std.mul(input.rgba.w, alpha));
-    },
-);
+const LineFragment = tgpu.fragmentFn({
+    in: { rgba: d.vec4f, edge: d.vec2f, cameraDepth: d.f32 },
+    out: d.vec4f,
+})((input) => {
+    "use gpu";
+    // Arrow triangles retain perspective-correct depth independently of depth bias.
+    if (input.cameraDepth > viewLayout.$.view.projection.y) std.discard();
+    const width = std.fwidth(input.edge.x);
+    const alpha =
+        d.f32(1) -
+        std.smoothstep(input.edge.y - width, input.edge.y + width, std.abs(input.edge.x));
+    return d.vec4f(input.rgba.xyz, std.mul(input.rgba.w, alpha));
+});
 
 const ALPHA_BLEND: GPUBlendState = {
     color: { operation: "add", srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha" },
@@ -162,9 +225,36 @@ export function createLinePipeline(world: World, format: GPUTextureFormat, sampl
     return pipeline;
 }
 
+const LineQuad = d.struct({ clip: d.vec4f, edge: d.vec2f, tint: d.vec4f });
+
+// Perspective uses infinite reverse-Z; its authored far bound is not a homogeneous clip plane.
+export const cameraLineQuad = tgpu.fn(
+    [d.vec4f, d.vec4f, d.vec2f, d.f32, d.f32, d.f32, d.vec4f],
+    LineQuad,
+)((sClip, eClip, res, t, edge, widthPx, projection) => {
+    "use gpu";
+    let start = d.vec4f(sClip);
+    let end = d.vec4f(eClip);
+    if (projection.z === 1) {
+        const startFar = projection.y - start.w;
+        const endFar = projection.y - end.w;
+        if (startFar < 0 && endFar < 0) {
+            return { clip: d.vec4f(0, 0, -1, 1), edge: d.vec2f(0), tint: d.vec4f(0) };
+        }
+        if (startFar < 0) {
+            const clipped = std.mix(start, end, startFar / (startFar - endFar));
+            start = d.vec4f(clipped.xyz, projection.y);
+        } else if (endFar < 0) {
+            const clipped = std.mix(end, start, endFar / (endFar - startFar));
+            end = d.vec4f(clipped.xyz, projection.y);
+        }
+    }
+    return lineQuad(start, end, res, t, edge, widthPx);
+});
+
 export const lineQuad = tgpu.fn(
     [d.vec4f, d.vec4f, d.vec2f, d.f32, d.f32, d.f32],
-    d.struct({ clip: d.vec4f, edge: d.vec2f, tint: d.vec4f }),
+    LineQuad,
 )((sClip, eClip, res, t, edge, widthPx) => {
     "use gpu";
     let start = d.vec4f(sClip);
