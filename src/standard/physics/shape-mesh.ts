@@ -45,22 +45,28 @@ function roundMesh(radius: number, a: Point, b: Point) {
                   ]
                 : [{ theta, center: theta < Math.PI / 2 ? b : a }],
         );
-    const vertices: number[] = [],
-        indices: number[] = [];
-    for (const { theta, center } of rows)
+    const vertices = new Float32Array(rows.length * angles.length * 8);
+    let w = 0;
+    for (const { theta, center } of rows) {
+        const cosTheta = Math.cos(theta),
+            sinTheta = Math.sin(theta);
         for (const phi of angles) {
-            const normal = y.map(
-                (v, i) =>
-                    v * Math.cos(theta) +
-                    Math.sin(theta) * (x[i]! * Math.cos(phi) + z[i]! * Math.sin(phi)),
-            );
-            vertices.push(
-                ...normal.map((v, i) => radius * v + center[i]!),
-                phi / (2 * Math.PI),
-                ...normal,
-                theta / Math.PI,
-            );
+            const cosPhi = Math.cos(phi),
+                sinPhi = Math.sin(phi);
+            const n0 = y[0] * cosTheta + sinTheta * (x[0] * cosPhi + z[0] * sinPhi);
+            const n1 = y[1] * cosTheta + sinTheta * (x[1] * cosPhi + z[1] * sinPhi);
+            const n2 = y[2] * cosTheta + sinTheta * (x[2] * cosPhi + z[2] * sinPhi);
+            vertices[w++] = radius * n0 + center[0];
+            vertices[w++] = radius * n1 + center[1];
+            vertices[w++] = radius * n2 + center[2];
+            vertices[w++] = phi / (2 * Math.PI);
+            vertices[w++] = n0;
+            vertices[w++] = n1;
+            vertices[w++] = n2;
+            vertices[w++] = theta / Math.PI;
         }
+    }
+    const indices: number[] = [];
     const stride = angles.length;
     for (let row = 0; row + 1 < rows.length; row++)
         for (let col = 0; col < stride; col++) {
@@ -72,7 +78,7 @@ function roundMesh(radius: number, a: Point, b: Point) {
             if (row > 0) indices.push(a, b, c);
             if (row + 2 < rows.length) indices.push(b, d, c);
         }
-    return { vertices: new Float32Array(vertices), indices: new Uint32Array(indices) };
+    return { vertices, indices: new Uint32Array(indices) };
 }
 
 function placedHull(world: World, shape: Parameters<typeof shapeMesh>[1]) {
