@@ -260,7 +260,7 @@ function separatorErrors(file: string, source: string): string[] {
 }
 
 // Tooling, which reaches normalizePath. Game modules and examples never import it (CONTRIBUTING, Layout and
-// Examples), and run where no host path enters.
+// What an example is), and run where no host path enters.
 function toolingFiles(): string[] {
     const patterns = [
         "src/{project,cli,native,types}/**/*.{ts,js}",

@@ -209,7 +209,7 @@ function escapeProperty(value: string): string {
     return escapeData(value).replace(/:/g, "%3A").replace(/,/g, "%2C");
 }
 
-/** CONTRIBUTING, Verification: what a warning asks of whoever reads it. */
+/** CONTRIBUTING, Tiers: what a warning asks of whoever reads it. */
 const REMEDY =
     "approaching the CI hang ceiling: make it cheaper, split it or move it to a heavier tier";
 

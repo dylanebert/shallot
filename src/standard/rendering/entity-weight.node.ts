@@ -109,7 +109,7 @@ test("196608 rendered entities bound retained bytes after their first standard-r
         );
         expect(instanceBytes / POPULATION).toBeLessThan(8);
         // Includes each part's components/table rows and late camera/light one-holder columns:
-        // eid-indexed raw columns must span their highest holder (CONTRIBUTING: Device and world ownership).
+        // eid-indexed raw columns must span their highest holder (CONTRIBUTING: World and device).
         expect(bytes).toBeLessThanOrEqual(780);
     } finally {
         app.dispose();
