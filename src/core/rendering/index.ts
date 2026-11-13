@@ -20,6 +20,8 @@ export {
     imageTexture,
     imageTextures,
     imageView,
+    releaseImage,
+    replaceImage,
 } from "./image";
 export {
     CorePipelinePlugin,

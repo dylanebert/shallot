@@ -10,6 +10,7 @@ export const imageTextures = {
         textures: [[], []] as GPUTexture[][],
         loads: [[], []] as (Promise<void> | undefined)[][],
         warm: false,
+        controllers: [[], []] as (AbortController | undefined)[][],
         mipLoads: new Map<GPUTextureFormat, Promise<void>>(),
         samplers: new Map<string, GPUSampler>(),
         imageSamplers: [[], []] as GPUSampler[][],
@@ -55,8 +56,9 @@ export function imageSampler(
 }
 
 /**
- * After warm, return a registered image's native-size texture, owned by the world until disposal;
- * callers must not destroy it. False isSrgb selects the independent data ids. An unloaded or unknown
+ * After warm, return a registered image's native-size texture, owned by the world until replacement,
+ * release or disposal; callers must not destroy it. False isSrgb selects the independent data ids.
+ * An unloaded or unknown
  * id returns a role-local 1×1 fallback and warns once per nonnegative id, except an id registered
  * before warm on a host with no image decoder.
  */
@@ -81,8 +83,8 @@ export function imageTexture(
 
 /**
  * After warm, return a 2D view of a registered image's native-size texture. The world owns the
- * texture until disposal; callers must not destroy it. False isSrgb selects the independent data
- * ids. An unloaded or unknown id returns a role-local 1×1 fallback view and warns once per
+ * texture until replacement, release or disposal; callers must not destroy it. False isSrgb selects
+ * the independent data ids. An unloaded or unknown id returns a role-local 1×1 fallback view and warns once per
  * nonnegative id, except an id registered before warm on a host with no image decoder.
  */
 export function imageView(
@@ -238,8 +240,12 @@ export async function warmImages(world: World): Promise<void> {
     }
     state.warm = true;
     for (const [role, images] of [world.resource(Images), world.resource(DataImages)].entries()) {
-        if (typeof createImageBitmap === "undefined") state.undecoded[role] = images.size;
-        for (let id = 0; id < images.size; id++) startImage(world, id, role);
+        for (const entry of images) {
+            const id = images.id(entry.name)!;
+            if (typeof createImageBitmap === "undefined")
+                state.undecoded[role] = Math.max(state.undecoded[role], id + 1);
+            startImage(world, id, role);
+        }
     }
     await prepareImages(world);
 }
@@ -272,15 +278,81 @@ export async function prepareImages(world: World): Promise<void> {
     );
 }
 
+/**
+ * Replace a live Blob or level-source registration in place, preserving its role, id and sampler.
+ * URL registrations are shared and cannot be replaced. The old texture is destroyed immediately;
+ * retained textures/views become invalid. Await prepareImages before drawing the replacement.
+ * Superseded pending work resolves without uploading. Replacement failure binds the role fallback.
+ */
+export function replaceImage(
+    world: World,
+    id: number,
+    source: Blob | ImageSource,
+    settings: Pick<ImageLoaderSettings, "isSrgb"> = {},
+): void {
+    const role = settings.isSrgb === false ? 1 : 0;
+    const images = world.resource(role === 0 ? Images : DataImages);
+    const entry = images.get(images.name(id)!);
+    if (!entry || typeof entry.source === "string")
+        throw new Error("[Rendering] replaceImage requires a live, non-URL image");
+    invalidateImage(world, id, role);
+    images.register({ ...entry, source });
+    if (world.resource(imageTextures).warm) startImage(world, id, role);
+}
+
+/**
+ * Release a non-URL registration's source and native texture. URL registrations are shared and
+ * cannot be released. Unknown or already released ids are ignored. The id stays reserved and
+ * must no longer be drawn; retained textures/views become invalid. For bounded repeated updates,
+ * replace a live registration instead of registering fresh ids. Pending preparation resolves
+ * without resurrecting the released image.
+ */
+export function releaseImage(
+    world: World,
+    id: number,
+    settings: Pick<ImageLoaderSettings, "isSrgb"> = {},
+): void {
+    const role = settings.isSrgb === false ? 1 : 0;
+    const images = world.resource(role === 0 ? Images : DataImages);
+    const name = images.name(id);
+    const entry = name === undefined ? undefined : images.get(name);
+    if (!entry) return;
+    if (typeof entry.source === "string")
+        throw new Error("[Rendering] releaseImage cannot release a shared URL image");
+    invalidateImage(world, id, role);
+    images.delete(name!);
+}
+
+function invalidateImage(world: World, id: number, role: number): void {
+    const state = world.resource(imageTextures);
+    state.controllers[role][id]?.abort();
+    state.controllers[role][id] = undefined;
+    state.loads[role][id] = undefined;
+    state.textures[role][id]?.destroy();
+    delete state.textures[role][id];
+    delete state.imageSamplers[role][id];
+    state.warned[role].delete(id);
+}
+
 function startImage(world: World, id: number, role: number): void {
     const state = world.resource(imageTextures);
     if (state.loads[role][id]) return;
-    const signal = world.signal;
-    const load = loadImage(world, id, role);
+    const controller = new AbortController();
+    state.controllers[role][id] = controller;
+    const signal = controller.signal;
+    const dispose = () => controller.abort();
+    world.signal.addEventListener("abort", dispose, { once: true });
+    const load = loadImage(world, id, role, signal);
     const settled = new Promise<void>((resolve, reject) => {
-        const abort = () => resolve();
+        const abort = () => {
+            world.signal.removeEventListener("abort", dispose);
+            resolve();
+        };
         signal.addEventListener("abort", abort, { once: true });
-        load.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+        load.then(resolve, reject).finally(() => {
+            signal.removeEventListener("abort", abort);
+            world.signal.removeEventListener("abort", dispose);
+        });
     });
     // Stored rejected until a preparation reports it; handled here so an unawaited failure is
     // not unhandled, and named by imageTexture's one fallback warning when bound.
@@ -288,16 +360,22 @@ function startImage(world: World, id: number, role: number): void {
     state.loads[role][id] = settled;
 }
 
-async function loadImage(world: World, id: number, role: number): Promise<void> {
+async function loadImage(
+    world: World,
+    id: number,
+    role: number,
+    signal: AbortSignal,
+): Promise<void> {
     const state = world.resource(imageTextures);
     const images = world.resource(role === 0 ? Images : DataImages);
-    const source = images.get(images.name(id)!)!.source;
+    const source = images.get(images.name(id)!)?.source;
+    if (source === undefined) return;
     const device = world.gpu.device;
     if (typeof source === "function") {
         const formats = compressedFormats(device);
         const image = await source(formats);
-        if (world.disposed) return;
-        await uploadImage(world, id, role, image, formats);
+        if (world.disposed || signal.aborted) return;
+        await uploadImage(world, id, role, image, formats, signal);
         return;
     }
     if (typeof createImageBitmap === "undefined") return;
@@ -310,20 +388,20 @@ async function loadImage(world: World, id: number, role: number): Promise<void> 
     try {
         let blob: Blob;
         if (typeof source === "string") {
-            const response = await fetch(source, { signal: world.signal });
+            const response = await fetch(source, { signal });
             if (!response.ok) throw new Error(`${response.status}`);
             blob = await response.blob();
         } else blob = source;
-        if (world.disposed) return;
+        if (world.disposed || signal.aborted) return;
         // glTF bytes define the color values; straight alpha preserves cutout and blend edges.
         bitmap = await decode(blob);
     } catch (error) {
-        if (world.disposed) return;
+        if (world.disposed || signal.aborted) return;
         console.warn(`[Rendering] image ${id} (${source}) failed to load:`, error);
         bitmap = await decode(transparentPixel());
     }
     try {
-        if (world.disposed) return;
+        if (world.disposed || signal.aborted) return;
         const format = IMAGE_FORMATS[role];
         if (Math.max(bitmap.width, bitmap.height) > 1) {
             let ready = state.mipLoads.get(format);
@@ -334,7 +412,7 @@ async function loadImage(world: World, id: number, role: number): Promise<void> 
                 state.mipLoads.set(format, ready);
             }
             await ready;
-            if (world.disposed) return;
+            if (world.disposed || signal.aborted) return;
         }
         checkTextureLimits(
             "[render] a native image",
@@ -371,6 +449,7 @@ async function uploadImage(
     role: number,
     image: Image,
     formats: CompressedImageFormats,
+    signal: AbortSignal,
 ): Promise<void> {
     const { width, height, levels } = image;
     const family = compression[image.format];
@@ -412,7 +491,7 @@ async function uploadImage(
             state.mipLoads.set(format, ready);
         }
         await ready;
-        if (world.disposed) return;
+        if (world.disposed || signal.aborted) return;
     }
     const device = world.gpu.device;
     const texture = device.createTexture({
