@@ -14,6 +14,7 @@ export const SpriteMaterialInput = d
         anchor: d.vec2f,
         alphaMode: d.vec2f,
         image: d.u32,
+        rect: d.vec4f,
         color: d.f32,
         opacity: d.f32,
         fillAmount: d.f32,
@@ -75,6 +76,7 @@ export const SpriteMaterialType = materialType({
         anchor: d.vec2f(0),
         alphaMode: d.vec2f(1, 0.5),
         image: 0,
+        rect: d.vec4f(0),
         color: 0xffffff,
         opacity: 1,
         fillAmount: 1,
@@ -105,7 +107,12 @@ export const SpriteMaterialType = materialType({
         "use gpu";
         const sprite = ctx.parameters;
         const uv = d.vec2f(ctx.localPos.x, 1 - ctx.localPos.y);
-        const texel = std.textureSample(layout.$.image, layout.$.imageSampler, uv);
+        let imageUv = d.vec2f(uv);
+        if (sprite.rect.z * sprite.rect.w !== 0) {
+            const pixels = std.add(sprite.rect.xy, std.mul(uv, sprite.rect.zw));
+            imageUv = std.div(pixels, d.vec2f(std.textureDimensions(layout.$.image)));
+        }
+        const texel = std.textureSample(layout.$.image, layout.$.imageSampler, imageUv);
         const hex = d.u32(sprite.color);
         const tint = d.vec3f(
             srgbToLinear1(d.f32((hex >>> 16) & 255) / 255),
