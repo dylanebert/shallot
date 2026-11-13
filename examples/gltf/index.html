@@ -20,7 +20,7 @@
     <script type="module">
         import { runApp } from "@dylanebert/shallot";
         import { flushSync, mount, unmount } from "svelte";
-        import { AppPlugin, frameScene, loadRemainingScenes, selectScene } from "./src/app";
+        import { AppPlugin, frameScene, loadRemainingScenes, selectScene, Viewer } from "./src/app";
         import Hud from "./src/Hud.svelte";
         import { initialScene, scenes } from "./src/scenes";
         const ready = runApp({
@@ -39,7 +39,10 @@
                 resize.observe(canvas);
                 function select(scene) {
                     if (component) void unmount(component);
-                    selectScene(world, scene, canvas.clientWidth / canvas.clientHeight);
+                    // data-scene names the model the canvas draws; a switch sets it once the model has loaded and spawned.
+                    void selectScene(world, scene, canvas.clientWidth / canvas.clientHeight).then(() => {
+                        canvas.dataset.scene = world.resource(Viewer).active;
+                    });
                     const url = new URL(location.href);
                     url.searchParams.set("scene", scene);
                     history.replaceState(null, "", url);

@@ -27,7 +27,6 @@ for (const [width, height, columns, occupied] of [
             await expect(picker).toHaveText(
                 categories.flatMap((category) => category.scenes)[0].name,
             );
-            await frames.run(2);
             await expect
                 .poll(async () => {
                     expect(errors).toEqual([]);
@@ -67,7 +66,8 @@ for (const [width, height, columns, occupied] of [
             else await choice.click();
             await expect(picker).toHaveText(scene.id);
             await expect(picker).toHaveAttribute("aria-expanded", "false");
-            await frames.run(2);
+            await expect(page.locator("canvas")).toHaveAttribute("data-scene", scene.id);
+            await frames.run();
             expect(
                 await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
             ).toBe(true);
@@ -118,7 +118,10 @@ test.describe("every model switches on the same phone canvas", () => {
                     .tap();
                 await expect(picker).toHaveText(scene.id);
                 await expect(picker).toHaveAttribute("aria-expanded", "false");
-                await frames.run(2);
+                await expect(page.locator("canvas")).toHaveAttribute("data-scene", scene.id);
+                // A completed switch creates its GPU objects and issues every draw in its next frame, and a
+                // software adapter spends about a second on each frame.
+                await frames.run();
                 if (scene.id === "TextureCoordinateTest" || scene.id === "CesiumMan") {
                     await expect
                         .poll(async () => {
