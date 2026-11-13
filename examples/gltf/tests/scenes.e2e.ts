@@ -120,7 +120,12 @@ test.describe("every model switches on the same phone canvas", () => {
                 await expect(picker).toHaveAttribute("aria-expanded", "false");
                 await frames.run(2);
                 if (scene.id === "TextureCoordinateTest" || scene.id === "CesiumMan") {
-                    await expect.poll(() => scenePixels(page, true)).toBeGreaterThan(100);
+                    await expect
+                        .poll(async () => {
+                            await frames.run();
+                            return scenePixels(page, true);
+                        })
+                        .toBeGreaterThan(100);
                 }
                 expect(
                     await page
