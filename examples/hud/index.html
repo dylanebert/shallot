@@ -17,10 +17,10 @@
         <canvas id="canvas"></canvas>
         <script type="module">
             import { runApp } from "@dylanebert/shallot";
+            import { AppPlugin } from "./src/app";
             import { hud } from "./src/hud";
-            import { TurntablePlugin } from "./src/turntable";
 
-            await runApp({ plugins: [TurntablePlugin], ui: hud });
+            await runApp({ plugins: [AppPlugin], ui: hud });
         </script>
     </body>
 </html>

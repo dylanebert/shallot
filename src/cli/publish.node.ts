@@ -157,7 +157,7 @@ test("a packed minimal scaffold with physics starts through pinned Wrangler asse
         html,
         readFileSync(html, "utf8")
             .replace("runApp, shallotDark", "runApp, shallotDark, StandardPhysicsPlugin")
-            .replace("plugins: [Welcome]", "plugins: [StandardPhysicsPlugin, Welcome]")
+            .replace("plugins: [AppPlugin]", "plugins: [StandardPhysicsPlugin, AppPlugin]")
             .replace(
                 'from "@dylanebert/shallot";',
                 'from "@dylanebert/shallot"; import { PhysicsWorldDefinition } from "@dylanebert/shallot/standard/physics";',

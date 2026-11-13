@@ -32,6 +32,30 @@
             </main>
         </div>
         <script src="/startup.js"></script>
-        <script type="module" src="/src/main.ts"></script>
+        <script type="module">
+            import { runApp, shallotDark } from "@dylanebert/shallot";
+            import { pagePlugin } from "./src/app";
+            import { mountHost } from "./src/host";
+
+            const host = mountHost();
+            const loading = shallotDark({
+                container: host.frame,
+                bootstrap: host.frame.querySelector("[data-shallot-bootstrap]") ?? undefined,
+            });
+            let app;
+            let pageClosed = false;
+            window.addEventListener("pagehide", () => {
+                pageClosed = true;
+                app?.dispose();
+            });
+
+            const AppPlugin = pagePlugin(host, loading);
+            void runApp({ plugins: [AppPlugin], loading, pixelRatio: 1 })
+                .then((running) => {
+                    if (pageClosed) running.dispose();
+                    else app = running;
+                })
+                .catch(host.fail);
+        </script>
     </body>
 </html>

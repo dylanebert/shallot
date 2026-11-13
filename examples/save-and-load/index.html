@@ -11,8 +11,8 @@
 <body><canvas></canvas>
 <script type="module">
 import { runApp } from '@dylanebert/shallot';
-import { Scene } from './src/scene';
+import { AppPlugin } from './src/app';
 import { hud } from './src/hud';
-await runApp({plugins:[Scene], ui: hud});
+await runApp({plugins:[AppPlugin], ui: hud});
 </script></body>
 </html>
