@@ -1,7 +1,7 @@
 import { BROWSER_CONFIG, WEB_SERVER_CONFIG } from "@dylanebert/shallot/testing";
 import type { PlaywrightTestConfig } from "playwright/test";
 
-export const config = {
+export default {
     testDir: ".",
     testIgnore: ["**/tests/input/**", "**/tests/touch/**"],
     ...BROWSER_CONFIG,
@@ -26,5 +26,3 @@ export const config = {
         },
     ],
 } satisfies PlaywrightTestConfig;
-
-export default config;
