@@ -73,14 +73,14 @@ jobs:
             mode: portable
             binary: shallot-native.exe
             archive: shallot-native-x86_64-pc-windows-msvc-portable.tar.gz
-          # macos-14 (Apple Silicon) → mac (aarch64-apple-darwin)
+          # macos-15 (Apple Silicon) → mac (aarch64-apple-darwin)
           - target: aarch64-apple-darwin
-            runner: macos-14
+            runner: macos-15
             mode: system
             binary: shallot-native
             archive: shallot-native-aarch64-apple-darwin-system.tar.gz
           - target: aarch64-apple-darwin
-            runner: macos-14
+            runner: macos-15
             mode: portable
             binary: shallot-native
             archive: shallot-native-aarch64-apple-darwin-portable.tar.gz
