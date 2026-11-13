@@ -4,17 +4,17 @@ export default {
     ...BROWSER_CONFIG,
     testDir: ".",
     testIgnore: ["**/tests/persistence/**", "**/tests/touch/**"],
-    use: { ...BROWSER_CONFIG.use, baseURL: "http://127.0.0.1:4189" },
+    use: { ...BROWSER_CONFIG.use, baseURL: "http://127.0.0.1:4336" },
     webServer: [
         {
             command:
-                "bunx vite build && bunx vite preview --host 127.0.0.1 --port 4189 --strictPort",
-            url: "http://127.0.0.1:4189",
+                "bunx vite build && bunx vite preview --host 127.0.0.1 --port 4336 --strictPort",
+            url: "http://127.0.0.1:4336",
             ...WEB_SERVER_CONFIG,
         },
         {
-            command: "bunx vite --host 127.0.0.1 --port 4190 --strictPort",
-            url: "http://127.0.0.1:4190/tests/stepped.html",
+            command: "bunx vite --host 127.0.0.1 --port 4337 --strictPort",
+            url: "http://127.0.0.1:4337/tests/stepped.html",
             ...WEB_SERVER_CONFIG,
         },
     ],

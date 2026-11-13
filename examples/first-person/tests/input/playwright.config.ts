@@ -5,12 +5,12 @@ export default {
     ...BROWSER_CONFIG,
     testDir: ".",
     globalSetup: fileURLToPath(new URL("../browser-setup.ts", import.meta.url)),
-    use: { ...BROWSER_CONFIG.use, baseURL: "http://127.0.0.1:4175" },
+    use: { ...BROWSER_CONFIG.use, baseURL: "http://127.0.0.1:4404" },
     webServer: {
         command:
-            "bunx vite build --config tests/input/vite.config.ts && bunx vite preview --config tests/input/vite.config.ts --host 127.0.0.1 --port 4175 --strictPort",
+            "bunx vite build --config tests/input/vite.config.ts && bunx vite preview --config tests/input/vite.config.ts --host 127.0.0.1 --port 4404 --strictPort",
         cwd: fileURLToPath(new URL("../..", import.meta.url)),
-        url: "http://127.0.0.1:4175",
+        url: "http://127.0.0.1:4404",
         ...WEB_SERVER_CONFIG,
     },
 } satisfies PlaywrightTestConfig;

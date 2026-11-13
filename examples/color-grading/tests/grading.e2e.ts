@@ -16,7 +16,7 @@ test("the first frame has no late-pipeline warning", async ({ page }) => {
 });
 
 test("each panel control leaves the orbit key working", async ({ page }) => {
-    await page.goto("http://127.0.0.1:4296/tests/stepped.html");
+    await page.goto("http://127.0.0.1:4307/tests/stepped.html");
     await page.waitForFunction(() => "controlsKey" in window);
     await gameKeyMovesCamera(page);
     await pointerControl(page, page.locator("summary"));
@@ -31,7 +31,7 @@ test("each panel control leaves the orbit key working", async ({ page }) => {
 });
 
 test("each control writes its camera field", async ({ page }) => {
-    await page.goto("http://127.0.0.1:4296/tests/stepped.html");
+    await page.goto("http://127.0.0.1:4307/tests/stepped.html");
     await page.waitForFunction(() => "gradingField" in window);
     const field = (index: number) =>
         page.evaluate(

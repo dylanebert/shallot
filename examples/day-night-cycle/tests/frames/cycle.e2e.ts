@@ -18,7 +18,7 @@ declare global {
 
 async function open(page: Page, hour: number, evening = false, side = false) {
     await page.goto(
-        `http://127.0.0.1:4266/tests/stepped.html?hour=${hour}${evening ? "&evening" : ""}${side ? "&side" : ""}${process.env.SHALLOT_CAPTURE_DIR ? "&capture" : ""}`,
+        `http://127.0.0.1:4401/tests/stepped.html?hour=${hour}${evening ? "&evening" : ""}${side ? "&side" : ""}${process.env.SHALLOT_CAPTURE_DIR ? "&capture" : ""}`,
     );
     await page.waitForFunction(() => !!window.frame);
 }

@@ -6,7 +6,7 @@ test.use(pipelineWarnings);
 for (const claim of ["marker", "cube", "outside"] as const) {
     test(`${claim}: captured minimap pixels hold the arena claim`, async ({ page }) => {
         page.on("pageerror", (e) => console.log("PAGE ERROR", e.message));
-        await page.goto("http://127.0.0.1:4197/tests/stepped.html");
+        await page.goto("http://127.0.0.1:4331/tests/stepped.html");
         await page.waitForFunction(() => "evidence" in window);
         const result = await page.evaluate(
             (claim) =>

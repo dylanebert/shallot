@@ -5,8 +5,8 @@ export default {
     testDir: ".",
     ...BROWSER_CONFIG,
     webServer: {
-        command: "bunx vite --host 127.0.0.1 --port 4266 --strictPort",
-        url: "http://127.0.0.1:4266/tests/stepped.html",
+        command: "bunx vite --host 127.0.0.1 --port 4401 --strictPort",
+        url: "http://127.0.0.1:4401/tests/stepped.html",
         ...WEB_SERVER_CONFIG,
     },
 } satisfies PlaywrightTestConfig;

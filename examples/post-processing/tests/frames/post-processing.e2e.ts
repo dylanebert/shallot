@@ -13,7 +13,7 @@ type SteppedWindow = Window & {
 const names = ["Lens distortion", "Chromatic aberration", "Vignette"];
 
 test("each pointer control leaves the bound orbit key working", async ({ page }) => {
-    await page.goto("http://127.0.0.1:4266/tests/stepped.html?controls");
+    await page.goto("http://127.0.0.1:4413/tests/stepped.html?controls");
     await page.waitForFunction(() => "controlsKey" in window);
     await dragRange(page, page.getByRole("slider").first());
     await gameKeyMovesCamera(page);
@@ -34,7 +34,7 @@ test("native touch toggles, summary and range activate without taking game keys"
     });
     try {
         const page = await context.newPage();
-        await page.goto("http://127.0.0.1:4266/tests/stepped.html?controls");
+        await page.goto("http://127.0.0.1:4413/tests/stepped.html?controls");
         await page.waitForFunction(() => "controlsKey" in window);
         const session = await context.newCDPSession(page);
         const touch = async (type: "touchStart" | "touchMove" | "touchEnd", x = 0, y = 0) => {
@@ -165,7 +165,7 @@ test.describe(() => {
     test.beforeAll(async ({ browser }) => {
         page = await browser.newPage({ viewport: { width: 640, height: 480 } });
         page.on("pageerror", (error) => errors.push(error.message));
-        await page.goto("http://127.0.0.1:4266/tests/stepped.html");
+        await page.goto("http://127.0.0.1:4413/tests/stepped.html");
         await page.waitForFunction(() => (window as SteppedWindow).captureScene !== undefined);
     });
     test.afterAll(() => page.close());

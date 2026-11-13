@@ -4,12 +4,12 @@ import type { PlaywrightTestConfig } from "playwright/test";
 export default {
     ...BROWSER_CONFIG,
     testDir: ".",
-    use: { ...BROWSER_CONFIG.use, baseURL: "http://127.0.0.1:4190" },
+    use: { ...BROWSER_CONFIG.use, baseURL: "http://127.0.0.1:4415" },
     webServer: {
         command:
-            "bunx vite --config tests/persistence/vite.config.ts --host 127.0.0.1 --port 4190 --strictPort",
+            "bunx vite --config tests/persistence/vite.config.ts --host 127.0.0.1 --port 4415 --strictPort",
         cwd: fileURLToPath(new URL("../..", import.meta.url)),
-        url: "http://127.0.0.1:4190/tests/stepped.html",
+        url: "http://127.0.0.1:4415/tests/stepped.html",
         ...WEB_SERVER_CONFIG,
     },
 } satisfies PlaywrightTestConfig;

@@ -17,7 +17,7 @@ async function button(page: Page, name: string) {
 async function open(page: Page, errors: string[]) {
     page.on("pageerror", (error) => errors.push(error.message));
     await page.goto(
-        `http://127.0.0.1:4190/tests/stepped.html${process.env.SHALLOT_CAPTURE_DIR ? "?capture" : ""}`,
+        `http://127.0.0.1:4415/tests/stepped.html${process.env.SHALLOT_CAPTURE_DIR ? "?capture" : ""}`,
     );
     await page.waitForFunction(() => !!window.saveAndLoad);
 }

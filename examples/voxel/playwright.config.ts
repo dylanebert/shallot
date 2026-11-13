@@ -3,17 +3,17 @@ import type { PlaywrightTestConfig } from "playwright/test";
 export default {
     ...BROWSER_CONFIG,
     testDir: ".",
-    use: { ...BROWSER_CONFIG.use, baseURL: "http://127.0.0.1:4205" },
+    use: { ...BROWSER_CONFIG.use, baseURL: "http://127.0.0.1:4346" },
     webServer: [
         {
             command:
-                "bunx vite build && bunx vite preview --host 127.0.0.1 --port 4205 --strictPort",
-            url: "http://127.0.0.1:4205",
+                "bunx vite build && bunx vite preview --host 127.0.0.1 --port 4346 --strictPort",
+            url: "http://127.0.0.1:4346",
             ...WEB_SERVER_CONFIG,
         },
         {
-            command: "bunx vite --host 127.0.0.1 --port 4206 --strictPort",
-            url: "http://127.0.0.1:4206/tests/stepped.html",
+            command: "bunx vite --host 127.0.0.1 --port 4347 --strictPort",
+            url: "http://127.0.0.1:4347/tests/stepped.html",
             ...WEB_SERVER_CONFIG,
         },
     ],

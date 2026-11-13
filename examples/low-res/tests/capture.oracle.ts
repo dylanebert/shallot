@@ -9,7 +9,7 @@ for (const viewport of [
         const context = await browser.newContext({ viewport, hasTouch: viewport.width === 390 });
         const page = await context.newPage();
         try {
-            await page.goto("http://127.0.0.1:4265/tests/stepped.html");
+            await page.goto("http://127.0.0.1:4324/tests/stepped.html");
             await page.waitForFunction(() => (window as any).ready);
             await page.evaluate(() => document.fonts.ready);
             await page.evaluate(() => (window as any).captureScene());

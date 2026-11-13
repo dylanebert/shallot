@@ -28,7 +28,7 @@ declare global {
         }>;
     }
 }
-const STEPPED = "http://127.0.0.1:4186/tests/stepped.html";
+const STEPPED = "http://127.0.0.1:4317/tests/stepped.html";
 const PIXELS = `${STEPPED}${process.env.SHALLOT_CAPTURE_DIR ? "?captures" : ""}`;
 
 async function capture(page: Page, name: string) {
@@ -181,7 +181,7 @@ test.describe("one interaction room", () => {
 
     test("reticle fills only on focus and the hint begins 96px below its center", async () => {
         // The stepped fixture mounts the game's HUD; also check the shipped shell for stray UI.
-        const shell = await (await page.request.get("http://127.0.0.1:4186/")).text();
+        const shell = await (await page.request.get("http://127.0.0.1:4317/")).text();
         const stray = await page.evaluate((html) => {
             const doc = new DOMParser().parseFromString(html, "text/html");
             return [...doc.body.children].filter((el) => !["CANVAS", "SCRIPT"].includes(el.tagName))

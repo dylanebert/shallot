@@ -58,7 +58,7 @@ test.describe("stepped delivery", () => {
             };
         });
         await page.goto(
-            `http://127.0.0.1:4194/tests/stepped.html${process.env.SHALLOT_CAPTURE_DIR ? "?captures" : ""}`,
+            `http://127.0.0.1:4423/tests/stepped.html${process.env.SHALLOT_CAPTURE_DIR ? "?captures" : ""}`,
         );
         await page.waitForFunction(() => window.delivery !== undefined);
         const png = !!process.env.SHALLOT_CAPTURE_DIR;

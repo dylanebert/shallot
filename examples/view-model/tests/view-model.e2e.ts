@@ -12,7 +12,7 @@ type SteppedWindow = {
 test.use(pipelineWarnings);
 
 test("the first frame has no late-pipeline warning", async ({ page }) => {
-    await page.goto("http://127.0.0.1:4196/");
+    await page.goto("http://127.0.0.1:4345/");
     await page.waitForFunction(() =>
         performance
             .getEntriesByType("measure")
@@ -28,7 +28,7 @@ test.describe(() => {
     test.beforeAll(async ({ browser }) => {
         page = await browser.newPage();
         page.on("pageerror", (e) => errors.push(e.message));
-        await page.goto("http://127.0.0.1:4196/tests/stepped.html");
+        await page.goto("http://127.0.0.1:4345/tests/stepped.html");
         await page.waitForFunction(() => (window as unknown as SteppedWindow).ready);
     });
     test.afterAll(() => page.close());
@@ -58,7 +58,7 @@ test.describe(() => {
                 expect((value as { exposed: number }).exposed).toBeGreaterThan(20);
             }
             if (name === "contact") {
-                const html = await (await page.request.get("http://127.0.0.1:4196/")).text();
+                const html = await (await page.request.get("http://127.0.0.1:4345/")).text();
                 const elements = await page.evaluate((html) => {
                     const document = new DOMParser().parseFromString(html, "text/html");
                     return [...document.body.children].map((element) => element.tagName);
@@ -94,7 +94,7 @@ test.describe(() => {
 test("evidence calls restore each part's own layers, so a hidden part stays hidden", async ({
     page,
 }) => {
-    await page.goto("http://127.0.0.1:4196/tests/stepped.html?hidden");
+    await page.goto("http://127.0.0.1:4345/tests/stepped.html?hidden");
     await page.waitForFunction(() => (window as unknown as SteppedWindow).ready);
     const evidence = (name: string) =>
         page.evaluate((name) => (window as unknown as SteppedWindow).evidence(name), name);

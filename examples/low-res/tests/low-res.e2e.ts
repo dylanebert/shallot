@@ -25,7 +25,7 @@ test("390 by 844 touch page keeps controls inside the canvas", async ({ browser 
     });
     const page = await context.newPage();
     try {
-        await page.goto("http://127.0.0.1:4265/tests/stepped.html");
+        await page.goto("http://127.0.0.1:4324/tests/stepped.html");
         await page.waitForFunction(() => (window as any).ready);
         const panel = page.getByRole("region", { name: "Low-res controls" });
         const bounds = (await panel.boundingBox())!;

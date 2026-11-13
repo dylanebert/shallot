@@ -33,7 +33,7 @@ test.describe("one stepped gallery", () => {
             if (message.type() === "warning" && message.text().startsWith("standard: draw"))
                 skippedDraws.push(message.text());
         });
-        await page.goto("http://127.0.0.1:4186/tests/stepped.html?names");
+        await page.goto("http://127.0.0.1:4327/tests/stepped.html?names");
         await page.waitForFunction(() => (window as any).ready);
     });
     test.afterAll(() => page.close());

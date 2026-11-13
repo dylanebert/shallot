@@ -8,11 +8,11 @@ export const config = {
     globalSetup: "./tests/browser-setup.ts",
     use: {
         ...BROWSER_CONFIG.use,
-        baseURL: "http://127.0.0.1:4173",
+        baseURL: "http://127.0.0.1:4310",
     },
     webServer: {
-        command: "bunx vite build && bunx vite preview --host 127.0.0.1 --port 4173 --strictPort",
-        url: "http://127.0.0.1:4173",
+        command: "bunx vite build && bunx vite preview --host 127.0.0.1 --port 4310 --strictPort",
+        url: "http://127.0.0.1:4310",
         ...WEB_SERVER_CONFIG,
     },
 } satisfies PlaywrightTestConfig;

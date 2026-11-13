@@ -11,7 +11,7 @@ test.beforeEach(async ({ page }) => {
 test("spawn teaches controls in world pixels without an overlay controls panel", async ({
     page,
 }) => {
-    await page.goto("http://127.0.0.1:4176/tests/stepped.html");
+    await page.goto("http://127.0.0.1:4313/tests/stepped.html");
     await page.waitForFunction(() => (window as Window & { ready?: boolean }).ready);
     expect(await page.locator("body").innerText()).not.toMatch(/WASD|SPACE|Move|Jump|Look/);
     await expect(page.locator("[data-recipe-controls], [data-control-row]")).toHaveCount(0);

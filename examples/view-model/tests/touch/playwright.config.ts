@@ -4,10 +4,10 @@ import type { PlaywrightTestConfig } from "playwright/test";
 export default {
     ...BROWSER_CONFIG,
     testDir: ".",
-    use: { ...BROWSER_CONFIG.use, baseURL: "http://127.0.0.1:4196" },
+    use: { ...BROWSER_CONFIG.use, baseURL: "http://127.0.0.1:4421" },
     webServer: {
-        command: "bunx vite --host 127.0.0.1 --port 4196 --strictPort",
-        url: "http://127.0.0.1:4196/tests/touch.html",
+        command: "bunx vite --host 127.0.0.1 --port 4421 --strictPort",
+        url: "http://127.0.0.1:4421/tests/touch.html",
         ...WEB_SERVER_CONFIG,
     },
 } satisfies PlaywrightTestConfig;

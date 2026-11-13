@@ -3,7 +3,7 @@ import { type BrowserContext, expect, type Page, test } from "playwright/test";
 
 test.use(pipelineWarnings);
 
-test.use({ baseURL: "http://127.0.0.1:4176" });
+test.use({ baseURL: "http://127.0.0.1:4407" });
 
 test("desktop instructions name keyboard and mouse", async ({ page }) => {
     await page.goto("/tests/touch.html");
