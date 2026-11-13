@@ -2,16 +2,45 @@
 
 For modifying the engine; for using it, see the [README](README.md). API contracts live in JSDoc. This guide holds the rules the code, CLI and checks don't explain.
 
+## Where to look
+
+Every change reads Making a change, Layout, Code and Tests, then the section for what it changes:
+
+| Changing | Read |
+|---|---|
+| Engine storage, scheduling or the GPU boundary | Runtime |
+| Rendering | Rendering |
+| Physics | Physics |
+| Audio | Audio |
+| Tests or CI | Tests; CI and hosts |
+| An example | Examples, and its domain's section |
+| The CLI, packaging or a release | Commands; Dependencies and releases |
+
 ## Commands
 
+### Setup
+
+Run `bun install` in the checkout, then:
+
+```sh
+bun run build                    # engine artifacts
+cargo fetch --locked             # before the Node or Cargo tier: Cargo-backed tests use locked, fetched crates
+bunx playwright install chromium # before browser tests
+bun scripts/publish-butler.ts    # before the publish tests
+```
+
+Only `scripts/lavapipe.sh` needs Docker, running amd64 containers natively or under Rosetta as hosted Ubuntu does. On a Mac it selects a Colima profile named `hostedx86`, created with `--vz-rosetta`.
+
+### Running commands
+
 - A `shallot` command does only what Shallot knows: it may invoke project commands, but never owns processes Vite, Bun or Playwright own
-- Web runs through the project's Vite scripts (`bun run dev`, `bun run build`, `bun run preview`). `shallot dev`, `build` and `preview` require a native target. Native dev and build add the shell, and native preview launches the existing build
+- Web runs through the project's Vite scripts (`bun run dev`, `bun run build`, `bun run preview`). `shallot dev`, `build` and `preview` require a native target: native dev and build add the shell, and native preview launches the existing build
 - In the engine checkout, `bun run build` refreshes committed crate artifacts only when their input stamps are stale; running a crate build script directly forces regeneration
 - Package scripts are lifecycle hooks, the engine build, or:
-  - an app's `dev`, `build` and `preview`, calling Vite;
-  - `lint` and `format`, where the project has them;
+  - an app's `dev`, `build` and `preview`, calling Vite
+  - `lint` and `format`, where the project has them
   - `typecheck`, only for `svelte-check`
-- Every command runs by its native verb: `bun test` for cheap and GPU files, `bun test ./<file>` for Node and oracle files (after `bun scripts/publish-butler.ts` once for the publish tests), `bunx playwright test` for browser subjects (after `bunx playwright install chromium` once), `bun check`, `bun <file>`, `bunx shallot`
+- Every command runs by its native verb: `bun test` for cheap and GPU files, `bun test ./<file>` for Node and oracle files, `bunx playwright test` for browser subjects, and `bun check`, `bun <file>` and `bunx shallot`
 - A project that adopts the engine's timeouts, as the engine does, defines one `test` running `bun test` with `--timeout` set to `BUDGET.cheap`, run as `bun run test`
 
 ```bash
@@ -29,25 +58,24 @@ bun run format                  # biome
 
 ## Making a change
 
-- Bun child processes spread [the executable and host identity](scripts/bun-child.ts) into object-form spawn options
-- After a test child exits, remove directories it used with [removeTestDirectory](scripts/test-directory.ts); Windows can release its file locks after the exit is observed
-- Iterate on selected files or subjects on this host; `scripts/lavapipe.sh` runs where a rule or a red names it
-- [AGENTS.md](AGENTS.md) owns the pre-land check
+- Iterate on selected files or subjects on this host. Run `scripts/lavapipe.sh` where a rule or a failure names it
+- [AGENTS.md](AGENTS.md) owns the pre-land check, run once before landing
 - Existing import debts leave with their migrations; no new exception becomes a todo
 
 ### Using the package locally
 
 - Released: `bun add @dylanebert/shallot`
-- Staged: `bun pm pack` here, then `bun add --no-save <tarball>` in the project; add `--dev` for dev dependencies, or the overlay silently targets the wrong section
-- Live: run `bun run prepare`, then `bun link` here. In the consumer, use a published Shallot dependency range, run `bun install`, then `bun link @dylanebert/shallot`. A created scaffold may pin an unpublished version; replace it before installing
+- Staged: `bun pm pack` here, then `bun add --no-save <tarball>` in the project. Add `--dev` for dev dependencies, or the overlay silently targets the wrong section
+- Live: `bun run prepare`, then `bun link` here. In the consumer, use a published Shallot dependency range, run `bun install`, then `bun link @dylanebert/shallot`. A created scaffold may pin an unpublished version; replace it before installing
 - The `shallot` bin runs `dist/cli/shallot.js`, not the TypeScript source; `bun run prepare` rebuilds it after CLI source changes
-- `./testing` and `./vite` source edits are live under a link; refresh their declarations with `bun run prepare`
+- `./testing` and `./vite` source edits are live under a link; `bun run prepare` refreshes their declarations
 - `bun install` restores the manifest pin only if its range resolves on npm: an unpublished `^0.10.0` neither restores nor matches `0.10.0-next.1`, so staged overlays and restores use a published range
 
 ## Layout
 
-- Layers run from `engine` outward through `core`, `standard` and `extras`; dependencies point inward, and outer layers make more choices a game can replace
-- An extra is a mechanism that carries no game's choices, that the field's engines ship in-engine or as official add-ons, and that a game cannot write well over public seams; or a mechanism whose conformance to an open standard the engine guarantees, as `bevy_gltf` is a Bevy crate
+Layers run from `engine` outward through `core`, `standard` and `extras`. Dependencies point inward, and each layer outward makes more choices a game can replace.
+
+- An extra is either a mechanism that carries no game's choices, that the field's engines ship in-engine or as official add-ons, and that a game cannot write well over public seams; or a mechanism whose conformance to an open standard the engine guarantees, as `bevy_gltf` is a Bevy crate
 - A game's choices, what the player may do and how it feels, live in the game: an example writes its own gameplay over published mechanisms
 - Each module owns one useful responsibility completely; split, fix or remove one that doesn't
 - Engine owns domain-free storage and scheduling; it neither imports nor names placement code
@@ -67,14 +95,14 @@ bun run format                  # biome
 ### World and device
 
 - CPU-only compositions build and step without a WebGPU backend; [Plugin.gpu and AppConfig.device](src/engine/app/index.ts) declare device needs
-- Native GPU apps require an identified hardware adapter before plugin preparation. `SHALLOT_ALLOW_SOFTWARE_GPU=1` at launch permits deliberate software use; browser and headless apps do not impose this requirement
+- Native GPU apps require an identified hardware adapter before plugin preparation; `SHALLOT_ALLOW_SOFTWARE_GPU=1` at launch permits deliberate software use. Browser and headless apps have no such requirement
 - Headless Bun and Node GPU apps install the optional `webgpu` peer and call `setupGlobals` from `@dylanebert/shallot/webgpu` before building; browser GPU apps use the host's WebGPU
 - Each app owns its world storage and allocations; disposing one releases its resources, not the device or a sibling's data
 - Builds serialize registration and warm-up; completed apps coexist
 - Components declare fields, not storage or GPU residency
 - Component columns are eid-indexed: even a one-holder component on a high eid costs its row bytes per eid
 - A live page re-evaluates only a module Vite hot-updates in place, such as one only a Svelte component imports; an edit reaching the entry reloads the page
-- Field changes are frame-scoped: every consuming table reads them at upload before they clear, and later writes reach the next frame. On a world without a GPU, field marks clear when a tick completes successfully, as after a CPU-only step; a GPU world keeps them for its next frame upload
+- Field changes are frame-scoped: every consuming table reads them at upload before they clear, and later writes reach the next frame. Without a GPU, field marks clear when a tick completes successfully, as after a CPU-only step; a GPU world keeps them for its next frame upload
 - Plugin state lives in `world.resource`, never module globals
 - GPU allocations go through `world.gpu`, whose context and TypeGPU root own buffers and textures; other GPU allocations register with `world.own`, other cleanup with `world.onDispose`
 - Field, resource and GPU access resolves through the World passed to the callback
@@ -83,8 +111,8 @@ bun run format                  # biome
 
 - `runApp` is clocked by `requestAnimationFrame` alone and requests the next callback before GPU work. A step's delta is the difference between rAF timestamps, never `now()`, whose CPU-sampled deltas jitter motion
 - Simulation runs fixed 60 Hz ticks from an accumulator, at most four a step, and rendering interpolates by `fixedAlpha`. The rate is one constant; changing it rewrites tick-count tests, tuning and replays
-- Input is sampled once per callback into tick-addressed records, and look applies per frame. Fixed systems read tick records, never devices, and an instantaneous action stays latched until a tick consumes it
-- Skip a callback only while six frames are pending: Chrome's rAF throttle can engage too late to bound queued GPU work (`81e3375c`), and a web callback cannot block like a native frame-latency cap
+- Input is sampled once per callback into tick-addressed records, while camera look applies per frame. Fixed systems read tick records, never devices, and an instantaneous action stays latched until a tick consumes it
+- A callback is skipped only while six frames are pending: Chrome's rAF throttle can engage too late to bound queued GPU work, and a web callback cannot block like a native frame-latency cap
 - No callback is skipped for landing early: a skipped refresh shows one image twice
 
 ### Transform
@@ -106,10 +134,14 @@ bun run format                  # biome
 - Fill is bulk: bound columns, byte ranges or compute, never a per-row JavaScript callback
 - Uploads preserve command order across buffer growth. Outside draw, queue writes and immediate growth submissions follow program order; during draw, distinct staging ranges preserve encoded observations on the World's lazy frame encoder
 - All draw work shares the World's lazy frame encoder and one submission, whose fence `runApp` waits on
-- On a propagated draw error, system draw commands are discarded; only engine copies replay in their own fenced submission
+- On a propagated draw error, system draw commands are discarded; only engine copies replay, in their own fenced submission
 - GPU table shader arrays are runtime-sized
 - Fixed writes precede head-of-draw upload and GPU passes, including writes from exact ticks before a frame
 - TypeGPU is the engine and extension GPU language; raw WGSL uses its escape hatch
+- Pipelines are created in a plugin's `initialize` or `warm` and registered with `precompile`, so they compile under the loading screen:
+  - Each pipeline created synchronously through `world.gpu.device` after the drain logs one warning in every build, naming the pipeline, its owner and this rule; browser subjects install `pipelineWarnings` from `@dylanebert/shallot/testing` to fail on it
+  - Callers creating pipelines on a raw or externally retained device own their preparation
+  - Compiled pipelines are never shared across worlds; a device that a device-loss test destroys is prepared during that compile step
 
 ### GPU floor
 
@@ -133,7 +165,7 @@ bun run format                  # biome
 - Scene effects run before `OverlaySystem`, overlays between it and `PresentationSystem`, and presentation after that anchor
 - `CorePipelinePlugin` owns each view's clear, depth and multisampled color targets, resolve, the opt-in `DepthPrepass` lane, `RenderPhases` and the tonemapping pass
 - Depth consumers share core's prepass lane, and renderers supply their depth there; [DepthPrepassRequests](src/core/rendering/targets.ts) owns the request contract
-- At most one enabled directional casts shadows: greatest illuminance wins, then lower eid. Light units and direction live beside the [lighting components](src/core/rendering/lighting.ts)
+- At most one enabled directional light casts shadows: greatest illuminance wins, then lower eid. Light units and direction live beside the [lighting components](src/core/rendering/lighting.ts)
 - Presenting view state grows without recompiling pipelines or layouts, up to [MAX_VIEWS](src/core/rendering/view.ts)
 - Presentation owns tonemapping, grading, dithering and display encoding; [Tonemapping](src/core/rendering/tonemapping-state.ts) owns the per-camera contract
 - `core/mesh` owns mesh data, GPU storage, built-in primitives and `MeshInstance`, independent of rendering
@@ -145,23 +177,14 @@ bun run format                  # biome
 
 ### Checking a rendering change
 
-- Create pipelines in a plugin's `initialize` or `warm` and register them with `precompile` so they compile under the loading screen.
-  Each pipeline created synchronously through `world.gpu.device` after the drain logs one warning in every build, naming the pipeline, its owner and this rule.
-  Callers creating pipelines on a raw or externally retained device own their preparation.
-  Browser subjects install `pipelineWarnings` from `@dylanebert/shallot/testing` to fail on the warning
-- Compiled pipelines are never shared across worlds; a device a loss claim destroys is prepared during that compile step
-- A built-in composition change adds an exact native-pipeline count; compile durations are reported by `scripts/compile.oracle.ts` and `scripts/gpu-compile.oracle.ts`, never asserted
-- Rendering performance: [shared transparent-phase oracle](src/core/rendering/shared-transparent.oracle.ts) for CPU work, [render allocation oracle](diagnostics/readback-allocation/render.oracle.ts) for heap, and [first-person allocation oracle](diagnostics/first-person-allocation/allocation.oracle.ts) for the shipped browser loop. Their assertions own the measured scopes and admitted allocations
-- glTF pose speed: `bun diagnostics/gltf-pose/ab.ts` with `gltf.wasm.ts` variants in the loop; the [skinning frame oracle](diagnostics/skinning/frame.performance.oracle.ts) checks the final candidate's `cpu-path-fits`
-
-- In the loop, a rendering change runs the tests of the modules it touches and, if it changes what a view draws, one browser subject that shows it
-- Its final candidate runs once every `*.test.ts` and `*.node.ts` under `src/core/rendering`, `src/standard/rendering` and `src/extras`, passed explicitly to `bun test`, with the render allocation oracle:
+- While iterating, run the tests of the modules the change touches and, if it changes what a view draws, one browser subject that shows it
+- The final candidate runs once every `*.test.ts` and `*.node.ts` under `src/core/rendering`, `src/standard/rendering` and `src/extras`, passed explicitly to `bun test`, with the render allocation oracle:
 
 ```sh
 bun test $(find ./src/core/rendering ./src/standard/rendering ./src/extras \( -name '*.test.ts' -o -name '*.node.ts' \) -print | sort) ./diagnostics/readback-allocation/render.oracle.ts
 ```
 
-- A final candidate that changes what an existing view draws also runs that set and every browser subject that reads pixels through `scripts/lavapipe.sh`; one that only adds a pass no existing subject enables runs its own tests there. This requires Docker running amd64 containers natively or under Rosetta, as hosted Ubuntu runs (on a Mac, a Colima profile named `hostedx86` with `--vz-rosetta`, which the script selects), and tests software adapters, not hardware qualification. Commit the candidate first: the script runs a `git archive` of the given revision, excluding uncommitted edits
+- A final candidate that changes what an existing view draws also runs that set and every browser subject that reads pixels through `scripts/lavapipe.sh`; one that only adds a pass no existing subject enables runs its own tests there. The script tests software adapters, not hardware qualification, and runs a `git archive` of the given revision, so commit the candidate first
 
 ```sh
 sh scripts/lavapipe.sh HEAD sh -c 'bun test $(find ./src/core/rendering ./src/standard/rendering ./src/extras \( -name "*.test.ts" -o -name "*.node.ts" \) -print | sort)'
@@ -171,32 +194,41 @@ sh scripts/lavapipe.sh HEAD sh scripts/browser.sh
 ```
 
 - Under Rosetta the container's llvmpipe matches hosted Ubuntu's values except in fog's local-light in-scatter, where `src/extras/fog/temporal.node.ts` reads none. It, `in-scatter.node.ts`'s wall test and `lighting.node.ts`'s three range tests fail there on an unchanged tree; hosted Ubuntu passes `temporal.node.ts`
+- A built-in composition change adds an exact native-pipeline count; compile durations are reported by `scripts/compile.oracle.ts` and `scripts/gpu-compile.oracle.ts`, never asserted
+- Performance: the [shared transparent-phase oracle](src/core/rendering/shared-transparent.oracle.ts) measures CPU work, the [render allocation oracle](diagnostics/readback-allocation/render.oracle.ts) heap, and the [first-person allocation oracle](diagnostics/first-person-allocation/allocation.oracle.ts) the shipped browser loop. Their assertions own the measured scopes and admitted allocations
+- glTF pose speed: `bun diagnostics/gltf-pose/ab.ts` with `gltf.wasm.ts` variants while iterating; the [skinning frame oracle](diagnostics/skinning/frame.performance.oracle.ts) checks the final candidate's `cpu-path-fits`
 
 ## Physics
 
+Box3D is the correctness authority: world hashes equal its native reference with no tolerance, and authoring takes its definitions whole, with their defaults. Hashes see only simulation state; allocation, published ECS values and events need their own tests.
+
 - `PhysicsPlugin` (`core/physics`) registers `Body`, `Shape`, the joint kinds and the geometry registries with their defaults; it knows no solver and installs no simulation
-- `StandardPhysicsPlugin` (`standard/physics`) owns the whole Box3D-based simulation, including `PhysicsWorldDefinition`. It steps at `Time.FIXED_DT` unless `PhysicsWorldDefinition.enableAutomaticStep` is false; fixed systems may call `stepPhysics` with their own timestep and substep count. A body belongs to one simulation: a replacement backend consumes core's data and replaces all of standard physics, not single phases
+- `StandardPhysicsPlugin` (`standard/physics`) owns the whole Box3D-based simulation, including `PhysicsWorldDefinition`. A body belongs to one simulation: a replacement backend consumes core's data and replaces all of standard physics, not single phases
+- Standard physics steps at `Time.FIXED_DT` unless `PhysicsWorldDefinition.enableAutomaticStep` is false; fixed systems may call `stepPhysics` with their own timestep and substep count
 - The ECS `World` is the only public physics world; the kernel world is an internal resource of it
-- Box3D is the correctness authority: world hashes equal its native reference with no tolerance, and authoring takes its definitions whole, with their defaults. Hashes see only simulation state; allocation, published ECS values and events need their own tests
 - A definition field with a Box3D setter applies through that setter at the next fixed sync; a field without one applies at spawn, and its JSDoc says so. Physics compares marked authoring fields against kernel state, never a second copy of ECS values
 - Velocity writes and immediate teleports or targets stay calls over the `World`; [the physics API](src/standard/physics/runtime.ts) owns their timing and interpolation contracts
 - Live pose and linear velocity are read from `GlobalTransform`; a read function exists only for state not yet published
 - Standard physics publishes `Sleeping` on bodies and their attached shapes at fixed synchronization; an attached shape inherits its bound body's marker until detachment, rebinding or body destruction
 - Event records and world callbacks name entities by `EntityRef`, which outlives a recycled eid; a query reports the eids of shapes and bodies live when it runs
 - The kernel's free functions are the internal Box3D-shaped API; the parity oracles call them as their native C files call Box3D, call for call
-- Each phase has one implementation, in the kernel, built into the shared and single-thread artifacts from one source, since a page without cross-origin isolation has no shared memory; the worker count schedules it and is not a code path. TypeScript only coordinates: the public API, the ECS and `GlobalTransform` bridge, pool dispatch, and user callbacks at serial points
+- Each phase has one implementation, in the kernel, built into the shared and single-thread artifacts from one source, since a page without cross-origin isolation has no shared memory. The worker count schedules it and is not a code path. TypeScript only coordinates: the public API, the ECS and `GlobalTransform` bridge, pool dispatch, and user callbacks at serial points
 - Hosts Shallot owns serve cross-origin isolation: `shallot()`'s `dev` and `preview`, and the native shell. Elsewhere the kernel steps the single-thread artifact after one log naming the missing headers, and no game branches on which
+- Core physics recovers its geometry registries, read by fixed body synchronization; standard physics recovers its solver image and ECS bindings. A physics hash does not prove ECS or gameplay recovery
+- Determinism holds within one runtime and engine version; hashes detect divergence across versions
 - Standard physics publishes the mover queries and `CharacterPlugin`; movement feel belongs to the game, as in `examples/first-person/src/player.ts`, over published names only
 
 ### Checking a physics change
 
-- A test requests the fewest solver threads its claim needs. The solver spins at its stage barriers, so oversubscribing the host makes it slower
-- Core physics recovers its geometry registries, read by fixed body synchronization. Standard physics recovers its solver image and ECS bindings; a physics hash does not prove ECS or gameplay recovery
-- Determinism holds within one runtime and engine version; hashes detect divergence across versions
+While iterating, run the set of every row the change touches. The common set is `bun check`, `bun run lint` and every `*.test.ts` under `src/core/physics` and `src/standard/physics`. The kernel set adds:
 
-- Under Linux amd64 Rosetta, the checked kernel diverges at varying Geometric Mover steps, reproduced with matching hashes on pre-`ffab01fc` main; hosted `checked-kernel` is the authority for this check
-
-- A change runs, in the loop, the sets of every row it touches. The common set is `bun check`, `bun run lint` and every `*.test.ts` under `src/core/physics` and `src/standard/physics`; the kernel set adds `bun crates/physics/scripts/build-kernel.ts`, `cargo clippy -p shallot-physics --all-targets -- -D warnings`, `cargo clippy -p shallot-physics --lib --target wasm32-unknown-unknown -- -D warnings`, `cargo test -p shallot-physics`, `src/standard/physics/solver/step.gold.node.ts` and `diagnostics/box3d-parity/phases.oracle.ts`
+```sh
+bun crates/physics/scripts/build-kernel.ts
+cargo clippy -p shallot-physics --all-targets -- -D warnings
+cargo clippy -p shallot-physics --lib --target wasm32-unknown-unknown -- -D warnings
+cargo test -p shallot-physics
+bun test ./src/standard/physics/solver/step.gold.node.ts ./diagnostics/box3d-parity/phases.oracle.ts
+```
 
 | Change | Loop set |
 |---|---|
@@ -208,7 +240,9 @@ sh scripts/lavapipe.sh HEAD sh scripts/browser.sh
 | Checks or documentation only | The changed checks; `bun check`; `bun run lint` |
 
 - A speed claim names its scene, thread count and phase before the A/B; only that phase's verdict decides it, and no difference is not equivalence
-- A code change's final candidate runs once every row's set but the A/B, with every `diagnostics/box3d-parity` oracle that can fail on it: one whose sources, imports, corpus, kernel or pin it changes
+- The final candidate of a code change runs once every row's set but the A/B, with every `diagnostics/box3d-parity` oracle that can fail on it: one whose sources, imports, corpus, kernel or pin it changes
+- A test requests the fewest solver threads it needs: the solver spins at its stage barriers, so oversubscribing the host makes it slower
+- Under Linux amd64 Rosetta, the checked kernel diverges at varying Geometric Mover steps on an unchanged tree; hosted `checked-kernel` is the authority for that check
 
 ## Audio
 
@@ -219,13 +253,13 @@ sh scripts/lavapipe.sh HEAD sh scripts/browser.sh
 
 ## Code
 
-Name and shape pillars, in order; an earlier pillar wins when two conflict:
+Three principles shape names and data, in order; an earlier one wins when two conflict:
 
 1. **Self-explanatory where read.** At its call site, with its receiver, arguments and type, a name and the shape of what it takes and returns say what it acts on and what it does; a stranger who has not read the declaration guesses right
-2. **Grounded in precedent.** Names, shapes and techniques come from the domain's precedent: Bevy for the ECS and rendering where they carry meaning in Shallot, Box3D and Avian for physics, WebGPU and TypeGPU for the GPU, glTF for assets. A divergence names its reason; a rendering divergence from Bevy names its referent, or the Bevy structure Shallot lacks, in the comment or commit that makes it. Structure, meaning identity, ownership and data layout, is data-oriented: an entity is a row, and behavior is systems over tables. A structure Bevy lacks comes from data-oriented precedent. An object-oriented engine's structure, such as a container object that owns its parts' data, needs the reason its problem holds in Shallot, and without data-oriented precedent it goes to the person
+2. **Grounded in precedent.** Names, shapes and techniques come from the domain's precedent: Bevy for the ECS and rendering where they carry meaning in Shallot, Box3D and Avian for physics, WebGPU and TypeGPU for the GPU, glTF for assets. A divergence names its reason; a rendering divergence from Bevy names its referent, or the Bevy structure Shallot lacks, in the comment or commit that makes it. Structure, meaning identity, ownership and data layout, is data-oriented: an entity is a row, and behavior is systems over tables. A structure Bevy lacks comes from data-oriented precedent. An object-oriented engine's structure, such as a container object that owns its parts' data, needs the reason its problem holds in Shallot, and without data-oriented precedent it goes to the maintainer
 3. **Concise.** A name does not repeat what its receiver, module or type carries, and a shape carries nothing its user does not need
 
-A choice the pillars leave open is taste, and goes to the person.
+A choice the principles leave open is taste, and goes to the maintainer.
 
 - A name means one thing across the tree, one act takes one verb and one shape, and a noun beats a participle ([TigerStyle](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md), Naming Things)
 - One fact has one name, one representation, one producer and one path, and one algorithm has one implementation; a second spelling, a second copy or a forwarding wrapper goes
@@ -247,9 +281,9 @@ A choice the pillars leave open is taste, and goes to the person.
 
 ## Tests
 
-### Tiers
+An oracle is a manual measurement, `*.oracle.ts`, run by path; a browser subject is a directory with its own Playwright config.
 
-- Shared timeouts and browser configuration live in [the `./testing` subpath](src/project/testing.js). Ceilings catch hangs and runaway work, not performance regressions; hosted [slow-test warnings](scripts/report-slow-tests.ts) fire above half the CI ceiling and name the remedy
+### Tiers
 
 | Tier | Files | Timeout |
 |---|---|---|
@@ -260,31 +294,31 @@ A choice the pillars leave open is taste, and goes to the person.
 | Build/startup | | `TIMEOUT.startup` |
 | Manual oracle | `*.oracle.ts`; run by path | unbounded |
 
+- Shared timeouts and browser configuration live in [the `./testing` subpath](src/project/testing.js). Ceilings catch hangs and runaway work, not performance regressions; hosted [slow-test warnings](scripts/report-slow-tests.ts) fire above half the CI ceiling and name the remedy
 - A GPU wait has no wall clock of its own: validation errors and device loss fail it, and the tier ceiling catches a hang
-- A missing tier premise fails, never skips
-- Cargo-backed tests consume locked, already-fetched crates; run `cargo fetch --locked` in the checkout before the Node or Cargo tier
+- A test whose prerequisite is missing fails, never skips
 
 ### Writing tests
 
-- Module promises are tested beside their owners and through public examples; test names state claims
-- A rejection Playwright settles is awaited as its message, never through `expect().rejects`, which stalls it for seconds ([oven-sh/bun#33261](https://github.com/oven-sh/bun/issues/33261))
+- Module promises are tested beside their owners and through public examples; a test's name states what it proves
 - Quarantine uses `test.todo`, runnable with `--todo`; a known failure stays failing until fixed
-- Browser subjects keep Playwright and Vite configs together and spread `BROWSER_CONFIG` from `@dylanebert/shallot/testing`; a configured `webServer` spreads `WEB_SERVER_CONFIG`. `BROWSER_CONFIG` holds the test and expect timeouts, which on CI are `BROWSER_CEILING`. The engine-wide [browser command](scripts/browser.sh) owns the subject timeout and worker cap; copied projects use Playwright's defaults for those two
-- GPU files run serially on one device with small compositions; each file acquires and warms its independent worlds once in `beforeAll`, and tests time only their work
-- Gameplay assertions drive the composed world through [World.tick and World.step](src/engine/ecs/world.ts)
-- Fixed systems read tick time; simulation and draw read the virtual frame clock. Pause and scale pace `step`, never explicit ticks
+- Gameplay assertions drive the composed world through [World.tick and World.step](src/engine/ecs/world.ts). Fixed systems read tick time; simulation and draw read the virtual frame clock. Pause and scale pace `step`, never explicit ticks
 - Simulation lives in components and declared recovery participants; derived presentation reconciles after restore. [Plugin.recovery](src/engine/app/index.ts) and [World.snapshot/restore](src/engine/ecs/world.ts) own capture and ordering contracts
+- GPU files run serially on one device with small compositions; each file acquires and warms its independent worlds once in `beforeAll`, and tests time only their work
+- Browser subjects keep Playwright and Vite configs together and spread `BROWSER_CONFIG` from `@dylanebert/shallot/testing`; a configured `webServer` spreads `WEB_SERVER_CONFIG`. `BROWSER_CONFIG` holds the test and expect timeouts, which on CI are `BROWSER_CEILING`. The engine-wide [browser command](scripts/browser.sh) owns the subject timeout and worker cap; copied projects use Playwright's defaults for those two
+- A rejection Playwright settles is awaited as its message, never through `expect().rejects`, which stalls it for seconds ([oven-sh/bun#33261](https://github.com/oven-sh/bun/issues/33261))
+- Bun child processes spread [the executable and host identity](scripts/bun-child.ts) into object-form spawn options
+- After a test child exits, remove directories it used with [removeTestDirectory](scripts/test-directory.ts); Windows can release its file locks after the exit is observed
 
 ### Choosing evidence
 
+- Frame evidence uses the cheapest observable: CPU state, then GPU readback, then browser pixels, then a person
 - Full default-renderer or physics-kernel compositions, especially multi-world isolation claims, belong in Node
 - Device-backed checks record adapter classification, and a hardware claim requires a real adapter
-- A browser check runs headless and holds only what needs the built page: assets, cross-origin isolation, focused input and presentation into the canvas
-- A browser claim on a running page that does not read its frames holds them with `holdFrames` from `./testing`
-- Browser observations accept software adapters and request no adapter themselves
-- Frame evidence uses the cheapest observable: CPU state, then GPU readback, then browser pixels, then a person
+- A browser check runs headless and holds only what needs the built page: assets, cross-origin isolation, focused input and presentation into the canvas. It accepts software adapters and requests no adapter itself
+- A browser check on a running page that does not read its frames holds them with `holdFrames` from `./testing`
 - `captureFrame` reads a running canvas's rendered target at its own backing size in the presenting frame; `captureTexture` reads a camera's rendered texture target at its own size after stepping. Other owned textures use `probeTexture`
-- A page screenshot proves the composited page at CSS size × device scale; use a stepped app and semantic screenshot regions. What a display presents belongs to the display-seat manual oracle
+- A page screenshot proves the composited page at CSS size × device scale; use a stepped app and semantic screenshot regions. What a physical display presents belongs to the display run
 - Goldens cover only defects cheaper evidence cannot show, and are never updated to make a check pass
 
 ### Performance and memory
@@ -304,26 +338,29 @@ A choice the pillars leave open is taste, and goes to the person.
 
 ### Manual measurements
 
-- A display run is a manual oracle on the monitor `SHALLOT_DISPLAY_SEAT` declares, and holds only claims whose evidence is presentation on a physical monitor: refresh-paced play, and a real adapter in a browser where headless reaches none. It runs only when the person starts it, and takes that monitor's keyboard and cursor while it runs
-- A virtual compositor is not desktop isolation: X11 pathname sockets and the session bus can remain shared despite a private `XDG_RUNTIME_DIR`. Native-host boundary spikes run in a disposable VM or verified private mount/PID/network namespaces with private `/tmp`, `/run`, HOME/XDG directories and no shared session bus. Wayland-only fixtures disable Xwayland. Verify that boundary before starting a display server or client; virtual testing must not replace a live desktop's socket
-- An oracle is a separate measurement: run when its claim or tool changes, its result recorded in its commit message, and repeated only for a named doubt; the tree keeps the tool, never a run's output
+- An oracle runs when its claim or tool changes, its result is recorded in its commit message, and it is repeated only for a named doubt; the tree keeps the tool, never a run's output
+- A display run is the manual oracle for presentation on the physical monitor `SHALLOT_DISPLAY_SEAT` declares: refresh-paced play, and a real adapter in a browser where headless reaches none. It runs only when the maintainer starts it, and takes that monitor's keyboard and cursor while it runs
+- A virtual compositor is not desktop isolation: X11 pathname sockets and the session bus can remain shared despite a private `XDG_RUNTIME_DIR`. A one-off native-host boundary run uses a disposable VM or verified private mount, PID and network namespaces, with private `/tmp`, `/run` and HOME/XDG directories and no shared session bus; Wayland-only fixtures disable Xwayland. Verify that boundary before starting a display server or client, so virtual testing never replaces a live desktop's socket
 
 ## CI and hosts
 
-- [CI](.github/workflows/test.yml) owns host and tier commands and judges compatibility on those hosts; a local run does not
-- A claim runs on the cheapest host that can fail on it. [test-hosts.ts](scripts/test-hosts.ts) names the files and browser subjects CI runs on fewer than every host and why; each host-only class keeps cheap files that red it on its host
-- A red push run on main does not close landing; a release waits until every red on main is answered
+[CI](.github/workflows/test.yml) owns host and tier commands and judges compatibility on those hosts; a local run does not.
+
+- A check runs on the cheapest host that can fail on it. [test-hosts.ts](scripts/test-hosts.ts) names the files and browser subjects CI runs on fewer than every host and why; each host-only class keeps cheap files that fail it on its host
+- A failing push run on main does not block landing; a release waits until every failure on main is answered
 - A dependency or infrastructure failure is named as such, not quarantined as a test
-- For a red only one hosted OS shows, run that OS and tier before landing: `gh workflow run test.yml --ref <branch> -f os=<os> -f tier=<tier>`
+- For a failure only one hosted OS shows, run that OS and tier before landing: `gh workflow run test.yml --ref <branch> -f os=<os> -f tier=<tier>`
 - Windows GPU and Node tiers use software WARP; [dawn-host.ts](src/engine/runtime/dawn-host.ts) owns Dawn's Windows host-name requirement
-- `scripts/native-smoke.ts` checks a packed consumer's native launch. Mac and hardware smoke runs are one-off qualification spikes, recorded in their commit and outside every local and pre-land check; hosted jobs are the gates. On Apple Silicon macOS the spike requires hardware in the system and portable backends, including a copied release launched through `open` with the source project unavailable. `linux-native` runs the Linux paths, checking process-group behavior and WebGPU canvas images on composited X11 with software graphics. Canvas readback is not physical-monitor presentation or hardware qualification
-- Release-time qualification stays outside the push sweep: hardware oracles, display runs, the packed release candidate, newest-in-range resolution and the published-pin spike. Mac/Windows native launch and software WebGPU capability also remain outside it
+- `scripts/native-smoke.ts` checks a packed consumer's native launch. Hosted jobs are the gates; Mac and hardware smoke runs are one-off qualification runs, recorded in their commit and outside every local and pre-land check. On Apple Silicon macOS such a run requires hardware in the system and portable backends, including a copied release launched through `open` with the source project unavailable
+- `linux-native` runs the Linux paths, checking process-group behavior and WebGPU canvas images on composited X11 with software graphics. Canvas readback is not physical-monitor presentation or hardware qualification
+- Release-time qualification stays outside the push sweep: hardware oracles, display runs, the packed release candidate, newest-in-range resolution, the published-pin run, Mac and Windows native launch, and software WebGPU capability
 
 ## Examples
 
+Examples are the outer loop: a user's problem exposes a missing mechanism, and the owning module fixes and proves it, never the example.
+
 ### What an example is
 
-- Examples are the outer loop: a user's problem exposes a missing mechanism, and the owning module fixes and proves it, never the example
 - Each example lives in its promise's repository, under `examples/<name>`, in the shape of a copied user project, and its `index.html` carries one `<meta name="description">` describing it
 - One problem per example; only `first-person` and `physics` compose many
 - An example takes the view its problem needs; a scene seen from outside orbits with `OrbitPlugin`
@@ -337,17 +374,19 @@ A choice the pillars leave open is taste, and goes to the person.
 - An example's UI shows only what its player needs; a control that explains itself carries no label
 - What is tied to a place in the world is drawn there, in world space; the overlay holds the rest
 - A lone-subject example follows `minimal` and is added to `scripts/check-cube-scenes.node.ts`
-- In every example the subject accent is the brightest, most saturated thing in frame, lit and shaded faces separate, and a cast shadow reads as shade, not as the clear
+- The subject accent is the brightest, most saturated thing in frame, lit and shaded faces separate, and a cast shadow reads as shade, not as the clear color
 - Examples use `PALETTES["aperture-carbon"]` from `diagnostics/default-look/palette.ts`, with shadow-casting warm suns and cool ambient lighting
 - A panel's fixed label column fits every label it holds, a toggle's dependents stay visible beneath it and are disabled when inactive, a toggle moves neither the panel's bounds nor its top-left, and changing text moves no control
 - Copy UI values from `EXAMPLE_CONTROLS` in `diagnostics/default-look/palette.ts`; copied user projects never import from `diagnostics/`
 
 ## Dependencies and releases
 
+### Migration and changelog
+
 - `MIGRATION.md` covers the current series from its `.0` release to the latest patch; for 0.10.x that is `v0.10.0`. The next minor replaces the guide
-- A change requiring migration edits its `MIGRATION.md` entry in the same commit. Layered changes edit the existing entry so the guide gives the whole path from the series' `.0` release, excluding anything that release never shipped
-- `CHANGELOG.md` holds the release notes: one entry per published release, written by the release author for the release, from the commits since the last tag, for users of that release. An entry is a human pass, concise and formulaic so judging it is quick: lowercase lines of what was added, fixed, changed or removed, with no editorializing or narration. Unreleased work gets no per-commit entries
+- A change requiring migration edits its `MIGRATION.md` entry in the same commit. Layered changes edit the existing entry, so the guide gives the whole path from the series' `.0` release, excluding anything that release never shipped
 - Measurements, design reasons, progress and test internals belong in commit history and this guide, not migration entries
+- `CHANGELOG.md` holds one entry per published release, written at release by its author from the commits since the last tag, for users of that release. An entry is a human pass, concise and formulaic so judging it is quick: lowercase lines of what was added, fixed, changed or removed, with no editorializing or narration. Unreleased work gets no per-commit entries
 
 ### Plugin packages
 
@@ -364,8 +403,8 @@ A choice the pillars leave open is taste, and goes to the person.
 - Package-test fixtures use [the frozen, offline installer](scripts/packed-install-spawn.ts) in independent scratch roots
 - A breaking change updates every affected dependent in the same landing
 - Removals and reshapes strip unusable code; rebuilding and additive or hardening work follow the settled engine, not each intermediate state
-- `main` carries the next unpublished version; the commit after publishing advances it, and a commit is not a release
 - Bun's name and version identity can silently defeat staging or restoring a tarball with a published version
+- `main` carries the next unpublished version; the commit after publishing advances it, and a commit is not a release
 - Publishing happens from a commit whose `package.json` contains that version, with one `v<version>` tag; the tag runs [release.yml](.github/workflows/release.yml) to create the GitHub Release and native archives, not to publish npm
 - Stable: `bun publish`, npm `latest`, GitHub Latest. Prerelease: `bun publish --tag next`, GitHub Pre-release
 - A release line keeps one prerelease identifier; identifiers sort alphabetically
