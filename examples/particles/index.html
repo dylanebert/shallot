@@ -1,12 +1,28 @@
 <!doctype html>
-<html lang="en"><head><meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="description" content="Walk through GPU-simulated dust motes in a sunlit room and see their cost in the profiler." />
-<link rel="icon" type="image/svg+xml" href="/icon.svg" /><title>Particles · Shallot</title>
-<style>html,body{margin:0;width:100%;height:100%;background:#141210}canvas{display:block;width:100%;height:100%}</style>
-<link rel="stylesheet" href="./src/touch.css"/>
-</head><body><canvas></canvas><script type="module">
-import { runApp } from '@dylanebert/shallot';
-import { AppPlugin } from './src/app';
-await runApp({ plugins: [AppPlugin] });
-</script></body></html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta name="description" content="Walk through GPU-simulated dust motes in a sunlit room and see their cost in the profiler." />
+        <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+        <title>Particles · Shallot</title>
+        <style>body, body * { user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; -webkit-user-drag: none; cursor: default; }
+            html, body { margin: 0; width: 100%; height: 100%; background: #141210; }
+            canvas { display: block; width: 100%; height: 100%; }
+            [data-shallot-bootstrap] { position: fixed; inset: 0; display: grid; place-items: center; background: #1c1917; color: #f0e6d6; font: 400 13px/20px 'IBM Plex Sans', system-ui, sans-serif; }
+        </style>
+        <link rel="stylesheet" href="./src/touch.css" />
+    </head>
+    <body>
+        <canvas id="canvas"></canvas>
+        <div data-shallot-bootstrap data-state="loading" role="status">Loading…</div>
+        <script src="/startup.js"></script>
+        <script type="module">
+            import { runApp, shallotDark } from "@dylanebert/shallot";
+            import { AppPlugin } from "./src/app";
+
+            const bootstrap = document.querySelector("[data-shallot-bootstrap]");
+            await runApp({ plugins: [AppPlugin], loading: shallotDark({ bootstrap }) });
+        </script>
+    </body>
+</html>

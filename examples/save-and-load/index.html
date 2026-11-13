@@ -1,18 +1,29 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="icon" type="image/svg+xml" href="/icon.svg" />
-<meta name="description" content="Click a cube to build a coin pile, save it, and load it into the running game." />
-<title>Save and load · Shallot</title>
-<style>body, body * { user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; -webkit-user-drag: none; cursor: default; }html,body{margin:0;width:100%;height:100%;background:#141210}canvas{display:block;width:100%;height:100%}</style>
-<link rel="stylesheet" href="./src/hud.css"/></head>
-<body><canvas></canvas>
-<script type="module">
-import { runApp } from '@dylanebert/shallot';
-import { AppPlugin } from './src/app';
-import { hud } from './src/hud';
-await runApp({plugins:[AppPlugin], ui: hud});
-</script></body>
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+        <meta name="description" content="Click a cube to build a coin pile, save it, and load it into the running game." />
+        <title>Save and load · Shallot</title>
+        <style>body, body * { user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; -webkit-user-drag: none; cursor: default; }
+            html, body { margin: 0; width: 100%; height: 100%; background: #141210; }
+            canvas { display: block; width: 100%; height: 100%; }
+            [data-shallot-bootstrap] { position: fixed; inset: 0; display: grid; place-items: center; background: #1c1917; color: #f0e6d6; font: 400 13px/20px 'IBM Plex Sans', system-ui, sans-serif; }
+        </style>
+        <link rel="stylesheet" href="./src/hud.css" />
+    </head>
+    <body>
+        <canvas id="canvas"></canvas>
+        <div data-shallot-bootstrap data-state="loading" role="status">Loading…</div>
+        <script src="/startup.js"></script>
+        <script type="module">
+            import { runApp, shallotDark } from "@dylanebert/shallot";
+            import { AppPlugin } from "./src/app";
+            import { hud } from "./src/hud";
+
+            const bootstrap = document.querySelector("[data-shallot-bootstrap]");
+            await runApp({ plugins: [AppPlugin], ui: hud, loading: shallotDark({ bootstrap }) });
+        </script>
+    </body>
 </html>

@@ -6,21 +6,25 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <link rel="icon" type="image/svg+xml" href="/icon.svg" />
         <link rel="stylesheet" href="./src/touch.css" />
-        <title>first-person</title>
+        <title>First person · Shallot</title>
         <style>
             * { box-sizing: border-box; margin: 0; padding: 0; }
             body { background: #141210; overflow: hidden; }
             html, body, canvas { width: 100%; height: 100%; }
             canvas { display: block; }
+            [data-shallot-bootstrap] { position: fixed; inset: 0; display: grid; place-items: center; background: #1c1917; color: #f0e6d6; font: 400 13px/20px 'IBM Plex Sans', system-ui, sans-serif; }
         </style>
     </head>
     <body>
         <canvas id="canvas"></canvas>
+        <div data-shallot-bootstrap data-state="loading" role="status">Loading…</div>
+        <script src="/startup.js"></script>
         <script type="module">
-            import { runApp } from "@dylanebert/shallot";
+            import { runApp, shallotDark } from "@dylanebert/shallot";
             import { AppPlugin } from "./src/app";
 
-            await runApp({ plugins: [AppPlugin] });
+            const bootstrap = document.querySelector("[data-shallot-bootstrap]");
+            await runApp({ plugins: [AppPlugin], loading: shallotDark({ bootstrap }) });
         </script>
     </body>
 </html>
