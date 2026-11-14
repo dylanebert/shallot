@@ -1,0 +1,152 @@
+{
+    "recipe": 2,
+    "buildId": "ed9a6462fd57cf374b81287c3371a15ebf7caef75c4325233cc9b87d48133a10",
+    "mode": {
+        "kind": "prod",
+        "version": "0.10.5"
+    },
+    "demos": {
+        "ambient-occlusion": "0bde614676c83d3872fd5d058d333a34",
+        "bloom": "5ee13aa265649cc7a15498f29f0e1988",
+        "city": "60908138b672723ad6a9068a10e85d29",
+        "color-grading": "da8a7124d16ff81286e2583076d4c8f7",
+        "day-night-cycle": "f33f8656dd97002f0bda0db649d7c974",
+        "embedded-scene": "1e42776f295c01ebcafcf9adc13481f2",
+        "first-person": "2744f6503cb7ee42bcd5d42bffdc494a",
+        "gltf": "ed999084f2ebfdf569a1725a592500a0",
+        "hud": "237f7cb927d08921fe0c5e3f5eeea54d",
+        "interact": "ec1e8b6b1e0045dcaed72d2721ceed3e",
+        "isometric": "5adf782f7bf4de7a7c98fc3ff94567e9",
+        "lit-interior": "45acb50e49cb3598949cdd4c75787901",
+        "loading-screen": "2061811dda81eb53cbe655c4e6c8980b",
+        "low-res": "e472937e44a33e7e396f0936ea93ea45",
+        "materials": "ead3ddb191e7cdaaac02ca14ddd2fc2a",
+        "minimal": "24a6d3643effb097d7c646a329163200",
+        "minimap": "7c2036d55d17209aadbc6bad5438f740",
+        "particles": "bc7bbb4243279e9f076c88129b7d94c6",
+        "physics": "c227c14790afdc5e24bfece449acc816",
+        "post-processing": "c3bd9f370d1a1c48f03f5ce8dc368e77",
+        "save-and-load": "e7b9403eb013438cbb82eeecc619b2d1",
+        "snow-trails": "bfb10d10c28f1f7997b9497d158634fb",
+        "sound": "632a907ead5d210605cf1aa34aa130e6",
+        "tonemapping": "5a55cb602282378f87203d20f5d06127",
+        "view-model": "822b38895f4dd21e9809dfe5c21d53a3",
+        "volumetric-fog": "525fe7fd7322c6950df38dbe23d35fb0",
+        "voxel": "11128bd16aa3245724858a9ebc249494",
+        "world-ui": "235583bf80637df74ce117255976d54e"
+    },
+    "shallot": {
+        "ambient-occlusion": {
+            "version": "0.10.5",
+            "contentHash": "75fd24b207b24bf210c6a6d35d144512a5f212e03fdf9fcb2b9a41e642080fea"
+        },
+        "bloom": {
+            "version": "0.10.5",
+            "contentHash": "75fd24b207b24bf210c6a6d35d144512a5f212e03fdf9fcb2b9a41e642080fea"
+        },
+        "city": {
+            "version": "0.10.5",
+            "contentHash": "75fd24b207b24bf210c6a6d35d144512a5f212e03fdf9fcb2b9a41e642080fea"
+        },
+        "color-grading": {
+            "version": "0.10.5",
+            "contentHash": "75fd24b207b24bf210c6a6d35d144512a5f212e03fdf9fcb2b9a41e642080fea"
+        },
+        "day-night-cycle": {
+            "version": "0.10.5",
+            "contentHash": "75fd24b207b24bf210c6a6d35d144512a5f212e03fdf9fcb2b9a41e642080fea"
+        },
+        "embedded-scene": {
+            "version": "0.10.5",
+            "contentHash": "75fd24b207b24bf210c6a6d35d144512a5f212e03fdf9fcb2b9a41e642080fea"
+        },
+        "first-person": {
+            "version": "0.10.5",
+            "contentHash": "75fd24b207b24bf210c6a6d35d144512a5f212e03fdf9fcb2b9a41e642080fea"
+        },
+        "gltf": {
+            "version": "0.10.5",
+            "contentHash": "75fd24b207b24bf210c6a6d35d144512a5f212e03fdf9fcb2b9a41e642080fea"
+        },
+        "hud": {
+            "version": "0.10.5",
+            "contentHash": "75fd24b207b24bf210c6a6d35d144512a5f212e03fdf9fcb2b9a41e642080fea"
+        },
+        "interact": {
+            "version": "0.10.5",
+            "contentHash": "75fd24b207b24bf210c6a6d35d144512a5f212e03fdf9fcb2b9a41e642080fea"
+        },
+        "isometric": {
+            "version": "0.10.5",
+            "contentHash": "75fd24b207b24bf210c6a6d35d144512a5f212e03fdf9fcb2b9a41e642080fea"
+        },
+        "lit-interior": {
+            "version": "0.10.5",
+            "contentHash": "75fd24b207b24bf210c6a6d35d144512a5f212e03fdf9fcb2b9a41e642080fea"
+        },
+        "loading-screen": {
+            "version": "0.10.5",
+            "contentHash": "75fd24b207b24bf210c6a6d35d144512a5f212e03fdf9fcb2b9a41e642080fea"
+        },
+        "low-res": {
+            "version": "0.10.5",
+            "contentHash": "75fd24b207b24bf210c6a6d35d144512a5f212e03fdf9fcb2b9a41e642080fea"
+        },
+        "materials": {
+            "version": "0.10.5",
+            "contentHash": "75fd24b207b24bf210c6a6d35d144512a5f212e03fdf9fcb2b9a41e642080fea"
+        },
+        "minimal": {
+            "version": "0.10.5",
+            "contentHash": "75fd24b207b24bf210c6a6d35d144512a5f212e03fdf9fcb2b9a41e642080fea"
+        },
+        "minimap": {
+            "version": "0.10.5",
+            "contentHash": "75fd24b207b24bf210c6a6d35d144512a5f212e03fdf9fcb2b9a41e642080fea"
+        },
+        "particles": {
+            "version": "0.10.5",
+            "contentHash": "75fd24b207b24bf210c6a6d35d144512a5f212e03fdf9fcb2b9a41e642080fea"
+        },
+        "physics": {
+            "version": "0.10.5",
+            "contentHash": "75fd24b207b24bf210c6a6d35d144512a5f212e03fdf9fcb2b9a41e642080fea"
+        },
+        "post-processing": {
+            "version": "0.10.5",
+            "contentHash": "75fd24b207b24bf210c6a6d35d144512a5f212e03fdf9fcb2b9a41e642080fea"
+        },
+        "save-and-load": {
+            "version": "0.10.5",
+            "contentHash": "75fd24b207b24bf210c6a6d35d144512a5f212e03fdf9fcb2b9a41e642080fea"
+        },
+        "snow-trails": {
+            "version": "0.10.5",
+            "contentHash": "75fd24b207b24bf210c6a6d35d144512a5f212e03fdf9fcb2b9a41e642080fea"
+        },
+        "sound": {
+            "version": "0.10.5",
+            "contentHash": "75fd24b207b24bf210c6a6d35d144512a5f212e03fdf9fcb2b9a41e642080fea"
+        },
+        "tonemapping": {
+            "version": "0.10.5",
+            "contentHash": "75fd24b207b24bf210c6a6d35d144512a5f212e03fdf9fcb2b9a41e642080fea"
+        },
+        "view-model": {
+            "version": "0.10.5",
+            "contentHash": "75fd24b207b24bf210c6a6d35d144512a5f212e03fdf9fcb2b9a41e642080fea"
+        },
+        "volumetric-fog": {
+            "version": "0.10.5",
+            "contentHash": "75fd24b207b24bf210c6a6d35d144512a5f212e03fdf9fcb2b9a41e642080fea"
+        },
+        "voxel": {
+            "version": "0.10.5",
+            "contentHash": "75fd24b207b24bf210c6a6d35d144512a5f212e03fdf9fcb2b9a41e642080fea"
+        },
+        "world-ui": {
+            "version": "0.10.5",
+            "contentHash": "75fd24b207b24bf210c6a6d35d144512a5f212e03fdf9fcb2b9a41e642080fea"
+        }
+    }
+}
