@@ -9,7 +9,6 @@ import {
     prepareImages,
     RenderingPlugin,
     registerImage,
-    releaseImage,
     replaceImage,
 } from "./index";
 
@@ -76,12 +75,6 @@ test("replacement bounds native texture ownership, preserves sampler and accepts
             expect(created - destroyed).toBe(1);
         }
         expect(world.resource(Images).snapshot().names.length).toBe(1);
-        releaseImage(world, id);
-        expect(created - destroyed).toBe(0);
-        const next = registerImage(world, () => pixel(9));
-        await prepareImages(world);
-        expect(next).not.toBe(id);
-        expect(imageTexture(world, next).width).toBe(1);
         app.dispose();
         expect(created - destroyed).toBe(0);
     } finally {
@@ -91,7 +84,7 @@ test("replacement bounds native texture ownership, preserves sampler and accepts
     }
 });
 
-test("pending sources settle on replacement/release and cannot publish after completion or disposal", async () => {
+test("pending sources settle on replacement and cannot publish after completion or disposal", async () => {
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error("Image owner requires a Dawn adapter");
     const device = await adapter.requestDevice();
@@ -110,26 +103,18 @@ test("pending sources settle on replacement/release and cannot publish after com
     expect(imageTexture(world, id)).toBe(current);
     const second = deferred<Image>();
     replaceImage(world, id, () => second.promise);
-    const released = prepareImages(world);
-    releaseImage(world, id);
-    await released;
-    second.resolve(pixel(44));
-    await Promise.resolve();
-    expect(world.resource(imageTextures).textures[0][id]).toBeUndefined();
-    const third = deferred<Image>();
-    registerImage(world, () => third.promise);
     const disposed = prepareImages(world);
     create.mockClear();
     app.dispose();
     await disposed;
-    third.resolve(pixel(55));
+    second.resolve(pixel(44));
     await Promise.resolve();
     expect(create).not.toHaveBeenCalled();
     create.mockRestore();
     device.destroy();
 });
 
-for (const operation of ["replace", "release", "dispose"] as const)
+for (const operation of ["replace", "dispose"] as const)
     test(`pending bitmap decode closes stale bitmap after ${operation} without uploading`, async () => {
         const original = globalThis.createImageBitmap;
         const bitmap = deferred<ImageBitmap>();
@@ -144,7 +129,6 @@ for (const operation of ["replace", "release", "dispose"] as const)
             const pending = prepareImages(app.world);
             const state = app.world.resource(imageTextures);
             if (operation === "dispose") app.dispose();
-            else if (operation === "release") releaseImage(app.world, id);
             else replaceImage(app.world, id, () => pixel(77));
             await pending;
             if (operation === "replace") await prepareImages(app.world);

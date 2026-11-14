@@ -56,8 +56,8 @@ export function imageSampler(
 }
 
 /**
- * After warm, return a registered image's native-size texture, owned by the world until replacement,
- * release or disposal; callers must not destroy it. False isSrgb selects the independent data ids.
+ * After warm, return a registered image's native-size texture, owned by the world until replacement
+ * or disposal; callers must not destroy it. False isSrgb selects the independent data ids.
  * An unloaded or unknown
  * id returns a role-local 1×1 fallback and warns once per nonnegative id, except an id registered
  * before warm on a host with no image decoder.
@@ -83,7 +83,7 @@ export function imageTexture(
 
 /**
  * After warm, return a 2D view of a registered image's native-size texture. The world owns the
- * texture until replacement, release or disposal; callers must not destroy it. False isSrgb selects
+ * texture until replacement or disposal; callers must not destroy it. False isSrgb selects
  * the independent data ids. An unloaded or unknown id returns a role-local 1×1 fallback view and warns once per
  * nonnegative id, except an id registered before warm on a host with no image decoder.
  */
@@ -198,13 +198,10 @@ export function registerImage(
         s?.magFilter ?? 1,
         (s?.minFilter ?? 1) | ((s?.mipmapFilter ?? 1) << 1),
     ];
-    let name: string;
-    if (typeof source === "string") name = `url:${JSON.stringify([source, sampler])}`;
-    else {
-        let next = images.size;
-        while (images.id(`blob:${next}`) !== undefined) next++;
-        name = `blob:${next}`;
-    }
+    const name =
+        typeof source === "string"
+            ? `url:${JSON.stringify([source, sampler])}`
+            : `blob:${images.size}`;
     const id = images.register({
         name,
         source,
@@ -240,12 +237,8 @@ export async function warmImages(world: World): Promise<void> {
     }
     state.warm = true;
     for (const [role, images] of [world.resource(Images), world.resource(DataImages)].entries()) {
-        for (const entry of images) {
-            const id = images.id(entry.name)!;
-            if (typeof createImageBitmap === "undefined")
-                state.undecoded[role] = Math.max(state.undecoded[role], id + 1);
-            startImage(world, id, role);
-        }
+        if (typeof createImageBitmap === "undefined") state.undecoded[role] = images.size;
+        for (let id = 0; id < images.size; id++) startImage(world, id, role);
     }
     await prepareImages(world);
 }
@@ -298,29 +291,6 @@ export function replaceImage(
     invalidateImage(world, id, role);
     images.register({ ...entry, source });
     if (world.resource(imageTextures).warm) startImage(world, id, role);
-}
-
-/**
- * Release a non-URL registration's source and native texture. URL registrations are shared and
- * cannot be released. Unknown or already released ids are ignored. The id stays reserved and
- * must no longer be drawn; retained textures/views become invalid. For bounded repeated updates,
- * replace a live registration instead of registering fresh ids. Pending preparation resolves
- * without resurrecting the released image.
- */
-export function releaseImage(
-    world: World,
-    id: number,
-    settings: Pick<ImageLoaderSettings, "isSrgb"> = {},
-): void {
-    const role = settings.isSrgb === false ? 1 : 0;
-    const images = world.resource(role === 0 ? Images : DataImages);
-    const name = images.name(id);
-    const entry = name === undefined ? undefined : images.get(name);
-    if (!entry) return;
-    if (typeof entry.source === "string")
-        throw new Error("[Rendering] releaseImage cannot release a shared URL image");
-    invalidateImage(world, id, role);
-    images.delete(name!);
 }
 
 function invalidateImage(world: World, id: number, role: number): void {
