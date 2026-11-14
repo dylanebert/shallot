@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.10.5-next.0
+
+### highlights
+
+- physics steps up to 21% faster in contact-heavy scenes: finding candidate collision pairs is 2–2.7x faster, with identical simulation results
+- added `replaceImage` to update a generated image in place, keeping its id and sampler
+- various bugfixes
+
+### changes
+
+- physics step time at 1 and 8 threads (Apple M4 Max, Node): `junkyard` 21% and 14% faster, `rain` 10% and 8%; scenes with few moving pairs, such as `joint_grid` and `many_pyramids`, are unchanged. Pair finding now walks the broad-phase trees once per step instead of twice, as Box3D does, and keeps its peak candidate memory across steps (about 6 MB for 1,000 overlapping spheres)
+- `replaceImage(world, id, source, { isSrgb })` from `@dylanebert/shallot/rendering` replaces a `Blob` or decoded-source image registration; URL registrations are shared and throw. Await `prepareImages` before drawing the replacement
+- fixed effect-stack LUTs drawing from a destroyed texture after their image is replaced
+- fixed a chorded mouse press (left down, right down, left up, right up) leaving pointer capture on its canvas, which kept hover on and stopped focus from moving to another canvas
+- `MIGRATION.md` is grouped by area, so you can skip areas you don't use
+
 ## 0.10.4
 
 ### highlights
