@@ -9,7 +9,7 @@ import {
     type EffectPass,
     EffectPasses,
     fullscreenVertex,
-    imageView,
+    imageTexture,
     TonemappingSystem,
     Views,
 } from "../../core/rendering";
@@ -208,6 +208,7 @@ const stateKey = {
                 effect: EffectPass;
                 groups: WeakMap<GPUTextureView, GPUBindGroup>;
                 lutId: number;
+                lutTexture: GPUTexture | null;
                 lut: GPUTextureView;
             }
         >(),
@@ -223,10 +224,18 @@ function stackEffect(
     camera: {
         buffer: GPUBuffer;
         groups: WeakMap<GPUTextureView, GPUBindGroup>;
+        lutId: number;
+        lutTexture: GPUTexture | null;
         lut: GPUTextureView;
     },
 ): EffectPass {
     return (world, _eid, _view, input, output) => {
+        const texture = camera.lutId < 0 ? null : imageTexture(world, camera.lutId);
+        if (camera.lutTexture !== texture) {
+            camera.lutTexture = texture;
+            camera.lut = texture ? texture.createView() : state.defaultLut!;
+            camera.groups = new WeakMap();
+        }
         let group = camera.groups.get(input);
         if (!group) {
             group = world.gpu.device.createBindGroup({
@@ -297,22 +306,14 @@ export const EffectStackPlugin: Plugin = {
                             effect: null!,
                             groups: new WeakMap(),
                             lutId: -1,
+                            lutTexture: null,
                             lut: state.defaultLut!,
                         };
                         camera.effect = stackEffect(state, camera);
                         state.cameras.set(eid, camera);
                     }
                     const ca = active(world, eid, ChromaticAberration);
-                    const lutId = ca ? a.colorLut.get(eid) : -1;
-                    if (camera.lutId !== lutId) {
-                        camera.lutId = lutId;
-                        if (lutId < 0) {
-                            camera.lut = state.defaultLut!;
-                        } else {
-                            camera.lut = imageView(world, lutId);
-                        }
-                        camera.groups = new WeakMap();
-                    }
+                    camera.lutId = ca ? a.colorLut.get(eid) : -1;
                     let stack = effects.get(eid);
                     if (!stack) {
                         stack = { before: [], after: [] };
