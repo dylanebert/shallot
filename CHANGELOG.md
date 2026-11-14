@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.10.5-next.0
+## 0.10.5
 
 ### highlights
 
