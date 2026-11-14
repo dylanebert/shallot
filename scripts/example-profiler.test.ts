@@ -21,11 +21,7 @@ for (const name of examples) {
             new URL(`../examples/${name}/index.html`, import.meta.url),
             "utf8",
         );
-        const entry =
-            name === "physics"
-                ? readFileSync(new URL("../examples/physics/src/main.ts", import.meta.url), "utf8")
-                : html;
-        expect(entry).toMatch(/plugins:\s*\[AppPlugin\]/);
+        expect(html).toMatch(/plugins:\s*\[AppPlugin\]/);
         const module = await import(`../examples/${name}/src/app.ts`);
         const plugins = composition(module.AppPlugin);
         expect(plugins.has(DiagnosticsOverlayPlugin)).toBe(true);
