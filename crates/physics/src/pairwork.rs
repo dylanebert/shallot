@@ -227,8 +227,13 @@ impl Emitter {
             self.emit(0, a, b);
         }
     }
-    unsafe fn proxy_subtree(&mut self, proxy: Node, nodes: &[Node], pair: usize) {
-        let mut stack = [0; STACK_SIZE];
+    unsafe fn proxy_subtree(
+        &mut self,
+        proxy: Node,
+        nodes: &[Node],
+        pair: usize,
+        stack: &mut [usize; STACK_SIZE],
+    ) {
         stack[0] = pair;
         let mut count = 1;
         while count > 0 {
@@ -254,16 +259,17 @@ impl Emitter {
         array_b: &[Node],
         a: Node,
         b: Node,
-        stack: &mut [(usize, usize)],
+        stack: &mut [(usize, usize); STACK_SIZE],
         count: &mut usize,
+        proxy_stack: &mut [usize; STACK_SIZE],
     ) {
         if !test(a, b) {
             return;
         }
         match (a.leaf(), b.leaf()) {
             (true, true) => self.candidate(a.height as u32, b.height as u32),
-            (true, false) => self.proxy_subtree(a, array_b, b.index()),
-            (false, true) => self.proxy_subtree(b, array_a, a.index()),
+            (true, false) => self.proxy_subtree(a, array_b, b.index(), proxy_stack),
+            (false, true) => self.proxy_subtree(b, array_a, a.index(), proxy_stack),
             (false, false) => {
                 assert!(*count < STACK_SIZE);
                 stack[*count] = (a.index(), b.index());
@@ -271,13 +277,27 @@ impl Emitter {
             }
         }
     }
-    unsafe fn cross(&mut self, array_a: &[Node], array_b: &[Node], a: Node, b: Node) {
-        let mut stack = [(0, 0); STACK_SIZE];
+    unsafe fn cross(
+        &mut self,
+        array_a: &[Node],
+        array_b: &[Node],
+        a: Node,
+        b: Node,
+        stacks: &mut Stacks,
+    ) {
         let mut count = 0;
-        self.visit(array_a, array_b, a, b, &mut stack, &mut count);
+        self.visit(
+            array_a,
+            array_b,
+            a,
+            b,
+            &mut stacks.pairs,
+            &mut count,
+            &mut stacks.proxy,
+        );
         while count > 0 {
             count -= 1;
-            let (a, b) = stack[count];
+            let (a, b) = stacks.pairs[count];
             for i in 0..2 {
                 for j in 0..2 {
                     self.visit(
@@ -285,17 +305,28 @@ impl Emitter {
                         array_b,
                         array_a[a + i],
                         array_b[b + j],
-                        &mut stack,
+                        &mut stacks.pairs,
                         &mut count,
+                        &mut stacks.proxy,
                     );
                 }
             }
         }
     }
 }
+/// Traversal stacks, made once per block. Rust zero-fills an array at each call, where Box3D's
+/// broad_phase.c leaves its stack arrays uninitialized, so stacks local to each call cost a fill per job.
+struct Stacks {
+    pairs: [(usize, usize); STACK_SIZE],
+    proxy: [usize; STACK_SIZE],
+}
 pub unsafe fn query_block(world: usize, start: usize, end: usize, _set_cap: usize) {
     let jobs = core::slice::from_raw_parts(JOB_PTR as *const Job, JOB_COUNT);
     let nodes = &broad::tree(world, 2).nodes;
+    let mut stacks = Stacks {
+        pairs: [(0, 0); STACK_SIZE],
+        proxy: [0; STACK_SIZE],
+    };
     for (i, job) in jobs.iter().enumerate().take(end).skip(start) {
         let expected = if COLLECT {
             *(COUNT_PTR as *const u32).add(i) as usize
@@ -313,7 +344,13 @@ pub unsafe fn query_block(world: usize, start: usize, end: usize, _set_cap: usiz
             output,
             capacity: expected,
         };
-        emitter.cross(nodes, &broad::tree(world, job.tree_b).nodes, job.a, job.b);
+        emitter.cross(
+            nodes,
+            &broad::tree(world, job.tree_b).nodes,
+            job.a,
+            job.b,
+            &mut stacks,
+        );
         if COLLECT {
             assert_eq!(
                 emitter.count, expected,
