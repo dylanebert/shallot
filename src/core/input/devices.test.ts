@@ -1401,7 +1401,7 @@ test("a touch pressed and released within a frame keeps both records until draw"
     }
 });
 
-test.todo("pointer capture is released once every chorded button is up", () => {
+test("pointer capture is released once every chorded button is up", () => {
     const fixture = declaredHost();
     const world = browserInputStateWith(fixture.host);
     try {

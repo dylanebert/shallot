@@ -171,7 +171,6 @@ interface BrowserAdapter {
     lastPointerX: number;
     lastPointerY: number;
     activePointerId: number | null;
-    activeButton: number | null;
     pointerHover: (e: PointerEvent) => void;
     pointerEnter: (e: PointerEvent) => void;
     pointerLeave: (e: PointerEvent) => void;
@@ -305,7 +304,6 @@ function adapter(world: World, host: InputHost): BrowserAdapter {
         lastPointerX: 0,
         lastPointerY: 0,
         activePointerId: null,
-        activeButton: null,
         pointerHover: null!,
         pointerEnter: null!,
         pointerLeave: null!,
@@ -643,7 +641,6 @@ function releaseAll(d: DeviceRecord): void {
 
 function releaseCapture(a: BrowserAdapter): void {
     a.activePointerId = null;
-    a.activeButton = null;
     a.activeCanvas = null;
     a.lastPointerX = 0;
     a.lastPointerY = 0;
@@ -660,7 +657,6 @@ function followTouch(a: BrowserAdapter, d: DeviceRecord, pointerId: number): voi
         return;
     }
     a.activePointerId = next;
-    a.activeButton = 0;
     try {
         canvas.setPointerCapture(next);
     } catch {}
@@ -735,7 +731,6 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, world: World): void 
         }
         if (a.activePointerId === null) {
             a.activePointerId = e.pointerId;
-            a.activeButton = e.button;
             a.activeCanvas = target;
             d.focused = canvasIndex;
             a.canvasFocused = true;
@@ -830,11 +825,10 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, world: World): void 
         a.mouseButtons = e.buttons;
         if (d.pointer.lock.status !== "locked") moveActive(e);
         pointerButtons(world, gatedButtons(d, e.buttons));
-        if (e.button === a.activeButton) {
-            const canvas = a.activeCanvas;
-            if (canvas?.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
-            releaseCapture(a);
-        }
+        // Chorded button changes arrive as pointermove; a mouse pointerup is the last button up.
+        const canvas = a.activeCanvas;
+        if (canvas?.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+        releaseCapture(a);
     };
     a.pointerCancel = (e) => {
         if (d.touchPoints.has(e.pointerId)) {
