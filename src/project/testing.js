@@ -68,7 +68,7 @@ export const BROWSER_CONFIG = {
         expect: { timeout: BROWSER_CEILING.expect },
     }),
     use: {
-        trace: "on-first-retry",
+        trace: { mode: "retain-on-failure", snapshots: false },
         browserName: "chromium",
         channel: "chromium",
         launchOptions,
