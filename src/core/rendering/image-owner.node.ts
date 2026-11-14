@@ -143,3 +143,66 @@ for (const operation of ["replace", "dispose"] as const)
             globalThis.createImageBitmap = original;
         }
     });
+
+test("no native image texture outlives disposal after replacement in a dropped draw", async () => {
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) throw new Error("Image owner requires a Dawn adapter");
+    const device = await adapter.requestDevice();
+    const original = device.createTexture;
+    const create = spyOn(device, "createTexture");
+    const live = new Set<GPUTexture>();
+    create.mockImplementation((descriptor) => {
+        const texture = original.call(device, descriptor);
+        if (descriptor.label?.startsWith("image-native:")) {
+            live.add(texture);
+            const destroy = texture.destroy.bind(texture);
+            texture.destroy = () => {
+                live.delete(texture);
+                destroy();
+            };
+        }
+        return texture;
+    });
+    let id = -1;
+    let armed = false;
+    const app = await createApp({
+        defaults: false,
+        device,
+        adapter,
+        plugins: [
+            RenderingPlugin,
+            {
+                name: "DroppedImageReplacement",
+                systems: [
+                    {
+                        name: "replace-and-drop",
+                        group: "draw",
+                        update(world) {
+                            if (!armed) return;
+                            world.frameEncoder();
+                            replaceImage(world, id, () => pixel(64));
+                            throw new Error("drop draw");
+                        },
+                    },
+                ],
+            },
+        ],
+    });
+    const world = app.world;
+    try {
+        id = registerImage(world, () => pixel(255));
+        await prepareImages(world);
+        expect(live.size).toBe(1);
+        armed = true;
+        expect(() => world.step(1 / 60)).toThrow("drop draw");
+        await prepareImages(world);
+        armed = false;
+        world.step(1 / 60);
+        app.dispose();
+        expect(live.size).toBe(0);
+    } finally {
+        app.dispose();
+        create.mockRestore();
+        device.destroy();
+    }
+});

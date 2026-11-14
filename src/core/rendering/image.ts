@@ -273,8 +273,9 @@ export async function prepareImages(world: World): Promise<void> {
 
 /**
  * Replace a live Blob or level-source registration in place, preserving its role, id and sampler.
- * URL registrations are shared and cannot be replaced. The old texture is destroyed immediately;
- * retained textures/views become invalid. Await prepareImages before drawing the replacement.
+ * URL registrations are shared and cannot be replaced. The old texture is destroyed after submission
+ * if a frame encoder is open, immediately otherwise. Re-resolve retained textures/views before drawing
+ * again, and await prepareImages before drawing the replacement.
  * Superseded pending work resolves without uploading. Replacement failure binds the role fallback.
  */
 export function replaceImage(
@@ -298,7 +299,8 @@ function invalidateImage(world: World, id: number, role: number): void {
     state.controllers[role][id]?.abort();
     state.controllers[role][id] = undefined;
     state.loads[role][id] = undefined;
-    state.textures[role][id]?.destroy();
+    const texture = state.textures[role][id];
+    if (texture) world.retireGpuResource(texture);
     delete state.textures[role][id];
     delete state.imageSamplers[role][id];
     state.warned[role].delete(id);
