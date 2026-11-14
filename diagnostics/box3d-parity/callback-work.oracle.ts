@@ -39,7 +39,7 @@ test("filtered collection reserves fitted job, candidate and sorted-key scratch"
         worldSetCustomFilterCallback(world, () => { ++calls; return true; });
         stepTestWorld(world, 1 / 60);
         const k = kernel(world.ecsState) as unknown as { box3dPairScratchBytes(world: number): number };
-        expect(k.box3dPairScratchBytes(world.worldId)).toBe(112);
+        expect(k.box3dPairScratchBytes(world.worldId)).toBe(224);
         expect(worldCounters(world).contactCount).toBe(1);
         expect(calls).toBe(1);
     } finally {

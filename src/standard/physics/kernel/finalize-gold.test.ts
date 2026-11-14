@@ -56,7 +56,7 @@ function fixture(count: number, dt: number, continuous: boolean, invDt = 1 / dt)
     return { world, k, store: world.bodyStore };
 }
 function finalize(k: ReturnType<typeof kernel>, count: number) {
-    k.parallelFor(7, count, 1, 0);
+    k.parallelFor(7, count, 1);
 }
 
 function load(store: ReturnType<typeof fixture>["store"], c: (typeof gold.cases)[number]) {

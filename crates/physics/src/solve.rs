@@ -626,11 +626,10 @@ struct Par {
     par: ParFor,
     worker_count: usize,
     count: usize,
-    a: f32,
 }
 
 #[export_name = "parallelFor"]
-pub extern "C" fn parallel_for(kind: u32, count: usize, thread_count: usize, a: f32) {
+pub extern "C" fn parallel_for(kind: u32, count: usize, thread_count: usize) {
     assert!((1..=MAX_THREADS).contains(&thread_count));
     let job = match kind {
         KIND_CONTACTS => Job::Contacts,
@@ -661,7 +660,6 @@ pub extern "C" fn parallel_for(kind: u32, count: usize, thread_count: usize, a: 
         worker_count: thread_count.min(par.block_count()),
         par,
         count,
-        a,
     };
     let mut handles = [None; MAX_THREADS];
     for (i, handle) in handles.iter_mut().enumerate().take(p.worker_count) {
@@ -670,9 +668,11 @@ pub extern "C" fn parallel_for(kind: u32, count: usize, thread_count: usize, a: 
     for handle in handles {
         SCHEDULER.finish(handle);
     }
-    // Collide grows its block allocators, and each sensor task grows its own overlaps, as
-    // b3SensorTask does (sensor.c). Neither moves storage another task reads.
-    if job != Job::Contacts && job != Job::Sensors && !SCHEDULER.faulted() {
+    // Collide grows its block allocators, each sensor task grows its own overlaps, as
+    // b3SensorTask does (sensor.c), and each pair task grows its own worker's candidates, as
+    // b3SelfPairsTask and b3CrossPairsTask push to their worker's pairKeys (broad_phase.c). Each
+    // task grows only what it owns, so none moves storage another task reads.
+    if job != Job::Contacts && job != Job::Sensors && job != Job::Pairs && !SCHEDULER.faulted() {
         assert_eq!(
             core::arch::wasm32::memory_size::<0>(),
             pages,
@@ -694,7 +694,7 @@ fn run_par(p: &Par, index: usize) {
                 .run(|s, e| crate::continuous::bullets(world_index, index, s, e)),
             Job::Pairs => p
                 .par
-                .run(|s, e| crate::pairwork::query_block(world_index, s, e, p.a as usize)),
+                .run(|s, e| crate::pairwork::query_block(world_index, index, s, e)),
             Job::Sensors => p
                 .par
                 .run(|s, e| crate::sensor::task(world_index, index, s, e)),

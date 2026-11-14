@@ -20,16 +20,63 @@ struct Candidate {
     a: u32,
     b: u32,
 }
+/// One block's candidates in its worker's array: `start` is the block's first job.
+#[derive(Clone, Copy)]
+struct Segment {
+    start: usize,
+    begin: usize,
+    end: usize,
+}
+/// Box3D's taskContexts[worker].pairKeys: each worker's candidates, cleared each step and kept
+/// across steps. Only its own task grows them; the serial point reads them in block order.
+struct Worker {
+    candidates: Vec<Candidate>,
+    segments: Vec<Segment>,
+}
+struct Pairs {
+    workers: [Worker; crate::solve::MAX_THREADS],
+    order: Vec<u64>,
+}
+impl Pairs {
+    const EMPTY: Self = Self {
+        workers: [const {
+            Worker {
+                candidates: Vec::new(),
+                segments: Vec::new(),
+            }
+        }; crate::solve::MAX_THREADS],
+        order: Vec::new(),
+    };
+}
+// Heap-allocated so the 128 empty worlds stay out of the data segment: an empty Vec is not all
+// zero bytes. Raw, so a task projects its own worker with mutable provenance.
+static mut WORLDS: [*mut Pairs; crate::regions::MAX_WORLDS] =
+    [core::ptr::null_mut(); crate::regions::MAX_WORLDS];
+/// Serial callers only; no reference it returns may live while tasks run.
+unsafe fn state(world: usize) -> &'static mut Pairs {
+    let slot = &mut (*(&raw mut WORLDS))[world];
+    if slot.is_null() {
+        *slot = Box::into_raw(Box::new(Pairs::EMPTY));
+    }
+    &mut **slot
+}
+/// A task's own worker, reached without a reference to the enclosing `Pairs`.
+unsafe fn worker_state(world: usize, index: usize) -> &'static mut Worker {
+    let pairs = (*(&raw const WORLDS))[world];
+    &mut *(&raw mut (*pairs).workers[index])
+}
+pub unsafe fn reset(world: usize) {
+    let slot = &mut (*(&raw mut WORLDS))[world];
+    if !slot.is_null() {
+        drop(Box::from_raw(*slot));
+        *slot = core::ptr::null_mut();
+    }
+}
 static mut JOB_PTR: usize = 0;
 static mut JOB_COUNT: usize = 0;
-static mut COUNT_PTR: usize = 0;
-static mut OFFSET_PTR: usize = 0;
-static mut INPUT_PTR: usize = 0;
 static mut KEY_PTR: usize = 0;
 static mut KEY_COUNT: usize = 0;
-static mut COLLECT: bool = false;
 static mut REBUILD_PENDING: bool = false;
-static mut SCRATCH_BYTES: usize = 0;
 pub unsafe fn schedule_rebuild(world: usize) {
     for i in [1, 2] {
         broad::tree_mut(world, i).reserve_rebuild();
@@ -126,15 +173,15 @@ pub extern "C" fn reserve_pairs_in_world(world: usize) {
             .filter(|&p| (t.nodes[p].flags | t.nodes[p + 1].flags) & MOVED != 0)
             .count();
         JOB_COUNT = s + k + self_count;
-        COLLECT = false;
         KEY_COUNT = 0;
-        let job_bytes = JOB_COUNT * core::mem::size_of::<Job>();
-        SCRATCH_BYTES = (job_bytes + JOB_COUNT * 8).next_multiple_of(16);
-        let base = crate::arena::reserve_scratch(world, SCRATCH_BYTES);
-        crate::callback_work::pair_scratch(world, SCRATCH_BYTES);
-        JOB_PTR = base;
-        COUNT_PTR = base + job_bytes;
-        OFFSET_PTR = COUNT_PTR + JOB_COUNT * 4;
+        for w in &mut state(world).workers {
+            w.candidates.clear();
+            w.segments.clear();
+        }
+        JOB_PTR = crate::arena::reserve_scratch(
+            world,
+            (JOB_COUNT * core::mem::size_of::<Job>()).next_multiple_of(16),
+        );
         let jobs = core::slice::from_raw_parts_mut(JOB_PTR as *mut Job, JOB_COUNT);
         jobs[..s + k].copy_from_slice(&cross[..s + k]);
         let mut n = s + k;
@@ -163,25 +210,16 @@ unsafe fn accepts(world: usize, a: u32, b: u32) -> bool {
         )
         && crate::bodies::should_collide_in_world(world, sa[1], sb[1])
 }
-struct Emitter {
+struct Emitter<'a> {
     world: usize,
-    count: usize,
-    output: *mut Candidate,
-    capacity: usize,
+    output: &'a mut Vec<Candidate>,
 }
-impl Emitter {
+impl Emitter<'_> {
     unsafe fn emit(&mut self, child: u32, a: u32, b: u32) {
-        if COLLECT {
-            assert!(
-                self.count < self.capacity,
-                "physics: pair collection exceeded its count pass"
-            );
-            *self.output.add(self.count) = Candidate { child, a, b };
-            if !crate::callbacks::filter_needed(self.world, a as usize, b as usize) {
-                crate::callback_work::note(self.world, crate::callback_work::Work::PairParallel);
-            }
+        self.output.push(Candidate { child, a, b });
+        if !crate::callbacks::filter_needed(self.world, a as usize, b as usize) {
+            crate::callback_work::note(self.world, crate::callback_work::Work::PairParallel);
         }
-        self.count += 1;
     }
     unsafe fn candidate(&mut self, a: u32, b: u32) {
         let (a, b) = (a.min(b), a.max(b));
@@ -320,30 +358,20 @@ struct Stacks {
     pairs: [(usize, usize); STACK_SIZE],
     proxy: [usize; STACK_SIZE],
 }
-pub unsafe fn query_block(world: usize, start: usize, end: usize, _set_cap: usize) {
+pub unsafe fn query_block(world: usize, worker: usize, start: usize, end: usize) {
     let jobs = core::slice::from_raw_parts(JOB_PTR as *const Job, JOB_COUNT);
     let nodes = &broad::tree(world, 2).nodes;
     let mut stacks = Stacks {
         pairs: [(0, 0); STACK_SIZE],
         proxy: [0; STACK_SIZE],
     };
-    for (i, job) in jobs.iter().enumerate().take(end).skip(start) {
-        let expected = if COLLECT {
-            *(COUNT_PTR as *const u32).add(i) as usize
-        } else {
-            0
-        };
-        let output = if COLLECT {
-            (INPUT_PTR as *mut Candidate).add(*(OFFSET_PTR as *const u32).add(i) as usize)
-        } else {
-            core::ptr::null_mut()
-        };
-        let mut emitter = Emitter {
-            world,
-            count: 0,
-            output,
-            capacity: expected,
-        };
+    let w = worker_state(world, worker);
+    let begin = w.candidates.len();
+    let mut emitter = Emitter {
+        world,
+        output: &mut w.candidates,
+    };
+    for job in &jobs[start..end] {
         emitter.cross(
             nodes,
             &broad::tree(world, job.tree_b).nodes,
@@ -351,39 +379,40 @@ pub unsafe fn query_block(world: usize, start: usize, end: usize, _set_cap: usiz
             job.b,
             &mut stacks,
         );
-        if COLLECT {
-            assert_eq!(
-                emitter.count, expected,
-                "physics: pair count changed before collection"
-            );
-        } else {
-            *(COUNT_PTR as *mut u32).add(i) = emitter.count as u32;
-        }
     }
+    let end = w.candidates.len();
+    w.segments.push(Segment { start, begin, end });
 }
-pub(crate) unsafe fn finish_queries(world: usize) -> bool {
-    if !COLLECT {
-        let mut count = 0;
-        for i in 0..JOB_COUNT {
-            *(OFFSET_PTR as *mut u32).add(i) = count as u32;
-            count += *(COUNT_PTR as *const u32).add(i) as usize;
-        }
-        let input_bytes = (count * core::mem::size_of::<Candidate>()).next_multiple_of(8);
-        let bytes = input_bytes + count * 8;
-        INPUT_PTR = crate::arena::extend_scratch(world, bytes);
-        KEY_PTR = INPUT_PTR + input_bytes;
-        crate::callback_work::pair_scratch(world, SCRATCH_BYTES + bytes.next_multiple_of(16));
-        KEY_COUNT = 0;
-        COLLECT = true;
-        return true;
+pub(crate) unsafe fn finish_queries(world: usize) {
+    let pairs = state(world);
+    pairs.order.clear();
+    let mut count = 0;
+    let mut bytes = 0;
+    for (i, w) in pairs.workers.iter().enumerate() {
+        // First job, worker, segment: packed so the sort shares the key sort's instantiation.
+        pairs.order.extend(
+            w.segments
+                .iter()
+                .enumerate()
+                .map(|(j, s)| (s.start as u64) << 32 | (i as u64) << 24 | j as u64),
+        );
+        count += w.candidates.len();
+        bytes += w.candidates.capacity() * core::mem::size_of::<Candidate>()
+            + w.segments.capacity() * core::mem::size_of::<Segment>();
     }
-    let mut offset = 0;
-    for i in 0..JOB_COUNT {
-        let count = *(COUNT_PTR as *const u32).add(i) as usize;
-        let input = core::slice::from_raw_parts((INPUT_PTR as *const Candidate).add(offset), count);
+    bytes += pairs.order.capacity() * core::mem::size_of::<u64>();
+    // Blocks tile the jobs in order, so sorting by first job restores job order at every worker count.
+    pairs.order.sort_unstable();
+    let job_bytes = (JOB_COUNT * core::mem::size_of::<Job>()).next_multiple_of(16);
+    KEY_PTR = crate::arena::extend_scratch(world, count * 8);
+    crate::callback_work::pair_scratch(world, job_bytes + (count * 8).next_multiple_of(16) + bytes);
+    KEY_COUNT = 0;
+    for &order in &pairs.order {
+        let w = &pairs.workers[(order >> 24 & 0xff) as usize];
+        let segment = w.segments[(order & 0xff_ffff) as usize];
         let mut previous = None;
         let mut accepted = false;
-        for c in input {
+        for c in &w.candidates[segment.begin..segment.end] {
             let pair = (c.a, c.b);
             if previous != Some(pair) {
                 previous = Some(pair);
@@ -401,7 +430,6 @@ pub(crate) unsafe fn finish_queries(world: usize) -> bool {
                 KEY_COUNT += 1;
             }
         }
-        offset += count;
     }
     let keys = core::slice::from_raw_parts_mut(KEY_PTR as *mut u64, KEY_COUNT);
     keys.sort_unstable();
@@ -409,7 +437,6 @@ pub(crate) unsafe fn finish_queries(world: usize) -> bool {
         debug_assert_ne!(keys[i - 1], keys[i], "physics: duplicate broad-phase pair");
     }
     broad::tree_mut(world, 0).clear_moved();
-    false
 }
 pub extern "C" fn rebuild_trees_in_world(world: usize) {
     unsafe {

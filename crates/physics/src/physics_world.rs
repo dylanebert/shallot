@@ -496,8 +496,8 @@ pub unsafe extern "C" fn begin_in_world(
         solve_start: 0.0,
     };
 }
-unsafe fn parallel(_world_index: usize, kind: u32, count: usize, a: f32) {
-    crate::solve::parallel_for(kind, count, DRIVER.threads, a);
+unsafe fn parallel(_world_index: usize, kind: u32, count: usize) {
+    crate::solve::parallel_for(kind, count, DRIVER.threads);
 }
 static mut TREE_TASK: Option<usize> = None;
 unsafe fn rebuild_task(world: usize, _: usize) {
@@ -646,23 +646,10 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                 }
                 crate::pairwork::reserve_pairs_in_world(world_index);
                 DRIVER.phase = 2;
-                parallel(
-                    world_index,
-                    4,
-                    crate::pairwork::job_count(),
-                    crate::broad::set_cap(world_index) as f32,
-                );
+                parallel(world_index, 4, crate::pairwork::job_count());
             }
             2 => {
-                if crate::pairwork::finish_queries(world_index) {
-                    parallel(
-                        world_index,
-                        4,
-                        crate::pairwork::job_count(),
-                        crate::broad::set_cap(world_index) as f32,
-                    );
-                    continue;
-                }
+                crate::pairwork::finish_queries(world_index);
                 crate::pairwork::schedule_rebuild(world_index);
                 TREE_TASK = crate::solve::SCHEDULER.enqueue(rebuild_task, world_index, 0);
                 create_pairs(world_index);
@@ -695,7 +682,7 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                         crate::arena::collide_list_ptr() as *mut u32,
                     );
                     crate::arena::sort_collide_contacts(world_index, count);
-                    parallel(world_index, 2, count, 0.0);
+                    parallel(world_index, 2, count);
                 }
             }
             4 => {
@@ -761,7 +748,7 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                     (ticks() - DRIVER.solve_start) as f32 - PROFILE[world].solver_setup;
                 DRIVER.phase_start = ticks();
                 DRIVER.phase = 12;
-                parallel(world_index, 7, DRIVER.count, 0.0);
+                parallel(world_index, 7, DRIVER.count);
             }
             12 => {
                 crate::continuous::finish_deferred(world_index);
@@ -793,7 +780,7 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                 DRIVER.phase = 8;
                 DRIVER.phase_start = ticks();
                 if bullets {
-                    parallel(world_index, 3, crate::continuous::bullet_count(), 0.0);
+                    parallel(world_index, 3, crate::continuous::bullet_count());
                 }
                 if !bullets {
                     DRIVER.phase = 9;
@@ -827,7 +814,7 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                 let count = crate::sensor::prepare(world_index, DRIVER.threads);
                 DRIVER.phase = 11;
                 if count != 0 {
-                    parallel(world_index, 6, count, 0.0);
+                    parallel(world_index, 6, count);
                 }
             }
             11 => {

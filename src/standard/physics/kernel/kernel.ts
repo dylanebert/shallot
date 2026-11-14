@@ -835,7 +835,7 @@ export type Kernel = {
 
     // Solve columns are reserved while workers are parked. With no pool,
     // threadCount is one and finish executes queued tasks inline.
-    parallelFor(kind: number, count: number, threadCount: number, a: number): void;
+    parallelFor(kind: number, count: number, threadCount: number): void;
     schedulerStart(): void;
     schedulerStop(): void;
     schedulerFaultPtr(): number;

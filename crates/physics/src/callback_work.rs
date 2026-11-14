@@ -21,6 +21,7 @@ pub(crate) fn pair_scratch(world: usize, bytes: usize) {
     #[cfg(not(feature = "box3d-oracle"))]
     let _ = (world, bytes);
 }
+/// Peak pair memory per step: jobs, keys and retained per-worker capacity, not the fixed per-world record.
 #[cfg(feature = "box3d-oracle")]
 #[export_name = "box3dPairScratchBytes"]
 pub extern "C" fn scratch(world: usize) -> usize {

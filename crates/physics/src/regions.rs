@@ -39,6 +39,7 @@ pub extern "C" fn reset(world: u32) {
         crate::broad::reset(id);
         crate::geo::reset(id);
         crate::sensor::reset(id);
+        crate::pairwork::reset(id);
         crate::events::reset(id);
     }
 }
