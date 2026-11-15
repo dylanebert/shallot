@@ -124,6 +124,12 @@ export class Scheduler {
         this._time.paused = false;
     }
 
+    discardOverstep(seconds: number): void {
+        if (!Number.isFinite(seconds) || seconds < 0)
+            throw new Error("discardOverstep requires finite, non-negative seconds");
+        this._accumulator = Math.max(0, this._accumulator - seconds);
+    }
+
     setScale(scale: number): void {
         if (!Number.isFinite(scale))
             throw new Error(`timescale received ${scale} (must be a finite number)`);

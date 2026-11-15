@@ -787,6 +787,16 @@ export class World {
         this._scheduler.resume();
     }
 
+    /** Discard seconds of accumulated fixed time, clamping at zero, as Bevy Time<Fixed>::discard_overstep.
+     * Only callable in preFixed, after this frame's scaled delta has accumulated; refuses elsewhere
+     * and during recovery callbacks, or for negative/non-finite seconds. Undiscarded fractions feed
+     * fixedAlpha after the paced ticks. Does not alter frame time, simulation/draw, or explicit tick. */
+    discardOverstep(seconds: number): void {
+        if (this._recovering || !this._stepping || this.currentSystemGroup !== "preFixed")
+            throw new Error("World.discardOverstep: requires preFixed outside recovery callbacks");
+        this._scheduler.discardOverstep(seconds);
+    }
+
     /** Set virtual timescale: 1 real time, <1 slow-mo, >1 fast-forward, 0 freeze; negatives clamp to 0.
      * Refuses non-finite values. Applies to step's virtual clock and tick frequency, never explicit {@link tick}. */
     setTimeScale(scale: number): void {
