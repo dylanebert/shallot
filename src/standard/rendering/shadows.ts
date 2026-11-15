@@ -5,6 +5,7 @@ import {
     attachView,
     Camera,
     CameraMode,
+    cameraView,
     DirectionalLight,
     detachView,
     MAX_SLOTS,
@@ -18,12 +19,14 @@ import {
 } from "../../core/rendering";
 import { composeGlobalTransform, GlobalTransform } from "../../core/transform";
 import {
+    component,
     lookAt,
     lookAtRotation,
     multiplyMat4,
     orthographic,
     perspective,
     type Resource,
+    u32,
     type World,
 } from "../../engine";
 import { lookAtPacked } from "../../engine/utils";
@@ -541,24 +544,61 @@ export function sunTowardLight(world: World): Float64Array {
     return shadows(world).sunTowardLight;
 }
 
-function createCascadeCamera(world: World): number {
-    const eid = world.create();
-    world.add(eid, RenderLayers);
-    world.add(eid, GlobalTransform);
-    world.add(eid, Camera);
-    world.storage(Camera).mode.set(eid, CameraMode.Orthographic);
-    attachView(world, eid);
-    return eid;
+// Pool ownership and slot order survive recovery with the cameras, not with the host cache.
+export const ShadowCamera = component("ShadowCamera", { kind: u32, slot: u32 });
+const shadowCameras = [ShadowCamera];
+
+function syncCameraPool(world: World, eids: number[], n: number, kind: number): boolean {
+    let changed = eids.length !== n;
+    const slots = world.storage(ShadowCamera);
+    for (const eid of world.query(shadowCameras)) {
+        if (slots.kind.get(eid) !== kind) continue;
+        const slot = slots.slot.get(eid);
+        changed ||= eids[slot] !== eid;
+        eids[slot] = eid;
+    }
+    while (eids.length > n) {
+        const eid = eids.pop()!;
+        if (
+            world.has(eid, ShadowCamera) &&
+            slots.kind.get(eid) === kind &&
+            slots.slot.get(eid) >= n
+        ) {
+            detachView(world, eid);
+            world.destroy(eid);
+        }
+    }
+    // Cached ids may now name an unrelated entity, or a camera absent from the restored image.
+    for (let slot = 0; slot < n; slot++) {
+        let eid = eids[slot];
+        if (
+            eid === undefined ||
+            !world.has(eid, ShadowCamera) ||
+            slots.kind.get(eid) !== kind ||
+            slots.slot.get(eid) !== slot
+        ) {
+            eid = world.create();
+            world.add(eid, ShadowCamera, { kind, slot });
+            world.add(eid, RenderLayers);
+            world.add(eid, GlobalTransform);
+            world.add(eid, Camera);
+            world
+                .storage(Camera)
+                .mode.set(eid, kind === 0 ? CameraMode.Orthographic : CameraMode.Perspective);
+            eids[slot] = eid;
+            changed = true;
+        }
+        if (!cameraView(world, eid)) {
+            attachView(world, eid);
+            changed = true;
+        }
+    }
+    eids.length = n;
+    return changed;
 }
 
 function syncCascadePool(world: World, shadow: ShadowRuntime, n: number): void {
-    if (shadow.cascadeEids.length !== n) shadow.cascKey.fill(Number.NaN);
-    while (shadow.cascadeEids.length < n) shadow.cascadeEids.push(createCascadeCamera(world));
-    while (shadow.cascadeEids.length > n) {
-        const eid = shadow.cascadeEids.pop()!;
-        detachView(world, eid);
-        world.destroy(eid);
-    }
+    if (syncCameraPool(world, shadow.cascadeEids, n, 0)) shadow.cascKey.fill(Number.NaN);
 }
 
 // Culling must use the same light-space projection as atlas rasterization.
@@ -588,10 +628,7 @@ function poseCascade(world: World, eid: number, fit: LightFit): void {
 /** destroy the pooled cascade cameras + their views (at plugin dispose). */
 export function destroyCascades(world: World): void {
     const shadow = shadows(world);
-    for (const eid of shadow.cascadeEids) {
-        detachView(world, eid);
-        world.destroy(eid);
-    }
+    syncCameraPool(world, shadow.cascadeEids, 0, 0);
     shadow.cascadeEids.length = 0;
     shadow.cascKey.fill(Number.NaN);
 }
@@ -1033,23 +1070,8 @@ export function pointComboEids(world: World): number[] {
     return shadows(world).comboEids;
 }
 
-function createComboCamera(world: World): number {
-    const eid = world.create();
-    world.add(eid, RenderLayers);
-    world.add(eid, GlobalTransform);
-    world.add(eid, Camera);
-    world.storage(Camera).mode.set(eid, CameraMode.Perspective);
-    attachView(world, eid);
-    return eid;
-}
-
 function syncComboPool(world: World, shadows: ShadowRuntime, n: number): void {
-    while (shadows.comboEids.length < n) shadows.comboEids.push(createComboCamera(world));
-    while (shadows.comboEids.length > n) {
-        const eid = shadows.comboEids.pop()!;
-        detachView(world, eid);
-        world.destroy(eid);
-    }
+    syncCameraPool(world, shadows.comboEids, n, 1);
 }
 
 // a combo's look basis and vertical FOV: a spot's cone, else the point caster's cube face `face`. A spot's
@@ -1181,10 +1203,7 @@ function poseCombo(world: World, eid: number, frame: PointShadowFrame, face: num
 /** destroy the pooled combo cameras + their views (at plugin dispose) */
 export function destroyPointShadows(world: World): void {
     const shadow = shadows(world);
-    for (const eid of shadow.comboEids) {
-        detachView(world, eid);
-        world.destroy(eid);
-    }
+    syncCameraPool(world, shadow.comboEids, 0, 1);
     shadow.comboEids.length = 0;
 }
 

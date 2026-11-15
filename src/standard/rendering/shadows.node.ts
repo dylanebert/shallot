@@ -1,4 +1,4 @@
-import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
+import { afterEach, expect, setDefaultTimeout, spyOn, test } from "bun:test";
 
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 
@@ -27,6 +27,8 @@ import {
     cascadeCovers,
     cascadeFars,
     destroyCascades,
+    destroyPointShadows,
+    pointComboEids,
     resetCascades,
     updateCascades,
 } from "./shadows";
@@ -36,7 +38,7 @@ const rendering = { defaults: false, plugins: [StandardRenderingPlugin, MeshRend
 // the re-gather growth row, then changed and fresh worlds for the light-change rows
 const subjects = gpuApps(import.meta.path, [
     ...Array.from({ length: 3 }, () => ({ defaults: false, plugins: [TransformPlugin] })),
-    ...Array.from({ length: 14 }, () => rendering),
+    ...Array.from({ length: 17 }, () => rendering),
 ]);
 let nextSubject = 0;
 
@@ -185,6 +187,54 @@ async function frame(world: World): Promise<string | null> {
     world.gpu.device.pushErrorScope("validation");
     world.step(0);
     return (await world.gpu.device.popErrorScope())?.message ?? null;
+}
+
+for (const kind of ["sun", "point", "spot"] as const) {
+    test(`${kind} shadow cameras reconcile after restoring before the first draw`, async () => {
+        const app = subjects()[17 + ["sun", "point", "spot"].indexOf(kind)];
+        const { world } = app;
+        const { sun } = renderedScene(world);
+        if (kind !== "sun") {
+            world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 0);
+            const light = world.create();
+            world.add(light, Transform, { translation: [0, 4, 0, 0] });
+            world.add(light, kind === "point" ? PointLight : SpotLight, { shadowMapsEnabled: 1 });
+        }
+        const snapshot = world.snapshot();
+        const warnings = spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            expect(await frame(world)).toBeNull();
+            const cameras = () =>
+                kind === "sun" ? cascadeComboEids(world) : pointComboEids(world);
+            const count = cameras().length;
+            expect(count).toBe(kind === "sun" ? 4 : kind === "point" ? 6 : 1);
+            const drawn = world.snapshot();
+            world.restore(snapshot);
+            const unrelated = world.create();
+            world.add(unrelated, Transform);
+            world.tick();
+            expect(await frame(world)).toBeNull();
+            expect(cameras().filter((eid) => world.has(eid, Camera))).toHaveLength(count);
+            expect(world.has(unrelated, Camera)).toBe(false);
+            // Recover cameras that a later pool teardown removed, with the host holding new ids.
+            world.restore(drawn);
+            if (kind === "sun") destroyCascades(world);
+            else destroyPointShadows(world);
+            expect(await frame(world)).toBeNull();
+            world.restore(drawn);
+            world.tick();
+            expect(await frame(world)).toBeNull();
+            expect(cameras().filter((eid) => world.has(eid, Camera))).toHaveLength(count);
+            expect(Array.from(world.query([Camera]))).toHaveLength(count + 1);
+            expect(
+                warnings.mock.calls.filter((args) =>
+                    args.join(" ").includes("combo view(s) missing"),
+                ),
+            ).toHaveLength(0);
+        } finally {
+            warnings.mockRestore();
+        }
+    });
 }
 
 // asserts the first `n` cascade far bounds follow Bevy's `calculate_cascade_bounds` (bevy_light cascade.rs)

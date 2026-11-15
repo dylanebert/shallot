@@ -141,6 +141,7 @@ import {
     pointCasters,
     resetCascades,
     resetPointShadows,
+    ShadowCamera,
     updateCascades,
     updatePointShadows,
 } from "./shadows";
@@ -1429,7 +1430,7 @@ export const StandardRenderingPlugin: Plugin = {
         features: ["indirect-first-instance"],
     },
     name: "StandardRendering",
-    components: [StandardRenderer, CameraBackground],
+    components: [StandardRenderer, CameraBackground, ShadowCamera],
     systems: [
         PackLightingSystem,
         PackSpotAttenuationSystem,

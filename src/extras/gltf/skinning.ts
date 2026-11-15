@@ -67,6 +67,8 @@ class Palette {
     readonly bakes = new Map<number, BakedRows>();
     nextBake = 1;
     readonly ranges = new DeformationRanges();
+    private readonly _joints = new Map<number, { first: number; count: number }>();
+    private readonly _weights = new Map<number, { first: number; count: number }>();
     get extent(): number {
         return this.ranges.extent;
     }
@@ -97,6 +99,57 @@ class Palette {
     constructor(world: World) {
         this._world = world;
         this.morph = new MorphTextures(world);
+    }
+    reconcileJoints(eid: number, present: boolean): void {
+        const previous = this._joints.get(eid);
+        if (previous) this.release(previous.first, previous.count);
+        this._joints.delete(eid);
+        if (present) {
+            const storage = this._world.storage(SkinnedMesh);
+            const count = storage.jointCount.get(eid);
+            const first = this.allocate(count);
+            storage.firstJoint.set(eid, first);
+            this._joints.set(eid, { first, count });
+        }
+    }
+    reconcileWeights(eid: number, present: boolean): void {
+        const previous = this._weights.get(eid);
+        if (previous) this.morph.ranges.release(previous.first, previous.count);
+        this._weights.delete(eid);
+        if (present) {
+            const storage = this._world.storage(MorphedMesh);
+            const count = storage.weightCount.get(eid);
+            const first = this.morph.allocate(count);
+            storage.firstWeight.set(eid, first);
+            this._weights.set(eid, { first, count });
+        }
+    }
+    snapshot() {
+        return {
+            joints: [...this._joints].map(([eid, { first, count }]) => ({
+                eid,
+                values: this.matrices.slice(first * 16, (first + count) * 16),
+            })),
+            weights: [...this._weights].map(([eid, { first, count }]) => ({
+                eid,
+                values: this.morph.weights.slice(first, first + count),
+            })),
+        };
+    }
+    restore(state: ReturnType<Palette["snapshot"]>): void {
+        // Membership notifications run after ECS recovery. Their allocations describe the host,
+        // while firstJoint/firstWeight may describe an older image. Rebind from actual ownership;
+        // immutable baked rows and assets loaded since the snapshot keep their allocations.
+        for (const eid of this._joints.keys()) this.reconcileJoints(eid, false);
+        for (const eid of this._weights.keys()) this.reconcileWeights(eid, false);
+        for (const { eid, values } of state.joints) {
+            this.reconcileJoints(eid, true);
+            this.matrices.set(values, this._world.storage(SkinnedMesh).firstJoint.get(eid) * 16);
+        }
+        for (const { eid, values } of state.weights) {
+            this.reconcileWeights(eid, true);
+            this.morph.weights.set(values, this._world.storage(MorphedMesh).firstWeight.get(eid));
+        }
     }
     allocate(count: number, name = "SkinnedMesh palette"): number {
         const first = this.ranges.allocate(count, JointsPerRow * 8192, name);
@@ -382,14 +435,23 @@ const UploadDeformationsSystem: System = {
         world.resource(SkinPalette).upload();
     },
 };
-/** glTF morphing and skinning, reading entity-owned, shared or baked rows. Replacement materials
- * require deformationBindings and deformationVertex to deform (one storage buffer, four textures). */
+/** glTF morphing and skinning, reading entity-owned, shared or baked rows. Entity-owned joint
+ * matrices and morph weights recover with World snapshots; assets and bake registrations stay current.
+ * Replacement materials require deformationBindings and deformationVertex to deform
+ * (one storage buffer, four textures). */
 export const GltfPlugin: Plugin = {
     name: "Gltf",
     gpu: {},
     components: [SkinnedMesh, MorphedMesh, LeaderPose, BakedFrame],
     dependencies: [MeshPlugin, MaterialPlugin(SkinnedMaterial)],
     systems: [UploadDeformationsSystem],
+    recovery(world) {
+        const palette = world.resource(SkinPalette);
+        return {
+            snapshot: () => palette.snapshot(),
+            restore: (state: ReturnType<Palette["snapshot"]>) => palette.restore(state),
+        };
+    },
     initialize(world) {
         const palette = world.resource(SkinPalette);
         palette.enabled = true;
@@ -407,26 +469,16 @@ export const GltfPlugin: Plugin = {
         });
         world.onDispose(
             world.observeMembership(SkinnedMesh, (eid, present) => {
-                const storage = world.storage(SkinnedMesh);
-                const count = storage.jointCount.get(eid);
-                if (present) storage.firstJoint.set(eid, palette.allocate(count));
-                else {
-                    palette.release(storage.firstJoint.get(eid), count);
-                    if (world.has(eid, MeshInstance))
-                        world.storage(MeshInstance).cullBounds.set(eid, 0, 0, 0, -1);
-                }
+                palette.reconcileJoints(eid, present);
+                if (!present && world.has(eid, MeshInstance))
+                    world.storage(MeshInstance).cullBounds.set(eid, 0, 0, 0, -1);
             }),
         );
         world.onDispose(
             world.observeMembership(MorphedMesh, (eid, present) => {
-                const storage = world.storage(MorphedMesh);
-                const count = storage.weightCount.get(eid);
-                if (present) storage.firstWeight.set(eid, palette.morph.allocate(count));
-                else {
-                    palette.morph.ranges.release(storage.firstWeight.get(eid), count);
-                    if (world.has(eid, MeshInstance))
-                        world.storage(MeshInstance).cullBounds.set(eid, 0, 0, 0, -1);
-                }
+                palette.reconcileWeights(eid, present);
+                if (!present && world.has(eid, MeshInstance))
+                    world.storage(MeshInstance).cullBounds.set(eid, 0, 0, 0, -1);
             }),
         );
         palette.upload();

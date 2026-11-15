@@ -700,6 +700,7 @@ export {
     attachCanvas,
     attachTexture,
     attachView,
+    cameraView,
     detachView,
     INITIAL_VIEW_CAPACITY,
     linearToSrgb3,
