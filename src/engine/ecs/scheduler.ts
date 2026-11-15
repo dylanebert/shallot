@@ -12,7 +12,7 @@ export const Time = {
 } as const;
 
 export interface Time {
-    /** In fixed, FIXED_DT seconds; outside fixed, clamped and scaled virtual frame seconds (0 while paused). */
+    /** In fixed/postFixed, FIXED_DT seconds; otherwise clamped and scaled virtual frame seconds (0 while paused). */
     deltaTime: number;
     /** seconds since last frame, raw rAF interval before clamping or scaling */
     rawDeltaTime: number;
@@ -20,7 +20,7 @@ export interface Time {
     realDeltaTime: number;
     /** fixed timestep interval (1/60), constant; slow-mo reduces tick frequency, not per-tick dt */
     fixedDeltaTime: number;
-    /** In fixed, fixedTick * FIXED_DT seconds; outside fixed, total virtual frame seconds, frozen while paused. */
+    /** In fixed/postFixed, fixedTick * FIXED_DT seconds; otherwise total virtual frame seconds, frozen while paused. */
     elapsed: number;
     /** total elapsed real time in seconds (advances with {@link Time.realDeltaTime}, runs through a pause) */
     realElapsed: number;
@@ -28,17 +28,19 @@ export interface Time {
     scale: number;
     /** Freezes the virtual frame clock and step's fixed work, not explicit ticks. Resume retains scale. */
     paused: boolean;
-    /** fixed steps taken this frame (0–4) */
+    /** Paced ticks in the last completed fixed loop (0–4); explicit/replay ticks do not change it. */
     fixedSteps: number;
-    /** cumulative fixed tick count */
+    /** Simulation tick, rewound by restore and advanced by every paced or explicit tick. */
     fixedTick: number;
-    /** fraction of a fixed step past the last tick, in [0, 1). use for render interpolation */
+    /** Accumulator fraction in [0, 1), updated after paced ticks for render interpolation; unchanged by replay. */
     fixedAlpha: number;
     /** true when fixed steps were clamped this frame */
     throttled: boolean;
 }
 
-export type SystemGroup = "setup" | "fixed" | "simulation" | "draw";
+/** preFixed runs once per frame before paced ticks; postFixed runs after every fixed tick,
+ * including explicit and replay ticks. Both use the ordinary system ordering rules. */
+export type SystemGroup = "setup" | "preFixed" | "fixed" | "postFixed" | "simulation" | "draw";
 
 export interface System {
     readonly update?: (world: World) => void;
@@ -203,6 +205,7 @@ export class Scheduler {
         this._accumulator += scaled;
 
         this.runGroup(world, "setup");
+        this.runGroup(world, "preFixed");
 
         // Scale must not bypass the catch-up cap; drop excess backlog instead of carrying frame debt.
         let steps = 0;
@@ -239,6 +242,7 @@ export class Scheduler {
         this._time.elapsed = this._time.fixedTick * Time.FIXED_DT;
         try {
             this.runGroup(world, "fixed");
+            this.runGroup(world, "postFixed");
         } finally {
             this._time.deltaTime = deltaTime;
             this._time.elapsed = elapsed;

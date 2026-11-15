@@ -80,11 +80,15 @@ export class World {
     private _uploadChunks: UploadChunk[] = [];
     private _frameUploadBytes = 0;
     private _stepping = false;
+    private _recovering = false;
     private _columns = new FieldColumns();
     /** @internal The change tick this world's field marks stamp. */
     readonly changeClock: ChangeClock = { tick: 1 };
     private _snapshots = new SnapshotComposition(
-        () => this._stepping,
+        (operation) =>
+            this._stepping &&
+            this.currentSystemGroup !== "preFixed" &&
+            !(operation === "snapshot" && this.currentSystemGroup === "postFixed"),
         () => `${this.registry.revision}/${this._storage.size}`,
         () => {
             for (const entry of this.registry.entries()) this.storage(entry.component);
@@ -646,6 +650,10 @@ export class World {
     }
 
     /** Advance a virtual frame by `deltaTime` seconds, with paced fixed work, simulation and draw.
+     * After setup, preFixed systems may restore and replay with tick before the paced ticks.
+     * Replay changes fixedTick but not the accumulator, fixedAlpha or the four paced-tick cap;
+     * fixedSteps counts only paced ticks. Field marks accumulate until normal frame upload/clear.
+     * postFixed systems may capture after every completed fixed group, including replay ticks.
      * Pause, scale and the catch-up cap apply only here. Refuses inside a step or tick,
      * or a negative or non-finite delta.
      * A propagated setup/update throw ends the step with a named Error and the thrown value as cause.
@@ -654,7 +662,8 @@ export class World {
      * none, no submission or fence issues. The GPU frame does not advance. With
      * {@link logAndPauseSystemErrors}, the failed system is paused, later draw systems run, and the frame submits. */
     step(deltaTime = Time.DEFAULT_DT): void {
-        if (this._stepping) throw new Error("World.step: refuses inside a step or tick");
+        if (this._stepping || this._recovering)
+            throw new Error("World.step: refuses inside a step or tick");
         this._frameFence = undefined;
         this._frameUploadBytes = 0;
         this._fieldUploadSeen = false;
@@ -677,43 +686,61 @@ export class World {
     }
 
     /** Advance exactly one fixed tick, ignoring pause, scale and catch-up limits. Runs only the fixed
-     * group (including its lazy system setup), not setup, simulation or draw groups. Does not advance
-     * the GPU frame or readback; queued table writes remain ordered before the next frame submission.
-     * On a world without a GPU, field marks clear when a tick completes successfully, as after a CPU-only step;
-     * a GPU world keeps them for its next frame upload.
-     * Refuses inside a step or tick. Errors follow {@link step}; the tick count is not rolled back. */
+     * and postFixed groups (including lazy system setup), not setup, preFixed, simulation or draw groups.
+     * Does not advance the GPU frame or readback; queued table writes remain ordered before the next frame submission.
+     * Outside step, CPU field marks clear on success; a GPU world keeps them for its next upload.
+     * In preFixed, replay retains marks for the frame, leaves fixedAlpha and fixedSteps unchanged,
+     * and does not consume the accumulator or catch-up cap. Refuses elsewhere inside step/tick,
+     * and during recovery callbacks. Errors follow {@link step}; the tick count is not rolled back. */
     tick(): void {
-        if (this._stepping) throw new Error("World.tick: refuses inside a step or tick");
+        if (this._recovering || (this._stepping && this.currentSystemGroup !== "preFixed"))
+            throw new Error("World.tick: refuses inside a step or tick");
+        const inFrame = this._stepping;
         let ticked = false;
         this._stepping = true;
         try {
             this._scheduler.tick(this);
             ticked = true;
         } finally {
-            this._stepping = false;
-            if (!this._gpu && ticked) this.clearChanges();
+            this._stepping = inFrame;
+            if (!inFrame && !this._gpu && ticked) this.clearChanges();
         }
     }
 
     /** Capture entity identity and allocation, component membership, all stored and registered
      * fields and their pending change marks through the entity high-water mark, and fixedTick.
      * Local to this world and registry;
-     * includes declared participants' hidden simulation state; excludes pacing, GPU and host state. Refuses during step/tick.
+     * includes declared participants' hidden simulation state; excludes pacing, GPU and host state.
+     * During step/tick, allowed only in preFixed or postFixed, never in recovery callbacks.
      * Query order is derived from restored membership. The image is reusable, opaque and independent
      * of writes, not a save format. */
     snapshot(): WorldSnapshot {
-        return this._snapshots.snapshot();
+        if (this._recovering) throw new Error("World.snapshot: refuses during recovery");
+        this._recovering = true;
+        try {
+            return this._snapshots.snapshot();
+        } finally {
+            this._recovering = false;
+        }
     }
 
-    /** Restore a local image between ticks. Refuses during step/tick, another world's image or
+    /** Restore a local image between ticks or in step's preFixed group, never in recovery callbacks.
+     * Refuses elsewhere during step/tick, another world's image or
      * a changed component registry. Retained accessors and references resolve the restored state;
      * columns never shrink, queries and membership consumers reconcile, and fields publish changes.
+     * Pending marks and restored marks are retained, not rewound or cleared, even on a frame with no paced ticks.
      * Participants restore hidden simulation state after ECS and clock recovery; pacing, GPU and host state stay current.
      * An error thrown by an observer, a participant or a GPU table propagates after the rest of the restore;
      * a table attachment that threw leaves that membership restored and unannounced, without rows in that table
      * and the tables bound after it. */
     restore(snapshot: WorldSnapshot): void {
-        this._snapshots.restore(snapshot);
+        if (this._recovering) throw new Error("World.restore: refuses during recovery");
+        this._recovering = true;
+        try {
+            this._snapshots.restore(snapshot);
+        } finally {
+            this._recovering = false;
+        }
     }
 
     /** @internal Register an ordered simulation owner. */
@@ -959,10 +986,10 @@ export class World {
         return result;
     }
 
-    /** Fixed systems belong to a plugin's declared recovery. Without plugin attribution,
+    /** Fixed and postFixed systems belong to a plugin's declared recovery. Without plugin attribution,
      * snapshot refuses by system name until the system is removed. */
     addSystem(system: System, pluginName?: string): void {
-        if (system.group === "fixed") {
+        if (system.group === "fixed" || system.group === "postFixed") {
             if (pluginName) this._snapshots.require(pluginName);
             else this._snapshots.requireSystem(system);
         }

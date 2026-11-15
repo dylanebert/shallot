@@ -73,10 +73,14 @@ export class WorldSnapshot {
 /** @internal Ordered simulation owners; validation precedes all capture and restore work. */
 export class SnapshotComposition {
     readonly #participants = new Map<string | symbol | object, Participant>();
-    readonly #boundary: () => boolean;
+    readonly #boundary: (operation: "snapshot" | "restore") => boolean;
     readonly #revision: () => string;
     readonly #prepare: () => void;
-    constructor(boundary: () => boolean, revision: () => string, prepare: () => void) {
+    constructor(
+        boundary: (operation: "snapshot" | "restore") => boolean,
+        revision: () => string,
+        prepare: () => void,
+    ) {
         this.#boundary = boundary;
         this.#revision = revision;
         this.#prepare = prepare;
@@ -120,7 +124,8 @@ export class SnapshotComposition {
     }
 
     snapshot(): WorldSnapshot {
-        if (this.#boundary()) throw new Error("World.snapshot: refuses inside a step or tick");
+        if (this.#boundary("snapshot"))
+            throw new Error("World.snapshot: refuses inside a step or tick");
         for (const [name, participant] of this.#participants)
             if (!participant.snapshot)
                 throw new Error(
@@ -138,7 +143,8 @@ export class SnapshotComposition {
     }
 
     restore(snapshot: WorldSnapshot): void {
-        if (this.#boundary()) throw new Error("World.restore: refuses inside a step or tick");
+        if (this.#boundary("restore"))
+            throw new Error("World.restore: refuses inside a step or tick");
         if (!(snapshot instanceof WorldSnapshot))
             throw new Error("World.restore: invalid snapshot");
         snapshot.restore(this, this.#revision(), [...this.#participants.values()]);

@@ -321,7 +321,9 @@ async function buildNow(config: AppConfig, beforeHandoff?: (world: World) => voi
         for (const plugin of sorted) {
             if (
                 plugin.recovery !== undefined ||
-                plugin.systems?.some((system) => system.group === "fixed")
+                plugin.systems?.some(
+                    (system) => system.group === "fixed" || system.group === "postFixed",
+                )
             )
                 world.registerRecovery(
                     plugin.name,
