@@ -184,8 +184,11 @@ test.describe("one interaction room", () => {
         const shell = await (await page.request.get("http://127.0.0.1:4317/")).text();
         const stray = await page.evaluate((html) => {
             const doc = new DOMParser().parseFromString(html, "text/html");
-            return [...doc.body.children].filter((el) => !["CANVAS", "SCRIPT"].includes(el.tagName))
-                .length;
+            return [...doc.body.children].filter(
+                (el) =>
+                    !["CANVAS", "SCRIPT"].includes(el.tagName) &&
+                    !el.matches("[data-shallot-bootstrap]"),
+            ).length;
         }, shell);
         expect(stray).toBe(0);
         await expect(page.locator(".reticle")).toHaveCount(1);

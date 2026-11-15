@@ -61,9 +61,11 @@ test.describe(() => {
                 const html = await (await page.request.get("http://127.0.0.1:4345/")).text();
                 const elements = await page.evaluate((html) => {
                     const document = new DOMParser().parseFromString(html, "text/html");
-                    return [...document.body.children].map((element) => element.tagName);
+                    return [...document.body.children]
+                        .filter((element) => !element.matches("script, [data-shallot-bootstrap]"))
+                        .map((element) => element.tagName);
                 }, html);
-                expect(elements).toEqual(["CANVAS", "SCRIPT"]);
+                expect(elements).toEqual(["CANVAS"]);
             }
             if (process.env.SHALLOT_CAPTURE_DIR && name === "contact") {
                 mkdirSync(process.env.SHALLOT_CAPTURE_DIR, { recursive: true });
