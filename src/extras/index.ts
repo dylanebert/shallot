@@ -46,6 +46,18 @@ export {
     registerGizmo,
 } from "./lines";
 export {
+    type Connection,
+    type LinkFaults,
+    MultiplayerPlugin,
+    Replicate,
+    type ReplicatedRows,
+    ReplicationReceiver,
+    type ReplicationRules,
+    type ReplicationSchema,
+    ReplicationSender,
+    seededLink,
+} from "./multiplayer";
+export {
     Orbit,
     OrbitMode,
     OrbitPlugin,

@@ -1,0 +1,69 @@
+/** The application owns connection lifetime and calls receive while draining its messages. */
+export interface Connection {
+    send(bytes: Uint8Array): void;
+    receive(): Uint8Array[];
+}
+
+export interface LinkFaults {
+    /** Delay in caller-supplied clock units. */
+    minDelay: number;
+    maxDelay: number;
+    loss: number;
+    duplication: number;
+}
+
+/** Seeded byte transport. advance sets a transport clock, never ticks a World. */
+export function seededLink(seed: number, faults: LinkFaults) {
+    if (
+        faults.minDelay < 0 ||
+        faults.maxDelay < faults.minDelay ||
+        faults.loss < 0 ||
+        faults.loss > 1 ||
+        faults.duplication < 0 ||
+        faults.duplication > 1
+    )
+        throw new Error("Invalid link faults");
+    let now = 0;
+    const queues: { due: number; order: number; bytes: Uint8Array }[][] = [[], []];
+    const counts = { sent: 0, dropped: 0, duplicated: 0 };
+    const random = () => {
+        seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+        return seed / 0x100000000;
+    };
+    const ends = [0, 1].map(
+        (side): Connection => ({
+            send(bytes) {
+                counts.sent++;
+                if (random() < faults.loss) {
+                    counts.dropped++;
+                    return;
+                }
+                const copies = random() < faults.duplication ? 2 : 1;
+                counts.duplicated += copies - 1;
+                for (let i = 0; i < copies; i++)
+                    queues[1 - side]!.push({
+                        due: now + faults.minDelay + random() * (faults.maxDelay - faults.minDelay),
+                        order: random(),
+                        bytes: bytes.slice(),
+                    });
+            },
+            receive() {
+                const queue = queues[side]!;
+                const ready = queue
+                    .filter((p) => p.due <= now)
+                    .sort((a, b) => a.due - b.due || a.order - b.order);
+                queues[side] = queue.filter((p) => p.due > now);
+                return ready.map((p) => p.bytes);
+            },
+        }),
+    );
+    return {
+        a: ends[0]!,
+        b: ends[1]!,
+        counts,
+        advance(time: number) {
+            if (time < now) throw new Error("Link clock cannot go backwards");
+            now = time;
+        },
+    };
+}
