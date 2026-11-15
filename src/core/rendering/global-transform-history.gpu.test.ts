@@ -20,6 +20,7 @@ import { deriveTransforms } from "../transform";
 import {
     GlobalTransformHistoryEndSystem,
     GlobalTransformHistoryStartSystem,
+    readRenderGlobalTransform,
     GlobalTransformHistory as TransformRuntime,
 } from "./global-transform";
 
@@ -337,9 +338,73 @@ function attachTestCamera(world: World): void {
     });
 }
 
+for (const correction of [0, 100]) {
+    let eid = -1;
+    const index = configs.length;
+    configs.push({
+        defaults: false,
+        plugins: [
+            RenderingPlugin,
+            {
+                name: `ReplayPlacement${correction}`,
+                recovery: "stateless",
+                systems: [
+                    {
+                        group: "fixed",
+                        update(world) {
+                            const x = world.storage(Transform).translation.x;
+                            x.set(eid, x.get(eid) + 10);
+                        },
+                    },
+                ],
+            },
+        ],
+        setup(world) {
+            eid = world.create();
+            world.add(eid, Transform);
+            world.add(eid, PointLight);
+        },
+    });
+    test(`restore and replay blends replayed placement at the original head (correction ${correction})`, async () => {
+        const app = subjects()[index];
+        const { world } = app;
+        try {
+            attachTestCamera(world);
+            const table = globalTransformTable(world);
+            world.step(0);
+            world.tick();
+            const snapshot = world.snapshot();
+            world.tick();
+            world.tick();
+            const head = world.time.fixedTick;
+            world.step(Time.FIXED_DT / 2);
+            const readX = async () => {
+                const words = new Float32Array(
+                    (await probeBuffer(world, table.buffer, { size: table.buffer.size })).bytes,
+                );
+                return words[table.rowIndex(eid) * 12]!;
+            };
+            const original = await readX();
+            expect(original).toBeCloseTo(25, 5);
+            world.restore(snapshot);
+            if (correction) world.storage(Transform).translation.x.set(eid, 10 + correction);
+            while (world.time.fixedTick < head) world.tick();
+            world.step(0);
+            expect(world.time.fixedAlpha).toBeCloseTo(0.5, 5);
+            expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(30 + correction);
+            expect(await readX()).toBeCloseTo(original + correction, 5);
+            const light = new Float32Array(12);
+            readRenderGlobalTransform(world, eid, light);
+            expect(light[0]).toBeCloseTo(original + correction, 5);
+        } finally {
+            await disposeGpuApps([app]);
+        }
+    });
+}
+
 configs.push({ defaults: false, plugins: [RenderingPlugin] });
 test("public exact ticks submit growth copies and retain interpolation, teleport and spawn history beyond the catch-up cap", async () => {
-    const app = subjects()[6];
+    const app = subjects()[8];
     const { world } = app;
     try {
         attachTestCamera(world);
