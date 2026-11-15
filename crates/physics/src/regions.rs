@@ -197,10 +197,13 @@ impl<const N: usize> Columns<N> {
         }
     }
     pub unsafe fn restore(&mut self, input: &mut &[u8]) {
-        self.release();
         for column in 0..N {
             let bytes = read_word(input);
             self.reserve(column, bytes);
+            let buffer = self.buffers[column];
+            (buffer.ptr as *mut u8)
+                .add(bytes)
+                .write_bytes(0, buffer.bytes - bytes);
             let (data, rest) = input.split_at(bytes);
             core::ptr::copy_nonoverlapping(
                 data.as_ptr(),

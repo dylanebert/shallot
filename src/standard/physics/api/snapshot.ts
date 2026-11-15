@@ -241,7 +241,7 @@ export function restore(state: WorldState, snapshot: PhysicsSnapshot): void {
     for (const data of saved.world.geometryIdentityValues.values()) opaque.add(data);
     restoreClone(saved.world, new Map(), stores, state, opaque);
     // World identity and capacity belong to the target handle, not the snapshot's source handle.
-    Object.assign(state, identity);
+    Object.assign(state, identity, { queryColumns: stores.query });
     for (const name of Object.keys(saved.checkpoints) as StoreName[]) {
         stores[name].restoreCheckpoint(
             restoreClone(saved.checkpoints[name], new Map(), stores, undefined, opaque),

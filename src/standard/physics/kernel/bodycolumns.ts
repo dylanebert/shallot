@@ -76,7 +76,7 @@ export class BodyStore extends KernelViews {
         if (
             this.stateF.buffer === buf &&
             this.stateF.byteOffset === layout[B_STATE] &&
-            this.stateF.length === cap * STATE_STRIDE &&
+            this.stateF.length >= cap * STATE_STRIDE &&
             this.flagsU.byteOffset === layout[B_FLAGS] &&
             this.simF.byteOffset === layout[B_SIM] &&
             this.recordU.byteOffset === layout[B_RECORD]
@@ -88,7 +88,6 @@ export class BodyStore extends KernelViews {
         this.recordU = new Uint32Array(buf, layout[B_RECORD], cap * BODY_RECORD_STRIDE);
         this.simF = new Float32Array(buf, layout[B_SIM], cap * SIM_STRIDE);
         this.simU = new Uint32Array(buf, layout[B_SIM], cap * SIM_STRIDE);
-        this.#syncRanges.clear();
     }
 
     override captureCheckpoint() {
@@ -97,8 +96,6 @@ export class BodyStore extends KernelViews {
 
     override restoreCheckpoint(state: unknown): void {
         this.syncCount = (state as ReturnType<BodyStore["captureCheckpoint"]>).syncCount;
-        this.#syncRanges.clear();
-        this.#setColumns.clear();
     }
 
     /** Stable views of the kernel's compact, ECS-tagged moved rows. */
@@ -106,9 +103,17 @@ export class BodyStore extends KernelViews {
         this.refreshViews();
         const count = this.syncCount;
         const cached = this.#syncRanges.get(count);
-        if (cached) return cached;
         const buf = this.stateF.buffer;
         const layout = this._layout;
+        if (
+            cached &&
+            cached.eids.buffer === buf &&
+            cached.eids.byteOffset === layout[B_SYNC_EID] &&
+            cached.pos.byteOffset === layout[B_SYNC_POS] &&
+            cached.quat.byteOffset === layout[B_SYNC_QUAT] &&
+            cached.vel.byteOffset === layout[B_SYNC_VEL]
+        )
+            return cached;
         const rows = {
             eids: new Uint32Array(buf, layout[B_SYNC_EID], count),
             pos: new Float32Array(buf, layout[B_SYNC_POS], count * 4),

@@ -316,23 +316,30 @@ pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
     }
 }
 pub unsafe fn restore(id: usize, input: &mut &[u8]) {
-    reset(id);
     let w = &mut WORLDS[id];
     let count = regions::read_word(input);
-    for _ in 0..count {
-        let mut s = SolverSet::empty();
+    let retained = count.min(w.sets.len());
+    for s in &mut w.sets[retained..] {
+        s.body_sims.release();
+        s.body_states.release();
+        s.joint_sims.release();
+    }
+    w.sets.truncate(count);
+    w.sets.resize_with(count, SolverSet::empty);
+    for s in &mut w.sets {
         s.index = regions::read_word(input) as i32;
         s.body_sims.restore(input);
         s.body_states.restore(input);
         s.joint_sims.restore(input);
         for v in &mut s.indices {
+            v.clear();
             let n = regions::read_word(input);
             for _ in 0..n {
                 v.push(regions::read_word(input) as i32);
             }
         }
-        w.sets.push(s);
     }
+    w.free.clear();
     let n = regions::read_word(input);
     for _ in 0..n {
         w.free.push(regions::read_word(input));
