@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.11.0-next.0
+
+### highlights
+
+- a rendered World restores cleanly: shadows and glTF poses follow `world.restore()`
+
+### changes
+
+- fixed directional, point and spot shadows going missing after `world.restore()` to a snapshot taken before their cameras were created, with a "combo view(s) missing" warning
+- fixed a glTF scene's morph weights and joint poses keeping their later values after `world.restore()`
+- `cameraView(world, eid)` from `@dylanebert/shallot/rendering` returns a camera's `View` while its entity is live
+
 ## 0.10.5
 
 ### highlights
