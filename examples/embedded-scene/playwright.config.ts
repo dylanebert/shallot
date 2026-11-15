@@ -1,7 +1,7 @@
 import { BROWSER_CONFIG, WEB_SERVER_CONFIG } from "@dylanebert/shallot/testing";
-import { defineConfig } from "playwright/test";
+import type { PlaywrightTestConfig } from "playwright/test";
 
-export default defineConfig({
+export default {
     testDir: ".",
     testIgnore: "**/tests/capture/**",
     ...BROWSER_CONFIG,
@@ -15,4 +15,4 @@ export default defineConfig({
         url: "http://127.0.0.1:4310",
         ...WEB_SERVER_CONFIG,
     },
-});
+} satisfies PlaywrightTestConfig;

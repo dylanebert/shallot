@@ -1,8 +1,8 @@
 import { BROWSER_CONFIG } from "@dylanebert/shallot/testing";
-import { defineConfig } from "playwright/test";
+import type { PlaywrightTestConfig } from "playwright/test";
 
 // Run with SHALLOT_CAPTURE_DIR=<directory> bunx playwright test -c scripts/phone/capture.config.ts.
-export default defineConfig({
+export default {
     ...BROWSER_CONFIG,
     testDir: ".",
     timeout: 0,
@@ -14,4 +14,4 @@ export default defineConfig({
         viewport: { width: 390, height: 844 },
         hasTouch: true,
     },
-});
+} satisfies PlaywrightTestConfig;

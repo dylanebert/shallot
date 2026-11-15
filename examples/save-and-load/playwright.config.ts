@@ -1,6 +1,6 @@
 import { BROWSER_CONFIG, WEB_SERVER_CONFIG } from "@dylanebert/shallot/testing";
-import { defineConfig } from "playwright/test";
-export default defineConfig({
+import type { PlaywrightTestConfig } from "playwright/test";
+export default {
     ...BROWSER_CONFIG,
     testDir: ".",
     testIgnore: ["**/tests/persistence/**", "**/tests/touch/**"],
@@ -18,4 +18,4 @@ export default defineConfig({
             ...WEB_SERVER_CONFIG,
         },
     ],
-});
+} satisfies PlaywrightTestConfig;

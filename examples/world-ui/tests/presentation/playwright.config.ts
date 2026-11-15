@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { BROWSER_CONFIG, WEB_SERVER_CONFIG } from "@dylanebert/shallot/testing";
-import { defineConfig } from "playwright/test";
-export default defineConfig({
+import type { PlaywrightTestConfig } from "playwright/test";
+export default {
     ...BROWSER_CONFIG,
     testDir: ".",
     use: { ...BROWSER_CONFIG.use, baseURL: "http://127.0.0.1:4423" },
@@ -12,4 +12,4 @@ export default defineConfig({
         url: "http://127.0.0.1:4423/tests/stepped.html",
         ...WEB_SERVER_CONFIG,
     },
-});
+} satisfies PlaywrightTestConfig;
