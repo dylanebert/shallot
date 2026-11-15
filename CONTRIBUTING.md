@@ -364,7 +364,7 @@ Examples are the outer loop: a user's problem exposes a missing mechanism, and t
 
 - Each example lives in its promise's repository, under `examples/<name>`, in the shape of a copied user project, and its `index.html` carries one `<meta name="description">` describing it
 - Each example's `<title>` is its directory name
-- Each example paints `[data-shallot-bootstrap]` before its module loads and uses `minimal`'s `public/startup.js`; custom loading is named with its reason in the check
+- Each example paints `[data-shallot-bootstrap]` before its module loads and uses `minimal`'s `public/startup.js`; an example with its own loading is named with its reason in `scripts/check-example-ui.node.ts`
 - One problem per example; only `first-person` and `physics` compose many
 - An example takes the view its problem needs; a scene seen from outside orbits with `OrbitPlugin`
 - Every public promise is owed an example whose answer depends on it
