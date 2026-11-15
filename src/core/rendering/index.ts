@@ -3,6 +3,7 @@ export { Billboard, billboardCorner } from "./billboard";
 export { EXPOSURE_EV100_BLENDER } from "./camera";
 export { biasClipDepth } from "./depth-bias";
 export {
+    composeRenderGlobalTransform,
     GlobalTransformHistory,
     globalTransformTable,
     readRenderGlobalTransform,

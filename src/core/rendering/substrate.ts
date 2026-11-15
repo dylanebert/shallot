@@ -10,11 +10,7 @@ import {
     setComputeBindGroup,
     setComputePipeline,
 } from "../../engine/runtime";
-import {
-    composeGlobalTransform,
-    PrepareGlobalTransformSystem,
-    TransformPlugin,
-} from "../transform";
+import { PrepareGlobalTransformSystem, TransformPlugin } from "../transform";
 import { Anchor } from "./anchor";
 
 import {
@@ -35,6 +31,7 @@ import {
 } from "./frame-state";
 import { CULL_VOLUME_FLOATS, frustumVolume } from "./frustum";
 import {
+    composeRenderGlobalTransform,
     GlobalTransformHistory,
     GlobalTransformHistoryEndSystem,
     GlobalTransformHistoryStartSystem,
@@ -167,7 +164,7 @@ function packView(world: World, eid: number, view: ViewSlot, shading: boolean, s
     const isPerspective = camera.mode.get(eid) !== CameraMode.Orthographic;
     // the camera basis (floats 20-27) and the eye (32-35) come from the world matrix, which is also what
     // clipFromWorld is composed from, so it is read before the unchanged-slot test below
-    composeGlobalTransform(world, eid, _renderFrame.camWorld);
+    composeRenderGlobalTransform(world, eid, _renderFrame.camWorld);
     const mask = renderLayers(world, eid);
     _render.cullVolumeWords[slot * CULL_VOLUME_FLOATS + 2] = mask;
     if (!slotInputsChanged(world, eid, view, shading, slot)) return;

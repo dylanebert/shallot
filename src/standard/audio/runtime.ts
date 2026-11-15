@@ -1,11 +1,8 @@
 import loadAudioWasm from "../../../crates/audio/pkg/shallot_audio.js";
 import { AudioOutput, AudioPlugin, Clips, Listener, registerClip, Sound } from "../../core/audio";
 import { type AudioContextState, Devices } from "../../core/input";
-import {
-    composeGlobalTransform,
-    GlobalTransform,
-    PrepareGlobalTransformSystem,
-} from "../../core/transform";
+import { composeRenderGlobalTransform, readRenderGlobalTransform } from "../../core/rendering";
+import { GlobalTransform, PrepareGlobalTransformSystem } from "../../core/transform";
 import type { EntityRef, Plugin, Resource, System, World } from "../../engine";
 import {
     createWorkletURL,
@@ -20,6 +17,7 @@ import {
 
 const BUFFER_LENGTH = FINISHED_OFFSET + MAX_VOICES;
 const MATRIX = new Float32Array(16);
+const SPATIAL_POSE = new Float32Array(12);
 const SOUND_QUERY = [Sound];
 const LISTENER_QUERY = [Listener, GlobalTransform];
 
@@ -381,11 +379,11 @@ function polar(
     buffer: Float64Array,
     offset: number,
 ): void {
-    const listenerMatrix = composeGlobalTransform(world, listener, MATRIX);
-    const transform = world.storage(GlobalTransform);
-    const dx = transform.translation.x.get(eid) - listenerMatrix[12];
-    const dy = transform.translation.y.get(eid) - listenerMatrix[13];
-    const dz = transform.translation.z.get(eid) - listenerMatrix[14];
+    const listenerMatrix = composeRenderGlobalTransform(world, listener, MATRIX);
+    readRenderGlobalTransform(world, eid, SPATIAL_POSE);
+    const dx = SPATIAL_POSE[0] - listenerMatrix[12];
+    const dy = SPATIAL_POSE[1] - listenerMatrix[13];
+    const dz = SPATIAL_POSE[2] - listenerMatrix[14];
     const x = dx * listenerMatrix[0] + dy * listenerMatrix[1] + dz * listenerMatrix[2];
     const y = dx * listenerMatrix[4] + dy * listenerMatrix[5] + dz * listenerMatrix[6];
     const z = dx * listenerMatrix[8] + dy * listenerMatrix[9] + dz * listenerMatrix[10];

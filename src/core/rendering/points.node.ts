@@ -68,6 +68,7 @@ import { compositeCacheKey } from "./tonemapping";
 import { TonemappingSystem, tonemappingStateKey } from "./tonemapping-state";
 import { upscalingKey } from "./upscaling";
 import { Views, viewResourcesKey } from "./view";
+import { VisualCorrectionState } from "./visual-correction";
 
 setDefaultTimeout(TIMEOUT.node);
 const subjects = gpuApps(
@@ -105,6 +106,7 @@ const coreResources = {
     Views,
     TransformRuntime,
     GlobalTransformHistory,
+    VisualCorrectionState,
     frameKey,
     Frame,
     blitPipelinesKey,

@@ -1,7 +1,8 @@
 import { type Ray, Viewports, type World } from "../../engine";
-import { composeGlobalTransform, GlobalTransform } from "../transform";
+import { GlobalTransform } from "../transform";
 import { Camera, CameraMode, computeViewFromWorld } from "./camera";
 import { type CameraRect, cameraRect } from "./camera-viewport";
+import { composeRenderGlobalTransform } from "./global-transform";
 import { cameraView } from "./view";
 
 const _size = { x: 0, y: 0, width: 0, height: 0 };
@@ -49,7 +50,7 @@ export function viewportToWorld(world: World, camera: number, x: number, y: numb
         : Math.tan((params.fov.get(camera) * DEG2RAD) / 2) * near;
     const vx = ndcX * aspect * extent;
     const vy = ndcY * extent;
-    const m = composeGlobalTransform(world, camera, _worldFromView);
+    const m = composeRenderGlobalTransform(world, camera, _worldFromView);
     const dx = orthographic ? -m[8]! : m[0]! * vx + m[4]! * vy - m[8]! * near;
     const dy = orthographic ? -m[9]! : m[1]! * vx + m[5]! * vy - m[9]! * near;
     const dz = orthographic ? -m[10]! : m[2]! * vx + m[6]! * vy - m[10]! * near;

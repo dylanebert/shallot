@@ -6,6 +6,7 @@ import {
     Camera,
     CameraMode,
     cameraView,
+    composeRenderGlobalTransform,
     DirectionalLight,
     detachView,
     MAX_SLOTS,
@@ -17,7 +18,7 @@ import {
     SpotLight,
     Views,
 } from "../../core/rendering";
-import { composeGlobalTransform, GlobalTransform } from "../../core/transform";
+import { GlobalTransform } from "../../core/transform";
 import {
     component,
     lookAt,
@@ -666,7 +667,7 @@ export function updateCascades(world: World, main: number): void {
     shadow.sunTowardLight[2] = -_sunDir[2];
     const view = world.resource(Views).get(main);
     const aspect = view ? view.aspect : 1;
-    composeGlobalTransform(world, main, _cascWorld);
+    composeRenderGlobalTransform(world, main, _cascWorld);
     const mode = world.storage(Camera).mode.get(main);
     const fov = world.storage(Camera).fov.get(main);
     const size = world.storage(Camera).size.get(main);
@@ -1277,9 +1278,10 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
     const cap = pointCasters(world);
     const atlas = pointAtlasSize(world);
     const hysteresis = Math.max(0, world.resource(PointShadows).hysteresis);
-    const cx = main >= 0 ? world.storage(GlobalTransform).translation.x.get(main) : 0;
-    const cy = main >= 0 ? world.storage(GlobalTransform).translation.y.get(main) : 0;
-    const cz = main >= 0 ? world.storage(GlobalTransform).translation.z.get(main) : 0;
+    if (main >= 0) readRenderGlobalTransform(world, main, _lightPlacement);
+    const cx = main >= 0 ? _lightPlacement[0]! : 0;
+    const cy = main >= 0 ? _lightPlacement[1]! : 0;
+    const cz = main >= 0 ? _lightPlacement[2]! : 0;
     let candCount = 0;
     for (const terms of LIGHT_CASTER_TERMS)
         for (const light of world.query(terms)) {

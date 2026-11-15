@@ -6,7 +6,7 @@ import { ProfilePlugin } from "../../src/extras/profile";
 import { bakeGltfAnimation, setGltfBakedFrame, GltfPlugin, loadGltfScene, poseGltfScene, spawnGltfScene } from "../../src/extras/gltf";
 import { skinningFixtureUrl } from "../../src/extras/gltf/skinning.fixture";
 import { BackgroundContext, backgroundLayout, CameraBackground, registerProducerTable, Materials, ScreenSpaceAmbientOcclusion, ScreenSpaceAmbientOcclusionPlugin, StandardMaterial, registerBackground } from "../../src/standard/rendering";
-import { RenderContext } from "../../src/core/rendering";
+import { RenderContext, VisualCorrection } from "../../src/core/rendering";
 import { attachCanvas } from "../../src/core/rendering/view";
 import { CanvasContext } from "../../src/engine/app/canvas.fixture";
 import {
@@ -59,6 +59,7 @@ export default async function create(input = "", device?: GPUDevice) {
     const camera = world.create();
     world.add(camera, Transform); world.add(camera, Camera); world.add(camera, StandardRenderer);
     world.storage(Transform).translation.set(camera, 0, 0, 5);
+    world.add(camera, VisualCorrection, { translation: [0.25, 0, 0] });
     attachCanvas(world, camera, canvas);
     // Ambient occlusion adds the depth and normal prepass and its compute chain each frame.
     if (input === "ssao") world.add(camera, ScreenSpaceAmbientOcclusion);
@@ -85,6 +86,7 @@ export default async function create(input = "", device?: GPUDevice) {
     const point = world.create(); world.add(point, Transform); world.add(point, PointLight);
     // Non-integral placement: optimized code boxes a number argument of an out-of-line call unless it is integral.
     world.storage(Transform).translation.set(point, 1.3, 1.1, 0.7);
+    world.add(point, VisualCorrection, { translation: [0.1, 0.2, 0.3] });
     world.storage(PointLight).shadowMapsEnabled.set(point, 1);
     const spot = world.create(); world.add(spot, Transform); world.add(spot, SpotLight);
     world.storage(Transform).translation.set(spot, -1.2, 1.3, 2.1);

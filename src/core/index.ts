@@ -52,6 +52,7 @@ export {
     ColorGrading,
     CorePipelinePlugin,
     CustomPresentation,
+    composeRenderGlobalTransform,
     DebandDither,
     DirectionalLight,
     type EffectPass,

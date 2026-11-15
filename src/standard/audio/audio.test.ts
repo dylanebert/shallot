@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { AudioOutput, Clips, Listener, play, registerClip, Sound } from "../../core/audio";
 import { Devices } from "../../core/input";
+import { VisualCorrection } from "../../core/rendering";
 import { GlobalTransform, Transform } from "../../core/transform";
 import { World } from "../../engine";
 import {
@@ -313,6 +314,31 @@ test("the positional command carries listener-relative azimuth for a source at t
     expect(data[2 + 5]).toBe(1);
     expect(data[2 + 6]).toBeCloseTo(-Math.PI / 2);
     expect(world.has(source, GlobalTransform)).toBe(true);
+    world.dispose();
+});
+
+test("spatial audio follows the corrected listener and source placement", () => {
+    const world = new World();
+    const messages = setup(world);
+    const clip = registerClip(world, new Float32Array([0.25]));
+    const listener = world.create();
+    world.add(listener, Listener);
+    world.add(listener, GlobalTransform, {
+        translation: [0, 0, 0],
+        rotation: [0, 0, 0, 1],
+        scale: [1, 1, 1],
+    });
+    world.add(listener, VisualCorrection, { translation: [4, 0, 0], rotation: [0, 0, 0, 1] });
+    const source = play(world, clip, { position: [-1, 0, 0] });
+    const transforms = world.storage(GlobalTransform);
+    transforms.translation.set(source, -1, 0, 0);
+    transforms.rotation.set(source, 0, 0, 0, 1);
+    transforms.scale.set(source, 1, 1, 1);
+    world.add(source, VisualCorrection, { translation: [6, 0, 0], rotation: [0, 0, 0, 1] });
+    reconcileAudio(world);
+    const data = commands(lastBatch(messages));
+    expect(data[2 + 6]).toBeCloseTo(Math.PI / 2);
+    expect(data[2 + 8]).toBeCloseTo(1);
     world.dispose();
 });
 

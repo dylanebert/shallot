@@ -24,6 +24,7 @@ import {
     Tonemapping,
     TonemappingMethod,
     TransparentPhases,
+    VisualCorrection,
 } from ".";
 
 setDefaultTimeout(TIMEOUT.node);
@@ -196,6 +197,45 @@ test("standard and text sort together; depth-tested retained lines follow sorted
     expect(phase.item(3).batch).toBe(world.storage(Gizmo).handle.get(offscreenLine));
     expect(phase.item(4).batch).toBe(world.storage(Gizmo).handle.get(line));
     expect(phase.item(3).renderer).toBe(phase.item(4).renderer);
+});
+
+test("transparent mesh culling and mesh/text sorting use corrected rendered placement", async () => {
+    const {
+        world,
+        scene: { camera, nearMaterial },
+    } = subject();
+    for (const eid of world.query([Gizmo])) world.remove(eid, Gizmo);
+    for (const eid of world.query([Text])) world.remove(eid, Text);
+    for (const eid of world.query([MeshInstance])) world.remove(eid, MeshInstance);
+    const corrected = world.create();
+    world.add(corrected, Transform, { translation: [100, 0, 0] });
+    world.add(corrected, MeshInstance);
+    world.add(corrected, MeshMaterial, nearMaterial);
+    world.add(corrected, VisualCorrection, { translation: [-100, 0, -3] });
+    const middle = world.create();
+    world.add(middle, Transform, { translation: [0, 0, -1] });
+    world.add(middle, MeshInstance);
+    world.add(middle, MeshMaterial, nearMaterial);
+    const culled = world.create();
+    world.add(culled, Transform);
+    world.add(culled, MeshInstance);
+    world.add(culled, MeshMaterial, nearMaterial);
+    world.add(culled, VisualCorrection, { translation: [100, 0, 0] });
+    const label = world.create();
+    world.add(label, Transform, { translation: [0, 0, -10] });
+    world.add(label, Text, { content: internText(world, "i"), font, fontSize: 0.8 });
+    world.add(label, VisualCorrection, { translation: [0, 0, 10] });
+    await readFrame(world, camera);
+    const phase = world.resource(TransparentPhases).get(camera)!;
+    expect(phase.length).toBe(3);
+    expect(phase.item(0).stableId).toBe(corrected);
+    expect(phase.item(1).stableId).toBe(middle);
+    expect(phase.item(2).stableId).toBe(label);
+    world.remove(corrected, VisualCorrection);
+    world.step(0);
+    expect(phase.length).toBe(2);
+    expect(phase.item(0).stableId).toBe(middle);
+    expect(phase.item(1).stableId).toBe(label);
 });
 
 test("gizmos of one asset draw once after a transparent mesh regardless of instance depth", async () => {

@@ -110,7 +110,10 @@ test("196608 rendered entities bound retained bytes after their first standard-r
         expect(instanceBytes / POPULATION).toBeLessThan(8);
         // Includes each part's components/table rows and late camera/light one-holder columns:
         // eid-indexed raw columns must span their highest holder (CONTRIBUTING: World and device).
-        expect(bytes).toBeLessThanOrEqual(780);
+        // Rendered placement adds a 48-byte previous sample per dense row and one capture
+        // byte per eid; VisualCorrection's bound translation/rotation columns add 32 bytes
+        // per eid even without holders. At this population each capacity has 4/3 slack.
+        expect(bytes).toBeLessThanOrEqual(780 + ((48 + 1 + 32) * 4) / 3);
     } finally {
         app.dispose();
     }

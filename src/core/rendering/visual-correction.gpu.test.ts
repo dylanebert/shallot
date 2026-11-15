@@ -2,15 +2,21 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { disposeGpuApps, gpuApps } from "../../../scripts/gpu.fixture";
 import { probeBuffer, Time } from "../../engine";
+import { directionalTravelDirection } from "../../standard/rendering/lighting";
 import { GlobalTransform, Transform } from "../transform";
 import { globalTransformTable, readRenderGlobalTransform } from "./global-transform";
 import {
     attachTexture,
     Camera,
+    computeClipFromWorld,
+    computeViewFromWorld,
+    DirectionalLight,
     PointLight,
     PrepareViewsSystem,
+    RenderContext,
     RenderingPlugin,
     VisualCorrection,
+    viewportToWorld,
 } from "./index";
 
 setDefaultTimeout(TIMEOUT.gpu);
@@ -107,7 +113,7 @@ test("fixed ticks never incorporate visual correction into GlobalTransform", () 
     world.remove(eid, VisualCorrection);
 });
 
-test("a CPU follower enrolls history for a non-light entity and reads the corrected GPU placement", async () => {
+test("a non-light entity has corrected CPU interpolation before its first placement read", async () => {
     const world = subjects()[0].world;
     const target = world.create();
     world.add(target, Transform);
@@ -122,8 +128,6 @@ test("a CPU follower enrolls history for a non-light entity and reads the correc
     });
     world.step(0);
     const out = new Float32Array(12);
-    readRenderGlobalTransform(world, target, out);
-    expect(out[0]).toBe(4);
     world.addSystem({
         group: "fixed",
         update(world) {
@@ -139,6 +143,36 @@ test("a CPU follower enrolls history for a non-light entity and reads the correc
         (await probeBuffer(world, table.buffer, { size: table.buffer.size })).bytes,
     );
     expect(out[0]).toBeCloseTo(gpu[table.rowIndex(target) * 12]!, 5);
+});
+
+test("camera view, clip and frame eye use corrected rendered placement", () => {
+    const world = subjects()[0].world;
+    const camera = [...world.query([Camera])][0]!;
+    world.add(camera, VisualCorrection, { translation: [4, 0, 0] });
+    world.step(0);
+    const view = new Float32Array(16);
+    const clip = new Float32Array(16);
+    computeViewFromWorld(world, camera, view);
+    expect(view[12]).toBe(-4);
+    computeClipFromWorld(world, camera, 1, clip, view);
+    expect(view[12]).toBe(-4);
+    expect(world.resource(RenderContext).viewStaging[32]).toBe(4);
+    expect(viewportToWorld(world, camera, 4, 4)!.origin[0]).toBe(4);
+    world.remove(camera, VisualCorrection);
+});
+
+test("directional lighting and shadow direction use the corrected rendered rotation", () => {
+    const world = subjects()[0].world;
+    const sun = world.create();
+    world.add(sun, Transform);
+    world.add(sun, DirectionalLight);
+    world.add(sun, VisualCorrection, { rotation: [0, Math.SQRT1_2, 0, Math.SQRT1_2] });
+    world.step(0);
+    const direction = new Float64Array(3);
+    directionalTravelDirection(world, sun, direction);
+    expect(direction[0]).toBeCloseTo(-1, 5);
+    expect(direction[1]).toBeCloseTo(0, 5);
+    expect(direction[2]).toBeCloseTo(0, 5);
 });
 
 test("cleanup", async () => {

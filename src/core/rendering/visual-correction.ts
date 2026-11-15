@@ -60,7 +60,8 @@ type Runtime = {
     group?: GPUBindGroup;
     generation: number;
 };
-const Runtime: Resource<Runtime> = {
+/** @internal Rendering's sparse visual-correction pass state. */
+export const VisualCorrectionState: Resource<Runtime> = {
     create(world) {
         const table = world.table("visual-correction", Correction);
         table.bindComponent(VisualCorrection, { translation: "translation", rotation: "rotation" });
@@ -80,11 +81,11 @@ const Runtime: Resource<Runtime> = {
 };
 /** @internal Prepare the optional correction pass during rendering initialization. */
 export function prepareVisualCorrection(world: World): void {
-    world.resource(Runtime);
+    world.resource(VisualCorrectionState);
 }
 /** @internal Uploads correction writes before opening a compute pass. */
 export function uploadVisualCorrections(world: World, output: GpuTable<typeof Xform>): void {
-    const runtime = world.resource(Runtime);
+    const runtime = world.resource(VisualCorrectionState);
     const table = runtime.table;
     table.upload();
     if (!table.count) return;
@@ -107,7 +108,7 @@ export function uploadVisualCorrections(world: World, output: GpuTable<typeof Xf
 }
 /** @internal Applies only correction holders, after the interpolation dispatch. */
 export function applyVisualCorrections(world: World, pass: GPUComputePassEncoder): void {
-    const runtime = world.resource(Runtime);
+    const runtime = world.resource(VisualCorrectionState);
     if (!runtime.table.count) return;
     setComputePipeline(pass, runtime.pipeline);
     setComputeBindGroup(pass, 0, runtime.group!);

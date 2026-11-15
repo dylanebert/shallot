@@ -11,7 +11,8 @@ import {
 import { composeMat4 } from "../../engine/utils";
 
 /** Derived fixed-tick world placement, never authored. Gameplay and physics read these
- * columns; rendering owns interpolated GPU rows in core/rendering. */
+ * columns. Draw-time readers use readRenderGlobalTransform or composeRenderGlobalTransform
+ * from core/rendering; GPU readers bind its globalTransformTable. */
 export const GlobalTransform = component(
     "GlobalTransform",
     {
@@ -202,7 +203,8 @@ export const TransformPlugin: Plugin = {
         };
     },
 };
-/** Write a column-major matrix from fixed-tick placement into caller-owned `out` and return it. */
+/** Write a column-major matrix from fixed-tick placement into caller-owned `out` and return it.
+ * Rendering reads composeRenderGlobalTransform instead: this excludes interpolation and visual correction. */
 export function composeGlobalTransform(world: World, eid: number, out: Float32Array): Float32Array {
     const { translation: pos, rotation: rot, scale } = world.storage(GlobalTransform);
     const px = pos.x.get(eid),

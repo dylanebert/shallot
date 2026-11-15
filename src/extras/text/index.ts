@@ -9,6 +9,7 @@ import {
     Billboard,
     Camera,
     CorePipelinePlugin,
+    composeRenderGlobalTransform,
     globalTransformTable,
     initialViewSampleCounts,
     PrepassSystem,
@@ -19,7 +20,7 @@ import {
     type View,
     type Xform,
 } from "../../core/rendering";
-import { composeGlobalTransform, GlobalTransform } from "../../core/transform";
+import { GlobalTransform } from "../../core/transform";
 import {
     ClearChangeMarksSystem,
     f32,
@@ -423,7 +424,7 @@ function queueText(world: World, eid: number, _view: View, phase: TransparentPha
         if (!label.count || !world.exists(label.eid) || !world.has(label.eid, GlobalTransform))
             continue;
         if (!(renderLayers(world, label.eid) & cameraLayers)) continue;
-        composeGlobalTransform(world, label.eid, state.transformScratch);
+        composeRenderGlobalTransform(world, label.eid, state.transformScratch);
         const transform = state.transformScratch;
         const mode = world.storage(Text).billboard.get(label.eid);
         if (mode === Billboard.World) {

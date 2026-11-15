@@ -9,7 +9,7 @@ import {
     perspective,
     u32,
 } from "../../engine";
-import { composeGlobalTransform } from "../transform";
+import { composeRenderGlobalTransform } from "./global-transform";
 
 /** Camera projection mode; defaults to Perspective. */
 export const CameraMode = {
@@ -28,7 +28,7 @@ export const Exposure = component(
 );
 
 /**
- * Camera looking down TransformPlugin's fixed-tick GlobalTransform local -Z. A camera with no target
+ * Camera looking down its rendered placement's local -Z. A camera with no target
  * auto-binds the document's first canvas, a late-mounted canvas retried each frame; bind other targets
  * explicitly with attachCanvas or attachTexture before the camera's first frame.
  *
@@ -121,7 +121,7 @@ const _view = new Float32Array(16);
 
 /** Writes the world→view matrix into caller-owned `out`. */
 export function computeViewFromWorld(world: World, eid: number, out: Float32Array): void {
-    composeGlobalTransform(world, eid, _world);
+    composeRenderGlobalTransform(world, eid, _world);
     out.set(invertMat4(_world, _view));
 }
 
@@ -143,7 +143,7 @@ export function computeClipFromWorld(
         world.storage(Camera).mode.get(eid) === CameraMode.Orthographic
             ? orthographic(world.storage(Camera).size.get(eid), aspect, near, far, _proj)
             : perspective(world.storage(Camera).fov.get(eid), aspect, near, _proj);
-    composeGlobalTransform(world, eid, _world);
+    composeRenderGlobalTransform(world, eid, _world);
     const view = invertMat4(_world, _view);
     viewOut?.set(view);
     projectionOut?.set(proj);

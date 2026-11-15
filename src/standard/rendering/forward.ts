@@ -29,6 +29,7 @@ import {
     PrepassSystem,
     RenderContext,
     RenderPhases,
+    readRenderGlobalTransform,
     renderLayers,
     type TransparentPhase,
     Views,
@@ -956,6 +957,8 @@ function sphereVisible(
     return true;
 }
 
+const transparentPlacement = new Float32Array(12);
+
 /** Queue one standard item per visible blended MeshInstance, not per GPU-compacted pair. */
 function queueTransparent(world: World, eid: number, view: View, phase: TransparentPhase): void {
     const buffers = world.resource(MeshDrawBuffers);
@@ -965,7 +968,7 @@ function queueTransparent(world: World, eid: number, view: View, phase: Transpar
     const meshCount = world.resource(meshResourcesKey).meshes.capacity;
     const instances = world.storage(MeshInstance);
     const materials = world.storage(MeshMaterial);
-    const placement = world.storage(GlobalTransform);
+    const placement = transparentPlacement;
     const planes = world.resource(RenderContext).cullVolumeStaging;
     const planeBase = view.slot * CULL_VOLUME_FLOATS;
     const position = phase.positionScratch;
@@ -1020,22 +1023,23 @@ function queueTransparent(world: World, eid: number, view: View, phase: Transpar
             radius = state.materialBounds[3];
         }
 
-        const sx = placement.scale.x.get(instanceEid);
-        const sy = placement.scale.y.get(instanceEid);
-        const sz = placement.scale.z.get(instanceEid);
+        readRenderGlobalTransform(world, instanceEid, placement);
+        const sx = placement[8]!;
+        const sy = placement[9]!;
+        const sz = placement[10]!;
         const lx = bx * sx;
         const ly = by * sy;
         const lz = bz * sz;
-        const qx = placement.rotation.x.get(instanceEid);
-        const qy = placement.rotation.y.get(instanceEid);
-        const qz = placement.rotation.z.get(instanceEid);
-        const qw = placement.rotation.w.get(instanceEid);
+        const qx = placement[4]!;
+        const qy = placement[5]!;
+        const qz = placement[6]!;
+        const qw = placement[7]!;
         const tx = 2 * (qy * lz - qz * ly);
         const ty = 2 * (qz * lx - qx * lz);
         const tz = 2 * (qx * ly - qy * lx);
-        const x = placement.translation.x.get(instanceEid) + lx + qw * tx + qy * tz - qz * ty;
-        const y = placement.translation.y.get(instanceEid) + ly + qw * ty + qz * tx - qx * tz;
-        const z = placement.translation.z.get(instanceEid) + lz + qw * tz + qx * ty - qy * tx;
+        const x = placement[0]! + lx + qw * tx + qy * tz - qz * ty;
+        const y = placement[1]! + ly + qw * ty + qz * tx - qx * tz;
+        const z = placement[2]! + lz + qw * tz + qx * ty - qy * tx;
         const worldRadius = radius * Math.max(Math.abs(sx), Math.abs(sy), Math.abs(sz));
         if (!sphereVisible(planes, planeBase, x, y, z, worldRadius)) continue;
         position[0] = x;

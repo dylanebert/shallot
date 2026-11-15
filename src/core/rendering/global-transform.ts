@@ -2,6 +2,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { GpuTable, Resource, System, World } from "../../engine/ecs";
+import { composeMat4 } from "../../engine/utils";
 import {
     GlobalTransform,
     GlobalTransformTickEndSystem,
@@ -17,14 +18,6 @@ import {
     uploadVisualCorrections,
 } from "./visual-correction";
 import { Xform } from "./xform";
-
-type CpuHistory = {
-    eid: number;
-    captured: boolean;
-    stages: Float32Array[];
-    current: Float32Array;
-    previous: Float32Array;
-};
 
 const terms = [GlobalTransform];
 const layout = tgpu.bindGroupLayout({
@@ -67,7 +60,9 @@ export interface GlobalTransformRuntime {
     tickCount: number;
     stages: (GPUBuffer | undefined)[];
     cpuPrepared: boolean;
-    placements: CpuHistory[];
+    cpuPrevious: Float32Array;
+    cpuCaptured: Uint8Array;
+    scratch: Float32Array;
     source: Float32Array;
     ranges: Uint32Array;
     pipeline?: GPUComputePipeline;
@@ -89,7 +84,9 @@ export const GlobalTransformHistory: Resource<GlobalTransformRuntime> = {
             tickCount: 0,
             stages: new Array(2),
             cpuPrepared: false,
-            placements: [],
+            cpuPrevious: new Float32Array(0),
+            cpuCaptured: new Uint8Array(0),
+            scratch: new Float32Array(12),
             source: new Float32Array(0),
             ranges: new Uint32Array(4),
             generation: -1,
@@ -108,37 +105,17 @@ export const GlobalTransformHistory: Resource<GlobalTransformRuntime> = {
             },
         };
         world.observeMembership(GlobalTransform, (eid, present) => {
+            runtime.cpuCaptured[eid] = 0;
             if (present && runtime.enabled) resetInterpolation(world, eid);
-            if (!present) {
-                const index = runtime.placements.findIndex((placement) => placement.eid === eid);
-                if (index >= 0) {
-                    runtime.placements[index] = runtime.placements[runtime.placements.length - 1]!;
-                    runtime.placements.pop();
-                }
-            }
         });
         const observeLight = (eid: number) => {
-            if (!runtime.enabled) return;
-            const index = runtime.placements.findIndex((placement) => placement.eid === eid);
-            if (world.has(eid, PointLight) || world.has(eid, SpotLight)) {
-                if (index < 0) addCpuHistory(runtime, eid);
-                else runtime.placements[index]!.captured = false;
-            }
+            runtime.cpuCaptured[eid] = 0;
         };
         world.observeMembership(PointLight, observeLight);
         world.observeMembership(SpotLight, observeLight);
         return runtime;
     },
 };
-function addCpuHistory(runtime: GlobalTransformRuntime, eid: number): void {
-    runtime.placements.push({
-        eid,
-        captured: false,
-        stages: [new Float32Array(12), new Float32Array(12)],
-        current: new Float32Array(12),
-        previous: new Float32Array(12),
-    });
-}
 /** Captures initial derived placement before every ordinary fixed system. */
 export const GlobalTransformHistoryStartSystem: System = {
     group: "fixed",
@@ -248,42 +225,57 @@ export function globalTransformTable(world: World): GpuTable<typeof Xform> {
         );
         for (const eid of world.query(terms)) {
             resetInterpolation(world, eid);
-            if (world.has(eid, PointLight) || world.has(eid, SpotLight))
-                addCpuHistory(runtime, eid);
         }
     }
     return runtime.render!;
 }
-/** Reads interpolated, visually corrected placement into a caller-owned 12-float Xform
- * record (position at 0, xyzw quaternion at 4, scale at 8). Requires an enabled
- * globalTransformTable and the draw placement boundary. The first read enrolls CPU
- * history until GlobalTransform is removed; lights enroll automatically. Until the
- * next fixed tick captures history, reads use current placement. Thereafter they match
- * the GPU's fixedAlpha blend followed by VisualCorrection. No GPU readback is performed. */
+/** The CPU source of rendered entity placement: a caller-owned 12-float Xform record
+ * (position at 0, xyzw quaternion at 4, scale at 8), including VisualCorrection.
+ * All GlobalTransform holders have fixed-sample history when rendering is enabled.
+ * Before the first capture, without RenderingPlugin, or after a frame-authored write,
+ * reads use current placement. No GPU readback is performed. */
 export function readRenderGlobalTransform(world: World, eid: number, out: Float32Array): void {
     const runtime = world.resource(GlobalTransformHistory);
+    const { translation, rotation, scale } = world.storage(GlobalTransform);
+    const j = eid * 4;
+    const p = translation.column,
+        q = rotation.column,
+        s = scale.column;
     prepareCpuFrame(world, runtime);
     const row = runtime.current?.rowIndex(eid) ?? -1;
-    if (row < 0)
-        throw new Error("readRenderGlobalTransform requires a captured GlobalTransform row");
-    let light: CpuHistory | undefined;
-    for (let i = 0; i < runtime.placements.length; i++)
-        if (runtime.placements[i]!.eid === eid) {
-            light = runtime.placements[i];
-            break;
-        }
-    if (!light) {
-        addCpuHistory(runtime, eid);
-        light = runtime.placements[runtime.placements.length - 1]!;
-    }
-    if (!light.captured) {
-        for (let i = 0; i < 12; i++) out[i] = runtime.source[row * 12 + i]!;
+    const i = row * 12;
+    const source = runtime.source;
+    const frameWritten =
+        row < 0 ||
+        i + 11 >= source.length ||
+        p[j] !== source[i] ||
+        p[j + 1] !== source[i + 1] ||
+        p[j + 2] !== source[i + 2] ||
+        q[j] !== source[i + 4] ||
+        q[j + 1] !== source[i + 5] ||
+        q[j + 2] !== source[i + 6] ||
+        q[j + 3] !== source[i + 7] ||
+        s[j] !== source[i + 8] ||
+        s[j + 1] !== source[i + 9] ||
+        s[j + 2] !== source[i + 10];
+    if (!runtime.cpuCaptured[eid] || frameWritten) {
+        out[0] = p[j] ?? 0;
+        out[1] = p[j + 1] ?? 0;
+        out[2] = p[j + 2] ?? 0;
+        out[3] = out[11] = 0;
+        out[4] = q[j] ?? 0;
+        out[5] = q[j + 1] ?? 0;
+        out[6] = q[j + 2] ?? 0;
+        out[7] = q[j + 3] ?? 0;
+        out[8] = s[j] ?? 0;
+        out[9] = s[j + 1] ?? 0;
+        out[10] = s[j + 2] ?? 0;
         correctRenderTransform(world, eid, out);
         return;
     }
-    const offset = 0;
-    const current = light.current,
-        previous = light.previous;
+    const offset = row * 12;
+    const current = runtime.source,
+        previous = runtime.cpuPrevious;
     const alpha = world.time.fixedAlpha;
     for (let i = 0; i < 12; i++)
         out[i] = previous[offset + i]! * (1 - alpha) + current[offset + i]! * alpha;
@@ -299,6 +291,28 @@ export function readRenderGlobalTransform(world: World, eid: number, out: Float3
     length = Math.sqrt(length);
     for (let i = 4; i < 8; i++) out[i] = length > 1e-12 ? out[i]! / length : i === 7 ? 1 : 0;
     correctRenderTransform(world, eid, out);
+}
+/** Composes the CPU rendered-placement source into a caller-owned column-major matrix. */
+export function composeRenderGlobalTransform(
+    world: World,
+    eid: number,
+    out: Float32Array,
+): Float32Array {
+    const pose = world.resource(GlobalTransformHistory).scratch;
+    readRenderGlobalTransform(world, eid, pose);
+    return composeMat4(
+        pose[0]!,
+        pose[1]!,
+        pose[2]!,
+        pose[4]!,
+        pose[5]!,
+        pose[6]!,
+        pose[7]!,
+        pose[8]!,
+        pose[9]!,
+        pose[10]!,
+        out,
+    );
 }
 function stageHistoryDiscontinuities(world: World, runtime: GlobalTransformRuntime): Uint32Array {
     const marks = world.resource(TransformRuntime).discontinuities;
@@ -385,23 +399,20 @@ function captureCurrent(world: World, phase: number): void {
         runtime.ranges[phase * 2] = current.lastUploadOffset;
         runtime.ranges[phase * 2 + 1] = size;
     }
-    const start = runtime.ranges[phase * 2] / 4;
-    const end = start + runtime.ranges[phase * 2 + 1] / 4;
-    for (let index = 0; index < runtime.placements.length; index++) {
-        const light = runtime.placements[index]!;
-        const row = current.rowIndex(light.eid);
-        if (row < 0) continue;
-        const offset = row * 12;
-        if (phase === 0 && !light.captured) {
-            for (let i = 0; i < 12; i++) {
-                const value = runtime.source[offset + i]!;
-                light.current[i] = light.previous[i] = value;
-                light.stages[0]![i] = light.stages[1]![i] = value;
-            }
-            light.captured = true;
-        }
-        if (size && offset >= start && offset < end)
-            for (let i = 0; i < 12; i++) light.stages[phase]![i] = runtime.source[offset + i]!;
+    if (runtime.cpuPrevious.length < runtime.source.length) {
+        const previous = new Float32Array(runtime.source.length);
+        previous.set(runtime.cpuPrevious);
+        runtime.cpuPrevious = previous;
+    }
+    const capacity = world.storage(GlobalTransform).translation.column.length / 4;
+    if (runtime.cpuCaptured.length < capacity) {
+        const captured = new Uint8Array(capacity);
+        captured.set(runtime.cpuCaptured);
+        runtime.cpuCaptured = captured;
+    }
+    if (phase === 0) {
+        runtime.cpuPrevious.set(runtime.source);
+        runtime.cpuCaptured.fill(1);
     }
 }
 function copyPhase(
@@ -457,25 +468,16 @@ function prepareCpuFrame(world: World, runtime: GlobalTransformRuntime): void {
     runtime.cpuPrepared = true;
     const marks = world.resource(TransformRuntime).discontinuities;
     const pending = runtime.historyDiscontinuitiesOnSubmit;
-    for (let index = 0; index < runtime.placements.length; index++) {
-        const light = runtime.placements[index]!;
-        if (!light.captured) continue;
-        const offset = runtime.current!.rowIndex(light.eid) * 12;
-        if (offset < 0) continue;
-        for (let phase = 0; phase < 2; phase++) {
-            if (phase === 0 && !runtime.tickCount) continue;
-            const start = runtime.ranges[phase * 2] / 4;
-            const size = runtime.ranges[phase * 2 + 1] / 4;
-            if (offset >= start && offset < start + size) light.current.set(light.stages[phase]!);
-            if (
-                (phase === 0 && (runtime.historyNeedsPromotion || size > 0)) ||
-                (phase === 1 && runtime.historyDiscarded)
-            )
-                light.previous.set(light.current);
+    if (runtime.historyDiscarded) runtime.cpuPrevious.set(runtime.source);
+    for (let word = 0; word < Math.max(marks.length, pending.length); word++) {
+        for (let bits = marks[word] | pending[word]; bits !== 0; bits &= bits - 1) {
+            const eid = (word << 5) | (31 - Math.clz32(bits & -bits));
+            const row = runtime.current!.rowIndex(eid);
+            const offset = row * 12;
+            if (row >= 0 && offset + 11 < runtime.source.length)
+                for (let i = 0; i < 12; i++)
+                    runtime.cpuPrevious[offset + i] = runtime.source[offset + i]!;
         }
-        const word = light.eid >>> 5;
-        if (((marks[word] | pending[word]) & (1 << (light.eid & 31))) !== 0)
-            light.previous.set(light.current);
     }
 }
 /** @internal Records pending history work through the World's draw encoder. */

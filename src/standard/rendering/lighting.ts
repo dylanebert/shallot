@@ -5,6 +5,7 @@ import {
     DirectionalLight,
     PointLight,
     RenderContext,
+    readRenderGlobalTransform,
     renderLayers,
     SpotLight,
     SunDisk,
@@ -100,14 +101,15 @@ const DIR_DISK = d.memoryLayoutOf(DirectionalLightGpu, (light) => light.disk).of
 const DIR_COUNT = d.memoryLayoutOf(LightingGpu, (lighting) => lighting.directionalCount).offset / 4;
 const DIRECTIONAL_TERMS = [DirectionalLight, GlobalTransform];
 const _travelDirection = new Float64Array(3);
+const _directionalPlacement = new Float32Array(12);
 
-/** The normalized light-travel direction from an entity's GlobalTransform local -Z. */
+/** The normalized light-travel direction from an entity's rendered local -Z. */
 export function directionalTravelDirection(world: World, eid: number, out: Float64Array): void {
-    const rotation = world.storage(GlobalTransform).rotation;
-    const x = rotation.x.get(eid);
-    const y = rotation.y.get(eid);
-    const z = rotation.z.get(eid);
-    const w = rotation.w.get(eid);
+    readRenderGlobalTransform(world, eid, _directionalPlacement);
+    const x = _directionalPlacement[4]!;
+    const y = _directionalPlacement[5]!;
+    const z = _directionalPlacement[6]!;
+    const w = _directionalPlacement[7]!;
     out[0] = -2 * (x * z + w * y);
     out[1] = -2 * (y * z - w * x);
     out[2] = -1 + 2 * (x * x + y * y);
