@@ -71,6 +71,7 @@ const FIRST_PERSON_TEMPLATE_FILES = [
     "index.html",
     "playwright.config.ts",
     "public/icon.svg",
+    "public/startup.js",
     "src/app.ts",
     "src/demo.node.ts",
     "src/demo.ts",

@@ -10,7 +10,9 @@ const requested = new URL(location.href).searchParams.get("scene");
 const initial = requested && Object.hasOwn(scenes, requested) ? (requested as Scene) : "boxStack";
 await runApp({
     plugins: [AppPlugin],
-    loading: shallotDark({ bootstrap: document.querySelector("[data-shallot-bootstrap]") }),
+    loading: shallotDark({
+        bootstrap: document.querySelector<HTMLElement>("[data-shallot-bootstrap]") ?? undefined,
+    }),
     ui(container, world) {
         const replace = sceneSwitcher(world, world.resource(Viewer), () => {
             const bounds = profilerBounds(world);
