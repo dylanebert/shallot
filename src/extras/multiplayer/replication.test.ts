@@ -275,7 +275,7 @@ test("declared widths round-trip signed integers, half floats, vectors and wire 
         sender.record(6);
         sender.flush();
         const frame = link.b.receive()[0]!;
-        expect(frame.length).toBe(36);
+        expect(frame.length).toBe(20);
         link.a.send(frame);
         receiver.flush();
         expect(receiver.confirmed).toBe(6);
@@ -283,4 +283,53 @@ test("declared widths round-trip signed integers, half floats, vectors and wire 
         server.dispose();
         client.dispose();
     }
+});
+
+function frameSizes(entityCount: number) {
+    const server = new World(),
+        client = new World();
+    try {
+        let first = 0;
+        for (let i = 0; i < entityCount; i++) {
+            const eid = server.create();
+            if (i === 0) first = eid;
+            server.add(eid, Replicate);
+            server.add(eid, Position);
+            server.add(eid, Secret);
+        }
+        const schema = [Position, Secret];
+        const link = seededLink(1, { minDelay: 0, maxDelay: 0, loss: 0, duplication: 0 });
+        const sender = new ReplicationSender(server, schema, [new Map([[1, schema]])], 1, link.a);
+        const receiver = new ReplicationReceiver(client, schema, link.b);
+        function deliver(tick: number) {
+            sender.record(tick);
+            sender.flush();
+            const bytes = link.b.receive()[0]!;
+            link.a.send(bytes);
+            receiver.flush();
+            sender.flush();
+            expect(receiver.confirmed).toBe(tick);
+            return bytes.length;
+        }
+        deliver(0);
+        const unchanged = deliver(1);
+        server.storage(Secret).value.set(first, 1.5);
+        const scalar = deliver(2);
+        const local = receiver.entities.values().next().value!;
+        expect(client.get(local, Secret)!.value).toBe(1.5);
+        return { unchanged, scalar };
+    } finally {
+        server.dispose();
+        client.dispose();
+    }
+}
+
+test("unchanged frames have constant size at 1, 10 and 100 entities", () => {
+    expect([1, 10, 100].map((count) => frameSizes(count).unchanged)).toEqual([20, 20, 20]);
+});
+
+test("one changed scalar adds only its entity, component, field index and value", () => {
+    const sizes = [1, 10, 100].map(frameSizes);
+    expect(sizes.map((size) => size.scalar)).toEqual([44, 44, 44]);
+    expect(sizes.map((size) => size.scalar - size.unchanged)).toEqual([24, 24, 24]);
 });

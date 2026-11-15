@@ -140,28 +140,50 @@ function capture(
     return rows;
 }
 
+// A membership record with this count removes its entity or component from the baseline.
+const Removed = 0xffffffff;
+
 function encode(packet: Packet, base: ReplicatedRows, types: FieldType[][]): Uint8Array {
     const words: number[] = [
         packet.image ? ReplicationMessageKind.Image : ReplicationMessageKind.Frame,
         packet.tick,
         packet.base,
-        packet.rows.size,
+        0,
     ];
     const values: { value: number; field: FieldType }[] = [];
+    let entities = 0;
     for (const [id, row] of packet.rows) {
-        words.push(id, row.size);
+        const previousRow = base.get(id);
+        const components: number[] = [];
+        let changes = 0;
         for (const [c, fields] of row) {
-            const previous = base.get(id)?.get(c);
+            const previous = previousRow?.get(c);
             const changed = fields.flatMap((v, i) =>
                 !previous || !Object.is(v, previous[i]) ? [i] : [],
             );
-            words.push(c, changed.length);
+            if (previous && changed.length === 0) continue;
+            components.push(c, changed.length);
+            changes++;
             for (const i of changed) {
-                words.push(i);
+                components.push(i);
                 values.push({ value: fields[i]!, field: types[c]![i]! });
             }
         }
+        for (const c of previousRow?.keys() ?? []) {
+            if (row.has(c)) continue;
+            components.push(c, Removed);
+            changes++;
+        }
+        if (previousRow && changes === 0) continue;
+        words.push(id, changes, ...components);
+        entities++;
     }
+    for (const id of base.keys()) {
+        if (packet.rows.has(id)) continue;
+        words.push(id, Removed);
+        entities++;
+    }
+    words[3] = entities;
     const bytes = new Uint8Array(
         4 + words.length * 4 + values.reduce((size, v) => size + v.field.ctor.BYTES_PER_ELEMENT, 0),
     );
@@ -199,16 +221,24 @@ function decode(
         throw new Error("Invalid replication packet");
     const baseline = kind === ReplicationMessageKind.Image ? new Map() : versions.get(base);
     if (!baseline) throw new Error("Missing replication baseline");
-    const rows: ReplicatedRows = new Map();
+    const rows: ReplicatedRows = new Map(baseline);
     for (let e = 0; e < entities; e++) {
         const id = word(),
             components = word();
-        const row = new Map<number, number[]>();
+        if (components === Removed) {
+            rows.delete(id);
+            continue;
+        }
+        const row = new Map<number, number[]>(baseline.get(id));
         for (let c = 0; c < components; c++) {
             const index = word(),
                 changes = word();
             const componentTypes = types[index];
             if (componentTypes === undefined) throw new Error("Unknown replicated component");
+            if (changes === Removed) {
+                row.delete(index);
+                continue;
+            }
             const size = componentTypes.length;
             const values = baseline.get(id)?.get(index)?.slice() ?? Array<number>(size).fill(0);
             for (let f = 0; f < changes; f++) {
