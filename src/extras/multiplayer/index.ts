@@ -11,8 +11,25 @@ import {
 import { fields } from "../../engine/ecs";
 
 export { type Connection, type LinkFaults, seededLink } from "./link";
+export {
+    ClientPrediction,
+    contactOutputKey,
+    FixedOutputs,
+    PredictionMotion,
+    PredictionPlugin,
+    PredictionTarget,
+} from "./prediction";
 
+import { type AcceptedIntent, decodeIntent, encodeIntent, IntentMessageKind } from "./intent";
 import type { Connection } from "./link";
+
+export {
+    type AcceptedIntent,
+    IntentMessageKind,
+    IntentReceiver,
+    type IntentRecord,
+    IntentSender,
+} from "./intent";
 
 /** Selects a disclosure rule. Only entities holding this component can be sent. */
 export const Replicate = component("Replicate", { rule: u32 });
@@ -30,9 +47,10 @@ interface Version {
 interface Packet extends Version {
     base: number;
     image: boolean;
+    intents: readonly AcceptedIntent[];
 }
 
-/** Little-endian u32 message kinds. Other kinds belong to the application; flush returns them unchanged. */
+/** Little-endian u32 replication kinds. flush returns other kinds unchanged for routing. */
 export const ReplicationMessageKind = { Image: 1, Frame: 2, Acknowledgement: 3 } as const;
 
 function layout(schema: ReplicationSchema) {
@@ -184,8 +202,14 @@ function encode(packet: Packet, base: ReplicatedRows, types: FieldType[][]): Uin
         entities++;
     }
     words[3] = entities;
+    const intents = packet.intents.length
+        ? encodeIntent(IntentMessageKind.Accepted, packet.intents)
+        : new Uint8Array();
     const bytes = new Uint8Array(
-        4 + words.length * 4 + values.reduce((size, v) => size + v.field.ctor.BYTES_PER_ELEMENT, 0),
+        4 +
+            words.length * 4 +
+            values.reduce((size, v) => size + v.field.ctor.BYTES_PER_ELEMENT, 0) +
+            intents.length,
     );
     const view = new DataView(bytes.buffer);
     view.setUint32(0, words[0]!, true);
@@ -196,6 +220,7 @@ function encode(packet: Packet, base: ReplicatedRows, types: FieldType[][]): Uin
         writeField(view, offset, field, value);
         offset += field.ctor.BYTES_PER_ELEMENT;
     }
+    bytes.set(intents, offset);
     return bytes;
 }
 
@@ -252,9 +277,10 @@ function decode(
         }
         rows.set(id, row);
     }
-    if (offset !== 4 + count * 4 || valueOffset !== bytes.length)
+    if (offset !== 4 + count * 4 || valueOffset > bytes.length)
         throw new Error("Invalid replication size");
-    return { tick, base, rows, image: kind === ReplicationMessageKind.Image };
+    const intents = valueOffset < bytes.length ? decodeIntent(bytes.subarray(valueOffset)) : [];
+    return { tick, base, rows, intents, image: kind === ReplicationMessageKind.Image };
 }
 
 /** One recipient's acknowledged history. record starts at any nonnegative tick and refuses gaps thereafter; flush retries pending ticks. */
@@ -282,7 +308,8 @@ export class ReplicationSender {
         this.recipient = recipient;
         this.connection = connection;
     }
-    record(tick: number) {
+    /** Include this recipient's accepted log; the image and frames carry records through their tick. */
+    record(tick: number, intents: readonly AcceptedIntent[] = []) {
         if (
             !Number.isInteger(tick) ||
             tick < 0 ||
@@ -302,7 +329,13 @@ export class ReplicationSender {
         const baseline = this._acknowledged;
         // Until the image is acknowledged subsequent frames use its rows, not an empty baseline.
         const base = baseline ?? this._pending.values().next().value?.version;
-        const packet = { tick, rows, image, base: image ? tick : base!.tick };
+        const packet = {
+            tick,
+            rows,
+            image,
+            intents: intents.filter((r) => r.tick <= tick),
+            base: image ? tick : base!.tick,
+        };
         const bytes = encode(packet, image ? new Map() : base!.rows, layout(this.schema));
         this._pending.set(tick, { version: { tick, rows }, bytes });
         this._last = tick;
@@ -340,16 +373,30 @@ export class ReplicationReceiver {
     readonly schema: ReplicationSchema;
     readonly connection: Connection;
     readonly confirm: (tick: number, rows: ReplicatedRows) => void;
+    /** Synchronous restore/apply/replay boundary. Call apply exactly once after restore and before replay; do not retain it. */
+    readonly reconcile: (
+        tick: number,
+        rows: ReplicatedRows,
+        intents: readonly AcceptedIntent[],
+        apply: () => void,
+    ) => void;
     constructor(
         world: World,
         schema: ReplicationSchema,
         connection: Connection,
         confirm: (tick: number, rows: ReplicatedRows) => void = () => {},
+        reconcile: (
+            tick: number,
+            rows: ReplicatedRows,
+            intents: readonly AcceptedIntent[],
+            apply: () => void,
+        ) => void = (_tick, _rows, _intents, apply) => apply(),
     ) {
         this.world = world;
         this.schema = schema;
         this.connection = connection;
         this.confirm = confirm;
+        this.reconcile = reconcile;
     }
     /** Applies confirmations and returns other message kinds for application routing. */
     flush(): Uint8Array[] {
@@ -375,7 +422,7 @@ export class ReplicationReceiver {
             if (this.confirmed < 0 && view.getUint32(0, true) !== ReplicationMessageKind.Image)
                 break;
             const packet = decode(bytes, this._versions, layout(this.schema));
-            this._write(packet.rows);
+            this.reconcile(tick, packet.rows, packet.intents, () => this._write(packet.rows));
             this._versions.set(tick, packet.rows);
             for (const old of this._versions.keys())
                 if (old < packet.base) this._versions.delete(old);
