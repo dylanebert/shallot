@@ -16,6 +16,7 @@ import {
     fields,
     freezeComponent,
     idOf,
+    isPresentation,
     type ScalarField,
     sameComponentSchema,
     type Vector2Field,
@@ -107,6 +108,7 @@ export class World {
     private readonly _runStep = () =>
         this._scheduler.step(this, this._stepInput, this._runDrawGroup);
     private _entities = new Entities();
+    private _survivors = new Set<number>();
     private _components = new Components(
         () => this._queries.restore(this._components, this._entities),
         (id, eid, present) => {
@@ -119,6 +121,7 @@ export class World {
             this.notifyMembership(component, eid, present);
         },
         (id, eid) => this._queries.onComponentChanged(id, eid, this._components),
+        (eid) => this._survivors.has(eid),
     );
     private _queries = new Queries();
     // Per destroy nesting depth, the entity and its held component ids, so a destroy inside an
@@ -157,7 +160,20 @@ export class World {
     constructor(opts?: { pixelRatio?: number | "auto" }) {
         this._pixelRatio = opts?.pixelRatio ?? "auto";
         this._columns.highWater = 1;
-        this._snapshots.register(Symbol("entities"), this._entities);
+        this._snapshots.register(Symbol("entities"), {
+            snapshot: () => this._entities.snapshot(),
+            restore: (state) => {
+                this._survivors.clear();
+                for (const eid of this._entities.all())
+                    if (
+                        state.sparse[eid] < state.count &&
+                        state.dense[state.sparse[eid]] === eid &&
+                        state.generation[eid] === this._entities.generation(eid)
+                    )
+                        this._survivors.add(eid);
+                this._entities.restore(state);
+            },
+        });
         this._snapshots.register(Symbol("fields"), this._columns);
         this._snapshots.register(Symbol("clock"), this._scheduler);
         this._snapshots.register(Symbol("membership"), this._components);
@@ -632,7 +648,7 @@ export class World {
         const storage: Record<string, unknown> = {};
         for (const { name, field } of fields(component)) {
             const column = new WorldField(field, INITIAL_CAPACITY, this);
-            this._columns.register(column);
+            if (!isPresentation(component)) this._columns.register(column);
             columns.set(name, column);
             storage[name] = column.bind();
         }
@@ -707,7 +723,7 @@ export class World {
         }
     }
 
-    /** Capture entity identity and allocation, component membership, all stored and registered
+    /** Capture entity identity and allocation, simulation component membership, all stored and registered simulation
      * fields and their pending change marks through the entity high-water mark, and fixedTick.
      * Local to this world and registry;
      * includes declared participants' hidden simulation state; excludes pacing, GPU and host state.
@@ -729,6 +745,9 @@ export class World {
      * a changed component registry. Retained accessors and references resolve the restored state;
      * columns never shrink, queries and membership consumers reconcile, and fields publish changes.
      * Pending marks and restored marks are retained, not rewound or cleared, even on a frame with no paced ticks.
+     * Presentation components keep current fields and membership only on live identities that
+     * survive restore. Entities destroyed or recreated by restore have no presentation membership;
+     * a reused eid never inherits it. Insertion applies defaults as usual.
      * Participants restore hidden simulation state after ECS and clock recovery; pacing, GPU and host state stay current.
      * An error thrown by an observer, a participant or a GPU table propagates after the rest of the restore;
      * a table attachment that threw leaves that membership restored and unannounced, without rows in that table

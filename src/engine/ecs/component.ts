@@ -339,6 +339,7 @@ interface Declaration<C extends Component = Component> {
     key: string;
     component: C;
     requires?: Component[];
+    presentation?: boolean;
     defaults?: (world: World) => ComponentValues<C>;
 }
 
@@ -362,6 +363,10 @@ export function component<
         defaults?: (world: World) => V & Record<Exclude<keyof V, keyof C>, never>;
         /** Added when missing on insertion in a world that registers this record; removal leaves companions in place. */
         requires?: Component[];
+        /** Exclude membership and fields from recovery. Restore keeps them current only on live
+         * identities that survive it; destroyed or recreated entities have none. Reused eids do
+         * not inherit membership. New insertion still applies defaults. */
+        presentation?: boolean;
     },
 ): C {
     const previous = declarations.get(fields);
@@ -382,6 +387,11 @@ export function declaration(fields: Component, plugin: string): Declaration {
         );
     }
     return entry;
+}
+
+/** @internal Whether this record declares state outside simulation recovery. */
+export function isPresentation(component: Component): boolean {
+    return declarations.get(component)?.presentation === true;
 }
 
 // Process-global identity survives world disposal and fresh records on module reload.
@@ -429,31 +439,44 @@ export class Components {
     private _masks: number[][] = [[]];
     // component id by generation and bit index, the inverse of _meta
     private _owners: number[][] = [[]];
+    private _presentation: number[] = [];
 
     /** @internal Capture membership without taking ownership of component assignments. */
     snapshot() {
-        return { masks: this._masks.map((m) => m.slice()) };
+        return {
+            masks: this._masks.map((m, gen) => m.map((mask) => mask & ~this._presentation[gen])),
+        };
     }
 
     private readonly _restored?: () => void;
     private readonly _membership?: (id: number, eid: number, present: boolean) => void;
     private readonly _queryChanged?: (id: number, eid: number) => void;
+    private readonly _survives: (eid: number) => boolean;
 
     constructor(
         restored?: () => void,
         membership?: (id: number, eid: number, present: boolean) => void,
         queryChanged?: (id: number, eid: number) => void,
+        survives: (eid: number) => boolean = () => false,
     ) {
         this._restored = restored;
         this._membership = membership;
         this._queryChanged = queryChanged;
+        this._survives = survives;
     }
 
     /** @internal Restore membership, updating queries before observers and tables. Every change
      * is visited before the first error a visit threw propagates. */
     restore(state: ReturnType<Components["snapshot"]>): void {
         const before = this._masks;
-        this._masks = before.map((_, gen) => state.masks[gen]?.slice() ?? []);
+        this._masks = before.map((old, gen) => {
+            const next = state.masks[gen]?.slice() ?? [];
+            const presentation = this._presentation[gen] ?? 0;
+            for (let eid = 0; eid < old.length; eid++)
+                if (old[eid] & presentation && this._survives(eid))
+                    next[eid] = (next[eid] ?? 0) | (old[eid] & presentation);
+            return next;
+        });
         if (this._queryChanged) this.reconcile(before, this._queryChanged);
         this._restored?.();
         if (this._membership) this.reconcile(before, this._membership);
@@ -540,6 +563,8 @@ export class Components {
         this._owners[this._gen][this._nextBit] = id;
         const m = { gen: this._gen, bit: 1 << this._nextBit++ };
         this._meta[id] = m;
+        if (isPresentation(component))
+            this._presentation[m.gen] = (this._presentation[m.gen] ?? 0) | m.bit;
         return m;
     }
 }

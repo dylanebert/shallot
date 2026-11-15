@@ -16,7 +16,10 @@ export const VisualCorrection = component(
         translation: vec3,
         rotation: vec4,
     },
-    { defaults: () => ({ translation: [0, 0, 0], rotation: [0, 0, 0, 1] }) },
+    {
+        presentation: true,
+        defaults: () => ({ translation: [0, 0, 0], rotation: [0, 0, 0, 1] }),
+    },
 );
 
 const correctionTerms = [VisualCorrection];
