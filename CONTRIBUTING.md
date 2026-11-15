@@ -306,6 +306,7 @@ An oracle is a manual measurement, `*.oracle.ts`, run by path; a browser subject
 - Simulation lives in components and declared recovery participants; derived presentation reconciles after restore. [Plugin.recovery](src/engine/app/index.ts) and [World.snapshot/restore](src/engine/ecs/world.ts) own capture and ordering contracts
 - GPU files run serially on one device with small compositions; each file acquires and warms its independent worlds once in `beforeAll`, and tests time only their work
 - Browser subjects keep Playwright and Vite configs together and spread `BROWSER_CONFIG` from `@dylanebert/shallot/testing`; a configured `webServer` spreads `WEB_SERVER_CONFIG`. `BROWSER_CONFIG` holds the test and expect timeouts, which on CI are `BROWSER_CEILING`. The engine-wide [browser command](scripts/browser.sh) owns the subject timeout and worker cap; copied projects use Playwright's defaults for those two
+- Each browser-server port belongs to one Playwright config across `examples`, `scripts` and `src`
 - A rejection Playwright settles is awaited as its message, never through `expect().rejects`, which stalls it for seconds ([oven-sh/bun#33261](https://github.com/oven-sh/bun/issues/33261))
 - Bun child processes spread [the executable and host identity](scripts/bun-child.ts) into object-form spawn options
 - After a test child exits, remove directories it used with [removeTestDirectory](scripts/test-directory.ts); Windows can release its file locks after the exit is observed
@@ -362,6 +363,8 @@ Examples are the outer loop: a user's problem exposes a missing mechanism, and t
 ### What an example is
 
 - Each example lives in its promise's repository, under `examples/<name>`, in the shape of a copied user project, and its `index.html` carries one `<meta name="description">` describing it
+- Each example's `<title>` is its directory name
+- Each example paints `[data-shallot-bootstrap]` before its module loads and uses `minimal`'s `public/startup.js`; custom loading is named with its reason in the check
 - One problem per example; only `first-person` and `physics` compose many
 - An example takes the view its problem needs; a scene seen from outside orbits with `OrbitPlugin`
 - Every public promise is owed an example whose answer depends on it

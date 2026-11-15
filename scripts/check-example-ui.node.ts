@@ -2011,6 +2011,33 @@ test("13: every chrome property and Safari spelling is required; passive and dis
 });
 
 for (const example of await readdir("examples")) {
+    test(`${example} title is its directory name`, async () => {
+        const html = await readFile(join("examples", example, "index.html"), "utf8");
+        expect(html.match(/<title>([^<]*)<\/title>/)?.[1]).toBe(example);
+    });
+
+    test(`${example} paints the shared bootstrap before its module`, async () => {
+        const root = join("examples", example);
+        const html = await readFile(join(root, "index.html"), "utf8");
+        const bootstrap = html.search(/<[^>]+\bdata-shallot-bootstrap\b/);
+        const startup = html.indexOf('<script src="/startup.js"></script>');
+        const module = html.indexOf('<script type="module"');
+        expect(bootstrap).toBeGreaterThanOrEqual(0);
+        expect(startup).toBeGreaterThan(bootstrap);
+        expect(module).toBeGreaterThan(startup);
+        const styles =
+            html +
+            (example === "embedded-scene"
+                ? await readFile(join(root, "src/style.css"), "utf8")
+                : "");
+        // loading-screen paints its own title card to demonstrate custom loading.
+        const selector =
+            example === "loading-screen" ? "\\.title-card" : "\\[data-shallot-bootstrap\\]";
+        expect(styles).toMatch(new RegExp(`${selector}[^{]*\\{[^}]*background:`));
+        expect(await readFile(join(root, "public/startup.js"), "utf8")).toBe(
+            await readFile("examples/minimal/public/startup.js", "utf8"),
+        );
+    });
     test(`${example} chrome is not page content`, async () => {
         const css = await exampleCss(join("examples", example));
         expect(chromeViolations(css, example === "embedded-scene")).toEqual([]);

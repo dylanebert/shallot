@@ -3,6 +3,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import { type Plugin, World } from "@dylanebert/shallot";
 import { DiagnosticsOverlayPlugin, ProfilePlugin } from "@dylanebert/shallot/extras";
 
+// e88ad2ff: a hidden ProfilePlugin still grants timestamp queries and resolves them every
+// frame, so these six small examples stay unprofiled.
 const exclusions = new Set([
     "minimal",
     "hud",

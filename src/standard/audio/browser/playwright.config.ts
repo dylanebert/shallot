@@ -7,12 +7,12 @@ export default {
     ...BROWSER_CONFIG,
     use: {
         ...BROWSER_CONFIG.use,
-        baseURL: "http://127.0.0.1:4173",
+        baseURL: "http://127.0.0.1:4355",
     },
     webServer: {
-        command: "bunx vite --host 127.0.0.1 --port 4173 --strictPort",
+        command: "bunx vite --host 127.0.0.1 --port 4355 --strictPort",
         cwd: fileURLToPath(new URL(".", import.meta.url)),
-        url: "http://127.0.0.1:4173",
+        url: "http://127.0.0.1:4355",
         ...WEB_SERVER_CONFIG,
     },
 } satisfies PlaywrightTestConfig;

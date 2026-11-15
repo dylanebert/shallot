@@ -4,10 +4,10 @@ import type { PlaywrightTestConfig } from "playwright/test";
 export const config = {
     testDir: ".",
     ...BROWSER_CONFIG,
-    use: { ...BROWSER_CONFIG.use, baseURL: "http://127.0.0.1:4175", deviceScaleFactor: 1 },
+    use: { ...BROWSER_CONFIG.use, baseURL: "http://127.0.0.1:4354", deviceScaleFactor: 1 },
     webServer: {
-        command: "bunx vite --host 127.0.0.1 --port 4175 --strictPort",
-        url: "http://127.0.0.1:4175",
+        command: "bunx vite --host 127.0.0.1 --port 4354 --strictPort",
+        url: "http://127.0.0.1:4354",
         ...WEB_SERVER_CONFIG,
     },
 } satisfies PlaywrightTestConfig;

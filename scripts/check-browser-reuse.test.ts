@@ -17,6 +17,10 @@ test("browser servers refuse to reuse existing processes", () => {
             new Glob("scripts/**/playwright.config.ts").scanSync({ cwd: root }),
             normalizePath,
         ),
+        ...Array.from(
+            new Glob("src/**/playwright.config.ts").scanSync({ cwd: root }),
+            normalizePath,
+        ),
     ].sort();
 
     function walk(node: unknown, visit: (node: Record<string, any>) => void): void {
@@ -39,6 +43,7 @@ test("browser servers refuse to reuse existing processes", () => {
     }
 
     const violations: string[] = [];
+    const ports = new Map<string, string>();
     let servers = 0;
     if (WEB_SERVER_CONFIG.reuseExistingServer !== false)
         violations.push("src/project/testing.js: WEB_SERVER_CONFIG must refuse existing servers");
@@ -77,6 +82,19 @@ test("browser servers refuse to reuse existing processes", () => {
                     `${config}: webServer must be a literal object with reuseExistingServer: false`,
                 );
                 continue;
+            }
+            const url = webServer.properties.find(
+                (property: Record<string, any>) =>
+                    property.type === "ObjectProperty" && propertyName(property.key) === "url",
+            )?.value;
+            const port = url?.type === "StringLiteral" ? new URL(url.value).port : "";
+            if (!port)
+                violations.push(`${config}: webServer must declare a literal URL with a port`);
+            else {
+                const owner = ports.get(port);
+                if (owner && owner !== config)
+                    violations.push(`${config}: port ${port} already belongs to ${owner}`);
+                ports.set(port, config);
             }
             const reuse = webServer.properties.filter(
                 (property: Record<string, any>) =>
