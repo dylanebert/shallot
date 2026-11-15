@@ -1,6 +1,9 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { createApp, type WorldSnapshot } from "../../engine";
 import { VisualCorrection } from "./visual-correction";
+
+setDefaultTimeout(TIMEOUT.node);
 
 test("visual correction decays monotonically across confirmation restore and replay in preFixed", async () => {
     let saved: WorldSnapshot;
