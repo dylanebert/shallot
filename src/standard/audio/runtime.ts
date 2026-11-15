@@ -3,10 +3,10 @@ import { AudioOutput, AudioPlugin, Clips, Listener, registerClip, Sound } from "
 import { type AudioContextState, Devices } from "../../core/input";
 import {
     composeRenderGlobalTransform,
+    observeRenderTransformHistory,
     RenderTransformHistoryPlugin,
     readRenderGlobalTransform,
 } from "../../core/rendering";
-import { observeRenderTransformHistory } from "../../core/rendering/global-transform";
 import { GlobalTransform, PrepareGlobalTransformSystem } from "../../core/transform";
 import type { EntityRef, Plugin, Resource, System, World } from "../../engine";
 import {

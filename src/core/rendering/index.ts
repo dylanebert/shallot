@@ -5,7 +5,10 @@ export { biasClipDepth } from "./depth-bias";
 export {
     composeRenderGlobalTransform,
     GlobalTransformHistory,
+    GlobalTransformHistoryStartSystem,
     globalTransformTable,
+    observeRenderTransformHistory,
+    PrepareGlobalTransformHistorySystem,
     RenderTransformHistory,
     RenderTransformHistoryPlugin,
     readRenderGlobalTransform,

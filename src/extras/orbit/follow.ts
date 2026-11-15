@@ -1,9 +1,9 @@
 import {
+    GlobalTransformHistoryStartSystem,
     RenderTransformHistoryPlugin,
     readRenderGlobalTransform,
     retainRenderTransformHistory,
 } from "../../core/rendering";
-import { GlobalTransformHistoryStartSystem } from "../../core/rendering/global-transform";
 import { GlobalTransform, GlobalTransformTickStartSystem, Transform } from "../../core/transform";
 import type { Plugin, System, World } from "../../engine";
 import { Orbit } from "./index";

@@ -3,11 +3,12 @@ import tgpu, { readFromArrayBuffer, writeToArrayBuffer } from "typegpu";
 import type { AnyWgslData, AnyWgslStruct, WgslArray } from "typegpu/data";
 import * as d from "typegpu/data";
 import { MeshInstance } from "../../core/mesh";
-import { retainRenderTransformHistory, Xform } from "../../core/rendering";
 import {
     GlobalTransformHistoryStartSystem,
     PrepareGlobalTransformHistorySystem,
-} from "../../core/rendering/global-transform";
+    retainRenderTransformHistory,
+    Xform,
+} from "../../core/rendering";
 import {
     GlobalTransform,
     GlobalTransformTickStartSystem,

@@ -12,6 +12,7 @@ import {
     composeRenderGlobalTransform,
     globalTransformTable,
     initialViewSampleCounts,
+    observeRenderTransformHistory,
     PrepassSystem,
     RenderContext,
     RenderPhases,
@@ -20,7 +21,6 @@ import {
     type View,
     type Xform,
 } from "../../core/rendering";
-import { observeRenderTransformHistory } from "../../core/rendering/global-transform";
 import { GlobalTransform } from "../../core/transform";
 import {
     ClearChangeMarksSystem,
