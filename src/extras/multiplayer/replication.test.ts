@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { component, entity, f32, u32, vec3, World } from "../../engine";
+import { component, entity, f16, f32, i32, u8, u16, u32, vec3, World } from "../../engine";
 import {
     Replicate,
     type ReplicatedRows,
@@ -22,6 +22,7 @@ function exercise(
         rows: ReplicatedRows,
         expected: Map<number, number[]>,
         tick: number,
+        target: number[] | null | undefined,
     ) => void,
 ) {
     const server = new World();
@@ -44,10 +45,11 @@ function exercise(
     ];
     const sender = new ReplicationSender(server, schema, rules, 1, link.a);
     const expected = new Map<number, Map<number, number[]>>();
+    const references = new Map<number, number[] | null | undefined>();
     const confirmed: number[] = [];
     const receiver = new ReplicationReceiver(client, schema, link.b, (tick, rows) => {
         confirmed.push(tick);
-        check(server, client, receiver, rows, expected.get(tick)!, tick);
+        check(server, client, receiver, rows, expected.get(tick)!, tick, references.get(tick));
     });
     try {
         for (let tick = 0; tick < 80; tick++) {
@@ -72,6 +74,11 @@ function exercise(
                     const p = server.get(eid, Position)!;
                     snapshot.set(eid, [...p.value, p.count]);
                 }
+                const target = server.get(owner, Target)?.target;
+                references.set(
+                    tick,
+                    target === undefined ? undefined : target === 0 ? null : snapshot.get(target)!,
+                );
                 expected.set(tick, snapshot);
                 sender.record(tick);
                 sender.flush();
@@ -116,13 +123,18 @@ test("every confirmed tick equals authoritative rows through loss, duplication a
 });
 
 test("entity references resolve in the receiver's eid space across despawn and eid reuse", () => {
-    exercise(0, (_s, c, r, rows) => {
-        for (const [id, row] of rows) {
-            const target = row.get(1)?.[0];
-            if (target === undefined) continue;
-            expect(c.get(r.entities.get(id)!, Target)!.target).toBe(r.entities.get(target) ?? 0);
-            if (target) expect(c.has(r.entities.get(target)!, Position)).toBe(true);
+    exercise(0, (_s, c, _r, _rows, _expected, _tick, authoritative) => {
+        const owners = [...c.query([Target])];
+        expect(owners.length).toBe(authoritative === undefined ? 0 : 1);
+        if (authoritative === undefined) return;
+        const target = c.get(owners[0]!, Target)!.target;
+        if (authoritative === null) {
+            expect(target).toBe(0);
+            return;
         }
+        expect(target).not.toBe(0);
+        const position = c.get(target, Position)!;
+        expect([...position.value, position.count]).toEqual(authoritative);
     });
 });
 
@@ -186,5 +198,89 @@ test("values are resent against acknowledged fields and each recipient has its o
     } finally {
         server.dispose();
         for (const client of clients) client.dispose();
+    }
+});
+
+test("input before the image cannot acknowledge an unconfirmed tick", () => {
+    const server = new World(),
+        client = new World();
+    try {
+        const link = seededLink(1, { minDelay: 0, maxDelay: 0, loss: 0, duplication: 0 });
+        const sender = new ReplicationSender(server, [], [], 1, link.a);
+        const receiver = new ReplicationReceiver(client, [], link.b);
+        sender.record(0);
+        const legacyInput = new Uint8Array(4);
+        const input = new Uint8Array([4, 0, 0, 0, 17]);
+        link.b.send(legacyInput);
+        link.b.send(input);
+        const unhandled = sender.flush();
+        expect(unhandled).toContainEqual(legacyInput);
+        expect(unhandled).toContainEqual(input);
+        const operation = new Uint8Array([5, 0, 0, 0, 42]);
+        link.a.send(operation);
+        expect(receiver.flush()).toEqual([operation]);
+        expect(receiver.confirmed).toBe(0);
+    } finally {
+        server.dispose();
+        client.dispose();
+    }
+});
+
+test("declared widths round-trip signed integers, half floats, vectors and wire references", () => {
+    const Values = component("NetworkTestWidths", {
+        float: f32,
+        half: f16,
+        signed: i32,
+        unsigned: u32,
+        short: u16,
+        byte: u8,
+        vector: vec3,
+        target: entity,
+    });
+    const server = new World(),
+        client = new World();
+    try {
+        client.create();
+        const eid = server.create();
+        server.add(eid, Replicate);
+        server.add(eid, Values, {
+            float: -1.25,
+            half: 0.333,
+            signed: -2147483648,
+            unsigned: 4294967295,
+            short: 65535,
+            byte: 255,
+            vector: [1.5, -2.5, 3.5],
+            target: eid,
+        });
+        const link = seededLink(1, { minDelay: 0, maxDelay: 0, loss: 0, duplication: 0 });
+        const sender = new ReplicationSender(
+            server,
+            [Values],
+            [new Map([[1, [Values]]])],
+            1,
+            link.a,
+        );
+        const receiver = new ReplicationReceiver(client, [Values], link.b);
+        sender.record(5);
+        sender.flush();
+        const image = link.b.receive()[0]!;
+        expect(image.length).toBe(109);
+        link.a.send(image);
+        receiver.flush();
+        sender.flush();
+        const local = receiver.entities.values().next().value!;
+        expect(client.get(local, Values)).toEqual({ ...server.get(eid, Values)!, target: local });
+        expect(() => sender.record(7)).toThrow("consecutive");
+        sender.record(6);
+        sender.flush();
+        const frame = link.b.receive()[0]!;
+        expect(frame.length).toBe(36);
+        link.a.send(frame);
+        receiver.flush();
+        expect(receiver.confirmed).toBe(6);
+    } finally {
+        server.dispose();
+        client.dispose();
     }
 });

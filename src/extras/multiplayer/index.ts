@@ -3,6 +3,7 @@ import {
     component,
     type EntityRef,
     entity,
+    type FieldType,
     type Plugin,
     u32,
     type World,
@@ -31,12 +32,66 @@ interface Packet extends Version {
     image: boolean;
 }
 
+/** Little-endian u32 message kinds. Other kinds belong to the application; flush returns them unchanged. */
+export const ReplicationMessageKind = { Image: 1, Frame: 2, Acknowledgement: 3 } as const;
+
 function layout(schema: ReplicationSchema) {
     return schema.map((c) =>
         fields(c).flatMap(({ field }) =>
-            Array.from({ length: field.components ?? field.lanes }, () => field === entity),
+            Array<FieldType>(field.components ?? field.lanes).fill(field === entity ? u32 : field),
         ),
     );
+}
+
+function writeField(view: DataView, offset: number, field: FieldType, value: number) {
+    const raw = field.encode ? field.encode(value) : value;
+    switch (field.ctor) {
+        case Float32Array:
+            view.setFloat32(offset, raw, true);
+            break;
+        case Float64Array:
+            view.setFloat64(offset, raw, true);
+            break;
+        case Int32Array:
+            view.setInt32(offset, raw, true);
+            break;
+        case Uint32Array:
+            view.setUint32(offset, raw, true);
+            break;
+        case Uint16Array:
+            view.setUint16(offset, raw, true);
+            break;
+        case Uint8Array:
+            view.setUint8(offset, raw);
+            break;
+    }
+}
+
+function readField(view: DataView, offset: number, field: FieldType): number {
+    let raw: number;
+    switch (field.ctor) {
+        case Float32Array:
+            raw = view.getFloat32(offset, true);
+            break;
+        case Float64Array:
+            raw = view.getFloat64(offset, true);
+            break;
+        case Int32Array:
+            raw = view.getInt32(offset, true);
+            break;
+        case Uint32Array:
+            raw = view.getUint32(offset, true);
+            break;
+        case Uint16Array:
+            raw = view.getUint16(offset, true);
+            break;
+        case Uint8Array:
+            raw = view.getUint8(offset);
+            break;
+        default:
+            throw new Error("Unsupported replicated field type");
+    }
+    return field.decode ? field.decode(raw) : raw;
 }
 
 /** Captures only declared fields; references outside the recipient's disclosure become null. */
@@ -85,10 +140,14 @@ function capture(
     return rows;
 }
 
-// u32 framing and f64 field values preserve every CPU field, including decoded f16 values.
-function encode(packet: Packet, base: ReplicatedRows): Uint8Array {
-    const words: number[] = [packet.image ? 1 : 2, packet.tick, packet.base, packet.rows.size];
-    const values: number[] = [];
+function encode(packet: Packet, base: ReplicatedRows, types: FieldType[][]): Uint8Array {
+    const words: number[] = [
+        packet.image ? ReplicationMessageKind.Image : ReplicationMessageKind.Frame,
+        packet.tick,
+        packet.base,
+        packet.rows.size,
+    ];
+    const values: { value: number; field: FieldType }[] = [];
     for (const [id, row] of packet.rows) {
         words.push(id, row.size);
         for (const [c, fields] of row) {
@@ -99,38 +158,46 @@ function encode(packet: Packet, base: ReplicatedRows): Uint8Array {
             words.push(c, changed.length);
             for (const i of changed) {
                 words.push(i);
-                values.push(fields[i]!);
+                values.push({ value: fields[i]!, field: types[c]![i]! });
             }
         }
     }
-    const bytes = new Uint8Array(4 + words.length * 4 + values.length * 8);
+    const bytes = new Uint8Array(
+        4 + words.length * 4 + values.reduce((size, v) => size + v.field.ctor.BYTES_PER_ELEMENT, 0),
+    );
     const view = new DataView(bytes.buffer);
-    view.setUint32(0, words.length, true);
-    words.forEach((v, i) => {
-        view.setUint32(4 + i * 4, v, true);
-    });
-    values.forEach((v, i) => {
-        view.setFloat64(4 + words.length * 4 + i * 8, v, true);
-    });
+    view.setUint32(0, words[0]!, true);
+    view.setUint32(4, words.length, true);
+    for (let i = 1; i < words.length; i++) view.setUint32(4 + i * 4, words[i]!, true);
+    let offset = 4 + words.length * 4;
+    for (const { value, field } of values) {
+        writeField(view, offset, field, value);
+        offset += field.ctor.BYTES_PER_ELEMENT;
+    }
     return bytes;
 }
 
-function decode(bytes: Uint8Array, versions: Map<number, ReplicatedRows>, sizes: number[]): Packet {
+function decode(
+    bytes: Uint8Array,
+    versions: Map<number, ReplicatedRows>,
+    types: FieldType[][],
+): Packet {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    const count = view.getUint32(0, true);
-    let offset = 4;
+    const kind = view.getUint32(0, true);
+    const count = view.getUint32(4, true);
+    let offset = 8;
     let valueOffset = 4 + count * 4;
     const word = () => {
         const v = view.getUint32(offset, true);
         offset += 4;
         return v;
     };
-    const kind = word(),
-        tick = word(),
+    const tick = word(),
         base = word(),
         entities = word();
-    if (kind !== 1 && kind !== 2) throw new Error("Invalid replication packet");
-    const baseline = kind === 1 ? new Map() : versions.get(base);
+    if (kind !== ReplicationMessageKind.Image && kind !== ReplicationMessageKind.Frame)
+        throw new Error("Invalid replication packet");
+    const baseline = kind === ReplicationMessageKind.Image ? new Map() : versions.get(base);
     if (!baseline) throw new Error("Missing replication baseline");
     const rows: ReplicatedRows = new Map();
     for (let e = 0; e < entities; e++) {
@@ -140,14 +207,16 @@ function decode(bytes: Uint8Array, versions: Map<number, ReplicatedRows>, sizes:
         for (let c = 0; c < components; c++) {
             const index = word(),
                 changes = word();
-            const size = sizes[index];
-            if (size === undefined) throw new Error("Unknown replicated component");
+            const componentTypes = types[index];
+            if (componentTypes === undefined) throw new Error("Unknown replicated component");
+            const size = componentTypes.length;
             const values = baseline.get(id)?.get(index)?.slice() ?? Array<number>(size).fill(0);
             for (let f = 0; f < changes; f++) {
                 const lane = word();
                 if (lane >= size) throw new Error("Invalid replicated field");
-                values[lane] = view.getFloat64(valueOffset, true);
-                valueOffset += 8;
+                const field = componentTypes[lane]!;
+                values[lane] = readField(view, valueOffset, field);
+                valueOffset += field.ctor.BYTES_PER_ELEMENT;
             }
             row.set(index, values);
         }
@@ -155,10 +224,10 @@ function decode(bytes: Uint8Array, versions: Map<number, ReplicatedRows>, sizes:
     }
     if (offset !== 4 + count * 4 || valueOffset !== bytes.length)
         throw new Error("Invalid replication size");
-    return { tick, base, rows, image: kind === 1 };
+    return { tick, base, rows, image: kind === ReplicationMessageKind.Image };
 }
 
-/** One recipient's acknowledged history. Call record once per authoritative tick, flush to retry. */
+/** One recipient's acknowledged history. record starts at any nonnegative tick and refuses gaps thereafter; flush retries pending ticks. */
 export class ReplicationSender {
     private _identities = new Map<EntityRef, number>();
     private _next = { value: 1 };
@@ -184,8 +253,13 @@ export class ReplicationSender {
         this.connection = connection;
     }
     record(tick: number) {
-        if (!Number.isInteger(tick) || tick <= this._last || tick >= 0xffffffff)
-            throw new Error("Replication ticks must increase");
+        if (
+            !Number.isInteger(tick) ||
+            tick < 0 ||
+            tick >= 0xffffffff ||
+            (this._last >= 0 && tick !== this._last + 1)
+        )
+            throw new Error("Replication ticks must be consecutive nonnegative integers");
         const rows = capture(
             this.world,
             this.schema,
@@ -199,20 +273,30 @@ export class ReplicationSender {
         // Until the image is acknowledged subsequent frames use its rows, not an empty baseline.
         const base = baseline ?? this._pending.values().next().value?.version;
         const packet = { tick, rows, image, base: image ? tick : base!.tick };
-        const bytes = encode(packet, image ? new Map() : base!.rows);
+        const bytes = encode(packet, image ? new Map() : base!.rows, layout(this.schema));
         this._pending.set(tick, { version: { tick, rows }, bytes });
         this._last = tick;
     }
-    flush() {
+    /** Retries pending frames and returns non-acknowledgement messages for application routing. */
+    flush(): Uint8Array[] {
+        const unhandled: Uint8Array[] = [];
         for (const bytes of this.connection.receive()) {
-            if (bytes.length !== 4) continue;
-            const tick = new DataView(bytes.buffer, bytes.byteOffset, 4).getUint32(0, true);
+            const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+            if (
+                bytes.length !== 8 ||
+                view.getUint32(0, true) !== ReplicationMessageKind.Acknowledgement
+            ) {
+                unhandled.push(bytes);
+                continue;
+            }
+            const tick = view.getUint32(4, true);
             const version = this._pending.get(tick)?.version;
             if (!version) continue;
             this._acknowledged = version;
             for (const old of this._pending.keys()) if (old <= tick) this._pending.delete(old);
         }
         for (const { bytes } of this._pending.values()) this.connection.send(bytes);
+        return unhandled;
     }
 }
 
@@ -237,10 +321,17 @@ export class ReplicationReceiver {
         this.connection = connection;
         this.confirm = confirm;
     }
-    flush() {
+    /** Applies confirmations and returns other message kinds for application routing. */
+    flush(): Uint8Array[] {
+        const unhandled: Uint8Array[] = [];
         for (const bytes of this.connection.receive()) {
-            if (bytes.length < 20) continue;
             const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+            const kind = bytes.length >= 4 ? view.getUint32(0, true) : 0;
+            if (kind !== ReplicationMessageKind.Image && kind !== ReplicationMessageKind.Frame) {
+                unhandled.push(bytes);
+                continue;
+            }
+            if (bytes.length < 20) throw new Error("Truncated replication packet");
             const tick = view.getUint32(8, true);
             if (tick <= this.confirmed) continue;
             this._pending.set(tick, bytes);
@@ -251,12 +342,9 @@ export class ReplicationReceiver {
             const bytes = this._pending.get(tick);
             if (!bytes) break;
             const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-            if (this.confirmed < 0 && view.getUint32(4, true) !== 1) break;
-            const packet = decode(
-                bytes,
-                this._versions,
-                layout(this.schema).map((f) => f.length),
-            );
+            if (this.confirmed < 0 && view.getUint32(0, true) !== ReplicationMessageKind.Image)
+                break;
+            const packet = decode(bytes, this._versions, layout(this.schema));
             this._write(packet.rows);
             this._versions.set(tick, packet.rows);
             for (const old of this._versions.keys())
@@ -266,10 +354,13 @@ export class ReplicationReceiver {
             this.confirm(tick, packet.rows);
         }
         if (this.confirmed >= 0) {
-            const ack = new Uint8Array(4);
-            new DataView(ack.buffer).setUint32(0, this.confirmed, true);
+            const ack = new Uint8Array(8);
+            const view = new DataView(ack.buffer);
+            view.setUint32(0, ReplicationMessageKind.Acknowledgement, true);
+            view.setUint32(4, this.confirmed, true);
             this.connection.send(ack);
         }
+        return unhandled;
     }
     private _write(rows: ReplicatedRows) {
         for (const [id, eid] of this.entities)

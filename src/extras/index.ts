@@ -51,6 +51,7 @@ export {
     MultiplayerPlugin,
     Replicate,
     type ReplicatedRows,
+    ReplicationMessageKind,
     ReplicationReceiver,
     type ReplicationRules,
     type ReplicationSchema,
