@@ -1,7 +1,6 @@
 import type { Resource, World } from "../../engine";
 import { component, f32, u32 } from "../../engine";
 import { Transform } from "../transform";
-import { RenderTransformHistory } from "./global-transform";
 
 /** Ambient illumination used unless a camera carries an {@link AmbientLight} override. */
 export interface GlobalAmbientLightState {
@@ -51,7 +50,7 @@ export const DirectionalLight = component(
             depthBias: 0.02,
             shadowNormalBias: 1.8,
         }),
-        requires: [Transform, RenderTransformHistory],
+        requires: [Transform],
     },
 );
 
@@ -79,7 +78,7 @@ export const PointLight = component(
             depthBias: 0.08,
             shadowNormalBias: 0.6,
         }),
-        requires: [Transform, RenderTransformHistory],
+        requires: [Transform],
     },
 );
 
@@ -117,7 +116,7 @@ export const SpotLight = component(
             depthBias: 0.02,
             shadowNormalBias: 1.8,
         }),
-        requires: [Transform, RenderTransformHistory],
+        requires: [Transform],
     },
 );
 

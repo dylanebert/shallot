@@ -87,7 +87,10 @@ import {
     type MaterialType,
     MaterialTypes,
     materialSource,
+    observeTransparentHistoryAlpha,
+    PrepareTransparentTransformHistorySystem,
     pipelineKey,
+    recoverTransparentTransformHistory,
     registerMaterialType,
     rethrowMaterialError,
     TransparentMeshes,
@@ -981,6 +984,7 @@ function queueTransparent(world: World, eid: number, view: View, phase: Transpar
         const source = sources[materials.type.get(instanceEid)];
         const row = materials.material.get(instanceEid);
         const alphaMode = source?.alphaMode(row) ?? materials.alphaMode.get(instanceEid);
+        observeTransparentHistoryAlpha(world, instanceEid, alphaMode);
         if (!transparentAlpha(alphaMode)) continue;
         const meshId = instances.mesh.get(instanceEid);
         const mesh = meshRegistry.get(meshId as MeshHandle);
@@ -1435,10 +1439,11 @@ export const StandardRenderingPlugin: Plugin = {
         features: ["indirect-first-instance"],
     },
     name: "StandardRendering",
-    recovery: "stateless",
+    recovery: recoverTransparentTransformHistory,
     components: [StandardRenderer, CameraBackground, ShadowCamera],
     systems: [
         EnrollTransparentTransformHistorySystem,
+        PrepareTransparentTransformHistorySystem,
         PackLightingSystem,
         PackSpotAttenuationSystem,
         UpdateLightClustersSystem,

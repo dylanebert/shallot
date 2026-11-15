@@ -15,12 +15,12 @@ import {
     PrepassSystem,
     RenderContext,
     RenderPhases,
-    RenderTransformHistory,
     renderLayers,
     type TransparentPhase,
     type View,
     type Xform,
 } from "../../core/rendering";
+import { observeRenderTransformHistory } from "../../core/rendering/global-transform";
 import { GlobalTransform } from "../../core/transform";
 import {
     ClearChangeMarksSystem,
@@ -114,7 +114,6 @@ export const Text = component(
         color: f32,
     },
     {
-        requires: [RenderTransformHistory],
         defaults: () => ({
             content: 0,
             font: 0,
@@ -688,6 +687,7 @@ export const TextPlugin: Plugin = {
             }),
         );
 
+        observeRenderTransformHistory(world, Text);
         _textState.sampler = device.createSampler({
             label: "text",
             magFilter: "linear",

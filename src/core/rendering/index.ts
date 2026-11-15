@@ -9,6 +9,7 @@ export {
     RenderTransformHistory,
     RenderTransformHistoryPlugin,
     readRenderGlobalTransform,
+    retainRenderTransformHistory,
 } from "./global-transform";
 export {
     CompressedImageFormats,

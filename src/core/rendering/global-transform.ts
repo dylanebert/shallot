@@ -2,7 +2,14 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { Plugin } from "../../engine";
-import { component, type GpuTable, type Resource, type System, type World } from "../../engine/ecs";
+import {
+    type Component,
+    component,
+    type GpuTable,
+    type Resource,
+    type System,
+    type World,
+} from "../../engine/ecs";
 import { composeMat4 } from "../../engine/utils";
 import {
     GlobalTransform,
@@ -21,12 +28,19 @@ import {
 import { Xform } from "./xform";
 
 /** Enrolls CPU rendered-placement history. Add before the first fixed sample a CPU
- * reader needs; remove when no reader needs it. GPU-only placement needs no enrollment.
+ * reader needs; remove when that explicit request ends. Automatic readers own separate
+ * retainRenderTransformHistory leases and never add or remove this marker.
  * Without enrollment, readRenderGlobalTransform reads current placement plus correction. */
 export const RenderTransformHistory = component("RenderTransformHistory", {});
 const terms = [GlobalTransform];
 const cpuTerms = [GlobalTransform, RenderTransformHistory];
-type CpuHistory = { eid: number; previous: Float32Array; current: Float32Array; captured: boolean };
+type CpuHistory = {
+    eid: number;
+    index: number;
+    previous: Float32Array;
+    current: Float32Array;
+    captured: boolean;
+};
 const layout = tgpu.bindGroupLayout({
     current: { storage: d.arrayOf(Xform), access: "readonly" },
     previous: { storage: d.arrayOf(Xform), access: "readonly" },
@@ -68,6 +82,7 @@ export interface GlobalTransformRuntime {
     stages: (GPUBuffer | undefined)[];
     cpuPrepared: boolean;
     cpuHistory: Map<number, CpuHistory>;
+    cpuRequests: Map<number, { count: number }>;
     cpuReaders: CpuHistory[];
     scratch: Float32Array;
     source: Float32Array;
@@ -92,6 +107,7 @@ export const GlobalTransformHistory: Resource<GlobalTransformRuntime> = {
             stages: new Array(2),
             cpuPrepared: false,
             cpuHistory: new Map(),
+            cpuRequests: new Map(),
             cpuReaders: [],
             scratch: new Float32Array(12),
             source: new Float32Array(0),
@@ -111,29 +127,9 @@ export const GlobalTransformHistory: Resource<GlobalTransformRuntime> = {
                 runtime.historyDiscarded = false;
             },
         };
-        const enroll = (eid: number) => {
-            if (world.has(eid, GlobalTransform) && world.has(eid, RenderTransformHistory)) {
-                if (!runtime.cpuHistory.has(eid)) {
-                    const history = {
-                        eid,
-                        previous: new Float32Array(12),
-                        current: new Float32Array(12),
-                        captured: false,
-                    };
-                    runtime.cpuHistory.set(eid, history);
-                    runtime.cpuReaders.push(history);
-                }
-            } else {
-                const history = runtime.cpuHistory.get(eid);
-                if (history) {
-                    const index = runtime.cpuReaders.indexOf(history);
-                    runtime.cpuReaders[index] = runtime.cpuReaders[runtime.cpuReaders.length - 1]!;
-                    runtime.cpuReaders.pop();
-                    runtime.cpuHistory.delete(eid);
-                }
-            }
-        };
+        const enroll = (eid: number) => syncCpuHistory(world, runtime, eid);
         world.observeMembership(GlobalTransform, (eid, present) => {
+            if (!present) runtime.cpuRequests.delete(eid);
             enroll(eid);
             if (present && runtime.enabled) resetInterpolation(world, eid);
         });
@@ -142,6 +138,77 @@ export const GlobalTransformHistory: Resource<GlobalTransformRuntime> = {
         return runtime;
     },
 };
+function syncCpuHistory(world: World, runtime: GlobalTransformRuntime, eid: number): void {
+    const requested = world.has(eid, RenderTransformHistory) || runtime.cpuRequests.has(eid);
+    if (world.has(eid, GlobalTransform) && requested) {
+        if (!runtime.cpuHistory.has(eid)) {
+            const history = {
+                eid,
+                index: runtime.cpuReaders.length,
+                previous: new Float32Array(12),
+                current: new Float32Array(12),
+                captured: false,
+            };
+            runtime.cpuHistory.set(eid, history);
+            runtime.cpuReaders.push(history);
+        }
+    } else {
+        const history = runtime.cpuHistory.get(eid);
+        if (history) {
+            const last = runtime.cpuReaders[runtime.cpuReaders.length - 1]!;
+            runtime.cpuReaders[history.index] = last;
+            last.index = history.index;
+            runtime.cpuReaders.pop();
+            runtime.cpuHistory.delete(eid);
+        }
+    }
+}
+/** Retains CPU fixed samples for a live GlobalTransform before their first rendered read.
+ * Each request has its own idempotent release function. The last release frees samples
+ * unless an explicit RenderTransformHistory marker remains. Removing GlobalTransform
+ * ends all leases; a later placement or reused eid needs a new request. Requires
+ * RenderTransformHistoryPlugin (included by RenderingPlugin), and no GPU. */
+export function retainRenderTransformHistory(world: World, eid: number): () => void {
+    if (!world.has(eid, GlobalTransform))
+        throw new Error("retainRenderTransformHistory requires GlobalTransform");
+    const runtime = world.resource(GlobalTransformHistory);
+    let request = runtime.cpuRequests.get(eid);
+    if (!request) {
+        request = { count: 0 };
+        runtime.cpuRequests.set(eid, request);
+    }
+    request.count++;
+    syncCpuHistory(world, runtime, eid);
+    let active = true;
+    return () => {
+        if (!active) return;
+        active = false;
+        if (runtime.cpuRequests.get(eid) !== request) return;
+        if (--request.count === 0) runtime.cpuRequests.delete(eid);
+        syncCpuHistory(world, runtime, eid);
+    };
+}
+/** @internal A component owns its lease only while it and GlobalTransform are present. */
+export function observeRenderTransformHistory(world: World, component: Component): void {
+    const requests = new Map<number, () => void>();
+    const update = (eid: number) => {
+        if (world.has(eid, component) && world.has(eid, GlobalTransform)) {
+            if (!requests.has(eid)) requests.set(eid, retainRenderTransformHistory(world, eid));
+        } else {
+            requests.get(eid)?.();
+            requests.delete(eid);
+        }
+    };
+    const stopComponent = world.observeMembership(component, update);
+    const stopPlacement = world.observeMembership(GlobalTransform, update);
+    for (const eid of world.query([component])) update(eid);
+    world.onDispose(() => {
+        stopComponent();
+        stopPlacement();
+        for (const release of requests.values()) release();
+        requests.clear();
+    });
+}
 /** Captures initial derived placement before every ordinary fixed system. */
 export const GlobalTransformHistoryStartSystem: System = {
     group: "fixed",
@@ -259,7 +326,8 @@ export function globalTransformTable(world: World): GpuTable<typeof Xform> {
 }
 /** The CPU source of rendered entity placement: a caller-owned 12-float Xform record
  * (position at 0, xyzw quaternion at 4, scale at 8), including VisualCorrection.
- * RenderTransformHistory enrolls fixed samples ahead of the first read; its plugin
+ * RenderTransformHistory or retainRenderTransformHistory enrolls fixed samples ahead
+ * of the first read; the history plugin
  * works without a GPU. Without enrollment, before capture, or after a frame-authored
  * write, reads use current placement. No GPU readback is performed. */
 export function readRenderGlobalTransform(world: World, eid: number, out: Float32Array): void {

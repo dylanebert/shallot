@@ -15,7 +15,7 @@ import {
     StandardRenderingPlugin,
 } from "../../standard/rendering";
 import { Meshes, MeshInstance } from "../mesh";
-import { Transform } from "../transform";
+import { GlobalTransform, Transform } from "../transform";
 import {
     attachTexture,
     Camera,
@@ -26,6 +26,7 @@ import {
     TransparentPhases,
     VisualCorrection,
 } from ".";
+import { GlobalTransformHistory, RenderTransformHistory } from "./global-transform";
 
 setDefaultTimeout(TIMEOUT.node);
 let font = 0;
@@ -236,6 +237,48 @@ test("transparent mesh culling and mesh/text sorting use corrected rendered plac
     expect(phase.length).toBe(2);
     expect(phase.item(0).stableId).toBe(middle);
     expect(phase.item(1).stableId).toBe(label);
+});
+
+test("transparent history retires on opacity or unreadability without ending explicit enrollment", () => {
+    const {
+        world,
+        scene: { nearMaterial },
+    } = subject();
+    const opaque = world.resource(Materials).add(StandardMaterial({ unlit: true }));
+    const eid = world.create();
+    world.add(eid, Transform);
+    world.add(eid, MeshInstance);
+    world.add(eid, MeshMaterial, nearMaterial);
+    world.step(1 / 60);
+    const history = world.resource(GlobalTransformHistory).cpuHistory;
+    expect(history.has(eid)).toBe(true);
+    world.add(eid, MeshMaterial, opaque);
+    world.step(0);
+    expect(history.has(eid)).toBe(false);
+    const opaqueSnapshot = world.snapshot();
+    world.add(eid, MeshMaterial, nearMaterial);
+    world.step(1 / 60);
+    expect(history.has(eid)).toBe(true);
+    world.restore(opaqueSnapshot);
+    expect(history.has(eid)).toBe(false);
+    world.add(eid, MeshMaterial, nearMaterial);
+    world.step(1 / 60);
+    expect(history.has(eid)).toBe(true);
+    world.remove(eid, GlobalTransform);
+    expect(history.has(eid)).toBe(false);
+    world.add(eid, GlobalTransform);
+    world.step(1 / 60);
+    expect(history.has(eid)).toBe(true);
+    world.remove(eid, MeshInstance);
+    expect(history.has(eid)).toBe(false);
+    world.add(eid, MeshInstance);
+    world.add(eid, RenderTransformHistory);
+    world.step(1 / 60);
+    world.add(eid, MeshMaterial, opaque);
+    world.step(0);
+    expect(history.has(eid)).toBe(true);
+    world.remove(eid, RenderTransformHistory);
+    expect(history.has(eid)).toBe(false);
 });
 
 test("gizmos of one asset draw once after a transparent mesh regardless of instance depth", async () => {

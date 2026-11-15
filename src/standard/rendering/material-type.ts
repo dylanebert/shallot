@@ -3,9 +3,16 @@ import tgpu, { readFromArrayBuffer, writeToArrayBuffer } from "typegpu";
 import type { AnyWgslData, AnyWgslStruct, WgslArray } from "typegpu/data";
 import * as d from "typegpu/data";
 import { MeshInstance } from "../../core/mesh";
-import { RenderTransformHistory, Xform } from "../../core/rendering";
-import { GlobalTransformHistoryStartSystem } from "../../core/rendering/global-transform";
-import { GlobalTransform, GlobalTransformTickStartSystem } from "../../core/transform";
+import { retainRenderTransformHistory, Xform } from "../../core/rendering";
+import {
+    GlobalTransformHistoryStartSystem,
+    PrepareGlobalTransformHistorySystem,
+} from "../../core/rendering/global-transform";
+import {
+    GlobalTransform,
+    GlobalTransformTickStartSystem,
+    PrepareGlobalTransformSystem,
+} from "../../core/transform";
 import type { GpuTable, Plugin, Resource, System, World } from "../../engine";
 import { type ComponentStorage, type LaneFormat, laneLayout, writeLane } from "../../engine/ecs";
 import { validateBindingLimits } from "./binding-limits";
@@ -1155,6 +1162,10 @@ export const TransparentMeshes = {
         const candidates = new Set<number>();
         const external: Set<number>[] = [];
         const keys: number[] = [];
+        const observers: ((eid: number) => void)[] = [];
+        const notify = (eid: number) => {
+            for (let i = 0; i < observers.length; i++) observers[i]!(eid);
+        };
         const storage = world.storage(MeshMaterial);
         const { types, sources } = world.resource(MaterialTypes);
         const refresh = (eid: number) => {
@@ -1171,20 +1182,32 @@ export const TransparentMeshes = {
             )
                 candidates.add(eid);
             else candidates.delete(eid);
+            notify(eid);
         };
         for (const component of [MeshInstance, GlobalTransform]) {
             world.observeMembership(component, (eid, present) => {
                 if (present && world.has(eid, MeshMaterial)) refresh(eid);
-                else candidates.delete(eid);
+                else {
+                    candidates.delete(eid);
+                    notify(eid);
+                }
             });
         }
         world.observeMembership(MeshMaterial, (eid, present) => {
             if (present) return;
             candidates.delete(eid);
             for (const members of external) members?.delete(eid);
+            notify(eid);
         });
         return {
             candidates,
+            observe(callback: (eid: number) => void) {
+                observers.push(callback);
+                return () => {
+                    const index = observers.indexOf(callback);
+                    if (index >= 0) observers.splice(index, 1);
+                };
+            },
             reconcile(eid: number) {
                 for (const members of external) members?.delete(eid);
                 const type = storage.type.get(eid);
@@ -1203,6 +1226,70 @@ export const TransparentMeshes = {
     },
 };
 
+const transparentHistory = {
+    create(world: World) {
+        const readers = new Map<number, () => void>();
+        const meshes = world.resource(TransparentMeshes);
+        const material = world.storage(MeshMaterial);
+        const { types, sources } = world.resource(MaterialTypes);
+        const update = (eid: number, alpha?: number) => {
+            let mode: number = AlphaModeCode.Opaque;
+            if (meshes.candidates.has(eid)) {
+                if (alpha !== undefined) mode = alpha;
+                else {
+                    const type = material.type.get(eid);
+                    const source = types[type]?.source ? sources[type] : undefined;
+                    mode = source
+                        ? source.alphaMode(material.material.get(eid))
+                        : material.alphaMode.get(eid);
+                }
+            }
+            const readable =
+                mode === AlphaModeCode.Blend ||
+                mode === AlphaModeCode.Premultiplied ||
+                mode === AlphaModeCode.Multiply;
+            if (readable) {
+                if (!readers.has(eid)) readers.set(eid, retainRenderTransformHistory(world, eid));
+            } else {
+                readers.get(eid)?.();
+                readers.delete(eid);
+            }
+        };
+        const stop = meshes.observe(update);
+        for (const eid of meshes.candidates) update(eid);
+        const clear = () => {
+            for (const release of readers.values()) release();
+            readers.clear();
+        };
+        world.onDispose(() => {
+            stop();
+            clear();
+        });
+        return {
+            update,
+            clear,
+            refresh(externalOnly: boolean) {
+                if (!meshes.candidates.size) return;
+                for (const eid of meshes.candidates)
+                    if (!externalOnly || types[material.type.get(eid)]?.source) update(eid);
+            },
+        };
+    },
+};
+/** @internal The queue has already read the live source alpha; include late source changes. */
+export function observeTransparentHistoryAlpha(world: World, eid: number, alpha: number): void {
+    world.resource(transparentHistory).update(eid, alpha);
+}
+function updateTransparentHistory(world: World): void {
+    const history = world.resource(transparentHistory);
+    copyMeshAlpha(world);
+    history.refresh(false);
+}
+/** @internal Leases are derived from restored material membership, not snapshot state. */
+export function recoverTransparentTransformHistory(world: World) {
+    const history = world.resource(transparentHistory);
+    return { snapshot: () => undefined, restore: history.clear };
+}
 /** @internal Enroll CPU transparent bounds before their first fixed sample. */
 export const EnrollTransparentTransformHistorySystem: System = {
     name: "enroll-transparent-transform-history",
@@ -1210,23 +1297,17 @@ export const EnrollTransparentTransformHistorySystem: System = {
     boundary: "before",
     after: [GlobalTransformTickStartSystem],
     before: [GlobalTransformHistoryStartSystem],
+    update: updateTransparentHistory,
+};
+/** @internal Install ownership before head-of-draw alpha reconciliation, including no-tick frames. */
+export const PrepareTransparentTransformHistorySystem: System = {
+    name: "prepare-transparent-transform-history",
+    group: "draw",
+    boundary: "before",
+    after: [PrepareGlobalTransformSystem],
+    before: [PrepareGlobalTransformHistorySystem],
     update(world) {
-        copyMeshAlpha(world);
-        const material = world.storage(MeshMaterial);
-        const sources = world.resource(MaterialTypes).sources;
-        for (const eid of world.resource(TransparentMeshes).candidates) {
-            const source = sources[material.type.get(eid)];
-            const mode = source
-                ? source.alphaMode(material.material.get(eid))
-                : material.alphaMode.get(eid);
-            if (
-                (mode === AlphaModeCode.Blend ||
-                    mode === AlphaModeCode.Premultiplied ||
-                    mode === AlphaModeCode.Multiply) &&
-                !world.has(eid, RenderTransformHistory)
-            )
-                world.add(eid, RenderTransformHistory);
-        }
+        world.resource(transparentHistory).refresh(true);
     },
 };
 

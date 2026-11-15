@@ -2,13 +2,14 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { disposeGpuApps, gpuApps } from "../../../scripts/gpu.fixture";
 import { Time } from "../../engine";
-import { Transform } from "../transform";
+import { GlobalTransform, Transform } from "../transform";
 import {
     GlobalTransformHistory,
     RenderTransformHistory,
     readRenderGlobalTransform,
+    retainRenderTransformHistory,
 } from "./global-transform";
-import { RenderingPlugin } from "./index";
+import { Camera, PointLight, RenderingPlugin } from "./index";
 
 setDefaultTimeout(TIMEOUT.gpu);
 let target = -1;
@@ -65,6 +66,66 @@ test("explicit enrollment captures interpolation before the first read and remov
     world.remove(target, RenderTransformHistory);
     expect(runtime.cpuHistory.size).toBe(0);
     expect(runtime.cpuReaders.length).toBe(0);
+});
+
+test("leases, explicit enrollment and placement lifetimes remain independent", () => {
+    const world = subjects()[0].world;
+    const eid = world.create();
+    world.add(eid, Transform);
+    const history = world.resource(GlobalTransformHistory).cpuHistory;
+    const a = retainRenderTransformHistory(world, eid);
+    const b = retainRenderTransformHistory(world, eid);
+    const samples = history.get(eid);
+    a();
+    a();
+    expect(history.get(eid)).toBe(samples);
+    world.add(eid, RenderTransformHistory);
+    b();
+    expect(history.get(eid)).toBe(samples);
+    const c = retainRenderTransformHistory(world, eid);
+    world.remove(eid, RenderTransformHistory);
+    expect(history.get(eid)).toBe(samples);
+    c();
+    expect(history.has(eid)).toBe(false);
+    const stale = retainRenderTransformHistory(world, eid);
+    world.remove(eid, GlobalTransform);
+    expect(history.has(eid)).toBe(false);
+    world.add(eid, GlobalTransform);
+    const fresh = retainRenderTransformHistory(world, eid);
+    stale();
+    expect(history.has(eid)).toBe(true);
+    fresh();
+    expect(history.has(eid)).toBe(false);
+    world.destroy(eid);
+});
+
+test("automatic camera and light requests retire independently without a shared marker", () => {
+    const world = subjects()[0].world;
+    const eid = world.create();
+    world.add(eid, Transform);
+    world.add(eid, Camera);
+    world.tick();
+    const runtime = world.resource(GlobalTransformHistory);
+    const samples = runtime.cpuHistory.get(eid);
+    expect(samples!.captured).toBe(true);
+    world.add(eid, PointLight);
+    expect(runtime.cpuHistory.get(eid)).toBe(samples);
+    expect(samples!.captured).toBe(true);
+    expect(world.has(eid, RenderTransformHistory)).toBe(false);
+    expect(runtime.cpuHistory.has(eid)).toBe(true);
+    world.remove(eid, Camera);
+    expect(runtime.cpuHistory.has(eid)).toBe(true);
+    world.remove(eid, PointLight);
+    expect(runtime.cpuHistory.has(eid)).toBe(false);
+    world.add(eid, Camera);
+    world.remove(eid, GlobalTransform);
+    expect(runtime.cpuHistory.has(eid)).toBe(false);
+    expect(runtime.cpuRequests.has(eid)).toBe(false);
+    world.add(eid, GlobalTransform);
+    expect(runtime.cpuHistory.has(eid)).toBe(true);
+    world.destroy(eid);
+    expect(runtime.cpuHistory.has(eid)).toBe(false);
+    expect(runtime.cpuRequests.has(eid)).toBe(false);
 });
 
 test("cleanup", async () => {

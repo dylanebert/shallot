@@ -9,7 +9,7 @@ import {
     perspective,
     u32,
 } from "../../engine";
-import { composeRenderGlobalTransform, RenderTransformHistory } from "./global-transform";
+import { composeRenderGlobalTransform } from "./global-transform";
 
 /** Camera projection mode; defaults to Perspective. */
 export const CameraMode = {
@@ -63,7 +63,6 @@ export const Camera = component(
         order: i32,
     },
     {
-        requires: [RenderTransformHistory],
         defaults: () => ({
             mode: CameraMode.Perspective,
             fov: 60,

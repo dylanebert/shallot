@@ -31,6 +31,7 @@ import tgpu, { readFromArrayBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { expectWarning } from "../../../scripts/test-console";
+import { GlobalTransformHistory } from "../../core/rendering/global-transform";
 
 setDefaultTimeout(TIMEOUT.node);
 const Surface = component(
@@ -172,10 +173,12 @@ test("a material borrows externally owned rows and alpha inputs without taking o
         } finally {
             world.removeSystem(grow);
         }
-        expect(alphaReads).toHaveBeenCalledTimes(2);
+        // Two live-alpha reads classify history ownership; two existing queue reads
+        // classify the same candidates for the view. Opaque-only sources above cost zero.
+        expect(alphaReads).toHaveBeenCalledTimes(4);
         alphaReads.mockClear();
         world.step(0);
-        expect(alphaReads).toHaveBeenCalledTimes(2);
+        expect(alphaReads).toHaveBeenCalledTimes(4);
     } finally {
         alphaReads.mockRestore();
     }
@@ -198,6 +201,17 @@ test("a material borrows externally owned rows and alpha inputs without taking o
     expect(() => new MaterialAssets(world, SurfaceMaterial)).toThrow(refusal);
     world.step(0);
     expect((await captureTexture(world, camera)).rgba).toEqual(blended.rgba);
+    // External sources do not mirror alpha into MeshMaterial. Own and retire their
+    // histories from the live source, including a late bound-field upload this frame.
+    world.tick();
+    world.step(0);
+    const history = world.resource(GlobalTransformHistory).cpuHistory;
+    expect(history.has(eid)).toBe(true);
+    expect(history.has(shared)).toBe(true);
+    world.storage(Surface).alphaMode.x.set(eid, AlphaModeCode.Mask);
+    world.step(0);
+    expect(history.has(eid)).toBe(false);
+    expect(history.has(shared)).toBe(false);
     world.destroy(shared);
     world.destroy(eid);
     const replacement = world.create();

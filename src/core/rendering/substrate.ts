@@ -34,6 +34,7 @@ import {
     composeRenderGlobalTransform,
     GlobalTransformHistory,
     globalTransformTable,
+    observeRenderTransformHistory,
     PrepareGlobalTransformHistorySystem,
     prepareGlobalTransformFrame,
     RenderTransformHistoryPlugin,
@@ -680,12 +681,8 @@ export const RenderingPlugin: Plugin = {
         // Its uniform binding reuses the leading vec4 in the Frame buffer written each frame.
         globalTransformRuntime.params = world.resource(Frame).buffer;
         globalTransformTable(world);
-        const resetLightHistory = (eid: number) => {
-            const history = world.resource(GlobalTransformHistory).cpuHistory.get(eid);
-            if (history) history.captured = false;
-        };
-        world.observeMembership(PointLight, resetLightHistory);
-        world.observeMembership(SpotLight, resetLightHistory);
+        for (const component of [Camera, DirectionalLight, PointLight, SpotLight])
+            observeRenderTransformHistory(world, component);
     },
 };
 

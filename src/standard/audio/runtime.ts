@@ -6,6 +6,7 @@ import {
     RenderTransformHistoryPlugin,
     readRenderGlobalTransform,
 } from "../../core/rendering";
+import { observeRenderTransformHistory } from "../../core/rendering/global-transform";
 import { GlobalTransform, PrepareGlobalTransformSystem } from "../../core/transform";
 import type { EntityRef, Plugin, Resource, System, World } from "../../engine";
 import {
@@ -612,6 +613,8 @@ export const StandardAudioPlugin: Plugin = {
     dependencies: [AudioPlugin, RenderTransformHistoryPlugin],
     systems: [AudioFrameSystem],
     async initialize(world) {
+        observeRenderTransformHistory(world, Sound);
+        observeRenderTransformHistory(world, Listener);
         const runtime = world.resource(AudioRuntime);
         const output = world.resource(AudioOutput);
         const devices = world.resource(Devices);

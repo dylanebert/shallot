@@ -74,6 +74,7 @@ export {
     Resolution,
     readRenderGlobalTransform,
     registerImage,
+    retainRenderTransformHistory,
     ShadowFilteringMethod,
     ShadowFilteringMethodMode,
     SpotLight,
