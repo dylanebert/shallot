@@ -14,6 +14,7 @@ import {
     setTransform,
 } from "../../standard/physics";
 import {
+    type AcceptedIntent,
     ClientPrediction,
     contactOutputKey,
     IntentReceiver,
@@ -293,6 +294,149 @@ async function run(switched = false, press = false, stepped = true) {
         client.dispose();
     }
 }
+async function connectedPrediction(maxAhead = 32, confirmed: (world: World) => void = () => {}) {
+    const server = await scene(),
+        client = await scene();
+    const link = seededLink(1, { minDelay: 0, maxDelay: 0, loss: 0, duplication: 0 });
+    const sender = new ReplicationSender(server.world, schema, [new Map([[1, schema]])], 1, link.a);
+    const prediction = new ClientPrediction(
+        client.world,
+        schema,
+        link.b,
+        (world) => [...world.query([Player])][0],
+        drive,
+        (world, _outputs, isConfirmed) => {
+            if (isConfirmed) confirmed(world);
+        },
+        maxAhead,
+    );
+    for (const [index, eid] of [...client.world.query([Replicate])].entries())
+        prediction.receiver.entities.set(index + 1, eid);
+    sender.record(1);
+    sender.flush();
+    client.world.step(0);
+    return { server, client, sender, prediction };
+}
+
+for (const lag of [1, 40]) {
+    test(`a client ${lag} server ticks behind confirmations catches up exactly`, async () => {
+        const hashes = new Map<number, bigint>();
+        const pair = await connectedPrediction(32, (world) => {
+            if (world.time.fixedTick > 1)
+                expect(hashPhysics(world)).toBe(hashes.get(world.time.fixedTick)!);
+        });
+        const { server, client, sender } = pair;
+        const records: AcceptedIntent[] = [];
+        const origin = client.world.snapshot();
+        try {
+            for (let tick = 2; tick <= lag + 1; tick++) {
+                records.push({ id: tick, tick, kind: "input", values: [0.1, 1], lateness: 0 });
+                drive(server.world, tick, records);
+                server.world.tick();
+                hashes.set(tick, hashPhysics(server.world));
+                sender.record(tick, records);
+            }
+            expect(client.world.time.fixedTick).toBe(1);
+            sender.flush();
+            client.world.step(0);
+            expect(client.world.time.fixedTick).toBe(lag + 1);
+            expect(hashPhysics(client.world)).toBe(hashPhysics(server.world));
+            expect(gameplay(client.world)).toEqual(gameplay(server.world));
+            // An older local image puts one ordered confirmation many ticks ahead without a wire gap.
+            client.world.restore(origin);
+            const next = lag + 2;
+            records.push({ id: next, tick: next, kind: "input", values: [0.1, 1], lateness: 0 });
+            drive(server.world, next, records);
+            server.world.tick();
+            hashes.set(next, hashPhysics(server.world));
+            sender.record(next, records);
+            sender.flush();
+            client.world.step(0);
+            expect(client.world.time.fixedTick).toBe(next);
+            expect(hashPhysics(client.world)).toBe(hashPhysics(server.world));
+            expect(gameplay(client.world)).toEqual(gameplay(server.world));
+        } finally {
+            server.dispose();
+            client.dispose();
+        }
+    });
+}
+
+test("a confirmation stall holds the predicted clock while frames draw, then resumes exactly without tick debt", async () => {
+    const { server, client, sender, prediction } = await connectedPrediction(4);
+    const local = client.world;
+    const records: AcceptedIntent[] = Array.from({ length: 5 }, (_, index) => ({
+        id: index + 2,
+        tick: index + 2,
+        kind: "input",
+        values: [0.1, 1],
+        lateness: 0,
+    }));
+    let draws = 0,
+        frames = 0;
+    local.addSystem({
+        group: "draw",
+        update() {
+            draws++;
+        },
+    });
+    local.addSystem({
+        group: "simulation",
+        update() {
+            frames++;
+        },
+    });
+    try {
+        prediction.accept(records);
+        local.step(4 / 60);
+        expect(local.time.fixedTick).toBe(5);
+        const held = hashPhysics(local);
+        for (let i = 0; i < 40; i++) {
+            local.step(4 / 60);
+            expect(local.time.fixedTick).toBe(5);
+            expect(local.time.fixedSteps).toBe(0);
+            expect(hashPhysics(local)).toBe(held);
+        }
+        expect(draws).toBe(41);
+        expect(frames).toBe(41);
+        local.step(1 / 120);
+        expect(local.time.fixedTick).toBe(5);
+        expect(local.time.fixedAlpha).toBeCloseTo(0.5);
+        local.step(1 / 120);
+        expect(local.time.fixedTick).toBe(5);
+        expect(local.time.fixedAlpha).toBeCloseTo(0);
+        drive(
+            server.world,
+            2,
+            records.filter((r) => r.tick <= 2),
+        );
+        server.world.tick();
+        sender.record(2, records);
+        sender.flush();
+        for (let tick = 3; tick <= 6; tick++) {
+            drive(
+                server.world,
+                tick,
+                records.filter((r) => r.tick <= tick),
+            );
+            server.world.tick();
+        }
+        local.step(1 / 60);
+        expect(local.time.fixedTick).toBe(6);
+        expect(local.time.fixedSteps).toBe(1);
+        expect(hashPhysics(local)).toBe(hashPhysics(server.world));
+        expect(gameplay(local)).toEqual(gameplay(server.world));
+        local.step(0);
+        expect(local.time.fixedTick).toBe(6);
+        expect(local.time.fixedSteps).toBe(0);
+        expect(draws).toBe(45);
+        expect(frames).toBe(45);
+    } finally {
+        server.dispose();
+        client.dispose();
+    }
+});
+
 test("confirmation error adds to the current decayed visual correction without entering fixed placement", async () => {
     const server = await scene(),
         client = await scene();

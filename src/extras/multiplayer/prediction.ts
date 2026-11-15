@@ -6,6 +6,7 @@ import {
     type EntityRef,
     type Plugin,
     type System,
+    Time,
     u8,
     vec3,
     type World,
@@ -105,7 +106,8 @@ export class FixedOutputs {
 /** Whole-World rollback over ordered confirmations. Install PredictionPlugin to prepare and capture
  * explicit ticks and paced steps, and process confirmations at preFixed. One controller per World.
  * maxAhead defaults to 32 ticks beyond the latest confirmation (or construction tick until one
- * arrives). Exceeding it throws before gameplay; World's failed-tick clock semantics still apply.
+ * arrives). Paced prediction holds at that bound while frames continue, then resumes on confirmation.
+ * Explicit tick beyond the bound throws before gameplay; World's failed-tick clock semantics apply.
  * Intent values and permissions belong to the game. */
 export class ClientPrediction {
     readonly receiver: ReplicationReceiver;
@@ -171,7 +173,16 @@ export class ClientPrediction {
         if (work.prepare) throw new Error("Only one ClientPrediction may drive a World");
         work.prepare = () => this._prepare();
         work.finish = () => this._finish();
-        work.confirm = () => this.onMessages(this.receiver.flush());
+        work.confirm = () => {
+            this.onMessages(this.receiver.flush());
+            const remaining = Math.max(
+                0,
+                this._confirmedTick + this.maxAhead - world.time.fixedTick,
+            );
+            const accumulated = world.time.fixedAlpha * Time.FIXED_DT + world.time.deltaTime;
+            const excess = Math.floor(accumulated / Time.FIXED_DT) - remaining;
+            if (excess > 0) world.discardOverstep(excess * Time.FIXED_DT);
+        };
         this._save();
     }
     accept(records: Iterable<IntentRecord | AcceptedIntent>): void {
@@ -284,7 +295,7 @@ export class ClientPrediction {
             this.world.restore(history);
             this.receiver.entities.clear();
             for (const [id, eid] of entities) this.receiver.entities.set(id, eid);
-        } else if (this.receiver.confirmed >= 0 || this.world.time.fixedTick > tick)
+        } else if (this.world.time.fixedTick > tick)
             throw new Error(`Missing prediction tick ${tick}`);
         else while (this.world.time.fixedTick < tick) this.world.tick();
         const before = new Map(

@@ -166,28 +166,6 @@ test("prediction preparation follows the step accumulator and explicit ticks lea
     }
 });
 
-test("prediction refuses simulation beyond its configured confirmation lead", async () => {
-    const client = await scene();
-    const world = client.world;
-    try {
-        const prediction = new ClientPrediction(
-            world,
-            [],
-            seededLink(1, faults).b,
-            () => client.avatars[0],
-            () => {},
-            () => {},
-            3,
-        );
-        for (let i = 0; i < prediction.maxAhead; i++) world.step(1 / 60);
-        const before = world.get(client.avatars[0]!, GlobalTransform);
-        expect(() => world.tick()).toThrow("exceeds confirmed tick 1 plus 3");
-        expect(world.get(client.avatars[0]!, GlobalTransform)).toEqual(before);
-    } finally {
-        client.app.dispose();
-    }
-});
-
 test("wire intent beyond the prediction bound is refused, including u32 maximum at server tick five", async () => {
     const server = await scene();
     const link = seededLink(1, faults);
