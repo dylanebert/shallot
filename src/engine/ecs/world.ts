@@ -133,6 +133,7 @@ export class World {
         number,
         {
             schema: Component;
+            presentation: boolean;
             schemas: WeakSet<Component>;
             fields: Map<string, WorldField>;
             storage: Record<string, unknown>;
@@ -633,6 +634,10 @@ export class World {
         const id = idOf(component);
         const existing = this._storage.get(id);
         if (existing) {
+            if (existing.presentation !== isPresentation(component))
+                throw new Error(
+                    `world.storage: component "${declaration(component, "world.storage").key}" recovery policy changed: this world already stores another declaration under that key with different presentation metadata`,
+                );
             if (existing.schemas.has(component)) return existing.storage as ComponentStorage<T>;
             if (!sameComponentSchema(existing.schema, component)) {
                 throw new Error(
@@ -654,6 +659,7 @@ export class World {
         }
         this._storage.set(id, {
             schema: component,
+            presentation: isPresentation(component),
             schemas: new WeakSet([component]),
             fields: columns,
             storage,

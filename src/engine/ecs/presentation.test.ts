@@ -5,6 +5,32 @@ import { World } from "./world";
 const Display = component("presentation-test-display", { value: f32 }, { presentation: true });
 const Simulation = component("presentation-test-simulation", { value: f32 });
 
+for (const presentation of [false, true]) {
+    for (const sameRecord of [false, true]) {
+        test(`recovery policy cannot change from presentation=${presentation} after storage allocation (${sameRecord ? "same record" : "same-key alias"})`, () => {
+            const key = `presentation-policy-${presentation}-${sameRecord}`;
+            const original = component(key, { value: f32 }, { presentation });
+            const w = new World();
+            try {
+                w.registry.register(original);
+                const eid = w.create();
+                w.add(eid, original, { value: 1 });
+                const reloaded = component(key, sameRecord ? original : { value: f32 }, {
+                    presentation: !presentation,
+                });
+                w.registry.register(reloaded);
+                expect(() => w.storage(reloaded)).toThrow("recovery policy changed");
+                expect(() => w.snapshot()).toThrow("recovery policy changed");
+                expect(() => w.add(eid, reloaded, { value: 0.25 })).toThrow(
+                    "recovery policy changed",
+                );
+            } finally {
+                w.dispose();
+            }
+        });
+    }
+}
+
 test("restore preserves current presentation values and membership only on surviving identities", () => {
     const w = new World();
     w.registry.register(Display);

@@ -363,9 +363,13 @@ export function component<
         defaults?: (world: World) => V & Record<Exclude<keyof V, keyof C>, never>;
         /** Added when missing on insertion in a world that registers this record; removal leaves companions in place. */
         requires?: Component[];
-        /** Exclude membership and fields from recovery. Restore keeps them current only on live
+        /** Exclude membership and fields from recovery. Neither values nor membership may be
+         * read by fixed systems or affect simulation. Restore keeps them current only on live
          * identities that survive it; destroyed or recreated entities have none. Reused eids do
-         * not inherit membership. New insertion still applies defaults. */
+         * not inherit membership. New insertion still applies defaults. Entity references remain
+         * current, are not remapped, and must be resolved against restored identities; their targets
+         * need not survive restore. A world with allocated storage refuses a declaration under the
+         * same key that changes this policy. */
         presentation?: boolean;
     },
 ): C {
