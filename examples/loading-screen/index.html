@@ -5,7 +5,7 @@
         <meta name="description" content="A game's own title card, held until its intro and minimum dwell end." />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <link rel="icon" type="image/svg+xml" href="/icon.svg" />
-        <title>loading-screen</title>
+        <title>Loading screen · Shallot</title>
         <style>body, body * { user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; -webkit-user-drag: none; cursor: default; }
 @font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/plex/IBMPlexSans-Regular-Latin1.woff2') format('woff2'); }
 @font-face { font-family: 'JetBrains Mono'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/mono/JetBrainsMono-Regular.woff2') format('woff2'); }
@@ -36,11 +36,11 @@
         <script src="/startup.js"></script>
         <script type="module">
             import { runApp } from "@dylanebert/shallot";
-            import { Welcome } from "./src/welcome";
+            import { AppPlugin } from "./src/app";
             import { titleCard } from "./src/title-card";
 
             const bootstrap = document.querySelector("[data-shallot-bootstrap]");
-            await runApp({ plugins: [Welcome], loading: titleCard(bootstrap) });
+            await runApp({ plugins: [AppPlugin], loading: titleCard(bootstrap) });
         </script>
     </body>
 </html>

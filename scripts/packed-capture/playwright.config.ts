@@ -1,9 +1,7 @@
 import { BROWSER_CONFIG } from "@dylanebert/shallot/testing";
-import type { PlaywrightTestConfig } from "playwright/test";
+import { defineConfig } from "playwright/test";
 
-export const config = {
+export default defineConfig({
     testDir: ".",
     ...BROWSER_CONFIG,
-} satisfies PlaywrightTestConfig;
-
-export default config;
+});

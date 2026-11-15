@@ -82,7 +82,7 @@ test.describe("one composed view", () => {
         page.on("console", (message) => {
             if (message.type() === "error") errors.push(message.text());
         });
-        await page.goto("http://127.0.0.1:4196/tests/stepped.html");
+        await page.goto("http://127.0.0.1:4333/tests/stepped.html");
         await page.waitForFunction(() => window.particles);
         console.log(
             "particles browser adapter",
@@ -142,7 +142,7 @@ test.describe("one composed view", () => {
         const directory = process.env.SHALLOT_CAPTURE_DIR;
         let captures = frames;
         if (directory) {
-            await manualPage.goto("http://127.0.0.1:4196/tests/stepped.html?captures");
+            await manualPage.goto("http://127.0.0.1:4333/tests/stepped.html?captures");
             await manualPage.waitForFunction(() => window.particles);
             captures = [await capture(manualPage)];
             await manualPage.evaluate(() => window.particles.walk(32));
@@ -188,7 +188,7 @@ for (const timestamps of ["adapter", "withheld"] as const) {
         const errors: string[] = [];
         page.on("pageerror", (error) => errors.push(error.message));
         await page.setViewportSize({ width: 320, height: 180 });
-        await page.goto("http://127.0.0.1:4196/tests/stepped.html?profiler");
+        await page.goto("http://127.0.0.1:4333/tests/stepped.html?profiler");
         await page.waitForFunction(() => window.particles);
         const profiler = page.locator("[data-shallot-profile]");
         await expect(profiler).toHaveCount(0);

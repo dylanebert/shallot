@@ -35,7 +35,7 @@ test("the first frame has no late-pipeline warning and F3 toggles the profiler",
 });
 
 test("each control writes its camera field and the toggle restores them", async ({ page }) => {
-    await page.goto("http://127.0.0.1:4276/tests/stepped.html?controls");
+    await page.goto("http://127.0.0.1:4301/tests/stepped.html?controls");
     await page.waitForFunction(() => "occlusionFields" in window);
     const fields = () =>
         page.evaluate(() =>
@@ -74,7 +74,7 @@ for (const viewport of [
 ]) {
     test(`default view and usable controls at ${viewport.width}px`, async ({ page }) => {
         await page.setViewportSize(viewport);
-        await page.goto("http://127.0.0.1:4276/tests/stepped.html");
+        await page.goto("http://127.0.0.1:4301/tests/stepped.html");
         await page.waitForFunction(() => "captureScene" in window);
         await capture(page);
         const panel = page.getByRole("region", { name: "Ambient occlusion controls" });
@@ -134,7 +134,7 @@ for (const viewport of [
 }
 
 test("each pointer control leaves the bound orbit key working", async ({ page }) => {
-    await page.goto("http://127.0.0.1:4276/tests/stepped.html?controls");
+    await page.goto("http://127.0.0.1:4301/tests/stepped.html?controls");
     await page.waitForFunction(() => "controlsKey" in window);
     for (const slider of await page.getByRole("slider").all()) {
         await dragRange(page, slider);
@@ -160,7 +160,7 @@ test("native touch toggles, summary and range activate without taking game keys"
     });
     try {
         const page = await context.newPage();
-        await page.goto("http://127.0.0.1:4276/tests/stepped.html");
+        await page.goto("http://127.0.0.1:4301/tests/stepped.html");
         await page.waitForFunction(() => "controlsKey" in window);
         const session = await context.newCDPSession(page);
         const touch = async (type: "touchStart" | "touchMove" | "touchEnd", x = 0, y = 0) => {

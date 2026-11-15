@@ -1,14 +1,14 @@
 import { BROWSER_CONFIG, WEB_SERVER_CONFIG } from "@dylanebert/shallot/testing";
-import type { PlaywrightTestConfig } from "playwright/test";
+import { defineConfig } from "playwright/test";
 
-export default {
+export default defineConfig({
     testDir: "tests",
     testIgnore: "**/frames/**",
     ...BROWSER_CONFIG,
-    use: { ...BROWSER_CONFIG.use, baseURL: "http://127.0.0.1:4265" },
+    use: { ...BROWSER_CONFIG.use, baseURL: "http://127.0.0.1:4334" },
     webServer: {
-        command: "bunx vite build && bunx vite preview --host 127.0.0.1 --port 4265 --strictPort",
-        url: "http://127.0.0.1:4265",
+        command: "bunx vite build && bunx vite preview --host 127.0.0.1 --port 4334 --strictPort",
+        url: "http://127.0.0.1:4334",
         ...WEB_SERVER_CONFIG,
     },
-} satisfies PlaywrightTestConfig;
+});

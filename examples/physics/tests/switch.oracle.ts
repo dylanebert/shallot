@@ -2,14 +2,14 @@ import { BROWSER_CONFIG } from "@dylanebert/shallot/testing";
 import { chromium } from "playwright";
 
 const server = Bun.spawn(
-    [process.execPath, "x", "vite", "--host", "127.0.0.1", "--port", "4175", "--strictPort"],
+    [process.execPath, "x", "vite", "--host", "127.0.0.1", "--port", "4352", "--strictPort"],
     { cwd: "examples/physics", stdout: "ignore", stderr: "inherit" },
 );
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 try {
     for (;;) {
         try {
-            if ((await fetch("http://127.0.0.1:4175")).ok) break;
+            if ((await fetch("http://127.0.0.1:4352")).ok) break;
         } catch {}
         await Bun.sleep(100);
     }
@@ -49,7 +49,7 @@ try {
             return adapter;
         };
     });
-    await page.goto("http://127.0.0.1:4175");
+    await page.goto("http://127.0.0.1:4352");
     await page.getByRole("button", { name: "Scene", exact: true }).waitFor();
     await page.locator("[data-shallot-loading]").waitFor({ state: "detached" });
     await page.evaluate(() => performance.clearMeasures());

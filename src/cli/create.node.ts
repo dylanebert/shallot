@@ -43,6 +43,7 @@ const MINIMAL_FILES = [
     "playwright.config.ts",
     "public/icon.svg",
     "public/startup.js",
+    "src/app.ts",
     "src/welcome/index.ts",
     "src/welcome/welcome.test.ts",
     "startup.e2e.ts",
@@ -57,6 +58,7 @@ const MINIMAL_TEMPLATE_FILES = [
     "playwright.config.ts",
     "public/icon.svg",
     "public/startup.js",
+    "src/app.ts",
     "src/welcome/index.ts",
     "src/welcome/welcome.test.ts",
     "startup.e2e.ts",
@@ -229,7 +231,7 @@ test("every shipped scaffold owns the replaceable standard favicon and HTML link
     }
 });
 
-test("create writes exactly the 18-file minimal project", () => {
+test("create writes exactly the 19-file minimal project", () => {
     const destination = join(SCRATCH, "minimal");
     expect(runCreate([destination])).toBe(0);
     expect(files(destination).sort()).toEqual([...MINIMAL_FILES].sort());

@@ -14,7 +14,7 @@ for (const touch of [false, true]) {
         const page = await context.newPage();
         const errors: string[] = [];
         page.on("pageerror", (error) => errors.push(error.message));
-        await page.goto("http://127.0.0.1:4190/tests/touch.html");
+        await page.goto("http://127.0.0.1:4417/tests/touch.html");
         await page.waitForFunction(() => "hint" in window);
         const hint = (value: string) =>
             page.evaluate(

@@ -33,7 +33,7 @@ test("the stepped scrolling terrain covers the ground and retains a visible view
         if (message.type() === "error") errors.push(message.text());
     });
     const directory = process.env.SHALLOT_CAPTURE_DIR;
-    await page.goto(`http://127.0.0.1:4206/tests/stepped.html${directory ? "?shipped" : ""}`);
+    await page.goto(`http://127.0.0.1:4347/tests/stepped.html${directory ? "?shipped" : ""}`);
     await page.waitForFunction(() => window.voxel);
     await page.evaluate(() => window.voxel.step(240));
     const image = await page.evaluate(() => window.voxel.capture(true));

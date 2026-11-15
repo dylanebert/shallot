@@ -33,7 +33,7 @@ test("the built yard serves its music and shared interaction HUD", async ({ page
     expect((await page.request.get("/Project_Utopia.ogg")).ok()).toBe(true);
 });
 test("spatial music pans, fades, pauses and resumes; the bell finishes once", async ({ page }) => {
-    await page.goto("http://127.0.0.1:4186/tests/stepped.html");
+    await page.goto("http://127.0.0.1:4341/tests/stepped.html");
     await page.waitForFunction(() => (window as any).ready);
     await page.getByRole("button", { name: "Start audio" }).click();
     await page.evaluate(() => {

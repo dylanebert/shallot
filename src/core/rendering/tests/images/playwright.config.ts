@@ -1,7 +1,7 @@
 import { BROWSER_CONFIG, WEB_SERVER_CONFIG } from "@dylanebert/shallot/testing";
-import type { PlaywrightTestConfig } from "playwright/test";
+import { defineConfig } from "playwright/test";
 
-export const config = {
+export default defineConfig({
     testDir: ".",
     ...BROWSER_CONFIG,
     use: { ...BROWSER_CONFIG.use, baseURL: "http://127.0.0.1:4175", deviceScaleFactor: 1 },
@@ -10,6 +10,4 @@ export const config = {
         url: "http://127.0.0.1:4175",
         ...WEB_SERVER_CONFIG,
     },
-} satisfies PlaywrightTestConfig;
-
-export default config;
+});

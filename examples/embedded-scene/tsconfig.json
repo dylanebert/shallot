@@ -1,4 +1,4 @@
 {
     "extends": "@dylanebert/shallot/tsconfig.json",
-    "include": ["src", "tests", "vite.config.ts", "playwright.config.ts", "capture.e2e.ts"]
+    "include": ["src", "tests", "vite.config.ts", "playwright.config.ts"]
 }

@@ -5,16 +5,26 @@
         <meta name="description" content="Box3D samples in Shallot: stacking, joints, sensors, contacts and hit events." />
         <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
         <link rel="icon" type="image/svg+xml" href="/icon.svg" />
-        <title>physics</title>
+        <title>Physics · Shallot</title>
         <style>body, body * { user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; -webkit-user-drag: none; cursor: default; }
             * { box-sizing: border-box; margin: 0; }
             html, body, canvas { width: 100%; height: 100%; }
             body { overflow: hidden; background: #141210; color: #f0e6d6; font: 400 13px/20px 'IBM Plex Sans', system-ui, sans-serif; }
             canvas { display: block; }
+            [data-shallot-bootstrap] { position: fixed; inset: 0; display: grid; place-items: center; background: #1c1917; color: #f0e6d6; font: 400 13px/20px 'IBM Plex Sans', system-ui, sans-serif; }
         </style>
     </head>
     <body>
         <canvas id="canvas"></canvas>
-        <script type="module" src="/src/main.ts"></script>
+        <div data-shallot-bootstrap data-state="loading" role="status">Loading…</div>
+        <script src="/startup.js"></script>
+        <script type="module">
+            import { runApp, shallotDark } from "@dylanebert/shallot";
+            import { AppPlugin } from "./src/app";
+            import { ui } from "./src/main";
+
+            const bootstrap = document.querySelector("[data-shallot-bootstrap]");
+            await runApp({ plugins: [AppPlugin], ui, loading: shallotDark({ bootstrap }) });
+        </script>
     </body>
 </html>

@@ -191,7 +191,7 @@ test("the game title bootstrap hands off without a jump to its own progress trac
         await route.fulfill({
             response,
             body: (await response.text()).replace(
-                "<title>loading-screen</title>",
+                "<title>Loading screen · Shallot</title>",
                 "<title>Copied game</title>",
             ),
         });

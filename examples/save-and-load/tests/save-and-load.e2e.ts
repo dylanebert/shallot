@@ -53,7 +53,7 @@ test("every control holds still across feedback, disabled and hover without focu
     page,
 }) => {
     await page.goto(
-        `http://127.0.0.1:4190/tests/${process.env.SHALLOT_CAPTURE_DIR ? "stepped.html?capture" : "hud.html"}`,
+        `http://127.0.0.1:4337/tests/${process.env.SHALLOT_CAPTURE_DIR ? "stepped.html?capture" : "hud.html"}`,
     );
     await page.waitForFunction(() => !!window.saveAndLoad);
     const controls = page.locator(".save-hud button");

@@ -46,7 +46,7 @@ test("the sunlit floor and both pendant pools outshine the dark stretch", async 
     page.on("console", (m) => {
         if (m.type() === "warning" || m.type() === "error") warnings.push(m.text());
     });
-    await page.goto("http://127.0.0.1:4216/tests/stepped.html");
+    await page.goto("http://127.0.0.1:4321/tests/stepped.html");
     await page.waitForFunction(() => window.ready);
     await test.step("daylight through the window outshines its floor patch, and the dark room stays legible against the clear", async () => {
         const appearance = await page.evaluate(() => window.appearance());
@@ -72,7 +72,7 @@ test("the sunlit floor and both pendant pools outshine the dark stretch", async 
     if (!process.env.SHALLOT_CAPTURE_DIR) return;
     const dir = process.env.SHALLOT_CAPTURE_DIR;
     mkdirSync(dir, { recursive: true });
-    await page.goto("http://127.0.0.1:4216/tests/stepped.html?captures");
+    await page.goto("http://127.0.0.1:4321/tests/stepped.html?captures");
     await page.waitForFunction(() => window.ready);
     console.log("capture adapter", await page.evaluate(() => window.device));
     async function capture(name: string) {
@@ -89,7 +89,7 @@ test("the sunlit floor and both pendant pools outshine the dark stretch", async 
 test("a pendant's block shadows visible floor in front of it, but its emissive bulbs do not", async ({
     page,
 }) => {
-    await page.goto("http://127.0.0.1:4216/tests/stepped.html");
+    await page.goto("http://127.0.0.1:4321/tests/stepped.html");
     await page.waitForFunction(() => window.ready);
     const block = await page.evaluate(() => window.shadow("block"));
     const bulbs = await page.evaluate(() => window.shadow("bulbs"));
