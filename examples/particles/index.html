@@ -19,10 +19,10 @@
         <script src="/startup.js"></script>
         <script type="module">
             import { runApp, shallotDark } from "@dylanebert/shallot";
-            import { AppPlugin } from "./src/app";
+            import { MotesPlugin } from "./src/motes";
 
             const bootstrap = document.querySelector("[data-shallot-bootstrap]");
-            await runApp({ plugins: [AppPlugin], loading: shallotDark({ bootstrap }) });
+            await runApp({ plugins: [MotesPlugin], loading: shallotDark({ bootstrap }) });
         </script>
     </body>
 </html>

@@ -20,11 +20,11 @@
         <script src="/startup.js"></script>
         <script type="module">
             import { runApp, shallotDark } from "@dylanebert/shallot";
-            import { AppPlugin } from "./src/app";
+            import { TurntablePlugin } from "./src/turntable";
             import { hud } from "./src/hud";
 
             const bootstrap = document.querySelector("[data-shallot-bootstrap]");
-            await runApp({ plugins: [AppPlugin], ui: hud, loading: shallotDark({ bootstrap }) });
+            await runApp({ plugins: [TurntablePlugin], ui: hud, loading: shallotDark({ bootstrap }) });
         </script>
     </body>
 </html>

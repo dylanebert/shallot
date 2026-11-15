@@ -1,49 +1,52 @@
-import type { World } from "@dylanebert/shallot";
+import { runApp, shallotDark } from "@dylanebert/shallot";
 import { profilerBounds } from "@dylanebert/shallot/extras";
 import { flushSync, mount, unmount } from "svelte";
-import { Viewer } from "./app";
+import { AppPlugin, Viewer } from "./app";
 import Hud from "./Hud.svelte";
 import { profilerFits, sceneSwitcher } from "./sample";
 import { changeControl, type Scene, scenes } from "./scenes";
 
 const requested = new URL(location.href).searchParams.get("scene");
 const initial = requested && Object.hasOwn(scenes, requested) ? (requested as Scene) : "boxStack";
-
-export function ui(container: HTMLElement, world: World): () => void {
-    const replace = sceneSwitcher(world, world.resource(Viewer), () => {
-        const bounds = profilerBounds(world);
-        return (
-            !!bounds &&
-            profilerFits(
-                bounds,
-                Array.from(
-                    container.querySelectorAll(".controls, button, input, select, summary"),
-                    (control) => control.getBoundingClientRect(),
-                ),
-            )
-        );
-    });
-    window.addEventListener("resize", () => replace.reconcileProfiler(), {
-        signal: world.signal,
-    });
-    let component: ReturnType<typeof mount>;
-    function select(scene: Scene): void {
-        let bodies: number[];
-        if (component) void unmount(component);
-        flushSync(() => {
-            component = mount(Hud, {
-                target: container,
-                props: {
-                    world,
-                    scene,
-                    select,
-                    change: (name: string, value: number, values: Record<string, number>) =>
-                        changeControl(world, scene, bodies, values, name, value),
-                },
-            });
+await runApp({
+    plugins: [AppPlugin],
+    loading: shallotDark({ bootstrap: document.querySelector("[data-shallot-bootstrap]") }),
+    ui(container, world) {
+        const replace = sceneSwitcher(world, world.resource(Viewer), () => {
+            const bounds = profilerBounds(world);
+            return (
+                !!bounds &&
+                profilerFits(
+                    bounds,
+                    Array.from(
+                        container.querySelectorAll(".controls, button, input, select, summary"),
+                        (control) => control.getBoundingClientRect(),
+                    ),
+                )
+            );
         });
-        bodies = replace(scene);
-    }
-    select(initial);
-    return () => void unmount(component);
-}
+        window.addEventListener("resize", () => replace.reconcileProfiler(), {
+            signal: world.signal,
+        });
+        let component: ReturnType<typeof mount>;
+        function select(scene: Scene): void {
+            let bodies: number[];
+            if (component) void unmount(component);
+            flushSync(() => {
+                component = mount(Hud, {
+                    target: container,
+                    props: {
+                        world,
+                        scene,
+                        select,
+                        change: (name: string, value: number, values: Record<string, number>) =>
+                            changeControl(world, scene, bodies, values, name, value),
+                    },
+                });
+            });
+            bodies = replace(scene);
+        }
+        select(initial);
+        return () => void unmount(component);
+    },
+});

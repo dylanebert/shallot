@@ -18,13 +18,6 @@
         <canvas id="canvas"></canvas>
         <div data-shallot-bootstrap data-state="loading" role="status">Loading…</div>
         <script src="/startup.js"></script>
-        <script type="module">
-            import { runApp, shallotDark } from "@dylanebert/shallot";
-            import { AppPlugin } from "./src/app";
-            import { ui } from "./src/main";
-
-            const bootstrap = document.querySelector("[data-shallot-bootstrap]");
-            await runApp({ plugins: [AppPlugin], ui, loading: shallotDark({ bootstrap }) });
-        </script>
+        <script type="module" src="/src/main.ts"></script>
     </body>
 </html>

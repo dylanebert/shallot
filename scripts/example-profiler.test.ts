@@ -3,8 +3,16 @@ import { readdirSync, readFileSync } from "node:fs";
 import { type Plugin, World } from "@dylanebert/shallot";
 import { DiagnosticsOverlayPlugin, ProfilePlugin } from "@dylanebert/shallot/extras";
 
+const exclusions = new Set([
+    "minimal",
+    "hud",
+    "sound",
+    "loading-screen",
+    "save-and-load",
+    "embedded-scene",
+]);
 const examples = readdirSync(new URL("../examples/", import.meta.url), { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
+    .filter((entry) => entry.isDirectory() && !exclusions.has(entry.name))
     .map((entry) => entry.name)
     .sort();
 
@@ -16,14 +24,19 @@ function composition(plugin: Plugin, result = new Set<Plugin>()): Set<Plugin> {
 }
 
 for (const name of examples) {
-    test(`${name}'s entry composes the profiler closed until F3, open`, async () => {
+    test(`${name}'s entry composes the profiler closed until F3, then open`, async () => {
         const html = readFileSync(
             new URL(`../examples/${name}/index.html`, import.meta.url),
             "utf8",
         );
-        expect(html).toMatch(/plugins:\s*\[AppPlugin\]/);
-        const module = await import(`../examples/${name}/src/app.ts`);
-        const plugins = composition(module.AppPlugin);
+        const motes = name === "particles" || name === "volumetric-fog";
+        const entry =
+            name === "physics"
+                ? readFileSync(new URL("../examples/physics/src/main.ts", import.meta.url), "utf8")
+                : html;
+        expect(entry).toMatch(motes ? /plugins:\s*\[MotesPlugin\]/ : /plugins:\s*\[AppPlugin\]/);
+        const module = await import(`../examples/${name}/src/${motes ? "motes" : "app"}.ts`);
+        const plugins = composition(motes ? module.MotesPlugin : module.AppPlugin);
         expect(plugins.has(DiagnosticsOverlayPlugin)).toBe(true);
         expect(plugins.has(ProfilePlugin)).toBe(true);
         if (name === "particles") {

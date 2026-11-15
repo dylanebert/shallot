@@ -36,11 +36,11 @@
         <script src="/startup.js"></script>
         <script type="module">
             import { runApp } from "@dylanebert/shallot";
-            import { AppPlugin } from "./src/app";
+            import { Welcome } from "./src/welcome";
             import { titleCard } from "./src/title-card";
 
             const bootstrap = document.querySelector("[data-shallot-bootstrap]");
-            await runApp({ plugins: [AppPlugin], loading: titleCard(bootstrap) });
+            await runApp({ plugins: [Welcome], loading: titleCard(bootstrap) });
         </script>
     </body>
 </html>
