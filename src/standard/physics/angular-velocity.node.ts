@@ -31,6 +31,9 @@ test("current angular velocity equals native after stepping, setting and snapsho
         function check(row: number) {
             const [x, y, z] = gold[c * 3 + row]!.map(Math.fround);
             expect(getAngularVelocity(world, eid), `case ${c}, row ${row}`).toEqual({ x, y, z });
+            const out = { x: NaN, y: NaN, z: NaN };
+            expect(getAngularVelocity(world, eid, out)).toBe(out);
+            expect(out).toEqual({ x, y, z });
         }
         try {
             expect(getAngularVelocity(world, eid)).toBeNull();

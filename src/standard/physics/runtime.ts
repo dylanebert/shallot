@@ -1692,12 +1692,12 @@ export function getBodyTransform(world: World, eid: number): WorldTransform | nu
 
 /** Reads the solver's current angular velocity in rad/s (b3Body_GetAngularVelocity),
  * not Body.angularVelocity's spawn value. Returns null for a body the solver does not hold.
- * The returned record belongs to the caller. */
-export function getAngularVelocity(world: World, eid: number): Vec3 | null {
+ * Fills and returns caller-owned out when supplied; otherwise returns a fresh vector. */
+export function getAngularVelocity(world: World, eid: number, out?: Vec3): Vec3 | null {
     const runtime = runtimeFor(world);
     const body = boundBody(world, runtime, eid);
     return runtime.physicsWorld && body
-        ? bodyGetAngularVelocity(runtime.physicsWorld, body.index1 - 1, { x: 0, y: 0, z: 0 })
+        ? bodyGetAngularVelocity(runtime.physicsWorld, body.index1 - 1, out ?? { x: 0, y: 0, z: 0 })
         : null;
 }
 
