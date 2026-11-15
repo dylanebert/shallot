@@ -57,9 +57,8 @@ test("new and reattached lights snap until fixed capture, then match GPU history
             "LightHistoryWriter",
         );
         world.step(Time.FIXED_DT);
-        expect(() => readRenderGlobalTransform(world, eids[0]!, out)).toThrow(
-            "PointLight or SpotLight",
-        );
+        readRenderGlobalTransform(world, eids[0]!, out);
+        expect(out[0]).toBe(0);
         let attach = true;
         world.addSystem({
             group: "simulation",

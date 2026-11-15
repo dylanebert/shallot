@@ -69,6 +69,7 @@ export {
     prepareImages,
     RenderingPlugin,
     Resolution,
+    readRenderGlobalTransform,
     registerImage,
     ShadowFilteringMethod,
     ShadowFilteringMethodMode,
@@ -78,6 +79,7 @@ export {
     Tonemapping,
     TonemappingMethod,
     TonemappingSystem,
+    VisualCorrection,
     VolumetricLight,
 } from "./rendering";
 export {

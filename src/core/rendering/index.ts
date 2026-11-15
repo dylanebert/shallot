@@ -45,4 +45,5 @@ export {
     TonemappingSystem,
 } from "./tonemapping-state";
 export { viewportToWorld, worldToViewport } from "./viewport-to-world";
+export { VisualCorrection } from "./visual-correction";
 export { Xform, xformMat, xformNormal, xformPoint, xformQuat, xformWgsl } from "./xform";

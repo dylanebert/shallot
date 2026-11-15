@@ -60,7 +60,6 @@ import { initializeRenderState, RenderContext } from "./render";
 import { ShadowFilteringMethod, ShadowFilteringMethodMode } from "./shadow-filtering";
 import { SAMPLE_COUNT } from "./targets";
 import { warmUpscaling } from "./upscaling";
-
 import {
     acquireCanvasTexture,
     bindCamera,
@@ -81,6 +80,7 @@ import {
     Views,
     ViewUniforms,
 } from "./view";
+import { applyVisualCorrections } from "./visual-correction";
 
 /** @internal This frame's presenting views indexed by shading slot, filled by BeginFrameSystem;
  * the array is retained and refilled every frame. */
@@ -563,6 +563,7 @@ export const BeginFrameSystem: System = {
             setComputePipeline(pass, globalTransformRuntime.pipeline!);
             setComputeBindGroup(pass, 0, globalTransformRuntime.group!);
             dispatchWorkgroups(pass, Math.ceil(globalTransformCount / 64));
+            applyVisualCorrections(world, pass);
             endComputePass(pass);
         }
     },

@@ -11,9 +11,14 @@ import {
     TransformRuntime,
 } from "../transform";
 import { PointLight, SpotLight } from "./lighting";
+import {
+    correctRenderTransform,
+    prepareVisualCorrection,
+    uploadVisualCorrections,
+} from "./visual-correction";
 import { Xform } from "./xform";
 
-type LightHistory = {
+type CpuHistory = {
     eid: number;
     captured: boolean;
     stages: Float32Array[];
@@ -62,7 +67,7 @@ export interface GlobalTransformRuntime {
     tickCount: number;
     stages: (GPUBuffer | undefined)[];
     cpuPrepared: boolean;
-    lights: LightHistory[];
+    placements: CpuHistory[];
     source: Float32Array;
     ranges: Uint32Array;
     pipeline?: GPUComputePipeline;
@@ -84,7 +89,7 @@ export const GlobalTransformHistory: Resource<GlobalTransformRuntime> = {
             tickCount: 0,
             stages: new Array(2),
             cpuPrepared: false,
-            lights: [],
+            placements: [],
             source: new Float32Array(0),
             ranges: new Uint32Array(4),
             generation: -1,
@@ -104,15 +109,20 @@ export const GlobalTransformHistory: Resource<GlobalTransformRuntime> = {
         };
         world.observeMembership(GlobalTransform, (eid, present) => {
             if (present && runtime.enabled) resetInterpolation(world, eid);
+            if (!present) {
+                const index = runtime.placements.findIndex((placement) => placement.eid === eid);
+                if (index >= 0) {
+                    runtime.placements[index] = runtime.placements[runtime.placements.length - 1]!;
+                    runtime.placements.pop();
+                }
+            }
         });
         const observeLight = (eid: number) => {
             if (!runtime.enabled) return;
-            const index = runtime.lights.findIndex((light) => light.eid === eid);
+            const index = runtime.placements.findIndex((placement) => placement.eid === eid);
             if (world.has(eid, PointLight) || world.has(eid, SpotLight)) {
-                if (index < 0) addLightHistory(runtime, eid);
-            } else if (index >= 0) {
-                runtime.lights[index] = runtime.lights[runtime.lights.length - 1]!;
-                runtime.lights.pop();
+                if (index < 0) addCpuHistory(runtime, eid);
+                else runtime.placements[index]!.captured = false;
             }
         };
         world.observeMembership(PointLight, observeLight);
@@ -120,8 +130,8 @@ export const GlobalTransformHistory: Resource<GlobalTransformRuntime> = {
         return runtime;
     },
 };
-function addLightHistory(runtime: GlobalTransformRuntime, eid: number): void {
-    runtime.lights.push({
+function addCpuHistory(runtime: GlobalTransformRuntime, eid: number): void {
+    runtime.placements.push({
         eid,
         captured: false,
         stages: [new Float32Array(12), new Float32Array(12)],
@@ -212,6 +222,7 @@ export function globalTransformTable(world: World): GpuTable<typeof Xform> {
         throw new Error("globalTransformTable requires RenderingPlugin");
     if (!runtime.enabled) {
         runtime.enabled = true;
+        prepareVisualCorrection(world);
         const current = (runtime.current = world.table("global-transform", Xform));
         runtime.previous = world.table("global-transform-previous-tick", Xform, {
             gpuOnly: true,
@@ -238,35 +249,36 @@ export function globalTransformTable(world: World): GpuTable<typeof Xform> {
         for (const eid of world.query(terms)) {
             resetInterpolation(world, eid);
             if (world.has(eid, PointLight) || world.has(eid, SpotLight))
-                addLightHistory(runtime, eid);
+                addCpuHistory(runtime, eid);
         }
     }
     return runtime.render!;
 }
-/** @internal Reads shadow placement for PointLight or SpotLight holders into a caller-owned
- * 12-float Xform record (position at 0, xyzw quaternion at 4, scale at 8).
- * Refuses entities holding neither PointLight nor SpotLight. Requires an enabled
- * globalTransformTable and the draw placement boundary. A newly attached or reattached
- * light reads current placement until the next fixed tick captures its history; thereafter
- * it matches drawn placement, using fixedAlpha, linear position/scale and shortest-path
- * normalized quaternion blend. No GPU readback is performed. */
+/** Reads interpolated, visually corrected placement into a caller-owned 12-float Xform
+ * record (position at 0, xyzw quaternion at 4, scale at 8). Requires an enabled
+ * globalTransformTable and the draw placement boundary. The first read enrolls CPU
+ * history until GlobalTransform is removed; lights enroll automatically. Until the
+ * next fixed tick captures history, reads use current placement. Thereafter they match
+ * the GPU's fixedAlpha blend followed by VisualCorrection. No GPU readback is performed. */
 export function readRenderGlobalTransform(world: World, eid: number, out: Float32Array): void {
     const runtime = world.resource(GlobalTransformHistory);
-    if (!world.has(eid, PointLight) && !world.has(eid, SpotLight))
-        throw new Error("readRenderGlobalTransform requires PointLight or SpotLight");
     prepareCpuFrame(world, runtime);
     const row = runtime.current?.rowIndex(eid) ?? -1;
     if (row < 0)
         throw new Error("readRenderGlobalTransform requires a captured GlobalTransform row");
-    let light: LightHistory | undefined;
-    for (let i = 0; i < runtime.lights.length; i++)
-        if (runtime.lights[i]!.eid === eid) {
-            light = runtime.lights[i];
+    let light: CpuHistory | undefined;
+    for (let i = 0; i < runtime.placements.length; i++)
+        if (runtime.placements[i]!.eid === eid) {
+            light = runtime.placements[i];
             break;
         }
-    if (!light) throw new Error("readRenderGlobalTransform requires captured light membership");
+    if (!light) {
+        addCpuHistory(runtime, eid);
+        light = runtime.placements[runtime.placements.length - 1]!;
+    }
     if (!light.captured) {
         for (let i = 0; i < 12; i++) out[i] = runtime.source[row * 12 + i]!;
+        correctRenderTransform(world, eid, out);
         return;
     }
     const offset = 0;
@@ -286,6 +298,7 @@ export function readRenderGlobalTransform(world: World, eid: number, out: Float3
     }
     length = Math.sqrt(length);
     for (let i = 4; i < 8; i++) out[i] = length > 1e-12 ? out[i]! / length : i === 7 ? 1 : 0;
+    correctRenderTransform(world, eid, out);
 }
 function stageHistoryDiscontinuities(world: World, runtime: GlobalTransformRuntime): Uint32Array {
     const marks = world.resource(TransformRuntime).discontinuities;
@@ -374,8 +387,8 @@ function captureCurrent(world: World, phase: number): void {
     }
     const start = runtime.ranges[phase * 2] / 4;
     const end = start + runtime.ranges[phase * 2 + 1] / 4;
-    for (let index = 0; index < runtime.lights.length; index++) {
-        const light = runtime.lights[index]!;
+    for (let index = 0; index < runtime.placements.length; index++) {
+        const light = runtime.placements[index]!;
         const row = current.rowIndex(light.eid);
         if (row < 0) continue;
         const offset = row * 12;
@@ -444,8 +457,8 @@ function prepareCpuFrame(world: World, runtime: GlobalTransformRuntime): void {
     runtime.cpuPrepared = true;
     const marks = world.resource(TransformRuntime).discontinuities;
     const pending = runtime.historyDiscontinuitiesOnSubmit;
-    for (let index = 0; index < runtime.lights.length; index++) {
-        const light = runtime.lights[index]!;
+    for (let index = 0; index < runtime.placements.length; index++) {
+        const light = runtime.placements[index]!;
         if (!light.captured) continue;
         const offset = runtime.current!.rowIndex(light.eid) * 12;
         if (offset < 0) continue;
@@ -500,6 +513,7 @@ export function prepareGlobalTransformFrame(world: World, encoder?: GPUCommandEn
         runtime.historyDiscarded = false;
         world.resource(TransformRuntime).discontinuities.fill(0);
     }
+    uploadVisualCorrections(world, runtime.render!);
     if (!runtime.current!.count) return;
     const generation =
         runtime.current!.generation +
