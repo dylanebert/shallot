@@ -1,4 +1,5 @@
 import { component, f32, i32, type Plugin, type Resource, u8, type World } from "../../engine";
+import { RenderTransformHistory } from "../rendering/global-transform";
 import { GlobalTransform, Transform, TransformPlugin } from "../transform";
 
 const MAX_CLIPS = 256;
@@ -31,11 +32,14 @@ export const Sound = component(
          * holds its slot and playhead; resuming fades in from that position. */
         paused: u8,
     },
-    { defaults: () => ({ clip: -1, loop: 0, volume: 1, paused: 0 }) },
+    {
+        defaults: () => ({ clip: -1, loop: 0, volume: 1, paused: 0 }),
+        requires: [RenderTransformHistory],
+    },
 );
 
 /** Marks the entity whose world transform defines the listener's position and orientation. */
-export const Listener = component("Listener", {}, {});
+export const Listener = component("Listener", {}, { requires: [RenderTransformHistory] });
 
 /** Audio insertion point. The running audio implementation supplies its context and bus. */
 export interface AudioOutputValue {

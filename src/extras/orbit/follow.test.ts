@@ -6,9 +6,28 @@ import {
     resetInterpolation,
     Time,
     Transform,
+    VisualCorrection,
 } from "@dylanebert/shallot";
 import { Orbit, OrbitPlugin } from "@dylanebert/shallot/extras";
 import { TransformRuntime } from "../../core/transform";
+
+test("follow uses the target's corrected rendered placement", async () => {
+    const app = await createApp({ defaults: false, plugins: [OrbitPlugin] });
+    try {
+        const world = app.world;
+        const target = world.create();
+        world.add(target, Transform, { translation: [3, 4, 5] });
+        world.add(target, VisualCorrection, { translation: [10, 0, 0] });
+        const camera = world.create();
+        world.add(camera, Transform);
+        world.add(camera, Camera);
+        world.add(camera, Orbit, { target, yaw: 0, pitch: 0, distance: 6 });
+        world.step(0);
+        expect(world.get(camera, GlobalTransform)!.translation).toEqual([13, 4, 11]);
+    } finally {
+        app.dispose();
+    }
+});
 
 test("the first frame follows an authored target before any fixed tick", async () => {
     const app = await createApp({ defaults: false, plugins: [OrbitPlugin] });

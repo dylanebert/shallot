@@ -19,6 +19,7 @@ export const VisualCorrection = component(
     { defaults: () => ({ translation: [0, 0, 0], rotation: [0, 0, 0, 1] }) },
 );
 
+const correctionTerms = [VisualCorrection];
 const Correction = d.struct({ translation: d.vec3f, rotation: d.vec4f });
 const layout = tgpu.bindGroupLayout({
     corrections: { storage: d.arrayOf(Correction), access: "readonly" },
@@ -54,6 +55,7 @@ const kernel = tgpu
 
 type Runtime = {
     table: GpuTable<typeof Correction>;
+    bound: boolean;
     pipeline: GPUComputePipeline;
     count: GPUBuffer;
     words: Uint32Array;
@@ -64,12 +66,12 @@ type Runtime = {
 export const VisualCorrectionState: Resource<Runtime> = {
     create(world) {
         const table = world.table("visual-correction", Correction);
-        table.bindComponent(VisualCorrection, { translation: "translation", rotation: "rotation" });
         const count = world.gpu.root.createBuffer(d.u32).$usage("uniform");
         const buffer = world.gpu.root.unwrap(count);
         world.own(buffer);
         return {
             table,
+            bound: false,
             count: buffer,
             words: new Uint32Array(1),
             generation: -1,
@@ -87,6 +89,17 @@ export function prepareVisualCorrection(world: World): void {
 export function uploadVisualCorrections(world: World, output: GpuTable<typeof Xform>): void {
     const runtime = world.resource(VisualCorrectionState);
     const table = runtime.table;
+    if (!runtime.bound) {
+        for (const _eid of world.query(correctionTerms)) {
+            table.bindComponent(VisualCorrection, {
+                translation: "translation",
+                rotation: "rotation",
+            });
+            runtime.bound = true;
+            break;
+        }
+        if (!runtime.bound) return;
+    }
     table.upload();
     if (!table.count) return;
     runtime.words[0] = table.count;

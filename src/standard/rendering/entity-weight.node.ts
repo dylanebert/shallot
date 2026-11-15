@@ -21,6 +21,7 @@ import type { MaterialHandle } from "@dylanebert/shallot/standard/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { openGpuApp } from "@dylanebert/shallot/testing/gpu";
 import * as d from "typegpu/data";
+import { GlobalTransformHistory } from "../../core/rendering/global-transform";
 import { component, vec4 } from "../../engine";
 import {
     applyPbrLighting,
@@ -110,10 +111,11 @@ test("196608 rendered entities bound retained bytes after their first standard-r
         expect(instanceBytes / POPULATION).toBeLessThan(8);
         // Includes each part's components/table rows and late camera/light one-holder columns:
         // eid-indexed raw columns must span their highest holder (CONTRIBUTING: World and device).
-        // Rendered placement adds a 48-byte previous sample per dense row and one capture
-        // byte per eid; VisualCorrection's bound translation/rotation columns add 32 bytes
-        // per eid even without holders. At this population each capacity has 4/3 slack.
-        expect(bytes).toBeLessThanOrEqual(780 + ((48 + 1 + 32) * 4) / 3);
+        expect(bytes).toBeLessThanOrEqual(780);
+        const cpuHistory = app.world.resource(GlobalTransformHistory).cpuHistory;
+        expect(cpuHistory.size).toBe(2);
+        for (const eid of cpuHistory.keys())
+            expect(app.world.has(eid, Camera) || app.world.has(eid, DirectionalLight)).toBe(true);
     } finally {
         app.dispose();
     }

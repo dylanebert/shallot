@@ -3,9 +3,10 @@ import tgpu, { readFromArrayBuffer, writeToArrayBuffer } from "typegpu";
 import type { AnyWgslData, AnyWgslStruct, WgslArray } from "typegpu/data";
 import * as d from "typegpu/data";
 import { MeshInstance } from "../../core/mesh";
-import { Xform } from "../../core/rendering";
-import { GlobalTransform } from "../../core/transform";
-import type { GpuTable, Plugin, Resource, World } from "../../engine";
+import { RenderTransformHistory, Xform } from "../../core/rendering";
+import { GlobalTransformHistoryStartSystem } from "../../core/rendering/global-transform";
+import { GlobalTransform, GlobalTransformTickStartSystem } from "../../core/transform";
+import type { GpuTable, Plugin, Resource, System, World } from "../../engine";
 import { type ComponentStorage, type LaneFormat, laneLayout, writeLane } from "../../engine/ecs";
 import { validateBindingLimits } from "./binding-limits";
 import { engineLayout } from "./engine";
@@ -1199,6 +1200,33 @@ export const TransparentMeshes = {
                 }
             },
         };
+    },
+};
+
+/** @internal Enroll CPU transparent bounds before their first fixed sample. */
+export const EnrollTransparentTransformHistorySystem: System = {
+    name: "enroll-transparent-transform-history",
+    group: "fixed",
+    boundary: "before",
+    after: [GlobalTransformTickStartSystem],
+    before: [GlobalTransformHistoryStartSystem],
+    update(world) {
+        copyMeshAlpha(world);
+        const material = world.storage(MeshMaterial);
+        const sources = world.resource(MaterialTypes).sources;
+        for (const eid of world.resource(TransparentMeshes).candidates) {
+            const source = sources[material.type.get(eid)];
+            const mode = source
+                ? source.alphaMode(material.material.get(eid))
+                : material.alphaMode.get(eid);
+            if (
+                (mode === AlphaModeCode.Blend ||
+                    mode === AlphaModeCode.Premultiplied ||
+                    mode === AlphaModeCode.Multiply) &&
+                !world.has(eid, RenderTransformHistory)
+            )
+                world.add(eid, RenderTransformHistory);
+        }
     },
 };
 

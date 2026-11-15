@@ -15,6 +15,7 @@ import {
     PrepareViewsSystem,
     RenderContext,
     RenderingPlugin,
+    RenderTransformHistory,
     VisualCorrection,
     viewportToWorld,
 } from "./index";
@@ -117,6 +118,7 @@ test("a non-light entity has corrected CPU interpolation before its first placem
     const world = subjects()[0].world;
     const target = world.create();
     world.add(target, Transform);
+    world.add(target, RenderTransformHistory);
     world.add(target, VisualCorrection);
     world.addSystem({
         group: "draw",

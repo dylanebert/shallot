@@ -425,9 +425,9 @@ const OrbitSystem: System = {
                     let entityTargetZ = 0;
                     const targetEid = orbit.target.get(eid);
                     if (targetEid > 0 && world.has(targetEid, GlobalTransform)) {
-                        entityTargetX = followPosition(world, eid, targetEid, 0);
-                        entityTargetY = followPosition(world, eid, targetEid, 1);
-                        entityTargetZ = followPosition(world, eid, targetEid, 2);
+                        entityTargetX = followPosition(world, targetEid, 0);
+                        entityTargetY = followPosition(world, targetEid, 1);
+                        entityTargetZ = followPosition(world, targetEid, 2);
                     }
                     panX =
                         global.translation.x.get(eid) -
@@ -445,9 +445,9 @@ const OrbitSystem: System = {
                 let targetZ = panZ;
                 const targetEid = orbit.target.get(eid);
                 if (targetEid > 0 && world.has(targetEid, GlobalTransform)) {
-                    targetX += followPosition(world, eid, targetEid, 0);
-                    targetY += followPosition(world, eid, targetEid, 1);
-                    targetZ += followPosition(world, eid, targetEid, 2);
+                    targetX += followPosition(world, targetEid, 0);
+                    targetY += followPosition(world, targetEid, 1);
+                    targetZ += followPosition(world, targetEid, 2);
                 }
 
                 const camX = targetX + distS * Math.cos(pitchS) * Math.sin(yawS);

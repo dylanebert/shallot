@@ -10,7 +10,7 @@ import {
     setComputeBindGroup,
     setComputePipeline,
 } from "../../engine/runtime";
-import { PrepareGlobalTransformSystem, TransformPlugin } from "../transform";
+import { PrepareGlobalTransformSystem } from "../transform";
 import { Anchor } from "./anchor";
 
 import {
@@ -33,11 +33,10 @@ import { CULL_VOLUME_FLOATS, frustumVolume } from "./frustum";
 import {
     composeRenderGlobalTransform,
     GlobalTransformHistory,
-    GlobalTransformHistoryEndSystem,
-    GlobalTransformHistoryStartSystem,
     globalTransformTable,
     PrepareGlobalTransformHistorySystem,
     prepareGlobalTransformFrame,
+    RenderTransformHistoryPlugin,
     recoverGlobalTransformHistory,
 } from "./global-transform";
 import { initializeImageState, warmImages } from "./image";
@@ -636,11 +635,9 @@ export const RenderingPlugin: Plugin = {
             "texture-compression-astc",
         ],
     },
-    dependencies: [TransformPlugin],
+    dependencies: [RenderTransformHistoryPlugin],
     name: "Rendering",
     systems: [
-        GlobalTransformHistoryStartSystem,
-        GlobalTransformHistoryEndSystem,
         PrepareGlobalTransformHistorySystem,
         PrepareViewsSystem,
         BeginFrameSystem,
@@ -683,6 +680,12 @@ export const RenderingPlugin: Plugin = {
         // Its uniform binding reuses the leading vec4 in the Frame buffer written each frame.
         globalTransformRuntime.params = world.resource(Frame).buffer;
         globalTransformTable(world);
+        const resetLightHistory = (eid: number) => {
+            const history = world.resource(GlobalTransformHistory).cpuHistory.get(eid);
+            if (history) history.captured = false;
+        };
+        world.observeMembership(PointLight, resetLightHistory);
+        world.observeMembership(SpotLight, resetLightHistory);
     },
 };
 

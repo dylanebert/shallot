@@ -69,6 +69,8 @@ export {
     PointLight,
     prepareImages,
     RenderingPlugin,
+    RenderTransformHistory,
+    RenderTransformHistoryPlugin,
     Resolution,
     readRenderGlobalTransform,
     registerImage,

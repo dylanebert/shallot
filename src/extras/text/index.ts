@@ -15,6 +15,7 @@ import {
     PrepassSystem,
     RenderContext,
     RenderPhases,
+    RenderTransformHistory,
     renderLayers,
     type TransparentPhase,
     type View,
@@ -113,6 +114,7 @@ export const Text = component(
         color: f32,
     },
     {
+        requires: [RenderTransformHistory],
         defaults: () => ({
             content: 0,
             font: 0,

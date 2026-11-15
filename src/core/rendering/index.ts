@@ -6,6 +6,8 @@ export {
     composeRenderGlobalTransform,
     GlobalTransformHistory,
     globalTransformTable,
+    RenderTransformHistory,
+    RenderTransformHistoryPlugin,
     readRenderGlobalTransform,
 } from "./global-transform";
 export {

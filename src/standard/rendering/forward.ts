@@ -83,6 +83,7 @@ import {
     AlphaPipelineKey,
     alphaPipelineKey,
     CullModeCode,
+    EnrollTransparentTransformHistorySystem,
     type MaterialType,
     MaterialTypes,
     materialSource,
@@ -1434,8 +1435,10 @@ export const StandardRenderingPlugin: Plugin = {
         features: ["indirect-first-instance"],
     },
     name: "StandardRendering",
+    recovery: "stateless",
     components: [StandardRenderer, CameraBackground, ShadowCamera],
     systems: [
+        EnrollTransparentTransformHistorySystem,
         PackLightingSystem,
         PackSpotAttenuationSystem,
         UpdateLightClustersSystem,

@@ -1,7 +1,11 @@
 import loadAudioWasm from "../../../crates/audio/pkg/shallot_audio.js";
 import { AudioOutput, AudioPlugin, Clips, Listener, registerClip, Sound } from "../../core/audio";
 import { type AudioContextState, Devices } from "../../core/input";
-import { composeRenderGlobalTransform, readRenderGlobalTransform } from "../../core/rendering";
+import {
+    composeRenderGlobalTransform,
+    RenderTransformHistoryPlugin,
+    readRenderGlobalTransform,
+} from "../../core/rendering";
 import { GlobalTransform, PrepareGlobalTransformSystem } from "../../core/transform";
 import type { EntityRef, Plugin, Resource, System, World } from "../../engine";
 import {
@@ -605,7 +609,7 @@ const AudioFrameSystem: System = {
 
 export const StandardAudioPlugin: Plugin = {
     name: "StandardAudio",
-    dependencies: [AudioPlugin],
+    dependencies: [AudioPlugin, RenderTransformHistoryPlugin],
     systems: [AudioFrameSystem],
     async initialize(world) {
         const runtime = world.resource(AudioRuntime);
