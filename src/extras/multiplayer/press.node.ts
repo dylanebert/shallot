@@ -1,10 +1,10 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { PlayerMotion } from "../../../examples/first-person/src/motion";
 import { Player, PlayerInput, PlayerPlugin } from "../../../examples/first-person/src/player";
 import { Body, BodyType, Shape, ShapeKind } from "../../core/physics";
 import { GlobalTransform, Transform } from "../../core/transform";
 import { createApp } from "../../engine";
-import { TIMEOUT } from "../../project/testing";
 import { Character } from "../../standard/physics";
 import { IntentReceiver, IntentSender, seededLink } from ".";
 

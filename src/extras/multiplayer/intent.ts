@@ -68,11 +68,17 @@ export function decodeIntent(bytes: Uint8Array): AcceptedIntent[] {
     return records;
 }
 
-/** One player's accepted log. Retrying a record never changes its assigned tick. */
+/** One player's accepted log. Retrying a record never changes its assigned tick.
+ * Records beyond nextTick + maxAhead (32 by default) are ignored, not acknowledged;
+ * a retry can be accepted once its requested tick enters that window. */
 export class IntentReceiver {
     readonly records = new Map<number, AcceptedIntent>();
     readonly connection: Connection;
-    constructor(connection: Connection) {
+    readonly maxAhead: number;
+    constructor(connection: Connection, maxAhead = 32) {
+        this.maxAhead = maxAhead;
+        if (!Number.isSafeInteger(maxAhead) || maxAhead < 0)
+            throw new Error("Invalid prediction bound");
         this.connection = connection;
     }
     /** Route messages returned by ReplicationSender.flush here before the next fixed tick. */
@@ -93,6 +99,7 @@ export class IntentReceiver {
             }
             for (const record of decodeIntent(bytes)) {
                 if (this.records.has(record.id)) continue;
+                if (record.tick > nextTick + this.maxAhead) continue;
                 const tick = Math.max(nextTick, record.tick);
                 this.records.set(record.id, { ...record, tick, lateness: tick - record.tick });
             }

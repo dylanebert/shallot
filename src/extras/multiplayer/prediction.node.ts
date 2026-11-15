@@ -1,11 +1,18 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { PlayerMotion } from "../../../examples/first-person/src/motion";
 import { Player, PlayerInput, PlayerPlugin } from "../../../examples/first-person/src/player";
 import { Body, BodyType, Shape, ShapeKind } from "../../core/physics";
+import { VisualCorrection } from "../../core/rendering";
 import { GlobalTransform, Transform } from "../../core/transform";
 import { createApp, type World } from "../../engine";
-import { TIMEOUT } from "../../project/testing";
-import { Character, hashPhysics, PhysicsEvents, setLinearVelocity } from "../../standard/physics";
+import {
+    Character,
+    hashPhysics,
+    PhysicsEvents,
+    setLinearVelocity,
+    setTransform,
+} from "../../standard/physics";
 import {
     ClientPrediction,
     contactOutputKey,
@@ -91,7 +98,7 @@ function gameplay(world: World) {
         world.get(eid, Character),
     ]);
 }
-async function run(switched = false, press = false) {
+async function run(switched = false, press = false, stepped = true) {
     const server = await scene(),
         client = await scene();
     const world = server.world,
@@ -151,6 +158,9 @@ async function run(switched = false, press = false) {
                 }
         },
     );
+    prediction.onMessages = (messages) => {
+        sent.flush(messages);
+    };
     // This composition already has the image's entities, in the same deterministic creation order.
     for (const [index, eid] of [...world.query([Replicate])].entries())
         prediction.receiver.entities.set(index + 1, eid);
@@ -198,7 +208,8 @@ async function run(switched = false, press = false) {
                 }
             }
             prediction.accept(sent.records.values());
-            prediction.advance();
+            if (stepped) local.step(1 / 60);
+            else local.tick();
         }
         while (local.time.fixedTick < 11) produce();
         for (let tick = 2; tick <= 400; tick++) {
@@ -230,7 +241,8 @@ async function run(switched = false, press = false) {
             sender.record(tick, [...accepted.records.values()]);
             sender.flush();
             base = tick;
-            sent.flush(prediction.receiver.flush());
+            if (stepped) local.step(0);
+            else sent.flush(prediction.receiver.flush());
         }
         let corrected = 0,
             hashDifferences = 0,
@@ -281,6 +293,55 @@ async function run(switched = false, press = false) {
         client.dispose();
     }
 }
+test("confirmation error adds to the current decayed visual correction without entering fixed placement", async () => {
+    const server = await scene(),
+        client = await scene();
+    const world = client.world;
+    const link = seededLink(1, { minDelay: 0, maxDelay: 0, loss: 0, duplication: 0 });
+    const sender = new ReplicationSender(server.world, schema, [new Map([[1, schema]])], 1, link.a);
+    const avatar = [...world.query([Player])][0]!;
+    const prediction = new ClientPrediction(
+        world,
+        schema,
+        link.b,
+        () => avatar,
+        () => {},
+    );
+    try {
+        for (const [index, eid] of [...world.query([Replicate])].entries())
+            prediction.receiver.entities.set(index + 1, eid);
+        sender.record(1);
+        sender.flush();
+        world.step(0);
+        for (let i = 0; i < 4; i++) world.step(1 / 60);
+        world.add(avatar, VisualCorrection, { translation: [0.25, 0, 0] });
+        for (const tick of [2, 3]) {
+            const old = world.storage(GlobalTransform).translation.x.get(avatar);
+            const residual = world.storage(VisualCorrection).translation.x.get(avatar) * 0.5;
+            world.storage(VisualCorrection).translation.x.set(avatar, residual);
+            setTransform(server.world, avatar, [2 + tick * 0.2, 1.45, 15], [0, 0, 0, 1]);
+            server.world.tick();
+            sender.record(tick);
+            sender.flush();
+            world.step(0);
+            const fixed = world.storage(GlobalTransform).translation.x.get(avatar);
+            expect(fixed).not.toBe(old);
+            expect(world.storage(VisualCorrection).translation.x.get(avatar)).toBeCloseTo(
+                residual + old - fixed,
+                6,
+            );
+            const snapshot = world.snapshot();
+            world.storage(VisualCorrection).translation.x.set(avatar, 0.125);
+            world.restore(snapshot);
+            expect(world.storage(VisualCorrection).translation.x.get(avatar)).toBe(0.125);
+            expect(world.storage(GlobalTransform).translation.x.get(avatar)).toBe(fixed);
+        }
+    } finally {
+        server.dispose();
+        client.dispose();
+    }
+});
+
 let predicted: ReturnType<typeof run> | undefined;
 const exact = () => (predicted ??= run());
 test("tick-addressed whole-World replay matches the authoritative avatar and opted-in pushable exactly", async () => {
@@ -293,6 +354,12 @@ test("tick-addressed whole-World replay matches the authoritative avatar and opt
     expect(r.hashDifferences).toBe(0);
     expect(r.replayed).toBeGreaterThan(3000);
 });
+test("explicit world ticks run the same preparation and capture as paced ticks", async () => {
+    const r = await run(false, false, false);
+    expect(r.maximum).toBe(0);
+    expect(r.hashDifferences).toBe(0);
+});
+
 test("a pending press replays through ClientPrediction and stays exact after its first message is dropped", async () => {
     const r = await run(false, true);
     expect(r.dropped).toBe(1);
@@ -347,11 +414,11 @@ test("an image spawns live body motion, while a non-predicted body displays only
         const box = prediction.receiver.entities.get(4)!;
         expect(client.world.storage(Body).linearVelocity.x.get(box)).toBe(2);
         const confirmed = client.world.get(box, GlobalTransform)!.translation;
-        for (let i = 0; i < 3; i++) prediction.advance();
+        for (let i = 0; i < 3; i++) client.world.tick();
         expect(client.world.get(box, GlobalTransform)!.translation).toEqual(confirmed);
         expect(prediction.predicted(box)).toBe(false);
         prediction.switchBody(box, true);
-        prediction.advance();
+        client.world.tick();
         expect(client.world.storage(GlobalTransform).translation.x.get(box)).toBeGreaterThan(
             confirmed[0],
         );
