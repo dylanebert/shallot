@@ -26,6 +26,12 @@ import {
 } from "../../standard/physics";
 import { ReplicationReceiver, type ReplicationSchema } from ".";
 import type { AcceptedIntent, IntentRecord } from "./intent";
+import {
+    ClientInterpolation,
+    InterpolationPlugin,
+    InterpolationTarget,
+    multiply,
+} from "./interpolation";
 import type { Connection } from "./link";
 
 /** Local display selection. ClientPrediction adds it to the local avatar; other entities opt in. */
@@ -62,7 +68,7 @@ const PredictionWork = {
 };
 export const PredictionPlugin: Plugin = {
     name: "Prediction",
-    dependencies: [StandardPhysicsPlugin],
+    dependencies: [StandardPhysicsPlugin, InterpolationPlugin],
     components: [PredictionTarget, PredictionMotion, VisualCorrection],
     recovery: "stateless",
     systems: [
@@ -111,6 +117,7 @@ export class FixedOutputs {
  * Intent values and permissions belong to the game. */
 export class ClientPrediction {
     readonly receiver: ReplicationReceiver;
+    readonly interpolation: ClientInterpolation;
     readonly records = new Map<number, IntentRecord | AcceptedIntent>();
     readonly outputs = new FixedOutputs();
     /** Routes non-replication packets drained at preFixed, for example to IntentSender.flush. */
@@ -157,6 +164,10 @@ export class ClientPrediction {
                 "Body prediction requires GlobalTransform and PredictionMotion in the replication schema",
             );
         this.world = world;
+        this.interpolation = new ClientInterpolation(
+            world,
+            (eid) => this.predicted(eid) || eid === this.avatar(world, this.receiver.entities),
+        );
         this.avatar = avatar;
         this.applyIntent = applyIntent;
         this.observe = observe;
@@ -356,6 +367,13 @@ export class ClientPrediction {
             if (previous?.motion.awake !== motion.awake)
                 setAwake(this.world, eid, motion.awake !== 0);
         }
+        const interpolated: number[] = [];
+        for (const eid of this.receiver.entities.values()) {
+            if (eid === avatar || this.predicted(eid)) continue;
+            if (!this.world.has(eid, InterpolationTarget)) this.world.add(eid, InterpolationTarget);
+            interpolated.push(eid);
+        }
+        this.interpolation.confirm(tick, interpolated);
         this.observe(this.world, this.outputs, true);
         this._save();
         this._replaying = true;
@@ -408,17 +426,6 @@ export function contactOutputKey(
     event: { shapeA: EntityRef; shapeB: EntityRef; childIndex: number },
 ): string {
     return `${kind}:${event.shapeA}:${event.shapeB}:${event.childIndex}`;
-}
-
-function multiply(a: readonly number[], b: readonly number[]): number[] {
-    const [x, y, z, w] = a as [number, number, number, number];
-    const [u, v, s, t] = b as [number, number, number, number];
-    return [
-        w * u + x * t + y * s - z * v,
-        w * v - x * s + y * t + z * u,
-        w * s + x * v - y * u + z * t,
-        w * t - x * u - y * v - z * s,
-    ];
 }
 
 function same(a: readonly number[] | undefined, b: readonly number[]): boolean {

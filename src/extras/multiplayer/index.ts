@@ -10,6 +10,7 @@ import {
 } from "../../engine";
 import { fields } from "../../engine/ecs";
 
+export { ClientInterpolation, InterpolationPlugin, InterpolationTarget } from "./interpolation";
 export { type Connection, type LinkFaults, seededLink } from "./link";
 export {
     ClientPrediction,
