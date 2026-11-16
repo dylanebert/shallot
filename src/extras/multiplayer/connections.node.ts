@@ -1,4 +1,8 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
+
+setDefaultTimeout(TIMEOUT.node);
+
 import type { ServerWebSocket } from "bun";
 import { component, createApp, u32 } from "../../engine";
 import { ClientOf, type Game, MultiplayerPlugin, ServerSession, server } from ".";

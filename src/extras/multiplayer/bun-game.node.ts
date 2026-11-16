@@ -1,4 +1,8 @@
-import { expect, spyOn, test } from "bun:test";
+import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
+
+setDefaultTimeout(TIMEOUT.node);
+
 import { type Game, ServerSession } from ".";
 import { type ServerWebSocketConnection, serveGame } from "./bun";
 
