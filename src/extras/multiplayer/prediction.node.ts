@@ -83,7 +83,8 @@ function drive(world: World, tick: number, records: readonly IntentRecord[]) {
         .storage(PlayerInput)
         .jumpPresses.set(
             player,
-            records.filter((r) => r.kind === "operation" && r.tick <= tick).length,
+            world.storage(PlayerInput).jumpPresses.get(player) +
+                records.filter((r) => r.kind === "operation" && r.tick === tick).length,
         );
 }
 function poses(world: World) {
@@ -270,6 +271,11 @@ async function run(switched = false, press = false, stepped = true) {
                 replayed++;
             }
         }
+        expect(
+            [...prediction.records.values()].filter(
+                (record) => "lateness" in record && record.tick <= prediction.receiver.confirmed,
+            ),
+        ).toEqual([]);
         return {
             maximum,
             settled,

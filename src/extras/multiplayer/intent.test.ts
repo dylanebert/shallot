@@ -29,7 +29,7 @@ test("accepted intent keeps an on-time tick, assigns the next tick when late, an
         [10, 0],
         [5, 3],
     ]);
-    expect([...sender.records.values()]).toEqual([...receiver.records.values()]);
+    expect(sender.records.size).toBe(0);
     expect([...receiver.records.values()].map((r) => r.slack)).toEqual([5, 0]);
     sender.flush();
     receiver.receive(link.a.receive(), 8);
@@ -104,9 +104,9 @@ test("the local avatar's default prediction follows its wire identity, not the s
         client.storage(PredictionTarget).enabled.set(eid, 0);
         expect(prediction.predicted(eid)).toBe(false);
         const record: IntentRecord = { id: 1, tick: 2, kind: "operation", values: [1] };
-        prediction.accept([{ ...record, tick: 5, lateness: 3 }]);
+        prediction.accept([{ ...record, tick: 9, lateness: 7 }]);
         prediction.accept([record]);
-        expect(prediction.records.get(1)!.tick).toBe(5);
+        expect(prediction.records.get(1)!.tick).toBe(9);
     } finally {
         server.dispose();
         client.dispose();

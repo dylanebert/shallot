@@ -127,7 +127,9 @@ export class GameServer {
     tick() {
         const tick = this.world.time.fixedTick + 1;
         for (const [slot, peer] of this.peers) {
-            peer.intent.receive(peer.sender.flush(), tick);
+            const messages = peer.sender.flush();
+            peer.intent.prune(peer.sender.acknowledged);
+            peer.intent.receive(messages, tick);
             applyIntent(this.world, scene(this.world).players[slot]!.player, tick, [
                 ...peer.intent.records.values(),
             ]);

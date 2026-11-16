@@ -324,6 +324,10 @@ export class ReplicationSender {
     private _identities = new Map<EntityRef, number>();
     private _next = { value: 1 };
     private _acknowledged: Version | undefined;
+    /** Newest frame tick acknowledged by this recipient, or -1 before its first acknowledgement. */
+    get acknowledged(): number {
+        return this._acknowledged?.tick ?? -1;
+    }
     private _pending = new Map<number, PendingFrame>();
     private _last = -1;
     private _smoothed = -1;

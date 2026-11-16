@@ -25,7 +25,13 @@ import {
     setTransform,
 } from "../../standard/physics";
 import { type ReplicationConfirmation, ReplicationReceiver, type ReplicationSchema } from ".";
-import { type AcceptedIntent, decodeIntent, IntentMessageKind, type IntentRecord } from "./intent";
+import {
+    type AcceptedIntent,
+    decodeIntent,
+    IntentMessageKind,
+    type IntentRecord,
+    intentWatermark,
+} from "./intent";
 import {
     ClientInterpolation,
     InterpolationPlugin,
@@ -147,6 +153,8 @@ export class ClientPrediction {
     private _types = new Map<number, number>();
     private _replaying = false;
     private _confirmedTick: number;
+    private _resolvedId = 0;
+    private _confirming = false;
     private _hasConfirmed = false;
     private _feedbackId = 0;
     private _onTime = 0;
@@ -162,8 +170,13 @@ export class ClientPrediction {
     readonly world: World;
     /** Selects the local avatar's client eid after confirmed rows are applied. Ownership is the game's data. */
     readonly avatar: (world: World, entities: ReadonlyMap<number, number>) => number | undefined;
-    /** Runs again on replay. Borrows the cumulative log through tick, ordered by tick then ID;
-     * do not retain the array. Apply operations only at their tick or derive cumulative counters. */
+    /** Runs again on replay. Borrows records through tick not yet folded into the newest
+     * confirmed state, ordered by tick then ID; do not retain the array.
+     * Apply operations only at their tick or derive cumulative counters. Unaccepted locals
+     * are speculative: a server refusal retires them through the resolved-ID watermark,
+     * without application on the server. Inputs beyond its prediction window are refused,
+     * not deferred. A prediction-bounded client can encounter this before its first confirmation
+     * if its initial clock is far ahead of the server. */
     readonly applyIntent: (world: World, tick: number, records: readonly IntentRecord[]) => void;
     /** confirmed=true observes every authoritative state at its tick, with current accepted records
      * and ECS rows. The solver reconciles only the latest state in a drain. confirmed=false runs
@@ -223,7 +236,7 @@ export class ClientPrediction {
                         true,
                     ) === IntentMessageKind.Accepted
                 )
-                    this.accept(decodeIntent(bytes));
+                    this.accept(decodeIntent(bytes), intentWatermark(bytes));
             this.onMessages(messages);
             const lead = world.time.fixedTick + world.time.fixedAlpha - this._confirmedTick;
             const scale = Math.max(0.8, Math.min(1.5, 1 + (this._lead - lead) * 0.1));
@@ -241,10 +254,14 @@ export class ClientPrediction {
         };
         this._save();
     }
-    accept(records: Iterable<IntentRecord | AcceptedIntent>): void {
+    /** Merges local predictions or accepted assignments. The cumulative resolved-ID
+     * watermark also retires unaccepted locals, including server-refused records. */
+    accept(records: Iterable<IntentRecord | AcceptedIntent>, watermark = 0): void {
+        this._resolvedId = Math.max(this._resolvedId, watermark);
         let lateness = 0;
         let newest = this._feedbackId;
         for (const record of records) {
+            if (!("lateness" in record) && record.id <= this._resolvedId) continue;
             if ("lateness" in record && record.id > this._feedbackId) {
                 lateness = Math.max(lateness, record.lateness);
                 newest = Math.max(newest, record.id);
@@ -270,7 +287,14 @@ export class ClientPrediction {
             this._minimumSlack = Infinity;
         }
         this._ordered.length = 0;
-        for (const record of this.records.values()) this._ordered.push(record);
+        for (const [id, record] of this.records) {
+            if (
+                ("lateness" in record && !this._confirming && record.tick <= this._confirmedTick) ||
+                (!("lateness" in record) && id <= this._resolvedId)
+            )
+                this.records.delete(id);
+            else this._ordered.push(record);
+        }
         this._ordered.sort((a, b) => a.tick - b.tick || a.id - b.id);
     }
     private _save(): void {
@@ -450,7 +474,6 @@ export class ClientPrediction {
         preceding: readonly ReplicationConfirmation[],
     ): void {
         if (this._replaying) throw new Error("Prediction cannot receive during replay");
-        this._confirmedTick = tick;
         const displayed = new Map<
             number,
             { translation: readonly number[]; rotation: readonly number[] }
@@ -467,9 +490,16 @@ export class ClientPrediction {
         } else if (this.world.time.fixedTick > tick)
             throw new Error(`Missing prediction tick ${tick}`);
         const before = this._motion();
-        for (const state of preceding)
-            this._applyConfirmation(state.tick, state.intents, state.apply, undefined);
-        this._applyConfirmation(tick, intents, apply, before);
+        this._confirming = true;
+        try {
+            for (const state of preceding)
+                this._applyConfirmation(state.tick, state.intents, state.apply, undefined);
+            this._applyConfirmation(tick, intents, apply, before);
+        } finally {
+            this._confirming = false;
+        }
+        this._confirmedTick = tick;
+        this.accept([]);
         this._save();
         this._replaying = true;
         try {

@@ -81,7 +81,7 @@ test("a confirmation burst preserves accepted operations, outputs, callbacks and
         while (client.w.time.fixedTick < 8) client.w.tick();
         replayTicks = 0;
         client.w.step(0);
-        expect([...prediction.records.keys()]).toEqual([1]);
+        expect([...prediction.records.keys()]).toEqual([]);
         expect(confirmations).toEqual([1, 2, 3]);
         expect(callbacks).toEqual([1, 2, 3]);
         expect(samples).toEqual([
