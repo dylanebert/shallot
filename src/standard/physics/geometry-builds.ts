@@ -341,7 +341,14 @@ export function buildPlacedHull(
     if (
         !position.every(Number.isFinite) ||
         !rotation.every(Number.isFinite) ||
-        Math.abs(Math.hypot(...rotation) - 1) > 1e-5
+        Math.abs(
+            Math.sqrt(
+                rotation[0] * rotation[0] +
+                    rotation[1] * rotation[1] +
+                    rotation[2] * rotation[2] +
+                    rotation[3] * rotation[3],
+            ) - 1,
+        ) > 1e-5
     )
         throw new Error(
             "physics: hull placement requires a finite position and normalized rotation",
