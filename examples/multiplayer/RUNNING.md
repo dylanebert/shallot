@@ -1,0 +1,42 @@
+# multiplayer
+
+Walk first-person's stepped route and moving lift, and push the amber box. The server owns both avatars and the box. Your avatar predicts its own movement and the lift's tick-derived trajectory; the box opts into prediction within four metres. The cyan avatar is displayed between confirmed server states. WASD moves, mouse looks, Space jumps; on a phone use the floating left stick, right drag and Jump.
+
+## In one tab
+
+In a created project:
+
+```sh
+bun install
+bun run dev
+```
+
+Open Vite's URL. The tab runs its own CPU-only server World beside the rendered client World, connected through `seededLink`. A thin client sends a recorded walking loop and acknowledges replication, without predicting or drawing. The panel changes simulated round-trip latency and packet loss in both directions, initially 100 ms and 2%.
+
+In the engine checkout, instead run `bunx vite` from `examples/multiplayer`; there is no example package manifest and `bun run dev` would reach the checkout's scripts.
+
+## Two tabs, one Bun server
+
+From the example directory, in another terminal:
+
+```sh
+bun server.ts --host 127.0.0.1 --port 3001
+```
+
+Open Vite's URL with `?server=ws://127.0.0.1:3001` in two tabs. Each connection gets one of two avatars. This mode has no thin client; the other tab supplies the remote player. The simulation controls remain visible but disabled: they belong to the in-tab link, not the socket transport.
+
+For another host, run the same server file there (`--host 0.0.0.0` accepts external connections) and supply that endpoint in `?server=`. A published static client needs only the endpoint configuration; the Bun process runs separately. Use a secure WebSocket endpoint for a client served over HTTPS.
+
+The server accepts only finite, bounded movement/look values, a sprint flag and a cumulative jump count, applied to the avatar selected by the connection—not an entity chosen by the client. This is a two-player demonstration, without authentication or persistent sessions, not a public matchmaking service. Reload after a socket disconnect to join again.
+
+## Checks
+
+From this directory:
+
+```sh
+bun test ./src/*.node.ts
+bunx playwright install chromium
+bunx playwright test
+```
+
+The Bun subjects compose the server and two clients without a GPU, including at 100 ms and 2% loss, keep a predicted rider on the lift, and exercise the server's trust boundary. Chromium runs a stepped page with input injected through `core/input`, tests the simulated link and two pages against the real Bun socket server, reads remote-avatar pixels, pushes the shared box, and checks the phone controls at 390×844. The browser config owns ports 4430 and 4431.

@@ -12,6 +12,7 @@ Every change reads Making a change, Layout, Code and Tests, then the section for
 | Rendering | Rendering |
 | Physics | Physics |
 | Audio | Audio |
+| Multiplayer | Multiplayer |
 | Tests or CI | Tests; CI and hosts |
 | An example | Examples, and its domain's section |
 | The CLI, packaging or a release | Commands; Dependencies and releases |
@@ -84,6 +85,7 @@ Layers run from `engine` outward through `core`, `standard` and `extras`. Depend
 - A module's extra plugins are its optional parts; a part with its own responsibility is its own module
 - Layer indexes re-export their modules, the root barrel re-exports every game layer, `standard/index.ts` sets the default plugins, and `package.json` declares public subpaths
 - Provider-specific observation belongs in optional application integrations, outside Shallot
+- `src/extras/multiplayer` is the optional multiplayer extra (`/multiplayer`); its Bun server transport is `/multiplayer/bun`
 
 ### Core and standard
 
@@ -250,6 +252,19 @@ bun test ./src/standard/physics/solver/step.gold.node.ts ./diagnostics/box3d-par
 - `StandardAudioPlugin` (`standard/audio`) owns the context lifecycle, one AudioWorklet running the audio kernel, the voice pool and clip decoding. Its promise is clip playback, basic controls and spatialization; synthesis, effects, sequencing and acoustics live outside the engine, in `shallot-audio-lab`, and reach the mix through `AudioOutput`'s bus ahead of the one master limiter
 - Voice slots are pooled in the audio kernel; control crosses to the worklet as a transferred typed buffer, not over `SharedArrayBuffer`, so audio does not require cross-origin isolation
 - Audio is presentation: voice handles live in the runtime, keyed by entity, never in ECS, and every frame reconciles them against `Sound`. [Sound](src/core/audio/index.ts) owns restore behavior
+
+## Multiplayer
+
+Games own intent validation, disclosure rules, gameplay and their server process. [The multiplayer example](examples/multiplayer) composes a server and client in one tab by default, or connects to its Bun server through `?server=`.
+
+A change to the extra runs its cheap and Node tests, the example's plugin tests and its Chromium subject, then `bun check` and `bun run lint`. A change that also touches rendering or physics follows that section's checks too.
+
+```sh
+bun test $(find ./src/extras/multiplayer \( -name '*.test.ts' -o -name '*.node.ts' \) -print | sort) ./examples/multiplayer/src/*.node.ts
+bunx playwright test -c examples/multiplayer
+bun check
+bun run lint
+```
 
 ## Code
 

@@ -84,6 +84,7 @@
         "dist",
         "examples/minimal",
         "examples/first-person",
+        "examples/multiplayer",
         "examples/view-model",
         "examples/minimap",
         "examples/loading-screen",

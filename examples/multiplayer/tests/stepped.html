@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="../src/touch.css"><link rel="stylesheet" href="../src/controls.css"><style>html,body{margin:0;width:100%;height:100%;background:#141210}canvas{display:block;width:100%;height:100%}</style></head><body><canvas></canvas><script type="module">
+import { createApp, focusCanvas, pressKey, releaseKey, resizeViewport, touchPoint, cancelTouch, GlobalTransform, MeshInstance, mountOverlay, DirectionalLight } from '@dylanebert/shallot';
+import { attachTexture, captureTexture, detachView, readRenderGlobalTransform } from '@dylanebert/shallot/rendering';
+import { appPlugin } from '../src/app';
+import { topology } from '../src/runtime';
+import { ClientSession, GameClient, scene } from '../src/network';
+import { LocalPlayer, PlayerInput } from '../src/player';
+import { hud } from '../src/hud';
+const params = new URLSearchParams(location.search);
+const connection = await topology(params.get('server') ?? undefined);
+const app = await createApp({ plugins: [appPlugin(connection)], pixelRatio: 0.5, setup(world) {
+ world.addSystem({ name:'SmallShadows', group:'setup', first:true, update(world) {
+  for(const sun of world.query([DirectionalLight]))world.storage(DirectionalLight).shadowMapsEnabled.set(sun,0);
+ }});
+}});
+const world = app.world;
+world.resource(ClientSession).client = new GameClient(world,connection.connection);
+hud(mountOverlay(document.querySelector('canvas'), world), world);
+const client = world.resource(ClientSession).client;
+const sample = () => {
+ const {players, box,lift} = scene(world);
+ const own = client.slot < 0 ? players[0] : players[client.slot];
+ const remote = client.slot < 0 ? players[1] : players[1-client.slot];
+ const p = new Float32Array(12); readRenderGlobalTransform(world,remote.player,p);
+ return { latency:connection.faults?.minDelay*2, loss:connection.faults?.loss, slot: client.slot, confirmed: client.prediction.receiver.confirmed, tick:world.time.fixedTick,
+ position:world.get(own.player,GlobalTransform)?.translation, box:world.get(box,GlobalTransform)?.translation,
+ remote: Array.from(p.slice(0,3)), lift:world.get(lift,GlobalTransform)?.translation,
+ yaw:world.get(own.player,PlayerInput)?.yaw, jumps:world.get(own.player,PlayerInput)?.jumpPresses,
+ predictedBox:client.prediction.predicted(box) };
+};
+window.game = {
+ async frames(count=1) { for(let i=0;i<count;i++){world.step(1/60);await world.frameFence;} return sample(); },
+ state: sample,
+ key(key,down) {focusCanvas(world); (down?pressKey:releaseKey)(world,key);},
+ touch(id,x,y,held=true) { focusCanvas(world); resizeViewport(world,0,innerWidth,innerHeight,1);touchPoint(world,id,x,y,held); },
+ cancel(id) {cancelTouch(world,id);},
+ async avatarPixels() {
+  const {players} = scene(world), remote=players[1-client.slot].player, eye=players[client.slot].eye;
+  detachView(world,eye);attachTexture(world,eye,{width:320,height:180});world.step(0);
+  const before=(await captureTexture(world,eye)).rgba;
+  const mesh=world.get(remote,MeshInstance); world.remove(remote,MeshInstance);world.step(0);
+  const hidden=(await captureTexture(world,eye)).rgba;
+  world.add(remote,MeshInstance,mesh);world.step(0);
+  let pixels=0;for(let i=0;i<before.length;i+=4)if([0,1,2].some(c=>Math.abs(before[i+c]-hidden[i+c])>20))pixels++;
+  return pixels;
+ },
+};
+await window.game.frames(1);
+window.ready = true;
+</script></body></html>

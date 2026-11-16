@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="description" content="Push a shared box on a first-person route: server authority, local prediction and interpolated remote avatars." />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+        <link rel="stylesheet" href="./src/touch.css" />
+        <link rel="stylesheet" href="./src/controls.css" />
+        <title>multiplayer</title>
+        <style>
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            body { background: #141210; overflow: hidden; }
+            html, body, canvas { width: 100%; height: 100%; }
+            canvas { display: block; }
+            [data-shallot-bootstrap] { position: fixed; inset: 0; display: grid; place-items: center; background: #1c1917; color: #f0e6d6; font: 400 13px/20px 'IBM Plex Sans', system-ui, sans-serif; }
+        </style>
+    </head>
+    <body>
+        <canvas id="canvas"></canvas>
+        <div data-shallot-bootstrap data-state="loading" role="status">Loading…</div>
+        <script src="/startup.js"></script>
+        <script type="module">
+            import { runApp, shallotDark } from "@dylanebert/shallot";
+            import { appPlugin } from "./src/app";
+            import { topology } from "./src/runtime";
+            import { hud } from "./src/hud";
+            import { ClientSession, GameClient } from "./src/network";
+
+            const bootstrap = document.querySelector("[data-shallot-bootstrap]");
+            const connection = await topology(new URLSearchParams(location.search).get("server") ?? undefined);
+            const app = await runApp({ plugins: [appPlugin(connection)], ui: hud, loading: shallotDark({ bootstrap }) });
+            app.world.resource(ClientSession).client = new GameClient(app.world, connection.connection);
+        </script>
+    </body>
+</html>
