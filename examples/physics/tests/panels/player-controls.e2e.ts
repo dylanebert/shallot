@@ -78,7 +78,8 @@ for (const width of [1280, 390]) {
                     touchPoints: points,
                 });
                 await state(20);
-                expect((await state()).yaw).not.toBe(before.yaw);
+                // Chromium delivers a touch move with the next animation frame, which stepped frames do not wait for.
+                await expect.poll(async () => (await state(1)).yaw).not.toBe(before.yaw);
                 expect((await state()).pan).toEqual(before.pan);
                 expect((await state()).distance).toBe(before.distance);
                 await expect(page.locator("[data-touch-stick]")).toBeVisible();
