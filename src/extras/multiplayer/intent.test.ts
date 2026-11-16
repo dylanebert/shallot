@@ -35,6 +35,24 @@ test("accepted intent keeps an on-time tick, assigns the next tick when late, an
     receiver.receive(link.a.receive(), 8);
     expect(receiver.records.size).toBe(2);
 });
+test("game validation refuses an intent without retaining it or leaving an unresolved ID gap", () => {
+    const link = seededLink(1, faults);
+    const sender = new IntentSender(link.b),
+        receiver = new IntentReceiver(link.a);
+    sender.record(1, "input", [NaN]);
+    sender.record(1, "input", [1]);
+    sender.flush();
+    const messages = link.a.receive();
+    const validate = (record: IntentRecord) => record.values.every(Number.isFinite);
+    receiver.receive(messages, 1, validate);
+    sender.flush(link.b.receive());
+    expect([...receiver.records.keys()]).toEqual([2]);
+    expect(sender.records.size).toBe(0);
+    receiver.prune(1);
+    receiver.receive(messages, 2, validate);
+    expect(receiver.records.size).toBe(0);
+});
+
 test("a late join image carries accepted operations through its cut-over tick", () => {
     const server = new World(),
         client = new World();

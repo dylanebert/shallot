@@ -1,12 +1,12 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { Character, GlobalTransform, GroundState, setTransform } from "@dylanebert/shallot";
-import { seededLink } from "@dylanebert/shallot/multiplayer";
+import { ServerSession, seededLink } from "@dylanebert/shallot/multiplayer";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { GameClient, GameServer, openGame, scene } from "./network";
+import { GameClient, openGame, openServer, scene } from "./network";
 
 setDefaultTimeout(TIMEOUT.node);
 test("a predicted rider stays on the moving lift at 100 ms and 2% loss", async () => {
-    const apps = [await openGame(), await openGame(), await openGame()];
+    const apps = [await openServer(), await openGame(), await openGame()];
     try {
         for (const app of apps)
             setTransform(
@@ -15,7 +15,7 @@ test("a predicted rider stays on the moving lift at 100 ms and 2% loss", async (
                 [0, 2.95, -6.5],
                 [0, 0, 0, 1],
             );
-        const server = new GameServer(apps[0]!.world);
+        const server = apps[0]!.world.resource(ServerSession).server!;
         const links = [
             seededLink(1, { minDelay: 50, maxDelay: 50, loss: 0.02, duplication: 0 }),
             seededLink(2, { minDelay: 50, maxDelay: 50, loss: 0.02, duplication: 0 }),
@@ -34,7 +34,7 @@ test("a predicted rider stays on the moving lift at 100 ms and 2% loss", async (
                 client.record([0, 0, 0, 0, 0, 0]);
                 client.step(1 / 60);
             }
-            server.tick();
+            server.world.tick();
             if (frame < 30) continue;
             const rider = scene(clients[0]!.world),
                 route = scene(server.world);

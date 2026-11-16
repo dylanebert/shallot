@@ -1,5 +1,7 @@
 /** The application owns connection lifetime and calls receive while draining its messages. */
 export interface Connection {
+    /** True once this transport cannot deliver again. Omitted for caller-managed byte links. */
+    readonly closed?: boolean;
     send(bytes: Uint8Array): void;
     receive(): Uint8Array[];
 }

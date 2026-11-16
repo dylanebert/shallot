@@ -1,17 +1,19 @@
 import {
     Body,
     Character,
+    component,
     createApp,
     GlobalTransform,
     type Plugin,
     Shape,
     Transform,
+    u32,
     type World,
 } from "@dylanebert/shallot";
 import {
     ClientPrediction,
     type Connection,
-    IntentReceiver,
+    type Game,
     type IntentRecord,
     IntentSender,
     MultiplayerPlugin,
@@ -19,7 +21,7 @@ import {
     PredictionPlugin,
     PredictionTarget,
     Replicate,
-    ReplicationSender,
+    server,
 } from "@dylanebert/shallot/multiplayer";
 import { Demo, Route } from "./demo";
 import { PlayerMotion } from "./motion";
@@ -37,9 +39,14 @@ export const SCHEMA = [
     PredictionMotion,
 ];
 const PUBLIC = [Transform, GlobalTransform, Body, Shape, PredictionMotion];
-export const GAME_PLUGINS = [Demo, PredictionPlugin, MultiplayerPlugin];
+const ConnectionSlot = component("ConnectionSlot", { slot: u32 });
+const Connections: Plugin = { name: "GameConnections", components: [ConnectionSlot] };
+export const GAME_PLUGINS = [Demo, PredictionPlugin, MultiplayerPlugin, Connections];
 export async function openGame() {
     return createApp({ defaults: false, plugins: GAME_PLUGINS });
+}
+export async function openServer() {
+    return createApp({ defaults: false, plugins: [...GAME_PLUGINS, server(GAME)] });
 }
 export function scene(world: World) {
     const result = world.resource(Route).entities;
@@ -93,55 +100,48 @@ function assignment(slot: number) {
     const words = new Uint32Array([ASSIGNMENT, slot]);
     return new Uint8Array(words.buffer);
 }
-export class GameServer {
-    readonly peers = new Map<number, { sender: ReplicationSender; intent: IntentReceiver }>();
-    readonly world: World;
-    constructor(world: World) {
-        this.world = world;
+export const GAME: Game = {
+    plugins: GAME_PLUGINS,
+    schema: SCHEMA,
+    maxClients: 2,
+    onCreate(world) {
         for (const eid of world.query([Body])) world.add(eid, Replicate);
-        for (const [slot, { player }] of scene(world).players.entries()) {
+        for (const [slot, { player }] of scene(world).players.entries())
             world.storage(Replicate).rule.set(player, slot + 1);
-        }
-    }
-    connect(connection: Connection) {
-        const slot = [0, 1].find((slot) => !this.peers.has(slot));
-        if (slot === undefined) throw new Error("Two players already connected");
-        const rules = [
-            new Map([[slot, SCHEMA]]),
-            ...[0, 1].map((owner) => new Map([[slot, owner === slot ? SCHEMA : PUBLIC]])),
-        ];
-        const sender = new ReplicationSender(this.world, SCHEMA, rules, slot, connection);
-        const peer = { sender, intent: new IntentReceiver(connection) };
-        this.peers.set(slot, peer);
+    },
+    onJoin(world, eid, connection) {
+        const occupied = [...world.query([ConnectionSlot])].map(
+            (eid) => world.get(eid, ConnectionSlot)!.slot,
+        );
+        const slot = [0, 1].find((slot) => !occupied.includes(slot))!;
+        world.add(eid, ConnectionSlot, { slot });
         connection.send(assignment(slot));
-        sender.record(this.world.time.fixedTick);
-        sender.flush();
-        return slot;
-    }
-    disconnect(slot: number) {
-        this.peers.delete(slot);
-        const player = scene(this.world).players[slot]!.player;
-        if (this.world.has(player, PlayerInput))
-            this.world.storage(PlayerInput).move.set(player, 0, 0);
-    }
-    tick() {
-        const tick = this.world.time.fixedTick + 1;
-        for (const [slot, peer] of this.peers) {
-            const messages = peer.sender.flush();
-            peer.intent.prune(peer.sender.acknowledged);
-            peer.intent.receive(messages, tick);
-            applyIntent(this.world, scene(this.world).players[slot]!.player, tick, [
-                ...peer.intent.records.values(),
-            ]);
-        }
-        this.world.tick();
-        for (const [slot, peer] of this.peers) {
-            peer.sender.connection.send(assignment(slot));
-            peer.sender.record(tick, [...peer.intent.records.values()]);
-            peer.sender.flush();
-        }
-    }
-}
+    },
+    rules(world, eid) {
+        const slot = world.get(eid, ConnectionSlot)!.slot;
+        return [
+            new Map([[eid, SCHEMA]]),
+            ...[0, 1].map((owner) => new Map([[eid, owner === slot ? SCHEMA : PUBLIC]])),
+        ];
+    },
+    onLeave(world, eid) {
+        const slot = world.get(eid, ConnectionSlot)?.slot;
+        if (slot === undefined) return;
+        const player = scene(world).players[slot]!.player;
+        if (world.has(player, PlayerInput)) world.storage(PlayerInput).move.set(player, 0, 0);
+    },
+    validateIntent: (_world, _eid, record) => validIntent(record),
+    applyIntent(world, eid, tick, records) {
+        const slot = world.get(eid, ConnectionSlot)!.slot;
+        applyIntent(world, scene(world).players[slot]!.player, tick, records);
+    },
+    onSend(world, eid, connection) {
+        connection.send(assignment(world.get(eid, ConnectionSlot)!.slot));
+    },
+    onClient(world, connection) {
+        world.resource(ClientSession).client = new GameClient(world, connection);
+    },
+};
 export class GameClient {
     slot = -1;
     readonly prediction: ClientPrediction;

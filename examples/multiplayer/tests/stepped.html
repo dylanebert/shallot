@@ -4,20 +4,21 @@ import { createApp, focusCanvas, pressKey, releaseKey, resizeViewport, touchPoin
 import { attachTexture, captureTexture, detachView, readRenderGlobalTransform } from '@dylanebert/shallot/rendering';
 import { AppPlugin } from '../src/app';
 import { Network, topology } from '../src/runtime';
-import { ClientSession, GameClient, scene } from '../src/network';
+import { ClientSession, scene } from '../src/network';
 import { LocalPlayer, PlayerInput } from '../src/player';
 import { hud } from '../src/hud';
 const params = new URLSearchParams(location.search);
 const connection = await topology(params.get('server') ?? undefined);
-const app = await createApp({ plugins: [AppPlugin], pixelRatio: 0.5, setup(world) {
+const app = await createApp({ plugins: [connection.plugin, AppPlugin], pixelRatio: 0.5, setup(world) {
  world.resource(Network).topology = connection;
  world.addSystem({ name:'SmallShadows', group:'setup', first:true, update(world) {
   for(const sun of world.query([DirectionalLight]))world.storage(DirectionalLight).shadowMapsEnabled.set(sun,0);
  }});
 }});
 const world = app.world;
-world.resource(ClientSession).client = new GameClient(world,connection.connection);
 hud(mountOverlay(document.querySelector('canvas'), world), world);
+world.step(0);
+await world.frameFence;
 const client = world.resource(ClientSession).client;
 const sample = () => {
  const {players, box,lift} = scene(world);

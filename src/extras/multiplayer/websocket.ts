@@ -18,6 +18,10 @@ export class WebSocketConnection implements Connection {
         });
     }
 
+    get closed(): boolean {
+        return this.socket.readyState >= 2;
+    }
+
     /** Refuses writes before open or after close; the application owns retry and lifetime. */
     send(bytes: Uint8Array): void {
         if (this.socket.readyState !== 1) throw new Error("WebSocket is not open");

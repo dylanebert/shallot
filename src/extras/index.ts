@@ -47,15 +47,19 @@ export {
 } from "./lines";
 export {
     type AcceptedIntent,
+    ClientOf,
     ClientPrediction,
     type Connection,
+    client,
     contactOutputKey,
     FixedOutputs,
+    type Game,
     IntentMessageKind,
     IntentReceiver,
     type IntentRecord,
     IntentSender,
     type LinkFaults,
+    local,
     MultiplayerPlugin,
     PredictionMotion,
     PredictionPlugin,
@@ -67,7 +71,9 @@ export {
     type ReplicationRules,
     type ReplicationSchema,
     ReplicationSender,
+    ServerSession,
     seededLink,
+    server,
 } from "./multiplayer";
 export {
     Orbit,

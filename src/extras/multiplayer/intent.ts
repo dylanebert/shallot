@@ -125,8 +125,13 @@ export class IntentReceiver {
         this.maxIdAhead = maxIdAhead;
         this.connection = connection;
     }
-    /** Route messages returned by ReplicationSender.flush here before the next fixed tick. */
-    receive(messages: readonly Uint8Array[], nextTick: number): Uint8Array[] {
+    /** Route messages returned by ReplicationSender.flush here before the next fixed tick.
+     * Validation refuses a record without application and resolves its ID, just like a tick refusal. */
+    receive(
+        messages: readonly Uint8Array[],
+        nextTick: number,
+        validate: (record: IntentRecord) => boolean = () => true,
+    ): Uint8Array[] {
         if (!Number.isInteger(nextTick) || nextTick < 0 || nextTick >= 0xffffffff)
             throw new Error("Invalid intent tick");
         const unhandled: Uint8Array[] = [];
@@ -148,7 +153,7 @@ export class IntentReceiver {
                     this._resolved.has(record.id)
                 )
                     continue;
-                if (record.tick <= nextTick + this.maxAhead) {
+                if (record.tick <= nextTick + this.maxAhead && validate(record)) {
                     const tick = Math.max(nextTick, record.tick);
                     this.records.set(record.id, {
                         ...record,

@@ -1,4 +1,7 @@
 import type { ServerWebSocket } from "bun";
+import { createApp, Time } from "../../engine";
+import { MultiplayerPlugin } from ".";
+import { type Game, ServerSession, server as serverRole } from "./game";
 import type { Connection } from "./link";
 
 /** A single accepted peer. The application owns its replication history and closes its socket. */
@@ -8,6 +11,10 @@ export class ServerWebSocketConnection implements Connection {
 
     constructor(socket: ServerWebSocket<ServerWebSocketConnection | undefined>) {
         this.socket = socket;
+    }
+
+    get closed(): boolean {
+        return this.socket.readyState !== 1;
     }
 
     /** Bun owns queued writes; a dropped write closes the peer rather than silently losing bytes.
@@ -63,4 +70,58 @@ export function serveWebSocket(options: {
             },
         },
     });
+}
+
+/** Self-hosts one headless authoritative game. Owns admission, a 60 Hz clock with at most four
+ * catch-up ticks per callback, dead-peer cleanup and SIGTERM shutdown. stop is idempotent and
+ * releases the timer, sockets, signal listener and World. The caller chooses address and hosting. */
+export async function serveGame(game: Game, options: { hostname?: string; port: number }) {
+    const app = await createApp({
+        defaults: false,
+        plugins: [...game.plugins, MultiplayerPlugin, serverRole(game)],
+    });
+    const authority = app.world.resource(ServerSession).server!;
+    const entities = new WeakMap<ServerWebSocketConnection, number>();
+    let endpoint: ReturnType<typeof serveWebSocket>;
+    try {
+        endpoint = serveWebSocket({
+            ...options,
+            connect(connection) {
+                const eid = authority.connect(connection);
+                if (eid === undefined) connection.socket.close(1013, "Peer limit reached");
+                else entities.set(connection, eid);
+            },
+            disconnect(connection) {
+                const eid = entities.get(connection);
+                if (eid !== undefined && authority.peers.get(eid)?.connection === connection)
+                    authority.disconnect(eid);
+                entities.delete(connection);
+            },
+        });
+    } catch (error) {
+        app.dispose();
+        throw error;
+    }
+    let previous = performance.now(),
+        accumulator = 0,
+        stopped = false;
+    const timer = setInterval(() => {
+        const now = performance.now();
+        accumulator += Math.min((now - previous) / 1000, Time.MAX_FIXED_STEPS * Time.FIXED_DT);
+        previous = now;
+        while (accumulator >= Time.FIXED_DT) {
+            app.world.tick();
+            accumulator -= Time.FIXED_DT;
+        }
+    }, Time.FIXED_DT * 1000);
+    const stop = () => {
+        if (stopped) return;
+        stopped = true;
+        clearInterval(timer);
+        process.off("SIGTERM", stop);
+        endpoint.stop(true);
+        app.dispose();
+    };
+    process.on("SIGTERM", stop);
+    return { port: endpoint.port, world: app.world, stop };
 }

@@ -1,17 +1,17 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { Body, BodyType, Character, GlobalTransform } from "@dylanebert/shallot";
-import { InterpolationTarget, seededLink } from "@dylanebert/shallot/multiplayer";
+import { InterpolationTarget, ServerSession, seededLink } from "@dylanebert/shallot/multiplayer";
 import { readRenderGlobalTransform } from "@dylanebert/shallot/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { GameClient, GameServer, openGame, scene } from "./network";
+import { GameClient, openGame, openServer, scene } from "./network";
 import { Player, PlayerInput } from "./player";
 
 setDefaultTimeout(TIMEOUT.node);
 for (const simulated of [false, true]) {
     test(`a server and two clients move separate avatars and push the shared server-owned box${simulated ? " at 100 ms and 2% loss" : ""}`, async () => {
-        const apps = [await openGame(), await openGame(), await openGame()];
+        const apps = [await openServer(), await openGame(), await openGame()];
         try {
-            const server = new GameServer(apps[0]!.world);
+            const server = apps[0]!.world.resource(ServerSession).server!;
             const links = [
                 seededLink(10, {
                     minDelay: simulated ? 50 : 0,
@@ -38,7 +38,7 @@ for (const simulated of [false, true]) {
                     client.record([slot === 0 ? 0 : 1, slot === 0 ? 1 : 0, 0, 0, 0, 0]);
                     client.step(1 / 60);
                 }
-                server.tick();
+                server.world.tick();
             }
             const pos = server.world.storage(GlobalTransform).translation;
             expect(pos.z.get(route.players[0]!.player)).toBeLessThan(13);
