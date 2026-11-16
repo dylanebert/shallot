@@ -57,6 +57,23 @@ test("an unanswered server address explains how to start the server", async ({ p
     ).toBeVisible();
 });
 
+for (const protocol of ["ws", "wss"]) {
+    test(`an unreachable remote ${protocol} server does not recommend a local server`, async ({
+        page,
+    }) => {
+        const address = `${protocol}://multiplayer.invalid`;
+        await page.goto(`/?server=${address}`);
+        await expect(
+            page.getByText(`No server answered at ${address}.`, { exact: false }),
+        ).toBeVisible();
+        await expect(page.getByText("bun server.ts", { exact: false })).toHaveCount(0);
+        await expect(
+            page.getByText("Check that its server is running and reachable", { exact: false }),
+        ).toBeVisible();
+        await expect(page.getByText("RUNNING.md", { exact: false })).toBeVisible();
+    });
+}
+
 test("a server closing before the first image explains the failed connection", async ({ page }) => {
     await page.routeWebSocket("ws://127.0.0.1:4432", (socket) => socket.close());
     await page.goto("/?server=ws://127.0.0.1:4432");

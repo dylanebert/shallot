@@ -25,6 +25,8 @@ bun server.ts --host 127.0.0.1 --port 3001
 
 Open Vite's URL with `?server=ws://127.0.0.1:3001` in two tabs. Each connection gets one of two avatars. This mode has no thin client; the other tab supplies the remote player. The simulation controls remain visible but disabled: they belong to the in-tab link, not the socket transport.
 
+### Remote server
+
 For another host, run the same server file there (`--host 0.0.0.0` accepts external connections) and supply that endpoint in `?server=`. A published static client needs only the endpoint configuration; the Bun process runs separately. Use a secure WebSocket endpoint for a client served over HTTPS.
 
 The server accepts only finite, bounded movement/look values, a sprint flag and a cumulative jump count, applied to the avatar selected by the connection—not an entity chosen by the client. This is a two-player demonstration, without authentication or persistent sessions, not a public matchmaking service. Reload after a socket disconnect to join again.

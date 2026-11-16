@@ -10,8 +10,13 @@ import { GameServer, openGame, SCHEMA } from "./network";
 
 export async function topology(url?: string, onError?: (error: Error) => void) {
     if (url) {
+        const host = new URL(url).hostname;
+        const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(host);
+        const remedy = loopback
+            ? "From the example directory, start the server with bun server.ts --host 127.0.0.1 --port 3001 (see RUNNING.md), then reload with its address in ?server=."
+            : "Check that its server is running and reachable; see the Remote server section in RUNNING.md.";
         const failure = new Error(
-            `No server answered at ${url}. The connection failed or closed. From the example directory, start the server with bun server.ts --host 127.0.0.1 --port 3001 (see RUNNING.md), then reload with its address in ?server=.`,
+            `No server answered at ${url}. The connection failed or closed. ${remedy}`,
         );
         const socket = new WebSocket(url);
         socket.addEventListener("error", () => onError?.(failure));
