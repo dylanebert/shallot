@@ -421,7 +421,7 @@ export class ReplicationSender {
             for (const old of this._pending.keys()) if (old <= tick) this._pending.delete(old);
         }
         // First sends of held frames, newest first. A frame is fast-resent once FastResend frames
-        // first sent after its latest send are held, so it never fires on a link that loses nothing.
+        // first sent after its latest send are held, so it never fires on an in-order link that loses nothing.
         const later: number[] = [];
         for (const frame of [...this._pending.values()].reverse()) {
             if (frame.held) {
