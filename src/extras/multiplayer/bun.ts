@@ -10,9 +10,11 @@ export class ServerWebSocketConnection implements Connection {
         this.socket = socket;
     }
 
-    /** Bun owns queued writes; a dropped write closes the peer rather than silently losing bytes. */
+    /** Bun owns queued writes; a dropped write closes the peer rather than silently losing bytes.
+     * Writes to a closing or closed peer are discarded, so one peer cannot throw into a server tick;
+     * `disconnect` reports its close. */
     send(bytes: Uint8Array): void {
-        if (this.socket.readyState !== 1) throw new Error("WebSocket is not open");
+        if (this.socket.readyState !== 1) return;
         if (this.socket.sendBinary(bytes) === 0) this.socket.close(1011, "Write failed");
     }
 

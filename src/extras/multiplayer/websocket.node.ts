@@ -1,10 +1,18 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { connect as connectTcp } from "node:net";
 import { createInterface } from "node:readline";
 import { Readable } from "node:stream";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { bunChild } from "../../../scripts/bun-child";
-import { component, u32, World } from "../../engine";
-import { IntentSender, ReplicationReceiver, WebSocketConnection } from ".";
+import { component, f32, u32, World } from "../../engine";
+import {
+    IntentSender,
+    Replicate,
+    ReplicationReceiver,
+    ReplicationSender,
+    WebSocketConnection,
+} from ".";
+import { type ServerWebSocketConnection, serveWebSocket } from "./bun";
 
 setDefaultTimeout(TIMEOUT.node);
 const Value = component("SocketValue", { value: u32 });
@@ -117,5 +125,83 @@ test("binary sockets carry images, burst frames and isolated inputs; reconnect r
         child.kill();
         await child.exited;
         for (const world of worlds) world.dispose();
+    }
+});
+
+test("a peer that stops reading is closed without throwing into the server's flush; other peers keep confirming", async () => {
+    const Row = component("SocketRow", { value: f32 });
+    const world = new World();
+    for (let i = 0; i < 64; i++) {
+        const eid = world.create();
+        world.add(eid, Row, { value: i });
+        world.add(eid, Replicate, { rule: 0 });
+    }
+    const senders = new Map<ServerWebSocketConnection, ReplicationSender>();
+    const closed: ServerWebSocketConnection[] = [];
+    const server = serveWebSocket({
+        hostname: "127.0.0.1",
+        port: 0,
+        connect(connection) {
+            const recipient = senders.size;
+            const rules = [new Map([[recipient, [Row]]])];
+            senders.set(
+                connection,
+                new ReplicationSender(world, [Row], rules, recipient, connection),
+            );
+        },
+        disconnect(connection) {
+            closed.push(connection);
+        },
+    });
+    const port = server.port!;
+    // A stalled peer: it completes the upgrade, then neither reads nor acknowledges.
+    const stalled = connectTcp(port, "127.0.0.1");
+    const client = new World();
+    let socket: WebSocket | undefined;
+    try {
+        stalled.write(
+            "GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+                "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+        );
+        await new Promise((resolve) => stalled.once("data", resolve));
+        stalled.pause();
+        socket = new WebSocket(`ws://127.0.0.1:${port}`);
+        const receiver = new ReplicationReceiver(client, [Row], new WebSocketConnection(socket));
+        await new Promise((resolve) => socket!.addEventListener("open", resolve, { once: true }));
+        while (senders.size < 2) await Bun.sleep(1);
+        const [stalledPeer, healthyPeer] = [...senders.keys()];
+        let tick = 0;
+        const step = async () => {
+            for (const eid of world.query([Row])) world.storage(Row).value.set(eid, tick + eid);
+            for (const sender of senders.values()) {
+                sender.record(tick);
+                sender.flush();
+            }
+            receiver.flush();
+            if (++tick % 8 === 0) await Bun.sleep(0);
+        };
+        // The stalled peer's unacknowledged frames pass Bun's backpressure limit, so a write
+        // is dropped and the connection closes its socket. Later ticks still flush to it.
+        while (stalledPeer!.socket.readyState === 1) {
+            if (tick > 20_000) throw new Error("stalled peer was never closed");
+            await step();
+        }
+        for (let i = 0; i < 8; i++) await step();
+        stalled.destroy();
+        while (!closed.length) await Bun.sleep(1);
+        const last = tick - 1;
+        while (receiver.confirmed < last) {
+            receiver.flush();
+            senders.get(healthyPeer!)!.flush();
+            await Bun.sleep(1);
+        }
+        expect(closed).toEqual([stalledPeer]);
+        expect(receiver.confirmed).toBe(last);
+    } finally {
+        socket?.close();
+        stalled.destroy();
+        server.stop(true);
+        client.dispose();
+        world.dispose();
     }
 });
