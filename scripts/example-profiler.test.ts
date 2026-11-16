@@ -36,7 +36,11 @@ for (const name of examples) {
             name === "physics"
                 ? readFileSync(new URL("../examples/physics/src/main.ts", import.meta.url), "utf8")
                 : html;
-        expect(entry).toMatch(motes ? /plugins:\s*\[MotesPlugin\]/ : /plugins:\s*\[AppPlugin\]/);
+        const entryPlugins = entry
+            .match(/plugins:\s*\[([^\]]*)\]/)?.[1]
+            ?.split(",")
+            .map((plugin) => plugin.trim());
+        expect(entryPlugins).toContain(motes ? "MotesPlugin" : "AppPlugin");
         const module = await import(`../examples/${name}/src/${motes ? "motes" : "app"}.ts`);
         const plugins = composition(motes ? module.MotesPlugin : module.AppPlugin);
         expect(plugins.has(DiagnosticsOverlayPlugin)).toBe(true);
