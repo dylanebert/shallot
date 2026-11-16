@@ -32,6 +32,8 @@ export interface Time {
     fixedSteps: number;
     /** Simulation tick, rewound by restore and advanced by every paced or explicit tick. */
     fixedTick: number;
+    /** Increments on jumpToTick, never on ordinary ticks or snapshot recovery. */
+    fixedTickRevision: number;
     /** Accumulator fraction in [0, 1), updated after paced ticks for render interpolation; unchanged by replay. */
     fixedAlpha: number;
     /** true when fixed steps were clamped this frame */
@@ -87,6 +89,7 @@ export class Scheduler {
         paused: false,
         fixedSteps: 0,
         fixedTick: 0,
+        fixedTickRevision: 0,
         fixedAlpha: 0,
         throttled: false,
     };
@@ -110,6 +113,11 @@ export class Scheduler {
     /** @internal Recovery changes only the integer simulation clock, never frame pacing. */
     restore(tick: number): void {
         this._time.fixedTick = tick;
+    }
+
+    jumpToTick(tick: number): void {
+        this._time.fixedTick = tick;
+        this._time.fixedTickRevision++;
     }
 
     get time(): Readonly<Time> {

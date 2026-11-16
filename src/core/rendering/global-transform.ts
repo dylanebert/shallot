@@ -95,6 +95,7 @@ export interface GlobalTransformRuntime {
     historyPromotionOnSubmit: boolean;
     historyDiscontinuitiesOnSubmit: Uint32Array;
     historyDiscarded: boolean;
+    fixedTickRevision: number;
     commitOnSubmit: () => void;
 }
 /** @internal Sparse CPU samples and GlobalTransform's GPU history, with pending promotion and discontinuities. */
@@ -117,6 +118,7 @@ export const GlobalTransformHistory: Resource<GlobalTransformRuntime> = {
             historyPromotionOnSubmit: false,
             historyDiscontinuitiesOnSubmit: new Uint32Array(1),
             historyDiscarded: false,
+            fixedTickRevision: world.time.fixedTickRevision,
             commitOnSubmit: () => {
                 if (!runtime.enabled) return;
                 runtime.tickCount = 0;
@@ -217,6 +219,7 @@ export const GlobalTransformHistoryStartSystem: System = {
     after: [GlobalTransformTickStartSystem],
     update(world) {
         const runtime = world.resource(GlobalTransformHistory);
+        discardJumpedHistory(world, runtime);
         captureCpuHistory(world, runtime, true);
         if (!runtime.enabled) return;
         if (runtime.tickCount && runtime.ranges[3])
@@ -257,6 +260,7 @@ export const PrepareGlobalTransformHistorySystem: System = {
     update(world) {
         const runtime = world.resource(GlobalTransformHistory);
         if (!runtime.enabled) return;
+        discardJumpedHistory(world, runtime);
         markFrameWrites(world, runtime);
         captureCurrent(world, 1);
         runtime.render!.upload();
@@ -544,7 +548,15 @@ function copyPhase(
         }
     return size > 0;
 }
+function discardJumpedHistory(world: World, runtime: GlobalTransformRuntime): void {
+    if (runtime.fixedTickRevision === world.time.fixedTickRevision) return;
+    runtime.fixedTickRevision = world.time.fixedTickRevision;
+    recoverGlobalTransformHistory(world).restore();
+    runtime.cpuPrepared = false;
+    for (const history of runtime.cpuReaders) history.captured = false;
+}
 function prepareCpuFrame(world: World, runtime: GlobalTransformRuntime): void {
+    discardJumpedHistory(world, runtime);
     if (runtime.cpuPrepared) return;
     runtime.cpuPrepared = true;
     const marks = world.resource(TransformRuntime).discontinuities;

@@ -768,6 +768,22 @@ export class World {
         }
     }
 
+    /** Move the fixed clock without running fixed work, as a client adopting an authoritative tick.
+     * Allowed between ticks or in preFixed, never during recovery. Refuses negative or non-safe-integer
+     * ticks. The paced accumulator, fixedAlpha and frame clock stay current; field marks are untouched
+     * and recovery participants do not run. Rendering discards interpolation history across the jump,
+     * even if a later jump returns to the old head. Subsequent ticks count from the new tick.
+     * Unlike Netcode for Entities' NetworkTime jump, no network role is implied. */
+    jumpToTick(tick: number): void {
+        if (this._recovering || (this._stepping && this.currentSystemGroup !== "preFixed"))
+            throw new Error(
+                "World.jumpToTick: requires between ticks or preFixed outside recovery",
+            );
+        if (!Number.isSafeInteger(tick) || tick < 0)
+            throw new Error("World.jumpToTick: requires a non-negative safe integer tick");
+        this._scheduler.jumpToTick(tick);
+    }
+
     /** @internal Register an ordered simulation owner. */
     registerRecovery<S>(
         name: string | symbol,
