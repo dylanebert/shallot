@@ -1,2 +1,2 @@
 stage: 10
-finding: Stage 10's discovery/documentation deliverables are incomplete. README.md:27-37 still only introduces the generic gallery and first-person scaffold; it has no multiplayer/extra section or pointer to its two run modes. /Users/dylan.ebert/kex/strategy/shallot/examples.md:68 still lists multiplayer as a gap and has no multiplayer example row, although stage 10 explicitly requires that row and the extra's section in CONTRIBUTING and README. CONTRIBUTING.md:258 and examples/multiplayer/RUNNING.md supply useful guidance but do not fulfill those discovery surfaces. All requested automated checks pass without detecting these omissions.
+clean
