@@ -22,14 +22,19 @@
         <script src="/startup.js"></script>
         <script type="module">
             import { runApp, shallotDark } from "@dylanebert/shallot";
-            import { appPlugin } from "./src/app";
-            import { topology } from "./src/runtime";
+            import { AppPlugin } from "./src/app";
+            import { Network, topology } from "./src/runtime";
             import { hud } from "./src/hud";
             import { ClientSession, GameClient } from "./src/network";
 
             const bootstrap = document.querySelector("[data-shallot-bootstrap]");
             const connection = await topology(new URLSearchParams(location.search).get("server") ?? undefined);
-            const app = await runApp({ plugins: [appPlugin(connection)], ui: hud, loading: shallotDark({ bootstrap }) });
+            const app = await runApp({
+                plugins: [AppPlugin],
+                setup(world) { world.resource(Network).topology = connection; },
+                ui: hud,
+                loading: shallotDark({ bootstrap }),
+            });
             app.world.resource(ClientSession).client = new GameClient(app.world, connection.connection);
         </script>
     </body>

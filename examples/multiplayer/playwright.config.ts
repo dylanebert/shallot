@@ -11,6 +11,12 @@ export default {
             url: "http://127.0.0.1:4430",
             ...WEB_SERVER_CONFIG,
         },
-        { command: "bun server.ts --port 4431 --host 127.0.0.1", port: 4431, ...WEB_SERVER_CONFIG },
+        {
+            command: "bun server.ts --port 4431 --host 127.0.0.1",
+            url: "http://127.0.0.1:4431",
+            // The socket-only endpoint answers HTTP with 426; wait for its listening message.
+            wait: { stdout: /Multiplayer server: ws:\/\/localhost:4431/ },
+            ...WEB_SERVER_CONFIG,
+        },
     ],
 } satisfies PlaywrightTestConfig;

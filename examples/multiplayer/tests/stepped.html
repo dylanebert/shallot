@@ -2,14 +2,15 @@
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="../src/touch.css"><link rel="stylesheet" href="../src/controls.css"><style>html,body{margin:0;width:100%;height:100%;background:#141210}canvas{display:block;width:100%;height:100%}</style></head><body><canvas></canvas><script type="module">
 import { createApp, focusCanvas, pressKey, releaseKey, resizeViewport, touchPoint, cancelTouch, GlobalTransform, MeshInstance, mountOverlay, DirectionalLight } from '@dylanebert/shallot';
 import { attachTexture, captureTexture, detachView, readRenderGlobalTransform } from '@dylanebert/shallot/rendering';
-import { appPlugin } from '../src/app';
-import { topology } from '../src/runtime';
+import { AppPlugin } from '../src/app';
+import { Network, topology } from '../src/runtime';
 import { ClientSession, GameClient, scene } from '../src/network';
 import { LocalPlayer, PlayerInput } from '../src/player';
 import { hud } from '../src/hud';
 const params = new URLSearchParams(location.search);
 const connection = await topology(params.get('server') ?? undefined);
-const app = await createApp({ plugins: [appPlugin(connection)], pixelRatio: 0.5, setup(world) {
+const app = await createApp({ plugins: [AppPlugin], pixelRatio: 0.5, setup(world) {
+ world.resource(Network).topology = connection;
  world.addSystem({ name:'SmallShadows', group:'setup', first:true, update(world) {
   for(const sun of world.query([DirectionalLight]))world.storage(DirectionalLight).shadowMapsEnabled.set(sun,0);
  }});
