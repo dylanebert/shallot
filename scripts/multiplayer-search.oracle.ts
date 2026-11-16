@@ -32,7 +32,7 @@ test("search existing multiplayer invariants over seeded simulated links", async
         "Manual oracle; gates nothing. Simulated links, not socket impairment or coverage proof.",
     );
     console.info(
-        "Invariants: replication confirmed rows/order, eid references/reuse, disclosure, late join (loss/duplication disabled after tick 79, drain through tick 349); example predicted lift rider motion, authoritative gap error < 0.08 and final grounded state (existing replication.test.ts and lift.node.ts assertions).",
+        "Invariants: replication confirmed rows/order, eid references/reuse, disclosure, late join (loss/duplication disabled after tick 79, drain through tick 349); example predicted lift rider (100 ms / 2% loss) motion, authoritative gap error < 0.08 and final grounded state (existing replication.test.ts and lift.node.ts assertions).",
     );
     console.info(
         `budget=${budget} seeds; one seed controls configuration and link schedules per child run`,
@@ -53,7 +53,6 @@ test("search existing multiplayer invariants over seeded simulated links", async
                 loss: 0.1 + random() * 0.1,
                 duplication: 0.25 + random() * 0.2,
             },
-            example: { minDelay: 50, maxDelay: 50, loss: 0.02, duplication: 0 },
         };
         console.info(
             `seed=${seed} commit=${commit} run=${ran + 1}/${budget} configuration=${JSON.stringify(configuration)}`,
@@ -65,7 +64,11 @@ test("search existing multiplayer invariants over seeded simulated links", async
                 "./examples/multiplayer/src/lift.node.ts",
             ]),
             cwd: root,
-            env: { ...process.env, SHALLOT_MULTIPLAYER_SEARCH: JSON.stringify(configuration) },
+            env: {
+                ...process.env,
+                SHALLOT_MULTIPLAYER_SEED: String(seed),
+                SHALLOT_MULTIPLAYER_SEARCH: JSON.stringify(configuration),
+            },
             stdout: "inherit",
             stderr: "inherit",
         });

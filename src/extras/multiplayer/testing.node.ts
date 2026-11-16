@@ -239,6 +239,47 @@ test("waits test immediately and predicate exceptions identify the peer", async 
     }
 });
 
+test("session seed comes from options, the documented environment or the default", async () => {
+    const previous = process.env.SHALLOT_MULTIPLAYER_SEED;
+    const output = spyOn(console, "info").mockImplementation(() => {});
+    const run = async (seed?: number) => {
+        const session = await createSession(game, { clients: 0, seed });
+        await session.dispose();
+    };
+    try {
+        delete process.env.SHALLOT_MULTIPLAYER_SEED;
+        await run();
+        expect(output).toHaveBeenLastCalledWith(
+            "multiplayer session seed=1 source=default transport=link",
+        );
+        for (const seed of [0, 4294967295]) {
+            process.env.SHALLOT_MULTIPLAYER_SEED = String(seed);
+            await run();
+            expect(output).toHaveBeenLastCalledWith(
+                `multiplayer session seed=${seed} source=SHALLOT_MULTIPLAYER_SEED transport=link`,
+            );
+        }
+        for (const value of ["", "-1", "1.5", "4294967296", "Infinity", "2e3", " 2"]) {
+            process.env.SHALLOT_MULTIPLAYER_SEED = value;
+            let message = "";
+            try {
+                await run();
+            } catch (error) {
+                message = String(error);
+            }
+            expect(message).toContain("u32");
+        }
+        await run(27);
+        expect(output).toHaveBeenLastCalledWith(
+            "multiplayer session seed=27 source=options transport=link",
+        );
+    } finally {
+        if (previous === undefined) delete process.env.SHALLOT_MULTIPLAYER_SEED;
+        else process.env.SHALLOT_MULTIPLAYER_SEED = previous;
+        output.mockRestore();
+    }
+});
+
 test("faulted sessions print their seed and reproduce transport delivery", async () => {
     const output = spyOn(console, "info").mockImplementation(() => {});
     const run = async () => {
@@ -262,7 +303,9 @@ test("faulted sessions print their seed and reproduce transport delivery", async
     };
     try {
         expect(await run()).toEqual(await run());
-        expect(output).toHaveBeenCalledWith("multiplayer session seed=1234 transport=link");
+        expect(output).toHaveBeenCalledWith(
+            "multiplayer session seed=1234 source=options transport=link",
+        );
     } finally {
         output.mockRestore();
     }

@@ -7,7 +7,9 @@ import { WebSocketConnection } from "./websocket";
 
 /** Composes caller-stepped test Worlds. Link faults use milliseconds; each transport round advances
  * their shared clock by one fixed tick. Socket mode uses real loopback IO, not simulated faults.
- * The seed is printed at creation and included in failures; client i uses seed + i.
+ * Seed precedence: options.seed, then SHALLOT_MULTIPLAYER_SEED (decimal u32), then 1.
+ * The environment is read only when options.seed is omitted. The seed and its source print at
+ * creation; failures include the seed. Client i uses seed + i.
  * Clients run the game's onClient at their first stepped boundary. Thin clients only receive and
  * acknowledge state: their Worlds do not simulate and onClient is not called.
  * Dispose the session, not just its Worlds. Disposal closes all owned peers and fails if any World,
@@ -17,14 +19,27 @@ import { WebSocketConnection } from "./websocket";
 export async function createSession(
     game: Game,
     options: {
-        seed: number;
+        seed?: number;
         clients: number;
         thinClients?: number;
         transport?: "link" | "websocket";
         faults?: LinkFaults;
     },
 ) {
-    const { seed, clients, thinClients = 0, transport = "link" } = options;
+    const { clients, thinClients = 0, transport = "link" } = options;
+    const environment =
+        options.seed === undefined && typeof process !== "undefined"
+            ? process.env.SHALLOT_MULTIPLAYER_SEED
+            : undefined;
+    if (environment !== undefined && !/^\d+$/.test(environment))
+        throw new Error("SHALLOT_MULTIPLAYER_SEED must be a decimal u32");
+    const seed = options.seed ?? (environment === undefined ? 1 : Number(environment));
+    const source =
+        options.seed !== undefined
+            ? "options"
+            : environment !== undefined
+              ? "SHALLOT_MULTIPLAYER_SEED"
+              : "default";
     for (const count of [clients, thinClients])
         if (!Number.isSafeInteger(count) || count < 0)
             throw new Error("Session client counts must be nonnegative integers");
@@ -34,7 +49,7 @@ export async function createSession(
         throw new Error("Session seed must be a u32");
     if (transport === "websocket" && options.faults)
         throw new Error("Link faults do not impair WebSockets");
-    console.info(`multiplayer session seed=${seed} transport=${transport}`);
+    console.info(`multiplayer session seed=${seed} source=${source} transport=${transport}`);
     const apps: App[] = [];
     const links: ReturnType<typeof seededLink>[] = [];
     const sockets: WebSocket[] = [];

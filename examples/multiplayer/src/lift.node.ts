@@ -7,9 +7,6 @@ import { ClientSession, GAME, scene } from "./network";
 setDefaultTimeout(TIMEOUT.node);
 test("a predicted rider stays on the moving lift at 100 ms and 2% loss", async () => {
     const session = await createSession(GAME, {
-        seed: process.env.SHALLOT_MULTIPLAYER_SEARCH
-            ? JSON.parse(process.env.SHALLOT_MULTIPLAYER_SEARCH).seed
-            : 1,
         clients: 2,
         faults: { minDelay: 50, maxDelay: 50, loss: 0.02, duplication: 0 },
     });
