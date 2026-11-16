@@ -1,8 +1,9 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { GlobalTransform } from "@dylanebert/shallot";
-import { IntentSender, ServerSession, seededLink } from "@dylanebert/shallot/multiplayer";
+import { IntentSender } from "@dylanebert/shallot/multiplayer";
+import { createSession } from "@dylanebert/shallot/multiplayer/testing";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { openServer, scene } from "./network";
+import { GAME, scene } from "./network";
 import { PlayerInput } from "./player";
 
 setDefaultTimeout(TIMEOUT.node);
@@ -22,15 +23,13 @@ const invalid = [
 ] as const;
 for (const [name, values] of invalid) {
     test(`server refuses intent with ${name}`, async () => {
-        const app = await openServer();
+        const session = await createSession(GAME, { seed: 5, clients: 1 });
+        const app = session.server;
         try {
-            const server = app.world.resource(ServerSession).server!;
-            const link = seededLink(5, { minDelay: 0, maxDelay: 0, loss: 0, duplication: 0 });
-            server.connect(link.a);
-            const input = new IntentSender(link.b);
+            const input = new IntentSender(session.clients[0]!.connection!);
             input.record(1, "input", [...values]);
             input.flush();
-            server.world.tick();
+            await session.step(session.server);
             const player = scene(app.world).players[0]!.player;
             expect(app.world.get(player, PlayerInput)?.move ?? [0, 0]).toEqual([0, 0]);
             expect(app.world.get(player, PlayerInput)?.sprint ?? 0).toBe(0);
@@ -38,38 +37,33 @@ for (const [name, values] of invalid) {
             expect(app.world.storage(GlobalTransform).translation.x.get(player)).toBe(2);
             expect(app.world.storage(GlobalTransform).translation.z.get(player)).toBe(15);
         } finally {
-            app.dispose();
+            await session.dispose();
         }
     });
 }
 
 test("the connection selects the avatar; operations and requested future ticks cannot move another player", async () => {
-    const app = await openServer();
+    const session = await createSession(GAME, { seed: 1, clients: 2 });
+    const app = session.server;
     try {
-        const server = app.world.resource(ServerSession).server!;
-        const links = [
-            seededLink(1, { minDelay: 0, maxDelay: 0, loss: 0, duplication: 0 }),
-            seededLink(2, { minDelay: 0, maxDelay: 0, loss: 0, duplication: 0 }),
-        ];
-        for (const link of links) server.connect(link.a);
-        const input = new IntentSender(links[0]!.b);
+        const input = new IntentSender(session.clients[0]!.connection!);
         input.record(1, "operation", [0, 1, 0, 0, 0, 0]);
         input.flush();
-        server.world.tick();
+        await session.step(session.server);
         const [own, other] = scene(app.world).players;
         const pose = app.world.storage(GlobalTransform).translation;
         expect(pose.z.get(own!.player)).toBe(15);
         input.record(10, "input", [0, 1, 0, 0, 0, 0]);
         input.flush();
-        for (let i = 0; i < 8; i++) server.world.tick();
+        await session.step(session.server, 8);
         expect(pose.z.get(own!.player)).toBe(15);
-        server.world.tick();
+        await session.step(session.server);
         expect(pose.z.get(own!.player)).toBeLessThan(15);
         expect(pose.x.get(other!.player)).toBe(-2);
         expect(pose.z.get(other!.player)).toBe(10);
-        for (let i = 0; i < 30; i++) server.world.tick();
+        await session.step(session.server, 30);
         expect(pose.z.get(other!.player)).toBe(10);
     } finally {
-        app.dispose();
+        await session.dispose();
     }
 });

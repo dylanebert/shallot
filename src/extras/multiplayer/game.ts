@@ -184,7 +184,8 @@ export function server(game: Game): Plugin {
     };
 }
 
-function clientStartup(game: Game, connection: (world: World) => Connection): System {
+/** @internal Shared first-boundary startup for composed client roles. */
+export function clientStartup(game: Game, connection: (world: World) => Connection): System {
     return {
         name: "start-game-client",
         group: "preFixed",

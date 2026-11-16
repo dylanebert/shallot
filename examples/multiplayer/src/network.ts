@@ -2,7 +2,6 @@ import {
     Body,
     Character,
     component,
-    createApp,
     GlobalTransform,
     type Plugin,
     Shape,
@@ -21,7 +20,6 @@ import {
     PredictionPlugin,
     PredictionTarget,
     Replicate,
-    server,
 } from "@dylanebert/shallot/multiplayer";
 import { Demo, Route } from "./demo";
 import { PlayerMotion } from "./motion";
@@ -42,12 +40,6 @@ const PUBLIC = [Transform, GlobalTransform, Body, Shape, PredictionMotion];
 const ConnectionSlot = component("ConnectionSlot", { slot: u32 });
 const Connections: Plugin = { name: "GameConnections", components: [ConnectionSlot] };
 export const GAME_PLUGINS = [Demo, PredictionPlugin, MultiplayerPlugin, Connections];
-export async function openGame() {
-    return createApp({ defaults: false, plugins: GAME_PLUGINS });
-}
-export async function openServer() {
-    return createApp({ defaults: false, plugins: [...GAME_PLUGINS, server(GAME)] });
-}
 export function scene(world: World) {
     const result = world.resource(Route).entities;
     if (!result) throw new Error("Route is not initialized");

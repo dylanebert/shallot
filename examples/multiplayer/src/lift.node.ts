@@ -1,12 +1,17 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { Character, GlobalTransform, GroundState, setTransform } from "@dylanebert/shallot";
-import { ServerSession, seededLink } from "@dylanebert/shallot/multiplayer";
+import { createSession } from "@dylanebert/shallot/multiplayer/testing";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { GameClient, openGame, openServer, scene } from "./network";
+import { ClientSession, GAME, scene } from "./network";
 
 setDefaultTimeout(TIMEOUT.node);
 test("a predicted rider stays on the moving lift at 100 ms and 2% loss", async () => {
-    const apps = [await openServer(), await openGame(), await openGame()];
+    const session = await createSession(GAME, {
+        seed: 1,
+        clients: 2,
+        faults: { minDelay: 50, maxDelay: 50, loss: 0.02, duplication: 0 },
+    });
+    const apps = [session.server, ...session.clients];
     try {
         for (const app of apps)
             setTransform(
@@ -15,26 +20,20 @@ test("a predicted rider stays on the moving lift at 100 ms and 2% loss", async (
                 [0, 2.95, -6.5],
                 [0, 0, 0, 1],
             );
-        const server = apps[0]!.world.resource(ServerSession).server!;
-        const links = [
-            seededLink(1, { minDelay: 50, maxDelay: 50, loss: 0.02, duplication: 0 }),
-            seededLink(2, { minDelay: 50, maxDelay: 50, loss: 0.02, duplication: 0 }),
-        ];
-        const clients = links.map((link, index) => {
-            const client = new GameClient(apps[index + 1]!.world, link.b);
-            server.connect(link.a);
-            return client;
+        const server = session.server;
+        const clients = session.clients.map((peer) => {
+            peer.world.step(0);
+            return peer.world.resource(ClientSession).client!;
         });
         let maximumGapError = 0,
             minimumY = Infinity,
             maximumY = -Infinity;
         for (let frame = 0; frame < 240; frame++) {
-            for (const link of links) link.advance((frame * 1000) / 60);
             for (const client of clients) {
                 client.record([0, 0, 0, 0, 0, 0]);
-                client.step(1 / 60);
+                client.selectPrediction();
             }
-            server.world.tick();
+            await session.advance();
             if (frame < 30) continue;
             const rider = scene(clients[0]!.world),
                 route = scene(server.world);
@@ -54,6 +53,6 @@ test("a predicted rider stays on the moving lift at 100 ms and 2% loss", async (
             GroundState.OnGround,
         );
     } finally {
-        for (const app of apps) app.dispose();
+        await session.dispose();
     }
 });

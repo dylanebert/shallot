@@ -1,44 +1,38 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { Body, BodyType, Character, GlobalTransform } from "@dylanebert/shallot";
-import { InterpolationTarget, ServerSession, seededLink } from "@dylanebert/shallot/multiplayer";
+import { InterpolationTarget } from "@dylanebert/shallot/multiplayer";
+import { createSession } from "@dylanebert/shallot/multiplayer/testing";
 import { readRenderGlobalTransform } from "@dylanebert/shallot/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { GameClient, openGame, openServer, scene } from "./network";
+import { ClientSession, GAME, scene } from "./network";
 import { Player, PlayerInput } from "./player";
 
 setDefaultTimeout(TIMEOUT.node);
 for (const simulated of [false, true]) {
     test(`a server and two clients move separate avatars and push the shared server-owned box${simulated ? " at 100 ms and 2% loss" : ""}`, async () => {
-        const apps = [await openServer(), await openGame(), await openGame()];
+        const session = await createSession(GAME, {
+            seed: 10,
+            clients: 2,
+            faults: {
+                minDelay: simulated ? 50 : 0,
+                maxDelay: simulated ? 50 : 0,
+                loss: simulated ? 0.02 : 0,
+                duplication: 0,
+            },
+        });
         try {
-            const server = apps[0]!.world.resource(ServerSession).server!;
-            const links = [
-                seededLink(10, {
-                    minDelay: simulated ? 50 : 0,
-                    maxDelay: simulated ? 50 : 0,
-                    loss: simulated ? 0.02 : 0,
-                    duplication: 0,
-                }),
-                seededLink(11, {
-                    minDelay: simulated ? 50 : 0,
-                    maxDelay: simulated ? 50 : 0,
-                    loss: simulated ? 0.02 : 0,
-                    duplication: 0,
-                }),
-            ];
-            const clients = links.map((link, i) => {
-                const client = new GameClient(apps[i + 1]!.world, link.b);
-                server.connect(link.a);
-                return client;
+            const server = session.server;
+            const clients = session.clients.map((peer) => {
+                peer.world.step(0);
+                return peer.world.resource(ClientSession).client!;
             });
             const route = scene(server.world);
             for (let i = 0; i < 150; i++) {
-                for (const link of links) link.advance((i * 1000) / 60);
                 for (const [slot, client] of clients.entries()) {
                     client.record([slot === 0 ? 0 : 1, slot === 0 ? 1 : 0, 0, 0, 0, 0]);
-                    client.step(1 / 60);
+                    client.selectPrediction();
                 }
-                server.world.tick();
+                await session.advance();
             }
             const pos = server.world.storage(GlobalTransform).translation;
             expect(pos.z.get(route.players[0]!.player)).toBeLessThan(13);
@@ -67,7 +61,7 @@ for (const simulated of [false, true]) {
                     expect(client.world.has(remote, component)).toBe(false);
             }
         } finally {
-            for (const app of apps) app.dispose();
+            await session.dispose();
         }
     });
 }
