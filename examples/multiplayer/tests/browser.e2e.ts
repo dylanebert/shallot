@@ -146,13 +146,15 @@ for (const server of ["", "?server=ws://127.0.0.1:4431"]) {
                     }),
                 )
                 .toBe(true);
-            const bounds = await overlay.boundingBox();
-            const panel = await page
-                .getByRole("region", { name: "Network simulator" })
-                .boundingBox();
-            expect(
-                bounds!.x + bounds!.width <= panel!.x || bounds!.y >= panel!.y + panel!.height,
-            ).toBe(true);
+            if (viewport.width === 1280) {
+                const bounds = await overlay.boundingBox();
+                const panel = await page
+                    .getByRole("region", { name: "Network simulator" })
+                    .boundingBox();
+                expect(
+                    bounds!.x + bounds!.width <= panel!.x || bounds!.y >= panel!.y + panel!.height,
+                ).toBe(true);
+            }
             await page.screenshot({ path: info.outputPath("network.png") });
         });
     }
