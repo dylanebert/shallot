@@ -8,14 +8,18 @@ import {
 } from "@dylanebert/shallot/multiplayer";
 import { GameServer, openGame, SCHEMA } from "./network";
 
-export async function topology(url?: string) {
+export async function topology(url?: string, onError?: (error: Error) => void) {
     if (url) {
+        const failure = new Error(
+            `No server answered at ${url}. The connection failed or closed. From the example directory, start the server with bun server.ts --host 127.0.0.1 --port 3001 (see RUNNING.md), then reload with its address in ?server=.`,
+        );
         const socket = new WebSocket(url);
+        socket.addEventListener("error", () => onError?.(failure));
+        socket.addEventListener("close", () => onError?.(failure));
         await new Promise<void>((resolve, reject) => {
             socket.addEventListener("open", () => resolve(), { once: true });
-            socket.addEventListener("error", () => reject(new Error(`Cannot connect to ${url}`)), {
-                once: true,
-            });
+            socket.addEventListener("error", () => reject(failure), { once: true });
+            socket.addEventListener("close", () => reject(failure), { once: true });
         });
         return {
             connection: new WebSocketConnection(socket),

@@ -47,6 +47,25 @@ test.beforeEach(async ({ page }) => {
     await session.send("Emulation.setHardwareConcurrencyOverride", { hardwareConcurrency: 1 });
 });
 
+test("an unanswered server address explains how to start the server", async ({ page }) => {
+    await page.goto("/?server=ws://127.0.0.1:4432");
+    await expect(
+        page.getByText("No server answered at ws://127.0.0.1:4432.", { exact: false }),
+    ).toBeVisible();
+    await expect(
+        page.getByText("bun server.ts --host 127.0.0.1 --port 3001", { exact: false }),
+    ).toBeVisible();
+});
+
+test("a server closing before the first image explains the failed connection", async ({ page }) => {
+    await page.routeWebSocket("ws://127.0.0.1:4432", (socket) => socket.close());
+    await page.goto("/?server=ws://127.0.0.1:4432");
+    await expect(
+        page.getByText("No server answered at ws://127.0.0.1:4432.", { exact: false }),
+    ).toBeVisible();
+    await expect(page.getByText("RUNNING.md", { exact: false })).toBeVisible();
+});
+
 test("the page entry starts its in-tab game and shared bootstrap", async ({ page }) => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));

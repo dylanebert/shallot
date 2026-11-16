@@ -28,14 +28,32 @@
             import { ClientSession, GameClient } from "./src/network";
 
             const bootstrap = document.querySelector("[data-shallot-bootstrap]");
-            const connection = await topology(new URLSearchParams(location.search).get("server") ?? undefined);
-            const app = await runApp({
-                plugins: [AppPlugin],
-                setup(world) { world.resource(Network).topology = connection; },
-                ui: hud,
-                loading: shallotDark({ bootstrap }),
-            });
-            app.world.resource(ClientSession).client = new GameClient(app.world, connection.connection);
+            const loading = shallotDark({ bootstrap });
+            let connectionError;
+            const showError = (error) => {
+                connectionError = error;
+                loading.error(error);
+            };
+            try {
+                const connection = await topology(
+                    new URLSearchParams(location.search).get("server") ?? undefined,
+                    showError,
+                );
+                const app = await runApp({
+                    plugins: [AppPlugin],
+                    setup(world) { world.resource(Network).topology = connection; },
+                    ui: hud,
+                    loading,
+                });
+                if (connectionError) {
+                    app.dispose();
+                    loading.error(connectionError);
+                } else {
+                    app.world.resource(ClientSession).client = new GameClient(app.world, connection.connection);
+                }
+            } catch (error) {
+                loading.error(error);
+            }
         </script>
     </body>
 </html>
