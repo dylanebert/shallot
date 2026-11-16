@@ -37,7 +37,11 @@ test("late-input feedback paces a slow client; bursts replay once and drawn moti
     const client = await scene();
     const link = seededLink(812, { minDelay: 3, maxDelay: 5, loss: 0, duplication: 0.1 });
     let held = false;
-    const connection = { send: link.b.send, receive: () => (held ? [] : link.b.receive()) };
+    const connection = {
+        close: link.b.close,
+        send: link.b.send,
+        receive: () => (held ? [] : link.b.receive()),
+    };
     const sender = new ReplicationSender(server.world, schema, [new Map([[1, schema]])], 1, link.a);
     const input = new IntentSender(connection);
     const accepted = new IntentReceiver(link.a);

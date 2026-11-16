@@ -150,6 +150,10 @@ export class GameClient {
     constructor(world: World, connection: Connection) {
         this.world = world;
         const routed: Connection = {
+            get closed() {
+                return connection.closed;
+            },
+            close: () => connection.close(),
             send: (bytes) => connection.send(bytes),
             receive: () =>
                 connection.receive().filter((bytes) => {

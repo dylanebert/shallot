@@ -51,7 +51,8 @@ interface Peer {
     intent: IntentReceiver;
 }
 
-/** Server runtime keyed by connection entity. A removed ClientOf releases its handle and histories.
+/** Server runtime keyed by connection entity. Removing ClientOf closes the transport and releases
+ * queued bytes, its runtime handle and histories. World disposal also closes every transport.
  * Use the server role plugin; tick the World normally, including through World.step. */
 class GameServer {
     private readonly _peers = new Map<number, Peer>();
@@ -70,7 +71,10 @@ class GameServer {
         });
         world.onDispose(() => {
             unobserve();
-            this._peers.clear();
+            for (const [eid, peer] of this._peers) {
+                this._peers.delete(eid);
+                peer.connection.close();
+            }
         });
         game.onCreate?.(world);
     }
@@ -93,17 +97,25 @@ class GameServer {
             sender.flush();
             return eid;
         } catch (error) {
-            this.disconnect(eid);
-            this.world.destroy(eid);
+            try {
+                this.disconnect(eid);
+            } finally {
+                connection.close();
+                this.world.destroy(eid);
+            }
             throw error;
         }
     }
-    /** Idempotent. Explicit leave runs onLeave before despawning; histories are released even if it throws. */
+    /** Idempotent. Explicit leave runs onLeave before despawning; transport closure and history
+     * release still run if the hook throws. */
     disconnect(eid: number): void {
-        if (!this._peers.delete(eid)) return;
+        const peer = this._peers.get(eid);
+        if (!peer) return;
+        this._peers.delete(eid);
         try {
             this.game.onLeave?.(this.world, eid);
         } finally {
+            peer.connection.close();
             this.world.destroy(eid);
         }
     }
@@ -147,6 +159,7 @@ export function server(game: Game): Plugin {
             world.resource(ServerSession).server = new GameServer(world, game);
         },
         dispose(world) {
+            if (world.signal.aborted) return;
             const runtime = world.resource(ServerSession).server;
             if (runtime) for (const eid of runtime.peers.keys()) runtime.disconnect(eid);
         },
@@ -195,7 +208,8 @@ export function client(
         dependencies: game.plugins,
         async initialize(world) {
             const socket = new WebSocket(options.url);
-            world.onDispose(() => socket.close());
+            const connection = new WebSocketConnection(socket);
+            world.onDispose(() => connection.close());
             const failure = () =>
                 new Error(`No server answered at ${options.url}. The connection failed or closed.`);
             socket.addEventListener("error", () => {
@@ -204,7 +218,6 @@ export function client(
             socket.addEventListener("close", () => {
                 if (!world.signal.aborted) options.onError?.(failure());
             });
-            const connection = new WebSocketConnection(socket);
             await new Promise<void>((resolve, reject) => {
                 socket.addEventListener("open", () => resolve(), { once: true });
                 socket.addEventListener("error", () => reject(failure()), { once: true });

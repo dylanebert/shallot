@@ -4,9 +4,10 @@ import { MultiplayerPlugin } from ".";
 import { type Game, ServerSession, server as serverRole } from "./game";
 import type { Connection } from "./link";
 
-/** A single accepted peer. The application owns its replication history and closes its socket. */
+/** A single accepted peer. close releases queued bytes as well as the socket. */
 export class ServerWebSocketConnection implements Connection {
     private _messages: Uint8Array[] = [];
+    private _closed = false;
     readonly socket: ServerWebSocket<ServerWebSocketConnection | undefined>;
 
     constructor(socket: ServerWebSocket<ServerWebSocketConnection | undefined>) {
@@ -14,14 +15,21 @@ export class ServerWebSocketConnection implements Connection {
     }
 
     get closed(): boolean {
-        return this.socket.readyState !== 1;
+        return this._closed || this.socket.readyState !== 1;
+    }
+
+    close(): void {
+        if (this._closed) return;
+        this._closed = true;
+        this._messages = [];
+        this.socket.close();
     }
 
     /** Bun owns queued writes; a dropped write closes the peer rather than silently losing bytes.
      * Writes to a closing or closed peer are discarded, so one peer cannot throw into a server tick;
      * `disconnect` reports its close. */
     send(bytes: Uint8Array): void {
-        if (this.socket.readyState !== 1) return;
+        if (this.closed) return;
         if (this.socket.sendBinary(bytes) === 0) this.socket.close(1011, "Write failed");
     }
 
@@ -33,7 +41,7 @@ export class ServerWebSocketConnection implements Connection {
 
     /** @internal */
     push(bytes: Uint8Array): void {
-        this._messages.push(bytes.slice());
+        if (!this.closed) this._messages.push(bytes.slice());
     }
 }
 
@@ -66,6 +74,7 @@ export function serveWebSocket(options: {
                 socket.data!.push(message);
             },
             close(socket) {
+                socket.data!.close();
                 options.disconnect(socket.data!);
             },
         },
@@ -122,6 +131,7 @@ export async function serveGame(game: Game, options: { hostname?: string; port: 
         endpoint.stop(true);
         app.dispose();
     };
+    app.world.onDispose(stop);
     process.on("SIGTERM", stop);
     return { port: endpoint.port, world: app.world, stop };
 }

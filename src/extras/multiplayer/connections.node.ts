@@ -81,6 +81,24 @@ test("a dead socket despawns its entity and releases its runtime handle without 
     }
 });
 
+test("departure clears queued socket bytes and ignores callbacks arriving after release", async () => {
+    const { app, runtime } = await session();
+    const socket = { readyState: 1, sendBinary: () => 1, close() {} };
+    const transport = new ServerWebSocketConnection(
+        socket as unknown as ServerWebSocket<ServerWebSocketConnection | undefined>,
+    );
+    try {
+        const eid = runtime.connect(transport)!;
+        transport.push(new Uint8Array([1]));
+        runtime.disconnect(eid);
+        transport.push(new Uint8Array([2]));
+        expect(transport.closed).toBe(true);
+        expect(transport.receive()).toEqual([]);
+    } finally {
+        app.dispose();
+    }
+});
+
 test("a join past the peer limit is refused without an entity or runtime handle", async () => {
     const { app, runtime } = await session(1);
     try {

@@ -1,7 +1,10 @@
-/** The application owns connection lifetime and calls receive while draining its messages. */
+/** A byte transport. Admission transfers its lifetime to the server connection entity. */
 export interface Connection {
-    /** True once this transport cannot deliver again. Omitted for caller-managed byte links. */
+    /** True once this transport cannot deliver again. Omitted by transports without status polling. */
     readonly closed?: boolean;
+    /** Idempotent, non-throwing release: close the transport, discard queued bytes and refuse
+     * future delivery. Closing either end of a seeded link closes both ends. */
+    close(): void;
     send(bytes: Uint8Array): void;
     receive(): Uint8Array[];
 }
@@ -26,6 +29,7 @@ export function seededLink(seed: number, faults: LinkFaults) {
     )
         throw new Error("Invalid link faults");
     let now = 0;
+    let closed = false;
     const queues: { due: number; order: number; bytes: Uint8Array }[][] = [[], []];
     const counts = { sent: 0, dropped: 0, duplicated: 0 };
     const random = () => {
@@ -34,7 +38,16 @@ export function seededLink(seed: number, faults: LinkFaults) {
     };
     const ends = [0, 1].map(
         (side): Connection => ({
+            get closed() {
+                return closed;
+            },
+            close() {
+                closed = true;
+                queues[0]!.length = 0;
+                queues[1]!.length = 0;
+            },
             send(bytes) {
+                if (closed) return;
                 counts.sent++;
                 if (random() < faults.loss) {
                     counts.dropped++;

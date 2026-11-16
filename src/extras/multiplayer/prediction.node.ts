@@ -111,6 +111,7 @@ async function run(switched = false, press = false, stepped = true) {
         dropped = 0,
         pressed = false;
     const sent = new IntentSender({
+            close: link.b.close,
             receive: link.b.receive,
             send(bytes) {
                 if (dropNext) {

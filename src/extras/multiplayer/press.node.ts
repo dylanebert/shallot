@@ -33,6 +33,7 @@ test("a press whose first message is dropped survives as one accepted operation 
         const link = seededLink(1, { minDelay: 0, maxDelay: 0, loss: 0, duplication: 0 });
         let dropped = 0;
         const sender = new IntentSender({
+            close: link.b.close,
             receive: link.b.receive,
             send(bytes) {
                 if (dropped++ === 0) return;

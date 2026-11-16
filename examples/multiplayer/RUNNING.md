@@ -33,7 +33,7 @@ The server accepts only finite, bounded movement/look values, a sprint flag and 
 
 ## Composition
 
-`src/network.ts` describes this game as `GAME`: shared plugins and schema, per-connection disclosure, intent validation/application, avatar assignment on join and stopped movement on leave. The extra spawns a `ClientOf` entity for each admitted connection; this game adds its avatar slot to that entity. Sockets and replication histories stay in the extra's runtime, keyed by the connection entity.
+`src/network.ts` describes this game as `GAME`: shared plugins and schema, per-connection disclosure, intent validation/application, avatar assignment on join and stopped movement on leave. The extra spawns a `ClientOf` entity for each admitted connection; this game adds its avatar slot to that entity. Sockets and replication histories stay in the extra's runtime, keyed by the connection entity. Removing that entity closes its transport and discards queued bytes; World disposal releases every remaining connection. Custom transports implement `Connection.close()` with the same idempotent release contract.
 
 The `server(GAME)` plugin composes authority into a `createApp` World. The `client(GAME, { url })` plugin connects the caller's app to a WebSocket endpoint. `await local(GAME, options)` prepares the headless server and thin-client apps and returns a plugin for the caller's primary client app, plus its transport/server pump and disposal. Child apps are prepared before the primary app builds, because app builds serialize. Client role plugins install the game's prediction at the first stepped `preFixed` boundary, after physics warm-up.
 

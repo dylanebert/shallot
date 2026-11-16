@@ -4,12 +4,15 @@ import type { Connection } from "./link";
  * the server's first record supplies the new late-join image. No messages cross lifetimes. */
 export class WebSocketConnection implements Connection {
     private _messages: Uint8Array[] = [];
+    private _closed = false;
     readonly socket: WebSocket;
 
     constructor(socket: WebSocket) {
         this.socket = socket;
         socket.binaryType = "arraybuffer";
+        socket.addEventListener("close", () => this.close());
         socket.addEventListener("message", (event) => {
+            if (this.closed) return;
             if (!(event.data instanceof ArrayBuffer)) {
                 socket.close(1003, "Binary messages required");
                 return;
@@ -19,12 +22,19 @@ export class WebSocketConnection implements Connection {
     }
 
     get closed(): boolean {
-        return this.socket.readyState >= 2;
+        return this._closed || this.socket.readyState >= 2;
+    }
+
+    close(): void {
+        if (this._closed) return;
+        this._closed = true;
+        this._messages = [];
+        this.socket.close();
     }
 
     /** Refuses writes before open or after close; the application owns retry and lifetime. */
     send(bytes: Uint8Array): void {
-        if (this.socket.readyState !== 1) throw new Error("WebSocket is not open");
+        if (this.closed || this.socket.readyState !== 1) throw new Error("WebSocket is not open");
         this.socket.send(bytes.slice());
     }
 

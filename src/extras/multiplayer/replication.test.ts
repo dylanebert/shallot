@@ -214,6 +214,7 @@ test("retries are paced: a reliable link resends nothing and a stalled or slow p
             const link = seededLink(1, { minDelay: 1, maxDelay: 1, loss: 0, duplication: 0 });
             let frames = 0;
             const counted = {
+                close: link.a.close,
                 send: (bytes: Uint8Array) => {
                     frames++;
                     link.a.send(bytes);
@@ -260,6 +261,7 @@ test("a frame lost twice is resent once later frames are reported held, not afte
         const link = seededLink(1, { minDelay: 6, maxDelay: 6, loss: 0, duplication: 0 });
         let dropped = 0;
         const lossy = {
+            close: link.a.close,
             send(bytes: Uint8Array) {
                 const tick = new DataView(bytes.buffer, bytes.byteOffset).getUint32(8, true);
                 if (tick === 100 && dropped < 2) dropped++;
