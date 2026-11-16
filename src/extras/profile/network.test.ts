@@ -48,6 +48,27 @@ test("counter rows derive rates from timed history, while gauges use smoothed re
     );
 });
 
+test("network precision matches overlay units for byte rates, counts and gauges", () => {
+    for (const [path, unit, reading, expected] of [
+        ["bytes_sent", "B", 84188.07, "82 KB/s"],
+        ["bytes_received", "B", 1536 * 1024, "1.5 MB/s"],
+        ["bytes_sent", "B", 123.45, "123 B/s"],
+        ["messages_sent", "", 173.34, "173 messages/s"],
+        ["replayed_ticks", "ticks", 92.06, "92 ticks/s"],
+        ["round_trip", "ms", 6, "6.00 ms"],
+        ["confirmed_tick_lag", "ticks", 1.75, "2 ticks"],
+        ["correction_translation", "world units", 0, "0.00 world units"],
+        ["correction_rotation", "rad", 0.125, "0.13 rad"],
+    ] as const) {
+        const store = new DiagnosticsStore();
+        store.record(`network/${path}`, 0, 0, unit);
+        store.record(`network/${path}`, reading, 1, unit);
+        expect(new NetworkRows().collect(store, 0)).toEqual([
+            [path.replaceAll("_", " "), expected],
+        ]);
+    }
+});
+
 test("held receive marks the connection stale and its round trip no-data, release restores both", async () => {
     const a = await createApp({ defaults: false, plugins: [] });
     const b = await createApp({ defaults: false, plugins: [] });
@@ -64,7 +85,9 @@ test("held receive marks the connection stale and its round trip no-data, releas
             right.poll();
             rows.collect(store, time);
         }
-        expect(rows.collect(store, 200).find(([path]) => path === "round trip")?.[1]).toBe("20 ms");
+        expect(rows.collect(store, 200).find(([path]) => path === "round trip")?.[1]).toBe(
+            "20.00 ms",
+        );
         // Hold the answering end's receive, leaving local polling and its age gauge running.
         for (let time = 210; time <= 1500; time += 10) {
             link.advance(time);

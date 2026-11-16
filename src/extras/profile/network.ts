@@ -1,4 +1,5 @@
 import type { Diagnostic, DiagnosticsStore } from "../../engine";
+import { formatBytes, msFmt } from "./format";
 
 /** @internal Observe sample progress without assuming the producer's clock epoch. */
 export class NetworkRows {
@@ -36,10 +37,16 @@ export class NetworkRows {
                         : undefined;
             }
             const unit = rateUnit ?? diagnostic.suffix;
-            const value =
-                !sample || reading === undefined || now - seen.changed > 1000
-                    ? "no data"
-                    : `${Number(reading.toFixed(2))}${unit ? " " + unit : ""}${stale ? " · stale" : ""}`;
+            let value = "no data";
+            if (sample && reading !== undefined && now - seen.changed <= 1000) {
+                value =
+                    unit === "B/s"
+                        ? formatBytes(reading) + "/s"
+                        : unit === "ms"
+                          ? msFmt(reading)
+                          : `${reading.toFixed(rateUnit || unit === "ticks" || !unit ? 0 : 2)}${unit ? " " + unit : ""}`;
+                if (stale) value += " · stale";
+            }
             rows.push([path.slice(8).replaceAll("_", " "), value]);
         }
         for (const diagnostic of this._seen.keys())

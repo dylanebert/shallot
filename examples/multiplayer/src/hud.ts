@@ -88,7 +88,7 @@ export function hud(container: HTMLElement, world: World) {
         output.textContent =
             !sample || now - changed > 1000
                 ? "no data"
-                : `${Number(store.get("network/round_trip")!.smoothed()!.toFixed(2))}ms${stale ? " · stale" : ""}`;
+                : `${store.get("network/round_trip")!.smoothed()!.toFixed(2)}ms${stale ? " · stale" : ""}`;
     };
     const system: System = { name: "NetworkHud", group: "draw", last: true, update };
     world.addSystem(system);

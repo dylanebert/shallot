@@ -2,6 +2,7 @@ import type { Plugin, System, World } from "../../engine";
 import { Diagnostic, DiagnosticsStore, mountOverlay } from "../../engine";
 import { cpuTotal } from "./cpu";
 import { EmptyFrames } from "./empty";
+import { formatBytes, msFmt } from "./format";
 import { FrameTimings, TIMING_FLOOR_MS } from "./frames";
 import { NetworkRows } from "./network";
 import { reorderRows } from "./reorder";
@@ -658,14 +659,6 @@ function section(parent: HTMLElement, title: string): { totalEl: HTMLElement; bo
     parent.append(wrapper);
     return { totalEl, body };
 }
-
-function formatBytes(bytes: number): string {
-    if (bytes >= MB) return (bytes / MB).toFixed(1) + " MB";
-    if (bytes >= 1024) return (bytes / 1024).toFixed(0) + " KB";
-    return bytes + " B";
-}
-
-const msFmt = (v: number): string => v.toFixed(2) + " ms";
 
 function pad(v: string, len: number): string {
     return v.length >= len ? v : " ".repeat(len - v.length) + v;
