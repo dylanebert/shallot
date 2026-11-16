@@ -74,14 +74,18 @@ export const Orbit = component(
         keyAcceleration: f32,
         /** released-arrow velocity damping, inverse seconds; higher stops sooner */
         keyDamping: f32,
-        /** zoom factor applied per scroll-wheel notch */
+        /** zoom factor applied to wheel, pinch and vertical mouse drag */
         zoomSpeed: f32,
-        /** mouse button that orbits: 0 left, 1 middle, 2 right */
+        /** mouse button that orbits: 0 left, 1 middle, 2 right; 255 disables */
         orbitButton: u8,
-        /** mouse button that pans: 0 left, 1 middle, 2 right */
+        /** mouse button that pans: 0 left, 1 middle, 2 right; 255 disables */
         panButton: u8,
-        /** mouse button for perspective flythrough (look and WASD/QE movement), or orthographic orbit: 0 left, 1 middle, 2 right */
+        /** mouse button for perspective flythrough (look and WASD/QE movement), or orthographic orbit: 0 left, 1 middle, 2 right; 255 disables */
         flyButton: u8,
+        /** mouse button for vertical zoom drag: 0 left, 1 middle, 2 right; 255 disables */
+        zoomButton: u8,
+        /** nonzero swaps orbit/pan for Shift/Ctrl/Meta mouse presses until release; 0 disables; touch is unaffected */
+        swapPanOrbit: u8,
         /** pan offset from the orbit target, world units */
         pan: vec3,
         /** WASD/QE fly speed, world units per second; scroll while flying adjusts it (clamped to flyMin/flyMax) */
@@ -123,6 +127,8 @@ export const Orbit = component(
             orbitButton: 0,
             panButton: 1,
             flyButton: 2,
+            zoomButton: 255,
+            swapPanOrbit: 0,
             pan: [0, 0, 0],
             flySpeed: 5,
             flyBoost: 3,
@@ -151,7 +157,7 @@ function angleDiff(from: number, to: number): number {
 function isButton(pointer: Readonly<Pointer>, button: number): boolean {
     if (button === 0) return pointer.left;
     if (button === 1) return pointer.middle;
-    return pointer.right;
+    return button === 2 && pointer.right;
 }
 
 const orbitAdd = [Orbit, not(OrbitSmooth)];
@@ -201,8 +207,8 @@ const OrbitSystem: System = {
             smooth.size.set(eid, orbit.size.get(eid));
             smooth.keyYawVelocity.set(eid, 0);
             smooth.keyPitchVelocity.set(eid, 0);
-            // sparse storage survives destroy — a recycled eid could inherit a stale latch
             smooth.flyActive.set(eid, 0);
+            smooth.swappedButtons.set(eid, 0);
             // Warn on initialization because the pose query silently excludes entities without Transform.
             if (!world.has(eid, Transform)) {
                 console.warn(
@@ -245,22 +251,44 @@ const OrbitSystem: System = {
             const touchCount = manual ? 0 : input.touch.count;
             // Touch capture also holds pointer.left; reading mouse buttons here would orbit during pinch/pan.
             // Fly has no touch equivalent.
-            const orbitHeld =
-                !manual &&
-                (touchCount > 0
-                    ? touchCount === 1
-                    : isButton(input.pointer, orbit.orbitButton.get(eid)));
-            const panHeld =
-                !manual &&
-                (touchCount > 0
-                    ? touchCount >= 2
-                    : isButton(input.pointer, orbit.panButton.get(eid)));
+            const orbitButton = orbit.orbitButton.get(eid);
+            const panButton = orbit.panButton.get(eid);
+            let swapped = smooth.swappedButtons.get(eid);
+            for (const event of input.pointer.buttonEvents) {
+                const button = event.button === "left" ? 0 : event.button === "middle" ? 1 : 2;
+                const bit = 1 << button;
+                swapped &= ~bit;
+                if (
+                    event.pressed &&
+                    orbit.swapPanOrbit.get(eid) &&
+                    (event.shiftKey || event.ctrlKey || event.metaKey)
+                )
+                    swapped |= bit;
+            }
+            const heldMask =
+                Number(input.pointer.left) |
+                (Number(input.pointer.middle) << 1) |
+                (Number(input.pointer.right) << 2);
+            swapped &= manual || touchCount > 0 ? 0 : heldMask;
+            smooth.swappedButtons.set(eid, swapped);
+            const orbitSwapped = orbitButton <= 2 && (swapped & (1 << orbitButton)) !== 0;
+            const panSwapped = panButton <= 2 && (swapped & (1 << panButton)) !== 0;
+            const mouseOrbit =
+                (!orbitSwapped && isButton(input.pointer, orbitButton)) ||
+                (panSwapped && isButton(input.pointer, panButton));
+            const mousePan =
+                (!panSwapped && isButton(input.pointer, panButton)) ||
+                (orbitSwapped && isButton(input.pointer, orbitButton));
+            const zoomHeld =
+                !manual && touchCount === 0 && isButton(input.pointer, orbit.zoomButton.get(eid));
+            const orbitHeld = !manual && (touchCount > 0 ? touchCount === 1 : mouseOrbit);
+            const panHeld = !manual && (touchCount > 0 ? touchCount >= 2 : mousePan);
             const flyHeld =
                 !manual &&
                 (touchCount > 0 ? false : isButton(input.pointer, orbit.flyButton.get(eid)));
             // Leave movement keys to gameplay unless the fly button is held; orbit and pan take priority.
-            const flying = !isOrtho && !orbitHeld && !panHeld && flyHeld;
-            const looking = orbitHeld || (!panHeld && flyHeld);
+            const flying = !isOrtho && !orbitHeld && !panHeld && !zoomHeld && flyHeld;
+            const looking = !zoomHeld && (orbitHeld || (!panHeld && flyHeld));
             const lookSpeed = flying ? orbit.flySensitivity.get(eid) : sensitivity;
 
             if (!locked && looking) {
@@ -297,7 +325,7 @@ const OrbitSystem: System = {
                 pitchO = clamp(pitchO + keyPitchVelocity * dt, minPitch, maxPitch);
             }
 
-            if (!flying && panHeld) {
+            if (!flying && !zoomHeld && panHeld) {
                 const cy = Math.cos(yawS);
                 const sy = Math.sin(yawS);
                 const cp = Math.cos(pitchS);
@@ -328,7 +356,9 @@ const OrbitSystem: System = {
 
             // Wheel-away zooms out; a positive pinch spread zooms in. Both can arrive in one frame.
             const pinch = touchCount > 0 ? input.touch.pinchDelta : 0;
-            const zoomInput = manual ? 0 : input.pointer.scroll - pinch;
+            const zoomInput = manual
+                ? 0
+                : input.pointer.scroll - pinch + (zoomHeld ? input.pointer.deltaY : 0);
             if (zoomInput !== 0) {
                 if (flying) {
                     // flying drives Transform directly, so the orbit distance is invisible — scroll

@@ -19,8 +19,16 @@ export interface PointerLock {
     refusal: string | null;
 }
 
-/** one pointer-button press or release, at the pointer position in CSS pixels within the focused canvas */
-export interface PointerButtonEvent {
+/** DOM modifier state at a pointer-button edge; omitted producer snapshots record all false. */
+export interface PointerModifiers {
+    readonly shiftKey: boolean;
+    readonly ctrlKey: boolean;
+    readonly metaKey: boolean;
+    readonly altKey: boolean;
+}
+
+/** One pooled button edge, at the pointer position in CSS pixels within the focused canvas. */
+export interface PointerButtonEvent extends PointerModifiers {
     readonly button: "left" | "right" | "middle";
     /** true for a press, false for a release */
     readonly pressed: boolean;
@@ -384,24 +392,47 @@ export function pointerMove(
 export type PointerButton = "left" | "right" | "middle" | 0 | 1 | 2;
 
 /** Set a button level, recording the edge at the current pointer position. */
-function setButtonLevel(d: DeviceRecord, name: ButtonName, down: boolean): void {
+function setButtonLevel(
+    d: DeviceRecord,
+    name: ButtonName,
+    down: boolean,
+    modifiers?: PointerModifiers,
+): void {
     const next = down && !(d.requireLock && d.pointer.lock.status !== "locked");
     if (d.pointer[name] === next) return;
     d.pointer[name] = next;
     const index = d.buttonEvents.length;
     let event = d.buttonEventPool[index];
     if (!event) {
-        event = { button: name, pressed: next, x: 0, y: 0 };
+        event = {
+            button: name,
+            pressed: next,
+            x: 0,
+            y: 0,
+            shiftKey: false,
+            ctrlKey: false,
+            metaKey: false,
+            altKey: false,
+        };
         d.buttonEventPool.push(event);
     }
     event.button = name;
     event.pressed = next;
     event.x = d.pointer.x;
     event.y = d.pointer.y;
+    event.shiftKey = modifiers?.shiftKey ?? false;
+    event.ctrlKey = modifiers?.ctrlKey ?? false;
+    event.metaKey = modifiers?.metaKey ?? false;
+    event.altKey = modifiers?.altKey ?? false;
     d.buttonEvents.push(event);
 }
 
-function setButton(world: World, button: PointerButton, pressed: boolean): void {
+function setButton(
+    world: World,
+    button: PointerButton,
+    pressed: boolean,
+    modifiers?: PointerModifiers,
+): void {
     const d = record(world);
     if (!d.enabled) return;
     const name =
@@ -410,24 +441,32 @@ function setButton(world: World, button: PointerButton, pressed: boolean): void 
             : button === 1 || button === "middle"
               ? "middle"
               : "right";
-    setButtonLevel(d, name, pressed);
+    setButtonLevel(d, name, pressed, modifiers);
 }
 
 /** Produce a pointer-button press at the current pointer position. While `requireLock` holds and the pointer
  * is not locked, the button stays up. Numeric buttons use DOM `button` values (0 left, 1 middle, 2 right). */
-export function pressButton(world: World, button: PointerButton): void {
-    setButton(world, button, true);
+export function pressButton(
+    world: World,
+    button: PointerButton,
+    modifiers?: PointerModifiers,
+): void {
+    setButton(world, button, true, modifiers);
 }
 
-export function releaseButton(world: World, button: PointerButton): void {
-    setButton(world, button, false);
+export function releaseButton(
+    world: World,
+    button: PointerButton,
+    modifiers?: PointerModifiers,
+): void {
+    setButton(world, button, false, modifiers);
 }
 
 /** Produce the DOM `buttons` bitmask. */
-export function pointerButtons(world: World, buttons: number): void {
-    setButton(world, "left", (buttons & 1) !== 0);
-    setButton(world, "right", (buttons & 2) !== 0);
-    setButton(world, "middle", (buttons & 4) !== 0);
+export function pointerButtons(world: World, buttons: number, modifiers?: PointerModifiers): void {
+    setButton(world, "left", (buttons & 1) !== 0, modifiers);
+    setButton(world, "right", (buttons & 2) !== 0, modifiers);
+    setButton(world, "middle", (buttons & 4) !== 0, modifiers);
 }
 
 /** Accumulate wheel movement; positive scrolls down/away. */
@@ -727,7 +766,7 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, world: World): void 
             touchPoint(world, e.pointerId, at.x, at.y);
         } else if (a.activePointerId === null || a.activePointerId === e.pointerId) {
             a.pointerHover(e);
-            pointerButtons(world, gatedButtons(d, e.buttons));
+            pointerButtons(world, gatedButtons(d, e.buttons), e);
         }
         if (a.activePointerId === null) {
             a.activePointerId = e.pointerId;
@@ -824,7 +863,7 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, world: World): void 
         if (e.pointerId !== a.activePointerId) return;
         a.mouseButtons = e.buttons;
         if (d.pointer.lock.status !== "locked") moveActive(e);
-        pointerButtons(world, gatedButtons(d, e.buttons));
+        pointerButtons(world, gatedButtons(d, e.buttons), e);
         // Chorded button changes arrive as pointermove; a mouse pointerup is the last button up.
         const canvas = a.activeCanvas;
         if (canvas?.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
@@ -854,7 +893,7 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, world: World): void 
             e.preventDefault();
             moveActive(e);
         }
-        pointerButtons(world, gatedButtons(d, e.buttons));
+        pointerButtons(world, gatedButtons(d, e.buttons), e);
     };
     a.wheel = (e) => {
         if (!a.canvases.has(e.target as HTMLCanvasElement)) return;

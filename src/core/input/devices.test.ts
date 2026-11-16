@@ -1201,6 +1201,62 @@ test("suspension keeps a frame's releases, and later events follow them", () => 
     world.dispose();
 });
 
+test("pointer modifiers survive missing keyboard events and reset on pooled reuse and cancellation", () => {
+    const fixture = declaredHost();
+    const world = browserInputStateWith(fixture.host);
+    try {
+        world.step(0);
+        const input = world.resource(Devices);
+        const event = (buttons: number, modified = false) => ({
+            target: fixture.canvas,
+            pointerId: 1,
+            pointerType: "mouse",
+            button: 0,
+            buttons,
+            clientX: 30,
+            clientY: 50,
+            preventDefault() {},
+            shiftKey: modified,
+            ctrlKey: modified,
+            metaKey: modified,
+            altKey: modified,
+        });
+        fixture.emitCanvas("pointerdown", event(1, true));
+        const pooled = input.pointer.buttonEvents[0]!;
+        expect([pooled.shiftKey, pooled.ctrlKey, pooled.metaKey, pooled.altKey]).toEqual([
+            true,
+            true,
+            true,
+            true,
+        ]);
+        expect(input.keys.held.size).toBe(0);
+        world.step(0);
+        expect(input.pointer.buttonEvents.length).toBe(0);
+        fixture.window.emit("pointerup", event(0));
+        expect(input.pointer.buttonEvents[0]).toBe(pooled);
+        expect([pooled.shiftKey, pooled.ctrlKey, pooled.metaKey, pooled.altKey]).toEqual([
+            false,
+            false,
+            false,
+            false,
+        ]);
+        world.step(0);
+        fixture.emitCanvas("pointerdown", event(1, true));
+        fixture.window.emit("pointercancel", event(0));
+        expect(input.pointer.left).toBe(false);
+        expect(input.pointer.buttonEvents.map((edge) => edge.pressed)).toEqual([true]);
+        world.step(0);
+        setInputEnabled(world, false);
+        fixture.emitCanvas("pointerdown", event(1, true));
+        expect(input.pointer.buttonEvents.length).toBe(0);
+        setInputEnabled(world, true);
+        fixture.emitCanvas("pointerdown", event(1));
+        expect(input.pointer.buttonEvents[0]?.shiftKey).toBe(false);
+    } finally {
+        world.dispose();
+    }
+});
+
 test("a browser click between two frames reports its press and release at the down and up events", () => {
     const fixture = declaredHost();
     const world = browserInputStateWith(fixture.host);
