@@ -198,7 +198,7 @@ test("a refused future ID bounds receiver records and frame traffic at 1000 and 
             apply();
         },
     );
-    const gap = { id: 1, tick: 4294967294, kind: "input" as const, values: [0] };
+    const gap = { id: 1, tick: 4294967294, kind: "operation" as const, values: [0] };
     try {
         for (let tick = 1; tick <= 3000; tick++) {
             receiver.prune(tick - 1);
@@ -206,7 +206,7 @@ test("a refused future ID bounds receiver records and frame traffic at 1000 and 
                 [
                     encodeIntent(IntentMessageKind.Records, [
                         gap,
-                        { id: tick + 1, tick, kind: "input", values: [tick] },
+                        { id: tick + 1, tick, kind: "operation", values: [tick] },
                     ]),
                 ],
                 tick,
@@ -305,13 +305,13 @@ test("a never-supplied ID bounds receiver records over 3000 ticks", () => {
     expect(receiver.records.size).toBe(5);
 });
 
-test("the default ID window accepts a reordered input and operation for every tick of the prediction horizon", () => {
+test("the default ID window accepts two reordered operations for every tick of the prediction horizon", () => {
     const link = seededLink(7, faults);
     const receiver = new IntentReceiver(link.a);
     const records = Array.from({ length: 66 }, (_, index) => ({
         id: index + 1,
         tick: 1 + Math.floor(index / 2),
-        kind: index % 2 ? ("operation" as const) : ("input" as const),
+        kind: "operation" as const,
         values: [],
     }));
     receiver.receive([encodeIntent(IntentMessageKind.Records, records.reverse())], 1);

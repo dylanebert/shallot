@@ -363,7 +363,7 @@ test("declared widths round-trip signed integers, half floats, vectors and wire 
         sender.record(5);
         sender.flush();
         const image = link.b.receive()[0]!;
-        expect(image.length).toBe(109);
+        expect(image.length).toBe(113);
         link.a.send(image);
         receiver.flush();
         sender.flush();
@@ -373,7 +373,7 @@ test("declared widths round-trip signed integers, half floats, vectors and wire 
         sender.record(6);
         sender.flush();
         const frame = link.b.receive()[0]!;
-        expect(frame.length).toBe(20);
+        expect(frame.length).toBe(24);
         link.a.send(frame);
         receiver.flush();
         expect(receiver.confirmed).toBe(6);
@@ -423,11 +423,11 @@ function frameSizes(entityCount: number) {
 }
 
 test("unchanged frames have constant size at 1, 10 and 100 entities", () => {
-    expect([1, 10, 100].map((count) => frameSizes(count).unchanged)).toEqual([20, 20, 20]);
+    expect([1, 10, 100].map((count) => frameSizes(count).unchanged)).toEqual([24, 24, 24]);
 });
 
 test("one changed scalar adds only its entity, component, field index and value", () => {
     const sizes = [1, 10, 100].map(frameSizes);
-    expect(sizes.map((size) => size.scalar)).toEqual([44, 44, 44]);
+    expect(sizes.map((size) => size.scalar)).toEqual([48, 48, 48]);
     expect(sizes.map((size) => size.scalar - size.unchanged)).toEqual([24, 24, 24]);
 });

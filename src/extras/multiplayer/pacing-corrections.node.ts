@@ -111,31 +111,18 @@ test("late-input lead relaxes after a transient with hysteresis and ignores dupl
         () => {},
     );
     try {
-        prediction.accept([{ id: 1, tick: 22, kind: "input", values: [], lateness: 20 }]);
+        for (let tick = 1; tick <= 10; tick++) prediction.pace(tick, 20);
         const peak = prediction.lead;
-        for (let id = 2; id <= 15; id++)
-            prediction.accept([{ id, tick: id + 21, kind: "input", values: [], lateness: 0 }]);
+        for (let tick = 11; tick <= 24; tick++) prediction.pace(tick, -3);
         expect(prediction.lead).toBe(peak);
-        for (let id = 16; id <= 99; id++)
-            prediction.accept([{ id, tick: id + 21, kind: "input", values: [], lateness: 0 }]);
+        for (let tick = 25; tick <= 108; tick++) prediction.pace(tick, -3);
         expect(prediction.lead).toBeLessThan(peak);
         const settled = prediction.lead;
-        prediction.accept(prediction.records.values());
+        for (let tick = 1; tick <= 108; tick++) prediction.pace(tick, 20);
         expect(prediction.lead).toBe(settled);
-        for (let id = 100; id <= 197; id++)
-            prediction.accept([
-                { id, tick: 1000, kind: "input", values: [], lateness: 0, slack: 20 },
-            ]);
+        for (let tick = 109; tick <= 206; tick++) prediction.pace(tick, -2);
         expect(prediction.lead).toBe(settled);
-        for (let id = 198; id <= 295; id++)
-            prediction.accept([
-                { id, tick: id + 1000, kind: "input", values: [], lateness: 0, slack: 2 },
-            ]);
-        expect(prediction.lead).toBe(settled);
-        for (let id = 296; id <= 393; id++)
-            prediction.accept([
-                { id, tick: id + 1000, kind: "input", values: [], lateness: 0, slack: 6 },
-            ]);
+        for (let tick = 207; tick <= 304; tick++) prediction.pace(tick, -6);
         expect(prediction.lead).toBeLessThan(settled);
     } finally {
         client.app.dispose();

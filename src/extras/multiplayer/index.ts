@@ -29,10 +29,13 @@ import type { Connection } from "./link";
 
 export {
     type AcceptedIntent,
+    type InputRecord,
     IntentMessageKind,
     IntentReceiver,
     type IntentRecord,
     IntentSender,
+    type OperationRecord,
+    type TickInput,
 } from "./intent";
 
 /** Selects a disclosure rule. Only entities holding this component can be sent. */
@@ -67,6 +70,7 @@ interface Version {
     rows: ReplicatedRows;
 }
 interface Packet extends Version {
+    commandAge?: number;
     base: number;
     image: boolean;
     intents: readonly AcceptedIntent[];
@@ -191,6 +195,7 @@ function encode(packet: Packet, base: ReplicatedRows, types: FieldType[][]): Uin
         packet.tick,
         packet.base,
         0,
+        packet.commandAge === undefined ? 0x80000000 : Math.round(packet.commandAge * 256),
     ];
     const values: { value: number; field: FieldType }[] = [];
     let entities = 0;
@@ -266,6 +271,8 @@ function decode(
     const tick = word(),
         base = word(),
         entities = word();
+    const age = word();
+    const commandAge = age === 0x80000000 ? undefined : (age | 0) / 256;
     if (kind !== ReplicationMessageKind.Image && kind !== ReplicationMessageKind.Frame)
         throw new Error("Invalid replication packet");
     const baseline = kind === ReplicationMessageKind.Image ? new Map() : versions.get(base);
@@ -304,7 +311,7 @@ function decode(
     if (offset !== 4 + count * 4 || valueOffset > bytes.length)
         throw new Error("Invalid replication size");
     const intents = valueOffset < bytes.length ? decodeIntent(bytes.subarray(valueOffset)) : [];
-    return { tick, base, rows, intents, image: kind === ReplicationMessageKind.Image };
+    return { tick, base, rows, intents, commandAge, image: kind === ReplicationMessageKind.Image };
 }
 
 /** Retransmission timeout bounds in ticks of `Time.FIXED_DT` (1/60 s). The initial timeout is
@@ -371,8 +378,10 @@ export class ReplicationSender {
         this.recipient = recipient;
         this.connection = connection;
     }
-    /** Include this recipient's accepted log; the image and frames carry records through their tick. */
-    record(tick: number, intents: readonly AcceptedIntent[] = []) {
+    /** Include this recipient's accepted operations through tick. Inputs never enter frames.
+     * commandAge is the server's smoothed tick minus newest received input tick, in fixed ticks;
+     * encoded as signed 1/256 ticks in each frame header, including the initial image. */
+    record(tick: number, intents: readonly AcceptedIntent[] = [], commandAge?: number) {
         if (
             !Number.isInteger(tick) ||
             tick < 0 ||
@@ -396,7 +405,8 @@ export class ReplicationSender {
             tick,
             rows,
             image,
-            intents: intents.filter((r) => r.tick <= tick),
+            intents: intents.filter((r) => r.kind === "operation" && r.tick <= tick),
+            commandAge,
             base: image ? tick : base!.tick,
         };
         const bytes = encode(packet, image ? new Map() : base!.rows, layout(this.schema));
@@ -495,6 +505,8 @@ export interface ReplicationConfirmation {
 /** Ordered confirmations, including the initial image. Application callbacks may retain rows but not mutate them. */
 export class ReplicationReceiver {
     confirmed = -1;
+    /** Once per ordered server tick. Command age is in fixed ticks; positive means late. */
+    onCommandAge: (tick: number, age: number) => void = () => {};
     readonly entities = new Map<number, number>();
     private _versions = new Map<number, ReplicatedRows>();
     private _pending = new Map<number, Uint8Array>();
@@ -551,7 +563,7 @@ export class ReplicationReceiver {
                 unhandled.push(bytes);
                 continue;
             }
-            if (bytes.length < 20) throw new Error("Truncated replication packet");
+            if (bytes.length < 24) throw new Error("Truncated replication packet");
             const tick = view.getUint32(8, true);
             this._newest = Math.max(this._newest, tick);
             if (tick <= this.confirmed) continue;
@@ -566,6 +578,7 @@ export class ReplicationReceiver {
             if (this.confirmed < 0 && view.getUint32(0, true) !== ReplicationMessageKind.Image)
                 break;
             const packet = decode(bytes, this._versions, layout(this.schema));
+            if (packet.commandAge !== undefined) this.onCommandAge(tick, packet.commandAge);
             if (!latestOnly)
                 this.reconcile(
                     tick,

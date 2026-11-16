@@ -75,8 +75,7 @@ test("two clients' connection-scoped IDs never drive the other's first-person av
                 schema,
                 links[i]!.b,
                 () => client.avatars[i],
-                (world, _tick, records) => {
-                    const record = records.at(-1);
+                (world, _tick, _records, record) => {
                     if (record)
                         world
                             .storage(PlayerInput)
@@ -98,7 +97,7 @@ test("two clients' connection-scoped IDs never drive the other's first-person av
                 predictions[i]!.accept([record]);
                 senders[i]!.flush();
                 receivers[i]!.receive(replication[i]!.flush(), tick);
-                const input = receivers[i]!.records.get(record.id)!;
+                const input = receivers[i]!.inputAt(tick)!;
                 server.world
                     .storage(PlayerInput)
                     .move.set(server.avatars[i]!, input.values[0]!, input.values[1]!);
@@ -126,9 +125,7 @@ test("two clients' connection-scoped IDs never drive the other's first-person av
         expect(
             clients[0]!.world.storage(GlobalTransform).translation.z.get(clients[0]!.avatars[0]!),
         ).toBeLessThan(-1);
-        expect(receivers[0]!.records.get(1)!.values).not.toEqual(
-            receivers[1]!.records.get(1)!.values,
-        );
+        expect(receivers[0]!.inputAt(50)!.values).not.toEqual(receivers[1]!.inputAt(50)!.values);
     } finally {
         server.app.dispose();
         for (const client of clients) client.app.dispose();
@@ -174,8 +171,8 @@ test("wire intent beyond the prediction bound is refused, including u32 maximum 
     try {
         link.b.send(
             encodeIntent(IntentMessageKind.Records, [
-                { id: 1, tick: 15, kind: "input", values: [1] },
-                { id: 2, tick: 16, kind: "input", values: [2] },
+                { id: 1, tick: 15, kind: "operation", values: [1] },
+                { id: 2, tick: 16, kind: "operation", values: [2] },
                 { id: 3, tick: 0xffffffff, kind: "operation", values: [3] },
             ]),
         );

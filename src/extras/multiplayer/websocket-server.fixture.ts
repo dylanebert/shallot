@@ -47,10 +47,8 @@ for await (const line of createInterface({ input: process.stdin })) {
     if (command.step) {
         tick++;
         for (const peer of peers.values()) {
-            for (const record of peer.intent.records.values()) {
-                if (record.tick === tick)
-                    world.storage(Value).value.set(peer.eid, record.values[0]!);
-            }
+            const input = peer.intent.inputAt(tick);
+            if (input) world.storage(Value).value.set(peer.eid, input.values[0]!);
             peer.sender.record(tick, [...peer.intent.records.values()]);
             peer.sender.flush();
         }
@@ -62,7 +60,7 @@ for await (const line of createInterface({ input: process.stdin })) {
             peers: [...peers.values()].map((peer) => ({
                 id: peer.id,
                 value: world.get(peer.eid, Value)!.value,
-                inputs: peer.intent.records.size,
+                inputs: peer.intent.inputs.size,
             })),
         }),
     );

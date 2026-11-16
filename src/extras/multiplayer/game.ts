@@ -16,7 +16,13 @@ import {
     ReplicationSender,
 } from ".";
 import { observeNetwork } from "./diagnostics";
-import { IntentReceiver, type IntentRecord, IntentSender } from "./intent";
+import {
+    type InputRecord,
+    IntentReceiver,
+    type IntentRecord,
+    IntentSender,
+    type OperationRecord,
+} from "./intent";
 import { type Connection, type LinkFaults, seededLink } from "./link";
 import { WebSocketConnection } from "./websocket";
 
@@ -37,11 +43,14 @@ export interface Game {
     onJoin?(world: World, connection: number, transport: Connection): void;
     onLeave?(world: World, connection: number): void;
     validateIntent(world: World, connection: number, record: IntentRecord): boolean;
+    /** Borrows accepted operations and this tick's held input before gameplay.
+     * Input keeps its requested tick, which may precede tick after loss or late arrival. */
     applyIntent(
         world: World,
         connection: number,
         tick: number,
-        records: readonly IntentRecord[],
+        records: readonly OperationRecord[],
+        input?: InputRecord,
     ): void;
     onSend?(world: World, connection: number, transport: Connection): void;
     onClient?(world: World, transport: Connection): void;
@@ -151,14 +160,25 @@ class GameServer {
             peer.intent.receive(messages, tick, (record) =>
                 this.game.validateIntent(this.world, eid, record),
             );
-            this.game.applyIntent(this.world, eid, tick, [...peer.intent.records.values()]);
+            const input = peer.intent.inputAt(tick);
+            this.game.applyIntent(
+                this.world,
+                eid,
+                tick,
+                [...peer.intent.records.values()],
+                input ? { ...input, kind: "input" } : undefined,
+            );
         }
     }
     /** @internal */
     send(): void {
         for (const [eid, peer] of this.peers) {
             this.game.onSend?.(this.world, eid, peer.connection);
-            peer.sender.record(this.world.time.fixedTick, [...peer.intent.records.values()]);
+            peer.sender.record(
+                this.world.time.fixedTick,
+                [...peer.intent.records.values()],
+                peer.intent.commandAge(this.world.time.fixedTick),
+            );
             peer.sender.flush();
         }
     }

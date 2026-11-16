@@ -29,9 +29,11 @@ import { type ReplicationConfirmation, ReplicationReceiver, type ReplicationSche
 import {
     type AcceptedIntent,
     decodeIntent,
+    type InputRecord,
     IntentMessageKind,
     type IntentRecord,
     intentWatermark,
+    type OperationRecord,
 } from "./intent";
 import {
     ClientInterpolation,
@@ -122,9 +124,9 @@ export class FixedOutputs {
  * arrives). Paced steps drain to the latest available confirmation and replay once. This controller
  * owns World's time scale (0.8–1.5); a game's slow motion belongs to the server's simulation,
  * while World.pause remains local. Pacing adjusts the next step toward an initial lead up to two
- * ticks. Late inputs raise the target; 32 distinct on-time input ticks permit a one-tick reduction only
- * when measured arrival slack exceeds two ticks (or no measurement was supplied). Duplicate
- * feedback never counts. The target reserves min(8, maxAhead / 2) ticks for confirmation jitter. Delays beyond
+ * ticks. One smoothed command-age sample per server tick raises the target for late inputs;
+ * 32 samples with more than two ticks of arrival slack permit a one-tick reduction.
+ * Duplicate feedback never counts. The target reserves min(8, maxAhead / 2) ticks for confirmation jitter. Delays beyond
  * the available prediction window cannot be hidden: prediction holds, including its interpolation
  * fraction, while frames continue, then resumes on confirmation. Explicit tick beyond the bound
  * throws before gameplay; World's failed-tick clock semantics apply.
@@ -132,8 +134,13 @@ export class FixedOutputs {
 export class ClientPrediction {
     readonly receiver: ReplicationReceiver;
     readonly interpolation: ClientInterpolation;
-    readonly records = new Map<number, IntentRecord | AcceptedIntent>();
+    readonly records = new Map<number, OperationRecord | AcceptedIntent>();
+    /** Local tick history for replay, independent of operation acceptance. */
+    readonly inputs = new Map<number, InputRecord>();
     readonly outputs = new FixedOutputs();
+    /** Samples each original predicted fixed tick before gameplay, never during replay.
+     * Return that tick's input; replay uses the retained copy. */
+    sampleInput: (tick: number) => InputRecord | undefined = () => undefined;
     /** Routes non-replication packets drained at preFixed, for example to IntentSender.flush. */
     onMessages: (messages: Uint8Array[]) => void = () => {};
     private _history = new Map<number, WorldSnapshot>();
@@ -143,8 +150,8 @@ export class ClientPrediction {
     private _correctionInverse = [0, 0, 0, 1];
     private _correctionError = [0, 0, 0, 1];
     private _correctionRotation = [0, 0, 0, 1];
-    private _ordered: IntentRecord[] = [];
-    private _active: IntentRecord[] = [];
+    private _ordered: OperationRecord[] = [];
+    private _active: OperationRecord[] = [];
     private _switches: { tick: number; entity: EntityRef; enabled: boolean }[] = [];
     private _remote: {
         entity: EntityRef;
@@ -158,10 +165,8 @@ export class ClientPrediction {
     private _resolvedId = 0;
     private _confirming = false;
     private _hasConfirmed = false;
-    private _feedbackId = 0;
+    private _feedbackTick = -1;
     private _onTime = 0;
-    private _onTimeTick = -1;
-    private _minimumSlack = Infinity;
     private _lead: number;
     private readonly _leadLimit: number;
     /** Target ticks beyond the newest confirmation, below maxAhead's jitter reserve. */
@@ -172,14 +177,17 @@ export class ClientPrediction {
     readonly world: World;
     /** Selects the local avatar's client eid after confirmed rows are applied. Ownership is the game's data. */
     readonly avatar: (world: World, entities: ReadonlyMap<number, number>) => number | undefined;
-    /** Runs again on replay. Borrows records through tick not yet folded into the newest
-     * confirmed state, ordered by tick then ID; do not retain the array.
-     * Apply operations only at their tick or derive cumulative counters. Unaccepted locals
-     * are speculative: a server refusal retires them through the resolved-ID watermark,
-     * without application on the server. Inputs beyond its prediction window are refused,
-     * not deferred. A prediction-bounded client can encounter this before its first confirmation
-     * if its initial clock is far ahead of the server. */
-    readonly applyIntent: (world: World, tick: number, records: readonly IntentRecord[]) => void;
+    /** Runs again on replay. Borrows operations through tick not yet folded into the newest
+     * confirmed state, ordered by tick then ID, and the latest local input at or before tick.
+     * Do not retain or mutate the borrowed data. Apply operations only at their tick or derive
+     * cumulative counters. A server refusal retires speculative operations through its watermark;
+     * inputs are replayed independently of operation acceptance and never replaced by an echo. */
+    readonly applyIntent: (
+        world: World,
+        tick: number,
+        records: readonly OperationRecord[],
+        input?: InputRecord,
+    ) => void;
     /** confirmed=true observes every authoritative state at its tick, with current accepted records
      * and ECS rows. The solver reconciles only the latest state in a drain. confirmed=false runs
      * after each original or replayed tick; FixedOutputs deduplicates its one-off deliveries. */
@@ -189,7 +197,12 @@ export class ClientPrediction {
         schema: ReplicationSchema,
         connection: Connection,
         avatar: (world: World, entities: ReadonlyMap<number, number>) => number | undefined,
-        applyIntent: (world: World, tick: number, records: readonly IntentRecord[]) => void,
+        applyIntent: (
+            world: World,
+            tick: number,
+            records: readonly OperationRecord[],
+            input?: InputRecord,
+        ) => void,
         observe: (world: World, outputs: FixedOutputs, confirmed: boolean) => void = () => {},
         maxAhead = 32,
     ) {
@@ -226,6 +239,7 @@ export class ClientPrediction {
             (tick, _rows, intents, apply, preceding) =>
                 this._confirm(tick, intents, apply, preceding),
         );
+        this.receiver.onCommandAge = (tick, age) => this.pace(tick, age);
         for (const eid of world.query([Body]))
             this._types.set(eid, world.storage(Body).type.get(eid));
         const work = world.resource(PredictionWork);
@@ -260,37 +274,21 @@ export class ClientPrediction {
         };
         this._save();
     }
-    /** Merges local predictions or accepted assignments. The cumulative resolved-ID
-     * watermark also retires unaccepted locals, including server-refused records. */
+    /** Copies local inputs into tick history; repeated ticks replace samples.
+     * Merges local or accepted operations by ID. The resolved-ID watermark retires only
+     * speculative operations, including server-refused ones, never local input history. */
     accept(records: Iterable<IntentRecord | AcceptedIntent>, watermark = 0): void {
         this._resolvedId = Math.max(this._resolvedId, watermark);
-        let lateness = 0;
-        let newest = this._feedbackId;
         for (const record of records) {
-            if (!("lateness" in record) && record.id <= this._resolvedId) continue;
-            if ("lateness" in record && record.id > this._feedbackId) {
-                lateness = Math.max(lateness, record.lateness);
-                newest = Math.max(newest, record.id);
-                if (record.lateness === 0 && record.tick > this._onTimeTick) {
-                    this._onTimeTick = record.tick;
-                    this._onTime++;
-                    this._minimumSlack = Math.min(this._minimumSlack, record.slack ?? Infinity);
-                }
+            if (record.kind === "input") {
+                if (record.tick > this._confirmedTick)
+                    this.inputs.set(record.tick, { ...record, values: record.values.slice() });
+                continue;
             }
+            if (!("lateness" in record) && record.id <= this._resolvedId) continue;
             const previous = this.records.get(record.id);
             if (previous && "lateness" in previous && !("lateness" in record)) continue;
             this.records.set(record.id, record);
-        }
-        this._feedbackId = newest;
-        if (lateness > 0) {
-            this._lead = Math.min(this._leadLimit, this._lead + lateness + 1);
-            this._onTime = 0;
-            this._minimumSlack = Infinity;
-        } else if (this._onTime >= 32) {
-            if (this._minimumSlack > 2)
-                this._lead = Math.max(Math.min(2, this._leadLimit), this._lead - 1);
-            this._onTime = 0;
-            this._minimumSlack = Infinity;
         }
         this._ordered.length = 0;
         for (const [id, record] of this.records) {
@@ -302,6 +300,22 @@ export class ClientPrediction {
             else this._ordered.push(record);
         }
         this._ordered.sort((a, b) => a.tick - b.tick || a.id - b.id);
+    }
+    /** Consumes one smoothed server-command-age sample per server tick. Positive age is late.
+     * A two-tick arrival reserve grows promptly; 32 excess-slack samples relax one lead tick.
+     * Duplicate and reordered samples have no effect. */
+    pace(tick: number, age: number): void {
+        if (tick <= this._feedbackTick || !Number.isFinite(age)) return;
+        this._feedbackTick = tick;
+        if (age > -1) {
+            this._lead = Math.min(this._leadLimit, this._lead + Math.min(1, (age + 2) / 8));
+            this._onTime = 0;
+        } else if (age < -2) {
+            if (++this._onTime >= 32) {
+                this._lead = Math.max(Math.min(2, this._leadLimit), this._lead - 1);
+                this._onTime = 0;
+            }
+        } else this._onTime = 0;
     }
     private _save(): void {
         this._history.set(this.world.time.fixedTick, this.world.snapshot());
@@ -333,7 +347,18 @@ export class ClientPrediction {
             this._active[count++] = record;
         }
         this._active.length = count;
-        this.applyIntent(this.world, tick, this._active);
+        if (!this._replaying) {
+            const sample = this.sampleInput(tick);
+            if (sample) {
+                if (sample.tick !== tick)
+                    throw new Error("Input sample must address the current tick");
+                this.accept([sample]);
+            }
+        }
+        let input: InputRecord | undefined;
+        for (const sample of this.inputs.values())
+            if (sample.tick <= tick && (!input || sample.tick > input.tick)) input = sample;
+        this.applyIntent(this.world, tick, this._active, input);
     }
     private _finish(): void {
         for (let i = 0; i < this._remote.length; i++) {
@@ -505,6 +530,9 @@ export class ClientPrediction {
             this._confirming = false;
         }
         this._confirmedTick = tick;
+        let held = -1;
+        for (const key of this.inputs.keys()) if (key <= tick) held = Math.max(held, key);
+        for (const key of this.inputs.keys()) if (key < held) this.inputs.delete(key);
         this.accept([]);
         this._save();
         this._replaying = true;

@@ -328,8 +328,8 @@ test("an upstream stall isolates one client's intents while its sibling keeps co
     const session = await createSession(
         {
             ...game,
-            applyIntent(_world, _eid, _tick, records) {
-                for (const record of records) applied.add(record.values[0]!);
+            applyIntent(_world, _eid, _tick, _records, input) {
+                if (input) applied.add(input.values[0]!);
             },
         },
         { clients: 2, transport: "websocket", proxy: true, seed: 51 },

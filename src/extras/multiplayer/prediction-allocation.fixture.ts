@@ -47,8 +47,8 @@ export default async function create() {
         schema,
         link.b,
         () => avatar,
-        (w, tick, records) => {
-            const input = records[0]!;
+        (w, tick, _records, input) => {
+            if (!input) throw new Error("Missing replay input");
             w.storage(PlayerInput).move.set(avatar, input.values[0]!, tick % 2 ? 1 : -1);
         },
     );
@@ -62,7 +62,6 @@ export default async function create() {
         throw new Error("allocation subject lost display selection");
     prediction.accept(
         Array.from({ length: 13 }, (_, index) => ({
-            id: index + 1,
             tick: index + 1,
             kind: "input" as const,
             values: [0],

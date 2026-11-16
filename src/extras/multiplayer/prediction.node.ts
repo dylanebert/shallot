@@ -14,7 +14,6 @@ import {
     setTransform,
 } from "../../standard/physics";
 import {
-    type AcceptedIntent,
     ClientPrediction,
     contactOutputKey,
     IntentReceiver,
@@ -74,10 +73,15 @@ async function scene() {
     app.world.tick();
     return app;
 }
-function drive(world: World, tick: number, records: readonly IntentRecord[]) {
+function drive(
+    world: World,
+    tick: number,
+    records: readonly IntentRecord[],
+    sampled?: IntentRecord,
+) {
     const player = [...world.query([Player])][0]!;
     if (!world.has(player, PlayerInput)) world.add(player, PlayerInput);
-    const input = records.filter((r) => r.kind === "input").at(-1);
+    const input = sampled ?? records.filter((r) => r.kind === "input").at(-1);
     if (input) world.storage(PlayerInput).move.set(player, input.values[0]!, input.values[1]!);
     world
         .storage(PlayerInput)
@@ -196,7 +200,7 @@ async function run(switched = false, press = false, stepped = true) {
                         : tick >= 300 && tick < 355
                           ? [0, 1]
                           : [0, 0];
-            sent.record(tick, "input", move);
+            prediction.accept([sent.record(tick, "input", move)]);
             if (press && tick === 43 && !pressed) {
                 pressed = true;
                 sent.record(tick, "operation", [1]);
@@ -227,6 +231,7 @@ async function run(switched = false, press = false, stepped = true) {
                 [...accepted.records.values()]
                     .filter((r) => r.tick <= tick)
                     .sort((a, b) => a.tick - b.tick || a.id - b.id),
+                accepted.inputAt(tick) ? { ...accepted.inputAt(tick)!, kind: "input" } : undefined,
             );
             world.tick();
             archive.set(tick, poses(world));
@@ -342,16 +347,16 @@ for (const lag of [1, 40]) {
             if (lag === 1) expect(hashPhysics(world)).toBe(hashes.get(world.time.fixedTick)!);
         });
         const { server, client, sender } = pair;
-        const records: AcceptedIntent[] = [];
+        const records: IntentRecord[] = [];
         const origin = client.world.snapshot();
         try {
             for (let tick = 2; tick <= lag + 1; tick++) {
-                records.push({ id: tick, tick, kind: "input", values: [0.1, 1], lateness: 0 });
+                records.push({ tick, kind: "input", values: [0.1, 1] });
                 drive(server.world, tick, records);
                 server.world.tick();
                 hashes.set(tick, hashPhysics(server.world));
                 states.set(tick, { poses: poses(server.world), gameplay: gameplay(server.world) });
-                sender.record(tick, records);
+                sender.record(tick);
             }
             expect(client.world.time.fixedTick).toBe(1);
             sender.flush();
@@ -362,12 +367,12 @@ for (const lag of [1, 40]) {
             // An older local image puts one ordered confirmation many ticks ahead without a wire gap.
             client.world.restore(origin);
             const next = lag + 2;
-            records.push({ id: next, tick: next, kind: "input", values: [0.1, 1], lateness: 0 });
+            records.push({ tick: next, kind: "input", values: [0.1, 1] });
             drive(server.world, next, records);
             server.world.tick();
             hashes.set(next, hashPhysics(server.world));
             states.set(next, { poses: poses(server.world), gameplay: gameplay(server.world) });
-            sender.record(next, records);
+            sender.record(next);
             sender.flush();
             client.world.step(0);
             expect(client.world.time.fixedTick).toBe(next);
@@ -383,12 +388,10 @@ for (const lag of [1, 40]) {
 test("a confirmation stall holds the predicted clock while frames draw, then resumes exactly without tick debt", async () => {
     const { server, client, sender, prediction } = await connectedPrediction(4);
     const local = client.world;
-    const records: AcceptedIntent[] = Array.from({ length: 5 }, (_, index) => ({
-        id: index + 2,
+    const records: IntentRecord[] = Array.from({ length: 5 }, (_, index) => ({
         tick: index + 2,
         kind: "input",
         values: [0.1, 1],
-        lateness: 0,
     }));
     let draws = 0,
         frames = 0;
@@ -430,7 +433,7 @@ test("a confirmation stall holds the predicted clock while frames draw, then res
             records.filter((r) => r.tick <= 2),
         );
         server.world.tick();
-        sender.record(2, records);
+        sender.record(2);
         sender.flush();
         for (let tick = 3; tick <= 6; tick++) {
             drive(

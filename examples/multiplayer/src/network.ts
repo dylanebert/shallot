@@ -13,6 +13,7 @@ import {
     ClientPrediction,
     type Connection,
     type Game,
+    type InputRecord,
     type IntentRecord,
     IntentSender,
     MultiplayerPlugin,
@@ -65,19 +66,10 @@ export function applyIntent(
     world: World,
     player: number,
     tick: number,
-    records: readonly IntentRecord[],
+    _records: readonly IntentRecord[],
+    latest?: InputRecord,
 ) {
-    let latest: IntentRecord | undefined;
-    for (const record of records) {
-        if (record.tick > tick || !validIntent(record)) continue;
-        if (
-            !latest ||
-            record.tick > latest.tick ||
-            (record.tick === latest.tick && record.id > latest.id)
-        )
-            latest = record;
-    }
-    if (!latest) return;
+    if (!latest || latest.tick > tick || !validIntent(latest)) return;
     if (!world.has(player, PlayerInput)) world.add(player, PlayerInput);
     const input = world.storage(PlayerInput),
         v = latest.values;
@@ -123,9 +115,9 @@ export const GAME: Game = {
         if (world.has(player, PlayerInput)) world.storage(PlayerInput).move.set(player, 0, 0);
     },
     validateIntent: (_world, _eid, record) => validIntent(record),
-    applyIntent(world, eid, tick, records) {
+    applyIntent(world, eid, tick, records, input) {
         const slot = world.get(eid, ConnectionSlot)!.slot;
-        applyIntent(world, scene(world).players[slot]!.player, tick, records);
+        applyIntent(world, scene(world).players[slot]!.player, tick, records, input);
     },
     onSend(world, eid, connection) {
         connection.send(assignment(world.get(eid, ConnectionSlot)!.slot));
@@ -139,6 +131,7 @@ export class GameClient {
     readonly prediction: ClientPrediction;
     readonly intent: IntentSender;
     readonly world: World;
+    private _values = [0, 0, 0, 0, 0, 0];
     constructor(world: World, connection: Connection) {
         this.world = world;
         const routed: Connection = {
@@ -164,11 +157,22 @@ export class GameClient {
             SCHEMA,
             routed,
             () => (this.slot < 0 ? undefined : scene(world).players[this.slot]!.player),
-            (_world, tick, records) => {
+            (_world, tick, records, input) => {
                 if (this.slot >= 0)
-                    applyIntent(world, scene(world).players[this.slot]!.player, tick, records);
+                    applyIntent(
+                        world,
+                        scene(world).players[this.slot]!.player,
+                        tick,
+                        records,
+                        input,
+                    );
             },
         );
+        this.prediction.sampleInput = (tick) => {
+            const input = this.intent.record(tick, "input", this._values);
+            this.intent.flush();
+            return input;
+        };
         // Both ends compose the same route; wire IDs follow its selected entity order.
         const selected = [...world.query([Body])];
         for (const [index, eid] of selected.entries()) {
@@ -179,9 +183,7 @@ export class GameClient {
         };
     }
     record(values: number[]) {
-        const record = this.intent.record(this.world.time.fixedTick + 1, "input", values);
-        this.prediction.accept([record]);
-        this.intent.flush();
+        this._values = values.slice();
     }
     selectPrediction() {
         if (this.slot >= 0) {

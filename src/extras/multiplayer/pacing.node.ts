@@ -88,15 +88,20 @@ test("late-input feedback paces a slow client; bursts replay once and drawn moti
             accepted.receive(sender.flush(), server.world.time.fixedTick + 1);
             if (frame === 1300) {
                 expect(prediction.lead).toBeLessThan(peakLead);
-                for (const record of accepted.records.values())
-                    if (record.id > 1100) expect(record.lateness).toBe(0);
+                expect(Math.max(...accepted.inputs.keys())).toBeGreaterThanOrEqual(
+                    server.world.time.fixedTick,
+                );
             }
             const before = server.world.time.fixedTick;
             // The long outage is a stalled server, not a server simulating past the held client.
             // Far-behind adoption is checked separately over a 400-tick gap.
             server.world.step(frame >= 1900 && frame < 2040 ? 0 : Time.FIXED_DT / 2);
             if (server.world.time.fixedTick !== before) {
-                sender.record(server.world.time.fixedTick, [...accepted.records.values()]);
+                sender.record(
+                    server.world.time.fixedTick,
+                    [...accepted.records.values()],
+                    accepted.commandAge(server.world.time.fixedTick),
+                );
                 sender.flush();
             }
             reconciliations = 0;
@@ -139,8 +144,7 @@ test("late-input feedback paces a slow client; bursts replay once and drawn moti
                 maximumLead = Math.max(maximumLead, lead);
             }
         }
-        for (const record of accepted.records.values())
-            if (record.id > 2700 && record.lateness > 0) late++;
+        if (accepted.commandAge(server.world.time.fixedTick)! > 0) late++;
         expect(late).toBe(0);
         expect(prediction.lead).toBeGreaterThan(initialLead);
         // 40 ticks beyond the latest received confirmation; after convergence the actual

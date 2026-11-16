@@ -20,7 +20,7 @@ test("accepted intent keeps an on-time tick, assigns the next tick when late, an
     const link = seededLink(1, faults);
     const sender = new IntentSender(link.b),
         receiver = new IntentReceiver(link.a);
-    sender.record(10, "input", [1, -1]);
+    sender.record(10, "operation", [1, -1]);
     sender.record(2, "operation", [7]);
     sender.flush();
     receiver.receive(link.a.receive(), 5);
@@ -39,8 +39,8 @@ test("game validation refuses an intent without retaining it or leaving an unres
     const link = seededLink(1, faults);
     const sender = new IntentSender(link.b),
         receiver = new IntentReceiver(link.a);
-    sender.record(1, "input", [NaN]);
-    sender.record(1, "input", [1]);
+    sender.record(1, "operation", [NaN]);
+    sender.record(1, "operation", [1]);
     sender.flush();
     const messages = link.a.receive();
     const validate = (record: IntentRecord) => record.values.every(Number.isFinite);
