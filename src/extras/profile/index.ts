@@ -816,15 +816,6 @@ function createOverlay(): Overlay {
     return {
         update(store: DiagnosticsStore) {
             const now = performance.now();
-            if (now - lastRender < 250) return;
-            lastRender = now;
-            tickPool(cpuPool, diagnosticEntries(store, "render/", "/elapsed_cpu"));
-            tickPool(gpuPool, diagnosticEntries(store, "render/", "/elapsed_gpu"));
-            tickPool(indirectPool, diagnosticEntries(store, "render/", "/indirect"));
-            const gpuTiming =
-                store.get("render/timestamp_query")?.value() === 1
-                    ? "available"
-                    : "requires timestamp-query";
             const rows = networkRows.collect(store, now);
             networkWrapper.style.display = rows.length ? "block" : "none";
             network.totalEl.textContent = rows.some(([, value]) => value.includes("stale"))
@@ -834,6 +825,15 @@ function createOverlay(): Overlay {
                   : "";
             renderPool(networkPool, rows);
             for (const row of networkPool.rows) row.value.style.width = "110px";
+            if (now - lastRender < 250) return;
+            lastRender = now;
+            tickPool(cpuPool, diagnosticEntries(store, "render/", "/elapsed_cpu"));
+            tickPool(gpuPool, diagnosticEntries(store, "render/", "/elapsed_gpu"));
+            tickPool(indirectPool, diagnosticEntries(store, "render/", "/indirect"));
+            const gpuTiming =
+                store.get("render/timestamp_query")?.value() === 1
+                    ? "available"
+                    : "requires timestamp-query";
             const data = collectStats(store);
             fpsEl.textContent = pad(data.fps > 0 ? data.fps.toFixed(0) : "--", 3) + " fps";
             ftEl.textContent = (data.frameTime > 0 ? data.frameTime.toFixed(1) : "--") + " ms";

@@ -131,8 +131,21 @@ for (const server of ["", "?server=ws://127.0.0.1:4431"]) {
             const overlay = page.locator("[data-shallot-profile]");
             await expect(overlay).toBeVisible();
             await overlay.getByText("▸ network", { exact: true }).click();
-            await expect(overlay.getByText("round_trip", { exact: true })).toBeVisible();
-            await expect(overlay.getByText("time_since_receive", { exact: true })).toBeVisible();
+            await expect(overlay.getByText("round trip", { exact: true })).toBeVisible();
+            await expect(overlay.getByText("time since receive", { exact: true })).toBeVisible();
+            await expect
+                .poll(() =>
+                    page.evaluate(() => {
+                        const label = [
+                            ...document.querySelectorAll("[data-shallot-profile] span"),
+                        ].find((node) => node.textContent === "round trip");
+                        return (
+                            label?.nextElementSibling?.textContent?.replace(" ms", "ms") ===
+                            document.querySelector("[data-measured-rtt]")?.textContent
+                        );
+                    }),
+                )
+                .toBe(true);
             const bounds = await overlay.boundingBox();
             const panel = await page
                 .getByRole("region", { name: "Network simulator" })

@@ -1,4 +1,4 @@
-import { DiagnosticsStore, type World } from "@dylanebert/shallot";
+import { DiagnosticsStore, type System, type World } from "@dylanebert/shallot";
 import { network } from "./runtime";
 
 export function hud(container: HTMLElement, world: World) {
@@ -76,7 +76,6 @@ export function hud(container: HTMLElement, world: World) {
     container.append(panel);
     let lastSample: number | undefined;
     let changed = performance.now();
-    let frame: number;
     const update = () => {
         const store = world.resource(DiagnosticsStore);
         const sample = store.get("network/round_trip")?.measurement();
@@ -89,12 +88,13 @@ export function hud(container: HTMLElement, world: World) {
         output.textContent =
             !sample || now - changed > 1000
                 ? "no data"
-                : `${Number(sample.value.toFixed(2))}ms${stale ? " · stale" : ""}`;
-        frame = requestAnimationFrame(update);
+                : `${Number(store.get("network/round_trip")!.smoothed()!.toFixed(2))}ms${stale ? " · stale" : ""}`;
     };
+    const system: System = { name: "NetworkHud", group: "draw", last: true, update };
+    world.addSystem(system);
     update();
     return () => {
-        cancelAnimationFrame(frame);
+        world.removeSystem(system);
         panel.remove();
     };
 }
