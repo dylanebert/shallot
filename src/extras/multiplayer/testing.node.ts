@@ -113,6 +113,49 @@ test("disposal fails on a client left undisposed, then force-cleans it", async (
     expect(peer.world.signal.aborted).toBe(true);
 });
 
+for (const clients of [0, 1]) {
+    test(`disposal reports and force-cleans a leaked loopback listener with ${clients} clients`, async () => {
+        const serve = Bun.serve.bind(Bun);
+        let endpoint!: ReturnType<typeof Bun.serve>;
+        let stop!: () => Promise<void>;
+        const factory = spyOn(Bun, "serve").mockImplementation((options) => {
+            endpoint = serve(options);
+            const realStop = endpoint.stop.bind(endpoint);
+            endpoint.stop = () => Promise.resolve();
+            stop = () => realStop(true);
+            return endpoint;
+        });
+        let session: Awaited<ReturnType<typeof createSession>> | undefined;
+        try {
+            session = await createSession(game, { seed: 32, clients, transport: "websocket" });
+            const port = endpoint.port!;
+            expect((await fetch(`http://127.0.0.1:${port}`, { keepalive: false })).status).toBe(
+                426,
+            );
+            let message = "";
+            try {
+                await session.dispose();
+            } catch (error) {
+                message = String(error);
+            }
+            expect(endpoint.pendingWebSockets).toBe(0);
+            expect(message).toContain(`Disposal leaked loopback endpoint 127.0.0.1:${port}`);
+            expect(message).toContain("server tick=0 connection=authority disposed=true seed=32");
+            let refused = false;
+            try {
+                await fetch(`http://127.0.0.1:${port}`, { keepalive: false });
+            } catch (error) {
+                refused = (error as { code?: string }).code === "ECONNREFUSED";
+            }
+            expect(refused).toBe(true);
+        } finally {
+            factory.mockRestore();
+            await stop?.();
+            await session?.dispose();
+        }
+    });
+}
+
 test("targeted stepping does not tick siblings and a closed peer is named in wait failure", async () => {
     const session = await createSession(game, { seed: 29, clients: 2 });
     try {

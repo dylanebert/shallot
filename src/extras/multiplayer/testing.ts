@@ -11,7 +11,8 @@ import { WebSocketConnection } from "./websocket";
  * Clients run the game's onClient at their first stepped boundary. Thin clients only receive and
  * acknowledge state: their Worlds do not simulate and onClient is not called.
  * Dispose the session, not just its Worlds. Disposal closes all owned peers and fails if any World,
- * connection entity, transport or loopback socket survives cleanup. This is an owned-resource check,
+ * connection entity, transport or loopback listener/socket survives cleanup. Listener release is
+ * observed through a refused TCP connection. This is an owned-resource check,
  * not a process-wide heap or handle leak detector. */
 export async function createSession(
     game: Game,
@@ -207,7 +208,38 @@ export async function createSession(
                         errors.push(failure(peer, String(error)));
                     }
                 }
-                await endpoint?.stop(true);
+                const port = endpoint?.port;
+                try {
+                    await endpoint?.stop(true);
+                } catch (error) {
+                    errors.push(failure(server, `Endpoint stop failed (${String(error)})`));
+                }
+                if (port !== undefined) {
+                    const { createConnection } = await import("node:net");
+                    const error = await new Promise<Error | undefined>((resolve) => {
+                        const probe = createConnection({ host: "127.0.0.1", port });
+                        probe.once("connect", () => {
+                            probe.destroy();
+                            resolve(
+                                failure(
+                                    server,
+                                    `Disposal leaked loopback endpoint 127.0.0.1:${port}`,
+                                ),
+                            );
+                        });
+                        probe.once("error", (error: NodeJS.ErrnoException) => {
+                            resolve(
+                                error.code === "ECONNREFUSED"
+                                    ? undefined
+                                    : failure(
+                                          server,
+                                          `Endpoint release probe failed 127.0.0.1:${port} (${String(error)})`,
+                                      ),
+                            );
+                        });
+                    });
+                    if (error) errors.push(error);
+                }
                 for (let i = 0; i < 32 && sockets.some((socket) => socket.readyState !== 3); i++)
                     await io();
                 for (const peer of peers) {
@@ -227,6 +259,7 @@ export async function createSession(
                 )
                     errors.push(failure(server, "Disposal leaked loopback sockets"));
                 // Force cleanup after reporting a failed ownership path, as NetCodeTestWorld does.
+                endpoint?.[Symbol.dispose]();
                 for (const app of [...apps].reverse()) app.dispose();
                 for (const link of links) link.a.close();
                 for (const socket of sockets) socket.close();
