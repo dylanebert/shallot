@@ -41,7 +41,12 @@ test("late-input feedback paces a slow client; bursts replay once and drawn moti
     const sender = new ReplicationSender(server.world, schema, [new Map([[1, schema]])], 1, link.a);
     const input = new IntentSender(connection);
     const accepted = new IntentReceiver(link.a);
-    let confirmations = 0;
+    let reconciliations = 0;
+    const restore = client.world.restore.bind(client.world);
+    client.world.restore = (snapshot) => {
+        reconciliations++;
+        restore(snapshot);
+    };
     let fixed = 0;
     const prediction = new ClientPrediction(
         client.world,
@@ -50,8 +55,7 @@ test("late-input feedback paces a slow client; bursts replay once and drawn moti
         () => client.body,
         () => {},
         (_world, _outputs, confirmed) => {
-            if (confirmed) confirmations++;
-            else fixed++;
+            if (!confirmed) fixed++;
         },
         40,
     );
@@ -67,6 +71,7 @@ test("late-input feedback paces a slow client; bursts replay once and drawn moti
     let slowestBurstFrame = Infinity;
     let fastestBurstFrame = 0;
     let late = 0;
+    let peakLead = prediction.lead;
     let minimumLead = Infinity;
     let maximumLead = -Infinity;
     const initialLead = prediction.lead;
@@ -75,26 +80,31 @@ test("late-input feedback paces a slow client; bursts replay once and drawn moti
         sender.flush();
         for (let frame = 1; frame <= 3400; frame++) {
             link.advance(frame);
-            held = (frame >= 1400 && frame < 1410) || (frame >= 1900 && frame < 1950);
+            held = (frame >= 1400 && frame < 1410) || (frame >= 1900 && frame < 2040);
             accepted.receive(sender.flush(), server.world.time.fixedTick + 1);
-            if (frame === 1300)
+            if (frame === 1300) {
+                expect(prediction.lead).toBeLessThan(peakLead);
                 for (const record of accepted.records.values())
                     if (record.id > 1100) expect(record.lateness).toBe(0);
+            }
             const before = server.world.time.fixedTick;
-            server.world.step(Time.FIXED_DT / 2);
+            // The long outage is a stalled server, not a server simulating past the held client.
+            // Far-behind adoption is checked separately over a 400-tick gap.
+            server.world.step(frame >= 1900 && frame < 2040 ? 0 : Time.FIXED_DT / 2);
             if (server.world.time.fixedTick !== before) {
                 sender.record(server.world.time.fixedTick, [...accepted.records.values()]);
                 sender.flush();
             }
-            confirmations = 0;
+            reconciliations = 0;
             fixed = 0;
             const head = client.world.time.fixedTick;
             // This clock runs 20% slow. Tick dilation must recover both its drift and link delay.
             client.world.step(Time.FIXED_DT * 0.4);
-            expect(confirmations).toBeLessThanOrEqual(1);
+            if (frame < 500) peakLead = Math.max(peakLead, prediction.lead);
+            expect(reconciliations).toBeLessThanOrEqual(1);
             if (frame < 1900)
                 expect(fixed).toBeLessThanOrEqual(prediction.maxAhead + Time.MAX_FIXED_STEPS);
-            if (frame === 1410) burstReplays = confirmations;
+            if (frame === 1410) burstReplays = reconciliations;
             const record = input.record(client.world.time.fixedTick + 1, "input", [1]);
             prediction.accept([record]);
             input.flush();
@@ -111,12 +121,12 @@ test("late-input feedback paces a slow client; bursts replay once and drawn moti
                     fastestBurstFrame = Math.max(fastestBurstFrame, advance);
                 }
                 if (held && client.world.time.fixedTick === head) {
-                    if (frame > 1935) {
+                    if (frame > 2020) {
                         expect(Math.abs(advance)).toBeLessThan(0.001);
                         holds++;
                     }
                 }
-                if (frame > 1950 && frame < 1980 && x > previous) resumed++;
+                if (frame > 2040 && frame < 2070 && x > previous) resumed++;
             }
             previous = x;
             if (frame > 2700) {

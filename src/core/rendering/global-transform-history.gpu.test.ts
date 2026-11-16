@@ -113,6 +113,12 @@ function attachTestCamera(world: World): void {
             );
             expect(words[row * 12]).toBeCloseTo(22.5, 5);
             expect(() => world.resource(TransformRuntime).previous!.bytes).toThrow("GPU-only");
+            world.jumpToTick(401);
+            world.step(0);
+            words = new Float32Array(
+                (await probeBuffer(world, table.buffer, { size: table.buffer.size })).bytes,
+            );
+            expect(words[row * 12]).toBeCloseTo(30, 5);
             expect(await world.gpu.device.popErrorScope()).toBeNull();
         } finally {
             await disposeGpuApps([app]);

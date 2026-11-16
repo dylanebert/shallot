@@ -364,6 +364,14 @@ export class ReplicationSender {
     }
 }
 
+/** One ordered state preceding a drain's latest state. apply writes its rows and notifies confirm;
+ * call once in order before applying the latest state. Borrowed for the reconcile callback. */
+export interface ReplicationConfirmation {
+    tick: number;
+    intents: readonly AcceptedIntent[];
+    apply: () => void;
+}
+
 /** Ordered confirmations, including the initial image. Application callbacks may retain rows but not mutate them. */
 export class ReplicationReceiver {
     confirmed = -1;
@@ -374,12 +382,14 @@ export class ReplicationReceiver {
     readonly schema: ReplicationSchema;
     readonly connection: Connection;
     readonly confirm: (tick: number, rows: ReplicatedRows) => void;
-    /** Synchronous restore/apply/replay boundary. Call apply exactly once after restore and before replay; do not retain it. */
+    /** Synchronous restore/apply/replay boundary. Restore at tick, deliver preceding states in order,
+     * then call apply exactly once before replay. Do not retain apply or preceding. */
     readonly reconcile: (
         tick: number,
         rows: ReplicatedRows,
         intents: readonly AcceptedIntent[],
         apply: () => void,
+        preceding: readonly ReplicationConfirmation[],
     ) => void;
     constructor(
         world: World,
@@ -391,7 +401,11 @@ export class ReplicationReceiver {
             rows: ReplicatedRows,
             intents: readonly AcceptedIntent[],
             apply: () => void,
-        ) => void = (_tick, _rows, _intents, apply) => apply(),
+            preceding: readonly ReplicationConfirmation[],
+        ) => void = (_tick, _rows, _intents, apply, preceding) => {
+            for (const state of preceding) state.apply();
+            apply();
+        },
     ) {
         this.world = world;
         this.schema = schema;
@@ -400,13 +414,15 @@ export class ReplicationReceiver {
         this.reconcile = reconcile;
     }
     /** Applies confirmations and returns other message kinds for application routing.
-     * "latest" decodes every ordered baseline but reconciles and notifies only the last
-     * available state, so a prediction client pays for one replay per drain. */
+     * "latest" reconciles once, passing preceding ordered states to that callback. It must
+     * deliver their intents and apply each before the latest state. Every applied state
+     * still notifies confirm, so only recovery/replay work is coalesced, not observations. */
     flush(confirmations: "all" | "latest" = "all"): Uint8Array[] {
         const latestOnly = confirmations === "latest";
         const unhandled: Uint8Array[] = [];
         let latest: ReturnType<typeof decode> | undefined;
         let latestTick = -1;
+        const preceding: ReplicationConfirmation[] = [];
         for (const bytes of this.connection.receive()) {
             const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
             const kind = bytes.length >= 4 ? view.getUint32(0, true) : 0;
@@ -429,7 +445,25 @@ export class ReplicationReceiver {
                 break;
             const packet = decode(bytes, this._versions, layout(this.schema));
             if (!latestOnly)
-                this.reconcile(tick, packet.rows, packet.intents, () => this._write(packet.rows));
+                this.reconcile(
+                    tick,
+                    packet.rows,
+                    packet.intents,
+                    () => this._write(packet.rows),
+                    [],
+                );
+            else if (latest) {
+                const previous = latest;
+                const previousTick = latestTick;
+                preceding.push({
+                    tick: previousTick,
+                    intents: previous.intents,
+                    apply: () => {
+                        this._write(previous.rows);
+                        this.confirm(previousTick, previous.rows);
+                    },
+                });
+            }
             latest = packet;
             latestTick = tick;
             this._versions.set(tick, packet.rows);
@@ -441,7 +475,13 @@ export class ReplicationReceiver {
         }
         if (latestOnly && latest) {
             const packet = latest;
-            this.reconcile(latestTick, packet.rows, packet.intents, () => this._write(packet.rows));
+            this.reconcile(
+                latestTick,
+                packet.rows,
+                packet.intents,
+                () => this._write(packet.rows),
+                preceding,
+            );
             this.confirm(latestTick, packet.rows);
         }
         if (this.confirmed >= 0) {

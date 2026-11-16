@@ -30,6 +30,7 @@ test("accepted intent keeps an on-time tick, assigns the next tick when late, an
         [5, 3],
     ]);
     expect([...sender.records.values()]).toEqual([...receiver.records.values()]);
+    expect([...receiver.records.values()].map((r) => r.slack)).toEqual([5, 0]);
     sender.flush();
     receiver.receive(link.a.receive(), 8);
     expect(receiver.records.size).toBe(2);

@@ -12,11 +12,14 @@ export interface IntentRecord {
 export interface AcceptedIntent extends IntentRecord {
     /** Assigned tick minus requested tick, in fixed ticks. */
     lateness: number;
+    /** Ticks remaining before the requested tick when first received, zero if late.
+     * Omitted for locally supplied confirmations that carry no arrival measurement. */
+    slack?: number;
 }
 
 export function encodeIntent(kind: number, records: readonly IntentRecord[]): Uint8Array {
     const bytes = new Uint8Array(
-        8 + records.reduce((size, r) => size + 20 + r.values.length * 8, 0),
+        8 + records.reduce((size, r) => size + 24 + r.values.length * 8, 0),
     );
     const view = new DataView(bytes.buffer);
     view.setUint32(0, kind, true);
@@ -29,6 +32,7 @@ export function encodeIntent(kind: number, records: readonly IntentRecord[]): Ui
             Number(r.kind === "operation"),
             (r as AcceptedIntent).lateness ?? 0,
             r.values.length,
+            (r as AcceptedIntent).slack === undefined ? 0 : (r as AcceptedIntent).slack! + 1,
         ];
         for (const word of words) {
             view.setUint32(offset, word, true);
@@ -56,13 +60,21 @@ export function decodeIntent(bytes: Uint8Array): AcceptedIntent[] {
         const kind = tag ? "operation" : "input";
         const lateness = view.getUint32(offset + 12, true),
             count = view.getUint32(offset + 16, true);
-        offset += 20;
+        const arrival = view.getUint32(offset + 20, true);
+        offset += 24;
         const values: number[] = [];
         for (let lane = 0; lane < count; lane++) {
             values.push(view.getFloat64(offset, true));
             offset += 8;
         }
-        records.push({ id, tick, kind, lateness, values });
+        records.push({
+            id,
+            tick,
+            kind,
+            lateness,
+            values,
+            ...(arrival ? { slack: arrival - 1 } : {}),
+        });
     }
     if (offset !== bytes.length) throw new Error("Invalid intent size");
     return records;
@@ -101,7 +113,12 @@ export class IntentReceiver {
                 if (this.records.has(record.id)) continue;
                 if (record.tick > nextTick + this.maxAhead) continue;
                 const tick = Math.max(nextTick, record.tick);
-                this.records.set(record.id, { ...record, tick, lateness: tick - record.tick });
+                this.records.set(record.id, {
+                    ...record,
+                    tick,
+                    lateness: tick - record.tick,
+                    slack: Math.max(0, record.tick - nextTick),
+                });
             }
         }
         this.connection.send(encodeIntent(IntentMessageKind.Accepted, [...this.records.values()]));

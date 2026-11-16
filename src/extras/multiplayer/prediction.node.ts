@@ -321,11 +321,18 @@ async function connectedPrediction(maxAhead = 32, confirmed: (world: World) => v
 }
 
 for (const lag of [1, 40]) {
-    test(`a client ${lag} server ticks behind confirmations catches up exactly`, async () => {
+    test(`a client ${lag} server ticks behind adopts every authoritative row without simulating the gap`, async () => {
         const hashes = new Map<number, bigint>();
+        const states = new Map<
+            number,
+            { poses: ReturnType<typeof poses>; gameplay: ReturnType<typeof gameplay> }
+        >();
         const pair = await connectedPrediction(32, (world) => {
-            if (world.time.fixedTick > 1)
-                expect(hashPhysics(world)).toBe(hashes.get(world.time.fixedTick)!);
+            if (world.time.fixedTick <= 1) return;
+            const state = states.get(world.time.fixedTick)!;
+            expect(poses(world)).toEqual(state.poses);
+            expect(gameplay(world)).toEqual(state.gameplay);
+            if (lag === 1) expect(hashPhysics(world)).toBe(hashes.get(world.time.fixedTick)!);
         });
         const { server, client, sender } = pair;
         const records: AcceptedIntent[] = [];
@@ -336,13 +343,14 @@ for (const lag of [1, 40]) {
                 drive(server.world, tick, records);
                 server.world.tick();
                 hashes.set(tick, hashPhysics(server.world));
+                states.set(tick, { poses: poses(server.world), gameplay: gameplay(server.world) });
                 sender.record(tick, records);
             }
             expect(client.world.time.fixedTick).toBe(1);
             sender.flush();
             client.world.step(0);
             expect(client.world.time.fixedTick).toBe(lag + 1);
-            expect(hashPhysics(client.world)).toBe(hashPhysics(server.world));
+            if (lag === 1) expect(hashPhysics(client.world)).toBe(hashPhysics(server.world));
             expect(gameplay(client.world)).toEqual(gameplay(server.world));
             // An older local image puts one ordered confirmation many ticks ahead without a wire gap.
             client.world.restore(origin);
@@ -351,11 +359,12 @@ for (const lag of [1, 40]) {
             drive(server.world, next, records);
             server.world.tick();
             hashes.set(next, hashPhysics(server.world));
+            states.set(next, { poses: poses(server.world), gameplay: gameplay(server.world) });
             sender.record(next, records);
             sender.flush();
             client.world.step(0);
             expect(client.world.time.fixedTick).toBe(next);
-            expect(hashPhysics(client.world)).toBe(hashPhysics(server.world));
+            if (lag === 1) expect(hashPhysics(client.world)).toBe(hashPhysics(server.world));
             expect(gameplay(client.world)).toEqual(gameplay(server.world));
         } finally {
             server.dispose();

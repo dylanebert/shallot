@@ -1,5 +1,5 @@
 import { Body, BodyType } from "../../core/physics";
-import { VisualCorrection } from "../../core/rendering";
+import { readRenderGlobalTransform, VisualCorrection } from "../../core/rendering";
 import { GlobalTransform } from "../../core/transform";
 import {
     component,
@@ -24,7 +24,7 @@ import {
     setLinearVelocity,
     setTransform,
 } from "../../standard/physics";
-import { ReplicationReceiver, type ReplicationSchema } from ".";
+import { type ReplicationConfirmation, ReplicationReceiver, type ReplicationSchema } from ".";
 import { type AcceptedIntent, decodeIntent, IntentMessageKind, type IntentRecord } from "./intent";
 import {
     ClientInterpolation,
@@ -113,9 +113,11 @@ export class FixedOutputs {
  * explicit ticks and paced steps, and process confirmations at preFixed. One controller per World.
  * maxAhead defaults to 32 ticks beyond the latest confirmation (or construction tick until one
  * arrives). Paced steps drain to the latest available confirmation and replay once. This controller
- * owns World's time scale (0.8–1.5), adjusting the next step toward a lead initially up to two ticks.
- * Newly accepted late inputs raise that target; it never decreases during this connection. The
- * target reserves min(8, maxAhead / 2) ticks below the bound for confirmation jitter. Delays beyond
+ * owns World's time scale (0.8–1.5); a game's slow motion belongs to the server's simulation,
+ * while World.pause remains local. Pacing adjusts the next step toward an initial lead up to two
+ * ticks. Late inputs raise the target; 32 distinct on-time input ticks permit a one-tick reduction only
+ * when measured arrival slack exceeds two ticks (or no measurement was supplied). Duplicate
+ * feedback never counts. The target reserves min(8, maxAhead / 2) ticks for confirmation jitter. Delays beyond
  * the available prediction window cannot be hidden: prediction holds, including its interpolation
  * fraction, while frames continue, then resumes on confirmation. Explicit tick beyond the bound
  * throws before gameplay; World's failed-tick clock semantics apply.
@@ -130,6 +132,7 @@ export class ClientPrediction {
     private _history = new Map<number, WorldSnapshot>();
     private _entities = new Map<number, number>();
     private _interpolated: number[] = [];
+    private _renderScratch = new Float32Array(12);
     private _correctionInverse = [0, 0, 0, 1];
     private _correctionError = [0, 0, 0, 1];
     private _correctionRotation = [0, 0, 0, 1];
@@ -146,10 +149,12 @@ export class ClientPrediction {
     private _confirmedTick: number;
     private _hasConfirmed = false;
     private _feedbackId = 0;
+    private _onTime = 0;
+    private _onTimeTick = -1;
+    private _minimumSlack = Infinity;
     private _lead: number;
     private readonly _leadLimit: number;
-    /** Target ticks beyond the newest confirmation, below maxAhead's jitter reserve. Late-input
-     * feedback raises this safety margin; it remains conservative after a stall. */
+    /** Target ticks beyond the newest confirmation, below maxAhead's jitter reserve. */
     get lead(): number {
         return this._lead;
     }
@@ -160,6 +165,9 @@ export class ClientPrediction {
     /** Runs again on replay. Borrows the cumulative log through tick, ordered by tick then ID;
      * do not retain the array. Apply operations only at their tick or derive cumulative counters. */
     readonly applyIntent: (world: World, tick: number, records: readonly IntentRecord[]) => void;
+    /** confirmed=true observes every authoritative state at its tick, with current accepted records
+     * and ECS rows. The solver reconciles only the latest state in a drain. confirmed=false runs
+     * after each original or replayed tick; FixedOutputs deduplicates its one-off deliveries. */
     readonly observe: (world: World, outputs: FixedOutputs, confirmed: boolean) => void;
     constructor(
         world: World,
@@ -196,7 +204,8 @@ export class ClientPrediction {
             schema,
             connection,
             () => {},
-            (tick, _rows, intents, apply) => this._confirm(tick, intents, apply),
+            (tick, _rows, intents, apply, preceding) =>
+                this._confirm(tick, intents, apply, preceding),
         );
         for (const eid of world.query([Body]))
             this._types.set(eid, world.storage(Body).type.get(eid));
@@ -239,13 +248,27 @@ export class ClientPrediction {
             if ("lateness" in record && record.id > this._feedbackId) {
                 lateness = Math.max(lateness, record.lateness);
                 newest = Math.max(newest, record.id);
+                if (record.lateness === 0 && record.tick > this._onTimeTick) {
+                    this._onTimeTick = record.tick;
+                    this._onTime++;
+                    this._minimumSlack = Math.min(this._minimumSlack, record.slack ?? Infinity);
+                }
             }
             const previous = this.records.get(record.id);
             if (previous && "lateness" in previous && !("lateness" in record)) continue;
             this.records.set(record.id, record);
         }
         this._feedbackId = newest;
-        if (lateness > 0) this._lead = Math.min(this._leadLimit, this._lead + lateness + 1);
+        if (lateness > 0) {
+            this._lead = Math.min(this._leadLimit, this._lead + lateness + 1);
+            this._onTime = 0;
+            this._minimumSlack = Infinity;
+        } else if (this._onTime >= 32) {
+            if (this._minimumSlack > 2)
+                this._lead = Math.max(Math.min(2, this._leadLimit), this._lead - 1);
+            this._onTime = 0;
+            this._minimumSlack = Infinity;
+        }
         this._ordered.length = 0;
         for (const record of this.records.values()) this._ordered.push(record);
         this._ordered.sort((a, b) => a.tick - b.tick || a.id - b.id);
@@ -332,27 +355,8 @@ export class ClientPrediction {
             });
         if (angular) setAngularVelocity(this.world, eid, angular);
     }
-    private _confirm(tick: number, intents: readonly AcceptedIntent[], apply: () => void): void {
-        if (this._replaying) throw new Error("Prediction cannot receive during replay");
-        this._confirmedTick = tick;
-        this.accept(intents);
-        const displayed = new Map<
-            number,
-            { translation: readonly number[]; rotation: readonly number[] }
-        >();
-        for (const eid of this.world.query([PredictionTarget, GlobalTransform]))
-            if (this.predicted(eid)) displayed.set(eid, this.world.get(eid, GlobalTransform)!);
-        const head = Math.max(tick, this.world.time.fixedTick);
-        const history = this._history.get(tick);
-        if (history) {
-            const entities = !this._hasConfirmed ? new Map(this.receiver.entities) : this._entities;
-            this.world.restore(history);
-            this.receiver.entities.clear();
-            for (const [id, eid] of entities) this.receiver.entities.set(id, eid);
-        } else if (this.world.time.fixedTick > tick)
-            throw new Error(`Missing prediction tick ${tick}`);
-        else while (this.world.time.fixedTick < tick) this.world.tick();
-        const before = new Map(
+    private _motion() {
+        return new Map(
             [...this.world.query(motionTerms)].map((eid) => [
                 eid,
                 {
@@ -362,55 +366,65 @@ export class ClientPrediction {
                 },
             ]),
         );
+    }
+    private _applyConfirmation(
+        tick: number,
+        intents: readonly AcceptedIntent[],
+        apply: () => void,
+        before: ReturnType<ClientPrediction["_motion"]> | undefined,
+    ): void {
+        this.accept(intents);
+        if (this.world.time.fixedTick !== tick) this.world.jumpToTick(tick);
         apply();
         this._entities = new Map(this.receiver.entities);
         this._hasConfirmed = true;
         const avatar = this.avatar(this.world, this.receiver.entities);
         if (avatar !== undefined && !this.world.has(avatar, PredictionTarget))
             this.world.add(avatar, PredictionTarget, { enabled: 1 });
-        this._remote.length = 0;
-        for (const eid of this.world.query(motionTerms)) {
-            const pose = this.world.get(eid, GlobalTransform)!;
-            const motion = this.world.get(eid, PredictionMotion)!;
-            const body = this.world.storage(Body);
-            const type = body.type.get(eid);
-            if (!getAngularVelocity(this.world, eid)) {
-                body.linearVelocity.set(eid, ...pose.linearVelocity);
-                body.angularVelocity.set(eid, ...motion.angularVelocity);
-                body.isAwake.set(eid, motion.awake);
+        if (before) this._remote.length = 0;
+        if (before)
+            for (const eid of this.world.query(motionTerms)) {
+                const pose = this.world.get(eid, GlobalTransform)!;
+                const motion = this.world.get(eid, PredictionMotion)!;
+                const body = this.world.storage(Body);
+                const type = body.type.get(eid);
+                if (!getAngularVelocity(this.world, eid)) {
+                    body.linearVelocity.set(eid, ...pose.linearVelocity);
+                    body.angularVelocity.set(eid, ...motion.angularVelocity);
+                    body.isAwake.set(eid, motion.awake);
+                }
+                this._types.set(eid, type);
+                const predicted = this.predicted(eid);
+                if (!predicted)
+                    this._remote.push({
+                        entity: this.world.ref(eid),
+                        translation: pose.translation,
+                        rotation: pose.rotation,
+                    });
+                const previous = before.get(eid);
+                const desired = type === BodyType.Static || predicted ? type : BodyType.Kinematic;
+                if (previous?.type !== desired) setBodyType(this.world, eid, desired);
+                else this.world.storage(Body).type.set(eid, desired);
+                if (
+                    !same(previous?.pose.translation, pose.translation) ||
+                    !same(previous?.pose.rotation, pose.rotation)
+                )
+                    setTransform(this.world, eid, pose.translation, pose.rotation);
+                if (!same(previous?.pose.linearVelocity, pose.linearVelocity))
+                    setLinearVelocity(this.world, eid, {
+                        x: pose.linearVelocity[0]!,
+                        y: pose.linearVelocity[1]!,
+                        z: pose.linearVelocity[2]!,
+                    });
+                if (!same(previous?.motion.angularVelocity, motion.angularVelocity))
+                    setAngularVelocity(this.world, eid, {
+                        x: motion.angularVelocity[0]!,
+                        y: motion.angularVelocity[1]!,
+                        z: motion.angularVelocity[2]!,
+                    });
+                if (previous?.motion.awake !== motion.awake)
+                    setAwake(this.world, eid, motion.awake !== 0);
             }
-            this._types.set(eid, type);
-            const predicted = this.predicted(eid);
-            if (!predicted)
-                this._remote.push({
-                    entity: this.world.ref(eid),
-                    translation: pose.translation,
-                    rotation: pose.rotation,
-                });
-            const previous = before.get(eid);
-            const desired = type === BodyType.Static || predicted ? type : BodyType.Kinematic;
-            if (previous?.type !== desired) setBodyType(this.world, eid, desired);
-            else this.world.storage(Body).type.set(eid, desired);
-            if (
-                !same(previous?.pose.translation, pose.translation) ||
-                !same(previous?.pose.rotation, pose.rotation)
-            )
-                setTransform(this.world, eid, pose.translation, pose.rotation);
-            if (!same(previous?.pose.linearVelocity, pose.linearVelocity))
-                setLinearVelocity(this.world, eid, {
-                    x: pose.linearVelocity[0]!,
-                    y: pose.linearVelocity[1]!,
-                    z: pose.linearVelocity[2]!,
-                });
-            if (!same(previous?.motion.angularVelocity, motion.angularVelocity))
-                setAngularVelocity(this.world, eid, {
-                    x: motion.angularVelocity[0]!,
-                    y: motion.angularVelocity[1]!,
-                    z: motion.angularVelocity[2]!,
-                });
-            if (previous?.motion.awake !== motion.awake)
-                setAwake(this.world, eid, motion.awake !== 0);
-        }
         let count = 0;
         for (const eid of this.receiver.entities.values()) {
             if (eid === avatar || this.predicted(eid)) continue;
@@ -420,6 +434,42 @@ export class ClientPrediction {
         this._interpolated.length = count;
         this.interpolation.confirm(tick, this._interpolated);
         this.observe(this.world, this.outputs, true);
+    }
+    private _renderPose(eid: number) {
+        const pose = this._renderScratch;
+        readRenderGlobalTransform(this.world, eid, pose);
+        return {
+            translation: [pose[0]!, pose[1]!, pose[2]!],
+            rotation: [pose[4]!, pose[5]!, pose[6]!, pose[7]!],
+        };
+    }
+    private _confirm(
+        tick: number,
+        intents: readonly AcceptedIntent[],
+        apply: () => void,
+        preceding: readonly ReplicationConfirmation[],
+    ): void {
+        if (this._replaying) throw new Error("Prediction cannot receive during replay");
+        this._confirmedTick = tick;
+        const displayed = new Map<
+            number,
+            { translation: readonly number[]; rotation: readonly number[] }
+        >();
+        for (const eid of this.world.query([PredictionTarget, GlobalTransform]))
+            if (this.predicted(eid)) displayed.set(eid, this._renderPose(eid));
+        const head = Math.max(tick, this.world.time.fixedTick);
+        const history = this._history.get(tick);
+        if (history) {
+            const entities = !this._hasConfirmed ? new Map(this.receiver.entities) : this._entities;
+            this.world.restore(history);
+            this.receiver.entities.clear();
+            for (const [id, eid] of entities) this.receiver.entities.set(id, eid);
+        } else if (this.world.time.fixedTick > tick)
+            throw new Error(`Missing prediction tick ${tick}`);
+        const before = this._motion();
+        for (const state of preceding)
+            this._applyConfirmation(state.tick, state.intents, state.apply, undefined);
+        this._applyConfirmation(tick, intents, apply, before);
         this._save();
         this._replaying = true;
         try {
@@ -430,7 +480,7 @@ export class ClientPrediction {
         for (const [eid, value] of displayed) {
             if (!this.world.has(eid, GlobalTransform) || !this.predicted(eid)) continue;
             const previous = value;
-            const current = this.world.get(eid, GlobalTransform)!;
+            const current = this._renderPose(eid);
             if (
                 same(previous.translation, current.translation) &&
                 same(previous.rotation, current.rotation)
