@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="../src/touch.css"><link rel="stylesheet" href="../src/controls.css"><style>html,body{margin:0;width:100%;height:100%;background:#141210}canvas{display:block;width:100%;height:100%}</style></head><body><canvas></canvas><script type="module">
-import { createApp, focusCanvas, pressKey, releaseKey, resizeViewport, touchPoint, cancelTouch, GlobalTransform, MeshInstance, mountOverlay, DirectionalLight } from '@dylanebert/shallot';
+import { createApp, focusCanvas, pressKey, releaseKey, resizeViewport, touchPoint, cancelTouch, GlobalTransform, MeshInstance, mountOverlay, DirectionalLight, DiagnosticsStore } from '@dylanebert/shallot';
 import { attachTexture, captureTexture, detachView, readRenderGlobalTransform } from '@dylanebert/shallot/rendering';
 import { AppPlugin } from '../src/app';
 import { Network, topology } from '../src/runtime';
@@ -32,6 +32,7 @@ const sample = () => {
  predictedBox:client.prediction.predicted(box) };
 };
 window.game = {
+ removeNetworkDiagnostics() { world.addSystem({ name: 'RemoveNetworkDiagnostics', group: 'draw', first: true, update(world) { const store = world.resource(DiagnosticsStore); for (const row of store.iter()) if(row.path.path.startsWith('network/'))store.remove(row.path); } }); },
  async frames(count=1) { for(let i=0;i<count;i++){world.step(1/60);await world.frameFence;} return sample(); },
  state: sample,
  key(key,down) {focusCanvas(world); (down?pressKey:releaseKey)(world,key);},

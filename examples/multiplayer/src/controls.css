@@ -30,7 +30,7 @@
 .ec :disabled { color: var(--muted); cursor: default; }
 .ec input[type='range']:disabled::-webkit-slider-thumb { background: var(--dim); }
 
-.ec.controls.hud { position: absolute; top: calc(var(--s5) + env(safe-area-inset-top)); left: var(--half); transform: translateX(-50%); width: var(--panel); max-width: calc(var(--full) - var(--s4) - var(--s4)); background: var(--bg2); border: var(--hair) solid var(--line); border-radius: var(--radius); }
+.ec.controls.hud { position: absolute; top: calc(var(--s5) + env(safe-area-inset-top)); right: var(--s4); width: var(--panel); max-width: calc(var(--full) - var(--s4) - var(--s4)); background: var(--bg2); border: var(--hair) solid var(--line); border-radius: var(--radius); }
 .ec .fields { display: grid; gap: var(--s4); padding: var(--s4); }
 .ec .swatches { display: flex; gap: var(--s2); }
 .ec .swatch { flex: var(--layer); align-self: stretch; }
@@ -46,6 +46,7 @@
 }
 @media (max-width: 480px) {
  .ec.controls.hud { top: calc(var(--s4) + env(safe-area-inset-top)); }
+ [data-shallot-profile] { top: 270px !important; max-height: calc(100dvh - 286px) !important; }
  .ec button { min-height: var(--touch); }
  .ec .row { min-height: var(--touch); }
  .ec input[type='range'] { height: var(--touch); }

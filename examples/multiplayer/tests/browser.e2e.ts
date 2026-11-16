@@ -23,6 +23,7 @@ type Game = {
     touch(id: number, x: number, y: number, held?: boolean): void;
     cancel(id: number): void;
     avatarPixels(): Promise<number>;
+    removeNetworkDiagnostics(): void;
 };
 declare global {
     interface Window {
@@ -95,6 +96,54 @@ test("the page entry starts its in-tab game and shared bootstrap", async ({ page
     await held.run(15);
     expect(errors).toEqual([]);
 });
+
+test("F3 has no network section without registered network diagnostics", async ({ page }) => {
+    await open(page);
+    await page.keyboard.press("F3");
+    const title = page.locator("[data-shallot-profile]").getByText("▸ network", { exact: true });
+    await expect
+        .poll(async () => {
+            await frames(page);
+            return title.isVisible();
+        })
+        .toBe(true);
+    await page.evaluate(() => window.game.removeNetworkDiagnostics());
+    await expect
+        .poll(async () => {
+            await frames(page);
+            return title.isVisible();
+        })
+        .toBe(false);
+});
+
+for (const server of ["", "?server=ws://127.0.0.1:4431"]) {
+    for (const viewport of [
+        { width: 1280, height: 800 },
+        { width: 390, height: 844 },
+    ]) {
+        test(`measured diagnostics ${server ? "Bun" : "in-tab"} at ${viewport.width}×${viewport.height}`, async ({
+            page,
+        }, info) => {
+            await page.setViewportSize(viewport);
+            await page.goto(`/${server}`);
+            await expect(page.locator("[data-measured-rtt]")).toHaveText(/^[0-9]+(?:\.[0-9]+)?ms/);
+            await page.keyboard.press("F3");
+            const overlay = page.locator("[data-shallot-profile]");
+            await expect(overlay).toBeVisible();
+            await overlay.getByText("▸ network", { exact: true }).click();
+            await expect(overlay.getByText("round_trip", { exact: true })).toBeVisible();
+            await expect(overlay.getByText("time_since_receive", { exact: true })).toBeVisible();
+            const bounds = await overlay.boundingBox();
+            const panel = await page
+                .getByRole("region", { name: "Network simulator" })
+                .boundingBox();
+            expect(
+                bounds!.x + bounds!.width <= panel!.x || bounds!.y >= panel!.y + panel!.height,
+            ).toBe(true);
+            await page.screenshot({ path: info.outputPath("network.png") });
+        });
+    }
+}
 
 test("in-tab latency and loss are live, a thin client moves visibly, and local input pushes the shared box", async ({
     page,

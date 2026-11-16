@@ -1,4 +1,4 @@
-import type { World } from "@dylanebert/shallot";
+import { DiagnosticsStore, type World } from "@dylanebert/shallot";
 import { network } from "./runtime";
 
 export function hud(container: HTMLElement, world: World) {
@@ -64,7 +64,37 @@ export function hud(container: HTMLElement, world: World) {
         row.append(caption, slider);
         fields.append(row);
     }
+    const measured = document.createElement("div");
+    measured.className = "row";
+    const caption = document.createElement("span");
+    caption.textContent = "Measured RTT";
+    const output = document.createElement("output");
+    output.setAttribute("data-measured-rtt", "");
+    measured.append(caption, output);
+    fields.insertBefore(measured, fields.children[2]!);
     panel.append(fields);
     container.append(panel);
-    return () => panel.remove();
+    let lastSample: number | undefined;
+    let changed = performance.now();
+    let frame: number;
+    const update = () => {
+        const store = world.resource(DiagnosticsStore);
+        const sample = store.get("network/round_trip")?.measurement();
+        const now = performance.now();
+        if (sample?.time !== lastSample) {
+            lastSample = sample?.time;
+            changed = now;
+        }
+        const stale = (store.get("network/time_since_receive")?.value() ?? 0) > 1000;
+        output.textContent =
+            !sample || now - changed > 1000
+                ? "no data"
+                : `${Number(sample.value.toFixed(2))}ms${stale ? " · stale" : ""}`;
+        frame = requestAnimationFrame(update);
+    };
+    update();
+    return () => {
+        cancelAnimationFrame(frame);
+        panel.remove();
+    };
 }

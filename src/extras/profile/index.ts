@@ -3,6 +3,7 @@ import { Diagnostic, DiagnosticsStore, mountOverlay } from "../../engine";
 import { cpuTotal } from "./cpu";
 import { EmptyFrames } from "./empty";
 import { FrameTimings, TIMING_FLOOR_MS } from "./frames";
+import { NetworkRows } from "./network";
 import { reorderRows } from "./reorder";
 
 const INDIRECT_FLOOR_US = 1;
@@ -798,6 +799,12 @@ function createOverlay(): Overlay {
     memTexRow.label.textContent = "textures";
     const memPool = createRowPool(mem.body, 16);
 
+    const network = section(root, "network");
+    const networkWrapper = network.body.parentElement!;
+    networkWrapper.style.display = "none";
+    const networkPool = createRowPool(network.body, 0);
+    const networkRows = new NetworkRows();
+
     const startup = section(root, "startup");
     const startupPool = createRowPool(startup.body, 16);
     let startupFrozen = false;
@@ -818,6 +825,15 @@ function createOverlay(): Overlay {
                 store.get("render/timestamp_query")?.value() === 1
                     ? "available"
                     : "requires timestamp-query";
+            const rows = networkRows.collect(store, now);
+            networkWrapper.style.display = rows.length ? "block" : "none";
+            network.totalEl.textContent = rows.some(([, value]) => value.includes("stale"))
+                ? "stale"
+                : rows.some(([, value]) => value === "no data")
+                  ? "no data"
+                  : "";
+            renderPool(networkPool, rows);
+            for (const row of networkPool.rows) row.value.style.width = "110px";
             const data = collectStats(store);
             fpsEl.textContent = pad(data.fps > 0 ? data.fps.toFixed(0) : "--", 3) + " fps";
             ftEl.textContent = (data.frameTime > 0 ? data.frameTime.toFixed(1) : "--") + " ms";
