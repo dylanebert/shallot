@@ -52,6 +52,7 @@
         "./rendering": "./src/core/rendering/index.ts",
         "./standard/rendering": "./src/standard/rendering/index.ts",
         "./multiplayer": "./src/extras/multiplayer/index.ts",
+        "./multiplayer/bun": "./src/extras/multiplayer/bun.ts",
         "./bloom": "./src/extras/bloom/index.ts",
         "./gltf": "./src/extras/gltf/index.ts",
         "./effect-stack": "./src/extras/effect-stack/index.ts",

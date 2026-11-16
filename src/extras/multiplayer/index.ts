@@ -20,6 +20,7 @@ export {
     PredictionPlugin,
     PredictionTarget,
 } from "./prediction";
+export { WebSocketConnection } from "./websocket";
 
 import { type AcceptedIntent, decodeIntent, encodeIntent, IntentMessageKind } from "./intent";
 import type { Connection } from "./link";

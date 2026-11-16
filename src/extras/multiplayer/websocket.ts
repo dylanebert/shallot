@@ -1,0 +1,33 @@
+import type { Connection } from "./link";
+
+/** One socket lifetime. Reconnect with a new socket and new replication/intent histories;
+ * the server's first record supplies the new late-join image. No messages cross lifetimes. */
+export class WebSocketConnection implements Connection {
+    private _messages: Uint8Array[] = [];
+    readonly socket: WebSocket;
+
+    constructor(socket: WebSocket) {
+        this.socket = socket;
+        socket.binaryType = "arraybuffer";
+        socket.addEventListener("message", (event) => {
+            if (!(event.data instanceof ArrayBuffer)) {
+                socket.close(1003, "Binary messages required");
+                return;
+            }
+            this._messages.push(new Uint8Array(event.data));
+        });
+    }
+
+    /** Refuses writes before open or after close; the application owns retry and lifetime. */
+    send(bytes: Uint8Array): void {
+        if (this.socket.readyState !== 1) throw new Error("WebSocket is not open");
+        this.socket.send(bytes.slice());
+    }
+
+    /** Drains every queued frame in arrival order, including a stall's entire backlog. */
+    receive(): Uint8Array[] {
+        const messages = this._messages;
+        this._messages = [];
+        return messages;
+    }
+}
