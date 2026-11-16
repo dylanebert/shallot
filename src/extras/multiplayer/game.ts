@@ -2,6 +2,7 @@ import {
     type App,
     component,
     createApp,
+    DiagnosticsStore,
     type Plugin,
     type System,
     Time,
@@ -14,6 +15,7 @@ import {
     type ReplicationSchema,
     ReplicationSender,
 } from ".";
+import { observeNetwork } from "./diagnostics";
 import { IntentReceiver, type IntentRecord, IntentSender } from "./intent";
 import { type Connection, type LinkFaults, seededLink } from "./link";
 import { WebSocketConnection } from "./websocket";
@@ -46,6 +48,7 @@ export interface Game {
 }
 
 interface Peer {
+    diagnostics: ReturnType<typeof observeNetwork>;
     connection: Connection;
     sender: ReplicationSender;
     intent: IntentReceiver;
@@ -61,11 +64,14 @@ class GameServer {
     }
     readonly world: World;
     readonly game: Game;
+    private readonly _diagnostics: DiagnosticsStore;
     constructor(world: World, game: Game) {
         this.world = world;
         this.game = game;
         if (!Number.isSafeInteger(game.maxClients) || game.maxClients < 1)
             throw new Error("maxClients must be a positive integer");
+        const diagnostics = world.resource(DiagnosticsStore);
+        this._diagnostics = diagnostics;
         const unobserve = world.observeMembership(ClientOf, (eid, present) => {
             if (!present) this.disconnect(eid);
         });
@@ -73,9 +79,12 @@ class GameServer {
             unobserve();
             for (const [eid, peer] of this._peers) {
                 this._peers.delete(eid);
+                peer.diagnostics.remove();
                 peer.connection.close();
             }
+            diagnostics.record("network/peer_count", 0);
         });
+        diagnostics.record("network/peer_count", 0);
         game.onCreate?.(world);
     }
     /** Refuses admission at the peer limit without spawning an entity or calling onJoin. */
@@ -83,6 +92,7 @@ class GameServer {
         if (this.peers.size >= this.game.maxClients) return undefined;
         const eid = this.world.create();
         this.world.add(eid, ClientOf);
+        const diagnostics = observeNetwork(this.world, connection, `network/connections/${eid}/`);
         try {
             this.game.onJoin?.(this.world, eid, connection);
             const sender = new ReplicationSender(
@@ -92,11 +102,18 @@ class GameServer {
                 eid,
                 connection,
             );
-            this._peers.set(eid, { connection, sender, intent: new IntentReceiver(connection) });
+            this._peers.set(eid, {
+                connection,
+                sender,
+                intent: new IntentReceiver(connection),
+                diagnostics,
+            });
+            this._diagnostics.record("network/peer_count", this._peers.size);
             sender.record(this.world.time.fixedTick);
             sender.flush();
             return eid;
         } catch (error) {
+            diagnostics.remove();
             try {
                 this.disconnect(eid);
             } finally {
@@ -112,6 +129,8 @@ class GameServer {
         const peer = this._peers.get(eid);
         if (!peer) return;
         this._peers.delete(eid);
+        peer.diagnostics.remove();
+        this._diagnostics.record("network/peer_count", this._peers.size);
         try {
             this.game.onLeave?.(this.world, eid);
         } finally {
@@ -191,9 +210,12 @@ export function clientStartup(game: Game, connection: (world: World) => Connecti
         group: "preFixed",
         first: true,
         setup(world) {
+            observeNetwork(world, connection(world));
             game.onClient?.(world, connection(world));
         },
-        update() {},
+        update(world) {
+            observeNetwork(world, connection(world)).poll();
+        },
     };
 }
 
@@ -268,6 +290,7 @@ export async function local(
             const app = await createApp({ defaults: false, plugins: [...game.plugins] });
             apps.push(app);
             const link = seededLink(thin.seed, options.faults);
+            observeNetwork(app.world, link.b);
             if (authority.connect(link.a) === undefined) throw new Error("Thin client refused");
             thins.push({
                 app,

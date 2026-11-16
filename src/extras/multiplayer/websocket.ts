@@ -1,3 +1,4 @@
+import { stampReceipt } from "./diagnostics";
 import type { Connection } from "./link";
 
 /** One socket lifetime. Reconnect with a new socket and new replication/intent histories;
@@ -17,7 +18,7 @@ export class WebSocketConnection implements Connection {
                 socket.close(1003, "Binary messages required");
                 return;
             }
-            this._messages.push(new Uint8Array(event.data));
+            this._messages.push(stampReceipt(new Uint8Array(event.data), performance.now()));
         });
     }
 

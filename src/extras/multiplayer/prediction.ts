@@ -3,6 +3,7 @@ import { readRenderGlobalTransform, VisualCorrection } from "../../core/renderin
 import { GlobalTransform } from "../../core/transform";
 import {
     component,
+    DiagnosticsStore,
     type EntityRef,
     type Plugin,
     type System,
@@ -152,6 +153,7 @@ export class ClientPrediction {
     }[] = [];
     private _types = new Map<number, number>();
     private _replaying = false;
+    private _replayedTicks = 0;
     private _confirmedTick: number;
     private _resolvedId = 0;
     private _confirming = false;
@@ -205,6 +207,10 @@ export class ClientPrediction {
                 "Body prediction requires GlobalTransform and PredictionMotion in the replication schema",
             );
         this.world = world;
+        const diagnostics = world.resource(DiagnosticsStore);
+        diagnostics.record("network/replayed_ticks", 0, undefined, "ticks");
+        diagnostics.record("network/correction_translation", 0, undefined, "world units");
+        diagnostics.record("network/correction_rotation", 0, undefined, "rad");
         this.interpolation = new ClientInterpolation(
             world,
             (eid) => this.predicted(eid) || eid === this.avatar(world, this.receiver.entities),
@@ -503,10 +509,17 @@ export class ClientPrediction {
         this._save();
         this._replaying = true;
         try {
-            while (this.world.time.fixedTick < head) this.world.tick();
+            while (this.world.time.fixedTick < head) {
+                this.world.tick();
+                this._replayedTicks++;
+            }
         } finally {
             this._replaying = false;
         }
+        const diagnostics = this.world.resource(DiagnosticsStore);
+        diagnostics.record("network/replayed_ticks", this._replayedTicks);
+        let translationError = 0;
+        let rotationError = 0;
         for (const [eid, value] of displayed) {
             if (!this.world.has(eid, GlobalTransform) || !this.predicted(eid)) continue;
             const previous = value;
@@ -533,6 +546,18 @@ export class ClientPrediction {
             for (let i = 0; i < 4; i++)
                 this._correctionInverse[i] = current.rotation[i]! * (i === 3 ? 1 : -1);
             multiply(previous.rotation, this._correctionInverse, this._correctionError);
+            translationError = Math.max(
+                translationError,
+                Math.hypot(
+                    previous.translation[0]! - current.translation[0]!,
+                    previous.translation[1]! - current.translation[1]!,
+                    previous.translation[2]! - current.translation[2]!,
+                ),
+            );
+            rotationError = Math.max(
+                rotationError,
+                2 * Math.acos(Math.min(1, Math.abs(this._correctionError[3]!))),
+            );
             this._correctionRotation[0] = correction.rotation.x.get(eid);
             this._correctionRotation[1] = correction.rotation.y.get(eid);
             this._correctionRotation[2] = correction.rotation.z.get(eid);
@@ -544,6 +569,8 @@ export class ClientPrediction {
             );
             correction.rotation.set(eid, rotation[0]!, rotation[1]!, rotation[2]!, rotation[3]!);
         }
+        diagnostics.record("network/correction_translation", translationError);
+        diagnostics.record("network/correction_rotation", rotationError);
         for (const old of this._history.keys()) if (old < tick) this._history.delete(old);
         this.outputs.discardBefore(tick);
         this._switches = this._switches.filter((change) => change.tick > tick);

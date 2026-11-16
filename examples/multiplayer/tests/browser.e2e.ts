@@ -100,6 +100,11 @@ test("in-tab latency and loss are live, a thin client moves visibly, and local i
     page,
 }) => {
     const errors = await open(page);
+    // Isolate clock pacing from loss/retransmission bursts before testing live faults below.
+    await page.getByLabel("Packet loss", { exact: true }).evaluate((input: HTMLInputElement) => {
+        input.value = "0";
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
     const start = await frames(page, 30);
     expect(await page.evaluate(() => window.game.avatarPixels())).toBeGreaterThan(5);
     const later = await frames(page, 30);

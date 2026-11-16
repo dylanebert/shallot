@@ -23,10 +23,51 @@ export interface PeerProxy {
     resetPeer(): void;
 }
 
+// Count WebSocket payloads at the independent TCP boundary, excluding HTTP and frame headers.
+function payloadCounter() {
+    const counts = { bytes: 0, messages: 0 };
+    let pending = Buffer.alloc(0);
+    let upgraded = false;
+    return {
+        counts,
+        push(bytes: Buffer) {
+            pending = Buffer.concat([pending, bytes]);
+            if (!upgraded) {
+                const end = pending.indexOf("\r\n\r\n");
+                if (end < 0) return;
+                pending = pending.subarray(end + 4);
+                upgraded = true;
+            }
+            while (pending.length >= 2) {
+                let length = pending[1]! & 127;
+                let header = 2;
+                if (length === 126) {
+                    if (pending.length < 4) return;
+                    length = pending.readUInt16BE(2);
+                    header = 4;
+                } else if (length === 127) {
+                    if (pending.length < 10) return;
+                    length = Number(pending.readBigUInt64BE(2));
+                    header = 10;
+                }
+                if (pending[1]! & 128) header += 4;
+                if (pending.length < header + length) return;
+                const opcode = pending[0]! & 15;
+                if (opcode < 8) {
+                    counts.bytes += length;
+                    if (opcode !== 0) counts.messages++;
+                }
+                pending = pending.subarray(header + length);
+            }
+        },
+    };
+}
+
 /** @internal Loopback-only TCP proxy owned by a test session. */
 export async function createProxy(port: number, seed: number) {
     const faults = (): StreamFaults => ({ latency: 0, jitter: 0, bandwidth: 0, stalled: false });
     const sockets = new Set<Socket>();
+    const counters = { upstream: payloadCounter(), downstream: payloadCounter() };
     const pumps = new Set<() => void>();
     let error: unknown;
     const resetPeer = () => {
@@ -115,6 +156,7 @@ export async function createProxy(port: number, seed: number) {
         };
         source.on("data", (bytes: Buffer) => {
             if (stopped) return;
+            counters[direction].push(bytes);
             const stream = controls[direction];
             if (stream.jitter) state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
             const delay = Math.max(
@@ -161,6 +203,7 @@ export async function createProxy(port: number, seed: number) {
     const close = listener.close.bind(listener);
     return {
         controls,
+        counts: { upstream: counters.upstream.counts, downstream: counters.downstream.counts },
         port: (listener.address() as { port: number }).port,
         check,
         stop() {

@@ -1,3 +1,5 @@
+import { stampReceipt, transportClock } from "./diagnostics";
+
 /** A byte transport. Admission transfers its lifetime to the server connection entity. */
 export interface Connection {
     /** True once this transport cannot deliver again. Omitted by transports without status polling. */
@@ -36,42 +38,41 @@ export function seededLink(seed: number, faults: LinkFaults) {
         seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
         return seed / 0x100000000;
     };
-    const ends = [0, 1].map(
-        (side): Connection => ({
-            get closed() {
-                return closed;
-            },
-            close() {
-                closed = true;
-                queues[0]!.length = 0;
-                queues[1]!.length = 0;
-            },
-            send(bytes) {
-                if (closed) return;
-                counts.sent++;
-                if (random() < faults.loss) {
-                    counts.dropped++;
-                    return;
-                }
-                const copies = random() < faults.duplication ? 2 : 1;
-                counts.duplicated += copies - 1;
-                for (let i = 0; i < copies; i++)
-                    queues[1 - side]!.push({
-                        due: now + faults.minDelay + random() * (faults.maxDelay - faults.minDelay),
-                        order: random(),
-                        bytes: bytes.slice(),
-                    });
-            },
-            receive() {
-                const queue = queues[side]!;
-                const ready = queue
-                    .filter((p) => p.due <= now)
-                    .sort((a, b) => a.due - b.due || a.order - b.order);
-                queues[side] = queue.filter((p) => p.due > now);
-                return ready.map((p) => p.bytes);
-            },
-        }),
-    );
+    const ends: Connection[] = [0, 1].map((side) => ({
+        [transportClock]: () => now,
+        get closed() {
+            return closed;
+        },
+        close() {
+            closed = true;
+            queues[0]!.length = 0;
+            queues[1]!.length = 0;
+        },
+        send(bytes: Uint8Array) {
+            if (closed) return;
+            counts.sent++;
+            if (random() < faults.loss) {
+                counts.dropped++;
+                return;
+            }
+            const copies = random() < faults.duplication ? 2 : 1;
+            counts.duplicated += copies - 1;
+            for (let i = 0; i < copies; i++)
+                queues[1 - side]!.push({
+                    due: now + faults.minDelay + random() * (faults.maxDelay - faults.minDelay),
+                    order: random(),
+                    bytes: bytes.slice(),
+                });
+        },
+        receive() {
+            const queue = queues[side]!;
+            const ready = queue
+                .filter((p) => p.due <= now)
+                .sort((a, b) => a.due - b.due || a.order - b.order);
+            queues[side] = queue.filter((p) => p.due > now);
+            return ready.map((p) => stampReceipt(p.bytes, p.due));
+        },
+    }));
     return {
         a: ends[0]!,
         b: ends[1]!,

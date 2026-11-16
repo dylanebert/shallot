@@ -23,6 +23,7 @@ export {
 } from "./prediction";
 export { WebSocketConnection } from "./websocket";
 
+import { networkDiagnostics } from "./diagnostics";
 import { type AcceptedIntent, decodeIntent, encodeIntent, IntentMessageKind } from "./intent";
 import type { Connection } from "./link";
 
@@ -36,6 +37,23 @@ export {
 
 /** Selects a disclosure rule. Only entities holding this component can be sent. */
 export const Replicate = component("Replicate", { rule: u32 });
+/** Registers replication disclosure. Sessions record end-local diagnostics in DiagnosticsStore.
+ * Client paths use network/; server paths use network/connections/<server-eid>/ and disappear
+ * on leave. bytes_sent/bytes_received (B) and messages_sent/messages_received (counts) are
+ * cumulative payload counters, including ping/pong, retries and received duplicates, excluding
+ * transport framing. Derive rates from their timed histories, not from smoothed counter values.
+ * round_trip (ms) is ping send-to-pong receipt minus the remote receipt-to-reply hold time;
+ * transport receipt timestamps exclude local drain scheduling. Pings run every 100 ms when
+ * polled, including idle and thin clients. No RTT sample exists until a matching pong arrives.
+ * time_since_receive (ms) ages from transport receipt, or session observation start before any
+ * receipt. confirmed_tick_lag (ticks) is latest sent minus acknowledged on the server, newest
+ * received minus contiguous confirmed on the client; it cannot observe an unseen server tick.
+ * network/peer_count counts admitted server connections. Prediction adds client-only
+ * network/replayed_ticks (cumulative ticks actually replayed), network/correction_translation
+ * (world units) and network/correction_rotation (rad): the largest incremental visual correction
+ * across predicted entities in each reconciliation, translation length and shortest rotation angle.
+ * Histories and smoothing use Diagnostic defaults. No overlay or ProfilePlugin is required.
+ */
 export const MultiplayerPlugin: Plugin = { name: "Multiplayer", components: [Replicate] };
 
 /** Rules are indexed by Replicate.rule; an absent recipient receives nothing. */
@@ -445,6 +463,10 @@ export class ReplicationSender {
             frame.sent = now;
             this.connection.send(frame.bytes);
         }
+        networkDiagnostics(this.world, this.connection)?.record(
+            "confirmed_tick_lag",
+            Math.max(0, this._last - this.acknowledged),
+        );
         return unhandled;
     }
     /** RFC 6298 section 2 with alpha 1/8, beta 1/4, K = 4 and a clock granularity of one tick. */
@@ -475,6 +497,7 @@ export class ReplicationReceiver {
     readonly entities = new Map<number, number>();
     private _versions = new Map<number, ReplicatedRows>();
     private _pending = new Map<number, Uint8Array>();
+    private _newest = -1;
     readonly world: World;
     readonly schema: ReplicationSchema;
     readonly connection: Connection;
@@ -529,6 +552,7 @@ export class ReplicationReceiver {
             }
             if (bytes.length < 20) throw new Error("Truncated replication packet");
             const tick = view.getUint32(8, true);
+            this._newest = Math.max(this._newest, tick);
             if (tick <= this.confirmed) continue;
             this._pending.set(tick, bytes);
         }
@@ -594,6 +618,10 @@ export class ReplicationReceiver {
             view.setUint32(8, held >>> 0, true);
             this.connection.send(ack);
         }
+        networkDiagnostics(this.world, this.connection)?.record(
+            "confirmed_tick_lag",
+            Math.max(0, this._newest - this.confirmed),
+        );
         return unhandled;
     }
     private _write(rows: ReplicatedRows) {

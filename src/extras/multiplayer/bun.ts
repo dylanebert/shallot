@@ -1,6 +1,7 @@
 import type { ServerWebSocket } from "bun";
 import { createApp, Time } from "../../engine";
 import { MultiplayerPlugin } from ".";
+import { stampReceipt } from "./diagnostics";
 import { type Game, ServerSession, server as serverRole } from "./game";
 import type { Connection } from "./link";
 
@@ -41,7 +42,7 @@ export class ServerWebSocketConnection implements Connection {
 
     /** @internal */
     push(bytes: Uint8Array): void {
-        if (!this.closed) this._messages.push(bytes.slice());
+        if (!this.closed) this._messages.push(stampReceipt(bytes.slice(), performance.now()));
     }
 }
 

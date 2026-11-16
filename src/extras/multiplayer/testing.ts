@@ -1,5 +1,6 @@
 import { type App, createApp, type Plugin, Time, type World } from "../../engine";
 import { MultiplayerPlugin, ReplicationReceiver } from ".";
+import { observeNetwork } from "./diagnostics";
 import { clientStartup, type Game, ServerSession, server as serverRole } from "./game";
 import { IntentSender } from "./intent";
 import { type Connection, type LinkFaults, seededLink } from "./link";
@@ -167,6 +168,7 @@ export async function createSession(
                 dispose: () => app.dispose(),
             };
             if (thin) {
+                observeNetwork(app.world, connection);
                 peer.input = new IntentSender(connection);
                 peer.receiver = new ReplicationReceiver(app.world, game.schema, connection);
             }
