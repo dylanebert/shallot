@@ -48,6 +48,35 @@ for (const gap of [1, 3])
         app.dispose();
     });
 
+test("bounded confirmation history wraps without losing its delayed bracket or reusing a dead entity's path", async () => {
+    const app = await createApp({ defaults: false, plugins: [InterpolationPlugin] });
+    const world = app.world;
+    const interpolation = new ClientInterpolation(world);
+    const eid = world.create();
+    world.add(eid, GlobalTransform);
+    world.add(eid, InterpolationTarget);
+    const out = new Float32Array(12);
+    for (let tick = 0; tick < 512; tick++) {
+        world.storage(GlobalTransform).translation.set(eid, tick * 2, 0, 0);
+        interpolation.confirm(tick, [eid]);
+        await world.step(Time.FIXED_DT * 0.25);
+        readRenderGlobalTransform(world, eid, out);
+        const target = Math.max(0, tick + 0.25 - interpolation.delay / Time.FIXED_DT);
+        expect(out[0]).toBeCloseTo(target * 2, 3);
+        await world.step(Time.FIXED_DT * 0.75);
+    }
+    world.destroy(eid);
+    const replacement = world.create();
+    expect(replacement).toBe(eid);
+    world.add(replacement, GlobalTransform, { translation: [2000, 0, 0] });
+    world.add(replacement, InterpolationTarget);
+    interpolation.confirm(512, [replacement]);
+    await world.step(Time.FIXED_DT * 0.25);
+    readRenderGlobalTransform(world, replacement, out);
+    expect(out[0]).toBe(2000);
+    app.dispose();
+});
+
 test("a predicted or owned selection stops interpolation before the next confirmation", async () => {
     const app = await createApp({ defaults: false, plugins: [InterpolationPlugin] });
     const world = app.world;

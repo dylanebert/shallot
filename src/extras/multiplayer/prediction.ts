@@ -124,6 +124,10 @@ export class ClientPrediction {
     onMessages: (messages: Uint8Array[]) => void = () => {};
     private _history = new Map<number, WorldSnapshot>();
     private _entities = new Map<number, number>();
+    private _interpolated: number[] = [];
+    private _correctionInverse = [0, 0, 0, 1];
+    private _correctionError = [0, 0, 0, 1];
+    private _correctionRotation = [0, 0, 0, 1];
     private _ordered: IntentRecord[] = [];
     private _active: IntentRecord[] = [];
     private _switches: { tick: number; entity: EntityRef; enabled: boolean }[] = [];
@@ -367,13 +371,14 @@ export class ClientPrediction {
             if (previous?.motion.awake !== motion.awake)
                 setAwake(this.world, eid, motion.awake !== 0);
         }
-        const interpolated: number[] = [];
+        let count = 0;
         for (const eid of this.receiver.entities.values()) {
             if (eid === avatar || this.predicted(eid)) continue;
             if (!this.world.has(eid, InterpolationTarget)) this.world.add(eid, InterpolationTarget);
-            interpolated.push(eid);
+            this._interpolated[count++] = eid;
         }
-        this.interpolation.confirm(tick, interpolated);
+        this._interpolated.length = count;
+        this.interpolation.confirm(tick, this._interpolated);
         this.observe(this.world, this.outputs, true);
         this._save();
         this._replaying = true;
@@ -405,13 +410,18 @@ export class ClientPrediction {
                     previous.translation[2]! -
                     current.translation[2]!,
             );
-            const error = multiply(previous.rotation, [
-                -current.rotation[0]!,
-                -current.rotation[1]!,
-                -current.rotation[2]!,
-                current.rotation[3]!,
-            ]);
-            const rotation = multiply(this.world.get(eid, VisualCorrection)!.rotation, error);
+            for (let i = 0; i < 4; i++)
+                this._correctionInverse[i] = current.rotation[i]! * (i === 3 ? 1 : -1);
+            multiply(previous.rotation, this._correctionInverse, this._correctionError);
+            this._correctionRotation[0] = correction.rotation.x.get(eid);
+            this._correctionRotation[1] = correction.rotation.y.get(eid);
+            this._correctionRotation[2] = correction.rotation.z.get(eid);
+            this._correctionRotation[3] = correction.rotation.w.get(eid);
+            const rotation = multiply(
+                this._correctionRotation,
+                this._correctionError,
+                this._correctionRotation,
+            );
             correction.rotation.set(eid, rotation[0]!, rotation[1]!, rotation[2]!, rotation[3]!);
         }
         for (const old of this._history.keys()) if (old < tick) this._history.delete(old);
