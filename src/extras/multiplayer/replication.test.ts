@@ -36,7 +36,15 @@ function exercise(
     server.add(owner, Replicate);
     server.add(owner, Target, { target: body });
     server.add(owner, Secret, { value: 123 });
-    const link = seededLink(0x51a1107, { minDelay: 1, maxDelay: 8, loss: 0.18, duplication: 0.35 });
+    const search = process.env.SHALLOT_MULTIPLAYER_SEARCH;
+    const configuration = search ? JSON.parse(search) : undefined;
+    const faults = configuration?.replication ?? {
+        minDelay: 1,
+        maxDelay: 8,
+        loss: 0.18,
+        duplication: 0.35,
+    };
+    const link = seededLink(configuration?.seed ?? 0x51a1107, faults);
     const rules = [
         new Map([
             [1, [Position, Target]],
@@ -85,6 +93,8 @@ function exercise(
                 receiver.flush();
             }
         }
+        // Search checks convergence after recovery, not eventual delivery under endless loss.
+        if (search) Object.assign(faults, { loss: 0, duplication: 0 });
         for (let time = 80; time < 350; time++) {
             link.advance(time);
             sender.flush(time);

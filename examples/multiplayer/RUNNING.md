@@ -39,6 +39,12 @@ The `server(GAME)` plugin composes authority into a `createApp` World. The `clie
 
 `src/runtime.ts` chooses the role, simulated faults and the thin client's walking input. `server.ts` chooses the listen address and calls `serveGame` from `multiplayer/bun`; the extra owns admission, the bounded 60 Hz tick, dead-socket cleanup and SIGTERM shutdown. The game still owns its server entry point and hosting.
 
+## Seed search (engine checkout)
+
+From a clean, committed engine checkout, `bun test ./scripts/multiplayer-search.oracle.ts` manually searches 20 fresh seeds. Set `SHALLOT_SEARCH_BUDGET=100` to choose another seed budget. It gates nothing. Each child runs the extra's replication subjects with seed-derived delay, loss and duplication, and this example's predicted lift rider subject with its existing 100 ms / 2% loss profile and a fresh link schedule; the existing assertions decide the result. The output names the invariants, configuration, commit and seeds run. Replication search disables loss and duplication after tick 79 before the existing drain through tick 349; convergence is checked after recovery, not under endless loss. These are simulated links, not real socket impairment, and seed count is not a coverage claim.
+
+The first red stops the search and prints a replay command: check out its commit, then run `SHALLOT_SEARCH_COMMIT=<commit> SHALLOT_SEARCH_SEED=<seed> bun test ./scripts/multiplayer-search.oracle.ts`. Replay runs one seed. Seed plus commit identifies the schedule; the oracle refuses a dirty worktree or a mismatched replay commit. Keep the same Bun/runtime host when debugging physics-dependent example failures.
+
 ## Checks
 
 From this directory:
