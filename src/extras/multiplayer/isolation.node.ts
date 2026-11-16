@@ -156,11 +156,12 @@ test("prediction preparation follows the step accumulator and explicit ticks lea
         world.tick();
         expect(prepared).toEqual([2]);
         expect(world.time.fixedAlpha).toBeCloseTo(0.5);
+        const scaledHalfTick = world.time.scale / 2;
         world.step(1 / 120);
         expect(prepared).toEqual([2, 3]);
         expect(world.time.fixedTick).toBe(3);
         expect(world.time.fixedSteps).toBe(1);
-        expect(world.time.fixedAlpha).toBeCloseTo(0);
+        expect(world.time.fixedAlpha).toBeCloseTo(0.5 + scaledHalfTick - 1);
     } finally {
         client.app.dispose();
     }

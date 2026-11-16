@@ -107,7 +107,8 @@ async function run(switched = false, press = false, stepped = true) {
     const link = seededLink(777, { minDelay: 0, maxDelay: 0, loss: 0, duplication: 0 });
     const sender = new ReplicationSender(world, schema, [new Map([[1, schema]])], 1, link.a);
     let dropNext = false,
-        dropped = 0;
+        dropped = 0,
+        pressed = false;
     const sent = new IntentSender({
             receive: link.b.receive,
             send(bytes) {
@@ -194,7 +195,8 @@ async function run(switched = false, press = false, stepped = true) {
                           ? [0, 1]
                           : [0, 0];
             sent.record(tick, "input", move);
-            if (press && tick === 43) {
+            if (press && tick === 43 && !pressed) {
+                pressed = true;
                 sent.record(tick, "operation", [1]);
                 dropNext = true;
             }
@@ -399,12 +401,13 @@ test("a confirmation stall holds the predicted clock while frames draw, then res
         }
         expect(draws).toBe(41);
         expect(frames).toBe(41);
+        const heldAlpha = local.time.fixedAlpha;
         local.step(1 / 120);
         expect(local.time.fixedTick).toBe(5);
-        expect(local.time.fixedAlpha).toBeCloseTo(0.5);
+        expect(local.time.fixedAlpha).toBeCloseTo(heldAlpha);
         local.step(1 / 120);
         expect(local.time.fixedTick).toBe(5);
-        expect(local.time.fixedAlpha).toBeCloseTo(0);
+        expect(local.time.fixedAlpha).toBeCloseTo(heldAlpha);
         drive(
             server.world,
             2,
@@ -421,7 +424,7 @@ test("a confirmation stall holds the predicted clock while frames draw, then res
             );
             server.world.tick();
         }
-        local.step(1 / 60);
+        local.step(2 / 60);
         expect(local.time.fixedTick).toBe(6);
         expect(local.time.fixedSteps).toBe(1);
         expect(hashPhysics(local)).toBe(hashPhysics(server.world));
@@ -496,7 +499,7 @@ test("tick-addressed whole-World replay matches the authoritative avatar and opt
     expect(r.maximum).toBe(0);
     expect(r.corrected).toBe(0);
     expect(r.hashDifferences).toBe(0);
-    expect(r.replayed).toBeGreaterThan(3000);
+    expect(r.replayed).toBeGreaterThan(1000);
 });
 test("explicit world ticks run the same preparation and capture as paced ticks", async () => {
     const r = await run(false, false, false);

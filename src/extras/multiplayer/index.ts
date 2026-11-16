@@ -399,9 +399,14 @@ export class ReplicationReceiver {
         this.confirm = confirm;
         this.reconcile = reconcile;
     }
-    /** Applies confirmations and returns other message kinds for application routing. */
-    flush(): Uint8Array[] {
+    /** Applies confirmations and returns other message kinds for application routing.
+     * "latest" decodes every ordered baseline but reconciles and notifies only the last
+     * available state, so a prediction client pays for one replay per drain. */
+    flush(confirmations: "all" | "latest" = "all"): Uint8Array[] {
+        const latestOnly = confirmations === "latest";
         const unhandled: Uint8Array[] = [];
+        let latest: ReturnType<typeof decode> | undefined;
+        let latestTick = -1;
         for (const bytes of this.connection.receive()) {
             const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
             const kind = bytes.length >= 4 ? view.getUint32(0, true) : 0;
@@ -423,13 +428,21 @@ export class ReplicationReceiver {
             if (this.confirmed < 0 && view.getUint32(0, true) !== ReplicationMessageKind.Image)
                 break;
             const packet = decode(bytes, this._versions, layout(this.schema));
-            this.reconcile(tick, packet.rows, packet.intents, () => this._write(packet.rows));
+            if (!latestOnly)
+                this.reconcile(tick, packet.rows, packet.intents, () => this._write(packet.rows));
+            latest = packet;
+            latestTick = tick;
             this._versions.set(tick, packet.rows);
             for (const old of this._versions.keys())
                 if (old < packet.base) this._versions.delete(old);
             this.confirmed = tick;
             this._pending.delete(tick);
-            this.confirm(tick, packet.rows);
+            if (!latestOnly) this.confirm(tick, packet.rows);
+        }
+        if (latestOnly && latest) {
+            const packet = latest;
+            this.reconcile(latestTick, packet.rows, packet.intents, () => this._write(packet.rows));
+            this.confirm(latestTick, packet.rows);
         }
         if (this.confirmed >= 0) {
             const ack = new Uint8Array(8);

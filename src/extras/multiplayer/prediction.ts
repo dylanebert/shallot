@@ -25,7 +25,7 @@ import {
     setTransform,
 } from "../../standard/physics";
 import { ReplicationReceiver, type ReplicationSchema } from ".";
-import type { AcceptedIntent, IntentRecord } from "./intent";
+import { type AcceptedIntent, decodeIntent, IntentMessageKind, type IntentRecord } from "./intent";
 import {
     ClientInterpolation,
     InterpolationPlugin,
@@ -112,8 +112,13 @@ export class FixedOutputs {
 /** Whole-World rollback over ordered confirmations. Install PredictionPlugin to prepare and capture
  * explicit ticks and paced steps, and process confirmations at preFixed. One controller per World.
  * maxAhead defaults to 32 ticks beyond the latest confirmation (or construction tick until one
- * arrives). Paced prediction holds at that bound while frames continue, then resumes on confirmation.
- * Explicit tick beyond the bound throws before gameplay; World's failed-tick clock semantics apply.
+ * arrives). Paced steps drain to the latest available confirmation and replay once. This controller
+ * owns World's time scale (0.8–1.5), adjusting the next step toward a lead initially up to two ticks.
+ * Newly accepted late inputs raise that target; it never decreases during this connection. The
+ * target reserves min(8, maxAhead / 2) ticks below the bound for confirmation jitter. Delays beyond
+ * the available prediction window cannot be hidden: prediction holds, including its interpolation
+ * fraction, while frames continue, then resumes on confirmation. Explicit tick beyond the bound
+ * throws before gameplay; World's failed-tick clock semantics apply.
  * Intent values and permissions belong to the game. */
 export class ClientPrediction {
     readonly receiver: ReplicationReceiver;
@@ -139,6 +144,15 @@ export class ClientPrediction {
     private _types = new Map<number, number>();
     private _replaying = false;
     private _confirmedTick: number;
+    private _hasConfirmed = false;
+    private _feedbackId = 0;
+    private _lead: number;
+    private readonly _leadLimit: number;
+    /** Target ticks beyond the newest confirmation, below maxAhead's jitter reserve. Late-input
+     * feedback raises this safety margin; it remains conservative after a stall. */
+    get lead(): number {
+        return this._lead;
+    }
     readonly maxAhead: number;
     readonly world: World;
     /** Selects the local avatar's client eid after confirmed rows are applied. Ownership is the game's data. */
@@ -159,6 +173,8 @@ export class ClientPrediction {
         if (!Number.isSafeInteger(maxAhead) || maxAhead < 0)
             throw new Error("Invalid prediction bound");
         this.maxAhead = maxAhead;
+        this._leadLimit = maxAhead - Math.min(8, maxAhead / 2);
+        this._lead = Math.min(2, this._leadLimit);
         this._confirmedTick = world.time.fixedTick;
         if (
             schema.includes(Body) &&
@@ -189,23 +205,47 @@ export class ClientPrediction {
         work.prepare = () => this._prepare();
         work.finish = () => this._finish();
         work.confirm = () => {
-            this.onMessages(this.receiver.flush());
+            const messages = this.receiver.flush("latest");
+            for (const bytes of messages)
+                if (
+                    bytes.length >= 8 &&
+                    new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(
+                        0,
+                        true,
+                    ) === IntentMessageKind.Accepted
+                )
+                    this.accept(decodeIntent(bytes));
+            this.onMessages(messages);
+            const lead = world.time.fixedTick + world.time.fixedAlpha - this._confirmedTick;
+            const scale = Math.max(0.8, Math.min(1.5, 1 + (this._lead - lead) * 0.1));
+            world.setTimeScale(world.time.scale + (scale - world.time.scale) * 0.05);
             const remaining = Math.max(
                 0,
                 this._confirmedTick + this.maxAhead - world.time.fixedTick,
             );
             const accumulated = world.time.fixedAlpha * Time.FIXED_DT + world.time.deltaTime;
-            const excess = Math.floor(accumulated / Time.FIXED_DT) - remaining;
-            if (excess > 0) world.discardOverstep(excess * Time.FIXED_DT);
+            if (remaining === 0) world.discardOverstep(world.time.deltaTime);
+            else {
+                const excess = Math.floor(accumulated / Time.FIXED_DT) - remaining;
+                if (excess > 0) world.discardOverstep(excess * Time.FIXED_DT);
+            }
         };
         this._save();
     }
     accept(records: Iterable<IntentRecord | AcceptedIntent>): void {
+        let lateness = 0;
+        let newest = this._feedbackId;
         for (const record of records) {
+            if ("lateness" in record && record.id > this._feedbackId) {
+                lateness = Math.max(lateness, record.lateness);
+                newest = Math.max(newest, record.id);
+            }
             const previous = this.records.get(record.id);
             if (previous && "lateness" in previous && !("lateness" in record)) continue;
             this.records.set(record.id, record);
         }
+        this._feedbackId = newest;
+        if (lateness > 0) this._lead = Math.min(this._leadLimit, this._lead + lateness + 1);
         this._ordered.length = 0;
         for (const record of this.records.values()) this._ordered.push(record);
         this._ordered.sort((a, b) => a.tick - b.tick || a.id - b.id);
@@ -305,8 +345,7 @@ export class ClientPrediction {
         const head = Math.max(tick, this.world.time.fixedTick);
         const history = this._history.get(tick);
         if (history) {
-            const entities =
-                this.receiver.confirmed < 0 ? new Map(this.receiver.entities) : this._entities;
+            const entities = !this._hasConfirmed ? new Map(this.receiver.entities) : this._entities;
             this.world.restore(history);
             this.receiver.entities.clear();
             for (const [id, eid] of entities) this.receiver.entities.set(id, eid);
@@ -325,6 +364,7 @@ export class ClientPrediction {
         );
         apply();
         this._entities = new Map(this.receiver.entities);
+        this._hasConfirmed = true;
         const avatar = this.avatar(this.world, this.receiver.entities);
         if (avatar !== undefined && !this.world.has(avatar, PredictionTarget))
             this.world.add(avatar, PredictionTarget, { enabled: 1 });
