@@ -222,15 +222,11 @@ class Palette {
                 leader && this._world.has(leader, MorphedMesh) ? weightColumn[leader] + 1 : 0;
             this._offsets[eid * 4 + 2] =
                 leader && this._world.has(leader, MorphedMesh) ? weightCounts[leader] : 0;
-            if (leader)
-                bounds.set(
-                    eid,
-                    bounds.x.get(leader),
-                    bounds.y.get(leader),
-                    bounds.z.get(leader),
-                    bounds.w.get(leader),
-                );
-            else bounds.set(eid, 0, 0, 0, -1);
+            if (leader) {
+                const cull = bounds.column;
+                for (let k = 0; k < 4; k++) cull[eid * 4 + k] = cull[leader * 4 + k];
+                bounds.markChanged(eid);
+            } else bounds.set(eid, 0, 0, 0, -1);
         }
         const baked = this._world.storage(BakedFrame);
         for (const eid of this._world.query(bakedEntities)) {
@@ -251,13 +247,9 @@ class Palette {
                 : 0;
             this._offsets[eid * 4 + 2] = wc;
             const b = (frame * (rows.joints.length - 1) + p) * 4;
-            bounds.set(
-                eid,
-                rows.bounds[b],
-                rows.bounds[b + 1],
-                rows.bounds[b + 2],
-                rows.bounds[b + 3],
-            );
+            const cull = bounds.column;
+            for (let k = 0; k < 4; k++) cull[eid * 4 + k] = rows.bounds[b + k];
+            bounds.markChanged(eid);
         }
         this.morph.upload();
         this.bindings.morphWeights = this.morph.bindings.morphWeights;
