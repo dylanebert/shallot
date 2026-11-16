@@ -38,8 +38,9 @@ export {
 /** Selects a disclosure rule. Only entities holding this component can be sent. */
 export const Replicate = component("Replicate", { rule: u32 });
 /** Registers replication disclosure. Sessions record end-local diagnostics in DiagnosticsStore.
- * Client paths use network/; server paths use network/connections/<server-eid>/ and disappear
- * on leave. bytes_sent/bytes_received (B) and messages_sent/messages_received (counts) are
+ * Client paths use network/ and are removed when the transport closes; a replacement upstream
+ * starts fresh histories and counters. Server paths use network/connections/<server-eid>/ and
+ * disappear on leave. bytes_sent/bytes_received (B) and messages_sent/messages_received (counts) are
  * cumulative payload counters, including ping/pong, retries and received duplicates, excluding
  * transport framing. Derive rates from their timed histories, not from smoothed counter values.
  * round_trip (ms) is ping send-to-pong receipt minus the remote receipt-to-reply hold time;

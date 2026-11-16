@@ -41,7 +41,9 @@ export function networkDiagnostics(
     connection: Connection,
 ): NetworkDiagnostics | undefined {
     const observers = world.resource(Observers);
-    return observers.connections.get(connection) ?? observers.client;
+    const observer = observers.connections.get(connection) ?? observers.client;
+    if (observer) observers.connections.set(connection, observer);
+    return observer;
 }
 
 /** @internal One recorder per connection lifetime. Does not own the transport. */
@@ -52,10 +54,12 @@ export function observeNetwork(
 ): NetworkDiagnostics {
     const observers = world.resource(Observers);
     let observer = observers.connections.get(connection);
-    // A client World has one upstream; game routing wrappers share its transport recorder.
-    if (!observer && prefix === "network/") observer = observers.client;
+    if (observer?.connection !== connection) observer = undefined;
     if (!observer) {
-        observer = new NetworkDiagnostics(world, connection, prefix);
+        if (prefix === "network/") observers.client?.remove();
+        observer = new NetworkDiagnostics(world, connection, prefix, () => {
+            if (observers.client === observer) observers.client = undefined;
+        });
         observers.connections.set(connection, observer);
         if (prefix === "network/") observers.client = observer;
     }
@@ -73,6 +77,9 @@ class NetworkDiagnostics {
     private readonly _clock: () => number;
     private readonly _send: Connection["send"];
     private readonly _receive: Connection["receive"];
+    private readonly _close: Connection["close"];
+    private readonly _retire: () => void;
+    private _active = true;
     private readonly _ids = new Float64Array(Capacity).fill(-1);
     private readonly _sent = new Float64Array(Capacity);
     private readonly _ping = new Uint8Array(8);
@@ -92,13 +99,15 @@ class NetworkDiagnostics {
     private _pending: Uint8Array[] | undefined;
     private readonly _empty: Uint8Array[] = [];
     readonly connection: Connection;
-    constructor(world: World, connection: Connection, prefix: string) {
+    constructor(world: World, connection: Connection, prefix: string, retire: () => void) {
+        this._retire = retire;
         this.connection = connection;
         this._store = world.resource(DiagnosticsStore);
         this._clock = (connection as TimedConnection)[transportClock] ?? (() => performance.now());
         this._lastReceive = this._clock();
         this._send = connection.send.bind(connection);
         this._receive = connection.receive.bind(connection);
+        this._close = connection.close.bind(connection);
         this._pingView.setUint32(0, Ping, true);
         this._pongView.setUint32(0, Pong, true);
         for (const [name, suffix] of [
@@ -128,13 +137,25 @@ class NetworkDiagnostics {
             this._pending = undefined;
             return messages;
         };
+        connection.close = () => {
+            try {
+                this._close();
+            } finally {
+                this.remove();
+            }
+        };
         for (const name of ["bytes_sent", "bytes_received", "messages_sent", "messages_received"])
             this.record(name, 0);
     }
     record(name: string, value: number): void {
+        if (!this._active) return;
         this._rows.get(name)!.addMeasurement(this._clock() / 1000, value);
     }
     poll(): Uint8Array[] {
+        if (!this._active || this.connection.closed) {
+            this.remove();
+            return this._empty;
+        }
         const messages = this._receive();
         const now = this._clock();
         let count = 0;
@@ -155,8 +176,15 @@ class NetworkDiagnostics {
                 const slot = id % Capacity;
                 this._incoming.set(bytes);
                 const held = this._incomingView.getFloat64(8, true);
-                if (this._ids[slot] === id && Number.isFinite(held) && held >= 0) {
-                    this.record("round_trip", Math.max(0, arrived - this._sent[slot]! - held));
+                const elapsed = arrived - this._sent[slot]!;
+                if (
+                    this._ids[slot] === id &&
+                    Number.isFinite(held) &&
+                    held >= 0 &&
+                    held <= elapsed &&
+                    Number.isFinite(elapsed)
+                ) {
+                    this.record("round_trip", elapsed - held);
                     this._ids[slot] = -1;
                 }
             } else messages[count++] = bytes;
@@ -183,7 +211,18 @@ class NetworkDiagnostics {
         return count ? messages : this._empty;
     }
     remove(): void {
-        for (const row of this._rows.values()) this._store.remove(row.path);
+        if (!this._active) return;
+        this._active = false;
+        for (const row of this._rows.values()) {
+            if (this._store.get(row.path) === row) this._store.remove(row.path);
+        }
+        this._rows.clear();
+        this._ids.fill(-1);
+        this._sent.fill(0);
         this._pending = undefined;
+        this.connection.send = this._send;
+        this.connection.receive = this._receive;
+        this.connection.close = this._close;
+        this._retire();
     }
 }

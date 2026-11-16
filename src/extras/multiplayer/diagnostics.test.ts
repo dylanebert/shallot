@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { createApp, DiagnosticsStore } from "../../engine";
 import { ReplicationReceiver, ReplicationSender, seededLink } from ".";
 import { observeNetwork, stampReceipt, transportClock } from "./diagnostics";
+import { clientStartup, type Game } from "./game";
 
 const value = (world: import("../../engine").World, path: string) =>
     world.resource(DiagnosticsStore).get(path)?.value();
@@ -118,6 +119,147 @@ test("ping IDs retain older pongs, subtract remote hold, reject duplicate and ex
         incoming.push(pong(2, 0, now));
         observer.poll();
         expect(row.historyLength).toBe(length);
+    } finally {
+        app.dispose();
+    }
+});
+
+test("a replacement client transport starts fresh counters and owns its clock", async () => {
+    const app = await createApp({ defaults: false, plugins: [] });
+    const faults = { minDelay: 0, maxDelay: 0, loss: 0, duplication: 0 };
+    const old = seededLink(1, faults),
+        fresh = seededLink(2, faults);
+    try {
+        const previous = observeNetwork(app.world, old.a);
+        previous.poll();
+        old.a.close();
+        fresh.advance(500);
+        const current = observeNetwork(app.world, fresh.a);
+        expect(current.connection).toBe(fresh.a);
+        expect(current).not.toBe(previous);
+        fresh.a.send(new Uint8Array(123));
+        expect(value(app.world, "network/bytes_sent")).toBe(123);
+        expect(value(app.world, "network/messages_sent")).toBe(1);
+        expect(value(app.world, "network/bytes_received")).toBe(0);
+        expect(app.world.resource(DiagnosticsStore).get("network/round_trip")!.historyLength).toBe(
+            0,
+        );
+        expect(
+            app.world.resource(DiagnosticsStore).get("network/bytes_sent")!.measurement()!.time,
+        ).toBe(0.5);
+        previous.poll();
+        previous.record("confirmed_tick_lag", 999);
+        previous.remove();
+        expect(value(app.world, "network/bytes_sent")).toBe(123);
+        expect(value(app.world, "network/confirmed_tick_lag")).toBeUndefined();
+    } finally {
+        old.a.close();
+        fresh.a.close();
+        app.dispose();
+    }
+});
+
+for (const remote of [false, true]) {
+    test(`client rows are released on ${remote ? "observed remote" : "local"} close`, async () => {
+        const app = await createApp({ defaults: false, plugins: [] });
+        const link = seededLink(1, { minDelay: 0, maxDelay: 0, loss: 0, duplication: 0 });
+        try {
+            const observer = observeNetwork(app.world, link.a);
+            observer.poll();
+            (remote ? link.b : link.a).close();
+            if (remote) observer.poll();
+            expect(
+                [...app.world.resource(DiagnosticsStore).iter()].filter((d) =>
+                    d.path.path.startsWith("network/"),
+                ),
+            ).toEqual([]);
+        } finally {
+            link.a.close();
+            app.dispose();
+        }
+    });
+}
+
+test("clientStartup follows its replacement connection provider", async () => {
+    const faults = { minDelay: 0, maxDelay: 0, loss: 0, duplication: 0 };
+    const old = seededLink(1, faults),
+        fresh = seededLink(2, faults);
+    let connection = old.a;
+    const game: Game = {
+        plugins: [],
+        schema: [],
+        maxClients: 1,
+        rules: () => [],
+        validateIntent: () => true,
+        applyIntent() {},
+    };
+    const app = await createApp({
+        defaults: false,
+        plugins: [{ name: "Reconnect", systems: [clientStartup(game, () => connection)] }],
+    });
+    try {
+        app.world.step(0);
+        old.a.close();
+        connection = fresh.a;
+        fresh.advance(500);
+        app.world.step(0);
+        fresh.a.send(new Uint8Array(123));
+        expect(value(app.world, "network/bytes_sent")).toBe(131);
+        expect(value(app.world, "network/messages_sent")).toBe(2);
+        expect(
+            app.world.resource(DiagnosticsStore).get("network/bytes_sent")!.measurement()!.time,
+        ).toBe(0.5);
+    } finally {
+        old.a.close();
+        fresh.a.close();
+        app.dispose();
+    }
+});
+
+test("impossible and malformed pongs preserve the outstanding ID without recording a sample", async () => {
+    const app = await createApp({ defaults: false, plugins: [] });
+    let now = 0;
+    let incoming: Uint8Array[] = [];
+    const connection = {
+        [transportClock]: () => now,
+        close() {},
+        send() {},
+        receive() {
+            const messages = incoming;
+            incoming = [];
+            return messages;
+        },
+    };
+    const pong = (id: number, hold: number) => {
+        const bytes = new Uint8Array(16),
+            view = new DataView(bytes.buffer);
+        view.setUint32(0, 7, true);
+        view.setUint32(4, id, true);
+        view.setFloat64(8, hold, true);
+        return stampReceipt(bytes, now);
+    };
+    try {
+        const observer = observeNetwork(app.world, connection);
+        observer.poll();
+        const row = app.world.resource(DiagnosticsStore).get("network/round_trip")!;
+        now = 50;
+        for (const hold of [1e300, 51, -1, NaN, Infinity]) {
+            incoming.push(pong(0, hold));
+            observer.poll();
+            expect(row.historyLength).toBe(0);
+        }
+        incoming.push(pong(999, 0), pong(0, 0).subarray(0, 12));
+        observer.poll();
+        expect(row.historyLength).toBe(0);
+        now = 80;
+        incoming.push(pong(0, 20));
+        observer.poll();
+        expect(row.historyLength).toBe(1);
+        expect(row.value()).toBe(60);
+        incoming.push(pong(0, 0));
+        observer.poll();
+        expect(row.historyLength).toBe(1);
+        expect(row.value()).toBe(60);
     } finally {
         app.dispose();
     }
