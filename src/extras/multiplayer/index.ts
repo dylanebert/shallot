@@ -52,7 +52,9 @@ interface Packet extends Version {
     intents: readonly AcceptedIntent[];
 }
 
-/** Little-endian u32 replication kinds. flush returns other kinds unchanged for routing. */
+/** Little-endian u32 replication kinds. flush returns other kinds unchanged for routing.
+ * An Acknowledgement carries the confirmed tick, then a u32 whose bit i reports that the
+ * receiver holds tick confirmed + 1 + i. */
 export const ReplicationMessageKind = { Image: 1, Frame: 2, Acknowledgement: 3 } as const;
 
 function layout(schema: ReplicationSchema) {
@@ -285,13 +287,42 @@ function decode(
     return { tick, base, rows, intents, image: kind === ReplicationMessageKind.Image };
 }
 
-/** One recipient's acknowledged history. record starts at any nonnegative tick and refuses gaps thereafter; flush retries pending ticks. */
+/** Retransmission timeout bounds in ticks of `Time.FIXED_DT` (1/60 s). The initial timeout is
+ * RFC 6298's 1 s, used until a first sample. The floor is KCP's 100 ms minimum: RFC 6298's 1 s
+ * floor allows for delayed acknowledgements, which ReplicationReceiver never sends, and 100 ms
+ * keeps a short, steady round trip from retrying after one late client step. The ceiling is
+ * RFC 6298's 60 s. */
+const RTO = { initial: 60, floor: 6, ceiling: 3600 } as const;
+/** Ticks after the confirmed tick an acknowledgement reports as held, one bit each. */
+const AckWindow = 32;
+
+interface PendingFrame {
+    version: Version;
+    bytes: Uint8Array;
+    /** Tick of the latest send; -1 until first sent. */
+    sent: number;
+    /** Ticks after sent before the next retry; doubles per retry. */
+    timeout: number;
+    retried: boolean;
+    /** Reported held by the receiver; never retried again. */
+    held: boolean;
+}
+
+/** One recipient's acknowledged history. record starts at any nonnegative tick and refuses gaps
+ * thereafter; recorded ticks are the retransmission clock. flush sends each new frame once and
+ * retries a frame the receiver has not reported holding after the retransmission timeout,
+ * doubling it per retry. The timeout follows RFC 6298 from round trips of newly reported frames
+ * that were never retried (Karn's rule), within the RTO bounds, so a reliable link resends almost
+ * nothing and a lossy one still recovers. */
 export class ReplicationSender {
     private _identities = new Map<EntityRef, number>();
     private _next = { value: 1 };
     private _acknowledged: Version | undefined;
-    private _pending = new Map<number, { version: Version; bytes: Uint8Array }>();
+    private _pending = new Map<number, PendingFrame>();
     private _last = -1;
+    private _smoothed = -1;
+    private _variance = 0;
+    private _rto: number = RTO.initial;
     readonly world: World;
     readonly schema: ReplicationSchema;
     readonly rules: ReplicationRules;
@@ -339,29 +370,72 @@ export class ReplicationSender {
             base: image ? tick : base!.tick,
         };
         const bytes = encode(packet, image ? new Map() : base!.rows, layout(this.schema));
-        this._pending.set(tick, { version: { tick, rows }, bytes });
+        this._pending.set(tick, {
+            version: { tick, rows },
+            bytes,
+            sent: -1,
+            timeout: 0,
+            retried: false,
+            held: false,
+        });
         this._last = tick;
     }
-    /** Retries pending frames and returns non-acknowledgement messages for application routing. */
-    flush(): Uint8Array[] {
+    /** Sends new frames, retries timed-out ones and returns non-acknowledgement messages for
+     * application routing. now is the retransmission clock in ticks, by default the latest
+     * recorded tick; a caller that keeps flushing after it stops recording passes its tick. */
+    flush(now = this._last): Uint8Array[] {
         const unhandled: Uint8Array[] = [];
         for (const bytes of this.connection.receive()) {
             const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
             if (
-                bytes.length !== 8 ||
+                bytes.length !== 12 ||
                 view.getUint32(0, true) !== ReplicationMessageKind.Acknowledgement
             ) {
                 unhandled.push(bytes);
                 continue;
             }
             const tick = view.getUint32(4, true);
-            const version = this._pending.get(tick)?.version;
-            if (!version) continue;
-            this._acknowledged = version;
+            const held = view.getUint32(8, true);
+            let sample: PendingFrame | undefined;
+            for (const [frameTick, frame] of this._pending) {
+                const offset = frameTick - tick - 1;
+                if (
+                    frame.held ||
+                    (offset >= 0 && (offset >= AckWindow || !((held >>> offset) & 1)))
+                )
+                    continue;
+                frame.held = true;
+                if (!frame.retried) sample ??= frame;
+            }
+            if (sample) this._sample(now - sample.sent);
+            const frame = this._pending.get(tick);
+            if (!frame) continue;
+            this._acknowledged = frame.version;
             for (const old of this._pending.keys()) if (old <= tick) this._pending.delete(old);
         }
-        for (const { bytes } of this._pending.values()) this.connection.send(bytes);
+        for (const frame of this._pending.values()) {
+            if (frame.held) continue;
+            if (frame.sent < 0) frame.timeout = this._rto;
+            else if (now - frame.sent >= frame.timeout) {
+                frame.timeout = Math.min(frame.timeout * 2, RTO.ceiling);
+                frame.retried = true;
+            } else continue;
+            frame.sent = now;
+            this.connection.send(frame.bytes);
+        }
         return unhandled;
+    }
+    /** RFC 6298 section 2 with alpha 1/8, beta 1/4, K = 4 and a clock granularity of one tick. */
+    private _sample(rtt: number) {
+        if (this._smoothed < 0) {
+            this._smoothed = rtt;
+            this._variance = rtt / 2;
+        } else {
+            this._variance = 0.75 * this._variance + 0.25 * Math.abs(this._smoothed - rtt);
+            this._smoothed = 0.875 * this._smoothed + 0.125 * rtt;
+        }
+        const rto = this._smoothed + Math.max(1, 4 * this._variance);
+        this._rto = Math.min(Math.max(rto, RTO.floor), RTO.ceiling);
     }
 }
 
@@ -486,10 +560,16 @@ export class ReplicationReceiver {
             this.confirm(latestTick, packet.rows);
         }
         if (this.confirmed >= 0) {
-            const ack = new Uint8Array(8);
+            let held = 0;
+            for (const tick of this._pending.keys()) {
+                const offset = tick - this.confirmed - 1;
+                if (offset < AckWindow) held |= 1 << offset;
+            }
+            const ack = new Uint8Array(12);
             const view = new DataView(ack.buffer);
             view.setUint32(0, ReplicationMessageKind.Acknowledgement, true);
             view.setUint32(4, this.confirmed, true);
+            view.setUint32(8, held >>> 0, true);
             this.connection.send(ack);
         }
         return unhandled;

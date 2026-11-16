@@ -127,7 +127,7 @@ test("lost and reordered confirmations retain the confirmed path without changin
             server.storage(GlobalTransform).translation.set(entity, frame, frame * 2, 0);
             sender.record(frame);
         }
-        sender.flush();
+        sender.flush(frame);
         receiver.flush();
         await world.step(Time.FIXED_DT);
         const latest = confirmations.at(-1);

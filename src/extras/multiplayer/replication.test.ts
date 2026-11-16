@@ -87,7 +87,7 @@ function exercise(
         }
         for (let time = 80; time < 350; time++) {
             link.advance(time);
-            sender.flush();
+            sender.flush(time);
             receiver.flush();
         }
         expect(confirmed).toEqual(Array.from({ length: 80 - join }, (_, i) => i + join));
@@ -199,6 +199,54 @@ test("values are resent against acknowledged fields and each recipient has its o
         server.dispose();
         for (const client of clients) client.dispose();
     }
+});
+
+test("retries are paced: a reliable link resends nothing and a stalled or slow peer gets a bounded multiple, not a resend per tick", () => {
+    const ticks = 600;
+    // drain: ticks between receiver flushes; 0 never acknowledges.
+    function run(drain: number) {
+        const server = new World(),
+            client = new World();
+        try {
+            const eid = server.create();
+            server.add(eid, Replicate);
+            server.add(eid, Position);
+            const link = seededLink(1, { minDelay: 1, maxDelay: 1, loss: 0, duplication: 0 });
+            let frames = 0;
+            const counted = {
+                send: (bytes: Uint8Array) => {
+                    frames++;
+                    link.a.send(bytes);
+                },
+                receive: () => link.a.receive(),
+            };
+            const sender = new ReplicationSender(
+                server,
+                schema,
+                [new Map([[1, schema]])],
+                1,
+                counted,
+            );
+            const receiver = new ReplicationReceiver(client, schema, link.b);
+            for (let tick = 0; tick < ticks; tick++) {
+                link.advance(tick);
+                server.storage(Position).count.set(eid, tick);
+                sender.record(tick);
+                sender.flush();
+                if (drain && tick % drain === 0) receiver.flush();
+            }
+            return { frames, confirmed: receiver.confirmed };
+        } finally {
+            server.dispose();
+            client.dispose();
+        }
+    }
+    // Resending every pending frame each tick would send ticks * (ticks + 1) / 2 = 180300.
+    expect(run(1).frames).toBe(ticks);
+    const slow = run(30);
+    expect(slow.frames).toBeLessThan(ticks * 1.1);
+    expect(slow.confirmed).toBeGreaterThan(ticks - 60);
+    expect(run(0).frames).toBeLessThan(ticks * 4);
 });
 
 test("input before the image cannot acknowledge an unconfirmed tick", () => {
