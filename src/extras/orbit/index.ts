@@ -208,7 +208,6 @@ const OrbitSystem: System = {
             smooth.keyYawVelocity.set(eid, 0);
             smooth.keyPitchVelocity.set(eid, 0);
             smooth.flyActive.set(eid, 0);
-            smooth.swappedButtons.set(eid, 0);
             // Warn on initialization because the pose query silently excludes entities without Transform.
             if (!world.has(eid, Transform)) {
                 console.warn(
