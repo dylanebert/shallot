@@ -249,6 +249,44 @@ test("retries are paced: a reliable link resends nothing and a stalled or slow p
     expect(run(0).frames).toBeLessThan(ticks * 4);
 });
 
+test("a frame lost twice is resent once later frames are reported held, not after its doubled timeout", () => {
+    const server = new World(),
+        client = new World();
+    try {
+        const eid = server.create();
+        server.add(eid, Replicate);
+        server.add(eid, Position);
+        // 100 ms one way: a 12-tick round trip, so the timeout settles at 13 ticks.
+        const link = seededLink(1, { minDelay: 6, maxDelay: 6, loss: 0, duplication: 0 });
+        let dropped = 0;
+        const lossy = {
+            send(bytes: Uint8Array) {
+                const tick = new DataView(bytes.buffer, bytes.byteOffset).getUint32(8, true);
+                if (tick === 100 && dropped < 2) dropped++;
+                else link.a.send(bytes);
+            },
+            receive: () => link.a.receive(),
+        };
+        const sender = new ReplicationSender(server, schema, [new Map([[1, schema]])], 1, lossy);
+        const receiver = new ReplicationReceiver(client, schema, link.b);
+        let recovered = -1;
+        for (let tick = 0; recovered < 0 && tick < 300; tick++) {
+            link.advance(tick);
+            server.storage(Position).count.set(eid, tick);
+            sender.record(tick);
+            sender.flush();
+            receiver.flush();
+            if (receiver.confirmed >= 100) recovered = tick;
+        }
+        expect(dropped).toBe(2);
+        // The timeout path resends at 113, then 26 ticks later, arriving at 145.
+        expect(recovered).toBeLessThan(140);
+    } finally {
+        server.dispose();
+        client.dispose();
+    }
+});
+
 test("input before the image cannot acknowledge an unconfirmed tick", () => {
     const server = new World(),
         client = new World();

@@ -295,13 +295,18 @@ function decode(
 const RTO = { initial: 60, floor: 6, ceiling: 3600 } as const;
 /** Ticks after the confirmed tick an acknowledgement reports as held, one bit each. */
 const AckWindow = 32;
+/** Later frames reported held before an unheld frame is resent without waiting for its timeout:
+ * KCP's fastresend of 2. RFC 5681's threshold of three measured slower here. */
+const FastResend = 2;
 
 interface PendingFrame {
     version: Version;
     bytes: Uint8Array;
     /** Tick of the latest send; -1 until first sent. */
     sent: number;
-    /** Ticks after sent before the next retry; doubles per retry. */
+    /** Tick of the first send. */
+    first: number;
+    /** Ticks after sent before the next timeout retry; doubles per timeout. */
     timeout: number;
     retried: boolean;
     /** Reported held by the receiver; never retried again. */
@@ -310,10 +315,11 @@ interface PendingFrame {
 
 /** One recipient's acknowledged history. record starts at any nonnegative tick and refuses gaps
  * thereafter; recorded ticks are the retransmission clock. flush sends each new frame once and
- * retries a frame the receiver has not reported holding after the retransmission timeout,
- * doubling it per retry. The timeout follows RFC 6298 from round trips of newly reported frames
- * that were never retried (Karn's rule), within the RTO bounds, so a reliable link resends almost
- * nothing and a lossy one still recovers. */
+ * retries a frame the receiver has not reported holding once later frames are reported held
+ * (fast retransmit) or after the retransmission timeout, which doubles after each timeout. The
+ * timeout follows RFC 6298 from round trips of newly reported frames that were never retried
+ * (Karn's rule), within the RTO bounds, so a reliable link resends almost nothing and a lossy
+ * one still recovers. */
 export class ReplicationSender {
     private _identities = new Map<EntityRef, number>();
     private _next = { value: 1 };
@@ -374,6 +380,7 @@ export class ReplicationSender {
             version: { tick, rows },
             bytes,
             sent: -1,
+            first: -1,
             timeout: 0,
             retried: false,
             held: false,
@@ -413,11 +420,21 @@ export class ReplicationSender {
             this._acknowledged = frame.version;
             for (const old of this._pending.keys()) if (old <= tick) this._pending.delete(old);
         }
-        for (const frame of this._pending.values()) {
-            if (frame.held) continue;
-            if (frame.sent < 0) frame.timeout = this._rto;
-            else if (now - frame.sent >= frame.timeout) {
+        // First sends of held frames, newest first. A frame is fast-resent once FastResend frames
+        // first sent after its latest send are held, so it never fires on a link that loses nothing.
+        const later: number[] = [];
+        for (const frame of [...this._pending.values()].reverse()) {
+            if (frame.held) {
+                later.push(frame.first);
+                continue;
+            }
+            if (frame.sent < 0) {
+                frame.timeout = this._rto;
+                frame.first = now;
+            } else if (now - frame.sent >= frame.timeout) {
                 frame.timeout = Math.min(frame.timeout * 2, RTO.ceiling);
+                frame.retried = true;
+            } else if (later.length >= FastResend && later[FastResend - 1]! > frame.sent) {
                 frame.retried = true;
             } else continue;
             frame.sent = now;
