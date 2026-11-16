@@ -19,22 +19,22 @@ await setupGlobals();
 // Rendering compositions prepare one upscaling pipeline at every pixel ratio.
 const pipelineCounts: Record<string, number> = {
     "engine-only": 0,
-    "core rendering": 2, // Stage 6 moved the cluster-grid, light-compact and light-cull pipelines to standard.
+    "core rendering": 3, // placement interpolation, visual-correction pass and upscaling
     Physics: 0,
-    "Physics with core rendering": 2, // Stage 6 moved the three clustered-light pipelines to standard.
+    "Physics with core rendering": 3, // Stage 6 moved the three clustered-light pipelines to standard.
     "Character gameplay": 0,
     "Physics profiling": 0,
     Orbit: 0,
     profiling: 0,
-    "default plugins": 27, // Unlit became a StandardMaterial branch; it no longer compiles its own
+    "default plugins": 28, // Unlit became a StandardMaterial branch; it no longer compiles its own
     // color, prepass, point-shadow or cascade-shadow pipeline. Mesh preprocess scans draw ranges
     // through tile-sum and tile-scan pipelines before its local scan.
-    "producer table": 30,
-    ScreenSpaceAmbientOcclusion: 32, // two prepass copies, mip reduction, visibility bitmask AO and denoise
-    Fog: 36, // single-sample and multisampled column depth, grid lighting and application; filter and integration
-    Outline: 36, // three mask variants, jump flood, composite, reduce, half flood, distance and half composite
-    EffectStack: 28,
-    Sprite: 32,
+    "producer table": 31,
+    ScreenSpaceAmbientOcclusion: 33, // two prepass copies, mip reduction, visibility bitmask AO and denoise
+    Fog: 37, // single-sample and multisampled column depth, grid lighting and application; filter and integration
+    Outline: 37, // three mask variants, jump flood, composite, reduce, half flood, distance and half composite
+    EffectStack: 29,
+    Sprite: 33,
 };
 
 for (const subject of compileSubjects) {
@@ -115,7 +115,7 @@ for (const antialias of [0, 1]) {
             (label) => labels.push(label),
             true,
         );
-        expect(result.pipelines).toBe(antialias ? 34 : 38);
+        expect(result.pipelines).toBe(antialias ? 35 : 39);
         expect(result.latePipelines).toBe(0);
         expect(
             labels.filter(

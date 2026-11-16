@@ -10,7 +10,7 @@ import {
     setComputeBindGroup,
     setComputePipeline,
 } from "../../engine/runtime";
-import { PrepareGlobalTransformSystem } from "../transform";
+import { PrepareGlobalTransformSystem, TransformPlugin } from "../transform";
 import { Anchor } from "./anchor";
 
 import {
@@ -636,7 +636,7 @@ export const RenderingPlugin: Plugin = {
             "texture-compression-astc",
         ],
     },
-    dependencies: [RenderTransformHistoryPlugin],
+    dependencies: [TransformPlugin, RenderTransformHistoryPlugin],
     name: "Rendering",
     systems: [
         PrepareGlobalTransformHistorySystem,
