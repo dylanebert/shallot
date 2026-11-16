@@ -55,7 +55,7 @@ export async function createProxy(port: number, seed: number) {
     };
     const track = (socket: Socket) => {
         sockets.add(socket);
-        socket.on("error", () => socket.destroy());
+        socket.on("error", resetPeer);
         socket.once("close", () => sockets.delete(socket));
         socket.setNoDelay(true);
     };
@@ -71,14 +71,17 @@ export async function createProxy(port: number, seed: number) {
             previous = performance.now(),
             credit = 0,
             blocked = false,
-            ended = false;
+            ended = false,
+            stopped = false;
         const stop = () => {
+            stopped = true;
             clearTimeout(timer);
             queue.length = 0;
             pumps.delete(stop);
         };
         pumps.add(stop);
         const pump = () => {
+            if (stopped) return;
             timer = undefined;
             try {
                 check();
@@ -101,14 +104,17 @@ export async function createProxy(port: number, seed: number) {
                     blocked = !destination.write(bytes);
                 }
                 if (queued < 65536 && !source.destroyed) source.resume();
-                if (!queue.length && ended) destination.end();
-                else if (queue.length) timer = setTimeout(pump, 1);
+                if (!queue.length && ended) {
+                    destination.end();
+                    stop();
+                } else if (queue.length) timer = setTimeout(pump, 1);
             } catch (cause) {
                 error = cause;
                 resetPeer();
             }
         };
         source.on("data", (bytes: Buffer) => {
+            if (stopped) return;
             const stream = controls[direction];
             if (stream.jitter) state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
             const delay = Math.max(
@@ -132,10 +138,13 @@ export async function createProxy(port: number, seed: number) {
             ended = true;
             if (!timer) pump();
         });
-        source.once("close", stop);
+        // A source can finish both TCP halves while its read bytes still await delivery here.
+        // Only this direction's drained queue forwards FIN; a clean close must not stop its pump.
+        source.once("close", () => {
+            if (!ended) resetPeer();
+        });
         destination.once("close", () => {
-            stop();
-            source.destroy();
+            if (!destination.writableFinished) resetPeer();
         });
     };
     const listener = createServer({ allowHalfOpen: true }, (client) => {

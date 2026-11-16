@@ -1,7 +1,9 @@
 import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
-import { Server } from "node:net";
+import { once } from "node:events";
+import { createConnection, createServer, Server, type Socket } from "node:net";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import type { Connection, Game } from ".";
+import { createProxy, listenerReleased } from "./proxy";
 import { createSession } from "./testing";
 
 setDefaultTimeout(TIMEOUT.node);
@@ -39,6 +41,93 @@ async function receive(connection: Connection, count: number) {
         if (bytes.length < count) await Bun.sleep(1);
     }
     return bytes;
+}
+
+async function tcpTraffic() {
+    const listener = createServer({ allowHalfOpen: true });
+    listener.listen(0, "127.0.0.1");
+    await once(listener, "listening");
+    const proxy = await createProxy((listener.address() as { port: number }).port, 1234);
+    const accepted = once(listener, "connection");
+    const client = createConnection({ host: "127.0.0.1", port: proxy.port, allowHalfOpen: true });
+    await once(client, "connect");
+    const [server] = (await accepted) as [Socket];
+    const observe = (socket: Socket) => {
+        const chunks: Buffer[] = [];
+        const errors: Error[] = [];
+        socket.on("data", (bytes: Buffer) => chunks.push(bytes));
+        socket.on("error", (error) => errors.push(error));
+        return { socket, chunks, errors, end: once(socket, "end") };
+    };
+    return {
+        proxy,
+        client: observe(client),
+        server: observe(server),
+        async dispose() {
+            client.destroy();
+            server.destroy();
+            proxy.stop();
+            listener.close();
+            expect(await listenerReleased(proxy.port)).toBe(true);
+        },
+    };
+}
+
+for (const direction of ["upstream", "downstream"] as const) {
+    for (const fault of ["none", "latency", "bandwidth", "stall"] as const) {
+        test(`${direction} crossing FINs retain queued bytes under ${fault}`, async () => {
+            const traffic = await tcpTraffic();
+            const { proxy, client, server } = traffic;
+            const [source, target] = direction === "upstream" ? [client, server] : [server, client];
+            const payload = Buffer.alloc(16384, 42);
+            try {
+                if (fault === "latency") proxy.controls[direction].latency = 100;
+                if (fault === "bandwidth") proxy.controls[direction].bandwidth = 131072;
+                if (fault === "stall") proxy.controls[direction].stalled = true;
+                source.socket.end(payload);
+                await Bun.sleep(10);
+                target.socket.end();
+                await Bun.sleep(30);
+                proxy.controls[direction].stalled = false;
+                await target.end;
+                await source.end;
+                const delivered = Buffer.concat(target.chunks);
+                expect(delivered.length).toBe(payload.length);
+                expect(delivered).toEqual(payload);
+                expect([...source.errors, ...target.errors]).toEqual([]);
+                while (proxy.pendingSockets) await Bun.sleep(1);
+                expect(proxy.pendingSockets).toBe(0);
+            } finally {
+                await traffic.dispose();
+            }
+        });
+    }
+
+    test(`${direction} FIN leaves the opposite direction flowing`, async () => {
+        const traffic = await tcpTraffic();
+        const { proxy, client, server } = traffic;
+        const [source, target] = direction === "upstream" ? [client, server] : [server, client];
+        try {
+            proxy.controls[direction].latency = 30;
+            source.socket.end(Buffer.from([42]));
+            await target.end;
+            expect(Buffer.concat(target.chunks)).toEqual(Buffer.from([42]));
+            for (let i = 1; i <= 3; i++) {
+                target.socket.write(Buffer.from([i]));
+                while (Buffer.concat(source.chunks).length < i) await Bun.sleep(1);
+                expect(source.socket.readableEnded).toBe(false);
+                expect(Buffer.concat(source.chunks)).toEqual(
+                    Buffer.from(Array.from({ length: i }, (_, j) => j + 1)),
+                );
+            }
+            target.socket.end();
+            await source.end;
+            expect([...source.errors, ...target.errors]).toEqual([]);
+            while (proxy.pendingSockets) await Bun.sleep(1);
+        } finally {
+            await traffic.dispose();
+        }
+    });
 }
 
 test("proxy delay sets a round-trip floor on established WebSockets", async () => {
