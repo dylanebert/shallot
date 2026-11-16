@@ -1,7 +1,14 @@
 import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { component, u32, type World } from "../../engine";
-import { type Connection, type Game, Replicate, ReplicationReceiver, ServerSession } from ".";
+import {
+    type Connection,
+    type Game,
+    IntentSender,
+    Replicate,
+    ReplicationReceiver,
+    ServerSession,
+} from ".";
 import { createSession } from "./testing";
 
 setDefaultTimeout(TIMEOUT.node);
@@ -176,7 +183,7 @@ test("targeted stepping does not tick siblings and a closed peer is named in wai
     }
 });
 
-for (const transport of ["link", "websocket"] as const) {
+for (const transport of ["link", "websocket", "proxy"] as const) {
     test(`${transport} releases partially built sessions after a client initializer fails`, async () => {
         const worlds: World[] = [];
         let connection: Connection | undefined;
@@ -200,7 +207,12 @@ for (const transport of ["link", "websocket"] as const) {
                         connection = transport;
                     },
                 },
-                { seed: 30, clients: 1, transport },
+                {
+                    seed: 30,
+                    clients: 1,
+                    transport: transport === "proxy" ? "websocket" : transport,
+                    proxy: transport === "proxy",
+                },
             );
         } catch (error) {
             message = String(error);
@@ -308,5 +320,54 @@ test("faulted sessions print their seed and reproduce transport delivery", async
         );
     } finally {
         output.mockRestore();
+    }
+});
+
+test("an upstream stall isolates one client's intents while its sibling keeps confirming", async () => {
+    const applied = new Set<number>();
+    const session = await createSession(
+        {
+            ...game,
+            applyIntent(_world, _eid, _tick, records) {
+                for (const record of records) applied.add(record.values[0]!);
+            },
+        },
+        { clients: 2, transport: "websocket", proxy: true, seed: 51 },
+    );
+    const [held, healthy] = session.clients;
+    try {
+        await session.advance(8);
+        const receiver = healthy!.world.resource(Confirmed).receiver!;
+        const before = receiver.confirmed;
+        held!.proxy!.upstream.stalled = true;
+        const inputs = session.clients.map((peer) => new IntentSender(peer.connection!));
+        for (const [i, input] of inputs.entries()) {
+            input.record(session.server.world.time.fixedTick + 1, "input", [i + 10]);
+            input.flush();
+        }
+        await session.advance(20);
+        expect(applied.has(10)).toBe(false);
+        expect(applied.has(11)).toBe(true);
+        expect(receiver.confirmed).toBeGreaterThan(before + 10);
+        held!.proxy!.upstream.stalled = false;
+        await session.waitFor(held!, () => applied.has(10), 20, "held intent released");
+    } finally {
+        await session.dispose();
+    }
+});
+
+test("proxy opt-in rejects links and ordinary peers expose no proxy", async () => {
+    let message = "";
+    try {
+        await createSession(game, { clients: 0, proxy: true });
+    } catch (error) {
+        message = String(error);
+    }
+    expect(message).toContain("TCP proxies require WebSocket transport");
+    const session = await createSession(game, { clients: 1, transport: "websocket" });
+    try {
+        expect("proxy" in session.clients[0]!).toBe(false);
+    } finally {
+        await session.dispose();
     }
 });

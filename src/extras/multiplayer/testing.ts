@@ -3,18 +3,23 @@ import { MultiplayerPlugin, ReplicationReceiver } from ".";
 import { clientStartup, type Game, ServerSession, server as serverRole } from "./game";
 import { IntentSender } from "./intent";
 import { type Connection, type LinkFaults, seededLink } from "./link";
+import type { PeerProxy } from "./proxy";
 import { WebSocketConnection } from "./websocket";
 
+export type { PeerProxy, StreamFaults } from "./proxy";
+
 /** Composes caller-stepped test Worlds. Link faults use milliseconds; each transport round advances
- * their shared clock by one fixed tick. Socket mode uses real loopback IO, not simulated faults.
+ * their shared clock by one fixed tick. Socket mode uses real loopback IO. proxy opts into
+ * per-peer TCP stream controls, initially disabled; it requires WebSocket transport.
+ * Proxy delay and bandwidth use wall time, not stepped time.
  * Seed precedence: options.seed, then SHALLOT_MULTIPLAYER_SEED (decimal u32), then 1.
  * The environment is read only when options.seed is omitted. The seed and its source print at
  * creation; failures include the seed. Client i uses seed + i.
  * Clients run the game's onClient at their first stepped boundary. Thin clients only receive and
  * acknowledge state: their Worlds do not simulate and onClient is not called.
  * Dispose the session, not just its Worlds. Disposal closes all owned peers and fails if any World,
- * connection entity, transport or loopback listener/socket survives cleanup. Listener release is
- * observed through a refused TCP connection. This is an owned-resource check,
+ * connection entity, transport or loopback listener/socket survives cleanup. Every endpoint and
+ * proxy listener's release is observed through a refused TCP connection. This is an owned-resource check,
  * not a process-wide heap or handle leak detector. */
 export async function createSession(
     game: Game,
@@ -24,6 +29,7 @@ export async function createSession(
         thinClients?: number;
         transport?: "link" | "websocket";
         faults?: LinkFaults;
+        proxy?: boolean;
     },
 ) {
     const { clients, thinClients = 0, transport = "link" } = options;
@@ -47,6 +53,8 @@ export async function createSession(
         throw new Error(`Session exceeds game's peer limit seed=${seed}`);
     if (!Number.isSafeInteger(seed) || seed < 0 || seed > 0xffffffff)
         throw new Error("Session seed must be a u32");
+    if (transport !== "websocket" && options.proxy)
+        throw new Error("TCP proxies require WebSocket transport");
     if (transport === "websocket" && options.faults)
         throw new Error("Link faults do not impair WebSockets");
     console.info(`multiplayer session seed=${seed} source=${source} transport=${transport}`);
@@ -54,12 +62,14 @@ export async function createSession(
     const links: ReturnType<typeof seededLink>[] = [];
     const sockets: WebSocket[] = [];
     let endpoint: ReturnType<typeof import("./bun").serveWebSocket> | undefined;
+    const proxies: Awaited<ReturnType<typeof import("./proxy").createProxy>>[] = [];
     let clock = 0;
     let disposed = false;
     const peers: {
         name: string;
         world: World;
         connection?: Connection;
+        proxy?: PeerProxy;
         input?: IntentSender;
         receiver?: ReplicationReceiver;
         dispose(): void;
@@ -100,6 +110,7 @@ export async function createSession(
             thins: Peer[] = [];
         for (let i = 0; i < clients + thinClients; i++) {
             let connection: Connection;
+            let proxy: (typeof proxies)[number] | undefined;
             if (transport === "link") {
                 const link = seededLink(
                     (seed + i) >>> 0,
@@ -115,7 +126,12 @@ export async function createSession(
                 if (authority.connect(link.a) === undefined)
                     throw new Error(`client[${i}] refused seed=${seed}`);
             } else {
-                const socket = new WebSocket(`ws://127.0.0.1:${endpoint!.port}`);
+                if (options.proxy) {
+                    const { createProxy } = await import("./proxy");
+                    proxy = await createProxy(endpoint!.port!, (seed + i) >>> 0);
+                    proxies.push(proxy);
+                }
+                const socket = new WebSocket(`ws://127.0.0.1:${proxy?.port ?? endpoint!.port}`);
                 sockets.push(socket);
                 connection = new WebSocketConnection(socket);
                 await new Promise<void>((resolve, reject) => {
@@ -154,6 +170,7 @@ export async function createSession(
                 peer.input = new IntentSender(connection);
                 peer.receiver = new ReplicationReceiver(app.world, game.schema, connection);
             }
+            if (proxy) peer.proxy = proxy.controls;
             peers.push(peer);
             (thin ? thins : regular).push(peer);
         }
@@ -175,6 +192,7 @@ export async function createSession(
                     else if (peer === server) peer.world.tick();
                     else peer.world.step(Time.FIXED_DT);
                     await io();
+                    for (const proxy of proxies) proxy.check();
                 } catch (error) {
                     throw failure(peer, `Step failed (${String(error)})`);
                 }
@@ -223,6 +241,7 @@ export async function createSession(
                         errors.push(failure(peer, String(error)));
                     }
                 }
+                for (const proxy of proxies) proxy.stop();
                 const port = endpoint?.port;
                 try {
                     await endpoint?.stop(true);
@@ -230,32 +249,36 @@ export async function createSession(
                     errors.push(failure(server, `Endpoint stop failed (${String(error)})`));
                 }
                 if (port !== undefined) {
-                    const { createConnection } = await import("node:net");
-                    const error = await new Promise<Error | undefined>((resolve) => {
-                        const probe = createConnection({ host: "127.0.0.1", port });
-                        probe.once("connect", () => {
-                            probe.destroy();
-                            resolve(
+                    const { listenerReleased } = await import("./proxy");
+                    for (const [kind, listenerPort] of [
+                        ["endpoint", port],
+                        ...proxies.map((proxy) => ["proxy", proxy.port] as const),
+                    ] as const) {
+                        try {
+                            if (!(await listenerReleased(listenerPort)))
+                                errors.push(
+                                    failure(
+                                        server,
+                                        `Disposal leaked loopback ${kind} 127.0.0.1:${listenerPort}`,
+                                    ),
+                                );
+                        } catch (error) {
+                            errors.push(
                                 failure(
                                     server,
-                                    `Disposal leaked loopback endpoint 127.0.0.1:${port}`,
+                                    `Endpoint release probe failed 127.0.0.1:${listenerPort} (${String(error)})`,
                                 ),
                             );
-                        });
-                        probe.once("error", (error: NodeJS.ErrnoException) => {
-                            resolve(
-                                error.code === "ECONNREFUSED"
-                                    ? undefined
-                                    : failure(
-                                          server,
-                                          `Endpoint release probe failed 127.0.0.1:${port} (${String(error)})`,
-                                      ),
-                            );
-                        });
-                    });
-                    if (error) errors.push(error);
+                        }
+                    }
                 }
-                for (let i = 0; i < 32 && sockets.some((socket) => socket.readyState !== 3); i++)
+                for (
+                    let i = 0;
+                    i < 32 &&
+                    (sockets.some((socket) => socket.readyState !== 3) ||
+                        proxies.some((proxy) => proxy.pendingSockets));
+                    i++
+                )
                     await io();
                 for (const peer of peers) {
                     if (!peer.world.signal.aborted || (peer.connection && !peer.connection.closed))
@@ -270,11 +293,13 @@ export async function createSession(
                     );
                 if (
                     sockets.some((socket) => socket.readyState !== 3) ||
-                    endpoint?.pendingWebSockets
+                    endpoint?.pendingWebSockets ||
+                    proxies.some((proxy) => proxy.pendingSockets)
                 )
                     errors.push(failure(server, "Disposal leaked loopback sockets"));
                 // Force cleanup after reporting a failed ownership path, as NetCodeTestWorld does.
                 endpoint?.[Symbol.dispose]();
+                for (const proxy of proxies) proxy.forceClose();
                 for (const app of [...apps].reverse()) app.dispose();
                 for (const link of links) link.a.close();
                 for (const socket of sockets) socket.close();
@@ -289,6 +314,7 @@ export async function createSession(
         for (const app of [...apps].reverse()) app.dispose();
         for (const link of links) link.a.close();
         for (const socket of sockets) socket.close();
+        for (const proxy of proxies) proxy.forceClose();
         await endpoint?.stop(true);
         throw error;
     }
