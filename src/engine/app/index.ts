@@ -31,7 +31,8 @@ export * from "./compose";
 export interface Plugin {
     /** unique name */
     readonly name: string;
-    /** Declares whether fixed simulation replays deterministically (default true).
+    /** True (default) claims identical gameplay state for the same state and tick inputs.
+     * Only built-ins guarantee cross-runtime replay within one engine version; games need not.
      * Fixed consumers of GPU readback declare false. Byte access is not guarded. */
     readonly deterministic?: boolean;
     /** Binds a snapshot/restore pair to each world during plugin registration, before initialize.

@@ -238,8 +238,8 @@ jobs:
           key: gltf-assets-${{ hashFiles('examples/gltf/assets.json') }}
       - name: sync glTF assets
         run: bun examples/gltf/sync.ts
-      - name: install Playwright Chromium
-        run: bunx playwright install chromium
+      - name: install Playwright Chromium and WebKit
+        run: bunx playwright install --with-deps chromium webkit
       - name: fetch the pinned butler
         run: bun scripts/publish-butler.ts
       - name: Run Bun as node.exe
@@ -345,8 +345,8 @@ jobs:
         with:
           node-version-file: .node-version
       - run: bun install --frozen-lockfile
-      - name: install Playwright Chromium
-        run: bunx playwright install chromium
+      - name: install Playwright Chromium and WebKit
+        run: bunx playwright install --with-deps chromium webkit
       - name: fetch locked crates
         run: cargo fetch --locked
       - name: fetch the pinned butler
@@ -544,8 +544,8 @@ jobs:
         with:
           node-version-file: .node-version
       - run: bun install --frozen-lockfile
-      - name: install Playwright Chromium
-        run: bunx playwright install chromium
+      - name: install Playwright Chromium and WebKit
+        run: bunx playwright install --with-deps chromium webkit
       - uses: actions/cache@v5
         with:
           path: examples/gltf/public/assets

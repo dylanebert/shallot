@@ -44,9 +44,9 @@ docker run --rm -i --platform "$platform" --shm-size=1g \
             echo "$lock" > node_modules/.lavapipe-lock
         fi
         playwright=$(bun -e "console.log(require(\"playwright/package.json\").version)")
-        if [ ! -f "$PLAYWRIGHT_BROWSERS_PATH/.lavapipe-$playwright" ]; then
-            bunx playwright install chromium
-            touch "$PLAYWRIGHT_BROWSERS_PATH/.lavapipe-$playwright"
+        if [ ! -f "$PLAYWRIGHT_BROWSERS_PATH/.lavapipe-chromium-webkit-$playwright" ]; then
+            bunx playwright install chromium webkit
+            touch "$PLAYWRIGHT_BROWSERS_PATH/.lavapipe-chromium-webkit-$playwright"
         fi
         exec "$@"
     ' sh "$@" < "$context/source.tar"

@@ -26,7 +26,7 @@ Run `bun install` in the checkout, then:
 ```sh
 bun run build                    # engine artifacts
 cargo fetch --locked             # before the Node or Cargo tier: Cargo-backed tests use locked, fetched crates
-bunx playwright install chromium # before browser tests
+bunx playwright install --with-deps chromium webkit # before browser tests
 bun scripts/publish-butler.ts    # before the publish tests
 ```
 
@@ -202,7 +202,7 @@ sh scripts/lavapipe.sh HEAD sh scripts/browser.sh
 
 ## Physics
 
-Box3D is the correctness authority: world hashes equal its native reference with no tolerance, and authoring takes its definitions whole, with their defaults. Hashes see only simulation state; allocation, published ECS values and events need their own tests.
+Box3D is the correctness authority: world hashes equal its native reference with no tolerance, and authoring takes its definitions whole, with their defaults. Kernel world hashes see only simulation state; allocation, published ECS values and events need their own tests.
 
 - `PhysicsPlugin` (`core/physics`) registers `Body`, `Shape`, the joint kinds and the geometry registries with their defaults; it knows no solver and installs no simulation
 - `StandardPhysicsPlugin` (`standard/physics`) owns the whole Box3D-based simulation, including `PhysicsWorldDefinition`. A body belongs to one simulation: a replacement backend consumes core's data and replaces all of standard physics, not single phases
@@ -217,7 +217,7 @@ Box3D is the correctness authority: world hashes equal its native reference with
 - Each phase has one implementation, in the kernel, built into the shared and single-thread artifacts from one source, since a page without cross-origin isolation has no shared memory. The worker count schedules it and is not a code path. TypeScript only coordinates: the public API, the ECS and `GlobalTransform` bridge, pool dispatch, and user callbacks at serial points
 - Hosts Shallot owns serve cross-origin isolation: `shallot()`'s `dev` and `preview`, and the native shell. Elsewhere the kernel steps the single-thread artifact after one log naming the missing headers, and no game branches on which
 - Core physics recovers its geometry registries, read by fixed body synchronization; standard physics recovers its solver image and ECS bindings. A physics hash does not prove ECS or gameplay recovery
-- Determinism holds within one runtime and engine version; hashes detect divergence across versions
+- Built-in fixed simulation is deterministic across runtimes within one engine version. A game's own fixed code preserves this guarantee only with portable math and tick-addressed inputs, but is not required to. Hashes detect divergence across versions
 - Standard physics publishes the mover queries and `CharacterPlugin`; movement feel belongs to the game, as in `examples/first-person/src/player.ts`, over published names only
 
 ### Checking a physics change

@@ -18,6 +18,6 @@ RUN curl -fsSL https://bun.sh/install | bash -s "bun-v$(cat /tmp/pins/.bun-versi
     && rm /tmp/node.tar.xz
 COPY package.json bun.lock /tmp/deps/
 RUN cd /tmp/deps && bun install --frozen-lockfile --ignore-scripts \
-    && bunx playwright install-deps chromium \
+    && bunx playwright install-deps chromium webkit \
     && rm -rf /tmp/deps /root/.bun/install/cache /var/lib/apt/lists/*
 WORKDIR /work

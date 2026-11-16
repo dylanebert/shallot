@@ -1,7 +1,8 @@
-import { Body, BodyType, Shape, ShapeKind } from "../../core/physics";
-import { Camera } from "../../core/rendering";
-import { GlobalTransform, Transform } from "../../core/transform";
-import { component, createApp, f32 as field, type Plugin, u32 } from "../../engine";
+import { Body, BodyType, Shape, ShapeKind } from "../../src/core/physics";
+import { Camera } from "../../src/core/rendering";
+import { GlobalTransform, Transform } from "../../src/core/transform";
+import { component, createApp, f32 as field, type Plugin, u32 } from "../../src/engine";
+import { Orbit, OrbitPlugin } from "../../src/extras/orbit";
 import {
     Character,
     CharacterPlugin,
@@ -10,8 +11,8 @@ import {
     PhysicsWorldDefinition,
     rotationFromAxisAngle,
     StandardPhysicsPlugin,
-} from "../../standard/physics";
-import { Orbit, OrbitPlugin } from "./index";
+} from "../../src/standard/physics";
+import { artifact, threads } from "../../src/standard/physics/kernel/kernel";
 
 export const actions = Array.from({ length: 240 }, (_, tick) => ({
     yaw: (tick % 120) * 0.025,
@@ -83,6 +84,8 @@ export async function composition(workerCount = 1) {
         bodies,
         player,
         camera,
+        artifact: artifact(world),
+        workers: threads(world),
         hash() {
             let hash = hashPhysics(world);
             const bytes = new DataView(new ArrayBuffer(8));
