@@ -306,7 +306,8 @@ const OrbitSystem: System = {
             let dragX = 0;
             let dragY = 0;
             let pinch = 0;
-            let pinchRatio = 1;
+            let pinchDistance = distO;
+            let pinchSize = sizeO;
             let touchStopped = smooth.touchStopped.get(eid);
             let zoomDrag = 0;
             if (!manual) {
@@ -353,8 +354,21 @@ const OrbitSystem: System = {
                     } else if (motion.count === 2) {
                         dragX += motion.deltaX;
                         dragY += motion.deltaY;
-                        pinch += motion.pinchDelta;
-                        pinchRatio *= motion.ratio;
+                        if (orbit.proportionalPinch.get(eid) === 0) pinch += motion.pinchDelta;
+                        else if (motion.ratio !== 1) {
+                            if (isOrtho)
+                                pinchSize = clamp(
+                                    pinchSize / motion.ratio,
+                                    orbit.minSize.get(eid),
+                                    orbit.maxSize.get(eid),
+                                );
+                            else
+                                pinchDistance = clamp(
+                                    pinchDistance / motion.ratio,
+                                    orbit.minDistance.get(eid),
+                                    orbit.maxDistance.get(eid),
+                                );
+                        }
                     }
                 }
             }
@@ -440,23 +454,8 @@ const OrbitSystem: System = {
             impulseY -= panDeltaY;
             impulseZ -= panDeltaZ;
 
-            if (!manual && orbit.proportionalPinch.get(eid) !== 0) {
-                if (pinchRatio !== 1) {
-                    if (isOrtho)
-                        sizeO = clamp(
-                            sizeO / pinchRatio,
-                            orbit.minSize.get(eid),
-                            orbit.maxSize.get(eid),
-                        );
-                    else
-                        distO = clamp(
-                            distO / pinchRatio,
-                            orbit.minDistance.get(eid),
-                            orbit.maxDistance.get(eid),
-                        );
-                }
-                pinch = 0;
-            }
+            distO = pinchDistance;
+            sizeO = pinchSize;
 
             // Wheel-away zooms out; a positive pinch spread zooms in. Both can arrive in one frame.
             let scroll = input.pointer.scroll;

@@ -30,6 +30,44 @@ async function subject(options = {}) {
     return { app, w, eid, o: w.storage(Orbit), t: w.storage(Transform) };
 }
 
+for (const ortho of [false, true])
+    for (const minimum of [false, true]) {
+        test(`proportional pinch clamps each delivered move before reversal: ortho=${ortho}, minimum=${minimum}`, async () => {
+            for (const split of [false, true]) {
+                const { app, w, eid, o, t } = await subject({
+                    distance: 10,
+                    size: 10,
+                    minDistance: 5,
+                    minSize: 5,
+                    maxDistance: 15,
+                    maxSize: 15,
+                    proportionalPinch: 1,
+                    zoomSmoothness: 1,
+                });
+                try {
+                    w.add(eid, Camera, {
+                        mode: ortho ? CameraMode.Orthographic : CameraMode.Perspective,
+                    });
+                    w.step(1 / 60);
+                    touchPoint(w, 1, 0, 0);
+                    touchPoint(w, 2, 100, 0);
+                    touchPoint(w, 2, minimum ? 300 : 100 / 3, 0);
+                    if (split) w.step(1 / 60);
+                    touchPoint(w, 2, 100, 0);
+                    w.step(1 / 60);
+                    // Spread: max(5,10/3)*3=15. Contract: min(15,10*3)/3=5.
+                    const expected = minimum ? 15 : 5;
+                    expect((ortho ? o.size : o.distance).get(eid)).toBeCloseTo(expected, 5);
+                    expect(
+                        ortho ? w.storage(Camera).size.get(eid) : t.translation.z.get(eid),
+                    ).toBeCloseTo(expected, 5);
+                } finally {
+                    await app.dispose();
+                }
+            }
+        });
+    }
+
 for (const cancel of [false, true])
     for (const split of [false, true]) {
         test(`proportional pinch composes spans and survives lift: cancel=${cancel}, split=${split}`, async () => {
