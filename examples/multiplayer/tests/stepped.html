@@ -26,6 +26,7 @@ const sample = () => {
  const remote = client.slot < 0 ? players[1] : players[1-client.slot];
  const p = new Float32Array(12); readRenderGlobalTransform(world,remote.player,p);
  return { latency:connection.faults?.minDelay*2, loss:connection.faults?.loss, slot: client.slot, confirmed: client.prediction.receiver.confirmed, tick:world.time.fixedTick,
+ network: Object.fromEntries(['round_trip', 'time_since_receive'].map(name => [name, world.resource(DiagnosticsStore).get(`network/${name}`)?.value() ?? null])),
  position:world.get(own.player,GlobalTransform)?.translation, box:world.get(box,GlobalTransform)?.translation,
  remote: Array.from(p.slice(0,3)), lift:world.get(lift,GlobalTransform)?.translation,
  yaw:world.get(own.player,PlayerInput)?.yaw, jumps:world.get(own.player,PlayerInput)?.jumpPresses,
