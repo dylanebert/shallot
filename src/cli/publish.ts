@@ -1,4 +1,12 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+    existsSync,
+    mkdtempSync,
+    readdirSync,
+    readFileSync,
+    rmSync,
+    statSync,
+    writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -18,6 +26,13 @@ import {
     workerExists,
 } from "./publish-cloudflare";
 import { installDev } from "./publish-dependencies";
+import {
+    deployFlyServer,
+    ensureFly,
+    type FlyLink,
+    refuseFlyConfig,
+    validFlyApp,
+} from "./publish-fly";
 import {
     BUTLER_LOGIN_REQUIRED,
     BUTLER_STATUS_TIMEOUT,
@@ -42,17 +57,27 @@ import {
     type PublishVerification,
     projectChromium,
     resolveProjectPlaywright,
+    verifyFlyPage,
     verifyPublishedGame,
 } from "./publish-verify";
 
-export type PublishLink = CloudflareLink | ItchLink;
+export type PublishLink = (CloudflareLink | ItchLink) & { server?: FlyLink };
 
 export function readPublishLink(projectDir: string): PublishLink | undefined {
     const manifest = JSON.parse(readFileSync(join(projectDir, "package.json"), "utf8"));
     const link = manifest.shallot?.publish;
     if (link === undefined) return;
+    if (
+        link?.server !== undefined &&
+        (link.server?.target !== "fly" ||
+            typeof link.server.app !== "string" ||
+            !validFlyApp(link.server.app))
+    )
+        throw new Error(
+            'Invalid shallot.publish.server: expected { target: "fly", app: "<name>" }.',
+        );
     if (link?.target === "itch" && typeof link.name === "string" && validItchName(link.name))
-        return { target: "itch", name: link.name };
+        return { target: "itch", name: link.name, ...(link.server ? { server: link.server } : {}) };
     if (
         !link ||
         typeof link !== "object" ||
@@ -483,13 +508,47 @@ export async function publishProject(projectDir: string, targetName?: string): P
         );
         const setup = await target.setup(projectDir, work, interactive, saved);
         resolveProjectPlaywright(projectDir);
-        await buildWeb(projectDir, { outDir: directory, stdout: "quiet" });
+        let server = saved?.server;
+        if (!linked && existsSync(join(projectDir, "server.ts"))) {
+            const app = interactive
+                ? await ask("Fly app name", setup.link.name.replaceAll("/", "-"))
+                : setup.link.name.replaceAll("/", "-");
+            if (!validFlyApp(app)) throw new Error(`Invalid Fly app name: ${app}`);
+            server = { target: "fly", app };
+        }
+        if (server) {
+            refuseFlyConfig(projectDir);
+            if (!interactive && !process.env.FLY_API_TOKEN)
+                throw new Error(
+                    "Fly login is missing. Set FLY_API_TOKEN for non-interactive publish.",
+                );
+            await deployFlyServer(
+                projectDir,
+                work,
+                server,
+                interactive,
+                !!saved?.server,
+                ask,
+                await ensureFly(),
+            );
+            setup.link.server = server;
+        }
+        await buildWeb(projectDir, {
+            outDir: directory,
+            stdout: "quiet",
+            env: {
+                ...process.env,
+                ...(server ? { VITE_SHALLOT_SERVER: `wss://${server.app}.fly.dev` } : {}),
+            },
+        });
         const assets = publishAssets(directory);
         preflightPublish(assets, target.limits);
         target.headers(directory);
         const deployed = await setup.deploy(directory);
         savePublishLink(projectDir, setup.link);
-        publishProgress(`Build: ${deployed.buildUrl}\n${setup.commands}`);
+        publishProgress(
+            `Build: ${deployed.buildUrl}\n${setup.commands}${server ? `\nServer logs: fly logs --app ${server.app}\nServer rollback: check out an earlier commit, then bunx shallot publish\nConfirm with the person before deleting the server.\nServer deletion: fly apps destroy ${server.app}` : ""}`,
+        );
         const browser = await projectChromium(projectDir);
         try {
             const verification = await target.verify(
@@ -499,6 +558,10 @@ export async function publishProject(projectDir: string, targetName?: string): P
                 assets,
                 interactive,
             );
+            if (server) {
+                await verifyFlyPage(browser, deployed.url, `wss://${server.app}.fly.dev`);
+                publishProgress("Published page confirmed server state through the Fly endpoint.");
+            }
             if (verification)
                 publishProgress(
                     `${verification.hardware ? "Engine started on a hardware adapter." : "Engine started; loading, headers and assets verified, not hardware play."}${verification.threads === undefined ? "" : ` Physics ${verification.physicsStepped ? "stepped" : "initialized"} on ${verification.threads} threads.`}\nAdapter: ${verification.adapter}`,

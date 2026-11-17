@@ -266,6 +266,60 @@ export async function verifyPublishedGame(
     }
 }
 
+/** Observe the multiplayer extra's network diagnostics on the published page, not a query-selected topology. */
+export async function verifyFlyPage(
+    browser: Browser,
+    url: string,
+    endpoint: string,
+): Promise<void> {
+    const context = await browser.newContext();
+    try {
+        const page = await context.newPage();
+        let connected = false;
+        await observeStartup(page);
+        page.on("websocket", (socket) => {
+            if (socket.url() === endpoint || socket.url() === `${endpoint}/`) connected = true;
+        });
+        await page.goto(url, { waitUntil: "load", timeout: TIMEOUT.startup });
+        await page.waitForFunction(
+            () =>
+                (window as unknown as { __shallotPublish: BrowserStartup }).__shallotPublish
+                    .started,
+            undefined,
+            { timeout: TIMEOUT.startup },
+        );
+        await page.keyboard.press("F3");
+        await page
+            .locator("[data-shallot-profile]")
+            .getByText("▸ network", { exact: true })
+            .click({ timeout: TIMEOUT.startup });
+        const confirmed = page.getByText("confirmed tick", { exact: true }).locator("..");
+        await confirmed.waitFor({ timeout: TIMEOUT.startup });
+        const sample = async (minimum: number) => {
+            const handle = await page.waitForFunction(
+                (minimum) => {
+                    const label = Array.from(
+                        document.querySelectorAll("[data-shallot-profile] span"),
+                    ).find((el) => el.textContent === "confirmed tick");
+                    const text = label?.nextElementSibling?.textContent ?? "";
+                    const tick = /^\d+ ticks$/.test(text) ? Number.parseInt(text, 10) : -1;
+                    return tick >= minimum ? { tick } : false;
+                },
+                minimum,
+                { timeout: TIMEOUT.startup },
+            );
+            const value = await handle.jsonValue();
+            await handle.dispose();
+            if (!value) throw new Error("No confirmed server tick");
+            return value.tick;
+        };
+        await sample((await sample(0)) + 60);
+        if (!connected) throw new Error(`Published page did not connect to ${endpoint}`);
+    } finally {
+        await context.close();
+    }
+}
+
 interface BrowserStartup {
     started: boolean;
     physicsStepped?: boolean;

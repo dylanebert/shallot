@@ -542,3 +542,295 @@ for (const trial of ["personal", "CI"] as const) {
         Number.POSITIVE_INFINITY,
     );
 }
+
+// Token-only Fly + Worker qualification; the person authorizes only these scratch names.
+test(
+    "CI Fly: a packed multiplayer scaffold publishes both halves and cold-starts",
+    async () => {
+        if (process.stdin.isTTY || process.stdout.isTTY)
+            throw new Error("Run the CI Fly trial without a TTY.");
+        for (const name of ["FLY_API_TOKEN", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"])
+            if (!process.env[name]) throw new Error(`Set ${name} for the CI Fly trial.`);
+        const root = mkdtempSync(join(tmpdir(), "shallot-publish-fly-oracle-"));
+        const home = join(root, "home"),
+            installer = join(root, "installer"),
+            project = join(root, "game");
+        mkdirSync(home);
+        mkdirSync(installer);
+        const env: NodeJS.ProcessEnv = {
+            ...process.env,
+            CI: "true",
+            HOME: home,
+            XDG_CONFIG_HOME: home,
+            XDG_CACHE_HOME: join(root, "cache"),
+            PATH: browserSessionPath(root),
+            WRANGLER_SEND_METRICS: "false",
+        };
+        const name = `shallot-tier-${Date.now().toString(36)}`;
+        const run = (cmd: string[], cwd = root, allowFailure = false) => {
+            console.info(`$ ${cmd.join(" ")}`);
+            const result = spawnSync(cmd[0]!, cmd.slice(1), {
+                cwd,
+                env,
+                encoding: "utf8",
+                stdio: ["ignore", "pipe", "pipe"],
+                timeout: 600_000,
+                maxBuffer: 32 * 1024 * 1024,
+            });
+            process.stderr.write(result.stderr ?? "");
+            if (result.error) throw result.error;
+            if (!allowFailure && result.status !== 0)
+                throw new Error(`${cmd.join(" ")} exited ${result.status}: ${result.stdout}`);
+            return result;
+        };
+        const { ensureFly } = await import("./publish-fly");
+        const previousCache = process.env.XDG_CACHE_HOME;
+        let cli: string;
+        try {
+            process.env.XDG_CACHE_HOME = env.XDG_CACHE_HOME;
+            cli = await ensureFly();
+        } finally {
+            if (previousCache === undefined) delete process.env.XDG_CACHE_HOME;
+            else process.env.XDG_CACHE_HOME = previousCache;
+        }
+        const fly = (args: string[]) => run([cli, ...args]).stdout.trim();
+        const inventory = () => {
+            const rows: Record<"Name", string>[] = JSON.parse(fly(["apps", "list", "--json"]));
+            if (!Array.isArray(rows) || rows.some((row) => typeof row.Name !== "string"))
+                throw new Error("Unrecognized Fly inventory");
+            return rows.filter((row) => row.Name.startsWith("shallot-tier-"));
+        };
+        expect(
+            inventory(),
+            "Refusing while a shallot-tier- app exists; remove leftovers explicitly",
+        ).toEqual([]);
+        let owned = false,
+            workerOwned = false;
+        let machineStart = 0,
+            runningMs = 0;
+        const machine = () => {
+            const rows = JSON.parse(fly(["machine", "list", "--app", name, "--json"]));
+            expect(rows).toHaveLength(1);
+            expect(rows[0].config.guest.cpu_kind).toBe("shared");
+            expect(rows[0].config.guest.cpus).toBe(1);
+            expect(rows[0].config.guest.memory_mb).toBe(256);
+            return rows[0];
+        };
+        const failures: unknown[] = [];
+        let wrangler = "";
+        const worker = (args: string[], output?: string) => {
+            const result = spawnSync(
+                "node",
+                [wrangler, ...args, "--config", join(root, "wrangler.json")],
+                {
+                    cwd: root,
+                    env: { ...env, ...(output ? { WRANGLER_OUTPUT_FILE_PATH: output } : {}) },
+                    encoding: "utf8",
+                    stdio: ["ignore", "pipe", "pipe"],
+                    timeout: 120_000,
+                },
+            );
+            if (result.error) throw result.error;
+            return result;
+        };
+        try {
+            const archive = run(
+                [
+                    process.execPath,
+                    "pm",
+                    "pack",
+                    "--ignore-scripts",
+                    "--quiet",
+                    "--destination",
+                    root,
+                ],
+                resolve(import.meta.dir, "../.."),
+            ).stdout.trim();
+            const spec = `file:../${basename(archive)}`;
+            writeFileSync(
+                join(installer, "package.json"),
+                JSON.stringify({ dependencies: { "@dylanebert/shallot": spec } }),
+            );
+            packedInstall(
+                ["install", "--linker=isolated", "--no-progress"],
+                installer,
+                "Fly oracle CLI install",
+            );
+            run(
+                [
+                    "node",
+                    join(installer, "node_modules/@dylanebert/shallot/dist/cli/shallot.js"),
+                    "create",
+                    project,
+                    "--template",
+                    "multiplayer",
+                ],
+                installer,
+            );
+            const manifestPath = join(project, "package.json");
+            const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+            manifest.name = name;
+            manifest.dependencies["@dylanebert/shallot"] = spec;
+            manifest.devDependencies = { ...manifest.devDependencies, wrangler: "4.151.3" };
+            writeFileSync(manifestPath, JSON.stringify(manifest));
+            packedInstall(
+                ["install", "--linker=isolated", "--no-progress"],
+                project,
+                "Fly oracle project install",
+            );
+            const publish = [
+                "node",
+                join(project, "node_modules/@dylanebert/shallot/dist/cli/shallot.js"),
+                "publish",
+            ];
+            wrangler = join(project, "node_modules/wrangler/bin/wrangler.js");
+            writeFileSync(
+                join(root, "wrangler.json"),
+                JSON.stringify(
+                    cloudflareConfig(join(root, "unused"), {
+                        target: "cloudflare",
+                        name,
+                        accountId: env.CLOUDFLARE_ACCOUNT_ID!,
+                    }),
+                ),
+            );
+            const absentOutput = join(root, "absent.jsonl");
+            const absent = worker(["versions", "list", "--json", "--name", name], absentOutput);
+            expect(
+                workerExists({
+                    ...absent,
+                    entries: readFileSync(absentOutput, "utf8")
+                        .trim()
+                        .split("\n")
+                        .map((line) => JSON.parse(line)),
+                }),
+            ).toBe(false);
+            // Prove a first-link refusal on our own scratch app before any deployment.
+            const orgs = JSON.parse(fly(["orgs", "list", "--json"]));
+            expect(orgs).toHaveLength(1);
+            owned = true;
+            fly(["apps", "create", name, "--org", orgs[0].Slug]);
+            expect(inventory().map((row) => row.Name)).toEqual([name]);
+            const refused = run(publish, project, true);
+            expect(refused.status).not.toBe(0);
+            expect(refused.stderr).toContain(`Fly app "${name}" already exists`);
+            expect(JSON.parse(readFileSync(manifestPath, "utf8")).shallot?.publish).toBeUndefined();
+            fly(["apps", "destroy", name, "--yes"]);
+            expect(inventory()).toEqual([]);
+            // Absence was checked for both scratch names; partial publish failures also reach cleanup.
+            workerOwned = true;
+            machineStart = performance.now();
+            const result = run(publish, project);
+            expect(result.stderr).toContain(
+                "Published page confirmed server state through the Fly endpoint.",
+            );
+            const link = JSON.parse(readFileSync(manifestPath, "utf8")).shallot.publish;
+            expect(link.server).toEqual({ target: "fly", app: name });
+            expect(new URL(result.stdout.trim()).hostname).toStartWith(`${name}.`);
+            wrangler = join(project, "node_modules/wrangler/bin/wrangler.js");
+            writeFileSync(
+                join(root, "wrangler.json"),
+                JSON.stringify(cloudflareConfig(join(root, "unused"), link)),
+            );
+            const addresses = JSON.parse(fly(["ips", "list", "--app", name, "--json"]));
+            expect(
+                addresses.every((row: Record<"Type", string>) =>
+                    ["shared_v4", "v6"].includes(row.Type),
+                ),
+            ).toBe(true);
+            machine();
+            // GAME has only two slots: publish's page has closed before these clients start.
+            writeFileSync(
+                join(project, "clients.ts"),
+                `import {createApp,DiagnosticsStore} from '@dylanebert/shallot';
+import {client} from '@dylanebert/shallot/multiplayer';
+import {GAME,ClientSession} from './src/network';
+const apps=[];let error;const start=performance.now();let first;
+try{for(let i=0;i<2;i++)apps.push(await createApp({defaults:false,plugins:[client(GAME,{url:'wss://${name}.fly.dev',onError:e=>error=e})]}));
+let last=performance.now();const ticks=[0,0],changed=[last,last];
+while(performance.now()-start<20000){await Bun.sleep(5);if(error)throw error;const now=performance.now();for(const [i,app]of apps.entries()){app.world.step((now-last)/1000);const tick=app.world.resource(ClientSession).client?.prediction.receiver.confirmed??0;if(tick>ticks[i]){ticks[i]=tick;changed[i]=now;first??=now-start;}if(now-changed[i]>15000)throw Error('Client stopped confirming');}last=now;}
+if(ticks.some(t=>t<60))throw Error('Clients did not confirm 60 ticks');console.log(JSON.stringify({ticks,firstStateMs:first,network:apps.map(app=>Object.fromEntries([...app.world.resource(DiagnosticsStore).iter()].filter(d=>d.path.path.startsWith('network/')).map(d=>[d.path.path,d.value()])))}));
+}finally{for(const app of apps)app.dispose();}`,
+            );
+            const clients = () =>
+                console.info(run([process.execPath, "clients.ts"], project).stdout);
+            clients();
+            const idle = performance.now();
+            while (machine().state !== "stopped") {
+                if (performance.now() - idle > 360_000)
+                    throw new Error("Fly did not auto-stop within six minutes");
+                await Bun.sleep(5000);
+            }
+            const stoppedAt = performance.now();
+            runningMs += stoppedAt - machineStart;
+            machineStart = 0;
+            console.info(JSON.stringify({ autoStopMs: stoppedAt - idle }));
+            machineStart = performance.now();
+            clients();
+            expect(machine().state).toBe("started");
+        } catch (error) {
+            failures.push(error);
+        } finally {
+            if (owned) {
+                try {
+                    if (machineStart) runningMs += performance.now() - machineStart;
+                    if (inventory().some((row) => row.Name === name))
+                        fly(["apps", "destroy", name, "--yes"]);
+                    console.info("Cleanup Fly inventory:", JSON.stringify(inventory()));
+                    expect(inventory()).toEqual([]);
+                    const seconds = Math.ceil(runningMs / 1000);
+                    console.info(
+                        JSON.stringify({
+                            machineSecondsUpperBound: seconds,
+                            costUSDUpperBound: seconds * 8.3e-7,
+                        }),
+                    );
+                } catch (error) {
+                    failures.push(error);
+                }
+            }
+            if (workerOwned) {
+                try {
+                    wrangler ||= join(project, "node_modules/wrangler/bin/wrangler.js");
+                    writeFileSync(
+                        join(root, "wrangler.json"),
+                        JSON.stringify(
+                            cloudflareConfig(join(root, "unused"), {
+                                target: "cloudflare",
+                                name,
+                                accountId: env.CLOUDFLARE_ACCOUNT_ID!,
+                            }),
+                        ),
+                    );
+                    cleanupOracleWorkers(
+                        new Set([name]),
+                        true,
+                        env.CLOUDFLARE_ACCOUNT_ID,
+                        (n) => worker(["delete", "--name", n]),
+                        (n) => {
+                            const output = join(root, "cleanup.jsonl");
+                            const result = worker(
+                                ["versions", "list", "--json", "--name", n],
+                                output,
+                            );
+                            return workerExists({
+                                ...result,
+                                entries: readFileSync(output, "utf8")
+                                    .trim()
+                                    .split("\n")
+                                    .map((line) => JSON.parse(line)),
+                            });
+                        },
+                        (message) => console.info(message),
+                    );
+                } catch (error) {
+                    failures.push(error);
+                }
+            }
+            if (!failures.length) rmSync(root, { recursive: true, force: true });
+        }
+        if (failures.length)
+            throw new AggregateError(failures, `Fly trial failed; retained ${root}`);
+    },
+    Number.POSITIVE_INFINITY,
+);

@@ -116,6 +116,7 @@ class NetworkDiagnostics {
             ["bytes_received", "B"],
             ["messages_sent", ""],
             ["messages_received", ""],
+            ["confirmed_tick", "ticks"],
             ["confirmed_tick_lag", "ticks"],
             ["time_since_receive", "ms"],
         ] as const) {

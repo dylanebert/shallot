@@ -8,13 +8,14 @@ import {
     writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { chromium } from "playwright";
 import { bunChild } from "../../scripts/bun-child";
 import { removeTestDirectory } from "../../scripts/test-directory";
 import { CROSS_ORIGIN_ISOLATION } from "../project/isolation.js";
 import { WRANGLER_VERSION } from "./publish-cloudflare";
+import { FLY_VERSION } from "./publish-fly";
 
 setDefaultTimeout(TIMEOUT.node);
 const repo = resolve(import.meta.dir, "../..");
@@ -37,7 +38,9 @@ beforeAll(async () => {
         source,
         `const fs=require('node:fs'),path=require('node:path'); const root=path.dirname(path.dirname(process.execPath)); ${RECORD}
 const args=process.argv.slice(2);
+if(path.basename(process.execPath).replace(/\\.exe$/, '')==='flyctl') { record({command:'fly '+args.join(' ')}); if(args[0]==='apps'&&args[1]==='list')console.log('[]');else if(args[0]==='orgs')console.log('[{"Slug":"personal"}]');process.exit(0); }
 if(path.basename(process.execPath).replace(/\\.exe$/, '')==='bun') {
+if(args[0]==='--version'){console.log('1.3.3');process.exit(0);} if(args[0]==='build'){record({command:'server build'});fs.writeFileSync(args[args.indexOf('--outfile')+1],'');process.exit(0);}
 if(JSON.stringify(args)!==JSON.stringify(['add','--dev','wrangler@${WRANGLER_VERSION}']))throw Error('Unexpected install');
 record({command:'install'});const p=path.join(process.cwd(),'package.json'),m=JSON.parse(fs.readFileSync(p));m.devDependencies={wrangler:'${WRANGLER_VERSION}'};fs.writeFileSync(p,JSON.stringify(m,null,4));fs.cpSync(path.join(root,'wrangler'),path.join(process.cwd(),'node_modules/wrangler'),{recursive:true});process.exit(0);
 }
@@ -107,7 +110,7 @@ async function fixture() {
     writeFileSync(
         join(project, "node_modules/vite/cli.cjs"),
         `${record}
-record({command:'build'});const directory=process.argv[process.argv.indexOf('--outDir')+1];fs.mkdirSync(directory,{recursive:true});fs.writeFileSync(path.join(directory,'index.html'),'<link rel="icon" href="data:,"><script>dispatchEvent(new CustomEvent("shallot:startup",{detail:{kind:"app"}}))</script>');`,
+record({command:'build',endpoint:process.env.VITE_SHALLOT_SERVER});const directory=process.argv[process.argv.indexOf('--outDir')+1];fs.mkdirSync(directory,{recursive:true});fs.writeFileSync(path.join(directory,'index.html'),'<link rel="icon" href="data:,"><script>dispatchEvent(new CustomEvent("shallot:startup",{detail:{kind:"app"}}))</script>');`,
     );
     const server = Bun.serve({
         hostname: "127.0.0.1",
@@ -138,7 +141,14 @@ export const chromium={async launch(){const browser=await publishTestChromium(),
         runner,
         `import {publishProject} from ${JSON.stringify(join(repo, "src/cli/publish.ts"))};try{await publishProject(process.argv[2]);}catch(error){console.error(error.message);process.exitCode=1;}`,
     );
-    const run = async (account?: string) => {
+    const flyPlatform = `${process.platform === "darwin" ? "macOS" : process.platform === "win32" ? "Windows" : "Linux"}_${process.arch === "arm64" ? "arm64" : "x86_64"}`;
+    const flyCache = join(root, "cache", "shallot", "flyctl", FLY_VERSION, flyPlatform);
+    mkdirSync(flyCache, { recursive: true });
+    linkSync(tool, join(flyCache, `flyctl${suffix}`));
+    writeFileSync(join(flyCache, ".complete"), "");
+    // The compiled tool locates fixture state relative to its executable.
+    linkSync(records, join(dirname(flyCache), "commands.jsonl"));
+    const run = async (account?: string, fly = false) => {
         const env = Object.fromEntries(
             Object.entries(process.env).filter(([key]) => !/^(CLOUDFLARE_|CF_)/.test(key)),
         );
@@ -149,6 +159,8 @@ export const chromium={async launch(){const browser=await publishTestChromium(),
                 ...env,
                 PATH: `${bin}${delimiter}${process.env.PATH}`,
                 CI: "true",
+                XDG_CACHE_HOME: join(root, "cache"),
+                FLY_API_TOKEN: fly ? "fixture-token" : "",
                 SHALLOT_TEST_CHROMIUM: chromium.executablePath(),
                 HOME: join(root, "home"),
                 XDG_CONFIG_HOME: join(root, "home"),
@@ -239,6 +251,27 @@ test("publishProject changes only the link and installed devDependency; a saved 
         expect(explicit.stderr).toContain(accountB);
         expect(f.commands().filter((entry) => entry.command === "deploy")).toHaveLength(2);
         expect(f.snapshot()).toEqual(after);
+    } finally {
+        await f.close();
+    }
+});
+
+test("Fly deploy precedes the client build, which receives the public endpoint", async () => {
+    const f = await fixture();
+    try {
+        writeFileSync(join(f.project, "server.ts"), "");
+        f.state.fail = true;
+        f.save();
+        const result = await f.run(undefined, true);
+        expect(result.stderr).toContain("recorded deploy failure");
+        const commands = f.commands();
+        const server = commands.findIndex((row) => row.command.startsWith("fly deploy "));
+        const client = commands.findIndex((row) => row.command === "build");
+        expect(server).toBeGreaterThan(-1);
+        expect(client).toBeGreaterThan(server);
+        expect(commands[server].command).toContain("--remote-only --ha=false");
+        expect(commands[client].endpoint).toBe("wss://fixture-game.fly.dev");
+        expect(commands.findIndex((row) => row.command === "deploy")).toBeGreaterThan(client);
     } finally {
         await f.close();
     }

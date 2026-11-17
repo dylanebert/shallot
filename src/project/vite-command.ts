@@ -48,6 +48,7 @@ export function runVite(
     command: ViteCommand,
     args: string[] = [],
     stdout: "inherit" | 2 | "quiet" = "inherit",
+    env: NodeJS.ProcessEnv = process.env,
 ): number {
     let viteCli: string;
     try {
@@ -58,6 +59,7 @@ export function runVite(
     }
     const result = spawnSync(process.execPath, [viteCli, ...viteCliArgs(command, args)], {
         cwd: viteCwd(projectDir),
+        env,
         maxBuffer: Infinity,
         stdio: ["inherit", stdout === "quiet" ? "pipe" : stdout, stdout === "quiet" ? "pipe" : "inherit"],
     });

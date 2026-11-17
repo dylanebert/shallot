@@ -28,7 +28,7 @@
 
             const bootstrap = document.querySelector("[data-shallot-bootstrap]");
             const loading = shallotDark({ bootstrap });
-            const url = new URLSearchParams(location.search).get("server") ?? undefined;
+            const url = new URLSearchParams(location.search).get("server") ?? import.meta.env.VITE_SHALLOT_SERVER;
             let connection;
             let connectionError;
             const showError = (error) => {

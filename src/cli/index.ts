@@ -82,6 +82,20 @@ const commandUsage = {
   "See what is published": https://dash.cloudflare.com/<account>/workers/overview
   lists every Worker in the account; Wrangler has no account-wide list command.
 
+  Server: shallot.publish.server = { "target": "fly", "app": "<app>" } deploys
+  server.ts before building the client with VITE_SHALLOT_SERVER=wss://<app>.fly.dev.
+  A first publish of a project with server.ts chooses a Fly app name and refuses
+  an existing app; a hand-written server link authorizes updating that app.
+  Project Fly configuration is refused. The pinned, SHA-256-verified flyctl uses
+  Fly's remote builder; Docker is not needed. One shared-cpu-1x 256 MB Machine
+  auto-stops with no minimum running; shared IPv4 only.
+  Login: fly auth login in a terminal; FLY_API_TOKEN is required otherwise.
+  More than one organization requires a terminal to choose one.
+  Server logs: fly logs --app <app>
+  Server rollback: check out an earlier commit, then bunx shallot publish
+  Server deletion: confirm with the person first, then fly apps destroy <app>
+  Server inventory: fly apps list
+
   itch: the page's html5 channel, 1,000 files, 200 MB per file, 500 MB in all.
   Create the page on itch.io with Kind of project HTML; shallot.publish (target
   itch, name <user>/<game>) names it. itch.io's butler is fetched at its pinned
