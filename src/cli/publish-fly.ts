@@ -224,5 +224,7 @@ primary_region = "iad"
 [[vm]]
   size = "shared-cpu-1x"
   memory = "256mb"
+[[restart]]
+  policy = "never"
 `;
 }

@@ -31,6 +31,12 @@ test("Fly config pins one shared CPU", () => {
     expect(config().vm.map((vm: { size: string }) => vm.size)).toEqual(["shared-cpu-1x"]);
 });
 
+test("Fly config leaves stopped Machines stopped until proxy traffic starts them", () => {
+    expect(config().restart.map((restart: { policy: string }) => restart.policy)).toEqual([
+        "never",
+    ]);
+});
+
 test("Fly config pins 256 MB", () => {
     expect(config().vm.map((vm: { memory: string }) => vm.memory)).toEqual(["256mb"]);
 });

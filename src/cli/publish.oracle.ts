@@ -738,7 +738,15 @@ test(
                     ["shared_v4", "v6"].includes(row.Type),
                 ),
             ).toBe(true);
-            console.info("Deployed Machine services:", JSON.stringify(machine().config.services));
+            const deployedMachine = machine();
+            console.info(
+                "Deployed Machine services:",
+                JSON.stringify(deployedMachine.config.services),
+            );
+            console.info(
+                "Deployed Machine restart:",
+                JSON.stringify(deployedMachine.config.restart),
+            );
             // GAME has only two slots: publish's page has closed before these clients start.
             writeFileSync(
                 join(project, "clients.ts"),
@@ -758,10 +766,16 @@ if(ticks.some(t=>t<60))throw Error('Clients did not confirm 60 ticks');console.l
             const idle = performance.now();
             let idleMachine = machine();
             while (idleMachine.state !== "stopped") {
-                if (performance.now() - idle > 360_000)
+                if (performance.now() - idle > 360_000) {
+                    console.info(fly(["logs", "--app", name, "--no-tail"]));
+                    const status = JSON.parse(
+                        fly(["machine", "status", idleMachine.id, "--app", name, "--json"]),
+                    );
+                    console.info("Machine events:", JSON.stringify(status.events));
                     throw new Error(
                         `Fly did not auto-stop within six minutes: ${JSON.stringify({ state: idleMachine.state, services: idleMachine.config.services })}`,
                     );
+                }
                 await Bun.sleep(5000);
                 idleMachine = machine();
             }
