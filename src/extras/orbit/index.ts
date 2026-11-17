@@ -76,6 +76,17 @@ export const Orbit = component(
         keyDamping: f32,
         /** zoom factor applied to wheel, pinch and vertical mouse drag */
         zoomSpeed: f32,
+        /** nonzero ignores wheel produced while any pointer button or touch contact is held */
+        ignoreDragWheel: u8,
+        /** Fraction of pending input pan applied per 60 Hz frame; authored pan remains immediate. */
+        panSmoothness: f32,
+        /** Input zoom response per 60 Hz frame: -1 inherits smoothness; [0,1] overrides it.
+         * Authored distance/size changes still use smoothness. */
+        zoomSmoothness: f32,
+        /** Nonzero scales distance/size by inverse contact separation ratio instead of raw pinch pixels. */
+        proportionalPinch: u8,
+        /** Remaining contacts after any lift/cancel resume (1), or stop until the next press (0). */
+        touchResume: u8,
         /** mouse button that orbits: 0 left, 1 middle, 2 right; 255 disables */
         orbitButton: u8,
         /** mouse button that pans: 0 left, 1 middle, 2 right; 255 disables */
@@ -124,6 +135,11 @@ export const Orbit = component(
             keyAcceleration: 30,
             keyDamping: 30,
             zoomSpeed: 0.025,
+            ignoreDragWheel: 0,
+            panSmoothness: 1,
+            zoomSmoothness: -1,
+            proportionalPinch: 0,
+            touchResume: 1,
             orbitButton: 0,
             panButton: 1,
             flyButton: 2,
@@ -216,6 +232,16 @@ const OrbitSystem: System = {
             smooth.keyYawVelocity.set(eid, 0);
             smooth.keyPitchVelocity.set(eid, 0);
             smooth.flyActive.set(eid, 0);
+            smooth.pan.x.set(eid, orbit.pan.x.get(eid));
+            smooth.pan.y.set(eid, orbit.pan.y.get(eid));
+            smooth.pan.z.set(eid, orbit.pan.z.get(eid));
+            smooth.panImpulse.set(eid, 0, 0, 0);
+            smooth.panTarget.set(eid, orbit.target.get(eid));
+            smooth.touchStopped.set(eid, 0);
+            smooth.zoomDistanceImpulse.set(eid, 0);
+            smooth.zoomSizeImpulse.set(eid, 0);
+            smooth.zoomDistance.set(eid, orbit.distance.get(eid));
+            smooth.zoomSize.set(eid, orbit.size.get(eid));
             // Warn on initialization because the pose query silently excludes entities without Transform.
             if (!world.has(eid, Transform)) {
                 console.warn(
@@ -256,6 +282,13 @@ const OrbitSystem: System = {
             const manual = orbit.mode.get(eid) === OrbitMode.Manual;
             const locked = orbit.mode.get(eid) !== OrbitMode.Free;
             const touchCount = manual ? 0 : input.touch.count;
+            const authoredZoom =
+                distO !== smooth.zoomDistance.get(eid) || sizeO !== smooth.zoomSize.get(eid);
+            const zoomReset = manual || !input.enabled || authoredZoom;
+            let distanceImpulse = zoomReset ? 0 : smooth.zoomDistanceImpulse.get(eid);
+            let sizeImpulse = zoomReset ? 0 : smooth.zoomSizeImpulse.get(eid);
+            const distanceBeforeInput = distO;
+            const sizeBeforeInput = sizeO;
             // Touch capture also holds pointer.left; reading mouse buttons here would orbit during pinch/pan.
             // Fly has no touch equivalent.
             const orbitButton = orbit.orbitButton.get(eid);
@@ -270,8 +303,11 @@ const OrbitSystem: System = {
                 (touchCount > 0 ? false : isButton(input.pointer, orbit.flyButton.get(eid)));
             // Leave movement keys to gameplay unless the fly button is held; orbit and pan take priority.
             const flying = !isOrtho && !orbitOrPanHeld && !zoomHeld && flyHeld;
-            let dragX = touchCount > 1 ? input.touch.deltaX : 0;
-            let dragY = touchCount > 1 ? input.touch.deltaY : 0;
+            let dragX = 0;
+            let dragY = 0;
+            let pinch = 0;
+            let pinchRatio = 1;
+            let touchStopped = smooth.touchStopped.get(eid);
             let zoomDrag = 0;
             if (!manual) {
                 for (const motion of input.pointer.motion) {
@@ -303,13 +339,23 @@ const OrbitSystem: System = {
                     }
                     if (zoom) zoomDrag += motion.deltaY;
                 }
-                if (!locked && touchCount === 1) {
-                    yawO -= input.touch.pointerDeltaX * sensitivity;
-                    pitchO = clamp(
-                        pitchO + input.touch.pointerDeltaY * sensitivity,
-                        minPitch,
-                        maxPitch,
-                    );
+                for (const motion of input.touch.events) {
+                    if (motion.phase === "start") touchStopped = 0;
+                    if (motion.phase === "end" || motion.phase === "cancel") touchStopped = 1;
+                    if (
+                        motion.phase !== "move" ||
+                        (orbit.touchResume.get(eid) === 0 && touchStopped)
+                    )
+                        continue;
+                    if (motion.count === 1 && !locked) {
+                        yawO -= motion.deltaX * sensitivity;
+                        pitchO = clamp(pitchO + motion.deltaY * sensitivity, minPitch, maxPitch);
+                    } else if (motion.count === 2) {
+                        dragX += motion.deltaX;
+                        dragY += motion.deltaY;
+                        pinch += motion.pinchDelta;
+                        pinchRatio *= motion.ratio;
+                    }
                 }
             }
 
@@ -369,13 +415,58 @@ const OrbitSystem: System = {
                 panZ += dy * upZ - dx * rightZ;
             }
 
-            const panDeltaX = panX - orbit.pan.x.get(eid);
-            const panDeltaY = panY - orbit.pan.y.get(eid);
-            const panDeltaZ = panZ - orbit.pan.z.get(eid);
+            const authoredX = orbit.pan.x.get(eid);
+            const authoredY = orbit.pan.y.get(eid);
+            const authoredZ = orbit.pan.z.get(eid);
+            const resetPan =
+                manual ||
+                !input.enabled ||
+                orbit.target.get(eid) !== smooth.panTarget.get(eid) ||
+                authoredX !== smooth.pan.x.get(eid) ||
+                authoredY !== smooth.pan.y.get(eid) ||
+                authoredZ !== smooth.pan.z.get(eid);
+            let impulseX = (resetPan ? 0 : smooth.panImpulse.x.get(eid)) + panX - authoredX;
+            let impulseY = (resetPan ? 0 : smooth.panImpulse.y.get(eid)) + panY - authoredY;
+            let impulseZ = (resetPan ? 0 : smooth.panImpulse.z.get(eid)) + panZ - authoredZ;
+            const panResponse = orbit.panSmoothness.get(eid);
+            const panT = panResponse >= 1 ? 1 : smoothLerp(panResponse, dt);
+            const panDeltaX = impulseX * panT;
+            const panDeltaY = impulseY * panT;
+            const panDeltaZ = impulseZ * panT;
+            panX = authoredX + panDeltaX;
+            panY = authoredY + panDeltaY;
+            panZ = authoredZ + panDeltaZ;
+            impulseX -= panDeltaX;
+            impulseY -= panDeltaY;
+            impulseZ -= panDeltaZ;
+
+            if (!manual && orbit.proportionalPinch.get(eid) !== 0) {
+                if (pinchRatio !== 1) {
+                    if (isOrtho)
+                        sizeO = clamp(
+                            sizeO / pinchRatio,
+                            orbit.minSize.get(eid),
+                            orbit.maxSize.get(eid),
+                        );
+                    else
+                        distO = clamp(
+                            distO / pinchRatio,
+                            orbit.minDistance.get(eid),
+                            orbit.maxDistance.get(eid),
+                        );
+                }
+                pinch = 0;
+            }
 
             // Wheel-away zooms out; a positive pinch spread zooms in. Both can arrive in one frame.
-            const pinch = touchCount > 0 ? input.touch.pinchDelta : 0;
-            const wheel = manual ? 0 : input.pointer.scroll - pinch;
+            let scroll = input.pointer.scroll;
+            if (orbit.ignoreDragWheel.get(eid) !== 0) {
+                scroll = 0;
+                for (const fact of input.pointer.wheel) {
+                    if (fact.buttons === 0 && fact.contacts === 0) scroll += fact.delta;
+                }
+            }
+            const wheel = manual ? 0 : scroll - pinch;
             if (flying && wheel !== 0) {
                 // Sustained fly uses final held levels; earlier zoom drags still change orbit distance.
                 flySpd = clamp(
@@ -408,10 +499,27 @@ const OrbitSystem: System = {
             const tLook = flying ? smoothLerp(orbit.flySmoothness.get(eid), dt) : t;
             yawS += angleDiff(yawS, yawO) * tLook;
             pitchS += (pitchO - pitchS) * tLook;
-            distS += (distO - distS) * t;
+            const zoomResponse = orbit.zoomSmoothness.get(eid);
+            if (zoomResponse < 0) {
+                distanceImpulse = 0;
+                sizeImpulse = 0;
+                distS += (distO - distS) * t;
+                if (isOrtho) sizeS += (sizeO - sizeS) * t;
+            } else {
+                const tZoom = smoothLerp(zoomResponse, dt);
+                distanceImpulse += distO - distanceBeforeInput;
+                sizeImpulse += sizeO - sizeBeforeInput;
+                const distanceStep = distanceImpulse * tZoom;
+                const sizeStep = sizeImpulse * tZoom;
+                distS += (distO - distanceImpulse - distS) * t + distanceStep;
+                distanceImpulse -= distanceStep;
+                if (isOrtho) {
+                    sizeS += (sizeO - sizeImpulse - sizeS) * t + sizeStep;
+                    sizeImpulse -= sizeStep;
+                }
+            }
 
             if (isOrtho) {
-                sizeS += (sizeO - sizeS) * t;
                 camera.size.column[eid] = sizeS;
                 camera.size.markChanged(eid);
             }
@@ -545,6 +653,18 @@ const OrbitSystem: System = {
             orbit.pan.column[eid * 4 + 1] = panY;
             orbit.pan.column[eid * 4 + 2] = panZ;
             orbit.pan.markChanged(eid);
+            smooth.pan.x.set(eid, orbit.pan.x.get(eid));
+            smooth.pan.y.set(eid, orbit.pan.y.get(eid));
+            smooth.pan.z.set(eid, orbit.pan.z.get(eid));
+            smooth.panTarget.set(eid, orbit.target.get(eid));
+            smooth.panImpulse.x.set(eid, impulseX);
+            smooth.panImpulse.y.set(eid, impulseY);
+            smooth.panImpulse.z.set(eid, impulseZ);
+            smooth.touchStopped.set(eid, touchStopped);
+            smooth.zoomDistanceImpulse.set(eid, distanceImpulse);
+            smooth.zoomSizeImpulse.set(eid, sizeImpulse);
+            smooth.zoomDistance.set(eid, orbit.distance.get(eid));
+            smooth.zoomSize.set(eid, orbit.size.get(eid));
             orbit.flySpeed.column[eid] = flySpd;
             orbit.flySpeed.markChanged(eid);
             smooth.flyActive.column[eid] = flyActive;

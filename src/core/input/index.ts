@@ -46,10 +46,35 @@ export interface PointerMotion {
     readonly modifiers: number;
 }
 
-/** live pointer state in one device record. Positions and sizes are CSS pixels; deltas accumulate over a
+/** Pooled wheel movement with event-time provenance; positive delta scrolls down/away.
+ * Bits 0/1/2 of buttons mean left/middle/right; contacts is the held touch count. */
+export interface PointerWheel {
+    readonly delta: number;
+    readonly buttons: number;
+    readonly contacts: number;
+}
+
+/** One pooled touch lifecycle or motion fact. Count is event-time, before an end/cancel.
+ * Move deltas are CSS pixels: primary pointer for one contact, centroid for two; pinchDelta
+ * is separation change. Other counts and lifecycle edges carry zero deltas. */
+export interface TouchEvent {
+    readonly phase: "start" | "move" | "end" | "cancel";
+    readonly count: number;
+    /** New separation / previous separation for the same two contacts; 1 for lifecycle edges,
+     * changed contact sets, or either coincident (zero) span. */
+    readonly ratio: number;
+    readonly deltaX: number;
+    readonly deltaY: number;
+    readonly pinchDelta: number;
+}
+
+/** Live pointer state in one device record. Positions and sizes are CSS pixels; deltas accumulate over a
  * frame and reset at the draw boundary. A one-finger touch drives `left` and the position; a second finger
  * cancels that press. */
 export interface Pointer {
+    /** Event-time wheel facts in production order. Pooled to the world's high-water count;
+     * expire at the draw boundary. Copy values to retain them. */
+    readonly wheel: readonly PointerWheel[];
     readonly lock: PointerLock;
     /** Mouse-only motion while buttons are held, in production order; cleared on cancellation,
      * blur, lock exit or suspension. Storage retains the world's per-frame high-water count;
@@ -92,6 +117,9 @@ export interface TouchPoint {
 }
 
 export interface Touch {
+    /** Lifecycle and motion facts in production order. Pooled to the world's per-frame high-water
+     * count; expire at draw and clear on blur, lock exit or suspension. Copy values to retain them. */
+    readonly events: readonly TouchEvent[];
     readonly held: ReadonlyMap<number, TouchPoint>;
     /** positions at press, retained until the draw boundary even if released in the same frame */
     readonly pressed: ReadonlyMap<number, TouchPoint>;
@@ -122,7 +150,7 @@ export interface AudioDevice {
 }
 
 /** all device-fed facts for one World, read directly. `keys.pressed`, `keys.released`, `pointer.buttonEvents`,
- * `pointer.motion`, `touch.pressed`, `touch.released`, `touch.canceled`, `pointer.scroll` and the pointer and touch deltas cover one frame; the input plugin clears
+ * `pointer.motion`, `pointer.wheel`, `touch.events`, `touch.pressed`, `touch.released`, `touch.canceled`, `pointer.scroll` and the pointer and touch deltas cover one frame; the input plugin clears
  * them at the draw boundary. A game or headless driver changes every field except `audio.context` through the
  * producers below, which keep edges and boundary releases; the browser producer writes the same fields from DOM events. `audio.context` has no
  * producer: the audio runtime or a headless driver writes it directly. The record is created lazily, so a World
@@ -156,6 +184,10 @@ interface DeviceRecord extends Devices {
     pointerCanvasIndex: number;
     readonly motion: Mutable<PointerMotion>[];
     readonly motionPool: Mutable<PointerMotion>[];
+    readonly wheel: Mutable<PointerWheel>[];
+    readonly wheelPool: Mutable<PointerWheel>[];
+    readonly touchEvents: Mutable<TouchEvent>[];
+    readonly touchEventPool: Mutable<TouchEvent>[];
     modifiers: number;
     readonly buttonEvents: Mutable<PointerButtonEvent>[];
     /** every event record allocated so far, reused across frames */
@@ -235,7 +267,7 @@ const adapters = new WeakMap<World, BrowserAdapter>();
 
 const DEFAULT_POINTER: Omit<
     Pointer,
-    "lock" | "normalizedX" | "normalizedY" | "buttonEvents" | "motion"
+    "lock" | "normalizedX" | "normalizedY" | "buttonEvents" | "motion" | "wheel"
 > = {
     deltaX: 0,
     deltaY: 0,
@@ -248,7 +280,7 @@ const DEFAULT_POINTER: Omit<
     y: 0,
 };
 
-const DEFAULT_TOUCH: Omit<Touch, "held" | "pressed" | "released" | "canceled"> = {
+const DEFAULT_TOUCH: Omit<Touch, "held" | "pressed" | "released" | "canceled" | "events"> = {
     count: 0,
     pinchDelta: 0,
     pointerDeltaX: 0,
@@ -262,10 +294,13 @@ function emptyRecord(world: World): DeviceRecord {
     const touchPoints = new Map<number, Mutable<TouchPoint>>();
     const buttonEvents: Mutable<PointerButtonEvent>[] = [];
     const motion: Mutable<PointerMotion>[] = [];
+    const wheel: Mutable<PointerWheel>[] = [];
+    const touchEvents: Mutable<TouchEvent>[] = [];
     const pointer: Pointer = {
         ...DEFAULT_POINTER,
         lock: { ...DEFAULT_POINTER_LOCK },
         buttonEvents,
+        wheel,
         motion,
         get normalizedX() {
             const viewport = world.resource(Viewports).get(devices.pointerCanvasIndex);
@@ -286,6 +321,7 @@ function emptyRecord(world: World): DeviceRecord {
         pointer,
         touch: {
             ...DEFAULT_TOUCH,
+            events: touchEvents,
             held: touchPoints,
             pressed: new Map(),
             released: new Map(),
@@ -303,6 +339,10 @@ function emptyRecord(world: World): DeviceRecord {
         buttonEventPool: [],
         motion,
         motionPool: [],
+        wheel,
+        wheelPool: [],
+        touchEvents,
+        touchEventPool: [],
         modifiers: 0,
         primaryTouch: null,
         touchPress: false,
@@ -531,7 +571,19 @@ export function pointerButtons(world: World, buttons: number, modifiers?: Pointe
 /** Accumulate wheel movement; positive scrolls down/away. */
 export function pointerWheel(world: World, delta: number): void {
     const d = record(world);
-    if (d.enabled) d.pointer.scroll += delta;
+    if (!d.enabled) return;
+    d.pointer.scroll += delta;
+    const index = d.wheel.length;
+    let fact = d.wheelPool[index];
+    if (!fact) {
+        fact = { delta: 0, buttons: 0, contacts: 0 };
+        d.wheelPool.push(fact);
+    }
+    fact.delta = delta;
+    fact.buttons =
+        Number(d.pointer.left) | (Number(d.pointer.middle) << 1) | (Number(d.pointer.right) << 2);
+    fact.contacts = d.touch.count;
+    d.wheel.push(fact);
 }
 
 function distance(a: { x: number; y: number }, b: { x: number; y: number }): number {
@@ -577,20 +629,19 @@ export function touchPoint(
     const previous = d.touchPoints.get(pointerId);
     if (!active) {
         if (!previous) return;
-        if (pointerId === d.primaryTouch) {
-            d.touch.pointerDeltaX += x - previous.x;
-            d.touch.pointerDeltaY += y - previous.y;
-            pointerMove(world, x, y, x - previous.x, y - previous.y);
-            if (d.touchPress) setButtonLevel(d, "left", false);
-        }
-        previous.deltaX += x - previous.x;
-        previous.deltaY += y - previous.y;
-        previous.x = x;
-        previous.y = y;
+        touchPoint(world, pointerId, x, y);
+        if (pointerId === d.primaryTouch && d.touchPress) setButtonLevel(d, "left", false);
+        touchEvent(d, "end");
         d.touch.released.set(pointerId, previous);
         liftTouch(d, pointerId);
         return;
     }
+    const pointerX = d.touch.pointerDeltaX;
+    const pointerY = d.touch.pointerDeltaY;
+    const panX = d.touch.deltaX;
+    const panY = d.touch.deltaY;
+    const pinch = d.touch.pinchDelta;
+    const span = d.pinchDistance;
     if (previous) {
         const fromX = previous.x;
         const fromY = previous.y;
@@ -609,6 +660,7 @@ export function touchPoint(
         d.touch.pressed.set(pointerId, { ...point });
         d.touch.count = d.touchPoints.size;
         updatePinchBaseline(d);
+        touchEvent(d, "start");
         if (d.touchPoints.size === 1) {
             d.primaryTouch = pointerId;
             pointerMove(world, x, y);
@@ -633,6 +685,43 @@ export function touchPoint(
         d.centroidX = nextX;
         d.centroidY = nextY;
     }
+    const count = d.touch.count;
+    const dx = count === 1 ? d.touch.pointerDeltaX - pointerX : d.touch.deltaX - panX;
+    const dy = count === 1 ? d.touch.pointerDeltaY - pointerY : d.touch.deltaY - panY;
+    const dp = d.touch.pinchDelta - pinch;
+    if (dx !== 0 || dy !== 0 || dp !== 0) {
+        const fact = touchEvent(d, "move");
+        fact.deltaX = dx;
+        fact.deltaY = dy;
+        fact.pinchDelta = dp;
+        if (
+            count === 2 &&
+            span !== null &&
+            span > 0 &&
+            d.pinchDistance !== null &&
+            d.pinchDistance > 0
+        ) {
+            const ratio = d.pinchDistance / span;
+            if (Number.isFinite(ratio) && ratio > 0) fact.ratio = ratio;
+        }
+    }
+}
+
+function touchEvent(d: DeviceRecord, phase: TouchEvent["phase"]): Mutable<TouchEvent> {
+    const index = d.touchEvents.length;
+    let fact = d.touchEventPool[index];
+    if (!fact) {
+        fact = { phase, count: 0, deltaX: 0, deltaY: 0, pinchDelta: 0, ratio: 1 };
+        d.touchEventPool.push(fact);
+    }
+    fact.phase = phase;
+    fact.count = d.touch.count;
+    fact.deltaX = 0;
+    fact.deltaY = 0;
+    fact.pinchDelta = 0;
+    fact.ratio = 1;
+    d.touchEvents.push(fact);
+    return fact;
 }
 
 /** Drop the frame's press events, keeping its releases in order. `buttonEvents[i]` is always
@@ -720,6 +809,7 @@ export function cancelTouch(world: World, pointerId: number): void {
     if (!d.enabled) return;
     const point = d.touchPoints.get(pointerId);
     if (!point) return;
+    touchEvent(d, "cancel");
     d.touch.canceled.set(pointerId, point);
     if (pointerId === d.primaryTouch) cancelTouchPress(d);
     liftTouch(d, pointerId);
@@ -732,6 +822,7 @@ function clearTouch(d: DeviceRecord): void {
     d.primaryTouch = null;
     d.touchPress = false;
     d.touch.count = 0;
+    d.touchEvents.length = 0;
     d.touch.pinchDelta = 0;
     d.touch.pointerDeltaX = 0;
     d.touch.pointerDeltaY = 0;
@@ -1169,6 +1260,7 @@ export function setInputEnabled(world: World, on: boolean): void {
         d.pointer.deltaX = 0;
         d.pointer.deltaY = 0;
         d.pointer.scroll = 0;
+        d.wheel.length = 0;
     }
 }
 
@@ -1244,6 +1336,8 @@ const ResetFrameInputSystem: System = {
         if (d.keys.released.size !== 0) d.keys.released.clear();
         if (d.buttonEvents.length !== 0) d.buttonEvents.length = 0;
         d.motion.length = 0;
+        d.wheel.length = 0;
+        d.touchEvents.length = 0;
         d.pointer.deltaX = 0;
         d.pointer.deltaY = 0;
         d.pointer.scroll = 0;

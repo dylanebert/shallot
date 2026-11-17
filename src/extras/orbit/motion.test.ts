@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
     blurCanvas,
+    cancelTouch,
     createApp,
     Devices,
     focusCanvas,
@@ -8,6 +9,7 @@ import {
     OrbitPlugin,
     pointerLockChanged,
     pointerMove,
+    pointerWheel,
     pressButton,
     releaseButton,
     requirePointerLock,
@@ -74,6 +76,98 @@ test("released pan moves the actual fly pose and survives fly-exit target reanch
             expect(target[i]).toBeCloseTo(pan[i]!, 6);
             expect(exitPose[i]).toBeCloseTo(flyPose[i]!, 6);
         }
+    } finally {
+        await app.dispose();
+    }
+});
+
+for (const cancel of [false, true]) {
+    for (const split of [false, true]) {
+        test(`moving touch retains event-time totals: cancel=${cancel}, split=${split}`, async () => {
+            const { app, w, eid, o } = await subject();
+            try {
+                touchPoint(w, 1, 0, 0);
+                touchPoint(w, 2, 100, 0);
+                touchPoint(w, 1, 10, 6);
+                touchPoint(w, 2, 130, 6);
+                // Centroid (20,6), distance 100 -> 120, no single-contact motion.
+                if (split) w.step(1 / 60);
+                if (cancel) {
+                    cancelTouch(w, 1);
+                    cancelTouch(w, 2);
+                } else {
+                    touchPoint(w, 1, 10, 6, false);
+                    touchPoint(w, 2, 130, 6, false);
+                }
+                w.step(1 / 60);
+                expect(o.yaw.get(eid)).toBe(0);
+                expect(o.pitch.get(eid)).toBe(0);
+                const scale = (20 * Math.tan(Math.PI / 6)) / 670;
+                expect(o.pan.x.get(eid)).toBeCloseTo(-20 * scale, 6);
+                expect(o.pan.y.get(eid)).toBeCloseTo(6 * scale, 6);
+                expect(o.distance.get(eid)).toBeCloseTo(9.6, 5);
+                w.step(1 / 60);
+                expect(o.distance.get(eid)).toBeCloseTo(9.6, 5);
+            } finally {
+                await app.dispose();
+            }
+        });
+    }
+}
+
+test("single then two contacts retain separate motion after both release", async () => {
+    const { app, w, eid, o } = await subject();
+    try {
+        touchPoint(w, 1, 0, 0);
+        touchPoint(w, 1, 30, 12);
+        touchPoint(w, 2, 130, 12);
+        touchPoint(w, 2, 150, 12);
+        touchPoint(w, 1, 30, 12, false);
+        touchPoint(w, 2, 150, 12, false);
+        w.step(1 / 60);
+        expect(o.yaw.get(eid)).toBeCloseTo(-0.15, 6);
+        expect(o.pitch.get(eid)).toBeCloseTo(0.06, 6);
+        expect(o.pan.x.get(eid)).toBeCloseTo((-10 * 20 * Math.tan(Math.PI / 6)) / 670, 6);
+        expect(o.distance.get(eid)).toBeCloseTo(9.6, 5);
+        w.step(1 / 60);
+        expect(o.yaw.get(eid)).toBeCloseTo(-0.15, 6);
+    } finally {
+        await app.dispose();
+    }
+});
+
+test("wheel provenance filters only event-time drag wheel when opted in", async () => {
+    for (const ignore of [0, 1]) {
+        const { app, w, eid, o } = await subject();
+        try {
+            o.ignoreDragWheel.set(eid, ignore);
+            pointerWheel(w, 20);
+            pressButton(w, 0);
+            pointerWheel(w, 120);
+            releaseButton(w, 0);
+            pointerWheel(w, -10);
+            expect(w.resource(Devices).pointer.scroll).toBe(130);
+            w.step(1 / 60);
+            expect(o.distance.get(eid)).toBeCloseTo(ignore ? 10.2 : 12.6, 5);
+        } finally {
+            await app.dispose();
+        }
+    }
+});
+
+test("wheel filtering sees touch contacts even after all contacts cancel before the frame", async () => {
+    const { app, w, eid, o } = await subject();
+    try {
+        o.ignoreDragWheel.set(eid, 1);
+        pointerWheel(w, 20);
+        touchPoint(w, 1, 0, 0);
+        touchPoint(w, 2, 100, 0);
+        pointerWheel(w, 120);
+        cancelTouch(w, 1);
+        cancelTouch(w, 2);
+        pointerWheel(w, -10);
+        w.step(1 / 60);
+        expect(o.distance.get(eid)).toBeCloseTo(10.2, 5);
     } finally {
         await app.dispose();
     }

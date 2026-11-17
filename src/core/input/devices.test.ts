@@ -35,6 +35,85 @@ function inputState(): World {
     return world;
 }
 
+test("touch events retain event-time lifecycle, release displacement and pair-local ratios", () => {
+    const world = inputState();
+    const other = inputState();
+    try {
+        const touch = world.resource(Devices).touch;
+        touchPoint(world, 1, 0, 0);
+        touchPoint(world, 1, 30, 12);
+        touchPoint(world, 2, 130, 12);
+        touchPoint(world, 2, 150, 12, false);
+        cancelTouch(world, 1);
+        expect(touch.events.map((e) => e.phase)).toEqual([
+            "start",
+            "move",
+            "start",
+            "move",
+            "end",
+            "cancel",
+        ]);
+        expect(touch.events[1]).toMatchObject({ count: 1, deltaX: 30, deltaY: 12, ratio: 1 });
+        expect(touch.events[3]).toMatchObject({
+            count: 2,
+            deltaX: 10,
+            deltaY: 0,
+            pinchDelta: 20,
+            ratio: 1.2,
+        });
+        expect(touch.pointerDeltaX).toBe(30);
+        expect(touch.deltaX).toBe(10);
+        expect(touch.pinchDelta).toBe(20);
+        expect(touch.count).toBe(0);
+        expect(other.resource(Devices).touch.events).toHaveLength(0);
+        const pooled = touch.events[0];
+        world.step(0);
+        expect(touch.events).toHaveLength(0);
+        touchPoint(world, 3, 0, 0);
+        expect(touch.events[0]).toBe(pooled);
+        blurCanvas(world);
+        expect(touch.events).toHaveLength(0);
+    } finally {
+        world.dispose();
+        other.dispose();
+    }
+});
+
+test("wheel history retains mouse/contact provenance and scalar total, pooling across frames", () => {
+    const world = inputState();
+    const other = inputState();
+    try {
+        const pointer = world.resource(Devices).pointer;
+        pointerWheel(world, 20);
+        pressButton(world, 2);
+        pointerWheel(world, 120);
+        releaseButton(world, 2);
+        pointerWheel(world, -10);
+        touchPoint(world, 1, 0, 0);
+        touchPoint(world, 2, 100, 0);
+        pointerWheel(world, 5);
+        expect(pointer.wheel).toEqual([
+            { delta: 20, buttons: 0, contacts: 0 },
+            { delta: 120, buttons: 4, contacts: 0 },
+            { delta: -10, buttons: 0, contacts: 0 },
+            { delta: 5, buttons: 0, contacts: 2 },
+        ]);
+        expect(pointer.scroll).toBe(135);
+        expect(other.resource(Devices).pointer.wheel).toHaveLength(0);
+        const pooled = pointer.wheel[0];
+        world.step(0);
+        expect(pointer.wheel).toHaveLength(0);
+        pointerWheel(world, 7);
+        expect(pointer.wheel[0]).toBe(pooled);
+        setInputEnabled(world, false);
+        expect(pointer.wheel).toHaveLength(0);
+        expect(pointer.scroll).toBe(0);
+    } finally {
+        world.dispose();
+        other.dispose();
+    }
+});
+
 function browserInputState(): World {
     const world = inputState();
     for (const system of BrowserInputPlugin.systems ?? [])

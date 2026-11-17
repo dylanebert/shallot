@@ -1,4 +1,4 @@
-import { f32, u8 } from "../../engine";
+import { entity, f32, u8, vec3 } from "../../engine";
 
 // Membership marks the initial pose snap. Derived display state is not authored or serialized.
 export const OrbitSmooth = {
@@ -9,4 +9,12 @@ export const OrbitSmooth = {
     keyYawVelocity: f32,
     keyPitchVelocity: f32,
     flyActive: u8,
+    panImpulse: vec3,
+    pan: vec3,
+    panTarget: entity,
+    touchStopped: u8,
+    zoomDistanceImpulse: f32,
+    zoomSizeImpulse: f32,
+    zoomDistance: f32,
+    zoomSize: f32,
 };
