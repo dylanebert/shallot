@@ -976,8 +976,16 @@ const profileUi = {
     create: () => ({
         overlay: null as Overlay | null,
         visible: false,
+        chords: new Map<string, () => void>(),
     }),
 };
+
+/** Register a physical KeyboardEvent.code under F3. Replaces any handler for that code.
+ * Requires DiagnosticsOverlayPlugin. The registration lasts until replaced or the World is disposed.
+ */
+export function registerDebugChord(world: World, code: string, handler: () => void): void {
+    world.resource(profileUi).chords.set(code, handler);
+}
 
 /** Measure the current profiler layout in viewport CSS pixels without changing visibility.
  * Returns undefined without a document. Closed overlays are measured synchronously and removed
@@ -1122,12 +1130,53 @@ export const DiagnosticsOverlayPlugin: Plugin = {
         });
 
         if (typeof window !== "undefined") {
+            let held = false;
+            let chord = false;
+            const consumed = new Set<string>();
             window.addEventListener(
                 "keydown",
                 (e: KeyboardEvent) => {
-                    if (e.key !== "F3") return;
+                    if (e.code === "F3") {
+                        e.preventDefault();
+                        if (!held) chord = false;
+                        held = true;
+                        return;
+                    }
+                    if (consumed.has(e.code)) {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        return;
+                    }
+                    if (!held) return;
+                    chord = true;
+                    const handler = ui.chords.get(e.code);
+                    if (!handler) return;
+                    consumed.add(e.code);
+                    e.stopPropagation();
                     e.preventDefault();
-                    showProfiler(world, !ui.visible);
+                    handler();
+                },
+                { capture: true, signal: world.signal },
+            );
+            window.addEventListener(
+                "keyup",
+                (e: KeyboardEvent) => {
+                    if (consumed.delete(e.code)) {
+                        e.stopPropagation();
+                        e.preventDefault();
+                    }
+                    if (e.code !== "F3") return;
+                    e.preventDefault();
+                    if (held && !chord) showProfiler(world, !ui.visible);
+                    held = false;
+                },
+                { capture: true, signal: world.signal },
+            );
+            window.addEventListener(
+                "blur",
+                () => {
+                    held = false;
+                    consumed.clear();
                 },
                 { signal: world.signal },
             );

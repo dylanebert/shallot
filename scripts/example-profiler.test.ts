@@ -60,11 +60,17 @@ for (const name of examples) {
             expect(ui.visible).toBe(false);
             expect(ui.overlay).toBeNull();
             const key = new Event("keydown", { cancelable: true });
-            Object.assign(key, { key: "F3" });
+            Object.assign(key, { key: "F3", code: "F3" });
+            const release = Object.assign(new Event("keyup", { cancelable: true }), {
+                key: "F3",
+                code: "F3",
+            });
             window.dispatchEvent(key);
+            window.dispatchEvent(release);
             expect(key.defaultPrevented).toBe(true);
             expect(ui.visible).toBe(true);
             window.dispatchEvent(key);
+            window.dispatchEvent(release);
             expect(ui.visible).toBe(false);
         } finally {
             resource.mockRestore();

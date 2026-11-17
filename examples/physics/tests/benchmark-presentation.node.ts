@@ -97,11 +97,17 @@ test("Benchmark entry shows the profiler, F3 overrides it, and leaving restores 
             select("hull");
             expect(showProfiler(app.world)).toBe(true);
             const key = new Event("keydown", { cancelable: true });
-            Object.assign(key, { key: "F3" });
+            Object.assign(key, { key: "F3", code: "F3" });
+            const release = Object.assign(new Event("keyup", { cancelable: true }), {
+                key: "F3",
+                code: "F3",
+            });
             window.dispatchEvent(key);
+            window.dispatchEvent(release);
             expect(key.defaultPrevented).toBe(true);
             expect(showProfiler(app.world, false)).toBe(false);
             window.dispatchEvent(key);
+            window.dispatchEvent(release);
             fits = false;
             select.reconcileProfiler();
             expect(showProfiler(app.world, false)).toBe(true);
