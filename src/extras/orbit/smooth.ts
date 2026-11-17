@@ -9,5 +9,4 @@ export const OrbitSmooth = {
     keyYawVelocity: f32,
     keyPitchVelocity: f32,
     flyActive: u8,
-    swappedButtons: u8,
 };

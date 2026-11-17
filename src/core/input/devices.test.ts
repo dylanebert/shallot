@@ -1242,9 +1242,19 @@ test("pointer modifiers survive missing keyboard events and reset on pooled reus
         ]);
         world.step(0);
         fixture.emitCanvas("pointerdown", event(1, true));
+        fixture.window.emit("pointermove", { ...event(1), clientX: 60, clientY: 62 });
+        expect(input.pointer.motion[0]).toMatchObject({
+            deltaX: 30,
+            deltaY: 12,
+            buttons: 1,
+            modifiers: 15,
+        });
+        fixture.window.emit("pointermove", { ...event(5), clientX: 90, clientY: 74 });
+        expect(input.pointer.motion[1]).toMatchObject({ buttons: 3, modifiers: 15 });
         fixture.window.emit("pointercancel", event(0));
+        expect(input.pointer.motion).toHaveLength(0);
         expect(input.pointer.left).toBe(false);
-        expect(input.pointer.buttonEvents.map((edge) => edge.pressed)).toEqual([true]);
+        expect(input.pointer.buttonEvents.map((edge) => edge.pressed)).toEqual([true, true]);
         world.step(0);
         setInputEnabled(world, false);
         fixture.emitCanvas("pointerdown", event(1, true));

@@ -165,7 +165,7 @@ test("touch ignores a swapped mouse press and cancellation cannot replay it", as
     }
 });
 
-test("swap latches are per world and reset on recycled camera rows", async () => {
+test("press modifiers are per world and remain device facts across recycled camera rows", async () => {
     const first = await subject();
     const second = await subject();
     try {
@@ -185,8 +185,8 @@ test("swap latches are per world and reset on recycled camera rows", async () =>
         first.w.step(0);
         pointerMove(first.w, 20, 0, 20, 0);
         first.w.step(Time.FIXED_DT);
-        expect(first.o.pan.x.get(recycled)).toBe(0);
-        expect(first.o.yaw.get(recycled)).toBeCloseTo(Math.PI / 6 - 0.1, 6);
+        expect(first.o.pan.x.get(recycled)).not.toBe(0);
+        expect(first.o.yaw.get(recycled)).toBeCloseTo(Math.PI / 6, 6);
     } finally {
         await first.app.dispose();
         await second.app.dispose();
