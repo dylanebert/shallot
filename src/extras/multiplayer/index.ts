@@ -9,6 +9,7 @@ import {
     type World,
 } from "../../engine";
 import { fields } from "../../engine/ecs";
+import { reportStartup } from "../../engine/runtime";
 
 export { ClientOf, client, type Game, local, ServerSession, server } from "./game";
 export { ClientInterpolation, InterpolationPlugin, InterpolationTarget } from "./interpolation";
@@ -60,7 +61,6 @@ export const Replicate = component("Replicate", { rule: u32 });
  * time_since_receive (ms) ages from transport receipt, or session observation start before any
  * receipt. confirmed_tick_lag (ticks) is latest sent minus acknowledged on the server, newest
  * received minus contiguous confirmed on the client; it cannot observe an unseen server tick.
- * network/confirmed_tick is the client's latest applied server tick; no sample exists before state arrives.
  * network/peer_count counts admitted server connections. Prediction adds client-only
  * network/replayed_ticks (cumulative ticks actually replayed), network/correction_translation
  * (world units) and network/correction_rotation (rad): the largest incremental visual correction
@@ -561,6 +561,7 @@ export class ReplicationReceiver {
      * deliver their intents and apply each before the latest state. Every applied state
      * still notifies confirm, so only recovery/replay work is coalesced, not observations. */
     flush(confirmations: "all" | "latest" = "all"): Uint8Array[] {
+        const previous = this.confirmed;
         const latestOnly = confirmations === "latest";
         const unhandled: Uint8Array[] = [];
         let latest: ReturnType<typeof decode> | undefined;
@@ -629,11 +630,9 @@ export class ReplicationReceiver {
             );
             this.confirm(latestTick, packet.rows);
         }
+        if (this.confirmed > previous && typeof window !== "undefined")
+            reportStartup({ kind: "server-state", tick: this.confirmed });
         if (this.confirmed >= 0) {
-            networkDiagnostics(this.world, this.connection)?.record(
-                "confirmed_tick",
-                this.confirmed,
-            );
             let held = 0;
             for (const tick of this._pending.keys()) {
                 const offset = tick - this.confirmed - 1;

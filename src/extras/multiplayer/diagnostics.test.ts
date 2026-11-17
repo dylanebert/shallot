@@ -310,8 +310,6 @@ test("client confirmed lag is the gap behind the newest observed tick, not its l
     const sender = new ReplicationSender(a.world, [], [], 1, link.a);
     const receiver = new ReplicationReceiver(b.world, [], link.b);
     try {
-        receiver.flush();
-        expect(value(b.world, "network/confirmed_tick")).toBeUndefined();
         sender.record(0);
         sender.flush();
         receiver.flush();
@@ -321,13 +319,11 @@ test("client confirmed lag is the gap behind the newest observed tick, not its l
         sender.record(2);
         sender.flush();
         receiver.flush();
-        expect(value(b.world, "network/confirmed_tick")).toBe(0);
         expect(value(b.world, "network/confirmed_tick_lag")).toBe(2);
         expect(value(a.world, "network/connections/1/confirmed_tick_lag")).toBe(2);
         send(held!);
         receiver.flush();
         sender.flush();
-        expect(value(b.world, "network/confirmed_tick")).toBe(2);
         expect(value(b.world, "network/confirmed_tick_lag")).toBe(0);
         expect(value(a.world, "network/connections/1/confirmed_tick_lag")).toBe(0);
     } finally {

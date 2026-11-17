@@ -39,7 +39,7 @@ const answer = (
     entries: WranglerResult["entries"] = [],
 ): WranglerResult => ({ status, stdout, entries, stderr: "provider failure" });
 
-test("publish takes only the target option and has command help", () => {
+test("publish takes client and server target options and has command help", () => {
     expect(parseCliArgs(["publish"])).toEqual({ kind: "publish" });
     expect(parseCliArgs(["publish", "--target", "cloudflare"])).toEqual({
         kind: "publish",
@@ -49,6 +49,20 @@ test("publish takes only the target option and has command help", () => {
         kind: "publish",
         target: "cloudflare",
     });
+    expect(parseCliArgs(["publish", "--server", "fly"])).toEqual({
+        kind: "publish",
+        server: "fly",
+    });
+    expect(parseCliArgs(["publish", "--server=fly", "--target", "itch"])).toEqual({
+        kind: "publish",
+        target: "itch",
+        server: "fly",
+    });
+    expect(parseCliArgs(["publish", "--target=itch", "--server", "fly"])).toEqual({
+        kind: "publish",
+        target: "itch",
+        server: "fly",
+    });
     expect(parseCliArgs(["help", "publish"])).toEqual({ kind: "command-help", command: "publish" });
     for (const args of [
         ["--target"],
@@ -56,6 +70,10 @@ test("publish takes only the target option and has command help", () => {
         ["--target", "--helpful"],
         ["game"],
         ["--temporary"],
+        ["--server"],
+        ["--server="],
+        ["--server", "--target"],
+        ["--server", "fly", "--server", "fly"],
         ["--target", "cloudflare", "extra"],
     ])
         expect(() => parseCliArgs(["publish", ...args])).toThrow("publish accepts only");

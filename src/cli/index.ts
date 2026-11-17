@@ -26,7 +26,7 @@ const usage = `
   Commands
     create <name>                create a project from minimal or an example
     migrate                      print the 0.10.x migration guide
-    publish [--target <name>]    build, publish and verify a public web game
+    publish [options]           build, publish and verify a public web game
     dev --target <platform>      develop a desktop app
     build --target <platform>    build a desktop app
     preview --target <platform>  launch a desktop build
@@ -46,7 +46,7 @@ const usage = `
 
 const commandUsage = {
     publish: `
-  shallot publish [--target cloudflare|itch]
+  shallot publish [--target cloudflare|itch] [--server fly]
 
   Build with the project's Vite config, preflight the target's limits, publish,
   wait until the upload is live and verify the public link anonymously with
@@ -84,10 +84,11 @@ const commandUsage = {
 
   Server: shallot.publish.server = { "target": "fly", "app": "<app>" } deploys
   server.ts before building the client with VITE_SHALLOT_SERVER=wss://<app>.fly.dev.
-  To request a first link, set shallot.publish to { "server": { "target": "fly",
-  "app": "<app>" } }; publish refuses an existing app name. A complete hand-written
-  client-and-server link authorizes updating those destinations. server.ts alone
-  does not opt into hosting.
+  Request a first server link with --server fly. The app name defaults from the
+  project name, is asked in a terminal and reported otherwise. A first link refuses
+  an existing app; a complete hand-written link authorizes updating it. A saved
+  server link carries the choice on later publishes. server.ts alone does not
+  opt into hosting.
   Project Fly configuration is refused. The pinned, SHA-256-verified flyctl uses
   Fly's remote builder; Docker is not needed. One shared-cpu-1x 256 MB Machine
   auto-stops with no minimum running; shared IPv4 only.
@@ -129,6 +130,7 @@ const commandUsage = {
   and source maps can still disclose what the project puts there. Never put secrets in them.
 
   --target <name>       Choose and save the target: cloudflare or itch
+  --server fly          Link and deploy server.ts to Fly
   -h, --help            Show this help
 `,
     dev: `
@@ -208,7 +210,7 @@ ${desktopStatus}
 
 export type CliArgs =
     | { kind: "create"; rest: string[] }
-    | { kind: "publish"; target?: string }
+    | { kind: "publish"; target?: string; server?: string }
     | { kind: "skill" }
     | { kind: "version" }
     | { kind: "migrate" }
@@ -259,12 +261,20 @@ export function parseCliArgs(raw: string[]): CliArgs {
     }
     if (verb === "create") return { kind: "create", rest: raw.slice(1) };
     if (verb === "publish") {
-        if (raw.length === 1) return { kind: "publish" };
-        if (raw.length === 3 && raw[1] === "--target" && raw[2] && !raw[2].startsWith("-"))
-            return { kind: "publish", target: raw[2] };
-        if (raw.length === 2 && raw[1].startsWith("--target=") && raw[1].slice(9))
-            return { kind: "publish", target: raw[1].slice(9) };
-        throw new Error("publish accepts only --target <name>");
+        const parsed: Extract<CliArgs, { kind: "publish" }> = { kind: "publish" };
+        for (let i = 1; i < raw.length; i++) {
+            const [flag, inline] = raw[i]!.split(/=(.*)/s);
+            if (flag !== "--target" && flag !== "--server")
+                throw new Error("publish accepts only --target <name> and --server fly");
+            const key = flag === "--target" ? "target" : "server";
+            const value = inline ?? raw[++i];
+            if (!value || value.startsWith("-") || parsed[key] !== undefined)
+                throw new Error(
+                    "publish accepts only --target <name> and --server fly, each once with a value",
+                );
+            parsed[key] = value;
+        }
+        return parsed;
     }
     if (verb === "migrate") {
         if (raw.length === 1) return { kind: "migrate" };
@@ -373,7 +383,7 @@ export async function main(
     if (parsed.kind === "publish") {
         try {
             const { publishProject } = await import("./publish");
-            await publishProject(process.cwd(), parsed.target);
+            await publishProject(process.cwd(), parsed.target, parsed.server);
             exit(0);
         } catch (error) {
             console.error(error instanceof Error ? error.message : String(error));

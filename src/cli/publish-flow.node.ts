@@ -139,7 +139,7 @@ export const chromium={async launch(){const browser=await publishTestChromium(),
     const runner = join(root, "run.ts");
     writeFileSync(
         runner,
-        `import {publishProject} from ${JSON.stringify(join(repo, "src/cli/publish.ts"))};try{await publishProject(process.argv[2]);}catch(error){console.error(error.message);process.exitCode=1;}`,
+        `import {publishProject} from ${JSON.stringify(join(repo, "src/cli/publish.ts"))};try{await publishProject(process.argv[2], undefined, process.argv[3]);}catch(error){console.error(error.message);process.exitCode=1;}`,
     );
     const flyPlatform = `${process.platform === "darwin" ? "macOS" : process.platform === "win32" ? "Windows" : "Linux"}_${process.arch === "arm64" ? "arm64" : "x86_64"}`;
     const flyCache = join(root, "cache", "shallot", "flyctl", FLY_VERSION, flyPlatform);
@@ -148,12 +148,12 @@ export const chromium={async launch(){const browser=await publishTestChromium(),
     writeFileSync(join(flyCache, ".complete"), "");
     // The compiled tool locates fixture state relative to its executable.
     linkSync(records, join(dirname(flyCache), "commands.jsonl"));
-    const run = async (account?: string, fly = false) => {
+    const run = async (account?: string, fly = false, requestServer = fly) => {
         const env = Object.fromEntries(
             Object.entries(process.env).filter(([key]) => !/^(CLOUDFLARE_|CF_)/.test(key)),
         );
         const child = Bun.spawn({
-            ...bunChild([runner, project]),
+            ...bunChild([runner, project, ...(requestServer ? ["fly"] : [])]),
             cwd: project,
             env: {
                 ...env,
@@ -262,7 +262,7 @@ test("server.ts without a server link does not opt a project into paid hosting",
         writeFileSync(join(f.project, "server.ts"), "");
         f.state.fail = true;
         f.save();
-        const result = await f.run();
+        const result = await f.run(undefined, true, false);
         expect(result.stderr).toContain("recorded deploy failure");
         expect(f.commands().some((row) => row.command.startsWith("fly "))).toBe(false);
         expect(f.commands().find((row) => row.command === "build").endpoint).toBeUndefined();
@@ -277,14 +277,8 @@ test("Fly deploy precedes the client build, which receives the public endpoint",
         writeFileSync(join(f.project, "server.ts"), "");
         f.state.fail = true;
         f.save();
-        writeFileSync(
-            f.packagePath,
-            JSON.stringify({
-                ...f.manifest,
-                shallot: { publish: { server: { target: "fly", app: "fixture-game" } } },
-            }),
-        );
         const result = await f.run(undefined, true);
+        expect(result.stderr).toContain("Using project name fixture-game as the Fly app name.");
         expect(result.stderr).toContain("recorded deploy failure");
         const commands = f.commands();
         const server = commands.findIndex((row) => row.command.startsWith("fly deploy "));
@@ -294,6 +288,23 @@ test("Fly deploy precedes the client build, which receives the public endpoint",
         expect(commands[server].command).toContain("--remote-only --ha=false");
         expect(commands[client].endpoint).toBe("wss://fixture-game.fly.dev");
         expect(commands.findIndex((row) => row.command === "deploy")).toBeGreaterThan(client);
+        writeFileSync(
+            f.packagePath,
+            JSON.stringify({
+                ...f.manifest,
+                shallot: {
+                    publish: {
+                        target: "cloudflare",
+                        name: "fixture-game",
+                        accountId: accountA,
+                        server: { target: "fly", app: "fixture-game" },
+                    },
+                },
+            }),
+        );
+        const saved = await f.run(undefined, true, false);
+        expect(saved.stderr).toContain("recorded deploy failure");
+        expect(f.commands().filter((row) => row.command.startsWith("fly deploy "))).toHaveLength(2);
     } finally {
         await f.close();
     }

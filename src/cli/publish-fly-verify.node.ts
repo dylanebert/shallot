@@ -37,13 +37,22 @@ test("publish observes confirmed network state at the build's endpoint and query
         const url = await address(vite, /(http:\/\/127\.0\.0\.1:\d+\/)/);
         browser = await publishTestChromium();
         const published = await browser.newPage();
-        const verify = observePublishedServer(published, endpoint);
+        const verify = await observePublishedServer(published, endpoint, 5000);
+        await published.addInitScript(() => {
+            const style = document.createElement("style");
+            style.textContent = "[data-shallot-profile] { display: none !important }";
+            document.addEventListener("DOMContentLoaded", () => document.head.append(style));
+        });
         await published.goto(url);
         await published.locator("[data-measured-rtt]").filter({ hasText: /ms/ }).waitFor();
         await verify();
         await published.close();
         const wrong = await browser.newPage();
-        const verifyWrong = observePublishedServer(wrong, "ws://wrong-endpoint.invalid");
+        const verifyWrong = await observePublishedServer(
+            wrong,
+            "ws://wrong-endpoint.invalid",
+            5000,
+        );
         await wrong.goto(url);
         await wrong.locator("[data-measured-rtt]").filter({ hasText: /ms/ }).waitFor();
         await expect(verifyWrong()).rejects.toThrow(

@@ -684,10 +684,6 @@ test(
             const manifestPath = join(project, "package.json");
             const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
             manifest.name = name;
-            manifest.shallot = {
-                ...manifest.shallot,
-                publish: { server: { target: "fly", app: name } },
-            };
             manifest.dependencies["@dylanebert/shallot"] = spec;
             manifest.devDependencies = { ...manifest.devDependencies, wrangler: "4.151.3" };
             writeFileSync(manifestPath, JSON.stringify(manifest));
@@ -700,6 +696,8 @@ test(
                 "node",
                 join(project, "node_modules/@dylanebert/shallot/dist/cli/shallot.js"),
                 "publish",
+                "--server",
+                "fly",
             ];
             wrangler = join(project, "node_modules/wrangler/bin/wrangler.js");
             writeFileSync(
@@ -732,9 +730,7 @@ test(
             const refused = run(publish, project, true);
             expect(refused.status).not.toBe(0);
             expect(refused.stderr).toContain(`Fly app "${name}" already exists`);
-            expect(JSON.parse(readFileSync(manifestPath, "utf8")).shallot.publish).toEqual({
-                server: { target: "fly", app: name },
-            });
+            expect(JSON.parse(readFileSync(manifestPath, "utf8")).shallot?.publish).toBeUndefined();
             fly(["apps", "destroy", name, "--yes"]);
             await waitForApp(false);
             // Absence was checked for both scratch names; partial publish failures also reach cleanup.

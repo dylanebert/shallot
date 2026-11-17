@@ -55,10 +55,7 @@ import {
 
 export type PublishLink = (CloudflareLink | ItchLink) & { server?: FlyLink };
 
-/** A server-only request does not authorize updating either an existing app or Worker. */
-type PublishRequest = PublishLink | { target?: undefined; server: FlyLink };
-
-export function readPublishLink(projectDir: string): PublishRequest | undefined {
+export function readPublishLink(projectDir: string): PublishLink | undefined {
     const manifest = JSON.parse(readFileSync(join(projectDir, "package.json"), "utf8"));
     const link = manifest.shallot?.publish;
     if (link === undefined) return;
@@ -71,7 +68,6 @@ export function readPublishLink(projectDir: string): PublishRequest | undefined 
         throw new Error(
             'Invalid shallot.publish.server: expected { target: "fly", app: "<name>" }.',
         );
-    if (link?.server && Object.keys(link).length === 1) return { server: link.server };
     if (link?.target === "itch" && typeof link.name === "string" && validItchName(link.name))
         return { target: "itch", name: link.name, ...(link.server ? { server: link.server } : {}) };
     if (
@@ -94,6 +90,15 @@ export function savePublishLink(projectDir: string, link: PublishLink): void {
     const manifest = JSON.parse(readFileSync(path, "utf8"));
     manifest.shallot = { ...manifest.shallot, publish: link };
     writeFileSync(path, `${JSON.stringify(manifest, null, 4)}\n`);
+}
+
+function publishName(projectDir: string): string {
+    const manifest = JSON.parse(readFileSync(join(projectDir, "package.json"), "utf8"));
+    return String(manifest.name ?? basename(projectDir))
+        .replace(/^@[^/]+\//, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9-]/g, "-")
+        .slice(0, 63);
 }
 
 export function validWorkerName(name: string): boolean {
@@ -365,12 +370,7 @@ const targets: {
             publishProgress(
                 `Using Cloudflare account ${accounts?.find((account) => account.id === accountId)?.name ?? accountId} (${accountId}).`,
             );
-            const manifest = JSON.parse(readFileSync(join(projectDir, "package.json"), "utf8"));
-            const defaultName = String(manifest.name ?? basename(projectDir))
-                .replace(/^@[^/]+\//, "")
-                .toLowerCase()
-                .replace(/[^a-z0-9-]/g, "-")
-                .slice(0, 63);
+            const defaultName = publishName(projectDir);
             let name =
                 saved?.name ?? (interactive ? await ask("Worker name", defaultName) : defaultName);
             if (!saved && !interactive)
@@ -503,7 +503,13 @@ const targets: {
 };
 
 /** Publish a web build; the provider's CLI owns authentication and credential storage. */
-export async function publishProject(projectDir: string, targetName?: string): Promise<void> {
+export async function publishProject(
+    projectDir: string,
+    targetName?: string,
+    serverTarget?: string,
+): Promise<void> {
+    if (serverTarget !== undefined && serverTarget !== "fly")
+        throw new Error(`Unknown server target: ${serverTarget}. Available: fly.`);
     if (targetName !== undefined && !Object.hasOwn(targets, targetName))
         throw new Error(
             `Unknown publish target: ${targetName}. Available: ${Object.keys(targets).join(", ")}.`,
@@ -523,7 +529,17 @@ export async function publishProject(projectDir: string, targetName?: string): P
         );
         const setup = await target.setup(projectDir, work, interactive, saved);
         resolveProjectPlaywright(projectDir);
-        const server = linked?.server;
+        let server = linked?.server;
+        if (serverTarget && !server) {
+            const defaultName = publishName(projectDir);
+            const app = interactive ? await ask("Fly app name", defaultName) : defaultName;
+            if (!validFlyApp(app))
+                throw new Error(
+                    `Invalid Fly app name ${JSON.stringify(app)}; use lowercase letters, digits and hyphens, starting with a letter.`,
+                );
+            if (!interactive) publishProgress(`Using project name ${app} as the Fly app name.`);
+            server = { target: "fly", app };
+        }
         let flyctl: string | undefined;
         if (server) {
             refuseFlyConfig(projectDir);

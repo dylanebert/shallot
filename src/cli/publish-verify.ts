@@ -110,7 +110,7 @@ export interface PublishHost {
  * document, beside which its files are served, and its query is sent with each file; `host` says how the host serves each file. startupTimeout bounds observation
  * waiting after navigation, in milliseconds. availabilityTimeout bounds retries of asset 404/5xx
  * answers and stale bytes across all assets from the first check, in milliseconds (default 120 seconds).
- * serverEndpoint requires this same page to connect there and advance the network/confirmed_tick diagnostic.
+ * serverEndpoint requires this same page to connect there and announce advancing applied server state.
  */
 export async function verifyPublishedGame(
     browser: Browser,
@@ -217,7 +217,7 @@ export async function verifyPublishedGame(
             throw new Error(`A missing path answered ${missingStatus}, not 404.`);
         const page = await context.newPage();
         const verifyServer = serverEndpoint
-            ? observePublishedServer(page, serverEndpoint)
+            ? await observePublishedServer(page, serverEndpoint)
             : undefined;
         const errors: string[] = [];
         const failure = new Promise<never>((_, reject) => {
@@ -287,8 +287,27 @@ export async function verifyPublishedGame(
     }
 }
 
-/** Observe before navigation; verify after startup through the multiplayer extra's network diagnostics. */
-export function observePublishedServer(page: Page, endpoint: string): () => Promise<void> {
+/** Observe before navigation; verify applied server-state events and endpoint frames after startup. */
+export async function observePublishedServer(
+    page: Page,
+    endpoint: string,
+    timeout: number = TIMEOUT.startup,
+): Promise<() => Promise<void>> {
+    await page.addInitScript(() => {
+        const state: { first?: number; tick?: number } = {};
+        Object.defineProperty(window, "__shallotServerState", { value: state });
+        window.addEventListener("shallot:startup", (event) => {
+            const detail = (event as CustomEvent).detail;
+            if (
+                detail.kind === "server-state" &&
+                Number.isInteger(detail.tick) &&
+                detail.tick >= 0
+            ) {
+                state.first ??= detail.tick;
+                state.tick = detail.tick;
+            }
+        });
+    });
     let connected = false;
     page.on("websocket", (socket) => {
         if (socket.url() === endpoint || socket.url() === `${endpoint}/`)
@@ -297,32 +316,20 @@ export function observePublishedServer(page: Page, endpoint: string): () => Prom
             });
     });
     return async () => {
-        await page.keyboard.press("F3");
-        await page
-            .locator("[data-shallot-profile]")
-            .getByText("▸ network", { exact: true })
-            .click({ timeout: TIMEOUT.startup });
-        const confirmed = page.getByText("confirmed tick", { exact: true }).locator("..");
-        await confirmed.waitFor({ timeout: TIMEOUT.startup });
-        const sample = async (minimum: number) => {
-            const handle = await page.waitForFunction(
-                (minimum) => {
-                    const label = Array.from(
-                        document.querySelectorAll("[data-shallot-profile] span"),
-                    ).find((el) => el.textContent === "confirmed tick");
-                    const text = label?.nextElementSibling?.textContent ?? "";
-                    const tick = /^\d+ ticks$/.test(text) ? Number.parseInt(text, 10) : -1;
-                    return tick >= minimum ? { tick } : false;
-                },
-                minimum,
-                { timeout: TIMEOUT.startup },
-            );
-            const value = await handle.jsonValue();
-            await handle.dispose();
-            if (!value) throw new Error("No confirmed server tick");
-            return value.tick;
-        };
-        await sample((await sample(0)) + 60);
+        await page.waitForFunction(
+            () => {
+                const state = (
+                    window as unknown as { __shallotServerState: { first?: number; tick?: number } }
+                ).__shallotServerState;
+                return (
+                    state.first !== undefined &&
+                    state.tick !== undefined &&
+                    state.tick >= state.first + 60
+                );
+            },
+            undefined,
+            { timeout },
+        );
         if (!connected) throw new Error(`Published page did not connect to ${endpoint}`);
     };
 }
