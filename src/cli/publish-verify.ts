@@ -60,7 +60,8 @@ export function resolveProjectPlaywright(projectDir: string): string {
 export async function projectChromium(projectDir: string): Promise<Browser> {
     const require = createRequire(join(projectDir, "package.json"));
     const modulePath = resolveProjectPlaywright(projectDir);
-    const { chromium } = (await import(modulePath)) as typeof import("playwright");
+    const loaded = await import(modulePath);
+    const { chromium } = (loaded.default ?? loaded) as typeof import("playwright");
     try {
         return await launchPublishChromium(chromium);
     } catch (error) {
