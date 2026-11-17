@@ -209,6 +209,7 @@ export async function buildFlyServer(
 
 export function flyConfig(app: string): string {
     return `app = ${JSON.stringify(app)}
+primary_region = "iad"
 [env]
   PORT = "8080"
 [http_service]
@@ -217,6 +218,9 @@ export function flyConfig(app: string): string {
   auto_stop_machines = "stop"
   auto_start_machines = true
   min_machines_running = 0
+[http_service.concurrency]
+  type = "connections"
+  soft_limit = 20
 [[vm]]
   size = "shared-cpu-1x"
   memory = "256mb"

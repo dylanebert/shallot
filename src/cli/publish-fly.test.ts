@@ -18,6 +18,15 @@ test.each([
     expect(config()[section][field]).toBe(value);
 });
 
+test("Fly config places its idle Machine in the spike's primary region", () => {
+    expect(config().primary_region).toBe("iad");
+});
+
+test("Fly config counts WebSocket connections for proxy load and autostop", () => {
+    expect(config().http_service.concurrency.type).toBe("connections");
+    expect(config().http_service.concurrency.soft_limit).toBe(20);
+});
+
 test("Fly config pins one shared CPU", () => {
     expect(config().vm.map((vm: { size: string }) => vm.size)).toEqual(["shared-cpu-1x"]);
 });

@@ -738,7 +738,7 @@ test(
                     ["shared_v4", "v6"].includes(row.Type),
                 ),
             ).toBe(true);
-            machine();
+            console.info("Deployed Machine services:", JSON.stringify(machine().config.services));
             // GAME has only two slots: publish's page has closed before these clients start.
             writeFileSync(
                 join(project, "clients.ts"),
@@ -756,10 +756,14 @@ if(ticks.some(t=>t<60))throw Error('Clients did not confirm 60 ticks');console.l
                 console.info(run([process.execPath, "clients.ts"], project).stdout);
             clients();
             const idle = performance.now();
-            while (machine().state !== "stopped") {
+            let idleMachine = machine();
+            while (idleMachine.state !== "stopped") {
                 if (performance.now() - idle > 360_000)
-                    throw new Error("Fly did not auto-stop within six minutes");
+                    throw new Error(
+                        `Fly did not auto-stop within six minutes: ${JSON.stringify({ state: idleMachine.state, services: idleMachine.config.services })}`,
+                    );
                 await Bun.sleep(5000);
+                idleMachine = machine();
             }
             const stoppedAt = performance.now();
             runningMs += stoppedAt - machineStart;
@@ -773,9 +777,9 @@ if(ticks.some(t=>t<60))throw Error('Clients did not confirm 60 ticks');console.l
         } finally {
             if (owned) {
                 try {
-                    if (machineStart) runningMs += performance.now() - machineStart;
                     if (inventory().some((row) => row.Name === name))
                         fly(["apps", "destroy", name, "--yes"]);
+                    if (machineStart) runningMs += performance.now() - machineStart;
                     console.info("Cleanup Fly inventory:", JSON.stringify(inventory()));
                     expect(inventory()).toEqual([]);
                     const seconds = Math.ceil(runningMs / 1000);
