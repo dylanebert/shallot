@@ -604,6 +604,20 @@ test(
             inventory(),
             "Refusing while a shallot-tier- app exists; remove leftovers explicitly",
         ).toEqual([]);
+        const waitForApp = async (present: boolean) => {
+            const deadline = performance.now() + 30_000;
+            for (;;) {
+                const rows = inventory();
+                if (rows.some((row) => row.Name !== name))
+                    throw new Error("Another shallot-tier- app appeared; refusing to continue");
+                if (rows.some((row) => row.Name === name) === present) return;
+                if (performance.now() >= deadline)
+                    throw new Error(
+                        `Fly inventory did not report ${name} ${present ? "present" : "absent"} within 30 seconds`,
+                    );
+                await Bun.sleep(1000);
+            }
+        };
         let owned = false,
             workerOwned = false;
         let machineStart = 0,
@@ -670,6 +684,10 @@ test(
             const manifestPath = join(project, "package.json");
             const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
             manifest.name = name;
+            manifest.shallot = {
+                ...manifest.shallot,
+                publish: { server: { target: "fly", app: name } },
+            };
             manifest.dependencies["@dylanebert/shallot"] = spec;
             manifest.devDependencies = { ...manifest.devDependencies, wrangler: "4.151.3" };
             writeFileSync(manifestPath, JSON.stringify(manifest));
@@ -710,13 +728,15 @@ test(
             expect(orgs).toHaveLength(1);
             owned = true;
             fly(["apps", "create", name, "--org", orgs[0]!]);
-            expect(inventory().map((row) => row.Name)).toEqual([name]);
+            await waitForApp(true);
             const refused = run(publish, project, true);
             expect(refused.status).not.toBe(0);
             expect(refused.stderr).toContain(`Fly app "${name}" already exists`);
-            expect(JSON.parse(readFileSync(manifestPath, "utf8")).shallot?.publish).toBeUndefined();
+            expect(JSON.parse(readFileSync(manifestPath, "utf8")).shallot.publish).toEqual({
+                server: { target: "fly", app: name },
+            });
             fly(["apps", "destroy", name, "--yes"]);
-            expect(inventory()).toEqual([]);
+            await waitForApp(false);
             // Absence was checked for both scratch names; partial publish failures also reach cleanup.
             workerOwned = true;
             machineStart = performance.now();
@@ -791,9 +811,9 @@ if(ticks.some(t=>t<60))throw Error('Clients did not confirm 60 ticks');console.l
         } finally {
             if (owned) {
                 try {
-                    if (inventory().some((row) => row.Name === name))
-                        fly(["apps", "destroy", name, "--yes"]);
+                    fly(["apps", "destroy", name, "--yes"]);
                     if (machineStart) runningMs += performance.now() - machineStart;
+                    await waitForApp(false);
                     console.info("Cleanup Fly inventory:", JSON.stringify(inventory()));
                     expect(inventory()).toEqual([]);
                     const seconds = Math.ceil(runningMs / 1000);

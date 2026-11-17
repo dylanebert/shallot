@@ -76,6 +76,8 @@ test("server links retain Fly and reject malformed targets and app names", () =>
         JSON.stringify({ shallot: { publish: { target: "itch", name: "user/game", server } } }),
     );
     expect(readPublishLink(root)?.server).toEqual(server);
+    writeFileSync(path, JSON.stringify({ shallot: { publish: { server } } }));
+    expect(readPublishLink(root)).toEqual({ server });
 });
 
 test("a first Fly link refuses an existing app without building or changing project files", async () => {

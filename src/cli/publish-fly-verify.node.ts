@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { publishTestChromium } from "../../scripts/publish-browser";
-import { verifyFlyPage } from "./publish-verify";
+import { observePublishedServer } from "./publish-verify";
 
 setDefaultTimeout(TIMEOUT.node);
 const example = resolve(import.meta.dir, "../../examples/multiplayer");
@@ -36,7 +36,20 @@ test("publish observes confirmed network state at the build's endpoint and query
         });
         const url = await address(vite, /(http:\/\/127\.0\.0\.1:\d+\/)/);
         browser = await publishTestChromium();
-        await verifyFlyPage(browser, url, endpoint);
+        const published = await browser.newPage();
+        const verify = observePublishedServer(published, endpoint);
+        await published.goto(url);
+        await published.locator("[data-measured-rtt]").filter({ hasText: /ms/ }).waitFor();
+        await verify();
+        await published.close();
+        const wrong = await browser.newPage();
+        const verifyWrong = observePublishedServer(wrong, "ws://wrong-endpoint.invalid");
+        await wrong.goto(url);
+        await wrong.locator("[data-measured-rtt]").filter({ hasText: /ms/ }).waitFor();
+        await expect(verifyWrong()).rejects.toThrow(
+            "Published page did not connect to ws://wrong-endpoint.invalid",
+        );
+        await wrong.close();
         // An explicit empty query selects in-tab play, rather than the build's socket.
         const page = await browser.newPage();
         await page.goto(`${url}?server=`);

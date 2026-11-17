@@ -110,6 +110,7 @@ export interface PublishHost {
  * document, beside which its files are served, and its query is sent with each file; `host` says how the host serves each file. startupTimeout bounds observation
  * waiting after navigation, in milliseconds. availabilityTimeout bounds retries of asset 404/5xx
  * answers and stale bytes across all assets from the first check, in milliseconds (default 120 seconds).
+ * serverEndpoint requires this same page to connect there and advance the network/confirmed_tick diagnostic.
  */
 export async function verifyPublishedGame(
     browser: Browser,
@@ -119,6 +120,7 @@ export async function verifyPublishedGame(
     startupTimeout: number = TIMEOUT.startup,
     host: PublishHost = { headers: () => CROSS_ORIGIN_ISOLATION },
     availabilityTimeout = 120_000,
+    serverEndpoint?: string,
 ): Promise<PublishVerification> {
     const { search, pathname } = new URL(url);
     const base = pathname.endsWith(".html")
@@ -214,6 +216,9 @@ export async function verifyPublishedGame(
         if (missingStatus !== 404)
             throw new Error(`A missing path answered ${missingStatus}, not 404.`);
         const page = await context.newPage();
+        const verifyServer = serverEndpoint
+            ? observePublishedServer(page, serverEndpoint)
+            : undefined;
         const errors: string[] = [];
         const failure = new Promise<never>((_, reject) => {
             const fail = (cause: string) => {
@@ -267,6 +272,7 @@ export async function verifyPublishedGame(
                         `Physics initialized the ${status.artifact ?? "unknown"} artifact, not shared.`,
                     );
                 if (errors.length) throw new Error(`Published page errors:\n${errors.join("\n")}`);
+                await verifyServer?.();
                 return {
                     hardware: !!status.hardware,
                     adapter: status.adapter!,
@@ -281,28 +287,16 @@ export async function verifyPublishedGame(
     }
 }
 
-/** Observe the multiplayer extra's network diagnostics on the published page, not a query-selected topology. */
-export async function verifyFlyPage(
-    browser: Browser,
-    url: string,
-    endpoint: string,
-): Promise<void> {
-    const context = await browser.newContext();
-    try {
-        const page = await context.newPage();
-        let connected = false;
-        await observeStartup(page);
-        page.on("websocket", (socket) => {
-            if (socket.url() === endpoint || socket.url() === `${endpoint}/`) connected = true;
-        });
-        await page.goto(url, { waitUntil: "load", timeout: TIMEOUT.startup });
-        await page.waitForFunction(
-            () =>
-                (window as unknown as { __shallotPublish: BrowserStartup }).__shallotPublish
-                    .started,
-            undefined,
-            { timeout: TIMEOUT.startup },
-        );
+/** Observe before navigation; verify after startup through the multiplayer extra's network diagnostics. */
+export function observePublishedServer(page: Page, endpoint: string): () => Promise<void> {
+    let connected = false;
+    page.on("websocket", (socket) => {
+        if (socket.url() === endpoint || socket.url() === `${endpoint}/`)
+            socket.on("framereceived", () => {
+                connected = true;
+            });
+    });
+    return async () => {
         await page.keyboard.press("F3");
         await page
             .locator("[data-shallot-profile]")
@@ -330,9 +324,7 @@ export async function verifyFlyPage(
         };
         await sample((await sample(0)) + 60);
         if (!connected) throw new Error(`Published page did not connect to ${endpoint}`);
-    } finally {
-        await context.close();
-    }
+    };
 }
 
 interface BrowserStartup {

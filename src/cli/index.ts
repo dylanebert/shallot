@@ -84,8 +84,10 @@ const commandUsage = {
 
   Server: shallot.publish.server = { "target": "fly", "app": "<app>" } deploys
   server.ts before building the client with VITE_SHALLOT_SERVER=wss://<app>.fly.dev.
-  A first publish of a project with server.ts chooses a Fly app name and refuses
-  an existing app; a hand-written server link authorizes updating that app.
+  To request a first link, set shallot.publish to { "server": { "target": "fly",
+  "app": "<app>" } }; publish refuses an existing app name. A complete hand-written
+  client-and-server link authorizes updating those destinations. server.ts alone
+  does not opt into hosting.
   Project Fly configuration is refused. The pinned, SHA-256-verified flyctl uses
   Fly's remote builder; Docker is not needed. One shared-cpu-1x 256 MB Machine
   auto-stops with no minimum running; shared IPv4 only.

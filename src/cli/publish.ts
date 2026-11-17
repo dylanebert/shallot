@@ -1,12 +1,4 @@
-import {
-    existsSync,
-    mkdtempSync,
-    readdirSync,
-    readFileSync,
-    rmSync,
-    statSync,
-    writeFileSync,
-} from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -57,13 +49,15 @@ import {
     type PublishVerification,
     projectChromium,
     resolveProjectPlaywright,
-    verifyFlyPage,
     verifyPublishedGame,
 } from "./publish-verify";
 
 export type PublishLink = (CloudflareLink | ItchLink) & { server?: FlyLink };
 
-export function readPublishLink(projectDir: string): PublishLink | undefined {
+/** A server-only request does not authorize updating either an existing app or Worker. */
+type PublishRequest = PublishLink | { target?: undefined; server: FlyLink };
+
+export function readPublishLink(projectDir: string): PublishRequest | undefined {
     const manifest = JSON.parse(readFileSync(join(projectDir, "package.json"), "utf8"));
     const link = manifest.shallot?.publish;
     if (link === undefined) return;
@@ -76,6 +70,7 @@ export function readPublishLink(projectDir: string): PublishLink | undefined {
         throw new Error(
             'Invalid shallot.publish.server: expected { target: "fly", app: "<name>" }.',
         );
+    if (link?.server && Object.keys(link).length === 1) return { server: link.server };
     if (link?.target === "itch" && typeof link.name === "string" && validItchName(link.name))
         return { target: "itch", name: link.name, ...(link.server ? { server: link.server } : {}) };
     if (
@@ -246,6 +241,7 @@ interface PublishTarget<Link extends PublishLink> {
         directory: string,
         assets: PublishAsset[],
         interactive: boolean,
+        serverEndpoint?: string,
     ): Promise<PublishVerification | undefined>;
 }
 
@@ -262,8 +258,17 @@ const targets: {
         headers(directory) {
             writeFileSync(join(directory, "_headers"), publishHeaders());
         },
-        verify: (browser, deployment, directory, assets) =>
-            verifyPublishedGame(browser, deployment.url, directory, assets),
+        verify: (browser, deployment, directory, assets, _interactive, serverEndpoint) =>
+            verifyPublishedGame(
+                browser,
+                deployment.url,
+                directory,
+                assets,
+                undefined,
+                undefined,
+                undefined,
+                serverEndpoint,
+            ),
         async setup(projectDir, work, interactive, saved) {
             let cli = resolveWrangler(projectDir);
             if (!cli) {
@@ -426,10 +431,19 @@ const targets: {
         // itch.io serves the build with its own headers.
         headers() {},
         // itch.io's page answers a bot check to every automated client; its frame document does not.
-        async verify(browser, deployment, directory, assets, interactive) {
+        async verify(browser, deployment, directory, assets, interactive, serverEndpoint) {
             const url = await liveItchBuild(deployment.url, deployment.buildUrl, interactive);
             if (!url) return;
-            return verifyPublishedGame(browser, url, directory, assets, TIMEOUT.startup, ITCH_HOST);
+            return verifyPublishedGame(
+                browser,
+                url,
+                directory,
+                assets,
+                TIMEOUT.startup,
+                ITCH_HOST,
+                undefined,
+                serverEndpoint,
+            );
         },
         async setup(_projectDir, _work, interactive, saved) {
             let name = saved?.name;
@@ -495,9 +509,9 @@ export async function publishProject(projectDir: string, targetName?: string): P
         );
     const linked = readPublishLink(projectDir);
     const chosen = (targetName ?? linked?.target ?? "cloudflare") as keyof typeof targets;
-    const saved = linked?.target === chosen ? linked : undefined;
+    const saved = linked?.target && linked.target === chosen ? linked : undefined;
     const target = targets[chosen] as PublishTarget<PublishLink>;
-    if (!targetName && !linked) publishProgress("Using publish target cloudflare.");
+    if (!targetName && !linked?.target) publishProgress("Using publish target cloudflare.");
     const work = mkdtempSync(join(tmpdir(), "shallot-publish-"));
     let playUrl: string;
     try {
@@ -508,14 +522,7 @@ export async function publishProject(projectDir: string, targetName?: string): P
         );
         const setup = await target.setup(projectDir, work, interactive, saved);
         resolveProjectPlaywright(projectDir);
-        let server = saved?.server;
-        if (!linked && existsSync(join(projectDir, "server.ts"))) {
-            const app = interactive
-                ? await ask("Fly app name", setup.link.name.replaceAll("/", "-"))
-                : setup.link.name.replaceAll("/", "-");
-            if (!validFlyApp(app)) throw new Error(`Invalid Fly app name: ${app}`);
-            server = { target: "fly", app };
-        }
+        const server = linked?.server;
         if (server) {
             refuseFlyConfig(projectDir);
             if (!interactive && !process.env.FLY_API_TOKEN)
@@ -527,7 +534,7 @@ export async function publishProject(projectDir: string, targetName?: string): P
                 work,
                 server,
                 interactive,
-                !!saved?.server,
+                !!linked?.target && !!linked.server,
                 ask,
                 await ensureFly(),
             );
@@ -557,9 +564,9 @@ export async function publishProject(projectDir: string, targetName?: string): P
                 directory,
                 assets,
                 interactive,
+                server ? `wss://${server.app}.fly.dev` : undefined,
             );
-            if (server) {
-                await verifyFlyPage(browser, deployed.url, `wss://${server.app}.fly.dev`);
+            if (server && verification) {
                 publishProgress("Published page confirmed server state through the Fly endpoint.");
             }
             if (verification)

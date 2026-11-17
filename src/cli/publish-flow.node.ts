@@ -256,12 +256,34 @@ test("publishProject changes only the link and installed devDependency; a saved 
     }
 });
 
+test("server.ts without a server link does not opt a project into paid hosting", async () => {
+    const f = await fixture();
+    try {
+        writeFileSync(join(f.project, "server.ts"), "");
+        f.state.fail = true;
+        f.save();
+        const result = await f.run();
+        expect(result.stderr).toContain("recorded deploy failure");
+        expect(f.commands().some((row) => row.command.startsWith("fly "))).toBe(false);
+        expect(f.commands().find((row) => row.command === "build").endpoint).toBeUndefined();
+    } finally {
+        await f.close();
+    }
+});
+
 test("Fly deploy precedes the client build, which receives the public endpoint", async () => {
     const f = await fixture();
     try {
         writeFileSync(join(f.project, "server.ts"), "");
         f.state.fail = true;
         f.save();
+        writeFileSync(
+            f.packagePath,
+            JSON.stringify({
+                ...f.manifest,
+                shallot: { publish: { server: { target: "fly", app: "fixture-game" } } },
+            }),
+        );
         const result = await f.run(undefined, true);
         expect(result.stderr).toContain("recorded deploy failure");
         const commands = f.commands();
