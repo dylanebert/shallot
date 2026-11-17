@@ -62,8 +62,14 @@ test("one finger rotates yaw and pitch regardless of mouse orbit binding and sto
         w.step(Time.FIXED_DT);
         touchPoint(w, 1, 120, 88);
         w.step(Time.FIXED_DT);
-        expect(orbit.yaw.get(camera)).toBeCloseTo(yaw - 20 * orbit.sensitivity.get(camera), 6);
-        expect(orbit.pitch.get(camera)).toBeCloseTo(pitch - 12 * orbit.sensitivity.get(camera), 6);
+        expect(orbit.yaw.get(camera)).toBeCloseTo(
+            yaw - (20 * orbit.rotateSpeed.get(camera)) / 200,
+            6,
+        );
+        expect(orbit.pitch.get(camera)).toBeCloseTo(
+            pitch - (12 * orbit.rotateSpeed.get(camera)) / 200,
+            6,
+        );
         cancelTouch(w, 1);
         const releasedYaw = orbit.yaw.get(camera);
         const releasedPitch = orbit.pitch.get(camera);
@@ -136,7 +142,10 @@ test("two-finger drag pans by the centroid without rotating or zooming, and canc
         cancelTouch(w, 1);
         touchPoint(w, 2, 230, 110);
         w.step(Time.FIXED_DT);
-        expect(orbit.yaw.get(camera)).toBeCloseTo(yaw - 10 * orbit.sensitivity.get(camera), 6);
+        expect(orbit.yaw.get(camera)).toBeCloseTo(
+            yaw - (10 * orbit.rotateSpeed.get(camera)) / 200,
+            6,
+        );
         expect([orbit.pan.x.get(camera), orbit.pan.y.get(camera), orbit.pan.z.get(camera)]).toEqual(
             pan,
         );
@@ -168,7 +177,7 @@ for (const flyButton of [0, 1, 2]) {
     });
 }
 
-test("orthographic fly-button drag uses orbit sensitivity and smoothing, ignores movement keys, and scroll zooms size without changing fly speed", async () => {
+test("orthographic fly-button drag uses orbit rotate speed and smoothing, ignores movement keys, and scroll zooms size without changing fly speed", async () => {
     const orbit = await subject(CameraMode.Orthographic, "left");
     const fly = await subject(CameraMode.Orthographic, "right");
     try {
@@ -233,7 +242,7 @@ test("perspective fly follows the recorded mouse, WASD/QE, Shift and wheel path"
     }
 });
 
-test("the public Orbit consumer consumes held, released and neutral pointer facts to produce a sensitivity-scaled camera pose without a canvas, browser producer or renderer", async () => {
+test("the public Orbit consumer consumes held, released and neutral pointer facts to produce a rotate-speed-scaled camera pose without a canvas, browser producer or renderer", async () => {
     const app = await createApp({ defaults: false, plugins: [OrbitPlugin] });
     try {
         const world = app.world;
@@ -241,7 +250,7 @@ test("the public Orbit consumer consumes held, released and neutral pointer fact
         const camera = world.create();
         world.add(camera, Transform);
         world.add(camera, Orbit);
-        world.storage(Orbit).sensitivity.set(camera, 0.01);
+        world.storage(Orbit).rotateSpeed.set(camera, 1.8);
         resizeViewport(world, 0, 320, 180, 2);
         focusCanvas(world, 0);
 
@@ -260,7 +269,7 @@ test("the public Orbit consumer consumes held, released and neutral pointer fact
         });
         world.step(Time.FIXED_DT);
         if (Math.abs(world.storage(Orbit).yaw.get(camera) - (initialYaw - 20 * 0.01)) > 0.000001)
-            throw new Error("Orbit did not consume the held drag at its sensitivity");
+            throw new Error("Orbit did not consume the held drag at its rotate speed");
         if (
             world.storage(Transform).translation.x.get(camera) === initialX &&
             world.storage(Transform).translation.z.get(camera) === initialZ
@@ -280,4 +289,70 @@ test("the public Orbit consumer consumes held, released and neutral pointer fact
     } finally {
         await app.dispose();
     }
+});
+
+test("C glides back to the last authored pose in Free, and does nothing when Locked or disabled", async () => {
+    for (const variant of ["free", "locked", "disabled"] as const) {
+        const { app, w, camera } = await subject(
+            CameraMode.Perspective,
+            undefined,
+            variant === "locked",
+        );
+        try {
+            const orbit = w.storage(Orbit);
+            if (variant === "disabled") orbit.recenter.set(camera, 0);
+            orbit.yaw.set(camera, 0.4);
+            orbit.pitch.set(camera, 0.2);
+            orbit.distance.set(camera, 8);
+            orbit.pan.set(camera, 1, 0, 0);
+            for (let i = 0; i < 60; i++) w.step(Time.FIXED_DT);
+            const home = pose(w, camera);
+            pressButton(w, "left");
+            pointerMove(w, 40, 20, 40, 20);
+            pressButton(w, "right");
+            pointerMove(w, 80, 20, 40, 0);
+            releaseButton(w, "left");
+            releaseButton(w, "right");
+            pointerWheel(w, 100);
+            for (let i = 0; i < 60; i++) w.step(Time.FIXED_DT);
+            const moved = pose(w, camera);
+            expect(moved).not.toEqual(home);
+            pressKey(w, "KeyC");
+            w.step(Time.FIXED_DT);
+            releaseKey(w, "KeyC");
+            const first = pose(w, camera);
+            for (let i = 0; i < 60; i++) w.step(Time.FIXED_DT);
+            const settled = pose(w, camera);
+            if (variant === "free") {
+                expect(orbit.yaw.get(camera)).toBeCloseTo(0.4, 6);
+                expect(orbit.pitch.get(camera)).toBeCloseTo(0.2, 6);
+                expect(orbit.distance.get(camera)).toBe(8);
+                expect(orbit.pan.x.get(camera)).toBe(1);
+                expect(first).not.toEqual(home);
+                for (let i = 0; i < home.length; i++) expect(settled[i]!).toBeCloseTo(home[i]!, 4);
+            } else expect(settled).toEqual(moved);
+        } finally {
+            app.dispose();
+        }
+    }
+});
+
+test("a drag across the same share of the viewport's height turns the same angle at any canvas size", async () => {
+    const turns: number[] = [];
+    for (const height of [200, 800]) {
+        const { app, w, camera } = await subject(CameraMode.Perspective);
+        try {
+            resizeViewport(w, 0, height * 1.6, height, 1);
+            const orbit = w.storage(Orbit);
+            const yaw = orbit.yaw.get(camera);
+            pressButton(w, "left");
+            pointerMove(w, height / 4, 0, height / 4, 0);
+            w.step(Time.FIXED_DT);
+            turns.push(yaw - orbit.yaw.get(camera));
+        } finally {
+            app.dispose();
+        }
+    }
+    expect(turns[0]!).toBeCloseTo(turns[1]!, 5);
+    expect(turns[0]!).toBeCloseTo(3.8 / 4, 5);
 });

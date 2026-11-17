@@ -17,4 +17,11 @@ export const OrbitSmooth = {
     zoomSizeImpulse: f32,
     zoomDistance: f32,
     zoomSize: f32,
+    publishedYaw: f32,
+    publishedPitch: f32,
+    homeYaw: f32,
+    homePitch: f32,
+    homeDistance: f32,
+    homeSize: f32,
+    homePan: vec3,
 };

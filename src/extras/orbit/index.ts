@@ -36,6 +36,7 @@ export const OrbitMode = { Free: 0, Locked: 1, Manual: 2 } as const;
  * (mouse look, WASD/QE movement, Shift boost, scroll speed); in orthographic mode it orbits
  * instead, and scroll zooms size. Locked disables look; Manual leaves all input to the game.
  * On touch, one finger rotates, two-finger pinch zooms, two-finger drag pans.
+ * In Free, C glides back to the pose the game last authored.
  */
 export const Orbit = component(
     "Orbit",
@@ -64,8 +65,9 @@ export const Orbit = component(
         smoothness: f32,
         /** fly look damping, 0–1; higher is snappier */
         flySmoothness: f32,
-        /** orbit look speed (yaw/pitch), radians per pixel of mouse drag */
-        sensitivity: f32,
+        /** orbit look speed (yaw/pitch), radians per drag across the viewport's height, so a drag
+         * turns the view by the same share of the screen at any canvas size */
+        rotateSpeed: f32,
         /** fly look speed (yaw/pitch), radians per pixel */
         flySensitivity: f32,
         /** held-arrow orbit speed, radians per second */
@@ -107,6 +109,8 @@ export const Orbit = component(
         flyMin: f32,
         /** upper clamp for scroll-adjusted flySpeed, world units per second */
         flyMax: f32,
+        /** nonzero lets C in Free glide back to the last authored yaw, pitch, distance, size and pan */
+        recenter: u8,
         /** Free consumes device input; Locked leaves pan and zoom; Manual follows authored fields without device input */
         mode: u8,
         /** Entity to orbit, with pan relative to its rendered placement (0 = world origin).
@@ -129,7 +133,8 @@ export const Orbit = component(
             maxSize: 900,
             smoothness: 0.5,
             flySmoothness: 0.6,
-            sensitivity: 0.008,
+            // TypeGPU Kit's 0.008 rad/px on its 478 px tall canvases
+            rotateSpeed: 3.8,
             flySensitivity: 0.003,
             keyRate: 3,
             keyAcceleration: 30,
@@ -150,6 +155,7 @@ export const Orbit = component(
             flyBoost: 3,
             flyMin: 0.5,
             flyMax: 100,
+            recenter: 1,
             mode: 0,
             target: 0,
         }),
@@ -242,6 +248,15 @@ const OrbitSystem: System = {
             smooth.zoomSizeImpulse.set(eid, 0);
             smooth.zoomDistance.set(eid, orbit.distance.get(eid));
             smooth.zoomSize.set(eid, orbit.size.get(eid));
+            smooth.publishedYaw.set(eid, orbit.yaw.get(eid));
+            smooth.publishedPitch.set(eid, orbit.pitch.get(eid));
+            smooth.homeYaw.set(eid, orbit.yaw.get(eid));
+            smooth.homePitch.set(eid, orbit.pitch.get(eid));
+            smooth.homeDistance.set(eid, orbit.distance.get(eid));
+            smooth.homeSize.set(eid, orbit.size.get(eid));
+            smooth.homePan.x.set(eid, orbit.pan.x.get(eid));
+            smooth.homePan.y.set(eid, orbit.pan.y.get(eid));
+            smooth.homePan.z.set(eid, orbit.pan.z.get(eid));
             // Warn on initialization because the pose query silently excludes entities without Transform.
             if (!world.has(eid, Transform)) {
                 console.warn(
@@ -255,7 +270,8 @@ const OrbitSystem: System = {
         }
 
         for (const eid of world.query(orbitPose)) {
-            const sensitivity = orbit.sensitivity.get(eid);
+            const cssHeight = world.resource(Viewports).get(input.focused)?.cssHeight ?? 0;
+            const sensitivity = cssHeight > 0 ? orbit.rotateSpeed.get(eid) / cssHeight : 0;
             const zoomSpeed = orbit.zoomSpeed.get(eid);
             const minPitch = orbit.minPitch.get(eid);
             const maxPitch = orbit.maxPitch.get(eid);
@@ -276,6 +292,17 @@ const OrbitSystem: System = {
             let sizeS = smooth.size.get(eid);
             let keyYawVelocity = smooth.keyYawVelocity.get(eid);
             let keyPitchVelocity = smooth.keyPitchVelocity.get(eid);
+            // A value that differs from the one this system last published was authored, and becomes home.
+            if (yawO !== smooth.publishedYaw.get(eid)) smooth.homeYaw.set(eid, yawO);
+            if (pitchO !== smooth.publishedPitch.get(eid)) smooth.homePitch.set(eid, pitchO);
+            if (distO !== smooth.zoomDistance.get(eid)) smooth.homeDistance.set(eid, distO);
+            if (sizeO !== smooth.zoomSize.get(eid)) smooth.homeSize.set(eid, sizeO);
+            if (
+                panX !== smooth.pan.x.get(eid) ||
+                panY !== smooth.pan.y.get(eid) ||
+                panZ !== smooth.pan.z.get(eid)
+            )
+                smooth.homePan.set(eid, panX, panY, panZ);
 
             const hasCamera = world.has(eid, Camera);
             const isOrtho = hasCamera && camera.mode.get(eid) === CameraMode.Orthographic;
@@ -415,12 +442,11 @@ const OrbitSystem: System = {
                 const upZ = -sp * cy;
 
                 const worldPerPixel = isOrtho
-                    ? (camera.size.get(eid) * 2) /
-                      (world.resource(Viewports).get(input.focused)?.cssHeight ?? 0)
+                    ? (camera.size.get(eid) * 2) / cssHeight
                     : (2 *
                           distO *
                           Math.tan((hasCamera ? camera.fov.get(eid) : 60) * Deg2Rad * 0.5)) /
-                      (world.resource(Viewports).get(input.focused)?.cssHeight ?? 0);
+                      cssHeight;
 
                 const dx = dragX * worldPerPixel;
                 const dy = dragY * worldPerPixel;
@@ -491,6 +517,28 @@ const OrbitSystem: System = {
                         orbit.maxDistance.get(eid),
                     );
                 }
+            }
+
+            if (
+                orbit.recenter.get(eid) !== 0 &&
+                !locked &&
+                !flying &&
+                input.keys.pressed.has("KeyC")
+            ) {
+                yawO = smooth.homeYaw.get(eid);
+                pitchO = smooth.homePitch.get(eid);
+                distO = smooth.homeDistance.get(eid);
+                sizeO = smooth.homeSize.get(eid);
+                panX = smooth.homePan.x.get(eid);
+                panY = smooth.homePan.y.get(eid);
+                panZ = smooth.homePan.z.get(eid);
+                impulseX = 0;
+                impulseY = 0;
+                impulseZ = 0;
+                distanceImpulse = 0;
+                sizeImpulse = 0;
+                keyYawVelocity = 0;
+                keyPitchVelocity = 0;
             }
 
             // Publish through typed columns: uninlined numeric setter calls box double arguments.
@@ -644,6 +692,8 @@ const OrbitSystem: System = {
             orbit.yaw.markChanged(eid);
             orbit.pitch.column[eid] = pitchO;
             orbit.pitch.markChanged(eid);
+            smooth.publishedYaw.set(eid, orbit.yaw.get(eid));
+            smooth.publishedPitch.set(eid, orbit.pitch.get(eid));
             orbit.distance.column[eid] = distO;
             orbit.distance.markChanged(eid);
             orbit.size.column[eid] = sizeO;

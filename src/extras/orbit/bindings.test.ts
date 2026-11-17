@@ -30,7 +30,7 @@ async function subject(mode = CameraMode.Perspective as number) {
     w.add(eid, Transform);
     w.add(eid, Camera, { mode });
     w.add(eid, Orbit, {
-        sensitivity: 0.005,
+        rotateSpeed: 1,
         orbitButton: 0,
         panButton: 2,
         flyButton: 255,

@@ -74,6 +74,10 @@ The entity table returned by `meshInstanceTable(world)` gains `layers` in existi
 
 `Orbit.target` now follows interpolated fixed placement at display refresh, snapping the whole follow pose on between-tick teleports. Remove game-side target interpolation that would apply it twice; review camera captures taken between ticks.
 
+### Orbit turns by a share of the viewport
+
+`Orbit.sensitivity`, radians per pixel, is now `Orbit.rotateSpeed`, radians per drag across the focused viewport's height; the default is 3.8. Multiply an old value by the canvas's CSS height it was tuned at: `0.005` on an 800 px canvas becomes `rotateSpeed: 4`. `smoothness` defaults to 0.5 instead of 0.3, and C in `Free` glides back to the last authored yaw, pitch, distance, size and pan; set `recenter: 0` to leave C to the game.
+
 ## Materials
 
 ### Standard material texture roles and vertex color
