@@ -5,7 +5,7 @@ import { GAME } from "./src/network";
 const { values } = parseArgs({
     args: Bun.argv.slice(2),
     options: {
-        port: { type: "string", default: "3001" },
+        port: { type: "string", default: process.env.PORT ?? "3001" },
         host: { type: "string", default: "0.0.0.0" },
     },
 });
