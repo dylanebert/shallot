@@ -123,6 +123,8 @@ function placeMarker(
 
 import { drawEventMark, drawSensorHitViews } from "./event-presentation";
 
+const FreeSmoothness = { create: () => new Map<number, number>() };
+
 export const GrabFeedback = {
     create: () => ({ marker: 0, attachment: [0, 0, 0] as [number, number, number] }),
 };
@@ -165,8 +167,15 @@ export function setSceneCamera(world: World, scene: Scene, camera: number): void
         scene === "geometricMover" ||
         scene === "rigidBody" ||
         scene === "village";
+    // A player scene snaps; leaving it restores the free camera's own smoothness.
+    const free = world.resource(FreeSmoothness);
+    if (player && !free.has(camera)) free.set(camera, orbit.smoothness.get(camera));
+    if (player) orbit.smoothness.set(camera, 1);
+    else if (free.has(camera)) {
+        orbit.smoothness.set(camera, free.get(camera)!);
+        free.delete(camera);
+    }
     orbit.mode.set(camera, player ? OrbitMode.Manual : OrbitMode.Free);
-    orbit.smoothness.set(camera, player ? 1 : 0.3);
     const follow =
         scene === "driving" ||
         scene === "dynamicMover" ||

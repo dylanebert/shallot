@@ -23,7 +23,7 @@ async function subject(options = {}) {
     const w = app.world;
     const eid = w.create();
     w.add(eid, Transform);
-    w.add(eid, Orbit, { yaw: 0, pitch: 0, ...options });
+    w.add(eid, Orbit, { yaw: 0, pitch: 0, sensitivity: 0.005, ...options });
     resizeViewport(w, 0, 880, 670, 1);
     focusCanvas(w);
     w.step(0);

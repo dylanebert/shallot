@@ -181,6 +181,7 @@ async function subject() {
     w.add(eid, Orbit, {
         yaw: 0,
         pitch: 0,
+        sensitivity: 0.005,
         orbitButton: 0,
         panButton: 2,
         zoomButton: 1,
