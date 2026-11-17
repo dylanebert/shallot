@@ -93,10 +93,11 @@ const commandUsage = {
   auto-stops with no minimum running; shared IPv4 only.
   Login: fly auth login in a terminal; FLY_API_TOKEN is required otherwise.
   More than one organization requires a terminal to choose one.
-  Server logs: fly logs --app <app>
+  Use the quoted Fly CLI path printed by publish as <flyctl>:
+  Server logs: "<flyctl>" logs --app <app>
   Server rollback: check out an earlier commit, then bunx shallot publish
-  Server deletion: confirm with the person first, then fly apps destroy <app>
-  Server inventory: fly apps list
+  Server deletion: confirm with the person first, then "<flyctl>" apps destroy <app>
+  Server inventory: "<flyctl>" apps list
 
   itch: the page's html5 channel, 1,000 files, 200 MB per file, 500 MB in all.
   Create the page on itch.io with Kind of project HTML; shallot.publish (target

@@ -22,6 +22,7 @@ import {
     deployFlyServer,
     ensureFly,
     type FlyLink,
+    flyCommands,
     refuseFlyConfig,
     validFlyApp,
 } from "./publish-fly";
@@ -523,12 +524,14 @@ export async function publishProject(projectDir: string, targetName?: string): P
         const setup = await target.setup(projectDir, work, interactive, saved);
         resolveProjectPlaywright(projectDir);
         const server = linked?.server;
+        let flyctl: string | undefined;
         if (server) {
             refuseFlyConfig(projectDir);
             if (!interactive && !process.env.FLY_API_TOKEN)
                 throw new Error(
                     "Fly login is missing. Set FLY_API_TOKEN for non-interactive publish.",
                 );
+            flyctl = await ensureFly();
             await deployFlyServer(
                 projectDir,
                 work,
@@ -536,7 +539,7 @@ export async function publishProject(projectDir: string, targetName?: string): P
                 interactive,
                 !!linked?.target && !!linked.server,
                 ask,
-                await ensureFly(),
+                flyctl,
             );
             setup.link.server = server;
         }
@@ -554,7 +557,7 @@ export async function publishProject(projectDir: string, targetName?: string): P
         const deployed = await setup.deploy(directory);
         savePublishLink(projectDir, setup.link);
         publishProgress(
-            `Build: ${deployed.buildUrl}\n${setup.commands}${server ? `\nServer logs: fly logs --app ${server.app}\nServer rollback: check out an earlier commit, then bunx shallot publish\nConfirm with the person before deleting the server.\nServer deletion: fly apps destroy ${server.app}` : ""}`,
+            `Build: ${deployed.buildUrl}\n${setup.commands}${server ? `\n${flyCommands(flyctl!, server.app)}` : ""}`,
         );
         const browser = await projectChromium(projectDir);
         try {

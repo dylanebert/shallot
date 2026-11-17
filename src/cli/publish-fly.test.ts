@@ -1,7 +1,20 @@
 import { expect, test } from "bun:test";
-import { flyConfig } from "./publish-fly";
+import { flyCommands, flyConfig } from "./publish-fly";
 
 const config = () => Bun.TOML.parse(flyConfig("game")) as any;
+
+test("Fly operations use the fetched CLI and put confirmation before deletion", () => {
+    const commands = flyCommands("/cache with spaces/flyctl", "game");
+    expect(commands).toContain('Server logs: "/cache with spaces/flyctl" logs --app game');
+    expect(commands).toContain(
+        "Server rollback: check out an earlier commit, then bunx shallot publish",
+    );
+    expect(commands).toContain('Server deletion: "/cache with spaces/flyctl" apps destroy game');
+    expect(commands).toContain("Confirm with the person before deleting the server.");
+    expect(commands.indexOf("Confirm with the person")).toBeLessThan(
+        commands.indexOf("Server deletion:"),
+    );
+});
 
 test("Fly config names the app", () => {
     expect(config().app).toBe("game");

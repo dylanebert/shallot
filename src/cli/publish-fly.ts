@@ -29,6 +29,10 @@ export const FLY_ARCHIVES: Record<string, string> = Object.fromEntries([
     ["Windows_x86_64", "8a2170aee866282e8b21d4f278ffeb10c82838fbef9211279fedbde2cb87d278"],
 ]);
 
+export function flyCommands(cli: string, app: string): string {
+    return `Fly CLI: "${cli}"\nServer logs: "${cli}" logs --app ${app}\nServer rollback: check out an earlier commit, then bunx shallot publish\nConfirm with the person before deleting the server.\nServer deletion: "${cli}" apps destroy ${app}`;
+}
+
 export function validFlyApp(app: string): boolean {
     return /^[a-z][a-z0-9-]{0,61}[a-z0-9]$/.test(app);
 }
