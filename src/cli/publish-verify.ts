@@ -27,13 +27,27 @@ const PUBLISH_LAUNCH_OPTIONS = {
 
 export async function launchPublishChromium(
     chromium: Pick<BrowserType, "launch">,
+    software = process.platform === "linux" && !!process.env.CI,
 ): Promise<Browser> {
+    const options = {
+        ...PUBLISH_LAUNCH_OPTIONS,
+        args: [
+            ...PUBLISH_LAUNCH_OPTIONS.args,
+            ...(software
+                ? [
+                      "--use-angle=swiftshader",
+                      "--enable-features=Vulkan",
+                      "--use-vulkan=swiftshader",
+                  ]
+                : []),
+        ],
+    };
     try {
-        return await chromium.launch(PUBLISH_LAUNCH_OPTIONS);
+        return await chromium.launch(options);
     } catch (error) {
         if (!(error instanceof Error) || !error.message.includes("No usable sandbox!")) throw error;
         const browser = await chromium.launch({
-            ...PUBLISH_LAUNCH_OPTIONS,
+            ...options,
             chromiumSandbox: false,
         });
         publishProgress(
