@@ -1,3 +1,5 @@
+import { spawnSync } from "node:child_process";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 export async function buildFlyServer(
@@ -5,18 +7,31 @@ export async function buildFlyServer(
     directory: string,
     app: string,
 ): Promise<void> {
-    const build = await Bun.build({
-        entrypoints: [join(project, "server.ts")],
-        target: "bun",
-        outdir: directory,
-        naming: "server.js",
-    });
-    if (!build.success) throw new AggregateError(build.logs, "Server bundle failed");
-    await Bun.write(
+    function bun(args: string[]): string {
+        const result = spawnSync("bun", args, {
+            cwd: project,
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "pipe"],
+        });
+        if (result.error) throw result.error;
+        if (result.status !== 0)
+            throw new Error(`bun ${args.join(" ")} failed:\n${result.stdout}${result.stderr}`);
+        return result.stdout.trim();
+    }
+    const version = bun(["--version"]);
+    bun([
+        "build",
+        join(project, "server.ts"),
+        "--target",
+        "bun",
+        "--outfile",
+        join(directory, "server.js"),
+    ]);
+    await writeFile(
         join(directory, "Dockerfile"),
-        `FROM oven/bun:${Bun.version}\nWORKDIR /app\nCOPY server.js .\nCMD ["bun", "server.js"]\n`,
+        `FROM oven/bun:${version}\nWORKDIR /app\nCOPY server.js .\nCMD ["bun", "server.js"]\n`,
     );
-    await Bun.write(join(directory, "fly.toml"), flyConfig(app));
+    await writeFile(join(directory, "fly.toml"), flyConfig(app));
 }
 
 export function flyConfig(app: string): string {

@@ -1,21 +1,44 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { bunChild } from "../../scripts/bun-child";
 import { createExample, example, packedInstall } from "../../scripts/packed-install-fixture";
-import { buildFlyServer } from "./publish-fly";
 
 setDefaultTimeout(TIMEOUT.node);
 
-test("a packed multiplayer server bundle serves two Worlds that each confirm 60 ticks via PORT", async () => {
+test("Node builds a packed multiplayer server bundle serving two Worlds that each confirm 60 ticks via PORT", async () => {
     createExample("multiplayer");
     const { project } = example("multiplayer");
     const directory = join(packedInstall().scratch, "server");
     mkdirSync(directory);
-    await buildFlyServer(project, directory, "game");
+    const module = join(directory, "publish-fly.mjs");
+    const build = await Bun.build({
+        entrypoints: [join(import.meta.dir, "publish-fly.ts")],
+        target: "node",
+        outdir: directory,
+        naming: "publish-fly.mjs",
+    });
+    expect(build.success, build.logs.join("\n")).toBe(true);
+    const published = spawnSync(
+        "node",
+        [
+            "--input-type=module",
+            "-e",
+            `
+            import { buildFlyServer } from ${JSON.stringify(pathToFileURL(module).href)};
+            await buildFlyServer(${JSON.stringify(project)}, ${JSON.stringify(directory)}, "game");
+        `,
+        ],
+        { cwd: project, encoding: "utf8", timeout: TIMEOUT.node },
+    );
+    expect(published.status, published.stderr).toBe(0);
+    const version = spawnSync("bun", ["--version"], { cwd: project, encoding: "utf8" });
+    expect(version.status, version.stderr).toBe(0);
     expect(readFileSync(join(directory, "Dockerfile"), "utf8")).toBe(
-        `FROM oven/bun:${Bun.version}\nWORKDIR /app\nCOPY server.js .\nCMD ["bun", "server.js"]\n`,
+        `FROM oven/bun:${version.stdout.trim()}\nWORKDIR /app\nCOPY server.js .\nCMD ["bun", "server.js"]\n`,
     );
     const runner = join(project, "confirm.ts");
     await Bun.write(
