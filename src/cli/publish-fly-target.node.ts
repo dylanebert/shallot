@@ -5,14 +5,18 @@ import { join } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { removeTestDirectory } from "../../scripts/test-directory";
 import { readPublishLink } from "./publish";
-import { deployFlyServer, ensureFly } from "./publish-fly";
+import { deployFlyServer, ensureFly, flyOrganizations } from "./publish-fly";
 
 setDefaultTimeout(TIMEOUT.node);
 const root = mkdtempSync(join(tmpdir(), "shallot-fly-target-"));
 const cli = join(root, process.platform === "win32" ? "fly.exe" : "fly");
 beforeAll(async () => {
     const source = join(root, "fake.ts");
-    writeFileSync(source, `console.log(JSON.stringify([{Name:'occupied'}]));`);
+    writeFileSync(
+        source,
+        `if(process.argv[2]==='apps'&&process.argv[3]==='list')console.log(JSON.stringify([{Name:'occupied'}]));else if(process.argv[2]==='orgs')console.log('{"personal":"Personal"}');`,
+    );
+    writeFileSync(join(root, "server.ts"), "export const state = 1;");
     const result = await Bun.build({ entrypoints: [source], compile: { outfile: cli } });
     if (!result.success) throw new Error(result.logs.join("\n"));
 });
@@ -20,6 +24,38 @@ afterAll(() => removeTestDirectory(root));
 const ask = async () => {
     throw new Error("Unexpected prompt");
 };
+
+test("Fly organizations use the pinned CLI's slug-to-name JSON object", () => {
+    expect(flyOrganizations('{"personal":"Personal"}')).toEqual(["personal"]);
+    expect(flyOrganizations('{"personal":"Personal","studio":"Studio"}')).toEqual([
+        "personal",
+        "studio",
+    ]);
+    for (const invalid of ["[]", "{}", "null", '{"personal":false}'])
+        expect(() => flyOrganizations(invalid)).toThrow("organizations");
+});
+
+test("an absent app deploys with the sole organization without prompting", async () => {
+    const token = process.env.FLY_API_TOKEN;
+    process.env.FLY_API_TOKEN = "fixture";
+    const work = mkdtempSync(join(tmpdir(), "shallot-fly-work-"));
+    try {
+        await deployFlyServer(
+            root,
+            work,
+            { target: "fly", app: "scratch-app" },
+            false,
+            false,
+            ask,
+            cli,
+        );
+        expect(readFileSync(join(work, "fly.toml"), "utf8")).toContain('app = "scratch-app"');
+    } finally {
+        await removeTestDirectory(work);
+        if (token === undefined) delete process.env.FLY_API_TOKEN;
+        else process.env.FLY_API_TOKEN = token;
+    }
+});
 
 test("server links retain Fly and reject malformed targets and app names", () => {
     const path = join(root, "package.json");

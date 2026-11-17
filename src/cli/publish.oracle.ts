@@ -583,7 +583,7 @@ test(
                 throw new Error(`${cmd.join(" ")} exited ${result.status}: ${result.stdout}`);
             return result;
         };
-        const { ensureFly } = await import("./publish-fly");
+        const { ensureFly, flyOrganizations } = await import("./publish-fly");
         const previousCache = process.env.XDG_CACHE_HOME;
         let cli: string;
         try {
@@ -706,10 +706,10 @@ test(
                 }),
             ).toBe(false);
             // Prove a first-link refusal on our own scratch app before any deployment.
-            const orgs = JSON.parse(fly(["orgs", "list", "--json"]));
+            const orgs = flyOrganizations(fly(["orgs", "list", "--json"]));
             expect(orgs).toHaveLength(1);
             owned = true;
-            fly(["apps", "create", name, "--org", orgs[0].Slug]);
+            fly(["apps", "create", name, "--org", orgs[0]!]);
             expect(inventory().map((row) => row.Name)).toEqual([name]);
             const refused = run(publish, project, true);
             expect(refused.status).not.toBe(0);

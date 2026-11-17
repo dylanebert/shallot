@@ -104,6 +104,19 @@ export function refuseFlyConfig(project: string): void {
     }
 }
 
+export function flyOrganizations(output: string): string[] {
+    const orgs: unknown = JSON.parse(output);
+    if (
+        !orgs ||
+        typeof orgs !== "object" ||
+        Array.isArray(orgs) ||
+        !Object.keys(orgs).length ||
+        Object.values(orgs).some((name) => typeof name !== "string")
+    )
+        throw new Error("Fly reported no accessible organizations");
+    return Object.keys(orgs);
+}
+
 export async function deployFlyServer(
     project: string,
     work: string,
@@ -135,25 +148,14 @@ export async function deployFlyServer(
         );
     await buildFlyServer(project, work, link.app);
     if (!exists) {
-        const orgs: Record<"Slug", string>[] = JSON.parse(
-            runFly(cli, ["orgs", "list", "--json"], work),
-        );
-        if (
-            !Array.isArray(orgs) ||
-            !orgs.length ||
-            orgs.some((row) => typeof row.Slug !== "string")
-        )
-            throw new Error("Fly reported no accessible organizations");
+        const orgs = flyOrganizations(runFly(cli, ["orgs", "list", "--json"], work));
         if (orgs.length > 1 && !interactive)
             throw new Error(
                 "More than one Fly organization is accessible; publish in a terminal to choose one.",
             );
         const org =
-            orgs.length === 1
-                ? orgs[0]!.Slug
-                : await ask(`Fly organization (${orgs.map((row) => row.Slug).join(", ")})`);
-        if (!orgs.some((row) => row.Slug === org))
-            throw new Error("Fly organization is not accessible");
+            orgs.length === 1 ? orgs[0]! : await ask(`Fly organization (${orgs.join(", ")})`);
+        if (!orgs.includes(org)) throw new Error("Fly organization is not accessible");
         runFly(cli, ["apps", "create", link.app, "--org", org], work);
         runFly(cli, ["ips", "allocate-v4", "--shared", "--app", link.app], work);
     }

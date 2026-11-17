@@ -38,7 +38,7 @@ beforeAll(async () => {
         source,
         `const fs=require('node:fs'),path=require('node:path'); const root=path.dirname(path.dirname(process.execPath)); ${RECORD}
 const args=process.argv.slice(2);
-if(path.basename(process.execPath).replace(/\\.exe$/, '')==='flyctl') { record({command:'fly '+args.join(' ')}); if(args[0]==='apps'&&args[1]==='list')console.log('[]');else if(args[0]==='orgs')console.log('[{"Slug":"personal"}]');process.exit(0); }
+if(path.basename(process.execPath).replace(/\\.exe$/, '')==='flyctl') { record({command:'fly '+args.join(' ')}); if(args[0]==='apps'&&args[1]==='list')console.log('[]');else if(args[0]==='orgs')console.log('{"personal":"Personal"}');process.exit(0); }
 if(path.basename(process.execPath).replace(/\\.exe$/, '')==='bun') {
 if(args[0]==='--version'){console.log('1.3.3');process.exit(0);} if(args[0]==='build'){record({command:'server build'});fs.writeFileSync(args[args.indexOf('--outfile')+1],'');process.exit(0);}
 if(JSON.stringify(args)!==JSON.stringify(['add','--dev','wrangler@${WRANGLER_VERSION}']))throw Error('Unexpected install');
