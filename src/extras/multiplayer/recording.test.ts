@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { component, type Plugin, u32, type World } from "../../engine";
+import { component, createApp, type Plugin, u32, type World } from "../../engine";
 import {
     type Game,
     Replicate,
@@ -8,7 +8,7 @@ import {
     ServerSession,
     type SessionRecording,
 } from ".";
-import type { RecordingCall } from "./recording";
+import { type RecordingCall, SessionRecorder } from "./recording";
 import { createSession } from "./testing";
 
 const Count = component("RecordedCount", { value: u32 });
@@ -51,6 +51,44 @@ const game: Game = {
         world.resource(Runtime).receiver = new ReplicationReceiver(world, [Count], connection);
     },
 };
+for (const role of ["server", "client"] as const) {
+    test(`${role} hashes ignore presentation rows but detect replicated changes`, async () => {
+        const recorder = new SessionRecorder(game, role, { gameVersion: "counter-1", write() {} });
+        const app = await createApp({
+            defaults: false,
+            plugins: [recorder.plugin, { name: "HashMembership", components: [Count, Replicate] }],
+        });
+        try {
+            const world = app.world;
+            const replicated = world.create();
+            world.add(replicated, Count, { value: 1 });
+            if (role === "server") world.add(replicated, Replicate);
+            else {
+                const receiver = new ReplicationReceiver(world, [Count], {
+                    send() {},
+                    close() {},
+                    receive: () => [],
+                });
+                receiver.entities.set(1, replicated);
+            }
+            world.tick();
+            const presentation = world.create();
+            world.add(presentation, Count, { value: 123 });
+            world.tick();
+            world.storage(Count).value.set(presentation, 456);
+            world.tick();
+            world.storage(Count).value.set(replicated, 2);
+            world.tick();
+            const values = hashes(recorder.recording).map((call) => call.result);
+            expect(values[1]).toBe(values[0]);
+            expect(values[2]).toBe(values[0]);
+            expect(values[3]).not.toBe(values[0]);
+        } finally {
+            app.dispose();
+        }
+    });
+}
+
 function calls(recording: SessionRecording): RecordingCall[] {
     const flatten = (items: RecordingCall[]): RecordingCall[] =>
         items.flatMap((call) => [call, ...flatten(call.calls)]);

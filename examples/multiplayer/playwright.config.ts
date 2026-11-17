@@ -7,6 +7,13 @@ export default {
     use: { ...BROWSER_CONFIG.use, baseURL: "http://127.0.0.1:4430" },
     webServer: [
         {
+            command: "bun server.ts --port 4433 --host 127.0.0.1",
+            url: "http://127.0.0.1:4433",
+            // Recording input must not move the shared scene used by the other subjects.
+            wait: { stdout: /Multiplayer server: ws:\/\/localhost:4433/ },
+            ...WEB_SERVER_CONFIG,
+        },
+        {
             command: "bunx vite --host 127.0.0.1 --port 4430 --strictPort",
             url: "http://127.0.0.1:4430",
             ...WEB_SERVER_CONFIG,

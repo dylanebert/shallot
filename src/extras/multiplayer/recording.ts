@@ -1,13 +1,13 @@
 import { version } from "../../../package.json";
 import { createApp, type Plugin, Time, type World } from "../../engine";
 import { fields } from "../../engine/ecs";
-import { MultiplayerPlugin } from ".";
+import { MultiplayerPlugin, Replicate, type ReplicationReceiver } from ".";
 import { transportClock } from "./diagnostics";
 import type { Game } from "./game";
 import { clientStartup, ServerSession, server } from "./game";
 import type { InputRecord } from "./intent";
 import type { Connection } from "./link";
-import type { ClientPrediction } from "./prediction";
+import { type ClientPrediction, PredictionTarget } from "./prediction";
 import { PredictionRecording } from "./recording-hooks";
 
 export interface RecordingCall {
@@ -22,6 +22,8 @@ export interface RecordingCall {
 export interface SessionRecording {
     engineVersion: string;
     gameVersion: string;
+    /** Engine identity and build identifier; browsers expose their host build via userAgent. */
+    javascript: { engine: string; version: string };
     role: "server" | "client";
     calls: RecordingCall[];
 }
@@ -31,9 +33,30 @@ export interface RecordingOptions {
     write(recording: SessionRecording): void;
 }
 
+const ActiveRecording = { create: (): { value?: SessionRecording } => ({}) };
+
+/** Borrows the opt-in recording accumulated so far; serialize it before the next step. */
+export function sessionRecording(world: World): SessionRecording | undefined {
+    return world.resource(ActiveRecording).value;
+}
+
+function javascriptRuntime(): SessionRecording["javascript"] {
+    if (typeof Bun !== "undefined")
+        return { engine: "JavaScriptCore", version: process.versions.webkit! };
+    if (typeof process !== "undefined" && process.versions?.v8)
+        return { engine: "V8", version: process.versions.v8 };
+    const agent = navigator.userAgent;
+    const engine = /Chrome\//.test(agent)
+        ? "V8"
+        : /Firefox\//.test(agent)
+          ? "SpiderMonkey"
+          : "JavaScriptCore";
+    return { engine, version: agent };
+}
+
 /** Hashes schema fields in entity/component/field order, including membership and entity IDs.
- * Includes locally composed schema rows as well as received rows, not disclosure-filtered packets. */
-function hashReplicatedRows(world: World, game: Game): string {
+ * Covers replication membership and local prediction, not presentation-only schema rows. */
+function hashReplicatedRows(world: World, game: Game, selected: Iterable<number>): string {
     let hash = 2166136261;
     const bytes = new Uint8Array(8);
     const view = new DataView(bytes.buffer);
@@ -41,9 +64,7 @@ function hashReplicatedRows(world: World, game: Game): string {
         view.setFloat64(0, value, true);
         for (const byte of bytes) hash = Math.imul(hash ^ byte, 16777619) >>> 0;
     };
-    const entities = new Set<number>();
-    for (const component of game.schema)
-        for (const eid of world.query([component])) entities.add(eid);
+    const entities = new Set(selected);
     for (const eid of [...entities].sort((a, b) => a - b)) {
         number(eid);
         for (const [index, component] of game.schema.entries()) {
@@ -68,6 +89,7 @@ export class SessionRecorder {
     private _world!: World;
     private _active = true;
     private _prediction?: ClientPrediction;
+    private readonly _receivers: ReplicationReceiver[] = [];
     private _nextConnection = 0;
     private readonly _connections = new Map<number, Connection>();
     private readonly _identities = new WeakMap<Connection, number>();
@@ -88,6 +110,7 @@ export class SessionRecorder {
         this.recording = playback ?? {
             engineVersion: version,
             gameVersion: options.gameVersion,
+            javascript: javascriptRuntime(),
             role,
             calls: [],
         };
@@ -151,6 +174,7 @@ export class SessionRecorder {
         recovery: "stateless",
         initialize: (world) => {
             this._world = world;
+            world.resource(ActiveRecording).value = this.recording;
             world.onDispose(() => this.finish());
             const tick = world.tick.bind(world);
             const step = world.step.bind(world);
@@ -169,6 +193,7 @@ export class SessionRecorder {
                     this.invoke(kind, value === undefined ? [] : [value], () => control(value!));
             }
             const hooks = world.resource(PredictionRecording);
+            hooks.receiver = (receiver) => this._receivers.push(receiver);
             hooks.attach = (prediction) => {
                 this._prediction = prediction;
                 const accept = prediction.accept.bind(prediction);
@@ -202,7 +227,21 @@ export class SessionRecorder {
                 group: "postFixed",
                 boundary: "after",
                 update: () =>
-                    this.invoke("hash", [], () => hashReplicatedRows(this._world, this._game)),
+                    this.invoke("hash", [], () => {
+                        const world = this._world;
+                        const entities =
+                            this.recording.role === "server"
+                                ? world.query([Replicate])
+                                : [
+                                      ...this._receivers.flatMap((receiver) => [
+                                          ...receiver.entities.values(),
+                                      ]),
+                                      ...[...world.query([PredictionTarget])].filter((eid) =>
+                                          this._prediction?.predicted(eid),
+                                      ),
+                                  ];
+                        return hashReplicatedRows(world, this._game, entities);
+                    }),
             },
         ],
     };

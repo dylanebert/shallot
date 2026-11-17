@@ -26,12 +26,14 @@ export {
     type RecordingOptions,
     replaySession,
     type SessionRecording,
+    sessionRecording,
 } from "./recording";
 export { WebSocketConnection } from "./websocket";
 
 import { networkDiagnostics } from "./diagnostics";
 import { type AcceptedIntent, decodeIntent, encodeIntent, IntentMessageKind } from "./intent";
 import type { Connection } from "./link";
+import { PredictionRecording } from "./recording-hooks";
 
 export {
     type AcceptedIntent,
@@ -551,6 +553,7 @@ export class ReplicationReceiver {
         this.connection = connection;
         this.confirm = confirm;
         this.reconcile = reconcile;
+        world.resource(PredictionRecording).receiver?.(this);
     }
     /** Applies confirmations and returns other message kinds for application routing.
      * "latest" reconciles once, passing preceding ordered states to that callback. It must

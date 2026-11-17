@@ -1,5 +1,10 @@
 import type { World } from "@dylanebert/shallot";
-import { client, local } from "@dylanebert/shallot/multiplayer";
+import {
+    client,
+    local,
+    type RecordingOptions,
+    sessionRecording,
+} from "@dylanebert/shallot/multiplayer";
 import { GAME } from "./network";
 
 export function connectionFailure(url: string) {
@@ -12,9 +17,22 @@ export function connectionFailure(url: string) {
 }
 
 export async function topology(url?: string, onError?: (error: Error) => void) {
+    const enabled =
+        typeof location !== "undefined" && new URLSearchParams(location.search).has("record");
+    const recording: RecordingOptions | undefined = enabled
+        ? { gameVersion: "multiplayer-1", write() {} }
+        : undefined;
     if (url)
         return {
-            plugin: client(GAME, { url, onError: () => onError?.(connectionFailure(url)) }),
+            plugin: client(GAME, {
+                url,
+                recording,
+                onError: () => onError?.(connectionFailure(url)),
+            }),
+            recordings: (world: World) => {
+                const value = sessionRecording(world);
+                return value ? [value] : [];
+            },
             pump(_delta: number) {},
             dispose() {},
             faults: undefined,
@@ -27,6 +45,7 @@ export async function topology(url?: string, onError?: (error: Error) => void) {
     ] as const;
     return local(GAME, {
         seed: 0x51a1107,
+        recording: recording ? () => recording : undefined,
         faults: { minDelay: 50, maxDelay: 50, loss: 0.02, duplication: 0 },
         thinClients: [
             {

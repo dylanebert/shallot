@@ -88,6 +88,7 @@ export {
     DiagnosticsOverlayPlugin,
     ProfilePlugin,
     profilerBounds,
+    registerDebugChord,
     showProfiler,
 } from "./profile";
 export {

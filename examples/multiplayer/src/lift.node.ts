@@ -30,7 +30,6 @@ test("a predicted rider stays on the moving lift at 100 ms and 2% loss", async (
         for (let frame = 0; frame < 240; frame++) {
             for (const client of clients) {
                 client.record([0, 0, 0, 0, 0, 0]);
-                client.selectPrediction();
             }
             await session.advance();
             if (frame < 30) continue;

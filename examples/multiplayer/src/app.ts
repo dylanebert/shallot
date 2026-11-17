@@ -17,13 +17,14 @@ import {
     DiagnosticsOverlayPlugin,
     internText,
     Justify,
+    registerDebugChord,
     Text,
     TextPlugin,
 } from "@dylanebert/shallot/extras";
 import { Anchor } from "@dylanebert/shallot/rendering";
 import { Tint } from "./demo";
 import { ClientControls, ClientSession, scene } from "./network";
-import { LocalControls, Player, UpdatePlayerControlSystem } from "./player";
+import { LocalControls, LocalPlayer, UpdatePlayerControlSystem } from "./player";
 import { network } from "./runtime";
 
 export const AppPlugin: Plugin = {
@@ -32,6 +33,19 @@ export const AppPlugin: Plugin = {
     recovery: "stateless",
     initialize(world) {
         const topology = network(world);
+        if (new URLSearchParams(location.search).has("record")) {
+            registerDebugChord(world, "KeyR", () => {
+                const blob = new Blob([JSON.stringify(topology.recordings(world))], {
+                    type: "application/json",
+                });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement("a");
+                link.href = url;
+                link.download = "multiplayer-recording.json";
+                link.click();
+                setTimeout(() => URL.revokeObjectURL(url), 0);
+            });
+        }
         world.resource(LocalControls).enabled = true;
         world.onDispose(() => topology.dispose());
         const ambient = world.resource(GlobalAmbientLight);
@@ -94,7 +108,8 @@ export const AppPlugin: Plugin = {
                 const client = world.resource(ClientSession).client;
                 if (!client || client.slot < 0) return;
                 const { player, eye } = scene(world).players[client.slot]!;
-                world.storage(Player).camera.set(player, eye);
+                if (!world.has(player, LocalPlayer)) world.add(player, LocalPlayer);
+                world.storage(LocalPlayer).camera.set(player, eye);
                 const otherEye = scene(world).players[1 - client.slot]!.eye;
                 world.remove(otherEye, Camera);
                 world.remove(otherEye, StandardRenderer);

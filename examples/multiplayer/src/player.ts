@@ -140,6 +140,11 @@ export const PlayerInput = component(
 export const LocalPlayer = component(
     "LocalPlayer",
     {
+        /** tab-local camera link; never sent by authority */
+        camera: entity,
+        move: vec2,
+        sprint: u8,
+        jumpPresses: u32,
         /** look radians per mouse CSS pixel at the fixed 1080px reference height */
         sensitivity: f32,
         /** touch look degrees per CSS pixel of drag */
@@ -154,6 +159,10 @@ export const LocalPlayer = component(
     {
         presentation: true,
         defaults: () => ({
+            camera: 0,
+            move: [0, 0],
+            sprint: 0,
+            jumpPresses: 0,
             sensitivity: 1.5,
             touchSensitivity: 0.35,
             viewYaw: 0,
@@ -243,14 +252,8 @@ export const LocalPlayerInputSystem: System = {
         }
         const players = world.storage(Player);
         const local = world.storage(LocalPlayer);
-        const inputs = world.storage(PlayerInput);
+        const inputs = local;
         for (const eid of world.query(LOCAL_PLAYERS)) {
-            if (!world.has(eid, PlayerInput)) {
-                world.add(eid, PlayerInput, {
-                    yaw: players.yaw.get(eid),
-                    pitch: players.pitch.get(eid),
-                });
-            }
             if (!local.initialized.get(eid)) {
                 local.viewYaw.set(eid, players.yaw.get(eid));
                 local.viewPitch.set(eid, players.pitch.get(eid));
@@ -297,8 +300,8 @@ export const LocalPlayerInputSystem: System = {
                         (devices.keys.held.has("ShiftLeft") || devices.keys.held.has("ShiftRight")),
                 ),
             );
-            inputs.yaw.set(eid, yaw);
-            inputs.pitch.set(eid, pitch);
+            local.viewYaw.set(eid, yaw);
+            local.viewPitch.set(eid, pitch);
             if (active && !world.time.paused && devices.keys.pressed.has("Space")) {
                 inputs.jumpPresses.set(eid, inputs.jumpPresses.get(eid) + 1);
             }
@@ -417,7 +420,9 @@ function followPos(world: World, eid: number, out: [number, number, number]): vo
 }
 
 function findCamera(world: World, eid: number): number {
-    const cam = world.storage(Player).camera.get(eid);
+    const cam =
+        (world.has(eid, LocalPlayer) ? world.storage(LocalPlayer).camera.get(eid) : 0) ||
+        world.storage(Player).camera.get(eid);
     if (!cam || !world.has(cam, Transform)) return -1;
     return cam;
 }

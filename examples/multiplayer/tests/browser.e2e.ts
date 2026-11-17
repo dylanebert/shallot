@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { holdFrames, pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, type Page, test } from "playwright/test";
 
@@ -42,6 +44,59 @@ async function open(page: Page, url = "") {
     await expect.poll(async () => (await frames(page, 2)).slot).toBeGreaterThanOrEqual(0);
     return errors;
 }
+
+for (const server of [false, true]) {
+    test(`F3+R saves replayable ${server ? "socket" : "in-tab"} recordings`, async ({ page }) => {
+        await open(page, `?record${server ? "&server=ws://127.0.0.1:4433" : ""}`);
+        const start = await frames(page, 10);
+        await page.evaluate(() => window.game.key("KeyW", true));
+        const pushed = await frames(page, 130);
+        await page.evaluate(() => window.game.key("KeyW", false));
+        expect(pushed.box[2]).toBeLessThan(start.box[2]! - 1);
+        expect(pushed.predictedBox).toBe(true);
+        const yawCount = await page.evaluate(async () => {
+            window.game.key("KeyW", true);
+            window.game.touch(91, innerWidth * 0.8, innerHeight * 0.4);
+            const yaws = new Set<number>();
+            for (let frame = 0; frame < 600; frame++) {
+                window.game.touch(91, innerWidth * 0.8 + (frame + 1) * 0.73, innerHeight * 0.4);
+                yaws.add((await window.game.frames()).yaw);
+                await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+            }
+            window.game.cancel(91);
+            window.game.key("KeyW", false);
+            return yaws.size;
+        });
+        expect(yawCount).toBeGreaterThan(500);
+        console.log(`yaw sweep ${server ? "socket" : "in-tab"}: ${yawCount} distinct angles`);
+        const download = page.waitForEvent("download");
+        await page.keyboard.down("F3");
+        await page.keyboard.press("r");
+        await page.keyboard.up("F3");
+        const path = await (await download).path();
+        const recordings = JSON.parse(await readFile(path!, "utf8"));
+        expect(recordings).toHaveLength(server ? 1 : 2);
+        for (const recording of recordings) {
+            expect(recording.javascript.engine).toBe("V8");
+            expect(recording.javascript.version).toContain("Chrome/");
+        }
+        execFileSync("bun", ["tests/replay.ts", path!], { cwd: import.meta.dirname + "/.." });
+        execFileSync("bun", ["tests/replay.ts", path!, "--drop-receive"], {
+            cwd: import.meta.dirname + "/..",
+        });
+    });
+}
+
+test("without record F3+R downloads nothing", async ({ page }) => {
+    await open(page);
+    const downloads: unknown[] = [];
+    page.on("download", (download) => downloads.push(download));
+    await page.keyboard.down("F3");
+    await page.keyboard.press("r");
+    await page.keyboard.up("F3");
+    await frames(page, 3);
+    expect(downloads).toEqual([]);
+});
 
 test.beforeEach(async ({ page }) => {
     const session = await page.context().newCDPSession(page);

@@ -24,6 +24,7 @@ import {
     type OperationRecord,
 } from "./intent";
 import { type Connection, type LinkFaults, seededLink } from "./link";
+import { type RecordingOptions, SessionRecorder } from "./recording";
 import { WebSocketConnection } from "./websocket";
 
 /** A live server-side connection entity. Its transport and histories live outside ECS storage. */
@@ -33,7 +34,8 @@ export const ClientOf = component("ClientOf", {});
  * Hooks borrow runtime handles; explicit disconnect calls onLeave before despawning.
  * Direct ECS removal may already have removed the entity's other components.
  * onClient installs game-specific prediction or routing at the client's first stepped preFixed
- * boundary, after app warm-up, where prediction may capture its initial World snapshot. */
+ * boundary, after app warm-up, where prediction may capture its initial World snapshot.
+ * Replay composes only the game's plugins and onClient, not the tab's controls or presentation. */
 export interface Game {
     plugins: readonly Plugin[];
     schema: ReplicationSchema;
@@ -243,12 +245,13 @@ export function clientStartup(game: Game, connection: (world: World) => Connecti
  * Connection failures, including an established socket closing, are reported to onError. */
 export function client(
     game: Game,
-    options: { url: string; onError?: (error: Error) => void },
+    options: { url: string; onError?: (error: Error) => void; recording?: RecordingOptions },
 ): Plugin {
+    const recorder = options.recording && new SessionRecorder(game, "client", options.recording);
     const Transport = { create: (): { connection?: Connection } => ({}) };
     return {
         name: "MultiplayerClient",
-        dependencies: game.plugins,
+        dependencies: [...(recorder ? [recorder.plugin] : []), ...game.plugins],
         async initialize(world) {
             const socket = new WebSocket(options.url);
             const connection = new WebSocketConnection(socket);
@@ -266,7 +269,7 @@ export function client(
                 socket.addEventListener("error", () => reject(failure()), { once: true });
                 socket.addEventListener("close", () => reject(failure()), { once: true });
             });
-            world.resource(Transport).connection = connection;
+            world.resource(Transport).connection = recorder?.connection(connection) ?? connection;
         },
         systems: [clientStartup(game, (world) => world.resource(Transport).connection!)],
     };
@@ -283,6 +286,7 @@ export async function local(
     options: {
         seed: number;
         faults: LinkFaults;
+        recording?: (role: "server" | "client") => RecordingOptions | undefined;
         thinClients?: readonly {
             seed: number;
             input(world: World, sender: IntentSender, tick: number): void;
@@ -290,12 +294,22 @@ export async function local(
     },
 ) {
     const apps: App[] = [];
+    const serverOptions = options.recording?.("server");
+    const clientOptions = options.recording?.("client");
+    const serverRecorder = serverOptions && new SessionRecorder(game, "server", serverOptions);
+    const clientRecorder = clientOptions && new SessionRecorder(game, "client", clientOptions);
     try {
         const app = await createApp({
             defaults: false,
-            plugins: [...game.plugins, MultiplayerPlugin, server(game)],
+            plugins: [
+                ...(serverRecorder ? [serverRecorder.plugin] : []),
+                ...game.plugins,
+                MultiplayerPlugin,
+                server(game),
+            ],
         });
         apps.push(app);
+        serverRecorder?.attachServer();
         const authority = app.world.resource(ServerSession).server!;
         const link = seededLink(options.seed, options.faults);
         if (authority.connect(link.a) === undefined) throw new Error("Local client refused");
@@ -330,14 +344,19 @@ export async function local(
         };
         const plugin: Plugin = {
             name: "MultiplayerLocalClient",
-            dependencies: game.plugins,
+            dependencies: [...(clientRecorder ? [clientRecorder.plugin] : []), ...game.plugins],
             initialize(world) {
                 world.onDispose(dispose);
             },
-            systems: [clientStartup(game, () => link.b)],
+            systems: [clientStartup(game, () => clientRecorder?.connection(link.b) ?? link.b)],
         };
         return {
             plugin,
+            /** Borrows both opt-in histories; serialize before pumping or stepping again. */
+            recordings: () =>
+                [serverRecorder?.recording, clientRecorder?.recording].filter(
+                    (value) => value !== undefined,
+                ),
             faults: options.faults,
             pump(delta: number) {
                 if (disposed) return;

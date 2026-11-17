@@ -30,7 +30,6 @@ for (const simulated of [false, true]) {
             for (let i = 0; i < 150; i++) {
                 for (const [slot, client] of clients.entries()) {
                     client.record([slot === 0 ? 0 : 1, slot === 0 ? 1 : 0, 0, 0, 0, 0]);
-                    client.selectPrediction();
                 }
                 await session.advance();
             }

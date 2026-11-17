@@ -123,7 +123,13 @@ export const GAME: Game = {
         connection.send(assignment(world.get(eid, ConnectionSlot)!.slot));
     },
     onClient(world, connection) {
-        world.resource(ClientSession).client = new GameClient(world, connection);
+        const client = new GameClient(world, connection);
+        world.resource(ClientSession).client = client;
+        world.addSystem({
+            name: "select-prediction",
+            group: "setup",
+            update: () => client.selectPrediction(),
+        });
     },
 };
 export class GameClient {
@@ -198,7 +204,6 @@ export class GameClient {
         }
     }
     step(delta: number) {
-        this.selectPrediction();
         this.world.step(delta);
     }
 }
@@ -214,15 +219,14 @@ export const ClientControls: Plugin = {
             update(world) {
                 const client = world.resource(ClientSession).client;
                 if (!client || client.slot < 0) return;
-                client.selectPrediction();
                 const { player } = scene(world).players[client.slot]!;
                 if (!world.has(player, LocalPlayer)) world.add(player, LocalPlayer);
-                const input = world.get(player, PlayerInput);
+                const input = world.get(player, LocalPlayer);
                 if (input)
                     client.record([
                         ...input.move,
-                        input.yaw,
-                        input.pitch,
+                        input.viewYaw,
+                        input.viewPitch,
                         input.sprint,
                         input.jumpPresses,
                     ]);
