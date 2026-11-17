@@ -4,6 +4,7 @@ import { MultiplayerPlugin } from ".";
 import { stampReceipt } from "./diagnostics";
 import { type Game, ServerSession, server as serverRole } from "./game";
 import type { Connection } from "./link";
+import { type RecordingOptions, SessionRecorder } from "./recording";
 
 /** A single accepted peer. close releases queued bytes as well as the socket. */
 export class ServerWebSocketConnection implements Connection {
@@ -85,11 +86,21 @@ export function serveWebSocket(options: {
 /** Self-hosts one headless authoritative game. Owns admission, a 60 Hz clock with at most four
  * catch-up ticks per callback, dead-peer cleanup and SIGTERM shutdown. stop is idempotent and
  * releases the timer, sockets, signal listener and World. The caller chooses address and hosting. */
-export async function serveGame(game: Game, options: { hostname?: string; port: number }) {
+export async function serveGame(
+    game: Game,
+    options: { hostname?: string; port: number; recording?: RecordingOptions },
+) {
+    const recorder = options.recording && new SessionRecorder(game, "server", options.recording);
     const app = await createApp({
         defaults: false,
-        plugins: [...game.plugins, MultiplayerPlugin, serverRole(game)],
+        plugins: [
+            ...(recorder ? [recorder.plugin] : []),
+            ...game.plugins,
+            MultiplayerPlugin,
+            serverRole(game),
+        ],
     });
+    recorder?.attachServer();
     const authority = app.world.resource(ServerSession).server!;
     const entities = new WeakMap<ServerWebSocketConnection, number>();
     let endpoint: ReturnType<typeof serveWebSocket>;
@@ -103,7 +114,11 @@ export async function serveGame(game: Game, options: { hostname?: string; port: 
             },
             disconnect(connection) {
                 const eid = entities.get(connection);
-                if (eid !== undefined && authority.peers.get(eid)?.connection === connection)
+                if (
+                    eid !== undefined &&
+                    authority.peers.get(eid)?.connection ===
+                        (recorder?.connection(connection) ?? connection)
+                )
                     authority.disconnect(eid);
                 entities.delete(connection);
             },
@@ -129,8 +144,15 @@ export async function serveGame(game: Game, options: { hostname?: string; port: 
         stopped = true;
         clearInterval(timer);
         process.off("SIGTERM", stop);
-        endpoint.stop(true);
-        app.dispose();
+        try {
+            recorder?.finish();
+        } finally {
+            try {
+                endpoint.stop(true);
+            } finally {
+                app.dispose();
+            }
+        }
     };
     app.world.onDispose(stop);
     process.on("SIGTERM", stop);

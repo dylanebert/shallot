@@ -21,6 +21,12 @@ export {
     PredictionPlugin,
     PredictionTarget,
 } from "./prediction";
+export {
+    type RecordingCall,
+    type RecordingOptions,
+    replaySession,
+    type SessionRecording,
+} from "./recording";
 export { WebSocketConnection } from "./websocket";
 
 import { networkDiagnostics } from "./diagnostics";

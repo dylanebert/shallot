@@ -5,6 +5,7 @@ import { clientStartup, type Game, ServerSession, server as serverRole } from ".
 import { IntentSender } from "./intent";
 import { type Connection, type LinkFaults, seededLink } from "./link";
 import type { PeerProxy } from "./proxy";
+import { type RecordingOptions, SessionRecorder } from "./recording";
 import { WebSocketConnection } from "./websocket";
 
 export type { PeerProxy, StreamFaults } from "./proxy";
@@ -31,6 +32,7 @@ export async function createSession(
         transport?: "link" | "websocket";
         faults?: LinkFaults;
         proxy?: boolean;
+        recording?: (role: "server" | `client[${number}]`) => RecordingOptions | undefined;
     },
 ) {
     const { clients, thinClients = 0, transport = "link" } = options;
@@ -60,6 +62,7 @@ export async function createSession(
         throw new Error("Link faults do not impair WebSockets");
     console.info(`multiplayer session seed=${seed} source=${source} transport=${transport}`);
     const apps: App[] = [];
+    const recordings: SessionRecorder[] = [];
     const links: ReturnType<typeof seededLink>[] = [];
     const sockets: WebSocket[] = [];
     let endpoint: ReturnType<typeof import("./bun").serveWebSocket> | undefined;
@@ -83,7 +86,14 @@ export async function createSession(
         if (transport === "websocket") await new Promise((resolve) => setTimeout(resolve, 0));
     };
     try {
-        const app = await createApp({ defaults: false, plugins: [serverRole(game)] });
+        const recordingOptions = options.recording?.("server");
+        const recorder = recordingOptions && new SessionRecorder(game, "server", recordingOptions);
+        if (recorder) recordings.push(recorder);
+        const app = await createApp({
+            defaults: false,
+            plugins: [...(recorder ? [recorder.plugin] : []), serverRole(game)],
+        });
+        recorder?.attachServer();
         apps.push(app);
         const authority = app.world.resource(ServerSession).server!;
         const server: Peer = { name: "server", world: app.world, dispose: () => app.dispose() };
@@ -101,7 +111,11 @@ export async function createSession(
                 },
                 disconnect(connection) {
                     const eid = entities.get(connection);
-                    if (eid !== undefined && authority.peers.get(eid)?.connection === connection)
+                    if (
+                        eid !== undefined &&
+                        authority.peers.get(eid)?.connection ===
+                            (recorder?.connection(connection) ?? connection)
+                    )
                         authority.disconnect(eid);
                     entities.delete(connection);
                 },
@@ -151,6 +165,13 @@ export async function createSession(
                 if (connection.closed) throw new Error(`client[${i}] refused seed=${seed}`);
             }
             const thin = i >= clients;
+            const recordingOptions = thin ? undefined : options.recording?.(`client[${i}]`);
+            const clientRecorder =
+                recordingOptions && new SessionRecorder(game, "client", recordingOptions);
+            if (clientRecorder) {
+                recordings.push(clientRecorder);
+                connection = clientRecorder.connection(connection);
+            }
             const startup: Plugin = {
                 name: "SessionClient",
                 dependencies: [...game.plugins, MultiplayerPlugin],
@@ -159,7 +180,10 @@ export async function createSession(
                 },
                 systems: thin ? [] : [clientStartup(game, () => connection)],
             };
-            const app = await createApp({ defaults: false, plugins: [startup] });
+            const app = await createApp({
+                defaults: false,
+                plugins: [...(clientRecorder ? [clientRecorder.plugin] : []), startup],
+            });
             apps.push(app);
             const peer: Peer = {
                 name: `${thin ? "thin" : "client"}[${thin ? i - clients : i}]`,
@@ -236,6 +260,13 @@ export async function createSession(
                 if (disposed) return;
                 disposed = true;
                 const errors: Error[] = [];
+                for (const recorder of recordings) {
+                    try {
+                        recorder.finish();
+                    } catch (error) {
+                        errors.push(failure(server, `Recording write failed (${String(error)})`));
+                    }
+                }
                 for (const peer of [...peers].reverse()) {
                     try {
                         peer.dispose();
@@ -313,6 +344,7 @@ export async function createSession(
             },
         };
     } catch (error) {
+        for (const recorder of recordings) recorder.finish();
         for (const app of [...apps].reverse()) app.dispose();
         for (const link of links) link.a.close();
         for (const socket of sockets) socket.close();

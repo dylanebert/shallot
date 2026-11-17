@@ -42,6 +42,7 @@ import {
     multiply,
 } from "./interpolation";
 import type { Connection } from "./link";
+import { PredictionRecording } from "./recording-hooks";
 
 /** Local display selection. ClientPrediction adds it to the local avatar; other entities opt in. */
 export const PredictionTarget = component(
@@ -272,6 +273,7 @@ export class ClientPrediction {
                 if (excess > 0) world.discardOverstep(excess * Time.FIXED_DT);
             }
         };
+        world.resource(PredictionRecording).attach?.(this);
         this._save();
     }
     /** Copies local inputs into tick history; repeated ticks replace samples.
@@ -348,7 +350,8 @@ export class ClientPrediction {
         }
         this._active.length = count;
         if (!this._replaying) {
-            const sample = this.sampleInput(tick);
+            const record = this.world.resource(PredictionRecording).sample;
+            const sample = record ? record(this, tick) : this.sampleInput(tick);
             if (sample) {
                 if (sample.tick !== tick)
                     throw new Error("Input sample must address the current tick");
