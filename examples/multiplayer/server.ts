@@ -10,7 +10,8 @@ const { values } = parseArgs({
     },
 });
 const port = Number(values.port);
-if (!Number.isInteger(port) || port < 1 || port > 65535)
-    throw new Error("--port must be an integer in [1, 65535]");
+// Port 0 takes a free port; the printed address names it.
+if (!Number.isInteger(port) || port < 0 || port > 65535)
+    throw new Error("--port must be an integer in [0, 65535]");
 const server = await serveGame(GAME, { hostname: values.host, port });
 console.info(`Multiplayer server: ws://localhost:${server.port} (two players)`);

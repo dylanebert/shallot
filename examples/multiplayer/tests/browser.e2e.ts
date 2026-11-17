@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { holdFrames, pipelineWarnings } from "@dylanebert/shallot/testing";
 import { expect, type Page, test } from "playwright/test";
@@ -36,6 +36,41 @@ declare global {
 async function frames(page: Page, count = 1) {
     return page.evaluate((count) => window.game.frames(count), count);
 }
+// Socket prediction holds at maxAhead while stepped frames outrun the server's clock, so a
+// subject times motion in client ticks, not frames.
+async function ticks(page: Page, count: number) {
+    const { state, end } = await page.evaluate(async (count) => {
+        let state = window.game.state();
+        const end = state.tick + count;
+        for (let frame = 0; frame < count * 20 && state.tick < end; frame++)
+            state = await window.game.frames();
+        return { state, end };
+    }, count);
+    expect(state.tick).toBeGreaterThanOrEqual(end);
+    return state;
+}
+const servers: ChildProcess[] = [];
+test.afterEach(() => {
+    for (const server of servers.splice(0)) server.kill();
+});
+/** Starts a Bun server on a free port, so a subject that moves the scene starts from its route. */
+async function serve() {
+    const server = spawn("bun", ["server.ts", "--port", "0", "--host", "127.0.0.1"], {
+        cwd: import.meta.dirname + "/..",
+        stdio: ["ignore", "pipe", "inherit"],
+    });
+    servers.push(server);
+    let output = "";
+    const port = await new Promise<string>((resolve, reject) => {
+        server.stdout!.on("data", (chunk: Buffer) => {
+            output += chunk;
+            const port = /ws:\/\/localhost:(\d+)/.exec(output)?.[1];
+            if (port) resolve(port);
+        });
+        server.on("exit", (code) => reject(new Error(`Bun server exited ${code}: ${output}`)));
+    });
+    return `ws://127.0.0.1:${port}`;
+}
 async function open(page: Page, url = "") {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
@@ -47,10 +82,10 @@ async function open(page: Page, url = "") {
 
 for (const server of [false, true]) {
     test(`F3+R saves replayable ${server ? "socket" : "in-tab"} recordings`, async ({ page }) => {
-        await open(page, `?record${server ? "&server=ws://127.0.0.1:4433" : ""}`);
+        await open(page, `?record${server ? `&server=${await serve()}` : ""}`);
         const start = await frames(page, 10);
         await page.evaluate(() => window.game.key("KeyW", true));
-        const pushed = await frames(page, 130);
+        const pushed = await ticks(page, 130);
         await page.evaluate(() => window.game.key("KeyW", false));
         expect(pushed.box[2]).toBeLessThan(start.box[2]! - 1);
         expect(pushed.predictedBox).toBe(true);
@@ -261,7 +296,7 @@ test("two pages share the Bun server: one player's input moves the remote avatar
     context,
 }) => {
     const other = await context.newPage();
-    const server = "?server=ws://127.0.0.1:4431";
+    const server = `?server=${await serve()}`;
     const errors = await open(page, server);
     const otherErrors = await open(other, server);
     const start = await frames(page, 2),
