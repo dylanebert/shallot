@@ -1,6 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { publishTestChromium } from "../../scripts/publish-browser";
 import { observePublishedServer } from "./publish-verify";
@@ -20,7 +21,8 @@ test("publish observes confirmed network state at the build's endpoint and query
             let output = "";
             child.stdout!.on("data", (chunk) => {
                 output += chunk;
-                const match = pattern.exec(output);
+                // Under CI, Vite colors its output even when piped, splitting the URL with escapes.
+                const match = pattern.exec(stripVTControlCharacters(output));
                 if (match) accept(match[1]!);
             });
             child.once("exit", (code) => reject(new Error(`Child exited ${code}: ${output}`)));
