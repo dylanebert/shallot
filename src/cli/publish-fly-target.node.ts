@@ -22,6 +22,7 @@ beforeAll(async () => {
 import {join,dirname} from 'node:path';
 const root=dirname(process.execPath);const args=process.argv.slice(2);
 appendFileSync(join(root,'commands.jsonl'),JSON.stringify(args)+'\\n');
+if(args[0]==='auth'&&args[1]==='whoami'&&readFileSync(join(root,'login'),'utf8')==='missing')process.exit(1);
 if(args[0]==='apps'&&args[1]==='list')console.log(JSON.stringify([{Name:'occupied'}]));
 else if(args[0]==='machine'&&args[1]==='list')console.log(readFileSync(join(root,'machines.json'),'utf8'));
 else if(args[0]==='ips'&&args[1]==='list')console.log(readFileSync(join(root,'ips.json'),'utf8'));
@@ -237,25 +238,51 @@ test("a first Fly link refuses an existing app without building or changing proj
     }
 });
 
-test("noninteractive Fly login requires an explicit token, not a saved login", async () => {
-    const token = process.env.FLY_API_TOKEN;
-    delete process.env.FLY_API_TOKEN;
-    try {
-        await expect(
-            deployFlyServer(
+for (const [label, saved, interactive] of [
+    ["saved login works without interaction", true, false],
+    ["missing login refuses without interaction", false, false],
+    ["missing login prompts in a terminal", false, true],
+] as const) {
+    test(`Fly authentication: ${label}`, async () => {
+        const token = process.env.FLY_API_TOKEN;
+        delete process.env.FLY_API_TOKEN;
+        writeFileSync(join(root, "login"), saved ? "saved" : "missing");
+        writeFileSync(commands, "");
+        try {
+            const failure = await deployFlyServer(
                 root,
                 root,
-                { target: "fly", app: "scratch-app" },
-                false,
+                { target: "fly", app: "occupied" },
+                interactive,
                 false,
                 ask,
                 cli,
-            ),
-        ).rejects.toThrow("FLY_API_TOKEN");
-    } finally {
-        if (token !== undefined) process.env.FLY_API_TOKEN = token;
-    }
-});
+            ).then(
+                () => "unexpected success",
+                (error: Error) => error.message,
+            );
+            const calls = readFileSync(commands, "utf8")
+                .trim()
+                .split("\n")
+                .filter(Boolean)
+                .map((line) => JSON.parse(line));
+            expect(calls[0]).toEqual(["auth", "whoami"]);
+            if (saved || interactive) {
+                expect(failure).toContain("already exists");
+                expect(calls).toContainEqual(["apps", "list", "--json"]);
+            } else {
+                expect(failure).toContain("fly auth login");
+                expect(failure).toContain("FLY_API_TOKEN");
+                expect(calls).toHaveLength(1);
+            }
+            expect(calls.some((args) => args[0] === "auth" && args[1] === "login")).toBe(
+                !saved && interactive,
+            );
+        } finally {
+            if (token !== undefined) process.env.FLY_API_TOKEN = token;
+        }
+    });
+}
 
 test("project Fly configuration refuses before login or remote commands", async () => {
     const project = mkdtempSync(join(tmpdir(), "shallot-fly-config-"));

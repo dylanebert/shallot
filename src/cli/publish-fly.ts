@@ -132,11 +132,13 @@ export async function deployFlyServer(
 ): Promise<void> {
     refuseFlyConfig(project);
     if (!process.env.FLY_API_TOKEN) {
-        if (!interactive)
-            throw new Error("Fly login is missing. Set FLY_API_TOKEN for non-interactive publish.");
         try {
             runFly(cli, ["auth", "whoami"], work);
         } catch {
+            if (!interactive)
+                throw new Error(
+                    "Fly login is missing. Run fly auth login in a terminal or set FLY_API_TOKEN.",
+                );
             runFly(cli, ["auth", "login"], work, true);
         }
     }

@@ -92,7 +92,8 @@ const commandUsage = {
   Project Fly configuration is refused. The pinned, SHA-256-verified flyctl uses
   Fly's remote builder; Docker is not needed. One shared-cpu-1x 256 MB Machine
   auto-stops with no minimum running; shared IPv4 only.
-  Login: fly auth login in a terminal; FLY_API_TOKEN is required otherwise.
+  Login: a saved Fly login or FLY_API_TOKEN. Without either, run fly auth login
+  in a terminal; interactive publish offers login.
   More than one organization requires a terminal to choose one.
   Use the quoted Fly CLI path printed by publish as <flyctl>:
   Server logs: "<flyctl>" logs --app <app>
