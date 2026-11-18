@@ -5,7 +5,7 @@
 import { createApp, MeshPlugin, Body, MotorJoint, Transform, NotShadowCaster, Camera, Resolution, DirectionalLight, Devices, Outline, GlobalTransform, pointerMove, pressButton, releaseButton, StandardPhysicsPlugin } from '@dylanebert/shallot';
 import { PhysicsWorldDefinition } from '@dylanebert/shallot/standard/physics';
 import { captureFrame, worldToViewport } from '@dylanebert/shallot/rendering';
-import { LinesPlugin, OrbitPlugin } from '@dylanebert/shallot/extras';
+import { LinesPlugin, Orbit, OrbitPlugin } from '@dylanebert/shallot/extras';
 import { createScene } from '../src/scenes';
 import { createViewer, GrabFeedback } from '../src/view';
 import { ShapeMaterialPlugin } from '../src/material';
@@ -33,6 +33,7 @@ await frame(); await frame();
 const position=(eid)=>{const p=world.storage(GlobalTransform).translation;return [p.x.get(eid),p.y.get(eid),p.z.get(eid)]};
 const pose=(eid)=>{const q=world.storage(GlobalTransform).rotation;return {translation:position(eid),rotation:[q.x.get(eid),q.y.get(eid),q.z.get(eid),q.w.get(eid)]}};
 window.marker=()=>world.resource(GrabFeedback).marker;
+window.focusedViewport=()=>world.resource(Devices).focused;
 window.drag=async(move=true)=>{
  const body=bodies[bodyIndex];
  const before=position(body);
@@ -74,12 +75,14 @@ window.drag=async(move=true)=>{
 };
 window.emptyDrag=async()=>{
  const before=position(camera);
+ const orbit=world.storage(Orbit);
+ const yaw=orbit.yaw.get(camera);
  const bodyBefore=position(bodies[bodyIndex]);
  pointerMove(world,{x:20,y:20}); pressButton(world,'left'); await frame();
  const picked=world.resource(Grab).body;
  for(let i=1;i<=10;i++){pointerMove(world,{x:20+i*5,y:20,deltaX:5});await frame();}
  releaseButton(world,'left'); await frame();
- return {before,after:position(camera),bodyBefore,bodyAfter:position(bodies[bodyIndex]),picked,mouse:world.resource(Grab).mouse};
+ return {before,after:position(camera),turn:yaw-orbit.yaw.get(camera),rotateSpeed:orbit.rotateSpeed.get(camera),bodyBefore,bodyAfter:position(bodies[bodyIndex]),picked,mouse:world.resource(Grab).mouse};
 };
 window.hover=async()=>{
  const body=bodies[bodyIndex];

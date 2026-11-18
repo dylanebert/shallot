@@ -57,9 +57,20 @@ test.describe(() => {
         expect(result.picked).toBe(0);
         expect(result.mouse).toBe(0);
         expect(result.after).not.toEqual(result.before);
+        expect(result.turn).toBeCloseTo((50 / 480) * result.rotateSpeed, 5);
         expect(result.bodyAfter[0]).toBe(result.bodyBefore[0]);
         expect(result.bodyAfter[2]).toBe(result.bodyBefore[2]);
     });
+});
+
+test("a browser pointerdown focuses the canvas viewport", async ({ page }) => {
+    await page.goto("/tests/stepped.html");
+    await page.waitForFunction(() => (window as any).ready);
+    expect(await page.evaluate(() => (window as any).focusedViewport())).toBe(-1);
+    await page.mouse.move(20, 20);
+    await page.mouse.down();
+    expect(await page.evaluate(() => (window as any).focusedViewport())).toBe(0);
+    await page.mouse.up();
 });
 
 test("the Bridge attachment marker also spans eight CSS pixels", async ({ page }) => {
