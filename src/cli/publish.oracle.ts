@@ -22,15 +22,19 @@ import {
 } from "./publish-cloudflare";
 import { BUTLER_VERSION } from "./publish-itch";
 
-async function confirmPlay(url: string | null, instruction: string) {
+async function confirmTrial(
+    url: string | null,
+    instruction: string,
+    question = "Does it play? [y/N] ",
+) {
     console.info(instruction);
     if (url) console.info(url);
     const input = createInterface({ input: process.stdin, output: process.stdout });
     try {
-        const answer = await input.question("Does it play? [y/N] ");
+        const answer = await input.question(question);
         expect(
             ["y", "yes"].includes(answer.trim().toLowerCase()),
-            `Play judgment failed: the person answered ${JSON.stringify(answer)}.`,
+            `Trial confirmation failed: the person answered ${JSON.stringify(answer)}.`,
         ).toBe(true);
     } finally {
         input.close();
@@ -155,7 +159,7 @@ for (const trial of ["personal", "CI"] as const) {
                         stderr: "inherit",
                     });
                     expect(first.exitCode).toBe(0);
-                    await confirmPlay(
+                    await confirmTrial(
                         null,
                         "Open the play link printed above in a fresh anonymous browser session.",
                     );
@@ -469,7 +473,7 @@ for (const trial of ["personal", "CI"] as const) {
                     return { code: result.exitCode, report };
                 };
                 const play = () =>
-                    confirmPlay(
+                    confirmTrial(
                         url,
                         "Open this Restricted page in your own logged-in owner browser. Publish's verifier loads the build's frame document without a login.",
                     );
@@ -601,8 +605,8 @@ for (const trial of ["personal", "CI"] as const) {
                 WRANGLER_SEND_METRICS: "false",
             };
             const name = `shallot-tier-${Date.now().toString(36)}`;
-            const run = (cmd: string[], cwd = root, allowFailure = false) => {
-                console.info(`$ ${cmd.join(" ")}`);
+            const run = (cmd: string[], cwd = root, allowFailure = false, quiet = false) => {
+                if (!quiet) console.info(`$ ${cmd.join(" ")}`);
                 const result = spawnSync(cmd[0]!, cmd.slice(1), {
                     cwd,
                     env,
@@ -634,7 +638,8 @@ for (const trial of ["personal", "CI"] as const) {
             };
             console.info(`Oracle project and clean login: ${root}`);
             if (personal) terminal([cli, "auth", "login"]);
-            const fly = (args: string[]) => run([cli, ...args]).stdout.trim();
+            const fly = (args: string[], quiet = false) =>
+                run([cli, ...args], root, false, quiet).stdout.trim();
             const inventory = () => {
                 const rows: Record<"Name", string>[] = JSON.parse(fly(["apps", "list", "--json"]));
                 if (!Array.isArray(rows) || rows.some((row) => typeof row.Name !== "string"))
@@ -663,8 +668,8 @@ for (const trial of ["personal", "CI"] as const) {
                 workerOwned = false;
             let machineStart = 0,
                 runningMs = 0;
-            const machine = () => {
-                const rows = JSON.parse(fly(["machine", "list", "--app", name, "--json"]));
+            const machine = (quiet = false) => {
+                const rows = JSON.parse(fly(["machine", "list", "--app", name, "--json"], quiet));
                 expect(rows).toHaveLength(1);
                 expect(rows[0].config.guest.cpu_kind).toBe("shared");
                 expect(rows[0].config.guest.cpus).toBe(1);
@@ -851,7 +856,7 @@ observeFlyBrowser(projectRequire('playwright').chromium, row => appendFileSync($
                 expect(link.server).toEqual({ target: "fly", app: name });
                 if (result) expect(new URL(result.stdout.trim()).hostname).toStartWith(`${name}.`);
                 if (personal)
-                    await confirmPlay(
+                    await confirmTrial(
                         null,
                         "Open the play link printed above in a fresh anonymous browser session. Close it before answering so the two server slots are free.",
                     );
@@ -926,6 +931,16 @@ try{const deadline=Date.now()+10000;for(;;){try{assertFlySocketsClosed(observati
                 };
                 clients("hot");
                 assertFlySocketsClosed(socketObservations);
+                if (personal) {
+                    await confirmTrial(
+                        null,
+                        "Close every tab of the published game. Each tab keeps a WebSocket to the server, and traffic can prevent Fly from stopping it.",
+                        "Are all published game tabs closed? [y/N] ",
+                    );
+                    console.info(
+                        "Waiting for Fly to autostop the Machine; this takes several minutes.",
+                    );
+                }
                 const idleStartedAt = Date.now();
                 console.info(
                     JSON.stringify({
@@ -934,7 +949,7 @@ try{const deadline=Date.now()+10000;for(;;){try{assertFlySocketsClosed(observati
                     }),
                 );
                 const idle = performance.now();
-                let idleMachine = machine();
+                let idleMachine = machine(personal);
                 while (idleMachine.state !== "stopped") {
                     if (performance.now() - idle > 7 * 60_000) {
                         for (const args of [
@@ -961,7 +976,7 @@ try{const deadline=Date.now()+10000;for(;;){try{assertFlySocketsClosed(observati
                         );
                     }
                     await Bun.sleep(5000);
-                    idleMachine = machine();
+                    idleMachine = machine(personal);
                 }
                 const stoppedAt = performance.now();
                 runningMs += stoppedAt - machineStart;
