@@ -11,7 +11,9 @@ const subjects = compileGpuFile(import.meta.path, async () => {
     for (const rejection of cases) {
         const adapter = await navigator.gpu.requestAdapter();
         if (!adapter) throw new Error("profiler adapter unavailable");
-        const device = await adapter.requestDevice({ requiredFeatures: ["timestamp-query"] });
+        const device = await adapter.requestDevice({
+            requiredFeatures: adapter.features.has("timestamp-query") ? ["timestamp-query"] : [],
+        });
         const invalid = device.createQuerySet({ type: "occlusion", count: 4096 });
         const createEncoder = device.createCommandEncoder.bind(device);
         device.createCommandEncoder = (desc) => {
@@ -54,18 +56,20 @@ for (const [index, rejection] of cases.entries()) {
                 device.pushErrorScope("validation");
                 app.world.step(1 / 60);
                 const encoder = device.createCommandEncoder();
+                const renderWrites = app.world.gpu.span!("render");
+                expect(renderWrites).toBeUndefined();
                 encoder
                     .beginRenderPass({
                         colorAttachments: [
                             { view: target.createView(), loadOp: "clear", storeOp: "store" },
                         ],
-                        timestampWrites: app.world.gpu.span!("render"),
+                        timestampWrites: renderWrites,
                     })
                     .end();
                 for (let i = 1; i < 2047; i++) app.world.gpu.span!("unused");
-                encoder
-                    .beginComputePass({ timestampWrites: app.world.gpu.span!("compute-high") })
-                    .end();
+                const computeWrites = app.world.gpu.span!("compute-high");
+                expect(computeWrites).toBeUndefined();
+                encoder.beginComputePass({ timestampWrites: computeWrites }).end();
                 device.queue.submit([encoder.finish()]);
                 expect(await device.popErrorScope()).toBeNull();
                 expect(app.world.gpu.span!("unavailable")).toBeUndefined();

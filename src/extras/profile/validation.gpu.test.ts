@@ -8,7 +8,9 @@ setDefaultTimeout(TIMEOUT.gpu);
 const subject = compileGpuFile(import.meta.path, async () => {
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error("profiler adapter unavailable");
-    const device = await adapter.requestDevice({ requiredFeatures: ["timestamp-query"] });
+    const device = await adapter.requestDevice({
+        requiredFeatures: adapter.features.has("timestamp-query") ? ["timestamp-query"] : [],
+    });
     console.info(JSON.stringify({ adapter: adapter.info, features: [...device.features] }));
     return { adapter, device };
 });
@@ -50,7 +52,9 @@ test("rejected timestamp validation leaves every frame valid and GPU timing unav
             device.pushErrorScope("validation");
             app.world.step(1 / 60);
             const encoder = device.createCommandEncoder();
-            encoder.beginComputePass({ timestampWrites: app.world.gpu.span!("frame") }).end();
+            const timestampWrites = app.world.gpu.span!("frame");
+            expect(timestampWrites).toBeUndefined();
+            encoder.beginComputePass({ timestampWrites }).end();
             device.queue.submit([encoder.finish()]);
             expect(await pop()).toBeNull();
             expect(
