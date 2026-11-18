@@ -1,7 +1,12 @@
 import type { BrowserType } from "playwright";
 
 export interface FlySocketObservation {
-    kind: "socket-created" | "socket-closed" | "browser-created" | "browser-closed";
+    kind:
+        | "socket-created"
+        | "socket-first-frame"
+        | "socket-closed"
+        | "browser-created"
+        | "browser-closed";
     id: string;
     at: number;
     url?: string;
@@ -88,6 +93,9 @@ export function observeFlyBrowser(chromium: Pick<BrowserType, "launch">, report:
                 page.on("websocket", (socket) => {
                     const id = `browser:socket:${++sockets}`;
                     report({ kind: "socket-created", id, url: socket.url(), at: Date.now() });
+                    socket.once("framereceived", () =>
+                        report({ kind: "socket-first-frame", id, at: Date.now() }),
+                    );
                     closed.push(
                         new Promise<void>((accept) =>
                             socket.once("close", () => {
@@ -114,6 +122,11 @@ export function observeFlyClients(report: Report, phase: string): () => void {
             const id = `bun:${phase}:socket:${++sockets}`;
             report({ kind: "socket-created", id, url: socket.url, at: Date.now() });
             socket.addEventListener(
+                "message",
+                () => report({ kind: "socket-first-frame", id, at: Date.now() }),
+                { once: true },
+            );
+            socket.addEventListener(
                 "close",
                 () => report({ kind: "socket-closed", id, at: Date.now() }),
                 { once: true },
@@ -133,6 +146,8 @@ export function assertFlySocketsClosed(observations: FlySocketObservation[]): vo
         if (row.kind === "socket-created" || row.kind === "browser-created") {
             if (pending.has(row.id)) throw new Error(`Duplicate socket observation: ${row.id}`);
             pending.add(row.id);
+        } else if (row.kind === "socket-first-frame") {
+            if (!pending.has(row.id)) throw new Error(`Frame without open socket: ${row.id}`);
         } else if (!pending.delete(row.id)) throw new Error(`Close without creation: ${row.id}`);
     }
     if (pending.size) throw new Error(`Still open before idle: ${[...pending].join(", ")}`);

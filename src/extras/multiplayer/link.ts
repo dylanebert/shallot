@@ -2,6 +2,8 @@ import { stampReceipt, transportClock } from "./diagnostics";
 
 /** A byte transport. Admission transfers its lifetime to the server connection entity. */
 export interface Connection {
+    /** URL supplying received bytes; wrappers preserve it, in-process and replayed links omit it. */
+    readonly endpoint?: string;
     /** True once this transport cannot deliver again. Omitted by transports without status polling. */
     readonly closed?: boolean;
     /** Idempotent, non-throwing release: close the transport, discard queued bytes and refuse

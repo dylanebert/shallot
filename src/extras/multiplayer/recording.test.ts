@@ -51,6 +51,15 @@ const game: Game = {
         world.resource(Runtime).receiver = new ReplicationReceiver(world, [Count], connection);
     },
 };
+test("recording preserves the live byte endpoint but playback never claims it as its source", () => {
+    const options = { gameVersion: "counter-1", write() {} };
+    const live = new SessionRecorder(game, "client", options);
+    const transport = { endpoint: "wss://game.example/", close() {}, send() {}, receive: () => [] };
+    expect(live.connection(transport).endpoint).toBe(transport.endpoint);
+    const playback = new SessionRecorder(game, "client", options, live.recording);
+    expect(playback.connection(transport).endpoint).toBeUndefined();
+});
+
 for (const role of ["server", "client"] as const) {
     test(`${role} hashes ignore presentation rows but detect replicated changes`, async () => {
         const recorder = new SessionRecorder(game, role, { gameVersion: "counter-1", write() {} });

@@ -631,7 +631,11 @@ export class ReplicationReceiver {
             this.confirm(latestTick, packet.rows);
         }
         if (this.confirmed > previous && typeof window !== "undefined")
-            reportStartup({ kind: "server-state", tick: this.confirmed });
+            reportStartup({
+                kind: "server-state",
+                tick: this.confirmed,
+                endpoint: this.connection.endpoint,
+            });
         if (this.confirmed >= 0) {
             let held = 0;
             for (const tick of this._pending.keys()) {

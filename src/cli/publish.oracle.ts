@@ -698,12 +698,23 @@ test(
             );
             const journal = join(root, "browser-sockets.jsonl");
             writeFileSync(journal, "");
+            const deployJournal = join(root, "deploy-finished.jsonl");
             const observerSource = join(root, "browser-observer.ts");
             writeFileSync(
                 observerSource,
                 `import { createRequire } from 'node:module';
 import { appendFileSync } from 'node:fs';
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
 import { observeFlyBrowser } from ${JSON.stringify(resolve(import.meta.dir, "../../scripts/publish-fly-sockets.ts"))};
+const spawn = childProcess.spawnSync;
+childProcess.spawnSync = (...args) => {
+    const result = spawn(...args);
+    if (args[0] === ${JSON.stringify(cli)} && args[1]?.[0] === 'deploy')
+        appendFileSync(${JSON.stringify(deployJournal)}, JSON.stringify({ deployFinishedAt: Date.now(), status: result.status }) + '\\n');
+    return result;
+};
+syncBuiltinESMExports();
 const projectRequire = createRequire(${JSON.stringify(manifestPath)});
 observeFlyBrowser(projectRequire('playwright').chromium, row => appendFileSync(${JSON.stringify(journal)}, JSON.stringify(row) + '\\n'));`,
             );
@@ -765,6 +776,10 @@ observeFlyBrowser(projectRequire('playwright').chromium, row => appendFileSync($
             expect(result.stderr).toContain(
                 "Published page confirmed server state through the Fly endpoint.",
             );
+            const deployTiming = JSON.parse(readFileSync(deployJournal, "utf8").trim());
+            expect(deployTiming.status).toBe(0);
+            expect(Number.isFinite(deployTiming.deployFinishedAt)).toBe(true);
+            console.info("Fly deploy finished:", JSON.stringify(deployTiming));
             const socketObservations: FlySocketObservation[] = readFileSync(journal, "utf8")
                 .trim()
                 .split("\n")
@@ -812,11 +827,11 @@ import {client} from '@dylanebert/shallot/multiplayer';
 import {GAME,ClientSession} from './src/network';
 import {observeFlyClients,assertFlySocketsClosed} from ${JSON.stringify(resolve(import.meta.dir, "../../scripts/publish-fly-sockets.ts"))};
 const observations=[];const restore=observeFlyClients(row=>observations.push(row),process.argv[2]);
-const apps=[];let error;const start=performance.now();let first;
+const apps=[];let error;const start=performance.now();const startedAt=Date.now();let first,firstConfirmedStateAt;
 try{for(let i=0;i<2;i++)apps.push(await createApp({defaults:false,plugins:[client(GAME,{url:'wss://${name}.fly.dev',onError:e=>error=e})]}));
-let last=performance.now();const ticks=[0,0],changed=[last,last];
-while(performance.now()-start<20000){await Bun.sleep(5);if(error)throw error;const now=performance.now();for(const [i,app]of apps.entries()){app.world.step((now-last)/1000);const tick=app.world.resource(ClientSession).client?.prediction.receiver.confirmed??0;if(tick>ticks[i]){ticks[i]=tick;changed[i]=now;first??=now-start;}if(now-changed[i]>15000)throw Error('Client stopped confirming');}last=now;}
-if(ticks.some(t=>t<60))throw Error('Clients did not confirm 60 ticks');console.log(JSON.stringify({ticks,firstStateMs:first,network:apps.map(app=>Object.fromEntries([...app.world.resource(DiagnosticsStore).iter()].filter(d=>d.path.path.startsWith('network/')).map(d=>[d.path.path,d.value()])))}));
+let last=performance.now();const ticks=[-1,-1],changed=[last,last];
+while(performance.now()-start<20000){await Bun.sleep(5);if(error)throw error;const now=performance.now();for(const [i,app]of apps.entries()){app.world.step((now-last)/1000);const tick=app.world.resource(ClientSession).client?.prediction.receiver.confirmed??-1;if(tick>ticks[i]){ticks[i]=tick;changed[i]=now;first??=now-start;firstConfirmedStateAt??=Date.now();}if(now-changed[i]>15000)throw Error('Client stopped confirming');}last=now;}
+if(ticks.some(t=>t<60))throw Error('Clients did not confirm 60 ticks');console.log(JSON.stringify({ticks,startedAt,firstConfirmedStateAt,firstStateMs:first,network:apps.map(app=>Object.fromEntries([...app.world.resource(DiagnosticsStore).iter()].filter(d=>d.path.path.startsWith('network/')).map(d=>[d.path.path,d.value()])))}));
 }finally{for(const app of apps)app.dispose();
 try{const deadline=Date.now()+10000;for(;;){try{assertFlySocketsClosed(observations);break;}catch(error){if(Date.now()>=deadline)throw error;await Bun.sleep(10);}}
 }finally{console.log(JSON.stringify({socketObservations:observations}));restore();}}`,
@@ -832,14 +847,29 @@ try{const deadline=Date.now()+10000;for(;;){try{assertFlySocketsClosed(observati
                     (row) => row.socketObservations,
                 )?.socketObservations;
                 expect(observations.filter((row) => row.kind === "socket-created")).toHaveLength(2);
+                expect(
+                    observations.filter((row) => row.kind === "socket-first-frame"),
+                ).toHaveLength(2);
+                const timing = rows.find((row) => typeof row.firstConfirmedStateAt === "number");
+                expect(timing).toBeDefined();
+                expect(timing.firstConfirmedStateAt).toBeGreaterThanOrEqual(timing.startedAt);
                 assertFlySocketsClosed(observations);
                 socketObservations.push(...observations);
+                return {
+                    ...timing,
+                    firstFrameAt: Math.min(
+                        ...observations
+                            .filter((row) => row.kind === "socket-first-frame")
+                            .map((row) => row.at),
+                    ),
+                };
             };
             clients("hot");
             assertFlySocketsClosed(socketObservations);
+            const idleStartedAt = Date.now();
             console.info(
                 JSON.stringify({
-                    idleStartedAt: Date.now(),
+                    idleStartedAt,
                     closed: socketObservations.filter((row) => row.kind.endsWith("-closed")),
                 }),
             );
@@ -878,8 +908,30 @@ try{const deadline=Date.now()+10000;for(;;){try{assertFlySocketsClosed(observati
             machineStart = 0;
             console.info(JSON.stringify({ autoStopMs: stoppedAt - idle }));
             machineStart = performance.now();
-            clients("cold");
+            console.info(JSON.stringify({ coldStartedAt: Date.now() }));
+            const cold = clients("cold");
             assertFlySocketsClosed(socketObservations);
+            const coldStatus = fly(["machine", "status", deployedMachine.id, "--app", name]);
+            console.info("Cold-start Machine events/state:", coldStatus);
+            const machineStartedAt = Math.max(
+                ...[...coldStatus.matchAll(/^\s*started\s+\S+\s+\S+\s+(\S+)/gm)].map((row) =>
+                    Date.parse(row[1]!),
+                ),
+            );
+            expect(Number.isFinite(machineStartedAt)).toBe(true);
+            expect(machineStartedAt).toBeGreaterThan(idleStartedAt);
+            console.info(
+                JSON.stringify({
+                    coldStartup: {
+                        deployFinishedAt: deployTiming.deployFinishedAt,
+                        machineStartedAt,
+                        clientStartedAt: cold.startedAt,
+                        firstFrameAt: cold.firstFrameAt,
+                        firstConfirmedStateAt: cold.firstConfirmedStateAt,
+                    },
+                }),
+            );
+            console.info("Cold-start app/proxy logs:", fly(["logs", "--app", name, "--no-tail"]));
             expect(machine().state).toBe("started");
         } catch (error) {
             failures.push(error);

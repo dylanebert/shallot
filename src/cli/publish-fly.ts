@@ -150,6 +150,45 @@ export async function deployFlyServer(
         throw new Error(
             `Fly app "${link.app}" already exists; refusing a first link. A hand-written server link authorizes updating it.`,
         );
+    if (exists) {
+        const machineArgs = ["machine", "list", "--app", link.app, "--json"];
+        const ipArgs = ["ips", "list", "--app", link.app, "--json"];
+        const refuse = (reason: string, args: string[]): never => {
+            throw new Error(
+                `Fly app "${link.app}" is outside publish's spend envelope: ${reason}. Inspect with "${cli}" ${args.join(" ")}. Publish did not change the app.`,
+            );
+        };
+        const machines: {
+            config?: {
+                guest?: Record<string, unknown>;
+            };
+        }[] = JSON.parse(runFly(cli, machineArgs, work));
+        if (!Array.isArray(machines)) refuse("unrecognized Machine inventory", machineArgs);
+        if (machines.length !== 1)
+            refuse(`Machine count ${machines.length}; expected one`, machineArgs);
+        const guest = machines[0]?.config?.guest;
+        if (
+            guest?.cpu_kind !== "shared" ||
+            guest.cpus !== 1 ||
+            guest.memory_mb !== 256 ||
+            guest.gpus ||
+            guest.gpu_kind
+        )
+            refuse(
+                `Machine size ${JSON.stringify(guest)}; expected shared-cpu-1x 256 MB without GPUs`,
+                machineArgs,
+            );
+        const ips: Record<"Type", string>[] = JSON.parse(runFly(cli, ipArgs, work));
+        if (!Array.isArray(ips)) refuse("unrecognized IP inventory", ipArgs);
+        const outside = ips.filter((ip) => ip?.Type !== "shared_v4" && ip?.Type !== "v6");
+        if (outside.length)
+            refuse(
+                `IP inventory contains ${outside.map((ip) => ip?.Type ?? "unknown").join(", ")}; only shared IPv4 and free IPv6 are supported`,
+                ipArgs,
+            );
+        if (ips.filter((ip) => ip?.Type === "shared_v4").length !== 1)
+            refuse("IP inventory must contain one shared IPv4", ipArgs);
+    }
     await buildFlyServer(project, work, link.app);
     if (!exists) {
         const orgs = flyOrganizations(runFly(cli, ["orgs", "list", "--json"], work));

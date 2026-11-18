@@ -141,6 +141,7 @@ export class GameClient {
     constructor(world: World, connection: Connection) {
         this.world = world;
         const routed: Connection = {
+            endpoint: connection.endpoint,
             get closed() {
                 return connection.closed;
             },

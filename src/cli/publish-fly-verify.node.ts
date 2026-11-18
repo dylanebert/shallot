@@ -56,13 +56,55 @@ test("publish observes confirmed network state at the build's endpoint and query
         await wrong.goto(url);
         await wrong.locator("[data-measured-rtt]").filter({ hasText: /ms/ }).waitFor();
         await expect(verifyWrong()).rejects.toThrow(
-            "Published page did not connect to ws://wrong-endpoint.invalid",
+            "Published page received no frames from ws://wrong-endpoint.invalid",
         );
         await wrong.close();
         // An explicit empty query selects in-tab play, rather than the build's socket.
         const page = await browser.newPage();
+        const verifyInTab = await observePublishedServer(page, endpoint, 5000);
+        await page.addInitScript(() => {
+            const state: { first?: number; tick?: number; endpoint?: string } = {};
+            Object.defineProperty(window, "__inTabState", { value: state });
+            window.addEventListener("shallot:startup", (event) => {
+                const detail = (event as CustomEvent).detail;
+                if (detail.kind !== "server-state") return;
+                state.first ??= detail.tick;
+                state.tick = detail.tick;
+                state.endpoint = detail.endpoint;
+            });
+        });
+        const received = new Promise<void>((accept) =>
+            page.on("websocket", (socket) => {
+                if (socket.url() === `${endpoint}/`) socket.once("framereceived", () => accept());
+            }),
+        );
         await page.goto(`${url}?server=`);
         await page.getByText("In-tab server · thin client", { exact: true }).waitFor();
+        await page.evaluate(
+            (endpoint) =>
+                Object.defineProperty(window, "unusedSocket", { value: new WebSocket(endpoint) }),
+            endpoint,
+        );
+        await received;
+        await page.waitForFunction(() => {
+            const state = (window as unknown as { __inTabState: { first?: number; tick?: number } })
+                .__inTabState;
+            return (
+                state.first !== undefined &&
+                state.tick !== undefined &&
+                state.tick >= state.first + 60
+            );
+        });
+        expect(
+            await page.evaluate(
+                () =>
+                    (window as unknown as { __inTabState: { endpoint?: string } }).__inTabState
+                        .endpoint,
+            ),
+        ).toBeUndefined();
+        await expect(verifyInTab()).rejects.toThrow(
+            `Published page did not advance confirmed server state by 60 ticks from ${endpoint}`,
+        );
         await page.close();
         expect(browser.isConnected()).toBe(true);
     } finally {

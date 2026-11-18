@@ -27,13 +27,14 @@ const PUBLISH_LAUNCH_OPTIONS = {
 
 export async function launchPublishChromium(
     chromium: Pick<BrowserType, "launch">,
-    software = process.platform === "linux" && !!process.env.CI,
+    verifyServer = false,
+    linuxCI = process.platform === "linux" && !!process.env.CI,
 ): Promise<Browser> {
     const options = {
         ...PUBLISH_LAUNCH_OPTIONS,
         args: [
             ...PUBLISH_LAUNCH_OPTIONS.args,
-            ...(software
+            ...(verifyServer && linuxCI
                 ? [
                       "--use-angle=swiftshader",
                       "--enable-features=Vulkan",
@@ -71,13 +72,13 @@ export function resolveProjectPlaywright(projectDir: string): string {
     }
 }
 
-export async function projectChromium(projectDir: string): Promise<Browser> {
+export async function projectChromium(projectDir: string, verifyServer = false): Promise<Browser> {
     const require = createRequire(join(projectDir, "package.json"));
     const modulePath = resolveProjectPlaywright(projectDir);
     const loaded = await import(modulePath);
     const { chromium } = (loaded.default ?? loaded) as typeof import("playwright");
     try {
-        return await launchPublishChromium(chromium);
+        return await launchPublishChromium(chromium, verifyServer);
     } catch (error) {
         if (!(error instanceof Error) || !error.message.includes("Executable doesn't exist"))
             throw error;
@@ -91,7 +92,7 @@ export async function projectChromium(projectDir: string): Promise<Browser> {
             stdio: ["ignore", 2, 2],
         });
         if (result.status !== 0) throw new Error("Playwright Chromium installation failed.");
-        return launchPublishChromium(chromium);
+        return launchPublishChromium(chromium, verifyServer);
     }
 }
 
@@ -293,13 +294,15 @@ export async function observePublishedServer(
     endpoint: string,
     timeout: number = TIMEOUT.startup,
 ): Promise<() => Promise<void>> {
-    await page.addInitScript(() => {
+    const expected = new URL(endpoint).href;
+    await page.addInitScript((endpoint) => {
         const state: { first?: number; tick?: number } = {};
         Object.defineProperty(window, "__shallotServerState", { value: state });
         window.addEventListener("shallot:startup", (event) => {
             const detail = (event as CustomEvent).detail;
             if (
                 detail.kind === "server-state" &&
+                detail.endpoint === endpoint &&
                 Number.isInteger(detail.tick) &&
                 detail.tick >= 0
             ) {
@@ -307,30 +310,41 @@ export async function observePublishedServer(
                 state.tick = detail.tick;
             }
         });
-    });
-    let connected = false;
+    }, expected);
+    let receivedFrame = false;
     page.on("websocket", (socket) => {
-        if (socket.url() === endpoint || socket.url() === `${endpoint}/`)
+        if (new URL(socket.url()).href === expected)
             socket.on("framereceived", () => {
-                connected = true;
+                receivedFrame = true;
             });
     });
     return async () => {
-        await page.waitForFunction(
-            () => {
-                const state = (
-                    window as unknown as { __shallotServerState: { first?: number; tick?: number } }
-                ).__shallotServerState;
-                return (
-                    state.first !== undefined &&
-                    state.tick !== undefined &&
-                    state.tick >= state.first + 60
-                );
-            },
-            undefined,
-            { timeout },
-        );
-        if (!connected) throw new Error(`Published page did not connect to ${endpoint}`);
+        try {
+            await page.waitForFunction(
+                () => {
+                    const state = (
+                        window as unknown as {
+                            __shallotServerState: { first?: number; tick?: number };
+                        }
+                    ).__shallotServerState;
+                    return (
+                        state.first !== undefined &&
+                        state.tick !== undefined &&
+                        state.tick >= state.first + 60
+                    );
+                },
+                undefined,
+                { timeout },
+            );
+        } catch (error) {
+            throw new Error(
+                receivedFrame
+                    ? `Published page did not advance confirmed server state by 60 ticks from ${endpoint}`
+                    : `Published page received no frames from ${endpoint}`,
+                { cause: error },
+            );
+        }
+        if (!receivedFrame) throw new Error(`Published page received no frames from ${endpoint}`);
     };
 }
 

@@ -575,7 +575,7 @@ export async function publishProject(
         publishProgress(
             `Build: ${deployed.buildUrl}\n${setup.commands}${server ? `\n${flyCommands(flyctl!, server.app)}` : ""}`,
         );
-        const browser = await projectChromium(projectDir);
+        const browser = await projectChromium(projectDir, !!server);
         try {
             const verification = await target.verify(
                 browser,

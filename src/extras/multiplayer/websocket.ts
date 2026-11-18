@@ -22,6 +22,10 @@ export class WebSocketConnection implements Connection {
         });
     }
 
+    get endpoint(): string {
+        return this.socket.url;
+    }
+
     get closed(): boolean {
         return this._closed || this.socket.readyState >= 2;
     }

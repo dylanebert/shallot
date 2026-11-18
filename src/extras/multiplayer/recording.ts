@@ -260,6 +260,7 @@ export class SessionRecorder {
         const playback = !!this._playback;
         const thisRecorder = this;
         const wrapped: Connection & { [transportClock]: () => number } = {
+            endpoint: playback ? undefined : connection.endpoint,
             [transportClock]: () => (playback ? this._world.time.realElapsed * 1000 : clock()),
             get closed() {
                 if (sending) return playback ? lastClosed : connection.closed;

@@ -2,7 +2,7 @@ import { expect, spyOn, test } from "bun:test";
 import type { Browser, LaunchOptions } from "playwright";
 import { launchPublishChromium } from "./publish-verify";
 
-test("Linux CI verification selects SwiftShader while retaining Chromium's sandbox", async () => {
+test("Linux CI server verification selects SwiftShader while retaining Chromium's sandbox", async () => {
     let options: LaunchOptions | undefined;
     const browser = {} as Browser;
     await launchPublishChromium(
@@ -13,11 +13,29 @@ test("Linux CI verification selects SwiftShader while retaining Chromium's sandb
             },
         },
         true,
+        true,
     );
     expect(options?.args).toContain("--use-angle=swiftshader");
     expect(options?.args).toContain("--enable-features=Vulkan");
     expect(options?.args).toContain("--use-vulkan=swiftshader");
     expect(options?.chromiumSandbox).toBe(true);
+});
+
+test("client-only Linux CI launch matches origin/main, without software flags", async () => {
+    const options: LaunchOptions[] = [];
+    await launchPublishChromium(
+        {
+            async launch(value) {
+                options.push(value!);
+                return {} as Browser;
+            },
+        },
+        false,
+        true,
+    );
+    expect(options).toEqual([
+        { channel: "chromium", chromiumSandbox: true, args: ["--enable-unsafe-webgpu"] },
+    ]);
 });
 
 test("production verification uses Chromium's sandbox when it starts", async () => {

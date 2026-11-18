@@ -17,6 +17,7 @@ test("idle refuses every unclosed socket or browser and rejects unmatched closes
     const rows: FlySocketObservation[] = [
         { kind: "browser-created", id: "browser:1", at: 1 },
         { kind: "socket-created", id: "browser:socket:1", at: 2 },
+        { kind: "socket-first-frame", id: "browser:socket:1", at: 2 },
     ];
     expect(() => assertFlySocketsClosed(rows)).toThrow("browser:1, browser:socket:1");
     rows.push({ kind: "socket-closed", id: "browser:socket:1", at: 3 });
@@ -41,13 +42,19 @@ test("Bun clients and a Node-launched browser record actual socket closes before
                 { headers: { "Content-Type": "text/html" } },
             );
         },
-        websocket: { message() {} },
+        websocket: {
+            open(socket) {
+                socket.send("first");
+                socket.send("second");
+            },
+            message() {},
+        },
     });
     const restoreClients = observeFlyClients((row) => observations.push(row), "hot");
     try {
         const socket = new WebSocket(`ws://${server.hostname}:${server.port}/socket`);
         await new Promise<void>((accept, reject) => {
-            socket.addEventListener("open", () => accept(), { once: true });
+            socket.addEventListener("message", () => accept(), { once: true });
             socket.addEventListener("error", reject, { once: true });
         });
         expect(() => assertFlySocketsClosed(observations)).toThrow("bun:hot:socket:1");
@@ -94,9 +101,11 @@ assertFlySocketsClosed(observations);console.log(JSON.stringify(observations));}
         assertFlySocketsClosed(observations);
         expect(observations.map((row) => [row.kind, row.id])).toEqual([
             ["socket-created", "bun:hot:socket:1"],
+            ["socket-first-frame", "bun:hot:socket:1"],
             ["socket-closed", "bun:hot:socket:1"],
             ["browser-created", "browser:1"],
             ["socket-created", "browser:socket:1"],
+            ["socket-first-frame", "browser:socket:1"],
             ["socket-closed", "browser:socket:1"],
             ["browser-closed", "browser:1"],
         ]);
