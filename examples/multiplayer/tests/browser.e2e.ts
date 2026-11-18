@@ -82,6 +82,7 @@ async function open(page: Page, url = "") {
 
 for (const server of [false, true]) {
     test(`F3+R saves replayable ${server ? "socket" : "in-tab"} recordings`, async ({ page }) => {
+        await page.setViewportSize({ width: 640, height: 360 });
         await open(page, `?record${server ? `&server=${await serve()}` : ""}`);
         const start = await frames(page, 10);
         await page.evaluate(() => window.game.key("KeyW", true));
@@ -89,19 +90,21 @@ for (const server of [false, true]) {
         await page.evaluate(() => window.game.key("KeyW", false));
         expect(pushed.box[2]).toBeLessThan(start.box[2]! - 1);
         expect(pushed.predictedBox).toBe(true);
-        const yawCount = await page.evaluate(async () => {
+        const yawCount = await page.evaluate(async (socket) => {
             window.game.key("KeyW", true);
             window.game.touch(91, innerWidth * 0.8, innerHeight * 0.4);
             const yaws = new Set<number>();
             for (let frame = 0; frame < 600; frame++) {
                 window.game.touch(91, innerWidth * 0.8 + (frame + 1) * 0.73, innerHeight * 0.4);
                 yaws.add((await window.game.frames()).yaw);
-                await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+                // Only the external server advances on wall time.
+                if (socket)
+                    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
             }
             window.game.cancel(91);
             window.game.key("KeyW", false);
             return yaws.size;
-        });
+        }, server);
         expect(yawCount).toBeGreaterThan(500);
         console.log(`yaw sweep ${server ? "socket" : "in-tab"}: ${yawCount} distinct angles`);
         const download = page.waitForEvent("download");
