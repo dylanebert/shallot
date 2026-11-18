@@ -5,9 +5,15 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { bunChild } from "../../scripts/bun-child";
-import { createExample, example, packedInstall } from "../../scripts/packed-install-fixture";
+import {
+    createExample,
+    example,
+    packedInstall,
+    usePackedInstall,
+} from "../../scripts/packed-install-fixture";
 
 setDefaultTimeout(TIMEOUT.node);
+usePackedInstall();
 
 test("Node builds a packed multiplayer server bundle serving two Worlds that each confirm 60 ticks via PORT", async () => {
     createExample("multiplayer");

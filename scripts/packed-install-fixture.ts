@@ -69,7 +69,16 @@ export function projectFiles(directory: string): string[] {
     });
 }
 
-beforeAll(() => {
+/**
+ * Registers the packed install's setup and removal in the calling test file. Bun evaluates this module once per
+ * process, so hooks at its own top level would attach only to the first file that imports it.
+ */
+export function usePackedInstall(): void {
+    beforeAll(setUp, TIMEOUT.startup);
+    afterAll(tearDown, TIMEOUT.startup);
+}
+
+function setUp(): void {
     const scratch = realpathSync.native(mkdtempSync(join(tmpdir(), "shallot-packed-install-")));
     try {
         const cliProject = join(scratch, "cli");
@@ -118,11 +127,15 @@ beforeAll(() => {
         removeTestDirectory(scratch);
         throw error;
     }
-}, TIMEOUT.startup);
+}
 
-afterAll(() => {
-    if (install) removeTestDirectory(install.scratch);
-}, TIMEOUT.startup);
+function tearDown(): void {
+    if (!install) return;
+    const { scratch } = install;
+    install = undefined;
+    created.clear();
+    removeTestDirectory(scratch);
+}
 
 const created = new Map<string, { manifest: Record<string, any>; installOutput: string }>();
 

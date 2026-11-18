@@ -14,9 +14,11 @@ import {
     ROOT,
     removeExample,
     run,
+    usePackedInstall,
 } from "./packed-install-fixture";
 
 setDefaultTimeout(TIMEOUT.node);
+usePackedInstall();
 
 // The package's exclusions, each also matching the contents of a directory it names.
 const unpacked = (
