@@ -543,13 +543,25 @@ function setButton(
     setButtonLevel(d, name, pressed, modifiers);
 }
 
-/** Produce a pointer-button press at the current pointer position. While `requireLock` holds and the pointer
- * is not locked, the button stays up. Numeric buttons use DOM `button` values (0 left, 1 middle, 2 right). */
+function focusPointerViewport(world: World, d: DeviceRecord): void {
+    let index = d.pointerCanvasIndex;
+    if (index < 0) {
+        const viewports = world.resource(Viewports);
+        if (viewports.size === 1) index = viewports.keys().next().value!;
+    }
+    if (index >= 0 && index !== d.focused) focusCanvas(world, index);
+}
+
+/** Produce a pointer-button press at the current position and focus its canvas (or the sole viewport
+ * if no canvas was specified). While `requireLock` holds and the pointer is not locked, the button
+ * stays up. Numeric buttons use DOM `button` values (0 left, 1 middle, 2 right). */
 export function pressButton(
     world: World,
     button: PointerButton,
     modifiers?: PointerModifiers,
 ): void {
+    const d = record(world);
+    if (d.enabled) focusPointerViewport(world, d);
     setButton(world, button, true, modifiers);
 }
 
@@ -613,10 +625,10 @@ function liftTouch(d: DeviceRecord, pointerId: number): void {
     d.primaryTouch = d.touchPoints.keys().next().value ?? null;
 }
 
-/** Produce a touch point in CSS pixels within the focused canvas; `active=false` lifts it. The first touch moves
- * the pointer and presses `left`, and lifting it releases `left` there. A second touch cancels that press, so a
- * pinch or pan presents no press and release; while fingers stay held, the remaining one drives the pointer
- * position. Accumulates two-finger centroid and pinch deltas. */
+/** Produce a touch point in CSS pixels; `active=false` lifts it. The first touch focuses the pointer's
+ * canvas (or the sole viewport), moves the pointer and presses `left`. Lifting it releases `left` there.
+ * A second touch cancels that press, so a pinch or pan presents no press and release; while fingers stay
+ * held, the remaining one drives the pointer position. Accumulates two-finger centroid and pinch deltas. */
 export function touchPoint(
     world: World,
     pointerId: number,
@@ -626,10 +638,23 @@ export function touchPoint(
 ): void {
     const d = record(world);
     if (!d.enabled) return;
+    if (active && d.touchPoints.size === 0) focusPointerViewport(world, d);
+    setTouchPoint(world, d, pointerId, x, y, active);
+}
+
+function setTouchPoint(
+    world: World,
+    d: DeviceRecord,
+    pointerId: number,
+    x: number,
+    y: number,
+    active = true,
+): void {
+    if (!d.enabled) return;
     const previous = d.touchPoints.get(pointerId);
     if (!active) {
         if (!previous) return;
-        touchPoint(world, pointerId, x, y);
+        setTouchPoint(world, d, pointerId, x, y);
         if (pointerId === d.primaryTouch && d.touchPress) setButtonLevel(d, "left", false);
         touchEvent(d, "end");
         d.touch.released.set(pointerId, previous);
@@ -924,7 +949,7 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, world: World): void 
                 d.pointer.hover = true;
             }
             const at = touchPosition(a, target, e);
-            touchPoint(world, e.pointerId, at.x, at.y);
+            setTouchPoint(world, d, e.pointerId, at.x, at.y);
         } else if (a.activePointerId === null || a.activePointerId === e.pointerId) {
             a.pointerHover(e);
             pointerButtons(world, gatedButtons(d, e.buttons), e);
@@ -1017,7 +1042,7 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, world: World): void 
     a.pointerUp = (e) => {
         if (d.touchPoints.has(e.pointerId)) {
             const at = touchPosition(a, e.target, e);
-            touchPoint(world, e.pointerId, at.x, at.y, false);
+            setTouchPoint(world, d, e.pointerId, at.x, at.y, false);
             followTouch(a, d, e.pointerId);
             return;
         }
@@ -1044,7 +1069,7 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, world: World): void 
     a.pointerMove = (e) => {
         if (d.touchPoints.has(e.pointerId)) {
             const at = touchPosition(a, e.target, e);
-            touchPoint(world, e.pointerId, at.x, at.y);
+            setTouchPoint(world, d, e.pointerId, at.x, at.y);
             if (e.pointerId === a.activePointerId) e.preventDefault();
             return;
         }
