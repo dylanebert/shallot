@@ -784,10 +784,7 @@ if(ticks.some(t=>t<60))throw Error('Clients did not confirm 60 ticks');console.l
             while (idleMachine.state !== "stopped") {
                 if (performance.now() - idle > 360_000) {
                     console.info(fly(["logs", "--app", name, "--no-tail"]));
-                    const status = JSON.parse(
-                        fly(["machine", "status", idleMachine.id, "--app", name, "--json"]),
-                    );
-                    console.info("Machine events:", JSON.stringify(status.events));
+                    console.info(fly(["machine", "status", idleMachine.id, "--app", name]));
                     throw new Error(
                         `Fly did not auto-stop within six minutes: ${JSON.stringify({ state: idleMachine.state, services: idleMachine.config.services })}`,
                     );
