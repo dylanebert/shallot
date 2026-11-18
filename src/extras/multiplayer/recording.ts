@@ -1,4 +1,4 @@
-import { version } from "../../../package.json";
+import pkg from "../../../package.json" with { type: "json" };
 import { createApp, type Plugin, Time, type World } from "../../engine";
 import { fields } from "../../engine/ecs";
 import { MultiplayerPlugin, Replicate, type ReplicationReceiver } from ".";
@@ -108,7 +108,7 @@ export class SessionRecorder {
         this._options = options;
         this._playback = playback;
         this.recording = playback ?? {
-            engineVersion: version,
+            engineVersion: pkg.version,
             gameVersion: options.gameVersion,
             javascript: javascriptRuntime(),
             role,
@@ -401,7 +401,7 @@ export async function replaySession(
     gameVersion: string,
     recording: SessionRecording,
 ): Promise<void> {
-    if (recording.engineVersion !== version || recording.gameVersion !== gameVersion)
+    if (recording.engineVersion !== pkg.version || recording.gameVersion !== gameVersion)
         throw new Error("Replay version mismatch");
     const recorder = new SessionRecorder(
         game,
