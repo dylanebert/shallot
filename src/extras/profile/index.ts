@@ -54,11 +54,11 @@ const recorder = {
 
 class DiagnosticsRecorder {
     store!: DiagnosticsStore;
+    ready: Promise<void> = Promise.resolve();
     private _cpu!: FrameTimings;
     private _gpu!: FrameTimings;
     private readonly _gpuClock = new Float64Array(1);
     private readonly _intervalOrder: number[] = [];
-    gpuTiming: "available" | "requires timestamp-query" = "requires timestamp-query";
     // Per-frame CPU-counted indirect draws for the overlay's validation-floor estimate.
     readonly indirect = new Map<string, number>();
     readonly sizes = new Map<object, ResourceAlloc>();
@@ -113,10 +113,7 @@ class DiagnosticsRecorder {
         };
         this._cpu = new FrameTimings(this.store, retire);
         this._gpu = new FrameTimings(this.store, retire);
-        this.gpuTiming = device.features.has("timestamp-query")
-            ? "available"
-            : "requires timestamp-query";
-        this.store.record("render/timestamp_query", this.gpuTiming === "available" ? 1 : 0);
+        this.store.record("render/timestamp_query", 0);
         this.store.record("render/gpu_unsampled_frames", 0, 0);
         for (const path of ["fps", "frame_time", "fixed_steps", "pending", "throttled"]) {
             if (!this.store.get(path))
@@ -185,15 +182,75 @@ class DiagnosticsRecorder {
             device.createTexture = origCreateTexture;
         });
 
-        if (this.gpuTiming === "available") {
+        if (device.features.has("timestamp-query")) {
+            this.ready = this.enableTimestamps(device, capacity);
+        }
+    }
+
+    private async enableTimestamps(device: GPUDevice, capacity: number): Promise<void> {
+        device.pushErrorScope("validation");
+        const count = capacity * 2;
+        const bytes = count * 8;
+        const querySet = device.createQuerySet({ type: "timestamp", count });
+        const buffer = device.createBuffer({
+            label: "profile-resolve",
+            size: bytes,
+            usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
+        });
+        const staging = device.createBuffer({
+            label: "profile-probe-staging",
+            size: bytes,
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+        });
+        const target = device.createTexture({
+            label: "profile-probe-target",
+            size: [1, 1],
+            format: "rgba8unorm",
+            usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        });
+        let error: GPUError | null;
+        try {
+            for (let frame = 0; frame < 2; frame++) {
+                const encoder = device.createCommandEncoder({ label: "profile-probe" });
+                for (const first of [0, count - 4]) {
+                    encoder
+                        .beginRenderPass({
+                            colorAttachments: [
+                                { view: target.createView(), loadOp: "clear", storeOp: "store" },
+                            ],
+                            timestampWrites: {
+                                querySet,
+                                beginningOfPassWriteIndex: first,
+                                endOfPassWriteIndex: first + 1,
+                            },
+                        })
+                        .end();
+                    encoder
+                        .beginComputePass({
+                            timestampWrites: {
+                                querySet,
+                                beginningOfPassWriteIndex: first + 2,
+                                endOfPassWriteIndex: first + 3,
+                            },
+                        })
+                        .end();
+                }
+                device.queue.submit([encoder.finish()]);
+                const resolve = device.createCommandEncoder({ label: "profile-probe-resolve" });
+                resolve.resolveQuerySet(querySet, 0, count, buffer, 0);
+                resolve.copyBufferToBuffer(buffer, 0, staging, 0, bytes);
+                device.queue.submit([resolve.finish()]);
+            }
+        } finally {
+            error = await device.popErrorScope();
+            target.destroy();
+            staging.destroy();
+        }
+        if (!error && !this._disposed) {
+            this.store.record("render/timestamp_query", 1);
             this._capacity = capacity;
-            this._querySet = device.createQuerySet({ type: "timestamp", count: capacity * 2 });
-            const bytes = capacity * 2 * 8;
-            this._resolveBuffer = device.createBuffer({
-                label: "profile-resolve",
-                size: bytes,
-                usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
-            });
+            this._querySet = querySet;
+            this._resolveBuffer = buffer;
             for (let i = 0; i < READ_RING; i++) {
                 this._free.push({
                     bytes: new ArrayBuffer(0),
@@ -204,6 +261,9 @@ class DiagnosticsRecorder {
                     empty: new EmptyFrames(),
                 });
             }
+        } else {
+            querySet.destroy();
+            buffer.destroy();
         }
     }
 
@@ -1104,6 +1164,10 @@ export const ProfilePlugin: Plugin = {
         world.fenceWaitSink = (ms) => {
             profiler.store.record("frame/fence_wait", ms, undefined, "ms");
         };
+    },
+
+    async initialize(world) {
+        await world.resource(recorder).ready;
     },
 
     dispose(world: World) {
