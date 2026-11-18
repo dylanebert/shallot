@@ -22,19 +22,15 @@ import {
 } from "./publish-cloudflare";
 import { BUTLER_VERSION } from "./publish-itch";
 
-async function confirmTrial(
-    url: string | null,
-    instruction: string,
-    question = "Does it play? [y/N] ",
-) {
+async function confirmPlay(url: string | null, instruction: string) {
     console.info(instruction);
     if (url) console.info(url);
     const input = createInterface({ input: process.stdin, output: process.stdout });
     try {
-        const answer = await input.question(question);
+        const answer = await input.question("Does it play? [y/N] ");
         expect(
             ["y", "yes"].includes(answer.trim().toLowerCase()),
-            `Trial confirmation failed: the person answered ${JSON.stringify(answer)}.`,
+            `Play judgment failed: the person answered ${JSON.stringify(answer)}.`,
         ).toBe(true);
     } finally {
         input.close();
@@ -159,7 +155,7 @@ for (const trial of ["personal", "CI"] as const) {
                         stderr: "inherit",
                     });
                     expect(first.exitCode).toBe(0);
-                    await confirmTrial(
+                    await confirmPlay(
                         null,
                         "Open the play link printed above in a fresh anonymous browser session.",
                     );
@@ -473,7 +469,7 @@ for (const trial of ["personal", "CI"] as const) {
                     return { code: result.exitCode, report };
                 };
                 const play = () =>
-                    confirmTrial(
+                    confirmPlay(
                         url,
                         "Open this Restricted page in your own logged-in owner browser. Publish's verifier loads the build's frame document without a login.",
                     );
@@ -856,7 +852,7 @@ observeFlyBrowser(projectRequire('playwright').chromium, row => appendFileSync($
                 expect(link.server).toEqual({ target: "fly", app: name });
                 if (result) expect(new URL(result.stdout.trim()).hostname).toStartWith(`${name}.`);
                 if (personal)
-                    await confirmTrial(
+                    await confirmPlay(
                         null,
                         "Open the play link printed above in a fresh anonymous browser session. Close it before answering so the two server slots are free.",
                     );
@@ -931,16 +927,10 @@ try{const deadline=Date.now()+10000;for(;;){try{assertFlySocketsClosed(observati
                 };
                 clients("hot");
                 assertFlySocketsClosed(socketObservations);
-                if (personal) {
-                    await confirmTrial(
-                        null,
-                        "Close every tab of the published game. Each tab keeps a WebSocket to the server, and traffic can prevent Fly from stopping it.",
-                        "Are all published game tabs closed? [y/N] ",
-                    );
+                if (personal)
                     console.info(
                         "Waiting for Fly to autostop the Machine; this takes several minutes.",
                     );
-                }
                 const idleStartedAt = Date.now();
                 console.info(
                     JSON.stringify({
