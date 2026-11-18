@@ -1,49 +1,54 @@
-import { cp, mkdir, realpath } from "node:fs/promises";
+import { mkdir, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { TIMEOUT } from "../src/project/testing.js";
 
-// Run: bun scripts/profile-safari.oracle.ts <gaussian-splatting-checkout> <new-output-directory>
-const [consumerPath, outputPath] = process.argv.slice(2);
-if (!consumerPath || !outputPath)
+// Run against a checkout, including an older revision, without changing its sources.
+const [checkoutPath, outputPath, injection] = process.argv.slice(2);
+if (!checkoutPath || !outputPath || (injection && injection !== "--reject-timestamps"))
     throw new Error(
-        "Usage: bun scripts/profile-safari.oracle.ts <gaussian-splatting-checkout> <new-output-directory>",
+        "Usage: bun scripts/profile-safari.oracle.ts <checkout> <new-output-directory> [--reject-timestamps]",
     );
-const root = fileURLToPath(new URL("..", import.meta.url));
-const consumer = resolve(consumerPath);
+const root = resolve(checkoutPath);
 const output = resolve(outputPath);
 await mkdir(output);
-const scratch = resolve(output, "consumer");
-await mkdir(scratch);
 async function run(cwd: string, ...cmd: string[]) {
     const status = await Bun.spawn(cmd, { cwd, stdout: "inherit", stderr: "inherit" }).exited;
     if (status) throw new Error(`${cmd.join(" ")} exited ${status}`);
 }
-await run(
-    root,
-    "sh",
-    "-ec",
-    'git -C "$1" archive 172422a | tar -x -C "$2"',
-    "sh",
-    consumer,
-    scratch,
-);
-await cp(
-    resolve(consumer, "examples/splat-viewer/public/bicycle"),
-    resolve(scratch, "examples/splat-viewer/public/bicycle"),
-    { recursive: true },
-);
-await run(root, "bun", "run", "prepare");
-await run(root, "bun", "link");
-await run(scratch, "bun", "install");
-await run(scratch, "bun", "link", "@dylanebert/shallot");
-const linked = await realpath(resolve(scratch, "node_modules/@dylanebert/shallot"));
-if (linked !== (await realpath(root)))
-    throw new Error(`Consumer linked to ${linked}, expected ${root}`);
-const pages = [
-    { name: "bloom", cwd: root, entry: "examples/bloom", port: 4223 },
-    { name: "splat", cwd: scratch, entry: "examples/splat-viewer", port: 4224 },
-];
+const names = (await readdir(resolve(root, "examples"), { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort((a, b) => (a === "bloom" ? -1 : b === "bloom" ? 1 : a.localeCompare(b)));
+const pages = names.map((name, index) => ({
+    name,
+    cwd: root,
+    entry: `examples/${name}`,
+    port: 4223 + index,
+}));
+const rejectTimestamps = `
+window.__timestampRejection={sets:0,writes:0,resolves:0};
+const timestampSets=new WeakSet();
+const create=GPUDevice.prototype.createQuerySet;
+GPUDevice.prototype.createQuerySet=function(descriptor){
+    if(descriptor.type!=='timestamp')return create.call(this,descriptor);
+    const set=create.call(this,{...descriptor,type:'occlusion'});
+    timestampSets.add(set);__timestampRejection.sets++;return set;
+};
+for(const method of ['beginRenderPass','beginComputePass']){
+    const begin=GPUCommandEncoder.prototype[method];
+    GPUCommandEncoder.prototype[method]=function(descriptor){
+        if(descriptor?.timestampWrites)__timestampRejection.writes++;
+        return begin.call(this,descriptor);
+    };
+}
+const resolveQueries=GPUCommandEncoder.prototype.resolveQuerySet;
+GPUCommandEncoder.prototype.resolveQuerySet=function(set,first,count,buffer,offset){
+    if(timestampSets.has(set)){
+        __timestampRejection.resolves++;
+        return resolveQueries.call(this,set,0,set.count+1,buffer,offset);
+    }
+    return resolveQueries.call(this,set,first,count,buffer,offset);
+};`;
 for (const page of pages) {
     const dist = resolve(output, `${page.name}-dist`);
     await run(page.cwd, "bunx", "vite", "build", page.entry, "--outDir", dist);
@@ -56,6 +61,7 @@ for (const page of pages) {
 window.__safariErrors=[];
 addEventListener('error',e=>__safariErrors.push(e.message));
 addEventListener('unhandledrejection',e=>__safariErrors.push(String(e.reason?.stack||e.reason)));
+${injection ? rejectTimestamps : ""}
 </script>`,
         ),
     );
@@ -88,7 +94,7 @@ const execute = <T>(script: string, args: unknown[] = []) =>
     request<T>(`/session/${session}/execute/sync`, { script, args });
 const stateScript = `const p=document.querySelector('[data-shallot-profile]');return {
 url:location.href,visibility:document.visibilityState,focus:document.hasFocus(),
-profile:p?.dataset.gpuTiming||null,errors:window.__safariErrors,
+profile:p?.dataset.gpuTiming||null,errors:window.__safariErrors,injection:window.__timestampRejection,
 body:document.body.innerText,firstUpdate:performance.getEntriesByType('measure').some(e=>e.name.endsWith(':first-update')),
 marks:performance.getEntries().filter(e=>e.entryType==='mark'||e.entryType==='measure').map(e=>[e.name,e.duration])};`;
 try {
@@ -128,7 +134,9 @@ try {
         capabilities: { alwaysMatch: { browserName: "safari" } },
     });
     session = created.sessionId;
-    console.log(JSON.stringify({ linked, plugin: "172422a", capabilities: created.capabilities }));
+    console.log(
+        JSON.stringify({ root, injection: !!injection, capabilities: created.capabilities }),
+    );
     await request(`/session/${session}/window/rect`, { x: 0, y: 0, width: 1000, height: 800 });
     for (const page of pages) {
         const url = `http://127.0.0.1:${page.port}/`;
@@ -155,17 +163,20 @@ try {
         await waitFor(
             () =>
                 execute<boolean>(
-                    "return performance.getEntriesByType('measure').some(e=>e.name.endsWith(':first-update'))",
+                    "return performance.getEntriesByName('shallot:handoff','mark').length>0 && performance.getEntriesByType('measure').some(e=>e.name.endsWith(':first-update'))",
                 ),
             `${page.name} first update`,
         );
-        for (const open of [false, true]) {
+        const hasProfiler = await execute<boolean>(
+            "return performance.getEntriesByType('measure').some(e=>e.name.startsWith('shallot:system:Profile/'))",
+        );
+        for (const open of hasProfiler ? [false, true] : [false]) {
             const shown = await execute<boolean>(
                 "return !!document.querySelector('[data-shallot-profile]')",
             );
             if (shown !== open)
                 await execute(
-                    "for(const type of ['keydown','keyup'])window.dispatchEvent(new KeyboardEvent(type,{code:'F3',bubbles:true,cancelable:true}));",
+                    "for(const type of ['keydown','keyup'])window.dispatchEvent(new KeyboardEvent(type,{key:'F3',code:'F3',bubbles:true,cancelable:true}));",
                 );
             await waitFor(
                 () =>
@@ -174,17 +185,23 @@ try {
                     ),
                 `${page.name} profiler ${open ? "open" : "closed"}`,
             );
-            const state = await execute<{ errors: string[] }>(stateScript);
+            const state = await execute<{ errors: string[]; visibility: string }>(stateScript);
+            if (state.visibility !== "visible") throw new Error(`${page.name}: hidden document`);
+            // Keep layout, but exclude DOM controls and the profiler from pixel evidence.
+            const box = await execute<number[]>(`const style=document.createElement('style');
+style.id='safari-scene-only';style.textContent='body * { visibility: hidden !important } canvas { visibility: visible !important }';
+document.head.append(style);const r=document.querySelector('canvas').getBoundingClientRect();
+return [r.x/innerWidth,r.y/innerHeight,r.width/innerWidth,r.height/innerHeight];`);
             const png = await request<string>(`/session/${session}/screenshot`);
             const label = `${page.name}-${open ? "open" : "closed"}`;
             await Bun.write(resolve(output, `${label}.png`), Buffer.from(png, "base64"));
             const deviation = await request<number[]>(`/session/${session}/execute/async`, {
-                args: [png, page.name],
-                script: `const [png,name,done]=arguments;const image=new Image();image.onload=()=>{
+                args: [png, box],
+                script: `const [png,box,done]=arguments;const image=new Image();image.onload=()=>{
 const c=document.createElement('canvas');c.width=image.width;c.height=image.height;
 const ctx=c.getContext('2d');ctx.drawImage(image,0,0);
-// Scene-only regions exclude the profiler, bloom controls and bicycle picker.
-const box=name==='bloom'?[0,.5,.49,.38]:[.33,.4,.42,.43];
+// Inset the canvas to exclude page edges and embedded-scene framing.
+box[0]+=box[2]*.1;box[1]+=box[3]*.1;box[2]*=.8;box[3]*=.8;
 const data=ctx.getImageData(Math.floor(c.width*box[0]),Math.floor(c.height*box[1]),Math.floor(c.width*box[2]),Math.floor(c.height*box[3])).data;
 const sum=[0,0,0],squares=[0,0,0],n=data.length/4;
 for(let i=0;i<data.length;i+=4)for(let j=0;j<3;j++){sum[j]+=data[i+j];squares[j]+=data[i+j]**2;}
@@ -196,6 +213,7 @@ done(sum.map((s,j)=>Math.sqrt(Math.max(0,squares[j]/n-(s/n)**2))));
                 JSON.stringify({ state, deviation }, null, 2),
             );
             console.log(JSON.stringify({ label, state, deviation }));
+            await execute("document.querySelector('#safari-scene-only').remove()");
             if (state.errors.length)
                 throw new Error(`${label}: page errors: ${state.errors.join("; ")}`);
             if (Math.max(...deviation) <= 10)
