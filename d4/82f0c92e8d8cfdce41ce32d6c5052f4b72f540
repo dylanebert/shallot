@@ -1,0 +1,2 @@
+stage: 3
+finding: The release wrongly holds 6642c037 as Fly-only. src/cli/publish.ts still calls the shared projectChromium from src/cli/publish-verify.ts for the existing publish verifier. The release destructures only the named chromium export; Node resolves the branch's installed Playwright with no named chromium and a valid default.chromium. In a git archive of d482f0c9, transplanting only the held regression reproduced TypeError reading chromium.launch. Backport the standalone namespace fallback with its regression, without Fly, and requalify before tagging.
