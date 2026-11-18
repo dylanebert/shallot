@@ -308,7 +308,11 @@ for (const touch of [false, true])
         const before = world.storage(Orbit).yaw.get(camera);
         move(snow[0] + 40, snow[1]);
         world.step(1 / 60);
-        expect(world.storage(Orbit).yaw.get(camera)).not.toBe(before);
+        const orbit = world.storage(Orbit);
+        expect(before - orbit.yaw.get(camera)).toBeCloseTo(
+            (40 / 240) * orbit.rotateSpeed.get(camera),
+            5,
+        );
         up();
         world.step(0);
     });

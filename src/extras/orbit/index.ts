@@ -1,5 +1,6 @@
 import { Devices, InputPlugin, type Pointer } from "../../core/input";
 import { Camera, CameraMode } from "../../core/rendering";
+import { cameraView } from "../../core/rendering/view";
 import {
     deriveTransforms,
     GlobalTransform,
@@ -66,7 +67,9 @@ export const Orbit = component(
         /** fly look damping, 0–1; higher is snappier */
         flySmoothness: f32,
         /** orbit look speed (yaw/pitch), radians per drag across the viewport's height, so a drag
-         * turns the view by the same share of the screen at any canvas size */
+         * turns the view by the same share of the screen at any canvas size. Without a positive
+         * focused CSS height, use the camera's texture destination height; without either, drag
+         * rotation is disabled. */
         rotateSpeed: f32,
         /** fly look speed (yaw/pitch), radians per pixel */
         flySensitivity: f32,
@@ -271,7 +274,12 @@ const OrbitSystem: System = {
 
         for (const eid of world.query(orbitPose)) {
             const cssHeight = world.resource(Viewports).get(input.focused)?.cssHeight ?? 0;
-            const sensitivity = cssHeight > 0 ? orbit.rotateSpeed.get(eid) / cssHeight : 0;
+            let height = cssHeight;
+            if (height === 0 && world.has(eid, Camera)) {
+                const view = cameraView(world, eid);
+                if (view?.texture) height = view.viewport?.height ?? view.texture.height;
+            }
+            const sensitivity = height > 0 ? orbit.rotateSpeed.get(eid) / height : 0;
             const zoomSpeed = orbit.zoomSpeed.get(eid);
             const minPitch = orbit.minPitch.get(eid);
             const maxPitch = orbit.maxPitch.get(eid);
@@ -429,7 +437,7 @@ const OrbitSystem: System = {
                 pitchO = clamp(pitchO + keyPitchVelocity * dt, minPitch, maxPitch);
             }
 
-            if (!manual && (dragX !== 0 || dragY !== 0)) {
+            if (!manual && height > 0 && (dragX !== 0 || dragY !== 0)) {
                 const cy = Math.cos(yawS);
                 const sy = Math.sin(yawS);
                 const cp = Math.cos(pitchS);
@@ -442,11 +450,11 @@ const OrbitSystem: System = {
                 const upZ = -sp * cy;
 
                 const worldPerPixel = isOrtho
-                    ? (camera.size.get(eid) * 2) / cssHeight
+                    ? (camera.size.get(eid) * 2) / height
                     : (2 *
                           distO *
                           Math.tan((hasCamera ? camera.fov.get(eid) : 60) * Deg2Rad * 0.5)) /
-                      cssHeight;
+                      height;
 
                 const dx = dragX * worldPerPixel;
                 const dy = dragY * worldPerPixel;

@@ -120,7 +120,8 @@ test("a drag past the threshold that starts on the cube orbits and adds none", (
     releaseButton(w, "left");
     w.step(1 / 60);
     expect(count(w)).toBe(0);
-    expect(w.storage(Orbit).yaw.get(camera)).not.toBe(yaw);
+    const orbit = w.storage(Orbit);
+    expect(yaw - orbit.yaw.get(camera)).toBeCloseTo((30 / 180) * orbit.rotateSpeed.get(camera), 5);
 });
 
 function checkScatter() {
