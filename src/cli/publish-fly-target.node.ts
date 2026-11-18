@@ -238,51 +238,28 @@ test("a first Fly link refuses an existing app without building or changing proj
     }
 });
 
-for (const [label, saved, interactive] of [
-    ["saved login works without interaction", true, false],
-    ["missing login refuses without interaction", false, false],
-    ["missing login prompts in a terminal", false, true],
-] as const) {
-    test(`Fly authentication: ${label}`, async () => {
-        const token = process.env.FLY_API_TOKEN;
-        delete process.env.FLY_API_TOKEN;
-        writeFileSync(join(root, "login"), saved ? "saved" : "missing");
-        writeFileSync(commands, "");
-        try {
-            const failure = await deployFlyServer(
-                root,
-                root,
-                { target: "fly", app: "occupied" },
-                interactive,
-                false,
-                ask,
-                cli,
-            ).then(
-                () => "unexpected success",
-                (error: Error) => error.message,
-            );
-            const calls = readFileSync(commands, "utf8")
-                .trim()
-                .split("\n")
-                .filter(Boolean)
-                .map((line) => JSON.parse(line));
-            expect(calls[0]).toEqual(["auth", "whoami"]);
-            if (saved || interactive) {
-                expect(failure).toContain("already exists");
-                expect(calls).toContainEqual(["apps", "list", "--json"]);
-            } else {
-                expect(failure).toContain("fly auth login");
-                expect(failure).toContain("FLY_API_TOKEN");
-                expect(calls).toHaveLength(1);
-            }
-            expect(calls.some((args) => args[0] === "auth" && args[1] === "login")).toBe(
-                !saved && interactive,
-            );
-        } finally {
-            if (token !== undefined) process.env.FLY_API_TOKEN = token;
-        }
-    });
-}
+test("missing Fly login in a terminal runs login before app checks", async () => {
+    const token = process.env.FLY_API_TOKEN;
+    delete process.env.FLY_API_TOKEN;
+    writeFileSync(join(root, "login"), "missing");
+    writeFileSync(commands, "");
+    try {
+        await expect(
+            deployFlyServer(root, root, { target: "fly", app: "occupied" }, true, false, ask, cli),
+        ).rejects.toThrow("already exists");
+        const calls = readFileSync(commands, "utf8")
+            .trim()
+            .split("\n")
+            .map((line) => JSON.parse(line));
+        expect(calls).toEqual([
+            ["auth", "whoami"],
+            ["auth", "login"],
+            ["apps", "list", "--json"],
+        ]);
+    } finally {
+        if (token !== undefined) process.env.FLY_API_TOKEN = token;
+    }
+});
 
 test("project Fly configuration refuses before login or remote commands", async () => {
     const project = mkdtempSync(join(tmpdir(), "shallot-fly-config-"));

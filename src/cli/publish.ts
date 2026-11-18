@@ -543,10 +543,6 @@ export async function publishProject(
         let flyctl: string | undefined;
         if (server) {
             refuseFlyConfig(projectDir);
-            if (!interactive && !process.env.FLY_API_TOKEN)
-                throw new Error(
-                    "Fly login is missing. Set FLY_API_TOKEN for non-interactive publish.",
-                );
             flyctl = await ensureFly();
             await deployFlyServer(
                 projectDir,

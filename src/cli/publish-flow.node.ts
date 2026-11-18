@@ -38,7 +38,7 @@ beforeAll(async () => {
         source,
         `const fs=require('node:fs'),path=require('node:path'); const root=path.dirname(path.dirname(process.execPath)); ${RECORD}
 const args=process.argv.slice(2);
-if(path.basename(process.execPath).replace(/\\.exe$/, '')==='flyctl') { record({command:'fly '+args.join(' ')}); if(args[0]==='apps'&&args[1]==='list')console.log('[]');else if(args[0]==='orgs')console.log('{"personal":"Personal"}');process.exit(0); }
+if(path.basename(process.execPath).replace(/\\.exe$/, '')==='flyctl') { record({command:'fly '+args.join(' ')}); const state=JSON.parse(fs.readFileSync(path.join(root,'answers.json')));if(args[0]==='auth'&&args[1]==='whoami'&&state.flyLogin===false)process.exit(1);if(args[0]==='apps'&&args[1]==='list')console.log(JSON.stringify(state.flyCollision?[{Name:'fixture-game'}]:[]));else if(args[0]==='orgs')console.log('{"personal":"Personal"}');process.exit(0); }
 if(path.basename(process.execPath).replace(/\\.exe$/, '')==='bun') {
 if(args[0]==='--version'){console.log('1.3.3');process.exit(0);} if(args[0]==='build'){record({command:'server build'});fs.writeFileSync(args[args.indexOf('--outfile')+1],'');process.exit(0);}
 if(JSON.stringify(args)!==JSON.stringify(['add','--dev','wrangler@${WRANGLER_VERSION}']))throw Error('Unexpected install');
@@ -85,7 +85,13 @@ async function fixture() {
     writeFileSync(join(project, "untouched.txt"), "creator's file\n");
     const statePath = join(root, "answers.json"),
         records = join(root, "commands.jsonl");
-    const state = { account: accountA, fail: false, collision: false };
+    const state = {
+        account: accountA,
+        fail: false,
+        collision: false,
+        flyLogin: true,
+        flyCollision: false,
+    };
     const save = () => writeFileSync(statePath, JSON.stringify(state));
     save();
     writeFileSync(records, "");
@@ -148,6 +154,7 @@ export const chromium={async launch(){const browser=await publishTestChromium(),
     writeFileSync(join(flyCache, ".complete"), "");
     // The compiled tool locates fixture state relative to its executable.
     linkSync(records, join(dirname(flyCache), "commands.jsonl"));
+    linkSync(statePath, join(dirname(flyCache), "answers.json"));
     const run = async (account?: string, fly = false, requestServer = fly) => {
         const env = Object.fromEntries(
             Object.entries(process.env).filter(([key]) => !/^(CLOUDFLARE_|CF_)/.test(key)),
@@ -203,6 +210,37 @@ export const chromium={async launch(){const browser=await publishTestChromium(),
             await removeTestDirectory(root);
         },
     };
+}
+
+for (const saved of [true, false]) {
+    test(`noninteractive publishProject without a Fly token ${saved ? "uses a saved login for app checks" : "refuses missing login before build or mutation"}`, async () => {
+        const f = await fixture();
+        try {
+            writeFileSync(join(f.project, "server.ts"), "export const state = 1;");
+            f.state.flyLogin = saved;
+            f.state.flyCollision = true;
+            f.save();
+            const result = await f.run(undefined, false, true);
+            expect(result.code).toBe(1);
+            const fly = f
+                .commands()
+                .filter((row) => row.command.startsWith("fly "))
+                .map((row) => row.command);
+            expect(fly).toEqual(
+                saved ? ["fly auth whoami", "fly apps list --json"] : ["fly auth whoami"],
+            );
+            if (saved) expect(result.stderr).toContain("already exists");
+            else {
+                expect(result.stderr).toContain("fly auth login");
+                expect(result.stderr).toContain("FLY_API_TOKEN");
+            }
+            expect(
+                f.commands().some((row) => /build|create|deploy|auth login/.test(row.command)),
+            ).toBe(false);
+        } finally {
+            await f.close();
+        }
+    });
 }
 
 test("publishProject changes only the link and installed devDependency; a saved account persists unless the environment conflicts", async () => {
