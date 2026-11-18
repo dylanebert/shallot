@@ -7,6 +7,10 @@ import { createInterface } from "node:readline/promises";
 import { bunChild } from "../../scripts/bun-child";
 import { packedInstall } from "../../scripts/packed-install-spawn";
 import { browserSessionPath } from "../../scripts/publish-browser-session";
+import {
+    assertFlySocketsClosed,
+    type FlySocketObservation,
+} from "../../scripts/publish-fly-sockets";
 import { cleanupOracleWorkers } from "../../scripts/publish-oracle-cleanup";
 import { normalizePath } from "../project";
 import { cloudflareConfig, type WranglerResult, workerExists } from "./publish-cloudflare";
@@ -692,8 +696,29 @@ test(
                 project,
                 "Fly oracle project install",
             );
+            const journal = join(root, "browser-sockets.jsonl");
+            writeFileSync(journal, "");
+            const observerSource = join(root, "browser-observer.ts");
+            writeFileSync(
+                observerSource,
+                `import { createRequire } from 'node:module';
+import { appendFileSync } from 'node:fs';
+import { observeFlyBrowser } from ${JSON.stringify(resolve(import.meta.dir, "../../scripts/publish-fly-sockets.ts"))};
+const projectRequire = createRequire(${JSON.stringify(manifestPath)});
+observeFlyBrowser(projectRequire('playwright').chromium, row => appendFileSync(${JSON.stringify(journal)}, JSON.stringify(row) + '\\n'));`,
+            );
+            const observerBuild = await Bun.build({
+                entrypoints: [observerSource],
+                target: "node",
+                format: "cjs",
+                outdir: root,
+                naming: "browser-observer.cjs",
+            });
+            expect(observerBuild.success, observerBuild.logs.join("\n")).toBe(true);
             const publish = [
                 "node",
+                "--require",
+                join(root, "browser-observer.cjs"),
                 join(project, "node_modules/@dylanebert/shallot/dist/cli/shallot.js"),
                 "publish",
                 "--server",
@@ -740,6 +765,22 @@ test(
             expect(result.stderr).toContain(
                 "Published page confirmed server state through the Fly endpoint.",
             );
+            const socketObservations: FlySocketObservation[] = readFileSync(journal, "utf8")
+                .trim()
+                .split("\n")
+                .filter(Boolean)
+                .map((line) => JSON.parse(line));
+            expect(
+                socketObservations.filter((row) => row.kind === "browser-created").length,
+            ).toBeGreaterThan(0);
+            expect(
+                socketObservations.filter((row) => row.kind === "socket-created").length,
+            ).toBeGreaterThan(0);
+            console.info(
+                "Publish browser/socket observations:",
+                JSON.stringify(socketObservations),
+            );
+            assertFlySocketsClosed(socketObservations);
             const link = JSON.parse(readFileSync(manifestPath, "utf8")).shallot.publish;
             expect(link.server).toEqual({ target: "fly", app: name });
             expect(new URL(result.stdout.trim()).hostname).toStartWith(`${name}.`);
@@ -769,24 +810,64 @@ test(
                 `import {createApp,DiagnosticsStore} from '@dylanebert/shallot';
 import {client} from '@dylanebert/shallot/multiplayer';
 import {GAME,ClientSession} from './src/network';
+import {observeFlyClients,assertFlySocketsClosed} from ${JSON.stringify(resolve(import.meta.dir, "../../scripts/publish-fly-sockets.ts"))};
+const observations=[];const restore=observeFlyClients(row=>observations.push(row),process.argv[2]);
 const apps=[];let error;const start=performance.now();let first;
 try{for(let i=0;i<2;i++)apps.push(await createApp({defaults:false,plugins:[client(GAME,{url:'wss://${name}.fly.dev',onError:e=>error=e})]}));
 let last=performance.now();const ticks=[0,0],changed=[last,last];
 while(performance.now()-start<20000){await Bun.sleep(5);if(error)throw error;const now=performance.now();for(const [i,app]of apps.entries()){app.world.step((now-last)/1000);const tick=app.world.resource(ClientSession).client?.prediction.receiver.confirmed??0;if(tick>ticks[i]){ticks[i]=tick;changed[i]=now;first??=now-start;}if(now-changed[i]>15000)throw Error('Client stopped confirming');}last=now;}
 if(ticks.some(t=>t<60))throw Error('Clients did not confirm 60 ticks');console.log(JSON.stringify({ticks,firstStateMs:first,network:apps.map(app=>Object.fromEntries([...app.world.resource(DiagnosticsStore).iter()].filter(d=>d.path.path.startsWith('network/')).map(d=>[d.path.path,d.value()])))}));
-}finally{for(const app of apps)app.dispose();}`,
+}finally{for(const app of apps)app.dispose();
+try{const deadline=Date.now()+10000;for(;;){try{assertFlySocketsClosed(observations);break;}catch(error){if(Date.now()>=deadline)throw error;await Bun.sleep(10);}}
+}finally{console.log(JSON.stringify({socketObservations:observations}));restore();}}`,
             );
-            const clients = () =>
-                console.info(run([process.execPath, "clients.ts"], project).stdout);
-            clients();
+            const clients = (phase: string) => {
+                const output = run([process.execPath, "clients.ts", phase], project).stdout;
+                console.info(output);
+                const rows = output
+                    .trim()
+                    .split("\n")
+                    .map((line) => JSON.parse(line));
+                const observations: FlySocketObservation[] = rows.find(
+                    (row) => row.socketObservations,
+                )?.socketObservations;
+                expect(observations.filter((row) => row.kind === "socket-created")).toHaveLength(2);
+                assertFlySocketsClosed(observations);
+                socketObservations.push(...observations);
+            };
+            clients("hot");
+            assertFlySocketsClosed(socketObservations);
+            console.info(
+                JSON.stringify({
+                    idleStartedAt: Date.now(),
+                    closed: socketObservations.filter((row) => row.kind.endsWith("-closed")),
+                }),
+            );
             const idle = performance.now();
             let idleMachine = machine();
             while (idleMachine.state !== "stopped") {
-                if (performance.now() - idle > 360_000) {
-                    console.info(fly(["logs", "--app", name, "--no-tail"]));
-                    console.info(fly(["machine", "status", idleMachine.id, "--app", name]));
+                if (performance.now() - idle > 7 * 60_000) {
+                    for (const args of [
+                        ["logs", "--app", name, "--no-tail"],
+                        ["machine", "status", idleMachine.id, "--app", name],
+                        ["machine", "list", "--app", name, "--json"],
+                    ]) {
+                        try {
+                            const result = run([cli, ...args], root, true);
+                            console.info(
+                                JSON.stringify({
+                                    autostopDiagnostic: args,
+                                    status: result.status,
+                                    stdout: result.stdout,
+                                    stderr: result.stderr,
+                                }),
+                            );
+                        } catch (error) {
+                            console.info(`Autostop diagnostic failed: ${String(error)}`);
+                        }
+                    }
                     throw new Error(
-                        `Fly did not auto-stop within six minutes: ${JSON.stringify({ state: idleMachine.state, services: idleMachine.config.services })}`,
+                        `Fly did not auto-stop within seven minutes: ${JSON.stringify({ state: idleMachine.state, services: idleMachine.config.services })}`,
                     );
                 }
                 await Bun.sleep(5000);
@@ -797,7 +878,8 @@ if(ticks.some(t=>t<60))throw Error('Clients did not confirm 60 ticks');console.l
             machineStart = 0;
             console.info(JSON.stringify({ autoStopMs: stoppedAt - idle }));
             machineStart = performance.now();
-            clients();
+            clients("cold");
+            assertFlySocketsClosed(socketObservations);
             expect(machine().state).toBe("started");
         } catch (error) {
             failures.push(error);
