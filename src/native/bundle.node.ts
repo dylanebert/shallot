@@ -6,7 +6,6 @@ import { cargoRuntimeDir } from "./provenance.js";
 
 setDefaultTimeout(TIMEOUT.node);
 
-import { execFileSync } from "node:child_process";
 import {
     chmodSync,
     cpSync,
@@ -20,6 +19,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, resolve } from "node:path";
+import { packCheckout } from "../../scripts/pack-checkout";
 
 const repo = resolve(import.meta.dir, "../..");
 let packedPackageDir: string;
@@ -27,11 +27,7 @@ let packageArchive: string;
 beforeAll(async () => {
     const started = performance.now();
     packedPackageDir = mkdtempSync(resolve(tmpdir(), "shallot-native-package-"));
-    packageArchive = execFileSync(
-        "bun",
-        ["pm", "pack", "--ignore-scripts", "--quiet", "--destination", packedPackageDir],
-        { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
-    ).trim();
+    packageArchive = packCheckout(["--quiet", "--destination", packedPackageDir]);
     await new Bun.Archive(readFileSync(packageArchive)).extract(
         resolve(packedPackageDir, "unpacked"),
     );

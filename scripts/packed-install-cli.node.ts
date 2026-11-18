@@ -12,24 +12,27 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { bunChild } from "./bun-child";
+import { packCheckout } from "./pack-checkout";
 import { packedInstall } from "./packed-install-spawn";
 import { removeTestDirectory } from "./test-directory";
 
 setDefaultTimeout(TIMEOUT.node);
 
-test("the installed bin runs in a hand-written Node project and without Node under Bun", () => {
+test("packing rebuilds the installed bin for a hand-written Node project and Bun without Node", () => {
     const root = resolve(import.meta.dirname, "..");
     const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
     const packageVersion = manifest.version;
     const scratch = mkdtempSync(join(tmpdir(), "shallot-packed-cli-"));
+    const build = Bun.spawnSync({ ...bunChild(["run", "prepare"]), cwd: root });
+    expect(build.exitCode, build.stderr.toString()).toBe(0);
+    const cli = join(root, "dist/cli/shallot.js");
+    const currentCLI = readFileSync(cli);
     try {
+        writeFileSync(cli, 'console.error("stale checkout CLI"); process.exit(1);\n');
         const cliProject = join(scratch, "project");
         mkdirSync(cliProject);
-        const pack = Bun.spawnSync(
-            ["bun", "pm", "pack", "--ignore-scripts", "--destination", scratch, "--quiet"],
-            { cwd: root, stdout: "pipe", stderr: "pipe" },
-        );
-        expect(pack.exitCode, pack.stderr.toString()).toBe(0);
+        packCheckout(["--destination", scratch, "--quiet"]);
         writeFileSync(
             join(cliProject, "package.json"),
             JSON.stringify({
@@ -47,6 +50,12 @@ test("the installed bin runs in a hand-written Node project and without Node und
             cliProject,
             "installing hand-written project",
         );
+        expect(
+            readFileSync(
+                join(cliProject, "node_modules/@dylanebert/shallot/dist/cli/shallot.js"),
+            ).equals(currentCLI),
+            "packed CLI must match the current source build, not the stale dist marker",
+        ).toBe(true);
         writeFileSync(
             join(cliProject, "index.html"),
             '<script type="module" src="/main.ts"></script>',
@@ -136,6 +145,7 @@ test("the installed bin runs in a hand-written Node project and without Node und
         run("bun", ["create", join(scratch, "bun-created")]);
         expect(existsSync(join(scratch, "bun-created/package.json"))).toBe(true);
     } finally {
+        writeFileSync(cli, currentCLI);
         removeTestDirectory(scratch);
     }
 });

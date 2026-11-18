@@ -1204,7 +1204,7 @@ async function prepareTarball(
         await runLogged(
             "pack checkout",
             process.execPath,
-            ["pm", "pack", "--ignore-scripts", "--destination", packDir, "--quiet"],
+            [resolve(ROOT, "scripts/pack-checkout.ts"), "--destination", packDir, "--quiet"],
             ROOT,
             env,
             logs,

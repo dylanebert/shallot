@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { bunChild } from "../../scripts/bun-child";
+import { packCheckout } from "../../scripts/pack-checkout";
 import { packedInstall } from "../../scripts/packed-install-spawn";
 import { publishTestChromium } from "../../scripts/publish-browser";
 import { removeTestDirectory } from "../../scripts/test-directory";
@@ -124,7 +125,7 @@ const run = (args: string[], cwd = project) => {
 };
 let spec: string;
 beforeAll(() => {
-    const archive = run(["pm", "pack", "--ignore-scripts", "--quiet", "--destination", root], repo);
+    const archive = packCheckout(["--quiet", "--destination", root]);
     spec = `file:../${basename(archive)}`;
     writeFileSync(
         join(project, "package.json"),

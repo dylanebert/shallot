@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { bunChild } from "../../scripts/bun-child";
+import { packCheckout } from "../../scripts/pack-checkout";
 import { packedInstall } from "../../scripts/packed-install-spawn";
 import { browserSessionPath } from "../../scripts/publish-browser-session";
 import {
@@ -55,7 +56,6 @@ for (const trial of ["personal", "CI"] as const) {
                     if (!process.env[name]) throw new Error(`Set ${name} for the CI trial.`);
             }
             const root = mkdtempSync(join(tmpdir(), "shallot-publish-oracle-"));
-            const repo = resolve(import.meta.dir, "../..");
             const installer = join(root, "installer");
             const project = join(root, "game");
             const home = join(root, "home");
@@ -94,10 +94,7 @@ for (const trial of ["personal", "CI"] as const) {
                     process.stderr.write(result.stderr);
                     return result.stdout.toString().trim();
                 };
-                const archive = run(
-                    ["pm", "pack", "--ignore-scripts", "--quiet", "--destination", root],
-                    repo,
-                );
+                const archive = packCheckout(["--quiet", "--destination", root]);
                 const spec = `file:../${basename(archive)}`;
                 writeFileSync(
                     join(installer, "package.json"),
@@ -399,10 +396,7 @@ for (const trial of ["personal", "CI"] as const) {
                     process.stderr.write(result.stderr);
                     return result.stdout.toString().trim();
                 };
-                const archive = run(
-                    ["pm", "pack", "--ignore-scripts", "--quiet", "--destination", root],
-                    resolve(import.meta.dir, "../.."),
-                );
+                const archive = packCheckout(["--quiet", "--destination", root]);
                 const spec = `file:../${basename(archive)}`;
                 writeFileSync(
                     join(installer, "package.json"),
@@ -690,18 +684,7 @@ for (const trial of ["personal", "CI"] as const) {
                 return result;
             };
             try {
-                const archive = run(
-                    [
-                        process.execPath,
-                        "pm",
-                        "pack",
-                        "--ignore-scripts",
-                        "--quiet",
-                        "--destination",
-                        root,
-                    ],
-                    resolve(import.meta.dir, "../.."),
-                ).stdout.trim();
+                const archive = packCheckout(["--quiet", "--destination", root]);
                 const spec = `file:../${basename(archive)}`;
                 writeFileSync(
                     join(installer, "package.json"),

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { bunChild } from "./bun-child";
+import { packCheckout } from "./pack-checkout";
 import { packedInstall } from "./packed-install-spawn";
 import { removeTestDirectory } from "./test-directory";
 
@@ -47,11 +48,7 @@ beforeAll(() => {
     const tarball = join(scratch, tarballName);
     mkdirSync(project);
     try {
-        run(
-            ["bun", "pm", "pack", "--ignore-scripts", "--destination", scratch, "--quiet"],
-            ROOT,
-            "packing Shallot",
-        );
+        packCheckout(["--destination", scratch, "--quiet"]);
         if (!existsSync(tarball)) throw new Error(`packed tarball is missing: ${tarball}`);
 
         writeFileSync(

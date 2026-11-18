@@ -61,7 +61,7 @@ test("a Vite project built from the packed Shallot captures through its public r
     try {
         execFileSync(
             "bun",
-            ["pm", "pack", "--ignore-scripts", "--destination", scratch, "--quiet"],
+            [join(ROOT, "scripts/pack-checkout.ts"), "--destination", scratch, "--quiet"],
             { cwd: ROOT, stdio: "pipe" },
         );
         const tarball = join(scratch, tarballName);

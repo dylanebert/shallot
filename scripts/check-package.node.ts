@@ -53,8 +53,7 @@ test("the packed package passes size, publint and declaration checks", () => {
     try {
         const packSeconds = run("bun pm pack", [
             "bun",
-            "pm",
-            "pack",
+            resolve(root, "scripts/pack-checkout.ts"),
             "--destination",
             scratch,
             "--quiet",

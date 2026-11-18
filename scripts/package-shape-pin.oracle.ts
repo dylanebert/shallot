@@ -5,6 +5,7 @@ import { join, relative, resolve } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { normalizePath } from "../src/project/paths";
 import { bunChild } from "./bun-child";
+import { packCheckout } from "./pack-checkout";
 import { spawnPackedInstall } from "./packed-install-spawn";
 import { removeTestDirectory } from "./test-directory";
 
@@ -43,11 +44,7 @@ for (const subject of ["pin", "overlay", "restore"] as const) {
         afterAll(() => removeTestDirectory(scratch));
         beforeAll(() => {
             mkdirSync(project);
-            run(
-                ["bun", "pm", "pack", "--ignore-scripts", "--destination", scratch, "--quiet"],
-                ROOT,
-                "packing staged Shallot",
-            );
+            packCheckout(["--destination", scratch, "--quiet"]);
             writeFileSync(
                 join(project, "package.json"),
                 `${JSON.stringify(
@@ -120,18 +117,7 @@ test(
     () => {
         const scratch = realpathSync.native(mkdtempSync(join(tmpdir(), "shallot-hud-pin-")));
         try {
-            run(
-                [
-                    "bun",
-                    "pm",
-                    "pack",
-                    "--ignore-scripts",
-                    "--filename",
-                    join(scratch, "packed.tgz"),
-                ],
-                ROOT,
-                "packing hud engine",
-            );
+            packCheckout(["--filename", join(scratch, "packed.tgz")]);
             const project = join(scratch, "hud");
             run(
                 [

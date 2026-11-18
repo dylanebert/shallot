@@ -12,11 +12,11 @@ import { tmpdir } from "node:os";
 import { basename, delimiter, resolve } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { bunChild } from "./bun-child";
+import { packCheckout } from "./pack-checkout";
 import { packedInstall } from "./packed-install-spawn";
 import { removeTestDirectory } from "./test-directory";
 
 setDefaultTimeout(TIMEOUT.node);
-const repo = resolve(import.meta.dir, "..");
 
 const root = realpathSync.native(mkdtempSync(resolve(tmpdir(), "shallot-icons-packed-")));
 const installer = resolve(root, "cli");
@@ -55,10 +55,7 @@ const run = (args: string[], cwd = project) => {
 };
 
 beforeAll(() => {
-    const archive = run(
-        ["pm", "pack", "--ignore-scripts", "--quiet", "--destination", root],
-        repo,
-    ).trim();
+    const archive = packCheckout(["--quiet", "--destination", root]);
     const spec = `file:../${basename(archive)}`;
     mkdirSync(installer);
     writeFileSync(

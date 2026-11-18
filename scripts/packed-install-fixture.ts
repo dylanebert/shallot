@@ -14,6 +14,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { devModels } from "../examples/gltf/dev-assets";
 import { normalizePath } from "../src/project/paths";
+import { packCheckout } from "./pack-checkout";
 import { packedInstall as runPackedInstall } from "./packed-install-spawn";
 import { removeTestDirectory } from "./test-directory";
 
@@ -79,11 +80,7 @@ beforeAll(() => {
         const tarballName = `dylanebert-shallot-${packageVersion}.tgz`;
         const tarball = join(scratch, tarballName);
         mkdirSync(cliProject);
-        run(
-            ["bun", "pm", "pack", "--ignore-scripts", "--destination", scratch, "--quiet"],
-            ROOT,
-            "packing Shallot",
-        );
+        packCheckout(["--destination", scratch, "--quiet"]);
         if (!existsSync(tarball)) throw new Error(`packed tarball is missing: ${tarball}`);
         writeFileSync(
             join(cliProject, "package.json"),
