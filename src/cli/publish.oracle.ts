@@ -14,7 +14,12 @@ import {
 import { flyMachineStartedAt } from "../../scripts/publish-fly-status";
 import { cleanupOracleWorkers } from "../../scripts/publish-oracle-cleanup";
 import { normalizePath } from "../project";
-import { cloudflareConfig, type WranglerResult, workerExists } from "./publish-cloudflare";
+import {
+    CLOUDFLARE_LOGIN_ARGS,
+    cloudflareConfig,
+    type WranglerResult,
+    workerExists,
+} from "./publish-cloudflare";
 import { BUTLER_VERSION } from "./publish-itch";
 
 async function confirmPlay(url: string | null, instruction: string) {
@@ -548,162 +553,202 @@ for (const trial of ["personal", "CI"] as const) {
     );
 }
 
-// Token-only Fly + Worker qualification; the person authorizes only these scratch names.
-test(
-    "CI Fly: a packed multiplayer scaffold publishes both halves and cold-starts",
-    async () => {
-        if (process.stdin.isTTY || process.stdout.isTTY)
-            throw new Error("Run the CI Fly trial without a TTY.");
-        for (const name of ["FLY_API_TOKEN", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"])
-            if (!process.env[name]) throw new Error(`Set ${name} for the CI Fly trial.`);
-        const root = mkdtempSync(join(tmpdir(), "shallot-publish-fly-oracle-"));
-        const home = join(root, "home"),
-            installer = join(root, "installer"),
-            project = join(root, "game");
-        mkdirSync(home);
-        mkdirSync(installer);
-        const env: NodeJS.ProcessEnv = {
-            ...process.env,
-            CI: "true",
-            HOME: home,
-            XDG_CONFIG_HOME: home,
-            XDG_CACHE_HOME: join(root, "cache"),
-            PATH: browserSessionPath(root),
-            WRANGLER_SEND_METRICS: "false",
-        };
-        const name = `shallot-tier-${Date.now().toString(36)}`;
-        const run = (cmd: string[], cwd = root, allowFailure = false) => {
-            console.info(`$ ${cmd.join(" ")}`);
-            const result = spawnSync(cmd[0]!, cmd.slice(1), {
-                cwd,
-                env,
-                encoding: "utf8",
-                stdio: ["ignore", "pipe", "pipe"],
-                timeout: 600_000,
-                maxBuffer: 32 * 1024 * 1024,
-            });
-            process.stderr.write(result.stderr ?? "");
-            if (result.error) throw result.error;
-            if (!allowFailure && result.status !== 0)
-                throw new Error(`${cmd.join(" ")} exited ${result.status}: ${result.stdout}`);
-            return result;
-        };
-        const { ensureFly, flyOrganizations } = await import("./publish-fly");
-        const previousCache = process.env.XDG_CACHE_HOME;
-        let cli: string;
-        try {
-            process.env.XDG_CACHE_HOME = env.XDG_CACHE_HOME;
-            cli = await ensureFly();
-        } finally {
-            if (previousCache === undefined) delete process.env.XDG_CACHE_HOME;
-            else process.env.XDG_CACHE_HOME = previousCache;
-        }
-        const fly = (args: string[]) => run([cli, ...args]).stdout.trim();
-        const inventory = () => {
-            const rows: Record<"Name", string>[] = JSON.parse(fly(["apps", "list", "--json"]));
-            if (!Array.isArray(rows) || rows.some((row) => typeof row.Name !== "string"))
-                throw new Error("Unrecognized Fly inventory");
-            return rows.filter((row) => row.Name.startsWith("shallot-tier-"));
-        };
-        expect(
-            inventory(),
-            "Refusing while a shallot-tier- app exists; remove leftovers explicitly",
-        ).toEqual([]);
-        const waitForApp = async (present: boolean) => {
-            const deadline = performance.now() + 30_000;
-            for (;;) {
-                const rows = inventory();
-                if (rows.some((row) => row.Name !== name))
-                    throw new Error("Another shallot-tier- app appeared; refusing to continue");
-                if (rows.some((row) => row.Name === name) === present) return;
-                if (performance.now() >= deadline)
-                    throw new Error(
-                        `Fly inventory did not report ${name} ${present ? "present" : "absent"} within 30 seconds`,
-                    );
-                await Bun.sleep(1000);
+// Fly + Worker: select with -t 'personal:.*Fly' or -t 'CI Fly:'.
+// Successful trials remove scratch logins; failures retain them for inspection.
+for (const trial of ["personal", "CI"] as const) {
+    test(
+        `${trial === "personal" ? "personal:" : "CI"} Fly: a packed multiplayer scaffold publishes both halves and cold-starts`,
+        async () => {
+            const personal = trial === "personal";
+            if (personal && (!process.stdin.isTTY || !process.stdout.isTTY))
+                throw new Error(
+                    "Run the personal Fly trial from the person's terminal to judge login and play.",
+                );
+            if (!personal) {
+                if (process.stdin.isTTY || process.stdout.isTTY)
+                    throw new Error("Run the CI Fly trial without a TTY.");
+                for (const name of [
+                    "FLY_API_TOKEN",
+                    "CLOUDFLARE_API_TOKEN",
+                    "CLOUDFLARE_ACCOUNT_ID",
+                ])
+                    if (!process.env[name]) throw new Error(`Set ${name} for the CI Fly trial.`);
             }
-        };
-        let owned = false,
-            workerOwned = false;
-        let machineStart = 0,
-            runningMs = 0;
-        const machine = () => {
-            const rows = JSON.parse(fly(["machine", "list", "--app", name, "--json"]));
-            expect(rows).toHaveLength(1);
-            expect(rows[0].config.guest.cpu_kind).toBe("shared");
-            expect(rows[0].config.guest.cpus).toBe(1);
-            expect(rows[0].config.guest.memory_mb).toBe(256);
-            return rows[0];
-        };
-        const failures: unknown[] = [];
-        let wrangler = "";
-        const worker = (args: string[], output?: string) => {
-            const result = spawnSync(
-                "node",
-                [wrangler, ...args, "--config", join(root, "wrangler.json")],
-                {
-                    cwd: root,
-                    env: { ...env, ...(output ? { WRANGLER_OUTPUT_FILE_PATH: output } : {}) },
+            const root = mkdtempSync(join(tmpdir(), "shallot-publish-fly-trial-"));
+            const home = join(root, "home"),
+                installer = join(root, "installer"),
+                project = join(root, "game");
+            mkdirSync(home);
+            mkdirSync(installer);
+            const env: NodeJS.ProcessEnv = {
+                ...Object.fromEntries(
+                    Object.entries(process.env).filter(
+                        ([key]) => !/^(?:FLY_|CLOUDFLARE_|CF_)/.test(key),
+                    ),
+                ),
+                ...(personal
+                    ? { CI: "" }
+                    : {
+                          CI: "true",
+                          FLY_API_TOKEN: process.env.FLY_API_TOKEN,
+                          CLOUDFLARE_API_TOKEN: process.env.CLOUDFLARE_API_TOKEN,
+                          CLOUDFLARE_ACCOUNT_ID: process.env.CLOUDFLARE_ACCOUNT_ID,
+                      }),
+                HOME: home,
+                XDG_CONFIG_HOME: home,
+                XDG_CACHE_HOME: join(root, "cache"),
+                PATH: browserSessionPath(root),
+                WRANGLER_SEND_METRICS: "false",
+            };
+            const name = `shallot-tier-${Date.now().toString(36)}`;
+            const run = (cmd: string[], cwd = root, allowFailure = false) => {
+                console.info(`$ ${cmd.join(" ")}`);
+                const result = spawnSync(cmd[0]!, cmd.slice(1), {
+                    cwd,
+                    env,
                     encoding: "utf8",
                     stdio: ["ignore", "pipe", "pipe"],
-                    timeout: 120_000,
-                },
-            );
-            if (result.error) throw result.error;
-            return result;
-        };
-        try {
-            const archive = run(
-                [
-                    process.execPath,
-                    "pm",
-                    "pack",
-                    "--ignore-scripts",
-                    "--quiet",
-                    "--destination",
-                    root,
-                ],
-                resolve(import.meta.dir, "../.."),
-            ).stdout.trim();
-            const spec = `file:../${basename(archive)}`;
-            writeFileSync(
-                join(installer, "package.json"),
-                JSON.stringify({ dependencies: { "@dylanebert/shallot": spec } }),
-            );
-            packedInstall(
-                ["install", "--linker=isolated", "--no-progress"],
-                installer,
-                "Fly oracle CLI install",
-            );
-            run(
-                [
+                    timeout: 600_000,
+                    maxBuffer: 32 * 1024 * 1024,
+                });
+                process.stderr.write(result.stderr ?? "");
+                if (result.error) throw result.error;
+                if (!allowFailure && result.status !== 0)
+                    throw new Error(`${cmd.join(" ")} exited ${result.status}: ${result.stdout}`);
+                return result;
+            };
+            const { ensureFly, flyOrganizations } = await import("./publish-fly");
+            const previousCache = process.env.XDG_CACHE_HOME;
+            let cli: string;
+            try {
+                process.env.XDG_CACHE_HOME = env.XDG_CACHE_HOME;
+                cli = await ensureFly();
+            } finally {
+                if (previousCache === undefined) delete process.env.XDG_CACHE_HOME;
+                else process.env.XDG_CACHE_HOME = previousCache;
+            }
+            const terminal = (cmd: string[], cwd = root) => {
+                const result = spawnSync(cmd[0]!, cmd.slice(1), { cwd, env, stdio: "inherit" });
+                if (result.error) throw result.error;
+                expect(result.status).toBe(0);
+            };
+            console.info(`Oracle project and clean login: ${root}`);
+            if (personal) terminal([cli, "auth", "login"]);
+            const fly = (args: string[]) => run([cli, ...args]).stdout.trim();
+            const inventory = () => {
+                const rows: Record<"Name", string>[] = JSON.parse(fly(["apps", "list", "--json"]));
+                if (!Array.isArray(rows) || rows.some((row) => typeof row.Name !== "string"))
+                    throw new Error("Unrecognized Fly inventory");
+                return rows.filter((row) => row.Name.startsWith("shallot-tier-"));
+            };
+            expect(
+                inventory(),
+                "Refusing while a shallot-tier- app exists; remove leftovers explicitly",
+            ).toEqual([]);
+            const waitForApp = async (present: boolean) => {
+                const deadline = performance.now() + 30_000;
+                for (;;) {
+                    const rows = inventory();
+                    if (rows.some((row) => row.Name !== name))
+                        throw new Error("Another shallot-tier- app appeared; refusing to continue");
+                    if (rows.some((row) => row.Name === name) === present) return;
+                    if (performance.now() >= deadline)
+                        throw new Error(
+                            `Fly inventory did not report ${name} ${present ? "present" : "absent"} within 30 seconds`,
+                        );
+                    await Bun.sleep(1000);
+                }
+            };
+            let owned = false,
+                workerOwned = false;
+            let machineStart = 0,
+                runningMs = 0;
+            const machine = () => {
+                const rows = JSON.parse(fly(["machine", "list", "--app", name, "--json"]));
+                expect(rows).toHaveLength(1);
+                expect(rows[0].config.guest.cpu_kind).toBe("shared");
+                expect(rows[0].config.guest.cpus).toBe(1);
+                expect(rows[0].config.guest.memory_mb).toBe(256);
+                return rows[0];
+            };
+            const failures: unknown[] = [];
+            let wrangler = "";
+            const worker = (args: string[], output?: string) => {
+                const result = spawnSync(
                     "node",
-                    join(installer, "node_modules/@dylanebert/shallot/dist/cli/shallot.js"),
-                    "create",
+                    [wrangler, ...args, "--config", join(root, "wrangler.json")],
+                    {
+                        cwd: root,
+                        env: { ...env, ...(output ? { WRANGLER_OUTPUT_FILE_PATH: output } : {}) },
+                        encoding: "utf8",
+                        stdio: ["ignore", "pipe", "pipe"],
+                        timeout: 120_000,
+                    },
+                );
+                if (result.error) throw result.error;
+                return result;
+            };
+            try {
+                const archive = run(
+                    [
+                        process.execPath,
+                        "pm",
+                        "pack",
+                        "--ignore-scripts",
+                        "--quiet",
+                        "--destination",
+                        root,
+                    ],
+                    resolve(import.meta.dir, "../.."),
+                ).stdout.trim();
+                const spec = `file:../${basename(archive)}`;
+                writeFileSync(
+                    join(installer, "package.json"),
+                    JSON.stringify({ dependencies: { "@dylanebert/shallot": spec } }),
+                );
+                packedInstall(
+                    ["install", "--linker=isolated", "--no-progress"],
+                    installer,
+                    "Fly oracle CLI install",
+                );
+                run(
+                    [
+                        "node",
+                        join(installer, "node_modules/@dylanebert/shallot/dist/cli/shallot.js"),
+                        "create",
+                        project,
+                        "--template",
+                        "multiplayer",
+                    ],
+                    installer,
+                );
+                const manifestPath = join(project, "package.json");
+                const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+                manifest.name = name;
+                manifest.dependencies["@dylanebert/shallot"] = spec;
+                manifest.devDependencies = { ...manifest.devDependencies, wrangler: "4.151.3" };
+                writeFileSync(manifestPath, JSON.stringify(manifest));
+                packedInstall(
+                    ["install", "--linker=isolated", "--no-progress"],
                     project,
-                    "--template",
-                    "multiplayer",
-                ],
-                installer,
-            );
-            const manifestPath = join(project, "package.json");
-            const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-            manifest.name = name;
-            manifest.dependencies["@dylanebert/shallot"] = spec;
-            manifest.devDependencies = { ...manifest.devDependencies, wrangler: "4.151.3" };
-            writeFileSync(manifestPath, JSON.stringify(manifest));
-            packedInstall(
-                ["install", "--linker=isolated", "--no-progress"],
-                project,
-                "Fly oracle project install",
-            );
-            const journal = join(root, "browser-sockets.jsonl");
-            writeFileSync(journal, "");
-            const deployJournal = join(root, "deploy-finished.jsonl");
-            const observerSource = join(root, "browser-observer.ts");
-            writeFileSync(
-                observerSource,
-                `import { createRequire } from 'node:module';
+                    "Fly oracle project install",
+                );
+                if (personal) {
+                    const loginWrangler = join(project, "node_modules/wrangler/bin/wrangler.js");
+                    terminal(["node", loginWrangler, ...CLOUDFLARE_LOGIN_ARGS], project);
+                    const identity = JSON.parse(
+                        run(["node", loginWrangler, "whoami", "--json"], project).stdout,
+                    );
+                    expect(identity.accounts).toHaveLength(1);
+                    env.CLOUDFLARE_ACCOUNT_ID = identity.accounts[0].id;
+                }
+                const journal = join(root, "browser-sockets.jsonl");
+                writeFileSync(journal, "");
+                const deployJournal = join(root, "deploy-finished.jsonl");
+                const observerSource = join(root, "browser-observer.ts");
+                writeFileSync(
+                    observerSource,
+                    `import { createRequire } from 'node:module';
 import { appendFileSync } from 'node:fs';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
@@ -718,112 +763,122 @@ childProcess.spawnSync = (...args) => {
 syncBuiltinESMExports();
 const projectRequire = createRequire(${JSON.stringify(manifestPath)});
 observeFlyBrowser(projectRequire('playwright').chromium, row => appendFileSync(${JSON.stringify(journal)}, JSON.stringify(row) + '\\n'));`,
-            );
-            const observerBuild = await Bun.build({
-                entrypoints: [observerSource],
-                target: "node",
-                format: "cjs",
-                outdir: root,
-                naming: "browser-observer.cjs",
-            });
-            expect(observerBuild.success, observerBuild.logs.join("\n")).toBe(true);
-            const publish = [
-                "node",
-                "--require",
-                join(root, "browser-observer.cjs"),
-                join(project, "node_modules/@dylanebert/shallot/dist/cli/shallot.js"),
-                "publish",
-                "--server",
-                "fly",
-            ];
-            wrangler = join(project, "node_modules/wrangler/bin/wrangler.js");
-            writeFileSync(
-                join(root, "wrangler.json"),
-                JSON.stringify(
-                    cloudflareConfig(join(root, "unused"), {
-                        target: "cloudflare",
-                        name,
-                        accountId: env.CLOUDFLARE_ACCOUNT_ID!,
+                );
+                const observerBuild = await Bun.build({
+                    entrypoints: [observerSource],
+                    target: "node",
+                    format: "cjs",
+                    outdir: root,
+                    naming: "browser-observer.cjs",
+                });
+                expect(observerBuild.success, observerBuild.logs.join("\n")).toBe(true);
+                const publish = [
+                    "node",
+                    "--require",
+                    join(root, "browser-observer.cjs"),
+                    join(project, "node_modules/@dylanebert/shallot/dist/cli/shallot.js"),
+                    "publish",
+                    "--server",
+                    "fly",
+                ];
+                wrangler = join(project, "node_modules/wrangler/bin/wrangler.js");
+                writeFileSync(
+                    join(root, "wrangler.json"),
+                    JSON.stringify(
+                        cloudflareConfig(join(root, "unused"), {
+                            target: "cloudflare",
+                            name,
+                            accountId: env.CLOUDFLARE_ACCOUNT_ID!,
+                        }),
+                    ),
+                );
+                const absentOutput = join(root, "absent.jsonl");
+                const absent = worker(["versions", "list", "--json", "--name", name], absentOutput);
+                expect(
+                    workerExists({
+                        ...absent,
+                        entries: readFileSync(absentOutput, "utf8")
+                            .trim()
+                            .split("\n")
+                            .map((line) => JSON.parse(line)),
                     }),
-                ),
-            );
-            const absentOutput = join(root, "absent.jsonl");
-            const absent = worker(["versions", "list", "--json", "--name", name], absentOutput);
-            expect(
-                workerExists({
-                    ...absent,
-                    entries: readFileSync(absentOutput, "utf8")
-                        .trim()
-                        .split("\n")
-                        .map((line) => JSON.parse(line)),
-                }),
-            ).toBe(false);
-            // Prove a first-link refusal on our own scratch app before any deployment.
-            const orgs = flyOrganizations(fly(["orgs", "list", "--json"]));
-            expect(orgs).toHaveLength(1);
-            owned = true;
-            fly(["apps", "create", name, "--org", orgs[0]!]);
-            await waitForApp(true);
-            const refused = run(publish, project, true);
-            expect(refused.status).not.toBe(0);
-            expect(refused.stderr).toContain(`Fly app "${name}" already exists`);
-            expect(JSON.parse(readFileSync(manifestPath, "utf8")).shallot?.publish).toBeUndefined();
-            fly(["apps", "destroy", name, "--yes"]);
-            await waitForApp(false);
-            // Absence was checked for both scratch names; partial publish failures also reach cleanup.
-            workerOwned = true;
-            machineStart = performance.now();
-            const result = run(publish, project);
-            expect(result.stderr).toContain(
-                "Published page confirmed server state through the Fly endpoint.",
-            );
-            const deployTiming = JSON.parse(readFileSync(deployJournal, "utf8").trim());
-            expect(deployTiming.status).toBe(0);
-            expect(Number.isFinite(deployTiming.deployFinishedAt)).toBe(true);
-            console.info("Fly deploy finished:", JSON.stringify(deployTiming));
-            const socketObservations: FlySocketObservation[] = readFileSync(journal, "utf8")
-                .trim()
-                .split("\n")
-                .filter(Boolean)
-                .map((line) => JSON.parse(line));
-            expect(
-                socketObservations.filter((row) => row.kind === "browser-created").length,
-            ).toBeGreaterThan(0);
-            expect(
-                socketObservations.filter((row) => row.kind === "socket-created").length,
-            ).toBeGreaterThan(0);
-            console.info(
-                "Publish browser/socket observations:",
-                JSON.stringify(socketObservations),
-            );
-            assertFlySocketsClosed(socketObservations);
-            const link = JSON.parse(readFileSync(manifestPath, "utf8")).shallot.publish;
-            expect(link.server).toEqual({ target: "fly", app: name });
-            expect(new URL(result.stdout.trim()).hostname).toStartWith(`${name}.`);
-            wrangler = join(project, "node_modules/wrangler/bin/wrangler.js");
-            writeFileSync(
-                join(root, "wrangler.json"),
-                JSON.stringify(cloudflareConfig(join(root, "unused"), link)),
-            );
-            const addresses = JSON.parse(fly(["ips", "list", "--app", name, "--json"]));
-            expect(
-                addresses.every((row: Record<"Type", string>) =>
-                    ["shared_v4", "v6"].includes(row.Type),
-                ),
-            ).toBe(true);
-            const deployedMachine = machine();
-            console.info(
-                "Deployed Machine services:",
-                JSON.stringify(deployedMachine.config.services),
-            );
-            console.info(
-                "Deployed Machine restart:",
-                JSON.stringify(deployedMachine.config.restart),
-            );
-            // GAME has only two slots: publish's page has closed before these clients start.
-            writeFileSync(
-                join(project, "clients.ts"),
-                `import {createApp,DiagnosticsStore} from '@dylanebert/shallot';
+                ).toBe(false);
+                // Prove a first-link refusal on our own scratch app before any deployment.
+                const orgs = flyOrganizations(fly(["orgs", "list", "--json"]));
+                expect(orgs).toHaveLength(1);
+                owned = true;
+                fly(["apps", "create", name, "--org", orgs[0]!]);
+                await waitForApp(true);
+                const refused = run(publish, project, true);
+                expect(refused.status).not.toBe(0);
+                expect(refused.stderr).toContain(`Fly app "${name}" already exists`);
+                expect(
+                    JSON.parse(readFileSync(manifestPath, "utf8")).shallot?.publish,
+                ).toBeUndefined();
+                fly(["apps", "destroy", name, "--yes"]);
+                await waitForApp(false);
+                // Absence was checked for both scratch names; partial publish failures also reach cleanup.
+                workerOwned = true;
+                machineStart = performance.now();
+                let result: ReturnType<typeof run> | undefined;
+                if (personal) terminal(publish, project);
+                else result = run(publish, project);
+                if (result)
+                    expect(result.stderr).toContain(
+                        "Published page confirmed server state through the Fly endpoint.",
+                    );
+                const deployTiming = JSON.parse(readFileSync(deployJournal, "utf8").trim());
+                expect(deployTiming.status).toBe(0);
+                expect(Number.isFinite(deployTiming.deployFinishedAt)).toBe(true);
+                console.info("Fly deploy finished:", JSON.stringify(deployTiming));
+                const socketObservations: FlySocketObservation[] = readFileSync(journal, "utf8")
+                    .trim()
+                    .split("\n")
+                    .filter(Boolean)
+                    .map((line) => JSON.parse(line));
+                expect(
+                    socketObservations.filter((row) => row.kind === "browser-created").length,
+                ).toBeGreaterThan(0);
+                expect(
+                    socketObservations.filter((row) => row.kind === "socket-created").length,
+                ).toBeGreaterThan(0);
+                console.info(
+                    "Publish browser/socket observations:",
+                    JSON.stringify(socketObservations),
+                );
+                assertFlySocketsClosed(socketObservations);
+                const link = JSON.parse(readFileSync(manifestPath, "utf8")).shallot.publish;
+                expect(link.server).toEqual({ target: "fly", app: name });
+                if (result) expect(new URL(result.stdout.trim()).hostname).toStartWith(`${name}.`);
+                if (personal)
+                    await confirmPlay(
+                        null,
+                        "Open the play link printed above in a fresh anonymous browser session. Close it before answering so the two server slots are free.",
+                    );
+                wrangler = join(project, "node_modules/wrangler/bin/wrangler.js");
+                writeFileSync(
+                    join(root, "wrangler.json"),
+                    JSON.stringify(cloudflareConfig(join(root, "unused"), link)),
+                );
+                const addresses = JSON.parse(fly(["ips", "list", "--app", name, "--json"]));
+                expect(
+                    addresses.every((row: Record<"Type", string>) =>
+                        ["shared_v4", "v6"].includes(row.Type),
+                    ),
+                ).toBe(true);
+                const deployedMachine = machine();
+                console.info(
+                    "Deployed Machine services:",
+                    JSON.stringify(deployedMachine.config.services),
+                );
+                console.info(
+                    "Deployed Machine restart:",
+                    JSON.stringify(deployedMachine.config.restart),
+                );
+                // GAME has only two slots: publish's page has closed before these clients start.
+                writeFileSync(
+                    join(project, "clients.ts"),
+                    `import {createApp,DiagnosticsStore} from '@dylanebert/shallot';
 import {client} from '@dylanebert/shallot/multiplayer';
 import {GAME,ClientSession} from './src/network';
 import {observeFlyClients,assertFlySocketsClosed} from ${JSON.stringify(resolve(import.meta.dir, "../../scripts/publish-fly-sockets.ts"))};
@@ -836,162 +891,173 @@ if(ticks.some(t=>t<60))throw Error('Clients did not confirm 60 ticks');console.l
 }finally{for(const app of apps)app.dispose();
 try{const deadline=Date.now()+10000;for(;;){try{assertFlySocketsClosed(observations);break;}catch(error){if(Date.now()>=deadline)throw error;await Bun.sleep(10);}}
 }finally{console.log(JSON.stringify({socketObservations:observations}));restore();}}`,
-            );
-            const clients = (phase: string) => {
-                const output = run([process.execPath, "clients.ts", phase], project).stdout;
-                console.info(output);
-                const rows = output
-                    .trim()
-                    .split("\n")
-                    .map((line) => JSON.parse(line));
-                const observations: FlySocketObservation[] = rows.find(
-                    (row) => row.socketObservations,
-                )?.socketObservations;
-                expect(observations.filter((row) => row.kind === "socket-created")).toHaveLength(2);
-                expect(
-                    observations.filter((row) => row.kind === "socket-first-frame"),
-                ).toHaveLength(2);
-                const timing = rows.find((row) => typeof row.firstConfirmedStateAt === "number");
-                expect(timing).toBeDefined();
-                expect(timing.firstConfirmedStateAt).toBeGreaterThanOrEqual(timing.startedAt);
-                assertFlySocketsClosed(observations);
-                socketObservations.push(...observations);
-                return {
-                    ...timing,
-                    firstFrameAt: Math.min(
-                        ...observations
-                            .filter((row) => row.kind === "socket-first-frame")
-                            .map((row) => row.at),
-                    ),
-                };
-            };
-            clients("hot");
-            assertFlySocketsClosed(socketObservations);
-            const idleStartedAt = Date.now();
-            console.info(
-                JSON.stringify({
-                    idleStartedAt,
-                    closed: socketObservations.filter((row) => row.kind.endsWith("-closed")),
-                }),
-            );
-            const idle = performance.now();
-            let idleMachine = machine();
-            while (idleMachine.state !== "stopped") {
-                if (performance.now() - idle > 7 * 60_000) {
-                    for (const args of [
-                        ["logs", "--app", name, "--no-tail"],
-                        ["machine", "status", idleMachine.id, "--app", name],
-                        ["machine", "list", "--app", name, "--json"],
-                    ]) {
-                        try {
-                            const result = run([cli, ...args], root, true);
-                            console.info(
-                                JSON.stringify({
-                                    autostopDiagnostic: args,
-                                    status: result.status,
-                                    stdout: result.stdout,
-                                    stderr: result.stderr,
-                                }),
-                            );
-                        } catch (error) {
-                            console.info(`Autostop diagnostic failed: ${String(error)}`);
-                        }
-                    }
-                    throw new Error(
-                        `Fly did not auto-stop within seven minutes: ${JSON.stringify({ state: idleMachine.state, services: idleMachine.config.services })}`,
+                );
+                const clients = (phase: string) => {
+                    const output = run([process.execPath, "clients.ts", phase], project).stdout;
+                    console.info(output);
+                    const rows = output
+                        .trim()
+                        .split("\n")
+                        .map((line) => JSON.parse(line));
+                    const observations: FlySocketObservation[] = rows.find(
+                        (row) => row.socketObservations,
+                    )?.socketObservations;
+                    expect(
+                        observations.filter((row) => row.kind === "socket-created"),
+                    ).toHaveLength(2);
+                    expect(
+                        observations.filter((row) => row.kind === "socket-first-frame"),
+                    ).toHaveLength(2);
+                    const timing = rows.find(
+                        (row) => typeof row.firstConfirmedStateAt === "number",
                     );
-                }
-                await Bun.sleep(5000);
-                idleMachine = machine();
-            }
-            const stoppedAt = performance.now();
-            runningMs += stoppedAt - machineStart;
-            machineStart = 0;
-            console.info(JSON.stringify({ autoStopMs: stoppedAt - idle }));
-            machineStart = performance.now();
-            console.info(JSON.stringify({ coldStartedAt: Date.now() }));
-            const cold = clients("cold");
-            assertFlySocketsClosed(socketObservations);
-            const coldStatus = fly(["machine", "status", deployedMachine.id, "--app", name]);
-            console.info("Cold-start Machine events/state:", coldStatus);
-            console.info("Cold-start app/proxy logs:", fly(["logs", "--app", name, "--no-tail"]));
-            const machineStartedAt = flyMachineStartedAt(coldStatus);
-            expect(machineStartedAt).toBeGreaterThan(idleStartedAt);
-            console.info(
-                JSON.stringify({
-                    coldStartup: {
-                        deployFinishedAt: deployTiming.deployFinishedAt,
-                        machineStartedAt,
-                        clientStartedAt: cold.startedAt,
-                        firstFrameAt: cold.firstFrameAt,
-                        firstConfirmedStateAt: cold.firstConfirmedStateAt,
-                    },
-                }),
-            );
-            expect(machine().state).toBe("started");
-        } catch (error) {
-            failures.push(error);
-        } finally {
-            if (owned) {
-                try {
-                    fly(["apps", "destroy", name, "--yes"]);
-                    if (machineStart) runningMs += performance.now() - machineStart;
-                    await waitForApp(false);
-                    console.info("Cleanup Fly inventory:", JSON.stringify(inventory()));
-                    expect(inventory()).toEqual([]);
-                    const seconds = Math.ceil(runningMs / 1000);
-                    console.info(
-                        JSON.stringify({
-                            machineSecondsUpperBound: seconds,
-                            costUSDUpperBound: seconds * 8.3e-7,
-                        }),
-                    );
-                } catch (error) {
-                    failures.push(error);
-                }
-            }
-            if (workerOwned) {
-                try {
-                    wrangler ||= join(project, "node_modules/wrangler/bin/wrangler.js");
-                    writeFileSync(
-                        join(root, "wrangler.json"),
-                        JSON.stringify(
-                            cloudflareConfig(join(root, "unused"), {
-                                target: "cloudflare",
-                                name,
-                                accountId: env.CLOUDFLARE_ACCOUNT_ID!,
-                            }),
+                    expect(timing).toBeDefined();
+                    expect(timing.firstConfirmedStateAt).toBeGreaterThanOrEqual(timing.startedAt);
+                    assertFlySocketsClosed(observations);
+                    socketObservations.push(...observations);
+                    return {
+                        ...timing,
+                        firstFrameAt: Math.min(
+                            ...observations
+                                .filter((row) => row.kind === "socket-first-frame")
+                                .map((row) => row.at),
                         ),
-                    );
-                    cleanupOracleWorkers(
-                        new Set([name]),
-                        true,
-                        env.CLOUDFLARE_ACCOUNT_ID,
-                        (n) => worker(["delete", "--name", n]),
-                        (n) => {
-                            const output = join(root, "cleanup.jsonl");
-                            const result = worker(
-                                ["versions", "list", "--json", "--name", n],
-                                output,
-                            );
-                            return workerExists({
-                                ...result,
-                                entries: readFileSync(output, "utf8")
-                                    .trim()
-                                    .split("\n")
-                                    .map((line) => JSON.parse(line)),
-                            });
-                        },
-                        (message) => console.info(message),
-                    );
-                } catch (error) {
-                    failures.push(error);
+                    };
+                };
+                clients("hot");
+                assertFlySocketsClosed(socketObservations);
+                const idleStartedAt = Date.now();
+                console.info(
+                    JSON.stringify({
+                        idleStartedAt,
+                        closed: socketObservations.filter((row) => row.kind.endsWith("-closed")),
+                    }),
+                );
+                const idle = performance.now();
+                let idleMachine = machine();
+                while (idleMachine.state !== "stopped") {
+                    if (performance.now() - idle > 7 * 60_000) {
+                        for (const args of [
+                            ["logs", "--app", name, "--no-tail"],
+                            ["machine", "status", idleMachine.id, "--app", name],
+                            ["machine", "list", "--app", name, "--json"],
+                        ]) {
+                            try {
+                                const result = run([cli, ...args], root, true);
+                                console.info(
+                                    JSON.stringify({
+                                        autostopDiagnostic: args,
+                                        status: result.status,
+                                        stdout: result.stdout,
+                                        stderr: result.stderr,
+                                    }),
+                                );
+                            } catch (error) {
+                                console.info(`Autostop diagnostic failed: ${String(error)}`);
+                            }
+                        }
+                        throw new Error(
+                            `Fly did not auto-stop within seven minutes: ${JSON.stringify({ state: idleMachine.state, services: idleMachine.config.services })}`,
+                        );
+                    }
+                    await Bun.sleep(5000);
+                    idleMachine = machine();
                 }
+                const stoppedAt = performance.now();
+                runningMs += stoppedAt - machineStart;
+                machineStart = 0;
+                console.info(JSON.stringify({ autoStopMs: stoppedAt - idle }));
+                machineStart = performance.now();
+                console.info(JSON.stringify({ coldStartedAt: Date.now() }));
+                const cold = clients("cold");
+                assertFlySocketsClosed(socketObservations);
+                const coldStatus = fly(["machine", "status", deployedMachine.id, "--app", name]);
+                console.info("Cold-start Machine events/state:", coldStatus);
+                console.info(
+                    "Cold-start app/proxy logs:",
+                    fly(["logs", "--app", name, "--no-tail"]),
+                );
+                const machineStartedAt = flyMachineStartedAt(coldStatus);
+                expect(machineStartedAt).toBeGreaterThan(idleStartedAt);
+                console.info(
+                    JSON.stringify({
+                        coldStartup: {
+                            deployFinishedAt: deployTiming.deployFinishedAt,
+                            machineStartedAt,
+                            clientStartedAt: cold.startedAt,
+                            firstFrameAt: cold.firstFrameAt,
+                            firstConfirmedStateAt: cold.firstConfirmedStateAt,
+                        },
+                    }),
+                );
+                expect(machine().state).toBe("started");
+            } catch (error) {
+                failures.push(error);
+            } finally {
+                if (owned) {
+                    try {
+                        fly(["apps", "destroy", name, "--yes"]);
+                        if (machineStart) runningMs += performance.now() - machineStart;
+                        await waitForApp(false);
+                        console.info("Cleanup Fly inventory:", JSON.stringify(inventory()));
+                        expect(inventory()).toEqual([]);
+                        const seconds = Math.ceil(runningMs / 1000);
+                        console.info(
+                            JSON.stringify({
+                                machineSecondsUpperBound: seconds,
+                                costUSDUpperBound: seconds * 8.3e-7,
+                            }),
+                        );
+                    } catch (error) {
+                        failures.push(error);
+                    }
+                }
+                if (workerOwned) {
+                    try {
+                        wrangler ||= join(project, "node_modules/wrangler/bin/wrangler.js");
+                        writeFileSync(
+                            join(root, "wrangler.json"),
+                            JSON.stringify(
+                                cloudflareConfig(join(root, "unused"), {
+                                    target: "cloudflare",
+                                    name,
+                                    accountId: env.CLOUDFLARE_ACCOUNT_ID!,
+                                }),
+                            ),
+                        );
+                        cleanupOracleWorkers(
+                            new Set([name]),
+                            true,
+                            env.CLOUDFLARE_ACCOUNT_ID,
+                            (n) => worker(["delete", "--name", n]),
+                            (n) => {
+                                const output = join(root, "cleanup.jsonl");
+                                const result = worker(
+                                    ["versions", "list", "--json", "--name", n],
+                                    output,
+                                );
+                                return workerExists({
+                                    ...result,
+                                    entries: readFileSync(output, "utf8")
+                                        .trim()
+                                        .split("\n")
+                                        .map((line) => JSON.parse(line)),
+                                });
+                            },
+                            (message) => console.info(message),
+                        );
+                    } catch (error) {
+                        failures.push(error);
+                    }
+                }
+                if (!failures.length) rmSync(root, { recursive: true, force: true });
             }
-            if (!failures.length) rmSync(root, { recursive: true, force: true });
-        }
-        if (failures.length)
-            throw new AggregateError(failures, `Fly trial failed; retained ${root}`);
-    },
-    Number.POSITIVE_INFINITY,
-);
+            if (failures.length)
+                throw new AggregateError(
+                    failures,
+                    `Fly trial failed; retained ${root}. Scratch HOME ${home} may hold provider logins; revoke them or delete it.`,
+                );
+        },
+        Number.POSITIVE_INFINITY,
+    );
+}
