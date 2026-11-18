@@ -11,6 +11,7 @@ import {
     assertFlySocketsClosed,
     type FlySocketObservation,
 } from "../../scripts/publish-fly-sockets";
+import { flyMachineStartedAt } from "../../scripts/publish-fly-status";
 import { cleanupOracleWorkers } from "../../scripts/publish-oracle-cleanup";
 import { normalizePath } from "../project";
 import { cloudflareConfig, type WranglerResult, workerExists } from "./publish-cloudflare";
@@ -913,12 +914,8 @@ try{const deadline=Date.now()+10000;for(;;){try{assertFlySocketsClosed(observati
             assertFlySocketsClosed(socketObservations);
             const coldStatus = fly(["machine", "status", deployedMachine.id, "--app", name]);
             console.info("Cold-start Machine events/state:", coldStatus);
-            const machineStartedAt = Math.max(
-                ...[...coldStatus.matchAll(/^\s*started\s+\S+\s+\S+\s+(\S+)/gm)].map((row) =>
-                    Date.parse(row[1]!),
-                ),
-            );
-            expect(Number.isFinite(machineStartedAt)).toBe(true);
+            console.info("Cold-start app/proxy logs:", fly(["logs", "--app", name, "--no-tail"]));
+            const machineStartedAt = flyMachineStartedAt(coldStatus);
             expect(machineStartedAt).toBeGreaterThan(idleStartedAt);
             console.info(
                 JSON.stringify({
@@ -931,7 +928,6 @@ try{const deadline=Date.now()+10000;for(;;){try{assertFlySocketsClosed(observati
                     },
                 }),
             );
-            console.info("Cold-start app/proxy logs:", fly(["logs", "--app", name, "--no-tail"]));
             expect(machine().state).toBe("started");
         } catch (error) {
             failures.push(error);
