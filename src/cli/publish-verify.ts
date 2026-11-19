@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import type { APIResponse, Browser, BrowserType, Page } from "playwright";
 import { CROSS_ORIGIN_ISOLATION, contentType } from "../project";
@@ -74,8 +75,8 @@ export function resolveProjectPlaywright(projectDir: string): string {
 
 export async function projectChromium(projectDir: string, verifyServer = false): Promise<Browser> {
     const require = createRequire(join(projectDir, "package.json"));
-    const modulePath = resolveProjectPlaywright(projectDir);
-    const loaded = await import(modulePath);
+    const moduleURL = pathToFileURL(resolveProjectPlaywright(projectDir));
+    const loaded = await import(moduleURL.href);
     const { chromium } = (loaded.default ?? loaded) as typeof import("playwright");
     try {
         return await launchPublishChromium(chromium, verifyServer);

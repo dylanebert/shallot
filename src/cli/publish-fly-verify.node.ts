@@ -31,7 +31,9 @@ test("publish observes confirmed network state at the build's endpoint and query
     try {
         const port = await address(server, /ws:\/\/localhost:(\d+)/);
         const endpoint = `ws://127.0.0.1:${port}`;
-        vite = spawn("bun", ["x", "vite", "--host", "127.0.0.1", "--port", "0"], {
+        // Own the Vite process itself so teardown also closes its inherited stderr on Windows.
+        const viteBin = resolve(import.meta.dir, "../../node_modules/vite/bin/vite.js");
+        vite = spawn("node", [viteBin, "--host", "127.0.0.1", "--port", "0"], {
             cwd: example,
             env: { ...process.env, VITE_SHALLOT_SERVER: endpoint },
             stdio: ["ignore", "pipe", "inherit"],
