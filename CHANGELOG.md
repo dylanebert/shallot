@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.11.0-next.1
+
+### highlights
+
+- added server-authoritative multiplayer with explicit replication rules, client prediction and reconciliation, and remote pose interpolation
+- added `shallot publish --server fly` to deploy a Bun WebSocket server alongside a Cloudflare or itch.io client
+- changed orbit turning to use a share of the viewport height; C recenters by default in `Free` mode when not flying. see [MIGRATION.md](https://github.com/dylanebert/shallot/blob/v0.11.0-next.1/MIGRATION.md#orbit-turns-by-a-share-of-the-viewport)
+
+### changes
+
+- added `Game`, `local`, `client`, `server`, `ClientOf` and `ServerSession` to compose local, client and server roles from one game description
+- added `Replicate`, `MultiplayerPlugin`, `ReplicationSender` and `ReplicationReceiver` for acknowledged delta replication, with `ReplicationRules`, `ReplicationSchema`, `ReplicatedRows`, `ReplicationMessageKind` and `ReplicationConfirmation`
+- added `IntentSender`, `IntentReceiver`, `IntentMessageKind`, `TickInput`, `InputRecord`, `OperationRecord`, `IntentRecord` and `AcceptedIntent` for tick-addressed inputs and operations
+- added `ClientPrediction`, `PredictionPlugin`, `PredictionTarget`, `PredictionMotion`, `FixedOutputs` and `contactOutputKey` for replay and reconciliation, and `ClientInterpolation`, `InterpolationPlugin` and `InterpolationTarget` for remote presentation
+- added `Connection`, `WebSocketConnection`, `ServerWebSocketConnection`, `serveWebSocket` and `serveGame` for binary WebSocket play
+- added `seededLink`, `LinkFaults`, `createSession`, `PeerProxy` and `StreamFaults` for seeded test sessions over simulated links or loopback sockets with directional faults
+- added `sessionRecording`, `replaySession`, `SessionRecording`, `RecordingCall` and `RecordingOptions` for session capture and headless replay
+- added network timing, traffic and recovery readings to the profiler, and loading-screen guidance for unanswered local and remote server connections
+- added a multiplayer example and local or remote modes to first-person; standardized example entry points, loading screens and project configs
+- added optional orbit mouse-drag zoom, press-latched modifier swapping for orbit and pan, independent pan and zoom smoothing, and controls for pinch scaling, touch resume and wheel input during drags
+- fixed mouse, wheel and touch navigation losing or misrouting motion when buttons or contacts change between frames; fixed injected presses not focusing the viewport and orbit drags on texture targets not turning
+- fixed blank scenes on Safari when WebGPU advertises timestamp queries but rejects writes or resolves; the profiler probes both paths before using GPU spans
+- added `registerDebugChord` for F3 shortcuts without toggling the profiler or forwarding the chord to game input
+- added presentation-only component recovery via `component(..., { presentation: true })` and `VisualCorrection` for render offsets that do not change fixed placement
+- added `RenderTransformHistory`, `RenderTransformHistoryPlugin`, `retainRenderTransformHistory` and `observeRenderTransformHistory` to enroll render-history readers, `composeRenderGlobalTransform` to read corrected placement, and `GlobalTransformHistoryStartSystem` and `PrepareGlobalTransformHistorySystem` for ordering render history
+- fixed steady glTF deformation cull-bound allocations and physics tick allocations after restore; `getAngularVelocity` accepts an optional caller-owned output
+- added `preFixed` and `postFixed` system groups, `World.jumpToTick`, `World.discardOverstep` and `Time.fixedTickRevision`; `preFixed` can restore and replay before paced ticks
+- added `PointerModifiers`, `PointerMotion`, `PointerWheel` and `TouchEvent` for event-time input; see [MIGRATION.md](https://github.com/dylanebert/shallot/blob/v0.11.0-next.1/MIGRATION.md#manually-built-input-and-time-values) for fixtures and adapters
+
 ## 0.11.0-next.0
 
 ### highlights

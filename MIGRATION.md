@@ -1,6 +1,6 @@
-# Migrating to 0.10.x
+# Migrating to 0.11
 
-Start with the compiler errors in your app. Search this guide for the old symbol or behavior; each entry goes directly from the published 0.10 package to the latest 0.10 patch. For the engine's layers and extension rules, see [CONTRIBUTING.md](CONTRIBUTING.md).
+Start with the compiler errors in your app. Search this guide for the old symbol or behavior. If you are already on 0.10.5 or 0.11.0-next.0, see the [orbit turn](#orbit-turns-by-a-share-of-the-viewport) and [manually built input and time values](#manually-built-input-and-time-values) for 0.11.0-next.1. The other entries cover changes already shipped in 0.10.x. For the engine's layers and extension rules, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Code fragments assume an owning `world`, an existing entity `eid`, and the imports named in the surrounding text.
 
@@ -64,7 +64,7 @@ The entity table returned by `meshInstanceTable(world)` gains `layers` in existi
 
 ### Effect stack replaces vignette
 
-`@dylanebert/shallot/vignette` and `VignettePlugin` still work as deprecated aliases and are removed in 0.11. Switch imports to `@dylanebert/shallot/effect-stack` and use `EffectStackPlugin` (also in root and extras imports). Both plugin names refer to the same plugin. `Vignette` keeps its fields and defaults. The plugin now also supports camera components `LensDistortion` and `ChromaticAberration`, fused with vignette into one pass before tonemapping.
+`@dylanebert/shallot/vignette` and `VignettePlugin` still work as deprecated aliases in this prerelease. Switch imports to `@dylanebert/shallot/effect-stack` and use `EffectStackPlugin` (also in root and extras imports). Both plugin names refer to the same plugin. `Vignette` keeps its fields and defaults. The plugin now also supports camera components `LensDistortion` and `ChromaticAberration`, fused with vignette into one pass before tonemapping.
 
 ### AgX uses a default-contrast LUT
 
@@ -76,7 +76,15 @@ The entity table returned by `meshInstanceTable(world)` gains `layers` in existi
 
 ### Orbit turns by a share of the viewport
 
-`Orbit.sensitivity`, radians per pixel, is now `Orbit.rotateSpeed`, radians per drag across the focused viewport's height; the default is 3.8. Multiply an old value by the canvas's CSS height it was tuned at: `0.005` on an 800 px canvas becomes `rotateSpeed: 4`. `smoothness` defaults to 0.5 instead of 0.3, and C in `Free` glides back to the last authored yaw, pitch, distance, size and pan; set `recenter: 0` to leave C to the game.
+`Orbit.sensitivity`, radians per pixel, is now `Orbit.rotateSpeed`, radians per drag across the focused viewport's height; the default is 3.8. Multiply an old value by the viewport's CSS height it was tuned at: `0.005` on an 800 px viewport becomes `rotateSpeed: 4`. Without a focused CSS viewport, orbit uses the camera's texture destination height; without either height, dragging does not turn the orbit. `smoothness` defaults to 0.5 instead of 0.3; set it to 0.3 to keep the old damping. By default, C recenters to the last authored yaw, pitch, distance, size and pan in `Free` mode when not flying; set `recenter: 0` to leave C to the game.
+
+## Input and time
+
+### Manually built input and time values
+
+A `PointerButtonEvent` in a fixture or adapter now supplies `shiftKey`, `ctrlKey`, `metaKey` and `altKey`. Use the modifier state at the button event, or `false` for modifiers that were not held. Hand-built `Pointer` values now supply `motion` and `wheel`, and hand-built `Touch` values supply `events`; use empty arrays when there are no events to report. Engine-owned input values already populate these fields.
+
+A hand-built `Time` value now supplies `fixedTickRevision`. Start at `0` and increment it when jumping the fixed clock, not on ticks or snapshot restore. Values read from `world.time` already include it.
 
 ## Materials
 
