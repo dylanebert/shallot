@@ -24,22 +24,18 @@
 }
 .ec .fields { display: grid; gap: 16px; padding: 16px; }
 .ec .section { display: grid; gap: 4px; }
-.ec .section-title {
-    display: flex;
-    align-items: center;
-    min-height: 32px;
-    margin: 0;
-    padding: 0;
-    font: 400 12px/20px 'JetBrains Mono', ui-monospace, monospace;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-    color: #a08c78;
-}
+.ec .row { min-height: 32px; align-content: center; }
 .ec output { font: 400 12px/20px 'JetBrains Mono', ui-monospace, monospace; float: right; }
 .ec p, .ec ul { margin: 0; }
 .ec ul { list-style: none; padding: 0; }
 .ec form, .ec .actions, .ec li { display: flex; align-items: center; gap: 8px; }
-.ec #leave { justify-self: start; }
+.ec #party-count { float: none; }
+.ec .actions { justify-content: space-between; }
+.ec li { min-height: 24px; border: 1px solid #2a2420; }
+.ec li.empty { border-style: dashed; }
+.ec li.empty > * { width: 100%; }
+.ec li:not(.empty)::before, .ec li:not(.empty)::after { content: ''; }
+.ec .slot-name { flex: 1; }
 .ec button, .ec input {
     border: 1px solid #2a2420;
     border-radius: 2px;
@@ -47,7 +43,7 @@
     color: #f0e6d6;
     font: inherit;
 }
-.ec input { width: 100%; min-width: 0; align-self: stretch; }
+.ec input { flex: 1; min-width: 0; align-self: stretch; }
 .ec button { min-height: 32px; padding: 4px 8px; }
 .ec button:disabled { background: #1c1917; color: #a08c78; }
 .ec button:hover:not(:disabled) { border-color: #a08c78; }
@@ -55,9 +51,9 @@
 .ec [hidden] { display: none; }
 
 @media (pointer: coarse) {
-    .ec .panel-title, .ec .section-title, .ec button { min-height: 44px; }
+    .ec .panel-title, .ec .row, .ec button { min-height: 44px; }
 }
 @media (max-width: 480px) {
     .ec.controls { top: calc(16px + env(safe-area-inset-top)); right: calc(16px + env(safe-area-inset-right)); max-height: 60dvh; }
-    .ec .panel-title, .ec .section-title, .ec button { min-height: 44px; }
+    .ec .panel-title, .ec .row, .ec button { min-height: 44px; }
 }

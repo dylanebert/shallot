@@ -1,31 +1,17 @@
 import { type App, type Plugin, runApp } from "@dylanebert/shallot";
 import { client, local } from "@dylanebert/shallot/multiplayer";
 import { AppPlugin, RoomFrame } from "./app";
-import { ClientSession, GAME, PLAYER_NAMES } from "./network";
+import { ClientSession, GAME } from "./network";
 
 function element<T extends HTMLElement = HTMLElement>(id: string) {
     return document.getElementById(id) as T;
 }
 
-const status = element("status");
-const codeInput = element<HTMLInputElement>("code");
-const lobby = element("lobby");
-const session = element("session");
-const roomPanel = element<HTMLDetailsElement>("room-panel");
-const roomLabel = element("room-code");
-const mode = element("mode");
-const players = element("players");
-const listing = element("listing");
-const botButton = element<HTMLButtonElement>("bot");
-const removeButton = element<HTMLButtonElement>("remove");
-const dropButton = element<HTMLButtonElement>("drop");
-const server = new URLSearchParams(location.search).get("server");
-const url = server ? new URL(server, location.href) : undefined;
+const page = new URL(location.href);
+const server = page.searchParams.get("server");
+const url = server ? new URL(server, page) : undefined;
 if (url && !["http:", "https:", "ws:", "wss:"].includes(url.protocol))
     throw new Error("Use an HTTP or WebSocket server address");
-const http = url && new URL("/rooms", url);
-if (http)
-    http.protocol = url?.protocol === "wss:" || url?.protocol === "https:" ? "https:" : "http:";
 const host = url
     ? undefined
     : await local(GAME, {
@@ -33,69 +19,57 @@ const host = url
           seed: 812,
           faults: { minDelay: 0, maxDelay: 0, loss: 0, duplication: 0 },
       });
+
 type Seat = Awaited<ReturnType<NonNullable<typeof host>["join"]>>;
+type Bot = Awaited<ReturnType<Seat["addBot"]>> & { name: number };
+const bots = new Map<number, Bot>();
+const lobby = element("lobby");
+const session = element("session");
+const status = element("status");
+const panel = element<HTMLDetailsElement>("room-panel");
+const list = element("players");
+const copy = element<HTMLButtonElement>("copy");
+const drop = element<HTMLButtonElement>("drop");
+const codeLabel = element("room-code");
+const count = element("party-count");
+const crown = element("party-crown");
+const copyLabel = url ? "Copy invite" : "Copy code";
 let app: App | undefined;
 let seat: Seat | undefined;
-let bots: Awaited<ReturnType<Seat["addBot"]>>[] = [];
+let roomCode = "";
 let busy = false;
 let dropped = false;
 let rejoining = false;
+let ownSlot = -1;
 let roster = 0;
-let shownRoster = -1;
-let shownGeneration: number | undefined;
-let joined = false;
+let generation: number | undefined;
+let openSlot = -1;
 let seed = 0;
 
-mode.textContent = url ? "BUN SERVER" : "IN THIS TAB";
-element("dev").hidden = !host;
+element("local-note").hidden = !!url;
+element<HTMLAnchorElement>("server-guide").href = new URL("../RUNNING.md", import.meta.url).href;
+drop.hidden = !!url;
+copy.textContent = copyLabel;
 
 function message(text: string) {
     status.textContent = text;
-}
-
-async function roomsRequest(method: "GET" | "POST") {
-    const response = await fetch(http!, { method });
-    if (!response.ok) throw new Error(`Rooms server returned ${response.status}.`);
-    return response;
-}
-
-async function list() {
-    const rooms: { code: string; clients: number; maxClients: number }[] = host
-        ? host.list()
-        : await (await roomsRequest("GET")).json();
-    if (lobby.hidden) return;
-    const items = rooms.map(({ code, clients, maxClients }) => {
-        const li = document.createElement("li");
-        const button = document.createElement("button");
-        button.textContent = code;
-        button.setAttribute("aria-label", `Join room ${code}`);
-        button.onclick = () => void act(() => join(code));
-        const seats = document.createElement("span");
-        seats.textContent = `${clients} / ${maxClients} players`;
-        li.append(button, seats);
-        return li;
-    });
-    if (!items.length) {
-        const li = document.createElement("li");
-        li.textContent = "No public rooms yet.";
-        items.push(li);
-    }
-    if (listing.textContent !== items.map((item) => item.textContent).join(""))
-        listing.replaceChildren(...items);
+    status.hidden = !text;
 }
 
 function buttons() {
     for (const button of lobby.querySelectorAll("button")) button.disabled = busy;
-    botButton.disabled = busy || dropped || rejoining || roster === (1 << GAME.maxClients) - 1;
-    removeButton.disabled = busy || dropped || rejoining || bots.length === 0;
-    dropButton.disabled = busy || rejoining || !joined;
-    dropButton.textContent = dropped ? "Resume connection" : "Drop connection";
+    for (const button of list.querySelectorAll("button"))
+        button.disabled = busy || dropped || rejoining || ownSlot < 0;
+    copy.disabled = busy || !roomCode;
+    drop.disabled = busy || rejoining || ownSlot < 0;
+    drop.textContent = dropped ? "Resume connection" : "Drop connection";
     element<HTMLButtonElement>("leave").disabled = busy;
 }
 
 async function act(action: () => Promise<void> | void) {
     if (busy) return;
     busy = true;
+    message("");
     buttons();
     try {
         await action();
@@ -105,6 +79,96 @@ async function act(action: () => Promise<void> | void) {
         busy = false;
         buttons();
     }
+}
+
+function showCode(code: string) {
+    roomCode = code;
+    codeLabel.textContent = code;
+    element("share-code").textContent = code;
+    copy.textContent = copyLabel;
+    buttons();
+}
+
+async function copyInvite(button: HTMLButtonElement) {
+    const invite = new URL(page);
+    invite.searchParams.set("code", roomCode);
+    await navigator.clipboard.writeText(url ? invite.href : roomCode);
+    button.textContent = "Copied";
+}
+
+copy.onclick = () => void act(() => copyInvite(copy));
+
+function slotButton(text: string, action: (button: HTMLButtonElement) => Promise<void> | void) {
+    const button = document.createElement("button");
+    button.textContent = text;
+    button.onclick = () => void act(() => action(button));
+    return button;
+}
+
+function renderParty() {
+    let occupied = 0;
+    const slots: HTMLLIElement[] = [];
+    for (let slot = 0; slot < GAME.maxClients; slot++) {
+        const row = document.createElement("li");
+        const you = slot === ownSlot;
+        const bot = bots.get(slot);
+        if (you || bot || (url && roster & (1 << slot))) {
+            occupied++;
+            const name = document.createElement("span");
+            name.className = "slot-name";
+            name.textContent = you ? "You" : bot ? `Bot ${bot.name}` : `Player ${slot + 1}`;
+            row.append(name);
+            if (you && host) {
+                const leader = document.createElement("span");
+                leader.textContent = "♛";
+                leader.setAttribute("aria-label", "Party leader");
+                row.append(leader);
+            }
+            if (bot) {
+                const remove = slotButton("×", () => {
+                    bot.remove();
+                    bots.delete(slot);
+                    renderParty();
+                });
+                remove.setAttribute("aria-label", `Remove Bot ${bot.name}`);
+                row.append(remove);
+            }
+        } else {
+            row.className = "empty";
+            const action =
+                openSlot === slot
+                    ? host
+                        ? slotButton("Add bot", () => addBot(slot))
+                        : slotButton("Copy invite", copyInvite)
+                    : slotButton("+ Empty slot", () => {
+                          openSlot = slot;
+                          renderParty();
+                      });
+            if (openSlot !== slot) action.setAttribute("aria-label", `Empty slot ${slot + 1}`);
+            row.append(action);
+        }
+        slots.push(row);
+    }
+    count.textContent = `${occupied} / ${GAME.maxClients}`;
+    list.replaceChildren(...slots);
+    buttons();
+}
+
+async function addBot(slot: number) {
+    if (!seat) return;
+    const used = new Set([...bots.values()].map((bot) => bot.name));
+    let name = 1;
+    while (used.has(name)) name++;
+    const bot = await seat.addBot({
+        seed: ++seed,
+        input(_world, sender, tick) {
+            const direction = Math.floor(tick / 90) % 2 ? 0.35 : -0.35;
+            sender.record(tick + 1, "input", [direction, 0, 0, 0, 0, 0]);
+        },
+    });
+    bots.set(slot, { ...bot, name });
+    openSlot = -1;
+    renderParty();
 }
 
 const RoomPanel: Plugin = {
@@ -117,32 +181,17 @@ const RoomPanel: Plugin = {
             update(world) {
                 const peer = world.resource(ClientSession).client;
                 if (!peer || peer.slot < 0 || peer.prediction.receiver.confirmed < 0) return;
-                const generation = peer.connection.generation;
-                if (!joined || generation !== shownGeneration) {
-                    joined = true;
-                    message(generation ? "Rejoined as the same player." : "Connected.");
-                    shownGeneration = generation;
+                if (peer.connection.generation !== generation) {
+                    generation = peer.connection.generation;
                     rejoining = false;
+                    message("Rejoined as the same player.");
                     buttons();
                 }
-                roster = peer.roster;
-                if (roster === shownRoster) return;
-                shownRoster = roster;
-                players.replaceChildren(
-                    ...PLAYER_NAMES.flatMap((name, slot) => {
-                        if (!(roster & (1 << slot))) return [];
-                        const li = document.createElement("li");
-                        const label = document.createElement("span");
-                        label.textContent = name;
-                        li.append(label);
-                        const role = slot === peer.slot ? "You" : host ? "Bot" : "Player";
-                        const badge = document.createElement("span");
-                        badge.textContent = role;
-                        li.append(badge);
-                        return [li];
-                    }),
-                );
-                buttons();
+                if (peer.slot !== ownSlot || peer.roster !== roster) {
+                    ownSlot = peer.slot;
+                    roster = peer.roster;
+                    renderParty();
+                }
             },
         },
     ],
@@ -151,6 +200,8 @@ const RoomPanel: Plugin = {
 async function join(code?: string) {
     message("Joining…");
     let plugin: Plugin;
+    let refused = false;
+    showCode("");
     if (url) {
         const endpoint = new URL(url);
         endpoint.protocol = ["https:", "wss:"].includes(url.protocol) ? "wss:" : "ws:";
@@ -158,14 +209,17 @@ async function join(code?: string) {
         if (code) endpoint.searchParams.set("code", code);
         plugin = client(GAME, {
             url: endpoint.href,
-            onError: () => {
-                leave();
+            onRoom: showCode,
+            onError() {
+                refused = true;
+                if (app) leave();
                 message("The room closed or refused the connection. Check the code and try again.");
             },
         });
     } else {
         seat = await host!.join(code);
         plugin = seat.plugin;
+        showCode(seat.code);
     }
     try {
         app = await runApp({
@@ -179,64 +233,63 @@ async function join(code?: string) {
         seat = undefined;
         throw error;
     }
-    const roomCode = seat?.code ?? code;
-    roomLabel.textContent = roomCode ? `Room code: ${roomCode}` : "Public room";
-    roomLabel.hidden = false;
-    mode.hidden = true;
+    if (refused) {
+        leave();
+        throw new Error("The room refused the connection. Check the code and try again.");
+    }
+    element("rooms-title").textContent = "Party";
+    count.hidden = codeLabel.hidden = false;
+    crown.hidden = !host;
     lobby.hidden = true;
     session.hidden = false;
-    if (matchMedia("(max-width: 480px)").matches) roomPanel.open = false;
+    message("");
+    renderParty();
+    if (matchMedia("(max-width: 480px)").matches) panel.open = false;
 }
 
 function leave() {
-    for (const bot of bots) bot.remove();
-    bots = [];
+    for (const bot of bots.values()) bot.remove();
+    bots.clear();
     if (document.pointerLockElement) document.exitPointerLock();
     app?.dispose();
     app = undefined;
     seat = undefined;
-    joined = dropped = rejoining = false;
+    dropped = rejoining = false;
+    ownSlot = openSlot = -1;
     roster = 0;
-    shownRoster = -1;
-    shownGeneration = undefined;
-    players.replaceChildren();
+    generation = undefined;
+    list.replaceChildren();
     session.hidden = true;
     lobby.hidden = false;
-    roomLabel.hidden = true;
-    mode.hidden = false;
-    roomPanel.open = true;
-    message("Left the room.");
-    void list().catch(() => {});
+    element("rooms-title").textContent = "Rooms";
+    codeLabel.hidden = count.hidden = crown.hidden = true;
+    panel.open = true;
+    message("");
 }
 
 element("quick").onclick = () => void act(() => join());
 element("create").onclick = () =>
     void act(async () => {
-        const code = host ? host.create() : (await (await roomsRequest("POST")).json()).code;
+        let code: string | undefined;
+        if (host) code = host.create();
+        else {
+            const endpoint = new URL("/rooms", url);
+            endpoint.protocol =
+                url?.protocol === "wss:" || url?.protocol === "https:" ? "https:" : "http:";
+            const response = await fetch(endpoint, { method: "POST" });
+            if (!response.ok) throw new Error(`Rooms server returned ${response.status}.`);
+            ({ code } = await response.json());
+        }
         if (!code) throw new Error("No private room codes are available yet.");
         await join(code);
     });
 element<HTMLFormElement>("join").onsubmit = (event) => {
     event.preventDefault();
-    const code = codeInput.value.trim().toUpperCase();
+    const code = element<HTMLInputElement>("code").value.trim().toUpperCase();
     if (code) void act(() => join(code));
 };
 element("leave").onclick = () => void act(leave);
-botButton.onclick = () =>
-    void act(async () => {
-        if (!seat) return;
-        bots.push(
-            await seat.addBot({
-                seed: ++seed,
-                input(_world, sender, tick) {
-                    const direction = Math.floor(tick / 90) % 2 ? 0.35 : -0.35;
-                    sender.record(tick + 1, "input", [direction, 0, 0, 0, 0, 0]);
-                },
-            }),
-        );
-    });
-removeButton.onclick = () => void act(() => bots.pop()?.remove());
-dropButton.onclick = () =>
+drop.onclick = () =>
     void act(() => {
         if (!seat) return;
         if (!dropped) {
@@ -253,18 +306,12 @@ dropButton.onclick = () =>
         }
     });
 
-const poll = () => {
-    if (!lobby.hidden)
-        void list().catch(() => message("Cannot list rooms. Is the Bun server running?"));
-};
-const polling = setInterval(poll, 2000);
 window.addEventListener("pagehide", (event) => {
     if (event.persisted) return;
-    clearInterval(polling);
     app?.dispose();
     host?.dispose();
 });
-message("Join a public room or share a private code.");
 document.querySelector(".ec.controls")?.removeAttribute("hidden");
 document.querySelector("[data-shallot-bootstrap]")?.remove();
-poll();
+const invite = page.searchParams.get("code");
+if (url && invite) void act(() => join(invite));

@@ -38,58 +38,71 @@ async function server() {
     }
 }
 
-test("an in-tab quick join shows its players and lets the player manage bots", async ({
+test("quick join opens a party with fixed slots and local bot controls", async ({
     page,
-}, info) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
+    context,
+}) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await page.goto("/");
-    await expect(page.getByText("No public rooms yet.")).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Room code" })).toBeHidden();
+    await expect(page.getByText("Public rooms")).toBeHidden();
+    await page.getByText("Have a code?").click();
+    await expect(action(page, "Join")).toBeVisible();
     await action(page, "Quick join").click();
-    await expect(players(page)).toHaveText(["AsterYou"]);
+    await expect(page.locator("#party-count")).toHaveText("1 / 4");
+    await expect(players(page)).toHaveCount(4);
+    await expect(players(page).first()).toContainText("You");
+    await expect(page.getByLabel("Party leader")).toBeVisible();
+    await action(page, "Copy code").click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/^[A-Z0-9]{10}$/);
+    await action(page, "Empty slot 3").click();
     await action(page, "Add bot").click();
-    await expect(players(page)).toHaveText(["AsterYou", "BirchBot"]);
-    await action(page, "Add bot").click();
-    await expect(players(page)).toHaveText(["AsterYou", "BirchBot", "CedarBot"]);
-    if (process.env.SHALLOT_ROOMS_CAPTURES)
-        await page.screenshot({ path: info.outputPath("desktop.png") });
-    await action(page, "Remove bot").click();
-    await expect(players(page)).toHaveText(["AsterYou", "BirchBot"]);
+    await expect(players(page).nth(2)).toContainText("Bot 1");
+    await expect(page.locator("#party-count")).toHaveText("2 / 4");
+    await action(page, "Remove Bot 1").click();
+    await expect(action(page, "Empty slot 3")).toBeVisible();
     await action(page, "Leave room").click();
     await expect(action(page, "Quick join")).toBeVisible();
 });
 
-test("two pages share a private Bun room by code without listing it publicly", async ({
+test("a private Bun party accepts its code and its copied invite URL", async ({
     page,
     context,
-}, info) => {
+}) => {
     const host = await server();
     try {
+        await context.grantPermissions(["clipboard-read", "clipboard-write"]);
         await page.goto(host.query);
         await action(page, "Create private room").click();
-        await expect(players(page)).toHaveText(["AsterYou"]);
-        const code = (await page.locator("#room-code").innerText()).replace("Room code: ", "");
+        await expect(players(page).first()).toHaveText("You");
+        await expect(page.locator("#room-code")).toHaveText(/^[A-Z0-9]{10}$/);
+        const code = await page.locator("#room-code").innerText();
+        await action(page, "Empty slot 2").click();
+        await action(page, "Copy invite").last().click();
+        const invite = await page.evaluate(() => navigator.clipboard.readText());
+        expect(new URL(invite).searchParams.get("code")).toBe(code);
         const friend = await context.newPage();
         await friend.goto(host.query);
-        await expect(friend.getByText("No public rooms yet.")).toBeVisible();
+        await friend.getByText("Have a code?").click();
         await friend.getByRole("textbox", { name: "Room code" }).fill(code);
-        await action(friend, "Join by code").click();
-        await expect(players(friend)).toHaveText(["AsterPlayer", "BirchYou"]);
-        await expect(players(page)).toHaveText(["AsterYou", "BirchPlayer"]);
+        await action(friend, "Join").click();
+        await expect(players(friend).nth(0)).toHaveText("Player 1");
+        await expect(players(friend).nth(1)).toHaveText("You");
+        await expect(players(page).nth(1)).toHaveText("Player 2");
+        await expect(friend.locator("#party-crown")).toBeHidden();
         await expect(action(friend, "Add bot")).toBeHidden();
         await expect(action(friend, "Drop connection")).toBeHidden();
-        if (process.env.SHALLOT_ROOMS_CAPTURES)
-            await friend.screenshot({ path: info.outputPath("server.png") });
         await action(friend, "Leave room").click();
-        await expect(players(page)).toHaveText(["AsterYou"]);
+        await expect(page.locator("#party-count")).toHaveText("1 / 4");
+        await friend.goto(invite);
+        await expect(friend.locator("#party-count")).toHaveText("2 / 4");
+        await expect(players(friend).nth(1)).toHaveText("You");
     } finally {
         await host.stop();
     }
 });
 
-test("a served page resumes its own avatar when its socket is dropped", async ({
-    page,
-    browser,
-}, info) => {
+test("a served page resumes its own avatar when its socket is dropped", async ({ page }) => {
     const host = await server();
     try {
         await page.addInitScript(() => {
@@ -107,30 +120,15 @@ test("a served page resumes its own avatar when its socket is dropped", async ({
         });
         await page.goto(host.query);
         await action(page, "Quick join").click();
-        await expect(players(page)).toHaveText(["AsterYou"]);
-        if (process.env.SHALLOT_ROOMS_CAPTURES) {
-            for (const phone of [false, true]) {
-                const lobby = await browser.newPage({
-                    viewport: phone ? { width: 390, height: 844 } : { width: 1280, height: 800 },
-                    hasTouch: phone,
-                    isMobile: phone,
-                });
-                try {
-                    await lobby.goto(host.query);
-                    await expect(lobby.locator("#listing li")).toHaveText(/1 \/ 4 players/);
-                    await lobby.screenshot({
-                        path: info.outputPath(phone ? "lobby-phone.png" : "lobby-desktop.png"),
-                    });
-                } finally {
-                    await lobby.close();
-                }
-            }
-        }
+        await expect(players(page).first()).toHaveText("You");
+        await expect(page.locator("#room-code")).toHaveText(/^[A-Z0-9]{10}$/);
+        const code = await page.locator("#room-code").innerText();
         await page.evaluate(() =>
             (window as Window & { dropRoomSocket?: () => void }).dropRoomSocket!(),
         );
         await expect(page.getByText("Rejoined as the same player.")).toBeVisible();
-        await expect(players(page)).toHaveText(["AsterYou"]);
+        await expect(players(page).first()).toHaveText("You");
+        await expect(page.locator("#room-code")).toHaveText(code);
     } finally {
         await host.stop();
     }
@@ -138,38 +136,27 @@ test("a served page resumes its own avatar when its socket is dropped", async ({
 
 test.describe("phone", () => {
     test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
-    test("the room panel fits a touch viewport and accepts taps", async ({ page }, info) => {
+    test("the party stays compact on touch and opens for slot and connection actions", async ({
+        page,
+    }) => {
         await page.goto("/");
         await action(page, "Quick join").tap();
-        const panel = page.getByRole("complementary", { name: "Rooms" });
+        const panel = page.getByRole("complementary", { name: "Party" });
         const toggle = page.locator("#room-toggle");
         await expect(page.locator("#room-code")).toBeVisible();
+        await expect(page.locator("#party-count")).toHaveText("1 / 4");
         await expect(page.locator("#room-panel")).not.toHaveAttribute("open", "");
-        await expect(action(page, "Add bot")).toBeHidden();
-        expect((await panel.boundingBox())!.height).toBeLessThanOrEqual(64);
-        const jump = action(page, "Jump");
-        await expect(jump).toBeVisible();
-        await toggle.tap();
-        await expect(players(page)).toHaveText(["AsterYou"]);
-        for (const name of ["BirchBot", "CedarBot"]) {
-            await action(page, "Add bot").tap();
-            await expect(players(page).last()).toHaveText(name);
-        }
+        await expect(page.locator("#party-crown")).toBeVisible();
         const box = (await panel.boundingBox())!;
-        expect((await panel.getByRole("heading", { name: "Players" }).boundingBox())!.x).toBe(
-            (await players(page).first().boundingBox())!.x,
-        );
-        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.height).toBeLessThanOrEqual(64);
         expect(box.x + box.width).toBeLessThanOrEqual(390);
-        expect(box.y).toBeGreaterThanOrEqual(0);
-        expect(box.y + box.height).toBeLessThan(844 / 2);
+        await expect(action(page, "Jump")).toBeVisible();
+        await toggle.tap();
+        await action(page, "Empty slot 2").tap();
+        await action(page, "Add bot").tap();
+        await expect(page.locator("#party-count")).toHaveText("2 / 4");
         for (const button of await panel.getByRole("button").all())
             expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-        if (process.env.SHALLOT_ROOMS_CAPTURES) {
-            await toggle.tap();
-            await page.screenshot({ path: info.outputPath("phone.png") });
-            await toggle.tap();
-        }
         await action(page, "Drop connection").tap();
         await expect(page.getByText(/Connection dropped/)).toBeVisible();
         await action(page, "Resume connection").tap();

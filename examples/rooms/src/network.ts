@@ -79,7 +79,7 @@ export function applyIntent(
     input.sprint.set(player, v[4]!);
     input.jumpPresses.set(player, v[5]!);
 }
-export const PLAYER_NAMES = ["Aster", "Birch", "Cedar", "Dune"] as const;
+const SLOTS = [0, 1, 2, 3] as const;
 
 const ASSIGNMENT = 100;
 function assignment(world: World, slot: number) {
@@ -92,7 +92,7 @@ function assignment(world: World, slot: number) {
 export const GAME: Game = {
     plugins: GAME_PLUGINS,
     schema: SCHEMA,
-    maxClients: PLAYER_NAMES.length,
+    maxClients: SLOTS.length,
     reconnectMs: 10_000,
     onCreate(world) {
         for (const eid of world.query([Body])) world.add(eid, Replicate);
@@ -103,7 +103,7 @@ export const GAME: Game = {
         const occupied = [...world.query([ConnectionSlot])].map(
             (eid) => world.get(eid, ConnectionSlot)!.slot,
         );
-        const slot = PLAYER_NAMES.findIndex((_, slot) => !occupied.includes(slot));
+        const slot = SLOTS.find((slot) => !occupied.includes(slot))!;
         world.add(eid, ConnectionSlot, { slot });
         world.storage(Body).isEnabled.set(scene(world).players[slot]!.player, 1);
     },
@@ -111,7 +111,7 @@ export const GAME: Game = {
         const slot = world.get(eid, ConnectionSlot)!.slot;
         return [
             new Map([[eid, SCHEMA]]),
-            ...PLAYER_NAMES.map((_, owner) => new Map([[eid, owner === slot ? SCHEMA : PUBLIC]])),
+            ...SLOTS.map((owner) => new Map([[eid, owner === slot ? SCHEMA : PUBLIC]])),
         ];
     },
     onLeave(world, eid) {
