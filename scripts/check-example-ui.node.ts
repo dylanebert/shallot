@@ -785,9 +785,11 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
                                 ? "0px 8px"
                                 : /button|select|input\[type=['"]text['"]\]/.test(s)
                                   ? "4px 8px"
-                                  : /^\.ec \.member$/.test(s)
-                                    ? "0px 8px"
-                                    : "0px";
+                                  : s === ".ec .slot-actions"
+                                    ? "8px"
+                                    : s === ".ec .member"
+                                      ? "0px 8px"
+                                      : "0px";
                 if (
                     !spacingMatches(p, v, expected) &&
                     !/^0(?:px)?(?: 0(?:px)?)*$/.test(v) &&
@@ -813,7 +815,8 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
             const hover = /:hover/.test(s);
             const pressed = /:active/.test(s);
             const selected =
-                /aria-(?:pressed|current|selected|checked)=['"]?true|\.selected\b/.test(s);
+                /aria-(?:pressed|current|selected|checked)=['"]?true|\.selected\b/.test(s) ||
+                /^\.ec \.vacant > button\[aria-expanded=['"]true['"]\]$/.test(s);
             const check = /checkbox/.test(s);
             const thumb = /slider-thumb|range-thumb/.test(s);
             const track = /slider-runnable-track|range-track/.test(s);
@@ -843,7 +846,8 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
                                 ? "dim"
                                 : "raised"
                             : /controls|scenes|section-title/.test(s) ||
-                                s === ".ec .vacant > button"
+                                s === ".ec .vacant > button" ||
+                                s === ".ec .slot-actions"
                               ? "bg2"
                               : "raised";
             if (border && v !== "0px" && v !== "0")
@@ -1607,6 +1611,19 @@ test("audited screen queries, explicit type longhands and nested safe fallbacks 
         expect(
             controlViolations({ sheets: [controlFixture + extra], lists: [] }).length,
         ).toBeGreaterThan(0);
+});
+
+test("vacancy popups use an inset panel and mark only the expanded trigger", () => {
+    const panel = ".ec .slot-actions { padding: 8px; background: #1c1917; }";
+    const trigger = ".ec .vacant > button[aria-expanded='true'] { border-color: #d49560; }";
+    expect(controlViolations({ sheets: [controlFixture, panel, trigger], lists: [] })).toEqual([]);
+    for (const rule of [
+        panel.replace("8px", "4px"),
+        panel.replace("#1c1917", "#3c322c"),
+        trigger.replace("true", "false"),
+        trigger.replace("vacant", "occupied"),
+    ])
+        expect(controlViolations({ sheets: [controlFixture, rule], lists: [] })).not.toEqual([]);
 });
 
 test("room controls inset names and code input and give only vacant pane buttons a quieter rest surface", () => {
