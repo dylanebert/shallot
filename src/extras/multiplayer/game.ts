@@ -114,13 +114,22 @@ class GameServer {
         game.onCreate?.(world);
     }
     /** Refuses admission at the peer limit without spawning an entity or calling onJoin. */
-    connect(connection: Connection, kind: Peer["kind"] = "human"): number | undefined {
+    connect(
+        connection: Connection,
+        kind: Peer["kind"] = "human",
+        admit?: ThinClient["admit"],
+    ): number | undefined {
         if (this.peers.size >= this.game.maxClients) return undefined;
         const eid = this.world.create();
         this.world.add(eid, ClientOf);
         const diagnostics = observeNetwork(this.world, connection, `network/connections/${eid}/`);
         try {
             if (kind === "bot" && this.game.schema.includes(RoomBot)) this.world.add(eid, RoomBot);
+            if (admit && !admit(this.world, eid)) {
+                diagnostics.remove();
+                this.world.destroy(eid);
+                return undefined;
+            }
             this.game.onJoin?.(this.world, eid, connection);
             const sender = new ReplicationSender(
                 this.world,
@@ -405,6 +414,8 @@ interface LocalOptions {
 
 export interface ThinClient {
     seed: number;
+    /** Server-side admission before onJoin; may set game-owned seat data or refuse admission. */
+    admit?(world: World, eid: number): boolean;
     input(world: World, sender: IntentSender, tick: number): void;
 }
 

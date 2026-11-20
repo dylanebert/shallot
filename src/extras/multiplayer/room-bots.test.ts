@@ -66,7 +66,7 @@ function fixture(botStartup?: Promise<void>) {
         },
         onJoin(world, eid, transport) {
             if (world.has(eid, RoomBot)) botLink = transport;
-            world.add(eid, Member, { order: ++joined });
+            if (!world.has(eid, Member)) world.add(eid, Member, { order: ++joined });
             world.add(eid, Replicate, { rule: 0 });
         },
         validateIntent: () => true,
@@ -75,10 +75,18 @@ function fixture(botStartup?: Promise<void>) {
             const bots = world.resource(RoomBots).controller!;
             for (const record of records) {
                 if (record.tick !== tick) continue;
-                if (record.values.length === 0) {
+                if (record.values.length !== 1) {
+                    const slot = record.values[0];
                     results.push(
                         bots.add(eid, {
                             seed: 41,
+                            admit(world, bot) {
+                                if (slot === undefined) return true;
+                                for (const member of world.query([Member]))
+                                    if (world.get(member, Member)!.order === slot) return false;
+                                world.add(bot, Member, { order: slot });
+                                return true;
+                            },
                             input(_world, sender, tick) {
                                 sender.record(tick, "input", [1]);
                             },
@@ -221,6 +229,21 @@ test("a non-leader cannot add or remove a bot", () =>
         expect(await friend.request(3)).toBe(false);
         await leader.sees(3, [3], 1);
     }));
+
+test("a requested bot takes its chosen seat or is refused without filling another", async () => {
+    const host = fixture();
+    try {
+        const leader = host.peer("joinOrCreate");
+        await leader.sees(1, [], 1);
+        expect(await leader.request(1, 0)).toBe(false);
+        expect(await leader.request(3, 0)).toBe(true);
+        await leader.sees(2, [3], 1);
+        expect(await leader.request(3, 0)).toBe(false);
+        await leader.sees(2, [3], 1);
+    } finally {
+        host.stop();
+    }
+});
 
 test("a bot fills a seat and the full room refuses a second bot and a human", () =>
     room(async (leader, friend, host) => {

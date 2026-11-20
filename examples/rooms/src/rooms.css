@@ -62,6 +62,7 @@
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+    text-align: left;
 }
 .ec .slot-actions {
     position: absolute;
@@ -109,7 +110,7 @@
 .ec button:disabled, .ec input:disabled { background: #1c1917; color: #a08c78; }
 .ec button:hover:not(:disabled), .ec input:hover:not(:disabled) { border-color: #a08c78; }
 .ec button:active:not(:disabled), .ec input:active:not(:disabled) { background: #2a2420; }
-.ec button[aria-pressed='true'], .ec .vacant > button[aria-expanded='true'] { border-color: #d49560; }
+.ec button[aria-pressed='true'], .ec .row > button[aria-expanded='true'] { border-color: #d49560; }
 .ec [hidden] { display: none !important; }
 
 @media (pointer: coarse), (max-width: 480px) {
@@ -122,5 +123,7 @@
     .ec .controls, .ec #session { top: calc(var(--phone-edge) + env(safe-area-inset-top)); }
     .ec #session, .ec #status { left: calc(var(--phone-edge) + env(safe-area-inset-left)); }
     .ec .controls { max-height: 60dvh; }
-    .ec .vacant:first-child .slot-actions { top: calc(100% + 4px); }
+    .ec #session { grid-template-areas: ". actions" "party ."; }
+    .ec #room-actions { grid-area: actions; }
+    .ec #players { grid-area: party; }
 }

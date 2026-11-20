@@ -85,10 +85,7 @@ document.addEventListener("click", (event) => {
     if (
         !event
             .composedPath()
-            .some(
-                (node) =>
-                    node instanceof Element && node.matches(".slot-actions, .vacant > button"),
-            )
+            .some((node) => node instanceof Element && node.matches(".slot-actions, .row > button"))
     )
         closeSlot();
 });
@@ -173,10 +170,9 @@ function slotButton(label: string, glyph: Parameters<typeof icon>[0], text = fal
     return button;
 }
 
-function requestBot(removeSlot?: number) {
-    if (!app) return;
-    const peer = app.world.resource(ClientSession).client;
-    if (peer) peer.requestBot(peer.prediction.receiver.confirmed, removeSlot);
+function requestBot(slot: number, remove = false) {
+    const peer = app?.world.resource(ClientSession).client;
+    if (peer) peer.requestBot(peer.prediction.receiver.confirmed, slot, remove);
 }
 
 function renderParty() {
@@ -188,9 +184,13 @@ function renderParty() {
         const you = slot === ownSlot;
         const localBot = bots.get(slot);
         const bot = url ? botSlots & (1 << slot) : localBot;
-        if (you || bot || (url && roster & (1 << slot))) {
-            if (openSlot === slot) openSlot = -1;
-            const member = document.createElement("div");
+        const occupied = you || bot || (url && roster & (1 << slot));
+        let trigger: HTMLButtonElement | undefined;
+        if (occupied) {
+            const member =
+                bot && canManage
+                    ? slotButton(`Open actions for seat ${slot + 1}`, "bot")
+                    : document.createElement("div");
             member.className = "member";
             member.innerHTML = bot ? icon("bot", "Bot") : icon("user", "Human player");
             const name = document.createElement("span");
@@ -203,22 +203,14 @@ function renderParty() {
             member.append(name);
             if (slot === leader)
                 member.insertAdjacentHTML("beforeend", icon("star", "Party leader"));
-            if (bot && canManage) {
-                const remove = slotButton(`Remove ${name.textContent}`, "remove");
-                remove.onclick = () =>
-                    void act(() => {
-                        if (localBot) {
-                            localBot.remove();
-                            bots.delete(slot);
-                            renderParty();
-                        } else requestBot(slot);
-                    });
-                member.append(remove);
-            }
             row.append(member);
+            if (member instanceof HTMLButtonElement) trigger = member;
         } else {
             row.classList.add("vacant");
-            const plus = slotButton(`Open actions for seat ${slot + 1}`, "plus");
+            trigger = slotButton(`Open actions for seat ${slot + 1}`, "plus");
+            row.append(trigger);
+        }
+        if (trigger) {
             const expanded = openSlot === slot;
             const actions = document.createElement("div");
             actions.className = "slot-actions";
@@ -226,30 +218,40 @@ function renderParty() {
             actions.setAttribute("role", "group");
             actions.setAttribute("aria-label", `Seat ${slot + 1} actions`);
             actions.hidden = !expanded;
-            plus.setAttribute("aria-expanded", String(expanded));
-            plus.setAttribute("aria-controls", actions.id);
-            plus.onclick = () => {
+            trigger.setAttribute("aria-expanded", String(expanded));
+            trigger.setAttribute("aria-controls", actions.id);
+            trigger.onclick = () => {
                 openSlot = expanded ? -1 : slot;
                 renderParty();
             };
             if (expanded && canManage) {
-                const add = slotButton("Add bot", "bot", true);
-                add.onclick = () =>
+                const choice = slotButton(
+                    bot ? "Remove bot" : "Add bot",
+                    bot ? "remove" : "bot",
+                    true,
+                );
+                choice.onclick = () =>
                     void act(() => {
-                        if (host) return addBot(slot);
-                        closeSlot();
-                        requestBot();
+                        if (!bot && host) return addBot(slot);
+                        if (localBot) {
+                            localBot.remove();
+                            bots.delete(slot);
+                            closeSlot();
+                        } else {
+                            closeSlot();
+                            requestBot(slot, !!bot);
+                        }
                     });
-                actions.append(add);
+                actions.append(choice);
             }
-            if (expanded && url) {
+            if (expanded && url && !occupied) {
                 const choice = slotButton("Copy code", "copy", true);
                 choice.title = "Copy code";
                 choice.onclick = () => void act(() => copyCode(choice, "Copy code"));
                 actions.append(choice);
             }
-            row.append(plus, actions);
-        }
+            row.append(actions);
+        } else if (openSlot === slot) openSlot = -1;
         slots.push(row);
     }
     list.replaceChildren(...slots);
@@ -261,7 +263,7 @@ async function addBot(slot: number) {
     const used = new Set([...bots.values()].map((bot) => bot.name));
     let name = 1;
     while (used.has(name)) name++;
-    const bot = await seat.addBot(thinBot(++seed));
+    const bot = await seat.addBot(thinBot(++seed, slot));
     bots.set(slot, { ...bot, name });
     openSlot = -1;
     renderParty();

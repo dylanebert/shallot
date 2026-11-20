@@ -315,7 +315,7 @@ export function roomHost<
             const sender = new IntentSender(link.b);
             const receiver = new ReplicationReceiver(app.world, game.schema, link.b);
             observeNetwork(app.world, link.b);
-            const eid = authority.connect(link.a, "bot");
+            const eid = authority.connect(link.a, "bot", thin.admit);
             if (eid !== undefined) {
                 const peer = authority.peers.get(eid);
                 room.bots.get(eid)?.dispose();

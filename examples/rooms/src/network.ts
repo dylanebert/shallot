@@ -87,9 +87,16 @@ export function applyIntent(
 }
 const SLOTS = [0, 1, 2, 3] as const;
 
-export function thinBot(seed: number): ThinClient {
+export function thinBot(seed: number, slot?: number): ThinClient {
     return {
         seed,
+        admit(world, eid) {
+            if (slot === undefined) return true;
+            for (const peer of world.query([ConnectionSlot]))
+                if (world.get(peer, ConnectionSlot)!.slot === slot) return false;
+            world.add(eid, ConnectionSlot, { slot });
+            return true;
+        },
         input(_world, sender, tick) {
             const direction = Math.floor(tick / 90) % 2 ? 0.35 : -0.35;
             sender.record(tick + 1, "input", [direction, 0, 0, 0, 0, 0]);
@@ -119,8 +126,9 @@ export const GAME: Game = {
         const occupied = [...world.query([ConnectionSlot])].map(
             (eid) => world.get(eid, ConnectionSlot)!.slot,
         );
-        const slot = SLOTS.find((slot) => !occupied.includes(slot))!;
-        world.add(eid, ConnectionSlot, { slot });
+        const slot =
+            world.get(eid, ConnectionSlot)?.slot ?? SLOTS.find((slot) => !occupied.includes(slot))!;
+        if (!world.has(eid, ConnectionSlot)) world.add(eid, ConnectionSlot, { slot });
         world.add(eid, Replicate, { rule: SLOTS.length + 1 });
         world.storage(Body).isEnabled.set(scene(world).players[slot]!.player, 1);
     },
@@ -142,8 +150,9 @@ export const GAME: Game = {
     validateIntent(world, eid, record) {
         if (record.kind === "input") return validIntent(record);
         return (
-            (record.values.length === 0 ||
-                (record.values.length === 1 && SLOTS.some((slot) => slot === record.values[0]))) &&
+            record.values.length === 2 &&
+            (record.values[0] === 0 || record.values[0] === 1) &&
+            SLOTS.some((slot) => slot === record.values[1]) &&
             !!world.resource(RoomBots).controller?.canManage(eid)
         );
     },
@@ -152,11 +161,12 @@ export const GAME: Game = {
         if (bots) {
             for (const command of records) {
                 if (command.tick !== tick) continue;
-                if (command.values.length === 0) {
-                    void bots.add(eid, thinBot(tick)).catch(console.error);
+                const [remove, slot] = command.values;
+                if (!remove) {
+                    void bots.add(eid, thinBot(tick, slot)).catch(console.error);
                 } else {
                     const target = [...world.query([RoomBot, ConnectionSlot])].find(
-                        (bot) => world.get(bot, ConnectionSlot)!.slot === command.values[0],
+                        (bot) => world.get(bot, ConnectionSlot)!.slot === slot,
                     );
                     if (target !== undefined) bots.remove(eid, target);
                 }
@@ -238,8 +248,8 @@ export class GameClient {
     record(values: number[]) {
         this._values = values.slice();
     }
-    requestBot(tick: number, removeSlot?: number) {
-        this.intent.record(tick, "operation", removeSlot === undefined ? [] : [removeSlot]);
+    requestBot(tick: number, slot: number, remove: boolean) {
+        this.intent.record(tick, "operation", [Number(remove), slot]);
         this.intent.flush();
     }
 }

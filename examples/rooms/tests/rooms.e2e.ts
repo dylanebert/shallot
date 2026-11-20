@@ -19,6 +19,7 @@ async function expectSidePopup(page: Page, slot: number) {
     const right = await box(page.locator("#room-actions"));
     const { width, height } = page.viewportSize()!;
     const inset = width <= 480 ? 16 : 24;
+    expect(popup.y).toBe(seat.y);
     expect(popup.x).toBe(seat.x + seat.width + 8);
     expect([popup.width, popup.height]).not.toEqual([seat.width, seat.height]);
     for (const pane of [...panes, right])
@@ -277,7 +278,7 @@ for (const phone of [false, true]) {
                 raised,
             );
             for (const seat of [2, 3, 4]) {
-                await expect(plus(page, seat)).toHaveCSS("background-color", "rgb(28, 25, 23)");
+                await expect(plus(page, seat)).toHaveCSS("background-color", line);
                 expect(await box(plus(page, seat))).toEqual(before[seat - 1]);
                 await expect(
                     players(page)
@@ -325,7 +326,7 @@ for (const phone of [false, true]) {
                 "data-icon",
                 "bot",
             );
-            await expect(action(page, "Remove Bot 1")).toHaveAttribute("title", "Remove Bot 1");
+            await expect(action(page, "Remove bot")).toBeHidden();
             await expect(page.getByRole("img", { name: "Party leader" })).toHaveCount(1);
             expect(await seatBoxes(page)).toEqual(before);
             await noFocus(page);
@@ -355,7 +356,10 @@ for (const phone of [false, true]) {
             await use(plus(page, 4));
             await use(players(page).first().locator(".member"));
             await expect(add).toBeHidden();
-            await use(action(page, "Remove Bot 1"));
+            await use(plus(page, 3));
+            await expectSidePopup(page, 3);
+            await expect(action(page, "Remove bot")).toBeVisible();
+            await use(action(page, "Remove bot"));
             await expect(players(page)).toHaveText(["You", "", "", ""]);
             expect(await seatBoxes(page)).toEqual(before);
             await noFocus(page);
@@ -441,7 +445,11 @@ for (const phone of [false, true]) {
                 await expectBotClear(page);
                 await capture(page, `server-${size}`);
                 await page.keyboard.press("Escape");
-                await use(action(page, "Remove Bot 2"));
+                await use(plus(page, 2));
+                await expectSidePopup(page, 2);
+                if (phone) await touchTargets(page);
+                await capture(page, `server-remove-bot-${size}`);
+                await use(action(page, "Remove bot"));
                 await expect
                     .poll(async () => {
                         await leaderFrames.run(2);
@@ -501,22 +509,22 @@ for (const phone of [false, true]) {
                 );
                 await expect(players(friend)).toHaveText(["Player 1", "You", "", "Copy code"]);
                 await noFocus(friend);
-                await use(plus(page, 3));
+                await use(plus(page, 4));
                 await use(action(page, "Add bot"));
                 await expect
                     .poll(async () => {
                         await leaderFrames.run(2);
-                        return action(page, "Remove Bot 3").isVisible();
+                        return players(page).allInnerTexts();
                     })
-                    .toBe(true);
+                    .toEqual(["You", "Player 2", "", "Bot 4"]);
                 await expect
                     .poll(async () => {
                         await friendFrames.run(2);
-                        return friend.getByRole("img", { name: "Bot" }).count();
+                        return players(friend).allInnerTexts();
                     })
-                    .toBe(1);
+                    .toEqual(["Player 1", "You", "", "Bot 4"]);
                 await expect(action(friend, "Add bot")).toHaveCount(0);
-                await expect(action(friend, "Remove Bot 3")).toHaveCount(0);
+                await expect(plus(friend, 4)).toHaveCount(0);
                 await capture(friend, `server-observer-${size}`);
                 await use(action(page, "Leave"));
                 await friend.keyboard.press("Escape");
@@ -525,12 +533,14 @@ for (const phone of [false, true]) {
                         await friendFrames.run(4);
                         return players(friend).allInnerTexts();
                     })
-                    .toEqual(["", "You", "Bot 3", ""]);
+                    .toEqual(["", "You", "", "Bot 4"]);
                 await expect(friend.getByRole("img", { name: "Party leader" })).toHaveCount(1);
                 await expect(
                     players(friend).nth(1).getByRole("img", { name: "Party leader" }),
                 ).toBeVisible();
-                await use(action(friend, "Remove Bot 3"));
+                await use(plus(friend, 4));
+                await expectSidePopup(friend, 4);
+                await use(action(friend, "Remove bot"));
                 await expect
                     .poll(async () => {
                         await friendFrames.run(2);

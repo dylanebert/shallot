@@ -56,7 +56,7 @@ export function route(world: World) {
     const players = [
         avatar(world, 0, 12),
         avatar(world, -1.1, 5.3),
-        avatar(world, 1, 7),
+        avatar(world, 1, 5.3),
         avatar(world, -1.5, 6),
     ];
     block(world, [0, 0, -5], [32, 1, 52], [0.085, 0.08, 0.072, 1]);
