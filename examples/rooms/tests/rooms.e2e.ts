@@ -441,7 +441,13 @@ for (const phone of [false, true]) {
                 await expect(players(page)).toHaveText(["You", "Player 2", "", ""]);
                 await noFocus(friend);
                 await expect(friend.getByRole("img", { name: "Human player" })).toHaveCount(2);
-                await expect(friend.getByRole("img", { name: "Party leader" })).toHaveCount(0);
+                for (const tab of [page, friend]) {
+                    const star = tab.getByRole("img", { name: "Party leader" });
+                    await expect(star).toHaveCount(1);
+                    await expect(
+                        players(tab).first().getByRole("img", { name: "Party leader" }),
+                    ).toBeVisible();
+                }
                 await expect(action(friend, "Drop connection")).toBeHidden();
                 await use(plus(friend, 4));
                 await expect(plus(friend, 4)).toHaveAttribute("aria-expanded", "true");
@@ -484,6 +490,10 @@ for (const phone of [false, true]) {
                         return players(friend).allInnerTexts();
                     })
                     .toEqual(["", "You", "", ""]);
+                await expect(friend.getByRole("img", { name: "Party leader" })).toHaveCount(1);
+                await expect(
+                    players(friend).nth(1).getByRole("img", { name: "Party leader" }),
+                ).toBeVisible();
                 for (const slot of [1, 3, 4]) {
                     await use(plus(friend, slot));
                     const choice = action(friend, "Copy code");

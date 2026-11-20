@@ -21,6 +21,7 @@ import {
     PredictionPlugin,
     PredictionTarget,
     Replicate,
+    ServerSession,
 } from "@dylanebert/shallot/multiplayer";
 import { Demo, Route } from "./demo";
 import { PlayerMotion } from "./motion";
@@ -86,7 +87,9 @@ function assignment(world: World, slot: number) {
     let roster = 0;
     for (const peer of world.query([ConnectionSlot]))
         roster |= 1 << world.get(peer, ConnectionSlot)!.slot;
-    const words = new Uint32Array([ASSIGNMENT, slot, roster]);
+    const leader = world.resource(ServerSession).server?.leader;
+    const leaderSlot = leader === undefined ? undefined : world.get(leader, ConnectionSlot)?.slot;
+    const words = new Uint32Array([ASSIGNMENT, slot, roster, leaderSlot ?? SLOTS.length]);
     return new Uint8Array(words.buffer);
 }
 export const GAME: Game = {
@@ -137,6 +140,7 @@ export const GAME: Game = {
 export class GameClient {
     slot = -1;
     roster = 0;
+    leader: number = SLOTS.length;
     readonly prediction: ClientPrediction;
     readonly intent: IntentSender;
     readonly connection: Connection;
@@ -155,11 +159,12 @@ export class GameClient {
             send: (bytes) => connection.send(bytes),
             receive: () =>
                 connection.receive().filter((bytes) => {
-                    if (bytes.length !== 12) return true;
+                    if (bytes.length !== 16) return true;
                     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
                     if (view.getUint32(0, true) !== ASSIGNMENT) return true;
                     this.slot = view.getUint32(4, true);
                     this.roster = view.getUint32(8, true);
+                    this.leader = view.getUint32(12, true);
                     return false;
                 }),
         };

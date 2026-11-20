@@ -77,6 +77,10 @@ class GameServer {
     get peers(): ReadonlyMap<number, Peer> {
         return this._peers;
     }
+    /** Server entity of the earliest admitted remaining seat, including seats held for rejoin. */
+    get leader(): number | undefined {
+        return this._peers.keys().next().value;
+    }
     readonly world: World;
     readonly game: Game;
     private readonly _diagnostics: DiagnosticsStore;

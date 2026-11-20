@@ -50,6 +50,7 @@ let dropped = false;
 let rejoining = false;
 let ownSlot = -1;
 let roster = 0;
+let leader: number | undefined;
 let generation: number | undefined;
 let openSlot = -1;
 let seed = 0;
@@ -187,7 +188,8 @@ function renderParty() {
             name.textContent = you ? "You" : bot ? `Bot ${bot.name}` : `Player ${slot + 1}`;
             name.title = name.textContent;
             member.append(name);
-            if (you && host) member.insertAdjacentHTML("beforeend", icon("star", "Party leader"));
+            if (slot === leader)
+                member.insertAdjacentHTML("beforeend", icon("star", "Party leader"));
             if (bot) {
                 const remove = slotButton(`Remove ${name.textContent}`, "remove");
                 remove.onclick = () =>
@@ -265,9 +267,10 @@ const RoomPanel: Plugin = {
                     rejoining = false;
                     buttons();
                 }
-                if (peer.slot !== ownSlot || peer.roster !== roster) {
+                if (peer.slot !== ownSlot || peer.roster !== roster || peer.leader !== leader) {
                     ownSlot = peer.slot;
                     roster = peer.roster;
+                    leader = peer.leader;
                     renderParty();
                 }
             },
@@ -345,6 +348,7 @@ async function leave() {
     dropped = rejoining = false;
     ownSlot = openSlot = -1;
     roster = 0;
+    leader = undefined;
     generation = undefined;
     list.replaceChildren();
     session.hidden = true;
