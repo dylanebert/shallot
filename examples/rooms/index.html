@@ -22,7 +22,7 @@
         <aside class="ec controls" aria-labelledby="rooms-title" hidden>
             <details id="room-panel" open>
                 <summary class="panel-title" id="room-toggle">
-                    <span id="party-crown" aria-hidden="true" hidden>♛</span>
+                    <span id="party-crown" aria-hidden="true" hidden>★</span>
                     <span id="rooms-title">Rooms</span>
                     <output id="party-count" hidden></output>
                     <output id="room-code" hidden></output>
@@ -33,7 +33,7 @@
                         <button id="quick">Quick join</button>
                         <button id="create">Create private room</button>
                         <details>
-                            <summary class="row">Have a code?</summary>
+                            <summary class="row">Enter code</summary>
                             <form id="join">
                                 <input id="code" aria-label="Room code" placeholder="Room code" autocomplete="off" autocapitalize="characters" spellcheck="false" required />
                                 <button>Join</button>
@@ -41,11 +41,10 @@
                         </details>
                     </section>
                     <section class="section" id="session" aria-label="Current room" hidden>
-                        <div class="actions" id="share"><output id="share-code" aria-label="Room code"></output><button id="copy" disabled>Copy code</button></div>
-                        <p id="local-note">Friends join through a <a id="server-guide">Bun server</a>.</p>
-                        <ul class="section" id="players" aria-label="Party slots"></ul>
+                        <div class="actions" id="share"><span>Room code</span><output id="share-code"></output><button id="copy" class="icon" aria-label="Copy room code" title="Copy room code" disabled>⎘</button></div>
+                        <ul id="players" aria-label="Party slots"></ul>
                         <div class="actions">
-                            <button id="leave">Leave room</button>
+                            <button id="leave">Leave</button>
                             <button id="drop" hidden>Drop connection</button>
                         </div>
                     </section>

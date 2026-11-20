@@ -31,7 +31,11 @@ async function server() {
             child.once("error", reject);
             child.once("exit", (code) => reject(new Error(`Bun server exited: ${code}`)));
         });
-        return { query: `/?server=ws://127.0.0.1:${port}`, stop };
+        return {
+            address: `http://127.0.0.1:${port}/`,
+            query: `/?server=ws://127.0.0.1:${port}`,
+            stop,
+        };
     } catch (error) {
         await stop();
         throw error;
@@ -44,16 +48,27 @@ test("quick join opens a party with fixed slots and local bot controls", async (
 }) => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await page.goto("/");
-    await expect(page.getByRole("textbox", { name: "Room code" })).toBeHidden();
+    const input = page.getByRole("textbox", { name: "Room code" });
+    await expect(input).toBeHidden();
     await expect(page.getByText("Public rooms")).toBeHidden();
-    await page.getByText("Have a code?").click();
+    const enter = page.getByText("Enter code");
+    await enter.hover();
+    await expect(enter).toHaveCSS("border-top-color", "rgb(160, 140, 120)");
+    await enter.click();
+    await page.keyboard.press("Tab");
+    await expect(input.and(page.locator(":focus-visible"))).toBeFocused();
+    await input.hover();
+    await expect(input).toHaveCSS("border-top-color", "rgb(160, 140, 120)");
+    await page.mouse.down();
+    await expect(input).toHaveCSS("background-color", "rgb(42, 36, 32)");
+    await page.mouse.up();
     await expect(action(page, "Join")).toBeVisible();
     await action(page, "Quick join").click();
     await expect(page.locator("#party-count")).toHaveText("1 / 4");
     await expect(players(page)).toHaveCount(4);
     await expect(players(page).first()).toContainText("You");
-    await expect(page.getByLabel("Party leader")).toBeVisible();
-    await action(page, "Copy code").click();
+    await expect(page.getByLabel("You, party leader")).toBeVisible();
+    await action(page, "Copy room code").click();
     expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/^[A-Z0-9]{10}$/);
     await action(page, "Empty slot 3").click();
     await action(page, "Add bot").click();
@@ -61,42 +76,37 @@ test("quick join opens a party with fixed slots and local bot controls", async (
     await expect(page.locator("#party-count")).toHaveText("2 / 4");
     await action(page, "Remove Bot 1").click();
     await expect(action(page, "Empty slot 3")).toBeVisible();
-    await action(page, "Leave room").click();
+    await action(page, "Leave").click();
     await expect(action(page, "Quick join")).toBeVisible();
 });
 
-test("a private Bun party accepts its code and its copied invite URL", async ({
+test("two tabs at the same Bun URL join a private party by its copied code", async ({
     page,
     context,
 }) => {
     const host = await server();
     try {
         await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-        await page.goto(host.query);
+        await page.goto(host.address);
         await action(page, "Create private room").click();
-        await expect(players(page).first()).toHaveText("You");
-        await expect(page.locator("#room-code")).toHaveText(/^[A-Z0-9]{10}$/);
-        const code = await page.locator("#room-code").innerText();
-        await action(page, "Empty slot 2").click();
-        await action(page, "Copy invite").last().click();
-        const invite = await page.evaluate(() => navigator.clipboard.readText());
-        expect(new URL(invite).searchParams.get("code")).toBe(code);
+        await expect(players(page).first()).toContainText("You");
+        await expect(page.locator("#share-code")).toHaveText(/^[A-Z0-9]{10}$/);
+        const code = await page.locator("#share-code").innerText();
+        await action(page, "Copy room code").click();
+        expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(code);
         const friend = await context.newPage();
-        await friend.goto(host.query);
-        await friend.getByText("Have a code?").click();
+        await friend.goto(host.address);
+        await friend.getByText("Enter code").click();
         await friend.getByRole("textbox", { name: "Room code" }).fill(code);
         await action(friend, "Join").click();
-        await expect(players(friend).nth(0)).toHaveText("Player 1");
-        await expect(players(friend).nth(1)).toHaveText("You");
-        await expect(players(page).nth(1)).toHaveText("Player 2");
+        await expect(players(friend).nth(0)).toContainText("Player 1");
+        await expect(players(friend).nth(1)).toContainText("You");
+        await expect(players(page).nth(1)).toContainText("Player 2");
         await expect(friend.locator("#party-crown")).toBeHidden();
-        await expect(action(friend, "Add bot")).toBeHidden();
+        await expect(action(friend, "Empty slot 3")).toBeHidden();
         await expect(action(friend, "Drop connection")).toBeHidden();
-        await action(friend, "Leave room").click();
+        await action(friend, "Leave").click();
         await expect(page.locator("#party-count")).toHaveText("1 / 4");
-        await friend.goto(invite);
-        await expect(friend.locator("#party-count")).toHaveText("2 / 4");
-        await expect(players(friend).nth(1)).toHaveText("You");
     } finally {
         await host.stop();
     }
@@ -120,15 +130,15 @@ test("a served page resumes its own avatar when its socket is dropped", async ({
         });
         await page.goto(host.query);
         await action(page, "Quick join").click();
-        await expect(players(page).first()).toHaveText("You");
-        await expect(page.locator("#room-code")).toHaveText(/^[A-Z0-9]{10}$/);
-        const code = await page.locator("#room-code").innerText();
+        await expect(players(page).first()).toContainText("You");
+        await expect(page.locator("#share-code")).toHaveText(/^[A-Z0-9]{10}$/);
+        const code = await page.locator("#share-code").innerText();
         await page.evaluate(() =>
             (window as Window & { dropRoomSocket?: () => void }).dropRoomSocket!(),
         );
         await expect(page.getByText("Rejoined as the same player.")).toBeVisible();
-        await expect(players(page).first()).toHaveText("You");
-        await expect(page.locator("#room-code")).toHaveText(code);
+        await expect(players(page).first()).toContainText("You");
+        await expect(page.locator("#share-code")).toHaveText(code);
     } finally {
         await host.stop();
     }

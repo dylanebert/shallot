@@ -1,7 +1,9 @@
 # Rooms
 
-Open the example, then **Quick join**. In this tab, open an empty party slot to add a bot. **Drop connection** cuts your link; **Resume connection** returns you to your avatar if you resume within 10 seconds. Leaving ends your session and removes the bots you added.
+In this directory, run `bun server.ts`, then open **http://127.0.0.1:3001/** in every tab. Quick join picks a public room. To play together in private, create a room, copy its code, and have your friend choose **Enter code** at that same address.
 
-To play with a friend, run `bun server.ts` in this directory and open the example with `?server=ws://127.0.0.1:3001`. Create a private room, then use **Copy invite** to send a link that joins it. A friend who already has the example open against that server can also enter the code under **Have a code?**. For another device, bind the server with `--host 0.0.0.0` and give the friend a reachable server address. On an HTTPS page, use a WSS endpoint behind a TLS reverse proxy that forwards both WebSocket upgrades and `/rooms`. `--origin` sets the allowed browser origin for room listing and code reservation; the demo defaults to `*`. Private codes are invitations, not accounts or authentication.
+For another device, use `bun server.ts --host 0.0.0.0` and open `http://<server-ip>:3001/` on both devices. A separately hosted copy can still use `?server=ws://<server-ip>:3001`. From an HTTPS page, use `wss://` and forward both WebSocket upgrades and `/rooms` through your TLS reverse proxy. `--origin` sets the allowed browser origin for cross-origin room reservation; the demo defaults to `*`.
+
+On the static site or with `bunx vite`, rooms stay in one tab. Open an empty party slot to add a bot. **Drop connection**, then **Resume connection** within 10 seconds, to keep your seat.
 
 Click the scene to look with the mouse; WASD moves and Space jumps. On touch, the floating stick moves, a drag looks, and Jump jumps.

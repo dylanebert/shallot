@@ -7,9 +7,15 @@ function element<T extends HTMLElement = HTMLElement>(id: string) {
     return document.getElementById(id) as T;
 }
 
+declare const ROOMS_SAME_ORIGIN: boolean;
+
 const page = new URL(location.href);
 const server = page.searchParams.get("server");
-const url = server ? new URL(server, page) : undefined;
+const url = server
+    ? new URL(server, page)
+    : typeof ROOMS_SAME_ORIGIN !== "undefined" && ROOMS_SAME_ORIGIN
+      ? new URL(page.origin)
+      : undefined;
 if (url && !["http:", "https:", "ws:", "wss:"].includes(url.protocol))
     throw new Error("Use an HTTP or WebSocket server address");
 const host = url
@@ -33,7 +39,7 @@ const drop = element<HTMLButtonElement>("drop");
 const codeLabel = element("room-code");
 const count = element("party-count");
 const crown = element("party-crown");
-const copyLabel = url ? "Copy invite" : "Copy code";
+const codeInput = element<HTMLInputElement>("code");
 let app: App | undefined;
 let seat: Seat | undefined;
 let roomCode = "";
@@ -46,10 +52,7 @@ let generation: number | undefined;
 let openSlot = -1;
 let seed = 0;
 
-element("local-note").hidden = !!url;
-element<HTMLAnchorElement>("server-guide").href = new URL("../RUNNING.md", import.meta.url).href;
 drop.hidden = !!url;
-copy.textContent = copyLabel;
 
 function message(text: string) {
     status.textContent = text;
@@ -58,6 +61,7 @@ function message(text: string) {
 
 function buttons() {
     for (const button of lobby.querySelectorAll("button")) button.disabled = busy;
+    codeInput.disabled = busy;
     for (const button of list.querySelectorAll("button"))
         button.disabled = busy || dropped || rejoining || ownSlot < 0;
     copy.disabled = busy || !roomCode;
@@ -83,20 +87,18 @@ async function act(action: () => Promise<void> | void) {
 
 function showCode(code: string) {
     roomCode = code;
-    codeLabel.textContent = code;
+    codeLabel.textContent = code ? `Room code ${code}` : "";
     element("share-code").textContent = code;
-    copy.textContent = copyLabel;
+    copy.textContent = "⎘";
+
     buttons();
 }
 
-async function copyInvite(button: HTMLButtonElement) {
-    const invite = new URL(page);
-    invite.searchParams.set("code", roomCode);
-    await navigator.clipboard.writeText(url ? invite.href : roomCode);
-    button.textContent = "Copied";
-}
-
-copy.onclick = () => void act(() => copyInvite(copy));
+copy.onclick = () =>
+    void act(async () => {
+        await navigator.clipboard.writeText(roomCode);
+        copy.textContent = "✓";
+    });
 
 function slotButton(text: string, action: (button: HTMLButtonElement) => Promise<void> | void) {
     const button = document.createElement("button");
@@ -114,16 +116,14 @@ function renderParty() {
         const bot = bots.get(slot);
         if (you || bot || (url && roster & (1 << slot))) {
             occupied++;
+            const portrait = document.createElement("span");
+            portrait.className = "portrait";
+            portrait.textContent = you ? (host ? "Y ★" : "Y") : bot ? "B" : "P";
+            portrait.setAttribute("aria-hidden", "true");
             const name = document.createElement("span");
-            name.className = "slot-name";
             name.textContent = you ? "You" : bot ? `Bot ${bot.name}` : `Player ${slot + 1}`;
-            row.append(name);
-            if (you && host) {
-                const leader = document.createElement("span");
-                leader.textContent = "♛";
-                leader.setAttribute("aria-label", "Party leader");
-                row.append(leader);
-            }
+            if (you && host) name.setAttribute("aria-label", "You, party leader");
+            row.append(portrait, name);
             if (bot) {
                 const remove = slotButton("×", () => {
                     bot.remove();
@@ -135,17 +135,17 @@ function renderParty() {
             }
         } else {
             row.className = "empty";
-            const action =
-                openSlot === slot
-                    ? host
+            if (host) {
+                const action =
+                    openSlot === slot
                         ? slotButton("Add bot", () => addBot(slot))
-                        : slotButton("Copy invite", copyInvite)
-                    : slotButton("+ Empty slot", () => {
-                          openSlot = slot;
-                          renderParty();
-                      });
-            if (openSlot !== slot) action.setAttribute("aria-label", `Empty slot ${slot + 1}`);
-            row.append(action);
+                        : slotButton("", () => {
+                              openSlot = slot;
+                              renderParty();
+                          });
+                if (openSlot !== slot) action.setAttribute("aria-label", `Empty slot ${slot + 1}`);
+                row.append(action);
+            }
         }
         slots.push(row);
     }
@@ -285,7 +285,7 @@ element("create").onclick = () =>
     });
 element<HTMLFormElement>("join").onsubmit = (event) => {
     event.preventDefault();
-    const code = element<HTMLInputElement>("code").value.trim().toUpperCase();
+    const code = codeInput.value.trim().toUpperCase();
     if (code) void act(() => join(code));
 };
 element("leave").onclick = () => void act(leave);
@@ -313,5 +313,3 @@ window.addEventListener("pagehide", (event) => {
 });
 document.querySelector(".ec.controls")?.removeAttribute("hidden");
 document.querySelector("[data-shallot-bootstrap]")?.remove();
-const invite = page.searchParams.get("code");
-if (url && invite) void act(() => join(invite));
