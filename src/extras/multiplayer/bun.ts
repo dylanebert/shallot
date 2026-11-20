@@ -150,8 +150,11 @@ const CLAIM_MS = 60_000;
 const MAX_UNCLAIMED_CODES = 128;
 
 /** Hosts independent authoritative Worlds of one game. POST /rooms returns 201
- * and JSON { code } for a private room. Share the code out of band and claim it
- * within 60 seconds with `?intent=join&code=…`. A code is 10 case-insensitive
+ * and JSON { code } for a private room. GET /rooms returns a fresh JSON array
+ * of public rooms with { code, clients, maxClients }. `clients`
+ * counts occupied seats, including pending startup. Share a private code out of
+ * band and claim it within 60 seconds with `?intent=join&code=…`.
+ * A code is 10 case-insensitive
  * Crockford Base32 characters (no I, L, O or U). Codes are unique among live
  * rooms and may be randomly issued again after retirement. The host holds at
  * most 128 unclaimed codes to allow concurrent invitations without unbounded
@@ -317,8 +320,20 @@ function hostRooms(
     const endpoint = serveWebSocket({
         ...options,
         fetch(request) {
-            if (pinned || request.method !== "POST" || new URL(request.url).pathname !== "/rooms")
-                return;
+            if (pinned || new URL(request.url).pathname !== "/rooms") return;
+            if (request.method === "GET") {
+                const listing = [];
+                for (const room of rooms.values()) {
+                    if (room.private) continue;
+                    listing.push({
+                        code: room.code,
+                        clients: room.seats.size,
+                        maxClients: game.maxClients,
+                    });
+                }
+                return Response.json(listing, { headers: { "Cache-Control": "no-store" } });
+            }
+            if (request.method !== "POST") return;
             if (stopped) return new Response(null, { status: 503 });
             const now = reservationNow();
             expireCodes(now);

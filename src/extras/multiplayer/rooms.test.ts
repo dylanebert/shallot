@@ -32,7 +32,7 @@ function roomSocket(port: number | undefined, query: string) {
     return { socket, closed };
 }
 
-test("room sockets reserve seats, isolate images and release empty Worlds", async () => {
+test("room sockets isolate Worlds and discovery follows public seats only", async () => {
     const worlds: World[] = [];
     const disposed = new Set<World>();
     const transports = new Map<World, Connection[]>();
@@ -56,6 +56,15 @@ test("room sockets reserve seats, isolate images and release empty Worlds", asyn
         applyIntent() {},
     };
     const host = serveRooms(game, { hostname: "127.0.0.1", port: 0 });
+    async function listing() {
+        const response = await fetch(`http://127.0.0.1:${host.port}/rooms`);
+        expect(response.status).toBe(200);
+        return (await response.json()) as {
+            code: string;
+            clients: number;
+            maxClients: number;
+        }[];
+    }
     const clients: { socket: WebSocket; world: World }[] = [];
     function connect(query: string) {
         const { socket, closed } = roomSocket(host.port, query);
@@ -83,13 +92,21 @@ test("room sockets reserve seats, isolate images and release empty Worlds", asyn
     try {
         const code = await privateCode(host.port);
         expect(worlds).toEqual([]);
+        expect(await listing()).toEqual([]);
         expect((await connect("create&code=friend").closed).code).toBe(1008);
         const owner = connect(`join&code=${code.toLowerCase()}`);
         await owner.sees(1);
+        expect(await listing()).toEqual([]);
         const a = connect("joinOrCreate");
-        const b = connect("joinOrCreate");
         await a.sees(2);
+        const [entry] = await listing();
+        expect(entry?.code).toMatch(/^[0-9A-HJKMNP-TV-Z]{10}$/);
+        const publicRoom = { code: entry!.code, clients: 1, maxClients: 2 };
+        expect(publicRoom.code).not.toBe(code);
+        expect(await listing()).toEqual([publicRoom]);
+        const b = connect(`join&code=${publicRoom.code}`);
         await b.sees(2);
+        expect(await listing()).toEqual([{ ...publicRoom, clients: 2 }]);
         expect(worlds).toHaveLength(2);
         const friend = connect(`join&code=${code}`);
         await friend.sees(1);
@@ -111,9 +128,15 @@ test("room sockets reserve seats, isolate images and release empty Worlds", asyn
         await replacement.sees(4);
         await a.close();
         await until(() => transports.get(worlds[1]!)![0]!.closed === true);
+        const [first, second] = await listing();
+        expect(first).toEqual(publicRoom);
         const refill = connect("joinOrCreate");
         await refill.sees(2);
         expect(worlds).toHaveLength(4);
+        await b.close();
+        await refill.close();
+        await until(() => disposed.has(worlds[1]!));
+        expect(await listing()).toEqual([{ code: second!.code, clients: 1, maxClients: 2 }]);
         host.stop();
         expect(disposed).toEqual(new Set(worlds));
         await Promise.all([b.closed, overflow.closed, replacement.closed, refill.closed]);
