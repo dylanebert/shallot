@@ -16,12 +16,12 @@ function requestCode(port: number | undefined) {
     return fetch(`http://127.0.0.1:${port}/rooms`, { method: "POST" });
 }
 
-async function privateCode(port: number | undefined) {
+async function reserve(port: number | undefined) {
     const response = await requestCode(port);
     expect(response.status).toBe(201);
-    const { code } = (await response.json()) as { code: string };
+    const { code, creator } = (await response.json()) as { code: string; creator: string };
     expect(code).toMatch(/^[0-9A-HJKMNP-TV-Z]{10}$/);
-    return code;
+    return { code, join: `join&code=${code.toLowerCase()}&creator=${creator}` };
 }
 
 function roomSocket(port: number | undefined, query: string) {
@@ -132,11 +132,11 @@ test("room sockets isolate Worlds and discovery follows public seats only", asyn
     try {
         const page = await fetch(`http://127.0.0.1:${host.port}/`);
         expect(await page.text()).toBe("game page");
-        const code = await privateCode(host.port);
+        const { code, join } = await reserve(host.port);
         expect(worlds).toEqual([]);
         expect(await listing()).toEqual([]);
         expect((await connect("create&code=friend").closed).code).toBe(1008);
-        const owner = connect(`join&code=${code.toLowerCase()}`);
+        const owner = connect(join);
         await owner.sees(1);
         expect(await listing()).toEqual([]);
         const a = connect("joinOrCreate");
@@ -166,7 +166,7 @@ test("room sockets isolate Worlds and discovery follows public seats only", asyn
             expect(transport.receive()).toEqual([]);
         }
         expect((await connect(`join&code=${code}`).closed).code).toBe(1008);
-        const replacement = connect(`join&code=${await privateCode(host.port)}`);
+        const replacement = connect((await reserve(host.port)).join);
         await replacement.sees(4);
         await a.close();
         await until(() => transports.get(worlds[1]!)![0]!.closed === true);
@@ -207,19 +207,19 @@ test("private code reservations are bounded host-wide and claim or expiry frees 
         { hostname: "127.0.0.1", port: 0, reservationNow: () => now },
     );
     try {
-        const expiring = await privateCode(host.port);
+        const { code: expiring } = await reserve(host.port);
         now = 1000;
-        const claimable = await privateCode(host.port);
-        const codes = new Set([expiring, claimable]);
-        for (let i = 2; i < 128; i++) codes.add(await privateCode(host.port));
+        const claimable = await reserve(host.port);
+        const codes = new Set([expiring, claimable.code]);
+        for (let i = 2; i < 128; i++) codes.add((await reserve(host.port)).code);
         expect(codes.size).toBe(128);
         const refused = await requestCode(host.port);
         expect(refused.status).toBe(503);
         expect(refused.headers.get("Retry-After")).toBe("60");
 
-        const claim = roomSocket(host.port, `join&code=${claimable}`);
+        const claim = roomSocket(host.port, claimable.join);
         await joined.promise;
-        expect(codes.has(await privateCode(host.port))).toBe(false);
+        expect(codes.has((await reserve(host.port)).code)).toBe(false);
         expect((await requestCode(host.port)).status).toBe(503);
 
         now = 60_001;
@@ -233,11 +233,11 @@ test("private code reservations are bounded host-wide and claim or expiry frees 
             ),
         ]);
         expect(outcome).toBe(1008);
-        await privateCode(host.port);
+        await reserve(host.port);
         expect((await requestCode(host.port)).status).toBe(503);
 
         now = 61_001;
-        await privateCode(host.port);
+        await reserve(host.port);
         host.stop();
         await claim.closed;
     } finally {
@@ -282,12 +282,13 @@ test.each(["last leave", "stop", "failure"] as const)(
         const host = serveRooms(game, options);
         let replacementHost = host;
         try {
-            const code = await privateCode(host.port);
-            const pending = roomSocket(host.port, `join&code=${code}`);
+            const { code, join } = await reserve(host.port);
+            const pending = roomSocket(host.port, join);
             const oldWorld = await initializing.promise;
             expect(joined).toEqual([]);
             expect(disposed).toEqual([]);
-            expect((await roomSocket(host.port, `join&code=${code}`).closed).code).toBe(1013);
+            expect((await roomSocket(host.port, `join&code=${code}`).closed).code).toBe(4001);
+            expect((await roomSocket(host.port, join).closed).code).toBe(1013);
             if (event === "last leave") {
                 pending.socket.close();
                 await pending.closed;
@@ -303,8 +304,8 @@ test.each(["last leave", "stop", "failure"] as const)(
             if (event !== "stop") {
                 expect((await roomSocket(host.port, `join&code=${code}`).closed).code).toBe(1008);
             }
-            const nextCode = await privateCode(replacementHost.port);
-            const replacement = roomSocket(replacementHost.port, `join&code=${nextCode}`);
+            const next = await reserve(replacementHost.port);
+            const replacement = roomSocket(replacementHost.port, next.join);
             gate.resolve();
             const nextWorld = await replacementJoined.promise;
             expect(nextWorld).not.toBe(oldWorld);

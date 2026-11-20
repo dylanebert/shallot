@@ -163,8 +163,8 @@ test("a resume credential cannot override the requested room code", async () => 
             const response = await fetch(`http://127.0.0.1:${f.host.port}/rooms`, {
                 method: "POST",
             });
-            const { code } = (await response.json()) as { code: string };
-            return `${f.url.replace("joinOrCreate", "join")}&code=${code.toLowerCase()}`;
+            const { code, creator } = (await response.json()) as { code: string; creator: string };
+            return `${f.url.replace("joinOrCreate", "join")}&code=${code.toLowerCase()}&creator=${creator}`;
         };
         const firstRoom = await join();
         const secondRoom = await join();

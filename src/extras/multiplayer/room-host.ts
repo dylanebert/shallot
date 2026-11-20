@@ -34,10 +34,17 @@ interface Room<C> {
     app?: App;
     ready?: Promise<void>;
     held?: number;
+    reservation?: Reservation;
+}
+
+interface Reservation {
+    creator: string;
+    issuedAt: number;
 }
 
 const CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 export const ROOM_CODE_CLAIM_MS = 60_000;
+const CREATOR_HOLD_MS = 30_000;
 const MAX_UNCLAIMED_CODES = 128;
 
 export function roomHost<
@@ -68,7 +75,7 @@ export function roomHost<
     const count = (room: Room<C>) => room.seats.size + (room.held ?? 0);
     const rooms = new Map<string, Room<C>>();
     const active = new Set<App>();
-    const unclaimed = new Map<string, number>();
+    const unclaimed = new Map<string, Reservation>();
     const reservationNow = options.reservationNow ?? (() => performance.now());
     const memberships = new WeakMap<C, Room<C>>();
     const pinned: Room<C> | undefined = pinnedApp && {
@@ -84,8 +91,8 @@ export function roomHost<
     let stopped = false;
 
     function expireCodes(now: number) {
-        for (const [code, expiresAt] of unclaimed) {
-            if (expiresAt > now) break;
+        for (const [code, { issuedAt }] of unclaimed) {
+            if (issuedAt + ROOM_CODE_CLAIM_MS > now) break;
             unclaimed.delete(code);
         }
     }
@@ -179,6 +186,7 @@ export function roomHost<
             if (eid === undefined) refuseFull(connection);
             else {
                 room.seats.set(connection, eid);
+                room.reservation = undefined;
                 if (room.code) options.sendRoom?.(connection, room.code);
                 if (reconnectMs && resumable.has(connection)) {
                     const token = crypto.randomUUID();
@@ -254,7 +262,12 @@ export function roomHost<
         connection.close(1013, pinned ? "Peer limit reached" : "Room full");
     }
 
-    function selectRoom(intent: string | null, code: string | null) {
+    function selectRoom(
+        connection: C,
+        intent: string | null,
+        code: string | null,
+        creator: string | null,
+    ) {
         if (intent === "joinOrCreate" && code === null) {
             for (const room of rooms.values()) {
                 if (!room.private && count(room) < game.maxClients) return room;
@@ -262,9 +275,24 @@ export function roomHost<
             return createRoom(issueCode(), false);
         }
         if (intent === "join" && code) {
-            expireCodes(reservationNow());
+            const time = reservationNow();
+            expireCodes(time);
             const key = code.toUpperCase();
-            return unclaimed.delete(key) ? createRoom(key, true) : rooms.get(key);
+            const room = rooms.get(key);
+            const reservation = room?.reservation ?? unclaimed.get(key);
+            if (
+                reservation &&
+                time < reservation.issuedAt + CREATOR_HOLD_MS &&
+                creator !== reservation.creator
+            ) {
+                connection.close(4001, "First seat reserved for creator");
+                return null;
+            }
+            if (!reservation || room) return room;
+            unclaimed.delete(key);
+            const claimed = createRoom(key, true);
+            claimed.reservation = reservation;
+            return claimed;
         }
     }
 
@@ -284,8 +312,9 @@ export function roomHost<
         expireCodes(time);
         if (unclaimed.size >= MAX_UNCLAIMED_CODES) return;
         const code = issueCode();
-        unclaimed.set(code, time + ROOM_CODE_CLAIM_MS);
-        return code;
+        const creator = crypto.randomUUID();
+        unclaimed.set(code, { creator, issuedAt: time });
+        return { code, creator };
     }
 
     function connect(
@@ -293,12 +322,14 @@ export function roomHost<
         {
             intent = null,
             code = null,
+            creator = null,
             resume: token = null,
             seat: id = null,
             reconnectable = true,
         }: {
             intent?: string | null;
             code?: string | null;
+            creator?: string | null;
             resume?: string | null;
             seat?: string | null;
             reconnectable?: boolean;
@@ -342,7 +373,8 @@ export function roomHost<
             }
             return;
         }
-        const room = pinned ?? selectRoom(intent, code);
+        const room = pinned ?? selectRoom(connection, intent, code, creator);
+        if (room === null) return;
         if (!room) {
             connection.close(1008, "Unknown room or invalid intent");
             return;

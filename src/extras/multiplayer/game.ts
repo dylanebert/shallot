@@ -31,6 +31,10 @@ import { LEAVE_CLOSE_CODE, WebSocketConnection } from "./websocket";
 /** A live server-side connection entity. Its transport and histories live outside ECS storage. */
 export const ClientOf = component("ClientOf", {});
 
+/** Server-owned marker on the leading seat. Include it in the schema and disclose it on
+ * seat entities through Replicate to let clients observe the leader. */
+export const RoomLeader = component("RoomLeader", {});
+
 /** Shared protocol and game policy. Connection arguments are server eids, not client-supplied IDs.
  * Hooks borrow runtime handles; explicit disconnect calls onLeave before despawning.
  * Direct ECS removal may already have removed the entity's other components.
@@ -127,6 +131,8 @@ class GameServer {
                 intent: new IntentReceiver(connection),
                 diagnostics,
             });
+            if (this.game.schema.includes(RoomLeader) && this.leader === eid)
+                this.world.add(eid, RoomLeader);
             this._diagnostics.record("network/peer_count", this._peers.size);
             sender.record(this.world.time.fixedTick);
             sender.flush();
@@ -147,10 +153,16 @@ class GameServer {
     disconnect(eid: number): void {
         const peer = this._peers.get(eid);
         if (!peer) return;
+        const wasLeader = this.leader === eid;
         this._peers.delete(eid);
         peer.diagnostics.remove();
         this._diagnostics.record("network/peer_count", this._peers.size);
         try {
+            if (wasLeader && this.game.schema.includes(RoomLeader)) {
+                if (this.world.has(eid, RoomLeader)) this.world.remove(eid, RoomLeader);
+                const successor = this.leader;
+                if (successor !== undefined) this.world.add(successor, RoomLeader);
+            }
             this.game.onLeave?.(this.world, eid);
         } finally {
             peer.connection.close();
@@ -224,7 +236,7 @@ export function server(game: Game): Plugin {
     return {
         name: "MultiplayerServer",
         dependencies: [...game.plugins, MultiplayerPlugin],
-        components: [ClientOf],
+        components: [ClientOf, RoomLeader],
         recovery: "stateless",
         initialize(world) {
             world.resource(ServerSession).server = new GameServer(world, game);
@@ -325,6 +337,7 @@ export function client(
                     cancel = schedule(delay, () => {
                         if (disposed) return;
                         const url = new URL(socket.url);
+                        url.searchParams.delete("creator");
                         url.searchParams.set("resume", token!);
                         url.searchParams.set("seat", seat!);
                         current = attach(new WebSocket(url));
@@ -465,12 +478,13 @@ function localHost(game: Game, options: LocalOptions, pinned?: App, recorder?: S
             throw error;
         }
     }
-    async function join(code?: string, clientRecorder?: SessionRecorder) {
+    async function join(code?: string, creator?: string, clientRecorder?: SessionRecorder) {
         const clientSeed = seed++;
         let current = stream(clientSeed);
         const result = host.connect(current.endpoint, {
             intent: code === undefined ? "joinOrCreate" : "join",
             code,
+            creator,
         });
         await result?.ready;
         if (!result?.room.app || current.endpoint.closed) throw new Error("Local client refused");
@@ -595,11 +609,13 @@ type LegacyLocalOptions = LocalOptions & {
 
 type LocalHost = ReturnType<typeof localHost>;
 type LocalRooms = Omit<LocalHost, "join"> & {
-    join(code?: string): ReturnType<LocalHost["join"]>;
+    join(code?: string, creator?: string): ReturnType<LocalHost["join"]>;
 };
 
 /** Same-process rooms over seeded links. join() quick-joins; join(code) claims or enters a room.
- * create() reserves a private code for 60 seconds (undefined at capacity). list() lists public rooms.
+ * create() returns a private code valid for 60 seconds until claimed (undefined at capacity).
+ * Pass its creator credential as join(code, creator) to take the first seat during the first
+ * 30 seconds. list() lists public rooms.
  * Build a caller-owned client app with the joined seat's plugin; disposing it leaves the seat.
  * Leave explicitly if the build fails. Dispose the host to release all rooms and bots.
  * Pump frame deltas in seconds; delays and reconnect windows are milliseconds of pumped time.
@@ -629,7 +645,7 @@ export async function local(game: Game, options: LegacyLocalOptions & { rooms?: 
     try {
         serverRecorder?.attachServer();
         host = localHost(game, options, app, serverRecorder);
-        const seat = await host.join(undefined, clientRecorder);
+        const seat = await host.join(undefined, undefined, clientRecorder);
         for (const thin of options.thinClients ?? []) await seat.addBot(thin);
         return {
             plugin: seat.plugin,

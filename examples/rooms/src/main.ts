@@ -1,8 +1,8 @@
 import { type App, type Plugin, runApp } from "@dylanebert/shallot";
-import { client, local } from "@dylanebert/shallot/multiplayer";
+import { client, local, RoomLeader } from "@dylanebert/shallot/multiplayer";
 import { AppPlugin, EntryView, RoomFrame } from "./app";
 import { icon } from "./icons";
-import { ClientSession, GAME } from "./network";
+import { ClientSession, ConnectionSlot, GAME } from "./network";
 
 function element<T extends HTMLElement = HTMLElement>(id: string) {
     return document.getElementById(id) as T;
@@ -267,10 +267,15 @@ const RoomPanel: Plugin = {
                     rejoining = false;
                     buttons();
                 }
-                if (peer.slot !== ownSlot || peer.roster !== roster || peer.leader !== leader) {
+                const [leaderEid] = world.query([RoomLeader, ConnectionSlot]);
+                const leaderSlot =
+                    leaderEid === undefined
+                        ? undefined
+                        : world.get(leaderEid, ConnectionSlot)?.slot;
+                if (peer.slot !== ownSlot || peer.roster !== roster || leaderSlot !== leader) {
                     ownSlot = peer.slot;
                     roster = peer.roster;
-                    leader = peer.leader;
+                    leader = leaderSlot;
                     renderParty();
                 }
             },
@@ -278,7 +283,7 @@ const RoomPanel: Plugin = {
     ],
 };
 
-async function join(code?: string) {
+async function join(code?: string, creator?: string) {
     message("Joining…");
     let plugin: Plugin;
     let refused = false;
@@ -288,6 +293,7 @@ async function join(code?: string) {
         endpoint.protocol = ["https:", "wss:"].includes(url.protocol) ? "wss:" : "ws:";
         endpoint.searchParams.set("intent", code ? "join" : "joinOrCreate");
         if (code) endpoint.searchParams.set("code", code);
+        if (creator) endpoint.searchParams.set("creator", creator);
         plugin = client(GAME, {
             url: endpoint.href,
             onRoom: showCode,
@@ -304,7 +310,7 @@ async function join(code?: string) {
             },
         });
     } else {
-        seat = await host!.join(code);
+        seat = await host!.join(code, creator);
         plugin = seat.plugin;
         showCode(seat.code);
     }
@@ -361,18 +367,18 @@ async function leave() {
 element("quick").onclick = () => void act(() => join());
 create.onclick = () =>
     void act(async () => {
-        let code: string | undefined;
-        if (host) code = host.create();
+        let reservation: { code: string; creator: string } | undefined;
+        if (host) reservation = host.create();
         else {
             const endpoint = new URL("/rooms", url);
             endpoint.protocol =
                 url?.protocol === "wss:" || url?.protocol === "https:" ? "https:" : "http:";
             const response = await fetch(endpoint, { method: "POST" });
             if (!response.ok) throw new Error(`Rooms server returned ${response.status}.`);
-            ({ code } = await response.json());
+            reservation = await response.json();
         }
-        if (!code) throw new Error("No private room codes are available yet.");
-        await join(code);
+        if (!reservation) throw new Error("No private room codes are available yet.");
+        await join(reservation.code, reservation.creator);
     });
 form.onsubmit = (event) => {
     event.preventDefault();

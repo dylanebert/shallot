@@ -128,7 +128,9 @@ export async function serveGame(
 }
 
 /** Hosts independent authoritative Worlds of one game. POST /rooms returns 201
- * and JSON { code } for a private room. GET /rooms returns a fresh JSON array
+ * and JSON { code, creator } for a private room. Join first with
+ * `?intent=join&code=…&creator=…`; share only the code. Until the creator is admitted
+ * or 30 seconds pass, other joins close with 4001. GET /rooms returns a fresh JSON array
  * of public rooms with { code, clients, maxClients }. `clients`
  * counts occupied seats, including pending startup and held reconnections. Share a private code out of
  * band and claim it within 60 seconds with `?intent=join&code=…`.
@@ -146,7 +148,7 @@ export async function serveGame(
  * With `game.reconnectMs`, admission sends a WebSocket text control message
  * `resume:<seat>:<token>` beside the binary stream. Resume with `?seat=…&resume=…`;
  * a successful resume replaces the token. Invalid, expired, spent, or wrong-room
- * credentials close with 1008. Use WSS and omit resume query
+ * credentials close with 1008. Use WSS and omit creator and resume query
  * credentials from access logs. The first seat starts the World. Pending seats count toward maxClients but
  * are not admitted before startup succeeds. Last leave or stop retires the room
  * immediately; an in-flight build is not canceled, but disposes on success
@@ -202,8 +204,8 @@ function hostRooms(
                 headers.set("Access-Control-Allow-Origin", options.roomsOrigin);
             if (request.method === "GET") return Response.json(host.list(), { headers });
             if (request.method !== "POST") return;
-            const code = host.reserve();
-            if (code) return Response.json({ code }, { status: 201, headers });
+            const reservation = host.reserve();
+            if (reservation) return Response.json(reservation, { status: 201, headers });
             headers.set("Retry-After", String(ROOM_CODE_CLAIM_MS / 1000));
             return new Response(null, { status: 503, headers });
         },
@@ -213,6 +215,7 @@ function hostRooms(
             host.connect(connection, {
                 intent: query?.get("intent"),
                 code: query?.get("code"),
+                creator: query?.get("creator"),
                 resume: query?.get("resume"),
                 seat: query?.get("seat"),
             });

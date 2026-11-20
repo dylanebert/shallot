@@ -14,8 +14,8 @@ test("a room's roster and avatar survive reconnection and track bot departure", 
     });
     try {
         const seat = await host.join();
-        const code = host.create()!;
-        const privateSeat = await host.join(code);
+        const { code, creator } = host.create()!;
+        const privateSeat = await host.join(code, creator);
         const a = await createApp({ defaults: false, plugins: [seat.plugin] });
         const b = await createApp({ defaults: false, plugins: [privateSeat.plugin] });
         try {

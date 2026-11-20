@@ -49,8 +49,8 @@ test("a running room replicates an added bot only there and immediately leaves o
     const { game, joins, leaves, view } = fixture();
     const host = await local(game, { seed: 11, faults, rooms: true });
     const a = await host.join();
-    const privateCode = host.create()!;
-    const b = await host.join(privateCode.toLowerCase());
+    const { code: privateCode, creator } = host.create()!;
+    const b = await host.join(privateCode.toLowerCase(), creator);
     const av = await view(a.plugin);
     const bv = await view(b.plugin);
     try {

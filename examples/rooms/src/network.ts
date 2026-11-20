@@ -21,12 +21,14 @@ import {
     PredictionPlugin,
     PredictionTarget,
     Replicate,
-    ServerSession,
+    RoomLeader,
 } from "@dylanebert/shallot/multiplayer";
 import { Demo, Route } from "./demo";
 import { PlayerMotion } from "./motion";
 import { LocalPlayer, LocalPlayerInputSystem, Player, PlayerInput } from "./player";
 
+export const ConnectionSlot = component("ConnectionSlot", { slot: u32 });
+const PARTY = [ConnectionSlot, RoomLeader];
 export const SCHEMA = [
     Transform,
     GlobalTransform,
@@ -37,10 +39,10 @@ export const SCHEMA = [
     PlayerInput,
     PlayerMotion,
     PredictionMotion,
+    ...PARTY,
 ];
 const PUBLIC = [Transform, GlobalTransform, Body, Shape, PredictionMotion];
-const ConnectionSlot = component("ConnectionSlot", { slot: u32 });
-const Connections: Plugin = { name: "GameConnections", components: [ConnectionSlot] };
+const Connections: Plugin = { name: "GameConnections", components: PARTY };
 export const GAME_PLUGINS = [Demo, PredictionPlugin, MultiplayerPlugin, Connections];
 export function scene(world: World) {
     const result = world.resource(Route).entities;
@@ -87,9 +89,7 @@ function assignment(world: World, slot: number) {
     let roster = 0;
     for (const peer of world.query([ConnectionSlot]))
         roster |= 1 << world.get(peer, ConnectionSlot)!.slot;
-    const leader = world.resource(ServerSession).server?.leader;
-    const leaderSlot = leader === undefined ? undefined : world.get(leader, ConnectionSlot)?.slot;
-    const words = new Uint32Array([ASSIGNMENT, slot, roster, leaderSlot ?? SLOTS.length]);
+    const words = new Uint32Array([ASSIGNMENT, slot, roster]);
     return new Uint8Array(words.buffer);
 }
 export const GAME: Game = {
@@ -108,6 +108,7 @@ export const GAME: Game = {
         );
         const slot = SLOTS.find((slot) => !occupied.includes(slot))!;
         world.add(eid, ConnectionSlot, { slot });
+        world.add(eid, Replicate, { rule: SLOTS.length + 1 });
         world.storage(Body).isEnabled.set(scene(world).players[slot]!.player, 1);
     },
     rules(world, eid) {
@@ -115,6 +116,7 @@ export const GAME: Game = {
         return [
             new Map([[eid, SCHEMA]]),
             ...SLOTS.map((owner) => new Map([[eid, owner === slot ? SCHEMA : PUBLIC]])),
+            new Map([[eid, PARTY]]),
         ];
     },
     onLeave(world, eid) {
@@ -140,7 +142,6 @@ export const GAME: Game = {
 export class GameClient {
     slot = -1;
     roster = 0;
-    leader: number = SLOTS.length;
     readonly prediction: ClientPrediction;
     readonly intent: IntentSender;
     readonly connection: Connection;
@@ -159,12 +160,11 @@ export class GameClient {
             send: (bytes) => connection.send(bytes),
             receive: () =>
                 connection.receive().filter((bytes) => {
-                    if (bytes.length !== 16) return true;
+                    if (bytes.length !== 12) return true;
                     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
                     if (view.getUint32(0, true) !== ASSIGNMENT) return true;
                     this.slot = view.getUint32(4, true);
                     this.roster = view.getUint32(8, true);
-                    this.leader = view.getUint32(12, true);
                     return false;
                 }),
         };
