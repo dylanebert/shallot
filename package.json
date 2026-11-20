@@ -86,6 +86,8 @@
         "examples/minimal",
         "examples/first-person",
         "examples/multiplayer",
+        "examples/rooms",
+        "!examples/rooms/captures",
         "examples/view-model",
         "examples/minimap",
         "examples/loading-screen",

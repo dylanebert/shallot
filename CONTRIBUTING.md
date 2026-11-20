@@ -255,13 +255,14 @@ bun test ./src/standard/physics/solver/step.gold.node.ts ./diagnostics/box3d-par
 
 ## Multiplayer
 
-Games own intent validation, disclosure rules, gameplay and their server process. [The multiplayer example](examples/multiplayer) composes a server and client in one tab by default, or connects to its Bun server through `?server=`.
+Games own intent validation, disclosure rules, gameplay and their server process. The [multiplayer](examples/multiplayer) and [rooms](examples/rooms) examples compose a server and client in one tab by default, or connect to their Bun servers through `?server=`.
 
-A change to the extra runs its cheap and Node tests, the example's plugin tests and its Chromium subject, then `bun check` and `bun run lint`. A change that also touches rendering or physics follows that section's checks too.
+A change to the extra runs its cheap and Node tests, both examples' plugin tests and Chromium subjects, then `bun check` and `bun run lint`. A change that also touches rendering or physics follows that section's checks too.
 
 ```sh
-bun test $(find ./src/extras/multiplayer \( -name '*.test.ts' -o -name '*.node.ts' \) -print | sort) ./examples/multiplayer/src/*.node.ts
+bun test $(find ./src/extras/multiplayer \( -name '*.test.ts' -o -name '*.node.ts' \) -print | sort) ./examples/{multiplayer,rooms}/src/*.node.ts
 bunx playwright test -c examples/multiplayer
+bunx playwright test -c examples/rooms
 bun check
 bun run lint
 ```

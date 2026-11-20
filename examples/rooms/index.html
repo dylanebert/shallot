@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="description" content="Quick-join a first-person room, invite a friend by code, and rejoin as the same player." />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+        <link rel="stylesheet" href="./src/touch.css" />
+        <link rel="stylesheet" href="./src/rooms.css" />
+        <title>rooms</title>
+        <style>
+            * { box-sizing: border-box; }
+            html, body, canvas { width: 100%; height: 100%; margin: 0; }
+            body { background: #141210; overflow: hidden; }
+            canvas { display: block; }
+            [data-shallot-bootstrap] { position: fixed; inset: 0; display: grid; place-items: center; background: #1c1917; color: #f0e6d6; font: 400 13px/20px 'IBM Plex Sans', system-ui, sans-serif; }
+        </style>
+    </head>
+    <body>
+        <canvas id="canvas"></canvas>
+        <div data-shallot-bootstrap data-state="loading" role="status">Loading…</div>
+        <aside class="ec controls" aria-labelledby="rooms-title" hidden>
+            <header class="panel-title"><span id="rooms-title">Rooms</span><output id="mode"></output></header>
+            <div class="fields">
+            <p id="status" role="status"></p>
+            <section class="section" id="lobby" aria-label="Lobby">
+                <div class="actions"><button id="quick">Quick join</button><button id="create">Create private room</button></div>
+                <form id="join">
+                    <input id="code" aria-label="Room code" placeholder="Room code" autocomplete="off" autocapitalize="characters" spellcheck="false" required />
+                    <button>Join by code</button>
+                </form>
+                <h2 class="section-title">Public rooms</h2>
+                <ul id="listing"></ul>
+            </section>
+            <section class="section" id="session" aria-label="Current room" hidden>
+                <output id="room-code"></output>
+                <h2 class="section-title">Players</h2>
+                <ul id="players"></ul>
+                <div id="dev" class="actions" hidden>
+                    <button id="bot">Add bot</button><button id="remove">Remove bot</button>
+                    <button id="drop">Drop connection</button>
+                </div>
+                <button id="leave">Leave room</button>
+            </section>
+            </div>
+        </aside>
+        <script src="/startup.js"></script>
+        <script type="module" src="./src/main.ts"></script>
+    </body>
+</html>
