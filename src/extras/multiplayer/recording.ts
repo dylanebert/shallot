@@ -335,11 +335,14 @@ export class SessionRecorder {
         const resume = authority.resume.bind(authority);
         authority.hold = (eid) => this.invoke("holdSeat", [eid], () => hold(eid));
         authority.resume = (eid) => this.invoke("resumeSeat", [eid], () => resume(eid));
-        authority.connect = (connection) => {
+        authority.connect = (connection, kind = "human") => {
             const wrapped = this._identities.has(connection)
                 ? connection
                 : this.connection(connection);
-            return this.invoke("connect", [this._identities.get(wrapped)!], () => connect(wrapped));
+            const id = this._identities.get(wrapped)!;
+            return this.invoke("connect", kind === "bot" ? [id, kind] : [id], () =>
+                connect(wrapped, kind),
+            );
         };
         authority.disconnect = (eid) => this.invoke("disconnect", [eid], () => disconnect(eid));
     }
@@ -370,7 +373,10 @@ export class SessionRecorder {
                     break;
                 case "connect": {
                     const authority = this._world.resource(ServerSession).server!;
-                    authority.connect(this.connection({ ...empty }));
+                    authority.connect(
+                        this.connection({ ...empty }),
+                        args[1] === "bot" ? "bot" : "human",
+                    );
                     break;
                 }
                 case "disconnect":

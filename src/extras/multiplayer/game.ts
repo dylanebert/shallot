@@ -1,7 +1,6 @@
 import {
     type App,
     component,
-    createApp,
     DiagnosticsStore,
     type Plugin,
     type System,
@@ -10,7 +9,6 @@ import {
 } from "../../engine";
 import {
     MultiplayerPlugin,
-    ReplicationReceiver,
     type ReplicationRules,
     type ReplicationSchema,
     ReplicationSender,
@@ -20,7 +18,7 @@ import {
     type InputRecord,
     IntentReceiver,
     type IntentRecord,
-    IntentSender,
+    type IntentSender,
     type OperationRecord,
 } from "./intent";
 import { type Connection, type LinkFaults, seededLink } from "./link";
@@ -34,6 +32,9 @@ export const ClientOf = component("ClientOf", {});
 /** Server-owned marker on the leading seat. Include it in the schema and disclose it on
  * seat entities through Replicate to let clients observe the leader. */
 export const RoomLeader = component("RoomLeader", {});
+
+/** Server-owned kind marker. Disclose on seat entities through Replicate. */
+export const RoomBot = component("RoomBot", {});
 
 /** Shared protocol and game policy. Connection arguments are server eids, not client-supplied IDs.
  * Hooks borrow runtime handles; explicit disconnect calls onLeave before despawning.
@@ -71,6 +72,7 @@ interface Peer {
     sender: ReplicationSender;
     intent: IntentReceiver;
     held?: boolean;
+    kind: "human" | "bot";
 }
 
 /** Server runtime keyed by connection entity. Removing ClientOf closes the transport and releases
@@ -81,9 +83,10 @@ class GameServer {
     get peers(): ReadonlyMap<number, Peer> {
         return this._peers;
     }
-    /** Server entity of the earliest admitted remaining seat, including seats held for rejoin. */
+    /** Earliest admitted human seat, including seats held for rejoin. */
     get leader(): number | undefined {
-        return this._peers.keys().next().value;
+        for (const [eid, peer] of this._peers) if (peer.kind === "human") return eid;
+        return undefined;
     }
     readonly world: World;
     readonly game: Game;
@@ -111,12 +114,13 @@ class GameServer {
         game.onCreate?.(world);
     }
     /** Refuses admission at the peer limit without spawning an entity or calling onJoin. */
-    connect(connection: Connection): number | undefined {
+    connect(connection: Connection, kind: Peer["kind"] = "human"): number | undefined {
         if (this.peers.size >= this.game.maxClients) return undefined;
         const eid = this.world.create();
         this.world.add(eid, ClientOf);
         const diagnostics = observeNetwork(this.world, connection, `network/connections/${eid}/`);
         try {
+            if (kind === "bot" && this.game.schema.includes(RoomBot)) this.world.add(eid, RoomBot);
             this.game.onJoin?.(this.world, eid, connection);
             const sender = new ReplicationSender(
                 this.world,
@@ -130,6 +134,7 @@ class GameServer {
                 sender,
                 intent: new IntentReceiver(connection),
                 diagnostics,
+                kind,
             });
             if (this.game.schema.includes(RoomLeader) && this.leader === eid)
                 this.world.add(eid, RoomLeader);
@@ -236,7 +241,7 @@ export function server(game: Game): Plugin {
     return {
         name: "MultiplayerServer",
         dependencies: [...game.plugins, MultiplayerPlugin],
-        components: [ClientOf, RoomLeader],
+        components: [ClientOf, RoomLeader, RoomBot],
         recovery: "stateless",
         initialize(world) {
             world.resource(ServerSession).server = new GameServer(world, game);
@@ -398,7 +403,7 @@ interface LocalOptions {
     faults: LinkFaults;
 }
 
-interface ThinClient {
+export interface ThinClient {
     seed: number;
     input(world: World, sender: IntentSender, tick: number): void;
 }
@@ -409,20 +414,12 @@ function localHost(game: Game, options: LocalOptions, pinned?: App, recorder?: S
     let accumulator = 0;
     let seed = options.seed;
     const links = new Set<ReturnType<typeof seededLink>>();
-    const bots = new Set<{
-        app: App;
-        authority: App;
-        input: IntentSender;
-        receiver: ReplicationReceiver;
-        endpoint: Endpoint;
-        run: ThinClient["input"];
-        remove(): void;
-    }>();
     const host = roomHost<Endpoint>(
         game,
         {
             reservationNow: () => clock,
             reconnectNow: () => clock,
+            botFaults: options.faults,
             sendToken(connection, id, token) {
                 connection.credentials = { id, token };
             },
@@ -441,42 +438,6 @@ function localHost(game: Game, options: LocalOptions, pinned?: App, recorder?: S
             close();
         };
         return { endpoint, client: link.b };
-    }
-    async function addBot(code: string, thin: ThinClient) {
-        const app = await createApp({ defaults: false, plugins: [...game.plugins] });
-        const { endpoint, client } = stream(thin.seed);
-        try {
-            const result = host.connect(endpoint, { intent: "join", code, reconnectable: false });
-            await result?.ready;
-            if (!result?.room.app || endpoint.closed) throw new Error("Thin client refused");
-            observeNetwork(app.world, client);
-            const bot = {
-                app,
-                authority: result.room.app,
-                input: new IntentSender(client),
-                receiver: new ReplicationReceiver(app.world, game.schema, client),
-                endpoint,
-                run: thin.input,
-                remove() {
-                    if (!bots.delete(bot)) return;
-                    try {
-                        host.leave(endpoint, false);
-                    } finally {
-                        app.dispose();
-                    }
-                },
-            };
-            bots.add(bot);
-            return { remove: bot.remove };
-        } catch (error) {
-            try {
-                host.leave(endpoint, false);
-            } finally {
-                endpoint.close();
-                app.dispose();
-            }
-            throw error;
-        }
     }
     async function join(code?: string, creator?: string, clientRecorder?: SessionRecorder) {
         const clientSeed = seed++;
@@ -535,7 +496,9 @@ function localHost(game: Game, options: LocalOptions, pinned?: App, recorder?: S
             addBot: async (thin: ThinClient) => {
                 if (left || current.endpoint.closed)
                     throw new Error("Local client is disconnected");
-                return addBot(room, thin);
+                const bot = await host.addBot(result.room, thin);
+                if (!bot) throw new Error("Thin client refused");
+                return bot;
             },
             /** Drops this stream now. The room's reconnect window runs on pumped time. */
             cut() {
@@ -565,12 +528,7 @@ function localHost(game: Game, options: LocalOptions, pinned?: App, recorder?: S
     function dispose() {
         if (disposed) return;
         disposed = true;
-        try {
-            for (const bot of bots) bot.app.dispose();
-        } finally {
-            bots.clear();
-            host.stop();
-        }
+        host.stop();
     }
     return {
         join,
@@ -582,19 +540,10 @@ function localHost(game: Game, options: LocalOptions, pinned?: App, recorder?: S
             clock += delta * 1000;
             host.sweep();
             for (const link of links) link.advance(clock);
-            for (const bot of bots) {
-                if (bot.endpoint.closed) bot.remove();
-                else bot.input.flush(bot.receiver.flush());
-            }
+            host.advanceBots(clock);
             accumulator += Math.min(delta, Time.MAX_FIXED_STEPS * Time.FIXED_DT);
             while (accumulator >= Time.FIXED_DT) {
-                host.tick((app) => {
-                    for (const bot of bots) {
-                        if (bot.authority !== app) continue;
-                        bot.run(bot.app.world, bot.input, app.world.time.fixedTick);
-                        bot.input.flush();
-                    }
-                });
+                host.tick();
                 accumulator -= Time.FIXED_DT;
             }
         },

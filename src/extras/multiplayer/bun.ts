@@ -226,6 +226,7 @@ function hostRooms(
     });
     const stopClock = startClock(() => {
         if (game.reconnectMs) host.sweep();
+        host.advanceBots(performance.now());
         host.tick();
     });
     let stopped = false;

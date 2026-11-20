@@ -406,7 +406,7 @@ for (const phone of [false, true]) {
             await noFocus(page);
         });
 
-        test("two tabs join a private room by code; server seats offer copy, not bots", async ({
+        test("two server pages share a bot; only the leader can manage it", async ({
             page,
             context,
         }) => {
@@ -414,7 +414,7 @@ for (const phone of [false, true]) {
             try {
                 await context.grantPermissions(["clipboard-read", "clipboard-write"]);
                 const twoMembers = "#players li:nth-child(2) .member";
-                await holdFrames(page, twoMembers);
+                const leaderFrames = await holdFrames(page, twoMembers);
                 await page.goto(host.address);
                 await use(action(page, "Create private room"));
                 await expect(players(page)).toHaveText(["You", "", "", ""]);
@@ -430,15 +430,36 @@ for (const phone of [false, true]) {
                 await use(plus(page, 2));
                 await expectSidePopup(page, 2);
                 if (phone) await touchTargets(page);
+                await use(action(page, "Add bot"));
+                await expect(players(page)).toHaveText(["You", "Bot 2", "", ""]);
+                await leaderFrames.run(3);
+                await use(plus(page, 3));
+                await expectSidePopup(page, 3);
+                await expect(
+                    page.getByRole("group", { name: "Seat 3 actions" }).getByRole("button"),
+                ).toHaveText(["Add bot", "Copy code"]);
+                await expectBotClear(page);
+                await capture(page, `server-${size}`);
                 await page.keyboard.press("Escape");
-                await expect(action(page, "Copy code")).toBeHidden();
+                await use(action(page, "Remove Bot 2"));
+                await expect
+                    .poll(async () => {
+                        await leaderFrames.run(2);
+                        return players(page).allInnerTexts();
+                    })
+                    .toEqual(["You", "", "", ""]);
                 const friend = await context.newPage();
                 const friendFrames = await holdFrames(friend, twoMembers);
                 await friend.goto(host.address);
                 await friend.getByRole("textbox", { name: "Room code" }).fill(code);
                 await use(action(friend, "Join"));
                 await expect(players(friend)).toHaveText(["Player 1", "You", "", ""]);
-                await expect(players(page)).toHaveText(["You", "Player 2", "", ""]);
+                await expect
+                    .poll(async () => {
+                        await leaderFrames.run(2);
+                        return players(page).allInnerTexts();
+                    })
+                    .toEqual(["You", "Player 2", "", ""]);
                 await noFocus(friend);
                 await expect(friend.getByRole("img", { name: "Human player" })).toHaveCount(2);
                 for (const tab of [page, friend]) {
@@ -471,8 +492,6 @@ for (const phone of [false, true]) {
                     (phone ? 390 : 1280) - (phone ? 16 : 24),
                 );
                 if (phone) await touchTargets(friend);
-                await friendFrames.run(2);
-                await capture(friend, `server-${size}`);
                 await friend.evaluate(() => navigator.clipboard.writeText(""));
                 await use(fallback);
                 expect(await friend.evaluate(() => navigator.clipboard.readText())).toBe(code);
@@ -482,6 +501,23 @@ for (const phone of [false, true]) {
                 );
                 await expect(players(friend)).toHaveText(["Player 1", "You", "", "Copy code"]);
                 await noFocus(friend);
+                await use(plus(page, 3));
+                await use(action(page, "Add bot"));
+                await expect
+                    .poll(async () => {
+                        await leaderFrames.run(2);
+                        return action(page, "Remove Bot 3").isVisible();
+                    })
+                    .toBe(true);
+                await expect
+                    .poll(async () => {
+                        await friendFrames.run(2);
+                        return friend.getByRole("img", { name: "Bot" }).count();
+                    })
+                    .toBe(1);
+                await expect(action(friend, "Add bot")).toHaveCount(0);
+                await expect(action(friend, "Remove Bot 3")).toHaveCount(0);
+                await capture(friend, `server-observer-${size}`);
                 await use(action(page, "Leave"));
                 await friend.keyboard.press("Escape");
                 await expect
@@ -489,11 +525,18 @@ for (const phone of [false, true]) {
                         await friendFrames.run(4);
                         return players(friend).allInnerTexts();
                     })
-                    .toEqual(["", "You", "", ""]);
+                    .toEqual(["", "You", "Bot 3", ""]);
                 await expect(friend.getByRole("img", { name: "Party leader" })).toHaveCount(1);
                 await expect(
                     players(friend).nth(1).getByRole("img", { name: "Party leader" }),
                 ).toBeVisible();
+                await use(action(friend, "Remove Bot 3"));
+                await expect
+                    .poll(async () => {
+                        await friendFrames.run(2);
+                        return players(friend).allInnerTexts();
+                    })
+                    .toEqual(["", "You", "", ""]);
                 for (const slot of [1, 3, 4]) {
                     await use(plus(friend, slot));
                     const choice = action(friend, "Copy code");

@@ -1,8 +1,9 @@
 import { type App, createApp } from "../../engine";
-import { MultiplayerPlugin } from ".";
-import { transportClock } from "./diagnostics";
-import { type Game, ServerSession, server } from "./game";
-import type { Connection } from "./link";
+import { MultiplayerPlugin, ReplicationReceiver } from ".";
+import { observeNetwork, transportClock } from "./diagnostics";
+import { type Game, ServerSession, server, type ThinClient } from "./game";
+import { IntentSender } from "./intent";
+import { type Connection, type LinkFaults, seededLink } from "./link";
 import type { SessionRecorder } from "./recording";
 
 export function createServerApp(game: Game, recorder?: SessionRecorder) {
@@ -16,6 +17,27 @@ export function createServerApp(game: Game, recorder?: SessionRecorder) {
         ],
     });
 }
+
+interface Bot {
+    advance(time: number): void;
+    input(tick: number): void;
+    remove(): void;
+    dispose(): void;
+}
+
+/** Room authority for game-defined bot operations. Pass the requester entity supplied by
+ * the server intent hook, not an ID from the operation. Only room-mode authorities have a controller. */
+export const RoomBots = {
+    create: (): {
+        controller?: {
+            canManage(requester: number): boolean;
+            add(requester: number, thin: ThinClient): Promise<boolean>;
+            remove(requester: number, bot: number): boolean;
+        };
+    } => ({}),
+};
+
+const NO_FAULTS: LinkFaults = { minDelay: 0, maxDelay: 0, loss: 0, duplication: 0 };
 
 interface Seat<C> {
     room: Room<C>;
@@ -31,6 +53,8 @@ interface Room<C> {
     code: string;
     private: boolean;
     seats: Map<C, number | undefined>;
+    bots: Map<number, Bot>;
+    buildingBots?: number;
     app?: App;
     ready?: Promise<void>;
     held?: number;
@@ -57,6 +81,7 @@ export function roomHost<
     options: {
         reservationNow?: () => number;
         reconnectNow?: () => number;
+        botFaults?: LinkFaults;
         sendToken(connection: C, id: string, token: string): void;
         sendRoom?(connection: C, code: string): void;
     },
@@ -70,11 +95,11 @@ export function roomHost<
         throw new Error("reconnectMs must be finite and nonnegative");
     const now = options.reconnectNow ?? (() => performance.now());
     const seats = new WeakMap<C, Seat<C>>();
-    const resumable = new WeakSet<C>();
     const held = new Map<string, Seat<C>>();
-    const count = (room: Room<C>) => room.seats.size + (room.held ?? 0);
+    const count = (room: Room<C>) => room.seats.size + room.bots.size + (room.held ?? 0);
     const rooms = new Map<string, Room<C>>();
-    const active = new Set<App>();
+    const active = new Map<App, Room<C>>();
+    let botTime = 0;
     const unclaimed = new Map<string, Reservation>();
     const reservationNow = options.reservationNow ?? (() => performance.now());
     const memberships = new WeakMap<C, Room<C>>();
@@ -82,11 +107,12 @@ export function roomHost<
         code: "",
         private: true,
         seats: new Map(),
+        bots: new Map(),
         app: pinnedApp,
     };
     if (pinned && pinnedApp) {
         rooms.set(pinned.code, pinned);
-        active.add(pinnedApp);
+        activate(pinned, pinnedApp);
     }
     let stopped = false;
 
@@ -107,7 +133,7 @@ export function roomHost<
     }
 
     function createRoom(code: string, isPrivate: boolean): Room<C> {
-        const room: Room<C> = { code, private: isPrivate, seats: new Map() };
+        const room: Room<C> = { code, private: isPrivate, seats: new Map(), bots: new Map() };
         rooms.set(code, room);
         return room;
     }
@@ -119,6 +145,8 @@ export function roomHost<
             connection.close(code, reason);
         }
         room.seats.clear();
+        for (const bot of room.bots.values()) bot.dispose();
+        room.bots.clear();
         if (room.app) {
             active.delete(room.app);
             room.app.dispose();
@@ -182,13 +210,13 @@ export function roomHost<
             };
             const eid = room
                 .app!.world.resource(ServerSession)
-                .server!.connect(reconnectMs && resumable.has(connection) ? transport : connection);
+                .server!.connect(reconnectMs ? transport : connection);
             if (eid === undefined) refuseFull(connection);
             else {
                 room.seats.set(connection, eid);
                 room.reservation = undefined;
                 if (room.code) options.sendRoom?.(connection, room.code);
-                if (reconnectMs && resumable.has(connection)) {
+                if (reconnectMs) {
                     const token = crypto.randomUUID();
                     const seat = {
                         room,
@@ -223,9 +251,105 @@ export function roomHost<
             app.dispose();
             return;
         }
-        room.app = app;
-        active.add(app);
+        activate(room, app);
         for (const connection of room.seats.keys()) admit(room, connection);
+    }
+
+    function activate(room: Room<C>, app: App) {
+        room.app = app;
+        active.set(app, room);
+        if (room === pinned) return;
+        const authority = app.world.resource(ServerSession).server!;
+        const canManage = (requester: number) => {
+            const peer = authority.peers.get(requester);
+            return (
+                room === rooms.get(room.code) &&
+                authority.leader === requester &&
+                !!peer &&
+                !peer.held &&
+                !peer.connection.closed
+            );
+        };
+        app.world.resource(RoomBots).controller = {
+            canManage,
+            async add(requester, thin) {
+                if (!canManage(requester)) return false;
+                const peer = authority.peers.get(requester);
+                return !!(await addBot(
+                    room,
+                    thin,
+                    () => authority.peers.get(requester) === peer && canManage(requester),
+                ));
+            },
+            remove(requester, eid) {
+                const bot = room.bots.get(eid);
+                if (!bot || !canManage(requester)) return false;
+                bot.remove();
+                return true;
+            },
+        };
+    }
+
+    async function addBot(room: Room<C>, thin: ThinClient, allowed = () => true) {
+        if (count(room) + (room.buildingBots ?? 0) >= game.maxClients) return;
+        const link = seededLink(thin.seed, options.botFaults ?? NO_FAULTS);
+        room.buildingBots = (room.buildingBots ?? 0) + 1;
+        let app: App;
+        try {
+            app = await createApp({ defaults: false, plugins: [...game.plugins] });
+        } finally {
+            room.buildingBots--;
+        }
+        if (rooms.get(room.code) !== room || count(room) >= game.maxClients || !allowed()) {
+            app.dispose();
+            return;
+        }
+        const authority = room.app!.world.resource(ServerSession).server!;
+        function dispose() {
+            link.a.close();
+            app.dispose();
+        }
+        try {
+            link.advance(botTime);
+            const sender = new IntentSender(link.b);
+            const receiver = new ReplicationReceiver(app.world, game.schema, link.b);
+            observeNetwork(app.world, link.b);
+            const eid = authority.connect(link.a, "bot");
+            if (eid !== undefined) {
+                const peer = authority.peers.get(eid);
+                room.bots.get(eid)?.dispose();
+                const bot: Bot = {
+                    advance(time) {
+                        if (link.a.closed) return bot.remove();
+                        link.advance(time);
+                        sender.flush(receiver.flush());
+                    },
+                    input(tick) {
+                        if (link.a.closed) return;
+                        thin.input(app.world, sender, tick);
+                        sender.flush();
+                    },
+                    remove() {
+                        if (room.bots.get(eid) !== bot) return;
+                        room.bots.delete(eid);
+                        try {
+                            if (authority.peers.get(eid) === peer) authority.disconnect(eid);
+                        } finally {
+                            dispose();
+                            if (room !== pinned && rooms.get(room.code) === room && !count(room))
+                                retire(room);
+                        }
+                    },
+                    dispose,
+                };
+                room.bots.set(eid, bot);
+                return { remove: bot.remove };
+            }
+        } catch (error) {
+            dispose();
+            throw error;
+        }
+        dispose();
     }
 
     function sendToken(connection: C, seat: Seat<C>) {
@@ -325,14 +449,12 @@ export function roomHost<
             creator = null,
             resume: token = null,
             seat: id = null,
-            reconnectable = true,
         }: {
             intent?: string | null;
             code?: string | null;
             creator?: string | null;
             resume?: string | null;
             seat?: string | null;
-            reconnectable?: boolean;
         } = {},
     ) {
         if (stopped) {
@@ -387,7 +509,6 @@ export function roomHost<
             return;
         }
         room.seats.set(connection, undefined);
-        if (reconnectable) resumable.add(connection);
         memberships.set(connection, room);
         if (room.app) admit(room, connection);
         else room.ready ??= start(room);
@@ -400,9 +521,14 @@ export function roomHost<
         expireSeats();
     }
 
-    function tick(beforeTick?: (app: App) => void) {
-        for (const app of active) {
-            beforeTick?.(app);
+    function advanceBots(time: number) {
+        botTime = time;
+        for (const { bots } of active.values()) for (const bot of bots.values()) bot.advance(time);
+    }
+
+    function tick() {
+        for (const [app, { bots }] of active) {
+            for (const bot of bots.values()) bot.input(app.world.time.fixedTick);
             app.world.tick();
         }
     }
@@ -414,5 +540,5 @@ export function roomHost<
         held.clear();
         for (const room of rooms.values()) retire(room, 1001, "Server stopping");
     }
-    return { connect, leave, sweep, tick, stop, list, reserve };
+    return { connect, leave, sweep, advanceBots, tick, stop, list, reserve, addBot };
 }

@@ -11,7 +11,17 @@ import {
 import { fields } from "../../engine/ecs";
 import { reportStartup } from "../../engine/runtime";
 
-export { ClientOf, client, type Game, local, RoomLeader, ServerSession, server } from "./game";
+export {
+    ClientOf,
+    client,
+    type Game,
+    local,
+    RoomBot,
+    RoomLeader,
+    ServerSession,
+    server,
+    type ThinClient,
+} from "./game";
 export { ClientInterpolation, InterpolationPlugin, InterpolationTarget } from "./interpolation";
 export { type Connection, type LinkFaults, seededLink } from "./link";
 export {
@@ -29,6 +39,7 @@ export {
     type SessionRecording,
     sessionRecording,
 } from "./recording";
+export { RoomBots } from "./room-host";
 export { WebSocketConnection } from "./websocket";
 
 import { networkDiagnostics } from "./diagnostics";

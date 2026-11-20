@@ -1,8 +1,8 @@
 import { type App, type Plugin, runApp } from "@dylanebert/shallot";
-import { client, local, RoomLeader } from "@dylanebert/shallot/multiplayer";
+import { client, local, RoomBot, RoomLeader } from "@dylanebert/shallot/multiplayer";
 import { AppPlugin, EntryView, RoomFrame } from "./app";
 import { icon } from "./icons";
-import { ClientSession, ConnectionSlot, GAME } from "./network";
+import { ClientSession, ConnectionSlot, GAME, thinBot } from "./network";
 
 function element<T extends HTMLElement = HTMLElement>(id: string) {
     return document.getElementById(id) as T;
@@ -50,6 +50,7 @@ let dropped = false;
 let rejoining = false;
 let ownSlot = -1;
 let roster = 0;
+let botSlots = 0;
 let leader: number | undefined;
 let generation: number | undefined;
 let openSlot = -1;
@@ -172,31 +173,45 @@ function slotButton(label: string, glyph: Parameters<typeof icon>[0], text = fal
     return button;
 }
 
+function requestBot(removeSlot?: number) {
+    if (!app) return;
+    const peer = app.world.resource(ClientSession).client;
+    if (peer) peer.requestBot(peer.prediction.receiver.confirmed, removeSlot);
+}
+
 function renderParty() {
+    const canManage = ownSlot === leader;
     const slots: HTMLLIElement[] = [];
     for (let slot = 0; slot < GAME.maxClients; slot++) {
         const row = document.createElement("li");
         row.className = "row";
         const you = slot === ownSlot;
-        const bot = bots.get(slot);
+        const localBot = bots.get(slot);
+        const bot = url ? botSlots & (1 << slot) : localBot;
         if (you || bot || (url && roster & (1 << slot))) {
             if (openSlot === slot) openSlot = -1;
             const member = document.createElement("div");
             member.className = "member";
             member.innerHTML = bot ? icon("bot", "Bot") : icon("user", "Human player");
             const name = document.createElement("span");
-            name.textContent = you ? "You" : bot ? `Bot ${bot.name}` : `Player ${slot + 1}`;
+            name.textContent = you
+                ? "You"
+                : bot
+                  ? `Bot ${localBot?.name ?? slot + 1}`
+                  : `Player ${slot + 1}`;
             name.title = name.textContent;
             member.append(name);
             if (slot === leader)
                 member.insertAdjacentHTML("beforeend", icon("star", "Party leader"));
-            if (bot) {
+            if (bot && canManage) {
                 const remove = slotButton(`Remove ${name.textContent}`, "remove");
                 remove.onclick = () =>
                     void act(() => {
-                        bot.remove();
-                        bots.delete(slot);
-                        renderParty();
+                        if (localBot) {
+                            localBot.remove();
+                            bots.delete(slot);
+                            renderParty();
+                        } else requestBot(slot);
                     });
                 member.append(remove);
             }
@@ -217,13 +232,20 @@ function renderParty() {
                 openSlot = expanded ? -1 : slot;
                 renderParty();
             };
-            if (expanded) {
-                const choice = host
-                    ? slotButton("Add bot", "bot", true)
-                    : slotButton("Copy code", "copy", true);
-                if (!host) choice.title = "Copy code";
-                choice.onclick = () =>
-                    void act(host ? () => addBot(slot) : () => copyCode(choice, "Copy code"));
+            if (expanded && canManage) {
+                const add = slotButton("Add bot", "bot", true);
+                add.onclick = () =>
+                    void act(() => {
+                        if (host) return addBot(slot);
+                        closeSlot();
+                        requestBot();
+                    });
+                actions.append(add);
+            }
+            if (expanded && url) {
+                const choice = slotButton("Copy code", "copy", true);
+                choice.title = "Copy code";
+                choice.onclick = () => void act(() => copyCode(choice, "Copy code"));
                 actions.append(choice);
             }
             row.append(plus, actions);
@@ -239,13 +261,7 @@ async function addBot(slot: number) {
     const used = new Set([...bots.values()].map((bot) => bot.name));
     let name = 1;
     while (used.has(name)) name++;
-    const bot = await seat.addBot({
-        seed: ++seed,
-        input(_world, sender, tick) {
-            const direction = Math.floor(tick / 90) % 2 ? 0.35 : -0.35;
-            sender.record(tick + 1, "input", [direction, 0, 0, 0, 0, 0]);
-        },
-    });
+    const bot = await seat.addBot(thinBot(++seed));
     bots.set(slot, { ...bot, name });
     openSlot = -1;
     renderParty();
@@ -272,10 +288,21 @@ const RoomPanel: Plugin = {
                     leaderEid === undefined
                         ? undefined
                         : world.get(leaderEid, ConnectionSlot)?.slot;
-                if (peer.slot !== ownSlot || peer.roster !== roster || leaderSlot !== leader) {
+                let kinds = 0;
+                if (url) {
+                    for (const eid of world.query([RoomBot, ConnectionSlot]))
+                        kinds |= 1 << world.get(eid, ConnectionSlot)!.slot;
+                }
+                if (
+                    peer.slot !== ownSlot ||
+                    peer.roster !== roster ||
+                    leaderSlot !== leader ||
+                    kinds !== botSlots
+                ) {
                     ownSlot = peer.slot;
                     roster = peer.roster;
                     leader = leaderSlot;
+                    botSlots = kinds;
                     renderParty();
                 }
             },
@@ -353,7 +380,7 @@ async function leave() {
     seat = undefined;
     dropped = rejoining = false;
     ownSlot = openSlot = -1;
-    roster = 0;
+    roster = botSlots = 0;
     leader = undefined;
     generation = undefined;
     list.replaceChildren();

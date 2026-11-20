@@ -21,14 +21,17 @@ import {
     PredictionPlugin,
     PredictionTarget,
     Replicate,
+    RoomBot,
+    RoomBots,
     RoomLeader,
+    type ThinClient,
 } from "@dylanebert/shallot/multiplayer";
 import { Demo, Route } from "./demo";
 import { PlayerMotion } from "./motion";
 import { LocalPlayer, LocalPlayerInputSystem, Player, PlayerInput } from "./player";
 
 export const ConnectionSlot = component("ConnectionSlot", { slot: u32 });
-const PARTY = [ConnectionSlot, RoomLeader];
+const PARTY = [ConnectionSlot, RoomLeader, RoomBot];
 export const SCHEMA = [
     Transform,
     GlobalTransform,
@@ -84,6 +87,16 @@ export function applyIntent(
 }
 const SLOTS = [0, 1, 2, 3] as const;
 
+export function thinBot(seed: number): ThinClient {
+    return {
+        seed,
+        input(_world, sender, tick) {
+            const direction = Math.floor(tick / 90) % 2 ? 0.35 : -0.35;
+            sender.record(tick + 1, "input", [direction, 0, 0, 0, 0, 0]);
+        },
+    };
+}
+
 const ASSIGNMENT = 100;
 function assignment(world: World, slot: number) {
     let roster = 0;
@@ -126,8 +139,29 @@ export const GAME: Game = {
         world.storage(Body).isEnabled.set(player, 0);
         world.remove(player, PlayerInput);
     },
-    validateIntent: (_world, _eid, record) => validIntent(record),
+    validateIntent(world, eid, record) {
+        if (record.kind === "input") return validIntent(record);
+        return (
+            (record.values.length === 0 ||
+                (record.values.length === 1 && SLOTS.some((slot) => slot === record.values[0]))) &&
+            !!world.resource(RoomBots).controller?.canManage(eid)
+        );
+    },
     applyIntent(world, eid, tick, records, input) {
+        const bots = world.resource(RoomBots).controller;
+        if (bots) {
+            for (const command of records) {
+                if (command.tick !== tick) continue;
+                if (command.values.length === 0) {
+                    void bots.add(eid, thinBot(tick)).catch(console.error);
+                } else {
+                    const target = [...world.query([RoomBot, ConnectionSlot])].find(
+                        (bot) => world.get(bot, ConnectionSlot)!.slot === command.values[0],
+                    );
+                    if (target !== undefined) bots.remove(eid, target);
+                }
+            }
+        }
         const slot = world.get(eid, ConnectionSlot)!.slot;
         applyIntent(world, scene(world).players[slot]!.player, tick, records, input);
     },
@@ -203,6 +237,10 @@ export class GameClient {
     }
     record(values: number[]) {
         this._values = values.slice();
+    }
+    requestBot(tick: number, removeSlot?: number) {
+        this.intent.record(tick, "operation", removeSlot === undefined ? [] : [removeSlot]);
+        this.intent.flush();
     }
 }
 export const ClientControls: Plugin = {
