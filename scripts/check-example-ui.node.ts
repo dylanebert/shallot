@@ -842,7 +842,8 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
                             ? /:checked/.test(s)
                                 ? "dim"
                                 : "raised"
-                            : /controls|scenes|section-title/.test(s)
+                            : /controls|scenes|section-title/.test(s) ||
+                                s === ".ec .vacant > button"
                               ? "bg2"
                               : "raised";
             if (border && v !== "0px" && v !== "0")
@@ -888,14 +889,6 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
                 fail("disabled priority");
             // Gameplay stick, touch buttons and reticles retain their geometry outside the panel kit.
             if (passive || /(?:^|\s)canvas$/.test(s)) continue;
-            if (
-                p === "rotate" &&
-                v === "180deg" &&
-                /(?:^|\s)button\[aria-expanded=['"]true['"]\] > svg\[data-icon=['"]chevron['"]\]$/.test(
-                    s,
-                )
-            )
-                continue;
             if (
                 /^(?:transform(?:-.+)?|translate|rotate|scale|perspective(?:-.+)?)$/.test(p) &&
                 v !== "none" &&
@@ -1616,22 +1609,20 @@ test("audited screen queries, explicit type longhands and nested safe fallbacks 
         ).toBeGreaterThan(0);
 });
 
-test("room controls inset names and code input, and turn only the expanded chevron", () => {
+test("room controls inset names and code input and give only vacant pane buttons a quieter rest surface", () => {
     const member = ".ec .member { padding-inline: 8px; }";
     const field = ".ec input[type='text'] { padding: 4px 8px; }";
-    const chevron =
-        ".ec button[aria-expanded='true'] > svg[data-icon='chevron'] { rotate: 180deg; }";
-    expect(controlViolations({ sheets: [member, field, chevron], lists: [] })).toEqual([]);
+    const vacant = ".ec .vacant > button { background: #1c1917; }";
+    expect(
+        controlViolations({ sheets: [controlFixture, member, field, vacant], lists: [] }),
+    ).toEqual([]);
     for (const sheet of [
         member.replace("8px", "16px"),
         field.replace("8px", "16px"),
-        chevron.replace("chevron", "star"),
-        chevron.replace("180deg", "90deg"),
-        chevron.replace("true", "false"),
-        chevron.replace("button", "div"),
-        '.ec .button[aria-expanded="true"] > svg[data-icon="chevron"] { rotate: 180deg; }',
+        vacant.replace("vacant", "ordinary"),
+        vacant.replace("#1c1917", "#3c322c"),
     ])
-        expect(controlViolations({ sheets: [sheet], lists: [] })).not.toEqual([]);
+        expect(controlViolations({ sheets: [controlFixture, sheet], lists: [] })).not.toEqual([]);
 });
 
 test("variables may alias site tokens and inline labels retain the body type role", () => {
