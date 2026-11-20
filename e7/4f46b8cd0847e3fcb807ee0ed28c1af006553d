@@ -1,0 +1,2 @@
+stage: 1
+finding: POST /rooms admits unbounded outstanding claims: a loopback burst received 10,000 distinct 201 reservations in 282 ms with no socket claims. Each retains a Room and Map for 60 s and the shared simulation clock scans them on every fixed step. Bound outstanding claims and reject overload without affecting existing games. The original stale-start, failure, and stop mutations now fail independently.
