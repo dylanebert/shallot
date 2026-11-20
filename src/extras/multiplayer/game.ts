@@ -40,6 +40,8 @@ export interface Game {
     plugins: readonly Plugin[];
     schema: ReplicationSchema;
     maxClients: number;
+    /** Milliseconds to hold a disconnected socket seat. Omit for immediate leave. */
+    reconnectMs?: number;
     rules(world: World, connection: number): ReplicationRules;
     onCreate?(world: World): void;
     onJoin?(world: World, connection: number, transport: Connection): void;
@@ -63,6 +65,7 @@ interface Peer {
     connection: Connection;
     sender: ReplicationSender;
     intent: IntentReceiver;
+    held?: boolean;
 }
 
 /** Server runtime keyed by connection entity. Removing ClientOf closes the transport and releases
@@ -149,10 +152,31 @@ class GameServer {
             this.world.destroy(eid);
         }
     }
+    /** @internal Keep the entity and intent history, but stop stepping this peer. */
+    hold(eid: number): void {
+        const peer = this._peers.get(eid);
+        if (peer) peer.held = true;
+    }
+    /** @internal Start a fresh replication history for a held peer. */
+    resume(eid: number): void {
+        const peer = this._peers.get(eid);
+        if (!peer?.held) throw new Error("Seat is not held");
+        peer.sender = new ReplicationSender(
+            this.world,
+            this.game.schema,
+            this.game.rules(this.world, eid),
+            eid,
+            peer.connection,
+        );
+        peer.sender.record(this.world.time.fixedTick);
+        peer.sender.flush();
+        peer.held = false;
+    }
     /** @internal */
     receive(): void {
         const tick = this.world.time.fixedTick;
         for (const [eid, peer] of this.peers) {
+            if (peer.held) continue;
             if (peer.connection.closed) {
                 this.disconnect(eid);
                 continue;
@@ -175,6 +199,7 @@ class GameServer {
     /** @internal */
     send(): void {
         for (const [eid, peer] of this.peers) {
+            if (peer.held) continue;
             this.game.onSend?.(this.world, eid, peer.connection);
             peer.sender.record(
                 this.world.time.fixedTick,
@@ -242,10 +267,17 @@ export function clientStartup(game: Game, connection: (world: World) => Connecti
 }
 
 /** Connects a caller-owned client app. Initialization awaits the socket; disposal closes it.
- * Connection failures, including an established socket closing, are reported to onError. */
+ * An admitted reconnectable seat retries on close, from 50 ms up to 1 second between attempts.
+ * Initial failure or a refused token is reported to onError. */
 export function client(
     game: Game,
-    options: { url: string; onError?: (error: Error) => void; recording?: RecordingOptions },
+    options: {
+        url: string;
+        onError?: (error: Error) => void;
+        recording?: RecordingOptions;
+        /** Schedule a retry in milliseconds, returning its cancellation function. */
+        retryAfter?: (delay: number, retry: () => void) => () => void;
+    },
 ): Plugin {
     const recorder = options.recording && new SessionRecorder(game, "client", options.recording);
     const Transport = { create: (): { connection?: Connection } => ({}) };
@@ -254,16 +286,70 @@ export function client(
         dependencies: [...(recorder ? [recorder.plugin] : []), ...game.plugins],
         async initialize(world) {
             const socket = new WebSocket(options.url);
-            const connection = new WebSocketConnection(socket);
-            world.onDispose(() => connection.close());
+            let seat: string | undefined;
+            let token: string | undefined;
+            let generation = 0;
+            let delay = 50;
+            let cancel: (() => void) | undefined;
+            let disposed = false;
+            let failed = false;
             const failure = () =>
                 new Error(`No server answered at ${options.url}. The connection failed or closed.`);
-            socket.addEventListener("error", () => {
-                if (!world.signal.aborted) options.onError?.(failure());
-            });
-            socket.addEventListener("close", () => {
-                if (!world.signal.aborted) options.onError?.(failure());
-            });
+            const schedule =
+                options.retryAfter ??
+                ((ms: number, retry: () => void) => {
+                    const timer = setTimeout(retry, ms);
+                    return () => clearTimeout(timer);
+                });
+            function attach(socket: WebSocket) {
+                socket.addEventListener("close", ({ code }) => {
+                    if (disposed || world.signal.aborted) return;
+                    if (!token || code === 1008) {
+                        failed = true;
+                        options.onError?.(failure());
+                        return;
+                    }
+                    cancel = schedule(delay, () => {
+                        if (disposed) return;
+                        const url = new URL(socket.url);
+                        url.searchParams.set("resume", token!);
+                        url.searchParams.set("seat", seat!);
+                        current = attach(new WebSocket(url));
+                        generation++;
+                    });
+                    delay = Math.min(1000, delay * 2);
+                });
+                return new WebSocketConnection(socket, (message) => {
+                    const match = /^resume:([0-9a-f-]{36}):([0-9a-f-]{36})$/.exec(message);
+                    if (!match) return false;
+                    [, seat, token] = match;
+                    delay = 50;
+                    return true;
+                });
+            }
+            let current = attach(socket);
+            const connection: Connection = {
+                endpoint: socket.url,
+                get generation() {
+                    return generation || undefined;
+                },
+                get closed() {
+                    return disposed || failed || (!token && current.closed);
+                },
+                close() {
+                    disposed = true;
+                    cancel?.();
+                    current.close();
+                },
+                send(bytes) {
+                    if (!token || (current.socket.readyState === 1 && !current.closed))
+                        current.send(bytes);
+                },
+                receive() {
+                    return current.receive();
+                },
+            };
+            world.onDispose(() => connection.close());
             await new Promise<void>((resolve, reject) => {
                 socket.addEventListener("open", () => resolve(), { once: true });
                 socket.addEventListener("error", () => reject(failure()), { once: true });

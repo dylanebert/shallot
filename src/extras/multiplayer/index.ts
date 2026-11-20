@@ -520,6 +520,7 @@ export class ReplicationReceiver {
     private _versions = new Map<number, ReplicatedRows>();
     private _pending = new Map<number, Uint8Array>();
     private _newest = -1;
+    private _generation?: number;
     readonly world: World;
     readonly schema: ReplicationSchema;
     readonly connection: Connection;
@@ -561,6 +562,14 @@ export class ReplicationReceiver {
      * deliver their intents and apply each before the latest state. Every applied state
      * still notifies confirm, so only recovery/replay work is coalesced, not observations. */
     flush(confirmations: "all" | "latest" = "all"): Uint8Array[] {
+        const generation = this.connection.generation;
+        if (this._generation !== generation) {
+            this._generation = generation;
+            this.confirmed = -1;
+            this._newest = -1;
+            this._pending.clear();
+            this._versions.clear();
+        }
         const previous = this.confirmed;
         const latestOnly = confirmations === "latest";
         const unhandled: Uint8Array[] = [];

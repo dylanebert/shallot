@@ -8,12 +8,13 @@ export class WebSocketConnection implements Connection {
     private _closed = false;
     readonly socket: WebSocket;
 
-    constructor(socket: WebSocket) {
+    constructor(socket: WebSocket, control?: (message: string) => boolean) {
         this.socket = socket;
         socket.binaryType = "arraybuffer";
         socket.addEventListener("close", () => this.close());
         socket.addEventListener("message", (event) => {
             if (this.closed) return;
+            if (typeof event.data === "string" && control?.(event.data)) return;
             if (!(event.data instanceof ArrayBuffer)) {
                 socket.close(1003, "Binary messages required");
                 return;

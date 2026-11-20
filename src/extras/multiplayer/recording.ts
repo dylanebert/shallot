@@ -261,6 +261,13 @@ export class SessionRecorder {
         const thisRecorder = this;
         const wrapped: Connection & { [transportClock]: () => number } = {
             endpoint: playback ? undefined : connection.endpoint,
+            get generation() {
+                if (playback) {
+                    const parent = thisRecorder._stack.at(-1)!;
+                    if (parent.calls[parent.cursor]?.kind !== "generation") return undefined;
+                } else if (connection.generation === undefined) return undefined;
+                return thisRecorder.invoke("generation", [id], () => connection.generation, true);
+            },
             [transportClock]: () => (playback ? this._world.time.realElapsed * 1000 : clock()),
             get closed() {
                 if (sending) return playback ? lastClosed : connection.closed;
@@ -324,6 +331,10 @@ export class SessionRecorder {
         const authority = this._world.resource(ServerSession).server!;
         const connect = authority.connect.bind(authority);
         const disconnect = authority.disconnect.bind(authority);
+        const hold = authority.hold.bind(authority);
+        const resume = authority.resume.bind(authority);
+        authority.hold = (eid) => this.invoke("holdSeat", [eid], () => hold(eid));
+        authority.resume = (eid) => this.invoke("resumeSeat", [eid], () => resume(eid));
         authority.connect = (connection) => {
             const wrapped = this._identities.has(connection)
                 ? connection
@@ -364,6 +375,15 @@ export class SessionRecorder {
                 }
                 case "disconnect":
                     this._world.resource(ServerSession).server!.disconnect(args[0] as number);
+                    break;
+                case "holdSeat":
+                case "resumeSeat":
+                    this._world
+                        .resource(ServerSession)
+                        .server![call.kind === "holdSeat" ? "hold" : "resume"](args[0] as number);
+                    break;
+                case "generation":
+                    void this._connections.get(args[0] as number)!.generation;
                     break;
                 case "accept":
                     this._prediction!.accept(

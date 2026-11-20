@@ -123,7 +123,7 @@ function startClock(tick: () => void) {
  * releases the timer, sockets, signal listener and World. The caller chooses address and hosting. */
 export async function serveGame(
     game: Game,
-    options: { hostname?: string; port: number; recording?: RecordingOptions },
+    options: Omit<RoomHostOptions, "reservationNow"> & { recording?: RecordingOptions },
 ) {
     const recorder = options.recording && new SessionRecorder(game, "server", options.recording);
     const app = await createServerApp(game, recorder);
@@ -138,11 +138,22 @@ export async function serveGame(
     }
 }
 
+interface Seat {
+    room: Room;
+    eid: number;
+    id: string;
+    token: string;
+    transport: { socket: ServerWebSocketConnection } & Connection;
+    connection: Connection;
+    expiresAt?: number;
+}
+
 interface Room {
     code: string;
     private: boolean;
     seats: Map<ServerWebSocketConnection, number | undefined>;
     app?: App;
+    held?: number;
 }
 
 const CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -152,7 +163,7 @@ const MAX_UNCLAIMED_CODES = 128;
 /** Hosts independent authoritative Worlds of one game. POST /rooms returns 201
  * and JSON { code } for a private room. GET /rooms returns a fresh JSON array
  * of public rooms with { code, clients, maxClients }. `clients`
- * counts occupied seats, including pending startup. Share a private code out of
+ * counts occupied seats, including pending startup and held reconnections. Share a private code out of
  * band and claim it within 60 seconds with `?intent=join&code=…`.
  * A code is 10 case-insensitive
  * Crockford Base32 characters (no I, L, O or U). Codes are unique among live
@@ -165,7 +176,10 @@ const MAX_UNCLAIMED_CODES = 128;
  * `?intent=joinOrCreate` fills an available public room before making another.
  * Refusals send no game image: 1013 means full, 1008 means unknown/expired code
  * or invalid intent, and 1011 means server initialization failed.
- * The first seat starts the World. Pending seats count toward maxClients but
+ * With `game.reconnectMs`, admission sends a WebSocket text control message
+ * `resume:<seat>:<token>` beside the binary stream. Resume with `?seat=…&resume=…`;
+ * an invalid or expired pair closes with 1008. Use WSS and omit resume query
+ * credentials from access logs. The first seat starts the World. Pending seats count toward maxClients but
  * are not admitted before startup succeeds. Last leave or stop retires the room
  * immediately; an in-flight build is not canceled, but disposes on success
  * without admitting anyone. A rejected build cleans up its partial World and
@@ -179,6 +193,8 @@ interface RoomHostOptions {
     port: number;
     /** Test-only monotonic time in milliseconds for code expiry; defaults to performance.now. */
     reservationNow?: () => number;
+    /** Monotonic time in milliseconds for held seats. */
+    reconnectNow?: () => number;
 }
 
 function hostRooms(
@@ -189,6 +205,13 @@ function hostRooms(
 ) {
     if (!Number.isSafeInteger(game.maxClients) || game.maxClients < 1)
         throw new Error("maxClients must be a positive integer");
+    const reconnectMs = game.reconnectMs ?? 0;
+    if (!Number.isFinite(reconnectMs) || reconnectMs < 0)
+        throw new Error("reconnectMs must be finite and nonnegative");
+    const now = options.reconnectNow ?? (() => performance.now());
+    const seats = new WeakMap<ServerWebSocketConnection, Seat>();
+    const held = new Map<string, Seat>();
+    const count = (room: Room) => room.seats.size + (room.held ?? 0);
     const rooms = new Map<string, Room>();
     const active = new Set<App>();
     const unclaimed = new Map<string, number>();
@@ -248,6 +271,14 @@ function hostRooms(
         const eid = room.seats.get(connection);
         room.seats.delete(connection);
         const authority = room.app?.world.resource(ServerSession).server;
+        const seat = seats.get(connection);
+        if (seat && authority?.peers.get(seat.eid)?.connection === seat.connection) {
+            authority.hold(seat.eid);
+            seat.expiresAt = now() + reconnectMs;
+            held.set(seat.token, seat);
+            room.held = (room.held ?? 0) + 1;
+            return;
+        }
         try {
             if (
                 eid !== undefined &&
@@ -256,7 +287,7 @@ function hostRooms(
             )
                 authority?.disconnect(eid);
         } finally {
-            if (room !== pinned && !room.seats.size) retire(room);
+            if (room !== pinned && !count(room)) retire(room);
         }
     }
 
@@ -266,10 +297,40 @@ function hostRooms(
             return;
         }
         try {
-            const eid = room.app!.world.resource(ServerSession).server!.connect(connection);
+            const transport = {
+                socket: connection,
+                get closed() {
+                    return this.socket.closed;
+                },
+                close() {
+                    this.socket.close();
+                },
+                send(bytes: Uint8Array) {
+                    this.socket.send(bytes);
+                },
+                receive() {
+                    return this.socket.receive();
+                },
+            };
+            const eid = room
+                .app!.world.resource(ServerSession)
+                .server!.connect(reconnectMs ? transport : connection);
             if (eid === undefined) refuseFull(connection);
             else {
                 room.seats.set(connection, eid);
+                if (reconnectMs) {
+                    const token = crypto.randomUUID();
+                    const seat = {
+                        room,
+                        eid,
+                        id: crypto.randomUUID(),
+                        token,
+                        transport,
+                        connection: recorder?.connection(transport) ?? transport,
+                    };
+                    seats.set(connection, seat);
+                    sendToken(connection, seat);
+                }
                 return;
             }
         } catch (error) {
@@ -297,6 +358,31 @@ function hostRooms(
         for (const connection of room.seats.keys()) admit(room, connection);
     }
 
+    function sendToken(connection: ServerWebSocketConnection, seat: Seat) {
+        if (connection.socket.sendText(`resume:${seat.id}:${seat.token}`) === 0)
+            connection.close(1011, "Write failed");
+    }
+
+    function release(seat: Seat) {
+        held.delete(seat.token);
+        seat.room.held!--;
+    }
+
+    function expireSeats() {
+        const time = now();
+        for (const seat of held.values()) {
+            const authority = seat.room.app!.world.resource(ServerSession).server!;
+            const owns = authority.peers.get(seat.eid)?.connection === seat.connection;
+            if (seat.expiresAt! > time && owns) continue;
+            release(seat);
+            try {
+                if (owns) authority.disconnect(seat.eid);
+            } finally {
+                if (seat.room !== pinned && !count(seat.room)) retire(seat.room);
+            }
+        }
+    }
+
     function refuseFull(connection: ServerWebSocketConnection) {
         connection.close(1013, pinned ? "Peer limit reached" : "Room full");
     }
@@ -306,7 +392,7 @@ function hostRooms(
         const code = url?.searchParams.get("code");
         if (intent === "joinOrCreate" && code === null) {
             for (const room of rooms.values()) {
-                if (!room.private && room.seats.size < game.maxClients) return room;
+                if (!room.private && count(room) < game.maxClients) return room;
             }
             return createRoom(issueCode(), false);
         }
@@ -327,7 +413,7 @@ function hostRooms(
                     if (room.private) continue;
                     listing.push({
                         code: room.code,
-                        clients: room.seats.size,
+                        clients: count(room),
                         maxClients: game.maxClients,
                     });
                 }
@@ -352,6 +438,40 @@ function hostRooms(
                 connection.close(1001, "Server stopping");
                 return;
             }
+            expireSeats();
+            const token = url?.searchParams.get("resume");
+            const id = url?.searchParams.get("seat");
+            if (token != null || id != null) {
+                const seat = token == null ? undefined : held.get(token);
+                const authority = seat?.room.app?.world.resource(ServerSession).server;
+                if (
+                    !seat ||
+                    seat.id !== id ||
+                    authority?.peers.get(seat.eid)?.connection !== seat.connection
+                ) {
+                    connection.close(1008, "Invalid or expired reconnection token");
+                    return;
+                }
+                release(seat);
+                seat.transport.socket = connection;
+                seat.room.seats.set(connection, seat.eid);
+                memberships.set(connection, seat.room);
+                seats.set(connection, seat);
+                try {
+                    authority.resume(seat.eid);
+                    sendToken(connection, seat);
+                } catch (error) {
+                    console.error(error);
+                    seats.delete(connection);
+                    connection.close(1011, "Resumption failed");
+                    try {
+                        authority.disconnect(seat.eid);
+                    } finally {
+                        leave(connection);
+                    }
+                }
+                return;
+            }
             const room = pinned ?? selectRoom(url);
             if (!room) {
                 connection.close(1008, "Unknown room or invalid intent");
@@ -360,7 +480,7 @@ function hostRooms(
             if (pinned) {
                 for (const peer of room.seats.keys()) if (peer.closed) leave(peer);
             }
-            if (room.seats.size >= game.maxClients) {
+            if (count(room) >= game.maxClients) {
                 refuseFull(connection);
                 return;
             }
@@ -372,6 +492,11 @@ function hostRooms(
         disconnect: leave,
     });
     const stopClock = startClock(() => {
+        if (reconnectMs) {
+            for (const room of rooms.values())
+                for (const peer of room.seats.keys()) if (peer.closed) leave(peer);
+            expireSeats();
+        }
         for (const app of active) app.world.tick();
     });
     const stop = () => {
@@ -380,6 +505,7 @@ function hostRooms(
         stopClock();
         process.off("SIGTERM", stop);
         unclaimed.clear();
+        held.clear();
         try {
             recorder?.finish();
         } finally {

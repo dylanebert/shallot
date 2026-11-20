@@ -6,6 +6,8 @@ export interface Connection {
     readonly endpoint?: string;
     /** True once this transport cannot deliver again. Omitted by transports without status polling. */
     readonly closed?: boolean;
+    /** Changes when a replacement stream starts, before any of its bytes are delivered. */
+    readonly generation?: number;
     /** Idempotent, non-throwing release: close the transport, discard queued bytes and refuse
      * future delivery. Closing either end of a seeded link closes both ends. */
     close(): void;
