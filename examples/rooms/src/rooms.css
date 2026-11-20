@@ -104,7 +104,7 @@
 }
 .ec svg { flex: none; pointer-events: none; }
 .ec #room-code { pointer-events: none; }
-.ec .vacant > button { width: 100%; background: #1c1917; }
+.ec .vacant > button { width: 100%; background: #2a2420; }
 .ec button:enabled { cursor: pointer; }
 .ec button:disabled, .ec input:disabled { background: #1c1917; color: #a08c78; }
 .ec button:hover:not(:disabled), .ec input:hover:not(:disabled) { border-color: #a08c78; }

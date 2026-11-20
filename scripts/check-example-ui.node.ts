@@ -845,11 +845,12 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
                             ? /:checked/.test(s)
                                 ? "dim"
                                 : "raised"
-                            : /controls|scenes|section-title/.test(s) ||
-                                s === ".ec .vacant > button" ||
-                                s === ".ec .slot-actions"
-                              ? "bg2"
-                              : "raised";
+                            : s === ".ec .vacant > button"
+                              ? "line"
+                              : /controls|scenes|section-title/.test(s) ||
+                                  s === ".ec .slot-actions"
+                                ? "bg2"
+                                : "raised";
             if (border && v !== "0px" && v !== "0")
                 role = selected
                     ? "gold"
@@ -1626,10 +1627,10 @@ test("vacancy popups use an inset panel and mark only the expanded trigger", () 
         expect(controlViolations({ sheets: [controlFixture, rule], lists: [] })).not.toEqual([]);
 });
 
-test("room controls inset names and code input and give only vacant pane buttons a quieter rest surface", () => {
+test("room controls inset names and code input and give only vacant pane buttons a distinct lower-emphasis rest surface", () => {
     const member = ".ec .member { padding-inline: 8px; }";
     const field = ".ec input[type='text'] { padding: 4px 8px; }";
-    const vacant = ".ec .vacant > button { background: #1c1917; }";
+    const vacant = ".ec .vacant > button { background: #2a2420; }";
     expect(
         controlViolations({ sheets: [controlFixture, member, field, vacant], lists: [] }),
     ).toEqual([]);
@@ -1637,7 +1638,8 @@ test("room controls inset names and code input and give only vacant pane buttons
         member.replace("8px", "16px"),
         field.replace("8px", "16px"),
         vacant.replace("vacant", "ordinary"),
-        vacant.replace("#1c1917", "#3c322c"),
+        vacant.replace("#2a2420", "#3c322c"),
+        vacant.replace("#2a2420", "#1c1917"),
     ])
         expect(controlViolations({ sheets: [controlFixture, sheet], lists: [] })).not.toEqual([]);
 });
