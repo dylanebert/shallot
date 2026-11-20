@@ -21,8 +21,6 @@
 .ec .fields { padding: 16px; }
 .ec .section { display: grid; gap: 4px; }
 .ec form { display: flex; gap: 8px; }
-.ec #enter { justify-content: space-between; }
-.ec button[aria-expanded='true'] > svg[data-icon='chevron'] { rotate: 180deg; }
 .ec #session {
     left: calc(var(--edge) + env(safe-area-inset-left));
     display: grid;
@@ -49,16 +47,6 @@
     min-width: 0;
     pointer-events: auto;
 }
-.ec .vacant { display: flex; justify-content: center; }
-.ec .vacant:has(.slot-actions:not([hidden])) { justify-content: space-between; }
-.ec .vacant::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border: 1px solid #2a2420;
-    border-radius: 2px;
-    pointer-events: none;
-}
 .ec .member {
     display: flex;
     padding-inline: 8px;
@@ -75,9 +63,14 @@
     white-space: nowrap;
     text-overflow: ellipsis;
 }
-.ec .slot-actions { flex: 1; min-width: 0; white-space: nowrap; }
-.ec .slot-actions > button { width: 100%; }
-.ec .vacant > button { flex: none; }
+.ec .slot-actions {
+    position: absolute;
+    z-index: 1;
+    top: calc(100% + 4px);
+    left: 0;
+    width: 100%;
+    display: grid;
+}
 .ec #status {
     position: absolute;
     z-index: 1;
@@ -105,7 +98,8 @@
     pointer-events: auto;
 }
 .ec svg { flex: none; pointer-events: none; }
-.ec #enter > span, .ec #room-code { pointer-events: none; }
+.ec #room-code { pointer-events: none; }
+.ec .vacant > button { width: 100%; background: #1c1917; }
 .ec button:enabled { cursor: pointer; }
 .ec button:disabled, .ec input:disabled { background: #1c1917; color: #a08c78; }
 .ec button:hover:not(:disabled), .ec input:hover:not(:disabled) { border-color: #a08c78; }

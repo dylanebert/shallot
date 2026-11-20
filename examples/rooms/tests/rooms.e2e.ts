@@ -62,6 +62,43 @@ async function expectEntryRoute(page: Page) {
         .toBeGreaterThan(2);
 }
 
+async function expectBotClear(page: Page) {
+    const png = await page.screenshot({ scale: "css" });
+    const bounds = await page.evaluate(
+        async (bytes) => {
+            const bitmap = await createImageBitmap(
+                new Blob([Uint8Array.from(bytes)], { type: "image/png" }),
+            );
+            const { width, height } = bitmap;
+            const context = new OffscreenCanvas(width, height).getContext("2d")!;
+            context.drawImage(bitmap, 0, 0);
+            const { data } = context.getImageData(0, 0, width, height);
+            let left = width,
+                right = -1,
+                bottom = -1;
+            for (let y = 0; y < height; y++)
+                for (let x = 0; x < width; x++) {
+                    const i = 4 * (y * width + x);
+                    const r = data[i]!,
+                        g = data[i + 1]!,
+                        b = data[i + 2]!;
+                    if (g > r + 20 && b > r + 20) {
+                        left = Math.min(left, x);
+                        right = Math.max(right, x);
+                        bottom = y;
+                    }
+                }
+            return { left, right, bottom, width, height };
+        },
+        [...png],
+    );
+    expect(bounds.right - bounds.left).toBeGreaterThan(16);
+    expect(bounds.left).toBeGreaterThanOrEqual(16);
+    expect(bounds.right).toBeLessThan(bounds.width - 16);
+    // The start of the floor hint is below this line at both authored viewports.
+    expect(bounds.bottom).toBeLessThan(bounds.height * 0.71);
+}
+
 async function server() {
     const child = spawn("bun", ["server.ts", "--port", "0"], {
         cwd: new URL("..", import.meta.url),
@@ -119,52 +156,51 @@ for (const phone of [false, true]) {
         });
         const use = (target: Locator) => (phone ? target.tap() : target.click());
 
-        test("entry discloses a padded code field; local party fills fixed seats", async ({
-            page,
-        }) => {
+        test("entry offers direct code entry; local party fills fixed seats", async ({ page }) => {
             const frames = await holdFrames(page, "#players .member");
             await page.goto("/");
             const lobby = page.getByRole("region", { name: "Join a room" });
             const input = page.getByRole("textbox", { name: "Room code" });
-            const enter = action(page, "Enter code");
+            const quick = action(page, "Quick join");
+            const create = action(page, "Create private room");
             await expect(lobby.getByRole("button")).toHaveText([
                 "Quick join",
                 "Create private room",
-                "Enter code",
+                "Join",
             ]);
-            await expect(input).toBeHidden();
+            await expect(lobby.locator("[aria-expanded]")).toHaveCount(0);
+            await expect(input).toBeVisible();
+            await expect(create.locator("svg")).toHaveAttribute("data-icon", "lock");
+            await expect(create).toHaveAccessibleDescription("Only people with the code can join");
+            for (const side of ["left", "right"])
+                expect(
+                    await input.evaluate(
+                        (el, side) =>
+                            parseFloat(getComputedStyle(el).getPropertyValue(`padding-${side}`)),
+                        side,
+                    ),
+                ).toBeGreaterThanOrEqual(8);
             await expect(action(page, "Jump")).toBeHidden();
             await expectEntryRoute(page);
-            await expect(enter).toHaveAttribute("aria-expanded", "false");
-            const trigger = await box(enter);
-            const label = await box(enter.getByText("Enter code"));
-            const chevron = await box(enter.locator("svg[data-icon='chevron']"));
-            expect(label.x - trigger.x).toBeGreaterThanOrEqual(8);
-            expect(trigger.x + trigger.width - chevron.x - chevron.width).toBeGreaterThanOrEqual(8);
-            expect(chevron.x - label.x - label.width).toBeGreaterThanOrEqual(8);
-            if (phone) await touchTargets(page);
-            await capture(page, `entry-closed-${size}`);
-
-            await expect(enter).toHaveCSS("background-color", raised);
+            await expect(create).toHaveCSS("background-color", raised);
             if (!phone) {
-                await enter.hover();
-                await expect(enter).toHaveCSS("border-top-color", muted);
+                const trigger = await box(create);
+                await create.hover();
+                await expect(create).toHaveAttribute("title", "Only people with the code can join");
+                await expect(create).toHaveCSS("border-top-color", muted);
                 await page.mouse.down();
-                await expect(enter).toHaveCSS("background-color", line);
-                expect(await box(enter)).toEqual(trigger);
+                await expect(create).toHaveCSS("background-color", line);
+                expect(await box(create)).toEqual(trigger);
+                await page.mouse.move(0, 0);
                 await page.mouse.up();
-            } else await use(enter);
-            await expect(input).toBeVisible();
-            await expect(enter).toHaveAttribute("aria-expanded", "true");
-            expect(await box(enter)).toEqual(trigger);
-            await expect(enter.locator("svg")).toHaveCSS("rotate", "180deg");
+            }
             await noFocus(page);
             await page.keyboard.press("Tab");
             await noFocus(page);
             if (phone) await touchTargets(page);
-            await capture(page, `entry-code-${size}`);
+            await capture(page, `entry-${size}`);
 
-            await use(action(page, "Quick join"));
+            await use(quick);
             await expect(players(page)).toHaveText(["You", "", "", ""]);
             await expect(page.getByRole("img", { name: "Human player" })).toHaveAttribute(
                 "data-icon",
@@ -178,7 +214,7 @@ for (const phone of [false, true]) {
             await expect(action(page, "Copy room code")).toBeHidden();
             await noFocus(page);
             const before = await seatBoxes(page);
-            const [first, second] = before;
+            const [first, , , last] = before;
             expect(first!.x).toBe(phone ? 16 : 24);
             for (const [index, rect] of before.entries()) {
                 expect([rect.x, rect.width, rect.height]).toEqual([
@@ -188,12 +224,18 @@ for (const phone of [false, true]) {
                 ]);
                 expect(rect.y).toBe(first!.y + index * (first!.height + 8));
             }
-            await expect(players(page).nth(1)).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
             await expect(players(page).first().locator(".member")).toHaveCSS(
                 "background-color",
                 raised,
             );
             for (const seat of [2, 3, 4]) {
+                await expect(plus(page, seat)).toHaveCSS("background-color", "rgb(28, 25, 23)");
+                expect(await box(plus(page, seat))).toEqual(before[seat - 1]);
+                await expect(
+                    players(page)
+                        .nth(seat - 1)
+                        .getByRole("button"),
+                ).toHaveCount(1);
                 await expect(plus(page, seat).locator("svg[data-icon='plus']")).toHaveCount(1);
                 await expect(plus(page, seat)).toHaveAttribute(
                     "title",
@@ -237,12 +279,16 @@ for (const phone of [false, true]) {
             expect(await seatBoxes(page)).toEqual(before);
             await noFocus(page);
 
-            await use(plus(page, 2));
+            await use(plus(page, 4));
+            const menu = page.getByRole("group", { name: "Seat 4 actions" });
             const popup = await box(add);
-            expect(popup.x).toBeGreaterThanOrEqual(second!.x);
-            expect(popup.x + popup.width).toBeLessThanOrEqual(second!.x + second!.width);
-            expect(popup.y).toBe(second!.y);
+            expect(popup.x).toBe(last!.x);
+            expect(popup.width).toBe(last!.width);
+            expect(popup.y).toBe(last!.y + last!.height + 4);
+            await expect(menu).toHaveCSS("display", "grid");
+            expect(await box(plus(page, 4))).toEqual(last);
             await frames.run(2);
+            await expectBotClear(page);
             await capture(page, `in-tab-${size}`);
             if (phone) {
                 await expect(action(page, "Jump")).toBeVisible();
@@ -259,7 +305,10 @@ for (const phone of [false, true]) {
             }
             await page.keyboard.press("Escape");
             await expect(add).toBeHidden();
-            await expect(plus(page, 2)).toHaveAttribute("aria-expanded", "false");
+            await expect(plus(page, 4)).toHaveAttribute("aria-expanded", "false");
+            await use(plus(page, 4));
+            await use(players(page).first().locator(".member"));
+            await expect(add).toBeHidden();
             await use(action(page, "Remove Bot 1"));
             await expect(players(page)).toHaveText(["You", "", "", ""]);
             expect(await seatBoxes(page)).toEqual(before);
@@ -335,7 +384,6 @@ for (const phone of [false, true]) {
                 const friend = await context.newPage();
                 const friendFrames = await holdFrames(friend, twoMembers);
                 await friend.goto(host.address);
-                await use(action(friend, "Enter code"));
                 await friend.getByRole("textbox", { name: "Room code" }).fill(code);
                 await use(action(friend, "Join"));
                 await expect(players(friend)).toHaveText(["Player 1", "You", "", ""]);
@@ -344,9 +392,9 @@ for (const phone of [false, true]) {
                 await expect(friend.getByRole("img", { name: "Human player" })).toHaveCount(2);
                 await expect(friend.getByRole("img", { name: "Party leader" })).toHaveCount(0);
                 await expect(action(friend, "Drop connection")).toBeHidden();
-                await use(plus(friend, 3));
-                await expect(plus(friend, 3)).toHaveAttribute("aria-expanded", "true");
-                const fallback = players(friend).nth(2).getByRole("button", { name: "Copy code" });
+                await use(plus(friend, 4));
+                await expect(plus(friend, 4)).toHaveAttribute("aria-expanded", "true");
+                const fallback = players(friend).nth(3).getByRole("button", { name: "Copy code" });
                 await expect(fallback).toBeVisible();
                 await expect(action(friend, "Add bot")).toBeHidden();
                 await expect(
@@ -372,9 +420,9 @@ for (const phone of [false, true]) {
                 expect(await friend.evaluate(() => navigator.clipboard.readText())).toBe(code);
                 await expectCopyFeedback(
                     friend,
-                    players(friend).nth(2).locator(".slot-actions button"),
+                    players(friend).nth(3).locator(".slot-actions button"),
                 );
-                await expect(players(friend)).toHaveText(["Player 1", "You", "Copy code", ""]);
+                await expect(players(friend)).toHaveText(["Player 1", "You", "", "Copy code"]);
                 await noFocus(friend);
                 await use(action(page, "Leave"));
                 await friend.keyboard.press("Escape");
@@ -396,11 +444,15 @@ for (const phone of [false, true]) {
                             ),
                         ).toBe(true);
                         const right = await box(friend.locator("#room-actions"));
-                        expect(menu.x).toBeGreaterThanOrEqual(seat.x);
-                        expect(menu.x + menu.width).toBeLessThanOrEqual(seat.x + seat.width);
+                        expect(menu.x).toBe(seat.x);
+                        expect(menu.width).toBe(seat.width);
+                        expect(menu.y).toBe(seat.y + seat.height + 4);
+                        expect(await box(plus(friend, slot))).toEqual(seat);
                         expect(menu.x + menu.width).toBeLessThan(right.x);
                         await touchTargets(friend);
                         if (slot === 1) await capture(friend, "server-seat-one-phone");
+                        await friend.keyboard.press("Escape");
+                        await expect(choice).toBeHidden();
                     }
                 }
             } finally {

@@ -55,7 +55,7 @@ function avatar(world: World, x: number, z: number) {
 export function route(world: World) {
     const players = [
         avatar(world, 0, 12),
-        avatar(world, -1, 8.5),
+        avatar(world, -1.1, 5.3),
         avatar(world, 1, 7),
         avatar(world, -1.5, 6),
     ];

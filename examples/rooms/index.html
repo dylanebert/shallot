@@ -24,9 +24,8 @@
                 <div class="fields">
                     <div class="section">
                         <button id="quick" tabindex="-1">Quick join</button>
-                        <button id="create" tabindex="-1">Create private room</button>
-                        <button id="enter" tabindex="-1" aria-expanded="false" aria-controls="join"><span>Enter code</span></button>
-                        <form id="join" hidden>
+                        <button id="create" tabindex="-1" title="Only people with the code can join">Create private room</button>
+                        <form id="join">
                             <input id="code" type="text" tabindex="-1" aria-label="Room code" placeholder="Room code" autocomplete="off" autocapitalize="characters" spellcheck="false" required />
                             <button tabindex="-1">Join</button>
                         </form>

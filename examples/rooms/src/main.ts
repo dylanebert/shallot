@@ -38,7 +38,7 @@ const copy = element<HTMLButtonElement>("copy");
 const copyFeedback = element("copy-feedback");
 const drop = element<HTMLButtonElement>("drop");
 const leaveButton = element<HTMLButtonElement>("leave");
-const enter = element<HTMLButtonElement>("enter");
+const create = element<HTMLButtonElement>("create");
 const form = element<HTMLFormElement>("join");
 const codeInput = element<HTMLInputElement>("code");
 let app: App | undefined;
@@ -60,7 +60,7 @@ drop.hidden = !!url;
 drop.innerHTML = icon("drop");
 leaveButton.innerHTML = icon("leave");
 copy.insertAdjacentHTML("beforeend", icon("copy"));
-enter.insertAdjacentHTML("beforeend", icon("chevron"));
+create.insertAdjacentHTML("afterbegin", icon("lock"));
 
 // Only the code field needs focus, while the player is editing it.
 const chrome = document.querySelector(".ec");
@@ -73,11 +73,6 @@ chrome?.addEventListener("click", (event) => {
     if (event.target instanceof HTMLButtonElement) event.target.blur();
 });
 
-enter.onclick = () => {
-    form.hidden = !form.hidden;
-    enter.setAttribute("aria-expanded", String(!form.hidden));
-};
-
 function closeSlot() {
     if (openSlot < 0) return;
     openSlot = -1;
@@ -85,7 +80,15 @@ function closeSlot() {
 }
 
 document.addEventListener("click", (event) => {
-    if (!event.composedPath().includes(list)) closeSlot();
+    if (
+        !event
+            .composedPath()
+            .some(
+                (node) =>
+                    node instanceof Element && node.matches(".slot-actions, .vacant > button"),
+            )
+    )
+        closeSlot();
 });
 document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") closeSlot();
@@ -203,6 +206,8 @@ function renderParty() {
             const actions = document.createElement("div");
             actions.className = "slot-actions";
             actions.id = `seat-${slot + 1}-actions`;
+            actions.setAttribute("role", "group");
+            actions.setAttribute("aria-label", `Seat ${slot + 1} actions`);
             actions.hidden = !expanded;
             plus.setAttribute("aria-expanded", String(expanded));
             plus.setAttribute("aria-controls", actions.id);
@@ -321,8 +326,6 @@ async function join(code?: string) {
     }
     lobby.hidden = true;
     session.hidden = false;
-    form.hidden = true;
-    enter.setAttribute("aria-expanded", "false");
     codeInput.value = "";
     message("");
     renderParty();
@@ -352,7 +355,7 @@ async function leave() {
 }
 
 element("quick").onclick = () => void act(() => join());
-element("create").onclick = () =>
+create.onclick = () =>
     void act(async () => {
         let code: string | undefined;
         if (host) code = host.create();
