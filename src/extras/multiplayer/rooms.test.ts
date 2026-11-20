@@ -89,7 +89,12 @@ test("room sockets isolate Worlds and discovery follows public seats only", asyn
         applyIntent() {},
     };
     const roomsOrigin = "https://game.example";
-    const host = serveRooms(game, { hostname: "127.0.0.1", port: 0, roomsOrigin });
+    const host = serveRooms(game, {
+        hostname: "127.0.0.1",
+        port: 0,
+        roomsOrigin,
+        fetch: () => new Response("game page"),
+    });
     async function listing() {
         const response = await fetch(`http://127.0.0.1:${host.port}/rooms`);
         expect(response.status).toBe(200);
@@ -125,6 +130,8 @@ test("room sockets isolate Worlds and discovery follows public seats only", asyn
         };
     }
     try {
+        const page = await fetch(`http://127.0.0.1:${host.port}/`);
+        expect(await page.text()).toBe("game page");
         const code = await privateCode(host.port);
         expect(worlds).toEqual([]);
         expect(await listing()).toEqual([]);

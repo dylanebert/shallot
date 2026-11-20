@@ -161,6 +161,8 @@ interface RoomHostOptions {
     port: number;
     /** Allowed browser origin for GET and POST /rooms. Omit for same-origin access. */
     roomsOrigin?: string;
+    /** Handles HTTP requests outside /rooms that do not upgrade to WebSocket. */
+    fetch?: (request: Request) => Response | undefined;
     /** Test-only monotonic time in milliseconds for code expiry; defaults to performance.now. */
     reservationNow?: () => number;
     /** Monotonic time in milliseconds for held seats. */
@@ -193,7 +195,8 @@ function hostRooms(
     const endpoint = serveWebSocket({
         ...options,
         fetch(request) {
-            if (pinnedApp || new URL(request.url).pathname !== "/rooms") return;
+            if (pinnedApp || new URL(request.url).pathname !== "/rooms")
+                return options.fetch?.(request);
             const headers = new Headers({ "Cache-Control": "no-store" });
             if (options.roomsOrigin)
                 headers.set("Access-Control-Allow-Origin", options.roomsOrigin);
