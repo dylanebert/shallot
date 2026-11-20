@@ -12,8 +12,12 @@ async function until(predicate: () => boolean) {
     while (!predicate()) await Bun.sleep(1);
 }
 
+function requestCode(port: number | undefined) {
+    return fetch(`http://127.0.0.1:${port}/rooms`, { method: "POST" });
+}
+
 async function privateCode(port: number | undefined) {
-    const response = await fetch(`http://127.0.0.1:${port}/rooms`, { method: "POST" });
+    const response = await requestCode(port);
     expect(response.status).toBe(201);
     const { code } = (await response.json()) as { code: string };
     expect(code).toMatch(/^[0-9A-HJKMNP-TV-Z]{10}$/);
@@ -119,6 +123,39 @@ test("room sockets reserve seats, isolate images and release empty Worlds", asyn
             socket.close();
             world.dispose();
         }
+    }
+});
+
+test("private code reservations are bounded host-wide and claiming one frees a slot", async () => {
+    const joined = Promise.withResolvers<void>();
+    const host = serveRooms(
+        {
+            plugins: [],
+            schema: [],
+            maxClients: 1,
+            rules: () => [],
+            onJoin: () => joined.resolve(),
+            validateIntent: () => false,
+            applyIntent() {},
+        },
+        { hostname: "127.0.0.1", port: 0 },
+    );
+    try {
+        const codes = new Set<string>();
+        for (let i = 0; i < 128; i++) codes.add(await privateCode(host.port));
+        expect(codes.size).toBe(128);
+        const refused = await requestCode(host.port);
+        expect(refused.status).toBe(503);
+        expect(refused.headers.get("Retry-After")).toBe("60");
+
+        const claim = roomSocket(host.port, `join&code=${codes.values().next().value}`);
+        await joined.promise;
+        expect(codes.has(await privateCode(host.port))).toBe(false);
+        expect((await requestCode(host.port)).status).toBe(503);
+        host.stop();
+        await claim.closed;
+    } finally {
+        host.stop();
     }
 });
 

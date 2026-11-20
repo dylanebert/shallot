@@ -143,17 +143,20 @@ interface Room {
     private: boolean;
     seats: Map<ServerWebSocketConnection, number | undefined>;
     app?: App;
-    claimBy?: number;
 }
 
 const CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const CLAIM_MS = 60_000;
+const MAX_UNCLAIMED_CODES = 128;
 
 /** Hosts independent authoritative Worlds of one game. POST /rooms returns 201
  * and JSON { code } for a private room. Share the code out of band and claim it
  * within 60 seconds with `?intent=join&code=…`. A code is 10 case-insensitive
  * Crockford Base32 characters (no I, L, O or U). Codes are unique among live
- * rooms and may be randomly issued again after retirement.
+ * rooms and may be randomly issued again after retirement. The host holds at
+ * most 128 unclaimed codes to allow concurrent invitations without unbounded
+ * idle records or timers. At capacity, POST returns 503 with Retry-After: 60
+ * (seconds); claim or expiry frees a slot. Reservations do not run on the game clock.
  * A socket cannot create a private room with a client-supplied code.
  * `?intent=joinOrCreate` fills an available public room before making another.
  * Refusals send no game image: 1013 means full, 1008 means unknown/expired code
@@ -176,6 +179,11 @@ function hostRooms(
     if (!Number.isSafeInteger(game.maxClients) || game.maxClients < 1)
         throw new Error("maxClients must be a positive integer");
     const rooms = new Map<string, Room>();
+    const active = new Set<App>();
+    const unclaimed = new Map<
+        string,
+        { timer: ReturnType<typeof setTimeout>; expiresAt: number }
+    >();
     const memberships = new WeakMap<ServerWebSocketConnection, Room>();
     const pinned: Room | undefined = pinnedApp && {
         code: "",
@@ -183,15 +191,22 @@ function hostRooms(
         seats: new Map(),
         app: pinnedApp,
     };
-    if (pinned) rooms.set(pinned.code, pinned);
+    if (pinned && pinnedApp) {
+        rooms.set(pinned.code, pinned);
+        active.add(pinnedApp);
+    }
     let stopped = false;
 
-    function createRoom(isPrivate: boolean): Room {
+    function issueCode(): string {
         let code: string;
         do {
             const bytes = crypto.getRandomValues(new Uint8Array(10));
             code = Array.from(bytes, (byte) => CODE_ALPHABET[byte & 31]).join("");
-        } while (rooms.has(code));
+        } while (rooms.has(code) || unclaimed.has(code));
+        return code;
+    }
+
+    function createRoom(code: string, isPrivate: boolean): Room {
         const room: Room = { code, private: isPrivate, seats: new Map() };
         rooms.set(code, room);
         return room;
@@ -204,7 +219,10 @@ function hostRooms(
             connection.close(code, reason);
         }
         room.seats.clear();
-        room.app?.dispose();
+        if (room.app) {
+            active.delete(room.app);
+            room.app.dispose();
+        }
     }
 
     function leave(connection: ServerWebSocketConnection) {
@@ -259,6 +277,7 @@ function hostRooms(
             return;
         }
         room.app = app;
+        active.add(app);
         for (const connection of room.seats.keys()) admit(room, connection);
     }
 
@@ -273,15 +292,18 @@ function hostRooms(
             for (const room of rooms.values()) {
                 if (!room.private && room.seats.size < game.maxClients) return room;
             }
-            return createRoom(false);
+            return createRoom(issueCode(), false);
         }
         if (intent === "join" && code) {
-            const room = rooms.get(code.toUpperCase());
-            if (room?.claimBy !== undefined && performance.now() >= room.claimBy) {
-                retire(room);
+            const key = code.toUpperCase();
+            const reservation = unclaimed.get(key);
+            if (reservation !== undefined) {
+                clearTimeout(reservation.timer);
+                unclaimed.delete(key);
+                if (performance.now() < reservation.expiresAt) return createRoom(key, true);
                 return;
             }
-            return room;
+            return rooms.get(key);
         }
     }
 
@@ -291,9 +313,18 @@ function hostRooms(
             if (pinned || request.method !== "POST" || new URL(request.url).pathname !== "/rooms")
                 return;
             if (stopped) return new Response(null, { status: 503 });
-            const room = createRoom(true);
-            room.claimBy = performance.now() + CLAIM_MS;
-            return Response.json({ code: room.code }, { status: 201 });
+            if (unclaimed.size >= MAX_UNCLAIMED_CODES) {
+                return new Response(null, {
+                    status: 503,
+                    headers: { "Retry-After": String(CLAIM_MS / 1000) },
+                });
+            }
+            const code = issueCode();
+            unclaimed.set(code, {
+                expiresAt: performance.now() + CLAIM_MS,
+                timer: setTimeout(() => unclaimed.delete(code), CLAIM_MS),
+            });
+            return Response.json({ code }, { status: 201 });
         },
         connect(connection, url) {
             if (stopped) {
@@ -312,7 +343,6 @@ function hostRooms(
                 refuseFull(connection);
                 return;
             }
-            room.claimBy = undefined;
             room.seats.set(connection, undefined);
             memberships.set(connection, room);
             if (room.app) admit(room, connection);
@@ -321,17 +351,15 @@ function hostRooms(
         disconnect: leave,
     });
     const stopClock = startClock(() => {
-        const now = performance.now();
-        for (const room of rooms.values()) {
-            if (room.claimBy !== undefined && now >= room.claimBy) retire(room);
-            else room.app?.world.tick();
-        }
+        for (const app of active) app.world.tick();
     });
     const stop = () => {
         if (stopped) return;
         stopped = true;
         stopClock();
         process.off("SIGTERM", stop);
+        for (const { timer } of unclaimed.values()) clearTimeout(timer);
+        unclaimed.clear();
         try {
             recorder?.finish();
         } finally {
