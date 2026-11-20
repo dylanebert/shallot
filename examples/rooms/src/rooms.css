@@ -1,70 +1,128 @@
-@font-face { font-family: 'IBM Plex Sans'; font-weight: 400; src: url('/fonts/plex/IBMPlexSans-Regular-Latin1.woff2') format('woff2'); font-display: swap; }
-@font-face { font-family: 'JetBrains Mono'; font-weight: 400; src: url('/fonts/mono/JetBrainsMono-Regular.woff2') format('woff2'); font-display: swap; }
-@font-face { font-family: 'JetBrains Mono'; font-weight: 700; src: url('/fonts/mono/JetBrainsMono-Bold.woff2') format('woff2'); font-display: swap; }
-
-.ec { color: #f0e6d6; font: 400 13px/20px 'IBM Plex Sans', system-ui, sans-serif; user-select: none; }
-.ec.controls {
+.ec {
+    --edge: 24px;
+    color: #f0e6d6;
+    font: 400 13px/20px 'IBM Plex Sans', system-ui, sans-serif;
+}
+.ec .controls, .ec #session {
     position: absolute;
     z-index: 1;
-    top: calc(24px + env(safe-area-inset-top));
-    right: calc(24px + env(safe-area-inset-right));
+    top: calc(var(--edge) + env(safe-area-inset-top));
+    right: calc(var(--edge) + env(safe-area-inset-right));
+}
+.ec .controls {
     width: 360px;
-    max-width: calc(100% - 16px - 16px);
+    max-width: calc(100% - 16px - 16px - env(safe-area-inset-left) - env(safe-area-inset-right));
     max-height: calc(100dvh - 24px - 24px - 64px);
-    overflow-y: auto;
+    overflow: auto;
     background: #1c1917;
     border: 1px solid #2a2420;
     border-radius: 2px;
 }
-.ec .panel-title {
-    min-height: 32px;
-    font: 700 15px/20px 'JetBrains Mono', ui-monospace, monospace;
-    padding: 12px 16px;
-    border-bottom: 1px solid #2a2420;
-}
-.ec .fields { display: grid; gap: 16px; padding: 16px; }
+.ec .fields { padding: 16px; }
 .ec .section { display: grid; gap: 4px; }
-.ec .row { min-height: 32px; align-content: center; border: 1px solid #2a2420; }
-.ec output { font: 400 12px/20px 'JetBrains Mono', ui-monospace, monospace; float: right; }
-.ec p, .ec ul { margin: 0; }
-.ec ul { list-style: none; padding: 0; }
-.ec form, .ec .actions, .ec li { display: flex; align-items: center; gap: 8px; }
-.ec #party-count { float: none; }
-.ec #room-panel[open] #room-code, .ec #room-panel[open] #party-crown { display: none; }
-.ec .actions { justify-content: space-between; }
-.ec #share-code { flex: 1; }
-.ec #players { display: flex; gap: 8px; }
-.ec li {
-    flex: 1;
-    flex-direction: column;
-    justify-content: center;
-    min-height: 64px;
-    min-width: 0;
-    border: 1px solid #2a2420;
-    text-align: center;
+.ec form { display: flex; gap: 8px; }
+.ec #enter { justify-content: space-between; }
+.ec button[aria-expanded='true'] > svg[data-icon='chevron'] { rotate: 180deg; }
+.ec #session {
+    left: calc(var(--edge) + env(safe-area-inset-left));
+    display: grid;
+    align-items: start;
+    grid-template-columns: minmax(0, 144px) auto;
+    justify-content: space-between;
+    gap: 8px;
+    pointer-events: none;
 }
-.ec li.empty { border-style: dashed; }
-.ec li.empty > * { width: 100%; flex: 1; }
-.ec li .portrait { font: 400 13px/20px 'IBM Plex Sans', system-ui, sans-serif; }
+.ec #room-actions { display: flex; gap: 8px; }
+.ec #players {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 8px;
+}
+.ec .row {
+    position: relative;
+    display: grid;
+    align-items: center;
+    height: 32px;
+    min-width: 0;
+    pointer-events: auto;
+}
+.ec .vacant { justify-items: center; }
+.ec .vacant::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border: 1px solid #2a2420;
+    border-radius: 2px;
+    pointer-events: none;
+}
+.ec .member {
+    display: flex;
+    padding-inline: 8px;
+    align-items: center;
+    gap: 8px;
+    height: 100%;
+    min-width: 0;
+    border-radius: 2px;
+    background: #3c322c;
+}
+.ec .member > span {
+    flex: 1;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+.ec .slot-actions {
+    position: absolute;
+    left: calc(100% + 8px);
+    top: 0;
+    z-index: 1;
+    white-space: nowrap;
+}
+.ec #status {
+    position: absolute;
+    z-index: 1;
+    top: calc(50% + env(safe-area-inset-top));
+    left: calc(var(--edge) + env(safe-area-inset-left));
+    margin: 0;
+    pointer-events: none;
+}
 .ec button, .ec input {
     border: 1px solid #2a2420;
     border-radius: 2px;
     background: #3c322c;
     color: #f0e6d6;
     font: inherit;
+    outline: none;
 }
-.ec input { flex: 1; min-width: 0; align-self: stretch; }
-.ec button { min-height: 32px; padding: 4px 8px; }
+.ec input[type='text'] { flex: 1; min-width: 0; padding: 4px 8px; }
+.ec button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 32px;
+    padding: 4px 8px;
+    pointer-events: auto;
+}
+.ec svg { flex: none; pointer-events: none; }
+.ec #enter > span, .ec #room-code { pointer-events: none; }
 .ec button:enabled { cursor: pointer; }
 .ec button:disabled, .ec input:disabled { background: #1c1917; color: #a08c78; }
-.ec button:hover:not(:disabled), .ec input:hover:not(:disabled), .ec summary:hover:not(:disabled) { border-color: #a08c78; }
-.ec button:active:not(:disabled), .ec input:active:not(:disabled), .ec summary:active:not(:disabled) { background: #2a2420; }
-.ec [hidden] { display: none; }
+.ec button:hover:not(:disabled), .ec input:hover:not(:disabled) { border-color: #a08c78; }
+.ec button:active:not(:disabled), .ec input:active:not(:disabled) { background: #2a2420; }
+.ec button[aria-pressed='true'] { border-color: #d49560; }
+.ec [hidden] { display: none !important; }
 
-@media (pointer: coarse) {
-    .ec .panel-title, .ec .row, .ec button { min-height: 44px; }
+@media (pointer: coarse), (max-width: 480px) {
+    .ec .row { height: 44px; }
+    .ec button { min-height: 44px; min-width: 44px; }
 }
 @media (max-width: 480px) {
-    .ec.controls { top: calc(16px + env(safe-area-inset-top)); right: calc(16px + env(safe-area-inset-right)); max-height: 60dvh; }
-    .ec .panel-title, .ec .row, .ec button { min-height: 44px; }
+    .ec { --phone-edge: 16px; }
+    .ec .controls, .ec #session, .ec #status { right: calc(var(--phone-edge) + env(safe-area-inset-right)); }
+    .ec .controls, .ec #session { top: calc(var(--phone-edge) + env(safe-area-inset-top)); }
+    .ec #session, .ec #status { left: calc(var(--phone-edge) + env(safe-area-inset-left)); }
+    .ec .controls { max-height: 60dvh; }
 }

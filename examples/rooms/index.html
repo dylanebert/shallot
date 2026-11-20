@@ -3,7 +3,7 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="description" content="Quick-join a first-person room, invite a friend by code, and rejoin as the same player." />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
         <link rel="icon" type="image/svg+xml" href="/icon.svg" />
         <link rel="stylesheet" href="./src/touch.css" />
         <link rel="stylesheet" href="./src/rooms.css" />
@@ -19,37 +19,29 @@
     <body>
         <canvas id="canvas"></canvas>
         <div data-shallot-bootstrap data-state="loading" role="status">Loading…</div>
-        <aside class="ec controls" aria-labelledby="rooms-title" hidden>
-            <details id="room-panel" open>
-                <summary class="panel-title" id="room-toggle">
-                    <span id="party-crown" aria-hidden="true" hidden>★</span>
-                    <span id="rooms-title">Rooms</span>
-                    <output id="party-count" hidden></output>
-                    <output id="room-code" hidden></output>
-                </summary>
+        <aside class="ec" aria-label="Rooms" hidden>
+            <section class="controls" id="lobby" aria-label="Join a room">
                 <div class="fields">
-                    <p id="status" role="status" hidden></p>
-                    <section class="section" id="lobby" aria-label="Lobby">
-                        <button id="quick">Quick join</button>
-                        <button id="create">Create private room</button>
-                        <details>
-                            <summary class="row">Enter code</summary>
-                            <form id="join">
-                                <input id="code" aria-label="Room code" placeholder="Room code" autocomplete="off" autocapitalize="characters" spellcheck="false" required />
-                                <button>Join</button>
-                            </form>
-                        </details>
-                    </section>
-                    <section class="section" id="session" aria-label="Current room" hidden>
-                        <div class="actions" id="share"><span>Room code</span><output id="share-code"></output><button id="copy" class="icon" aria-label="Copy room code" title="Copy room code" disabled>⎘</button></div>
-                        <ul id="players" aria-label="Party slots"></ul>
-                        <div class="actions">
-                            <button id="leave">Leave</button>
-                            <button id="drop" hidden>Drop connection</button>
-                        </div>
-                    </section>
+                    <div class="section">
+                        <button id="quick" tabindex="-1">Quick join</button>
+                        <button id="create" tabindex="-1">Create private room</button>
+                        <button id="enter" tabindex="-1" aria-expanded="false" aria-controls="join"><span>Enter code</span></button>
+                        <form id="join" hidden>
+                            <input id="code" type="text" tabindex="-1" aria-label="Room code" placeholder="Room code" autocomplete="off" autocapitalize="characters" spellcheck="false" required />
+                            <button tabindex="-1">Join</button>
+                        </form>
+                    </div>
                 </div>
-            </details>
+            </section>
+            <section id="session" aria-label="Current room" hidden>
+                <ul id="players" aria-label="Party slots"></ul>
+                <div id="room-actions">
+                    <button id="copy" tabindex="-1" aria-label="Copy room code" aria-describedby="room-code" title="Copy room code" hidden><span id="room-code"></span></button>
+                    <button id="drop" tabindex="-1" aria-label="Drop connection" title="Drop connection" aria-pressed="false" hidden></button>
+                    <button id="leave" tabindex="-1" aria-label="Leave" title="Leave"></button>
+                </div>
+            </section>
+            <p id="status" role="status" hidden></p>
         </aside>
         <script src="/startup.js"></script>
         <script type="module" src="./src/main.ts"></script>

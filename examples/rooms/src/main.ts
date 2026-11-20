@@ -1,6 +1,7 @@
 import { type App, type Plugin, runApp } from "@dylanebert/shallot";
 import { client, local } from "@dylanebert/shallot/multiplayer";
 import { AppPlugin, RoomFrame } from "./app";
+import { icon } from "./icons";
 import { ClientSession, GAME } from "./network";
 
 function element<T extends HTMLElement = HTMLElement>(id: string) {
@@ -32,13 +33,12 @@ const bots = new Map<number, Bot>();
 const lobby = element("lobby");
 const session = element("session");
 const status = element("status");
-const panel = element<HTMLDetailsElement>("room-panel");
 const list = element("players");
 const copy = element<HTMLButtonElement>("copy");
 const drop = element<HTMLButtonElement>("drop");
-const codeLabel = element("room-code");
-const count = element("party-count");
-const crown = element("party-crown");
+const leaveButton = element<HTMLButtonElement>("leave");
+const enter = element<HTMLButtonElement>("enter");
+const form = element<HTMLFormElement>("join");
 const codeInput = element<HTMLInputElement>("code");
 let app: App | undefined;
 let seat: Seat | undefined;
@@ -51,23 +51,61 @@ let roster = 0;
 let generation: number | undefined;
 let openSlot = -1;
 let seed = 0;
+let feedbackTimer: ReturnType<typeof setTimeout> | undefined;
 
 drop.hidden = !!url;
+drop.innerHTML = icon("drop");
+leaveButton.innerHTML = icon("leave");
+copy.insertAdjacentHTML("beforeend", icon("copy"));
+enter.insertAdjacentHTML("beforeend", icon("chevron"));
 
-function message(text: string) {
+// Only the code field needs focus, while the player is editing it.
+const chrome = document.querySelector(".ec");
+chrome?.addEventListener("mousedown", (event) => {
+    if (!(event.target instanceof HTMLButtonElement)) return;
+    event.preventDefault();
+    codeInput.blur();
+});
+chrome?.addEventListener("click", (event) => {
+    if (event.target instanceof HTMLButtonElement) event.target.blur();
+});
+
+enter.onclick = () => {
+    form.hidden = !form.hidden;
+    enter.setAttribute("aria-expanded", String(!form.hidden));
+};
+
+function closeSlot() {
+    if (openSlot < 0) return;
+    openSlot = -1;
+    renderParty();
+}
+
+document.addEventListener("click", (event) => {
+    if (!event.composedPath().includes(list)) closeSlot();
+});
+document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeSlot();
+});
+
+function message(text: string, transient = false) {
+    clearTimeout(feedbackTimer);
     status.textContent = text;
     status.hidden = !text;
+    if (transient) feedbackTimer = setTimeout(() => message(""), 2500);
 }
 
 function buttons() {
     for (const button of lobby.querySelectorAll("button")) button.disabled = busy;
     codeInput.disabled = busy;
     for (const button of list.querySelectorAll("button"))
-        button.disabled = busy || dropped || rejoining || ownSlot < 0;
+        button.disabled = busy || dropped || rejoining || ownSlot < 0 || (!!url && !roomCode);
     copy.disabled = busy || !roomCode;
     drop.disabled = busy || rejoining || ownSlot < 0;
-    drop.textContent = dropped ? "Resume connection" : "Drop connection";
-    element<HTMLButtonElement>("leave").disabled = busy;
+    drop.title = dropped ? "Resume connection" : "Drop connection";
+    drop.setAttribute("aria-label", drop.title);
+    drop.setAttribute("aria-pressed", String(dropped));
+    leaveButton.disabled = busy;
 }
 
 async function act(action: () => Promise<void> | void) {
@@ -87,69 +125,84 @@ async function act(action: () => Promise<void> | void) {
 
 function showCode(code: string) {
     roomCode = code;
-    codeLabel.textContent = code ? `Room code ${code}` : "";
-    element("share-code").textContent = code;
-    copy.textContent = "⎘";
-
+    element("room-code").textContent = code;
+    copy.hidden = !url || !code;
     buttons();
 }
 
-copy.onclick = () =>
-    void act(async () => {
-        await navigator.clipboard.writeText(roomCode);
-        copy.textContent = "✓";
-    });
+async function copyCode() {
+    await navigator.clipboard.writeText(roomCode);
+    closeSlot();
+    message("Room code copied.", true);
+}
 
-function slotButton(text: string, action: (button: HTMLButtonElement) => Promise<void> | void) {
+copy.onclick = () => void act(copyCode);
+
+function slotButton(label: string, glyph: Parameters<typeof icon>[0], text = false) {
     const button = document.createElement("button");
-    button.textContent = text;
-    button.onclick = () => void act(() => action(button));
+    button.tabIndex = -1;
+    button.innerHTML = icon(glyph);
+    if (text) button.append(label);
+    else {
+        button.title = label;
+        button.setAttribute("aria-label", label);
+    }
     return button;
 }
 
 function renderParty() {
-    let occupied = 0;
     const slots: HTMLLIElement[] = [];
     for (let slot = 0; slot < GAME.maxClients; slot++) {
         const row = document.createElement("li");
+        row.className = "row";
         const you = slot === ownSlot;
         const bot = bots.get(slot);
         if (you || bot || (url && roster & (1 << slot))) {
-            occupied++;
-            const portrait = document.createElement("span");
-            portrait.className = "portrait";
-            portrait.textContent = you ? (host ? "Y ★" : "Y") : bot ? "B" : "P";
-            portrait.setAttribute("aria-hidden", "true");
+            if (openSlot === slot) openSlot = -1;
+            const member = document.createElement("div");
+            member.className = "member";
+            member.innerHTML = bot ? icon("bot", "Bot") : icon("user", "Human player");
             const name = document.createElement("span");
             name.textContent = you ? "You" : bot ? `Bot ${bot.name}` : `Player ${slot + 1}`;
-            if (you && host) name.setAttribute("aria-label", "You, party leader");
-            row.append(portrait, name);
+            name.title = name.textContent;
+            member.append(name);
+            if (you && host) member.insertAdjacentHTML("beforeend", icon("star", "Party leader"));
             if (bot) {
-                const remove = slotButton("×", () => {
-                    bot.remove();
-                    bots.delete(slot);
-                    renderParty();
-                });
-                remove.setAttribute("aria-label", `Remove Bot ${bot.name}`);
-                row.append(remove);
+                const remove = slotButton(`Remove ${name.textContent}`, "remove");
+                remove.onclick = () =>
+                    void act(() => {
+                        bot.remove();
+                        bots.delete(slot);
+                        renderParty();
+                    });
+                member.append(remove);
             }
+            row.append(member);
         } else {
-            row.className = "empty";
-            if (host) {
-                const action =
-                    openSlot === slot
-                        ? slotButton("Add bot", () => addBot(slot))
-                        : slotButton("", () => {
-                              openSlot = slot;
-                              renderParty();
-                          });
-                if (openSlot !== slot) action.setAttribute("aria-label", `Empty slot ${slot + 1}`);
-                row.append(action);
+            row.classList.add("vacant");
+            const plus = slotButton(`Open actions for seat ${slot + 1}`, "plus");
+            const expanded = openSlot === slot;
+            const actions = document.createElement("div");
+            actions.className = "slot-actions";
+            actions.id = `seat-${slot + 1}-actions`;
+            actions.hidden = !expanded;
+            plus.setAttribute("aria-expanded", String(expanded));
+            plus.setAttribute("aria-controls", actions.id);
+            plus.onclick = () => {
+                openSlot = expanded ? -1 : slot;
+                renderParty();
+            };
+            if (expanded) {
+                const choice = host
+                    ? slotButton("Add bot", "bot", true)
+                    : slotButton("Copy code", "copy", true);
+                choice.onclick = () => void act(host ? () => addBot(slot) : copyCode);
+                actions.append(choice);
             }
+            row.append(plus, actions);
         }
         slots.push(row);
     }
-    count.textContent = `${occupied} / ${GAME.maxClients}`;
     list.replaceChildren(...slots);
     buttons();
 }
@@ -182,9 +235,9 @@ const RoomPanel: Plugin = {
                 const peer = world.resource(ClientSession).client;
                 if (!peer || peer.slot < 0 || peer.prediction.receiver.confirmed < 0) return;
                 if (peer.connection.generation !== generation) {
+                    if (ownSlot >= 0) message("Rejoined as the same player.", true);
                     generation = peer.connection.generation;
                     rejoining = false;
-                    message("Rejoined as the same player.");
                     buttons();
                 }
                 if (peer.slot !== ownSlot || peer.roster !== roster) {
@@ -237,14 +290,13 @@ async function join(code?: string) {
         leave();
         throw new Error("The room refused the connection. Check the code and try again.");
     }
-    element("rooms-title").textContent = "Party";
-    count.hidden = codeLabel.hidden = false;
-    crown.hidden = !host;
     lobby.hidden = true;
     session.hidden = false;
+    form.hidden = true;
+    enter.setAttribute("aria-expanded", "false");
+    codeInput.value = "";
     message("");
     renderParty();
-    if (matchMedia("(max-width: 480px)").matches) panel.open = false;
 }
 
 function leave() {
@@ -261,9 +313,7 @@ function leave() {
     list.replaceChildren();
     session.hidden = true;
     lobby.hidden = false;
-    element("rooms-title").textContent = "Rooms";
-    codeLabel.hidden = count.hidden = crown.hidden = true;
-    panel.open = true;
+    showCode("");
     message("");
 }
 
@@ -283,12 +333,13 @@ element("create").onclick = () =>
         if (!code) throw new Error("No private room codes are available yet.");
         await join(code);
     });
-element<HTMLFormElement>("join").onsubmit = (event) => {
+form.onsubmit = (event) => {
     event.preventDefault();
+    codeInput.blur();
     const code = codeInput.value.trim().toUpperCase();
     if (code) void act(() => join(code));
 };
-element("leave").onclick = () => void act(leave);
+leaveButton.onclick = () => void act(leave);
 drop.onclick = () =>
     void act(() => {
         if (!seat) return;
@@ -311,5 +362,5 @@ window.addEventListener("pagehide", (event) => {
     app?.dispose();
     host?.dispose();
 });
-document.querySelector(".ec.controls")?.removeAttribute("hidden");
+chrome?.removeAttribute("hidden");
 document.querySelector("[data-shallot-bootstrap]")?.remove();
