@@ -61,7 +61,7 @@ test("an in-tab quick join shows its players and lets the player manage bots", a
 test("two pages share a private Bun room by code without listing it publicly", async ({
     page,
     context,
-}) => {
+}, info) => {
     const host = await server();
     try {
         await page.goto(host.query);
@@ -77,6 +77,8 @@ test("two pages share a private Bun room by code without listing it publicly", a
         await expect(players(page)).toHaveText(["AsterYou", "BirchPlayer"]);
         await expect(action(friend, "Add bot")).toBeHidden();
         await expect(action(friend, "Drop connection")).toBeHidden();
+        if (process.env.SHALLOT_ROOMS_CAPTURES)
+            await friend.screenshot({ path: info.outputPath("server.png") });
         await action(friend, "Leave room").click();
         await expect(players(page)).toHaveText(["AsterYou"]);
     } finally {
@@ -84,7 +86,10 @@ test("two pages share a private Bun room by code without listing it publicly", a
     }
 });
 
-test("a served page resumes its own avatar when its socket is dropped", async ({ page }) => {
+test("a served page resumes its own avatar when its socket is dropped", async ({
+    page,
+    browser,
+}, info) => {
     const host = await server();
     try {
         await page.addInitScript(() => {
@@ -103,6 +108,24 @@ test("a served page resumes its own avatar when its socket is dropped", async ({
         await page.goto(host.query);
         await action(page, "Quick join").click();
         await expect(players(page)).toHaveText(["AsterYou"]);
+        if (process.env.SHALLOT_ROOMS_CAPTURES) {
+            for (const phone of [false, true]) {
+                const lobby = await browser.newPage({
+                    viewport: phone ? { width: 390, height: 844 } : { width: 1280, height: 800 },
+                    hasTouch: phone,
+                    isMobile: phone,
+                });
+                try {
+                    await lobby.goto(host.query);
+                    await expect(lobby.locator("#listing li")).toHaveText(/1 \/ 4 players/);
+                    await lobby.screenshot({
+                        path: info.outputPath(phone ? "lobby-phone.png" : "lobby-desktop.png"),
+                    });
+                } finally {
+                    await lobby.close();
+                }
+            }
+        }
         await page.evaluate(() =>
             (window as Window & { dropRoomSocket?: () => void }).dropRoomSocket!(),
         );
@@ -118,21 +141,35 @@ test.describe("phone", () => {
     test("the room panel fits a touch viewport and accepts taps", async ({ page }, info) => {
         await page.goto("/");
         await action(page, "Quick join").tap();
+        const panel = page.getByRole("complementary", { name: "Rooms" });
+        const toggle = page.locator("#room-toggle");
+        await expect(page.locator("#room-code")).toBeVisible();
+        await expect(page.locator("#room-panel")).not.toHaveAttribute("open", "");
+        await expect(action(page, "Add bot")).toBeHidden();
+        expect((await panel.boundingBox())!.height).toBeLessThanOrEqual(64);
+        const jump = action(page, "Jump");
+        await expect(jump).toBeVisible();
+        await toggle.tap();
         await expect(players(page)).toHaveText(["AsterYou"]);
         for (const name of ["BirchBot", "CedarBot"]) {
             await action(page, "Add bot").tap();
             await expect(players(page).last()).toHaveText(name);
         }
-        const panel = page.getByRole("complementary", { name: "Rooms" });
         const box = (await panel.boundingBox())!;
+        expect((await panel.getByRole("heading", { name: "Players" }).boundingBox())!.x).toBe(
+            (await players(page).first().boundingBox())!.x,
+        );
         expect(box.x).toBeGreaterThanOrEqual(0);
         expect(box.x + box.width).toBeLessThanOrEqual(390);
         expect(box.y).toBeGreaterThanOrEqual(0);
         expect(box.y + box.height).toBeLessThan(844 / 2);
         for (const button of await panel.getByRole("button").all())
             expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-        if (process.env.SHALLOT_ROOMS_CAPTURES)
+        if (process.env.SHALLOT_ROOMS_CAPTURES) {
+            await toggle.tap();
             await page.screenshot({ path: info.outputPath("phone.png") });
+            await toggle.tap();
+        }
         await action(page, "Drop connection").tap();
         await expect(page.getByText(/Connection dropped/)).toBeVisible();
         await action(page, "Resume connection").tap();

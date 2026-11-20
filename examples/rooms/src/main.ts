@@ -11,6 +11,9 @@ const status = element("status");
 const codeInput = element<HTMLInputElement>("code");
 const lobby = element("lobby");
 const session = element("session");
+const roomPanel = element<HTMLDetailsElement>("room-panel");
+const roomLabel = element("room-code");
+const mode = element("mode");
 const players = element("players");
 const listing = element("listing");
 const botButton = element<HTMLButtonElement>("bot");
@@ -43,7 +46,7 @@ let shownGeneration: number | undefined;
 let joined = false;
 let seed = 0;
 
-element("mode").textContent = url ? "BUN SERVER" : "IN THIS TAB";
+mode.textContent = url ? "BUN SERVER" : "IN THIS TAB";
 element("dev").hidden = !host;
 
 function message(text: string) {
@@ -177,9 +180,12 @@ async function join(code?: string) {
         throw error;
     }
     const roomCode = seat?.code ?? code;
-    element("room-code").textContent = roomCode ? `Room code: ${roomCode}` : "Public room";
+    roomLabel.textContent = roomCode ? `Room code: ${roomCode}` : "Public room";
+    roomLabel.hidden = false;
+    mode.hidden = true;
     lobby.hidden = true;
     session.hidden = false;
+    if (matchMedia("(max-width: 480px)").matches) roomPanel.open = false;
 }
 
 function leave() {
@@ -196,6 +202,9 @@ function leave() {
     players.replaceChildren();
     session.hidden = true;
     lobby.hidden = false;
+    roomLabel.hidden = true;
+    mode.hidden = false;
+    roomPanel.open = true;
     message("Left the room.");
     void list().catch(() => {});
 }

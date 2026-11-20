@@ -100,6 +100,7 @@ function setupLocalControls(world: World): void {
     if (typeof document !== "undefined") {
         const overlay = mountOverlay(document.querySelector("canvas"), world);
         mountTouchButton(overlay, world, "Jump", "Space");
+        world.resource(TouchControls).used = matchMedia("(pointer: coarse)").matches;
         const stick = document.createElement("div");
         stick.dataset.touchStick = "";
         stick.style.cssText =

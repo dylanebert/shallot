@@ -17,9 +17,6 @@
     border-radius: 2px;
 }
 .ec .panel-title {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
     min-height: 32px;
     font: 700 15px/20px 'JetBrains Mono', ui-monospace, monospace;
     padding: 12px 16px;
@@ -32,13 +29,13 @@
     align-items: center;
     min-height: 32px;
     margin: 0;
-    padding: 0 8px;
+    padding: 0;
     font: 400 12px/20px 'JetBrains Mono', ui-monospace, monospace;
     letter-spacing: .08em;
     text-transform: uppercase;
     color: #a08c78;
 }
-.ec output { font: 400 12px/20px 'JetBrains Mono', ui-monospace, monospace; }
+.ec output { font: 400 12px/20px 'JetBrains Mono', ui-monospace, monospace; float: right; }
 .ec p, .ec ul { margin: 0; }
 .ec ul { list-style: none; padding: 0; }
 .ec form, .ec .actions, .ec li { display: flex; align-items: center; gap: 8px; }
