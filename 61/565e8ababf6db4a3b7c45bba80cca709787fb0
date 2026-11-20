@@ -1,2 +1,2 @@
 stage: 7
-clean
+finding: Fresh two-tab server review at 61565e8a: the leader's Add bot action is presented as belonging to the selected vacancy, but selecting seat 4 adds Bot 2 to seat 2 and leaves seat 4 vacant. On phone the seat-one popup starts alongside seat two, with no connector to the selected seat, so its ownership is ambiguous; and vacancy fills are almost indistinguishable from the canvas, reading as outlined slots rather than filled ghost panes.
