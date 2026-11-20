@@ -15,7 +15,7 @@ import {
     type ReplicationSchema,
     ReplicationSender,
 } from ".";
-import { observeNetwork } from "./diagnostics";
+import { observeNetwork, transportClock } from "./diagnostics";
 import {
     type InputRecord,
     IntentReceiver,
@@ -24,7 +24,8 @@ import {
     type OperationRecord,
 } from "./intent";
 import { type Connection, type LinkFaults, seededLink } from "./link";
-import { type RecordingOptions, SessionRecorder } from "./recording";
+import { type RecordingOptions, SessionRecorder, type SessionRecording } from "./recording";
+import { createServerApp, roomHost } from "./room-host";
 import { WebSocketConnection } from "./websocket";
 
 /** A live server-side connection entity. Its transport and histories live outside ECS storage. */
@@ -40,7 +41,7 @@ export interface Game {
     plugins: readonly Plugin[];
     schema: ReplicationSchema;
     maxClients: number;
-    /** Milliseconds to hold a disconnected socket seat. Omit for immediate leave. */
+    /** Milliseconds to hold a disconnected seat. Omit for immediate leave. */
     reconnectMs?: number;
     rules(world: World, connection: number): ReplicationRules;
     onCreate?(world: World): void;
@@ -362,111 +363,270 @@ export function client(
     };
 }
 
-/** Same-process shortcut over seeded links, not socket or process-isolation evidence.
- * Prepares child apps before returning a plugin for the caller's client app: app builds serialize,
- * so child apps cannot be built inside a plugin initializer. Dispose the session if the client
- * app cannot be built; a built client World also owns disposal. Delay values are milliseconds.
- * The caller pumps frame deltas in seconds; the server catches up at most four fixed ticks.
- * Thin clients receive and acknowledge state without ticking, predicting or rendering it. */
-export async function local(
-    game: Game,
-    options: {
-        seed: number;
-        faults: LinkFaults;
-        recording?: (role: "server" | "client") => RecordingOptions | undefined;
-        thinClients?: readonly {
-            seed: number;
-            input(world: World, sender: IntentSender, tick: number): void;
-        }[];
-    },
-) {
-    const apps: App[] = [];
-    const serverOptions = options.recording?.("server");
-    const clientOptions = options.recording?.("client");
-    const serverRecorder = serverOptions && new SessionRecorder(game, "server", serverOptions);
-    const clientRecorder = clientOptions && new SessionRecorder(game, "client", clientOptions);
-    try {
-        const app = await createApp({
-            defaults: false,
-            plugins: [
-                ...(serverRecorder ? [serverRecorder.plugin] : []),
-                ...game.plugins,
-                MultiplayerPlugin,
-                server(game),
-            ],
-        });
-        apps.push(app);
-        serverRecorder?.attachServer();
-        const authority = app.world.resource(ServerSession).server!;
-        const link = seededLink(options.seed, options.faults);
-        if (authority.connect(link.a) === undefined) throw new Error("Local client refused");
-        const thins: {
-            app: App;
-            link: ReturnType<typeof seededLink>;
-            input: IntentSender;
-            receiver: ReplicationReceiver;
-            run: (world: World, sender: IntentSender, tick: number) => void;
-        }[] = [];
-        for (const thin of options.thinClients ?? []) {
-            const app = await createApp({ defaults: false, plugins: [...game.plugins] });
-            apps.push(app);
-            const link = seededLink(thin.seed, options.faults);
-            observeNetwork(app.world, link.b);
-            if (authority.connect(link.a) === undefined) throw new Error("Thin client refused");
-            thins.push({
+interface LocalOptions {
+    seed: number;
+    faults: LinkFaults;
+}
+
+interface ThinClient {
+    seed: number;
+    input(world: World, sender: IntentSender, tick: number): void;
+}
+
+function localHost(game: Game, options: LocalOptions, pinned?: App, recorder?: SessionRecorder) {
+    type Endpoint = Connection & { credentials?: { id: string; token: string } };
+    let clock = 0;
+    let accumulator = 0;
+    let seed = options.seed;
+    const links = new Set<ReturnType<typeof seededLink>>();
+    const bots = new Set<{
+        app: App;
+        authority: App;
+        input: IntentSender;
+        receiver: ReplicationReceiver;
+        endpoint: Endpoint;
+        run: ThinClient["input"];
+        remove(): void;
+    }>();
+    const host = roomHost<Endpoint>(
+        game,
+        {
+            reservationNow: () => clock,
+            reconnectNow: () => clock,
+            sendToken(connection, id, token) {
+                connection.credentials = { id, token };
+            },
+        },
+        pinned,
+        recorder,
+    );
+    function stream(seed: number) {
+        const link = seededLink(seed, options.faults);
+        link.advance(clock);
+        links.add(link);
+        const endpoint: Endpoint = link.a;
+        const close = endpoint.close;
+        endpoint.close = () => {
+            links.delete(link);
+            close();
+        };
+        return { endpoint, client: link.b };
+    }
+    async function addBot(code: string, thin: ThinClient) {
+        const app = await createApp({ defaults: false, plugins: [...game.plugins] });
+        const { endpoint, client } = stream(thin.seed);
+        try {
+            const result = host.connect(endpoint, { intent: "join", code, reconnectable: false });
+            await result?.ready;
+            if (!result?.room.app || endpoint.closed) throw new Error("Thin client refused");
+            observeNetwork(app.world, client);
+            const bot = {
                 app,
-                link,
-                input: new IntentSender(link.b),
-                receiver: new ReplicationReceiver(app.world, game.schema, link.b),
+                authority: result.room.app,
+                input: new IntentSender(client),
+                receiver: new ReplicationReceiver(app.world, game.schema, client),
+                endpoint,
                 run: thin.input,
-            });
+                remove() {
+                    if (!bots.delete(bot)) return;
+                    try {
+                        host.leave(endpoint, false);
+                    } finally {
+                        app.dispose();
+                    }
+                },
+            };
+            bots.add(bot);
+            return { remove: bot.remove };
+        } catch (error) {
+            try {
+                host.leave(endpoint, false);
+            } finally {
+                endpoint.close();
+                app.dispose();
+            }
+            throw error;
         }
-        let clock = 0,
-            accumulator = 0,
-            disposed = false;
-        const dispose = () => {
-            if (disposed) return;
-            disposed = true;
-            for (const app of apps.reverse()) app.dispose();
+    }
+    async function join(code?: string, clientRecorder?: SessionRecorder) {
+        const clientSeed = seed++;
+        let current = stream(clientSeed);
+        const result = host.connect(current.endpoint, {
+            intent: code === undefined ? "joinOrCreate" : "join",
+            code,
+        });
+        await result?.ready;
+        if (!result?.room.app || current.endpoint.closed) throw new Error("Local client refused");
+        const room = result.room.code;
+        let cut = false;
+        let generation = 0;
+        let left = false;
+        const leave = () => {
+            if (left) return;
+            left = true;
+            try {
+                host.leave(current.endpoint, false);
+            } finally {
+                current.endpoint.close();
+            }
+        };
+        const connection: Connection & { [transportClock]: () => number } = {
+            [transportClock]: () => clock,
+            get generation() {
+                return generation || undefined;
+            },
+            get closed() {
+                return disposed || left || (!cut && !!current.client.closed);
+            },
+            close: leave,
+            send(bytes) {
+                current.client.send(bytes);
+            },
+            receive() {
+                return current.client.receive();
+            },
         };
         const plugin: Plugin = {
             name: "MultiplayerLocalClient",
             dependencies: [...(clientRecorder ? [clientRecorder.plugin] : []), ...game.plugins],
             initialize(world) {
-                world.onDispose(dispose);
+                world.onDispose(pinned ? dispose : leave);
             },
-            systems: [clientStartup(game, () => clientRecorder?.connection(link.b) ?? link.b)],
+            systems: [
+                clientStartup(game, () => clientRecorder?.connection(connection) ?? connection),
+            ],
         };
         return {
+            code: room,
             plugin,
-            /** Borrows both opt-in histories; serialize before pumping or stepping again. */
+            leave,
+            /** Adds a thin client to this room. Its handle removes the bot and frees its seat. */
+            addBot: async (thin: ThinClient) => {
+                if (left || current.endpoint.closed)
+                    throw new Error("Local client is disconnected");
+                return addBot(room, thin);
+            },
+            /** Drops this stream now. The room's reconnect window runs on pumped time. */
+            cut() {
+                if (left || current.endpoint.closed) return;
+                cut = !!current.endpoint.credentials;
+                current.endpoint.close();
+                host.leave(current.endpoint);
+            },
+            /** Starts a fresh stream on the same seat, or returns false if it cannot resume. */
+            resume() {
+                const credentials = current.endpoint.credentials;
+                if (!cut || left || !credentials) return false;
+                current = stream(clientSeed);
+                cut = false;
+                generation++;
+                host.connect(current.endpoint, {
+                    intent: "join",
+                    code: room,
+                    seat: credentials.id,
+                    resume: credentials.token,
+                });
+                return !current.endpoint.closed;
+            },
+        };
+    }
+    let disposed = false;
+    function dispose() {
+        if (disposed) return;
+        disposed = true;
+        try {
+            for (const bot of bots) bot.app.dispose();
+        } finally {
+            bots.clear();
+            host.stop();
+        }
+    }
+    return {
+        join,
+        create: host.reserve,
+        list: host.list,
+        faults: options.faults,
+        pump(delta: number) {
+            if (disposed) return;
+            clock += delta * 1000;
+            host.sweep();
+            for (const link of links) link.advance(clock);
+            for (const bot of bots) {
+                if (bot.endpoint.closed) bot.remove();
+                else bot.input.flush(bot.receiver.flush());
+            }
+            accumulator += Math.min(delta, Time.MAX_FIXED_STEPS * Time.FIXED_DT);
+            while (accumulator >= Time.FIXED_DT) {
+                host.tick((app) => {
+                    for (const bot of bots) {
+                        if (bot.authority !== app) continue;
+                        bot.run(bot.app.world, bot.input, app.world.time.fixedTick);
+                        bot.input.flush();
+                    }
+                });
+                accumulator -= Time.FIXED_DT;
+            }
+        },
+        dispose,
+    };
+}
+
+type LegacyLocalOptions = LocalOptions & {
+    recording?: (role: "server" | "client") => RecordingOptions | undefined;
+    thinClients?: readonly ThinClient[];
+};
+
+type LocalHost = ReturnType<typeof localHost>;
+type LocalRooms = Omit<LocalHost, "join"> & {
+    join(code?: string): ReturnType<LocalHost["join"]>;
+};
+
+/** Same-process rooms over seeded links. join() quick-joins; join(code) claims or enters a room.
+ * create() reserves a private code for 60 seconds (undefined at capacity). list() lists public rooms.
+ * Build a caller-owned client app with the joined seat's plugin; disposing it leaves the seat.
+ * Leave explicitly if the build fails. Dispose the host to release all rooms and bots.
+ * Pump frame deltas in seconds; delays and reconnect windows are milliseconds of pumped time.
+ * After cut(), call resume() explicitly; without a reconnect window the drop is permanent. */
+export function local(game: Game, options: LocalOptions & { rooms: true }): Promise<LocalRooms>;
+/** Same-process single-room shortcut. Dispose if the client app fails to build; a built client
+ * World owns session disposal. Thin clients receive and acknowledge without ticking their Worlds. */
+export function local(
+    game: Game,
+    options: LegacyLocalOptions,
+): Promise<{
+    plugin: Plugin;
+    /** Borrows the opt-in histories; serialize before pumping or stepping again. */
+    recordings(): SessionRecording[];
+    faults: LinkFaults;
+    pump(delta: number): void;
+    dispose(): void;
+}>;
+export async function local(game: Game, options: LegacyLocalOptions & { rooms?: true }) {
+    if (options.rooms) return localHost(game, options);
+    const serverOptions = options.recording?.("server");
+    const clientOptions = options.recording?.("client");
+    const serverRecorder = serverOptions && new SessionRecorder(game, "server", serverOptions);
+    const clientRecorder = clientOptions && new SessionRecorder(game, "client", clientOptions);
+    const app = await createServerApp(game, serverRecorder);
+    let host: LocalHost | undefined;
+    try {
+        serverRecorder?.attachServer();
+        host = localHost(game, options, app, serverRecorder);
+        const seat = await host.join(undefined, clientRecorder);
+        for (const thin of options.thinClients ?? []) await seat.addBot(thin);
+        return {
+            plugin: seat.plugin,
             recordings: () =>
                 [serverRecorder?.recording, clientRecorder?.recording].filter(
                     (value) => value !== undefined,
                 ),
-            faults: options.faults,
-            pump(delta: number) {
-                if (disposed) return;
-                clock += delta * 1000;
-                link.advance(clock);
-                for (const thin of thins) {
-                    thin.link.advance(clock);
-                    thin.input.flush(thin.receiver.flush());
-                }
-                accumulator += Math.min(delta, Time.MAX_FIXED_STEPS * Time.FIXED_DT);
-                while (accumulator >= Time.FIXED_DT) {
-                    for (const thin of thins) {
-                        thin.run(thin.app.world, thin.input, authority.world.time.fixedTick);
-                        thin.input.flush();
-                    }
-                    authority.world.tick();
-                    accumulator -= Time.FIXED_DT;
-                }
-            },
-            dispose,
+            faults: host.faults,
+            pump: host.pump,
+            dispose: host.dispose,
         };
     } catch (error) {
-        for (const app of apps.reverse()) app.dispose();
+        if (host) host.dispose();
+        else app.dispose();
         throw error;
     }
 }
