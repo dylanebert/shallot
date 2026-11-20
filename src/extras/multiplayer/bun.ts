@@ -190,7 +190,8 @@ function hostRooms(
         fetch(request) {
             if (pinnedApp || new URL(request.url).pathname !== "/rooms") return;
             const headers = new Headers({ "Cache-Control": "no-store" });
-            if (options.roomsOrigin) headers.set("Access-Control-Allow-Origin", options.roomsOrigin);
+            if (options.roomsOrigin)
+                headers.set("Access-Control-Allow-Origin", options.roomsOrigin);
             if (request.method === "GET") return Response.json(host.list(), { headers });
             if (request.method !== "POST") return;
             const code = host.reserve();
