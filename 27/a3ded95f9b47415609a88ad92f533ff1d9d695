@@ -1,0 +1,2 @@
+stage: 5
+finding: The vertical seat popup hides adjacent seats. In server-seat-one-phone.png opening seat 1 covers the occupied You pane immediately below (only three seat panes remain visible); in server-desktop.png and server-phone.png the seat 3 popup covers the fourth vacancy. This fails observable 1 even though DOM row rectangles stay stable and room-level actions do not overlap. Test every open seat against every other seat's visible bounds, not only the right-side actions.
