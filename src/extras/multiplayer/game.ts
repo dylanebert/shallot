@@ -26,7 +26,7 @@ import {
 import { type Connection, type LinkFaults, seededLink } from "./link";
 import { type RecordingOptions, SessionRecorder, type SessionRecording } from "./recording";
 import { createServerApp, roomHost } from "./room-host";
-import { WebSocketConnection } from "./websocket";
+import { LEAVE_CLOSE_CODE, WebSocketConnection } from "./websocket";
 
 /** A live server-side connection entity. Its transport and histories live outside ECS storage. */
 export const ClientOf = component("ClientOf", {});
@@ -341,7 +341,7 @@ export function client(
                 close() {
                     disposed = true;
                     cancel?.();
-                    current.close();
+                    current.close(game.reconnectMs ? LEAVE_CLOSE_CODE : undefined);
                 },
                 send(bytes) {
                     if (!token || (current.socket.readyState === 1 && !current.closed))

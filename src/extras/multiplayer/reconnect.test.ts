@@ -83,6 +83,21 @@ function peer(url: string) {
     return { socket, token, closed, outcome: Promise.race([token, closed]) };
 }
 
+test("disposing a connected client leaves immediately, without advancing the reconnect clock", async () => {
+    const f = fixture();
+    try {
+        const app = await createApp({ defaults: false, plugins: [client(f.game, { url: f.url })] });
+        try {
+            await until(() => f.joined.length === 1, "client was not admitted");
+        } finally {
+            app.dispose();
+        }
+        await until(() => f.left.length === 1, "explicit leave held the seat");
+    } finally {
+        f.host.stop();
+    }
+});
+
 test("held seats count toward capacity, reject another seat's token, and expire exactly once", async () => {
     const f = fixture();
     try {

@@ -55,10 +55,12 @@ test("room sockets isolate Worlds and discovery follows public seats only", asyn
         validateIntent: () => false,
         applyIntent() {},
     };
-    const host = serveRooms(game, { hostname: "127.0.0.1", port: 0 });
+    const roomsOrigin = "https://game.example";
+    const host = serveRooms(game, { hostname: "127.0.0.1", port: 0, roomsOrigin });
     async function listing() {
         const response = await fetch(`http://127.0.0.1:${host.port}/rooms`);
         expect(response.status).toBe(200);
+        expect(response.headers.get("Access-Control-Allow-Origin")).toBe(roomsOrigin);
         return (await response.json()) as {
             code: string;
             clients: number;

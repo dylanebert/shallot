@@ -5,6 +5,7 @@ import type { Game } from "./game";
 import type { Connection } from "./link";
 import { type RecordingOptions, SessionRecorder } from "./recording";
 import { createServerApp, ROOM_CODE_CLAIM_MS, roomHost } from "./room-host";
+import { LEAVE_CLOSE_CODE } from "./websocket";
 
 type SocketData = { url: URL } | ServerWebSocketConnection | undefined;
 
@@ -55,7 +56,7 @@ export function serveWebSocket(options: {
     hostname?: string;
     port: number;
     connect: (connection: ServerWebSocketConnection, url?: URL) => void;
-    disconnect: (connection: ServerWebSocketConnection) => void;
+    disconnect: (connection: ServerWebSocketConnection, code: number) => void;
     fetch?: (request: Request) => Response | undefined;
 }) {
     return Bun.serve<SocketData>({
@@ -82,10 +83,10 @@ export function serveWebSocket(options: {
                 }
                 if (socket.data instanceof ServerWebSocketConnection) socket.data.push(message);
             },
-            close(socket) {
+            close(socket, code) {
                 if (!(socket.data instanceof ServerWebSocketConnection)) return;
                 socket.data.close();
-                options.disconnect(socket.data);
+                options.disconnect(socket.data, code);
             },
         },
     });
@@ -158,6 +159,8 @@ export function serveRooms(game: Game, options: RoomHostOptions) {
 interface RoomHostOptions {
     hostname?: string;
     port: number;
+    /** Allowed browser origin for GET and POST /rooms. Omit for same-origin access. */
+    roomsOrigin?: string;
     /** Test-only monotonic time in milliseconds for code expiry; defaults to performance.now. */
     reservationNow?: () => number;
     /** Monotonic time in milliseconds for held seats. */
@@ -186,16 +189,14 @@ function hostRooms(
         ...options,
         fetch(request) {
             if (pinnedApp || new URL(request.url).pathname !== "/rooms") return;
-            if (request.method === "GET")
-                return Response.json(host.list(), { headers: { "Cache-Control": "no-store" } });
+            const headers = new Headers({ "Cache-Control": "no-store" });
+            if (options.roomsOrigin) headers.set("Access-Control-Allow-Origin", options.roomsOrigin);
+            if (request.method === "GET") return Response.json(host.list(), { headers });
             if (request.method !== "POST") return;
             const code = host.reserve();
-            return code
-                ? Response.json({ code }, { status: 201 })
-                : new Response(null, {
-                      status: 503,
-                      headers: { "Retry-After": String(ROOM_CODE_CLAIM_MS / 1000) },
-                  });
+            if (code) return Response.json({ code }, { status: 201, headers });
+            headers.set("Retry-After", String(ROOM_CODE_CLAIM_MS / 1000));
+            return new Response(null, { status: 503, headers });
         },
         connect(connection, url) {
             const query = url?.searchParams;
@@ -206,7 +207,9 @@ function hostRooms(
                 seat: query?.get("seat"),
             });
         },
-        disconnect: host.leave,
+        disconnect(connection, code) {
+            host.leave(connection, code !== LEAVE_CLOSE_CODE);
+        },
     });
     const stopClock = startClock(() => {
         if (game.reconnectMs) host.sweep();
