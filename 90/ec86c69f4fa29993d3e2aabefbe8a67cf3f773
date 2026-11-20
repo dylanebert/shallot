@@ -1,0 +1,2 @@
+stage: 5
+finding: Phone room actions overlap after seat 1 leaves: at 390x844, open the now-vacant first seat on the remaining peer. The attached Copy code control covers about 71 px of the room-code button at the same y=16, obscuring the code and defeating observables 5 and 9 while the suite tests the third seat only. Also e7fb013d's chevron exception matches a non-button .button class selector; the temporary negative fixture returns no violations, weakening the transform gate beyond the intended expanded native button.
