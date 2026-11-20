@@ -62,7 +62,7 @@ const RouteView: Plugin = {
 
 export const EntryView: Plugin = {
     name: "RoomsEntry",
-    dependencies: [RouteView],
+    dependencies: [RouteView, DiagnosticsOverlayPlugin],
     recovery: "stateless",
     initialize(world) {
         const camera = world.create();

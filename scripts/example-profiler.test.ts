@@ -1,5 +1,6 @@
 import { expect, spyOn, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
+import { parse } from "@babel/parser";
 import { type Plugin, World } from "@dylanebert/shallot";
 import { DiagnosticsOverlayPlugin, ProfilePlugin } from "@dylanebert/shallot/extras";
 
@@ -27,26 +28,44 @@ function composition(plugin: Plugin, result = new Set<Plugin>()): Set<Plugin> {
 
 for (const name of examples) {
     test(`${name}'s entry composes the profiler closed until F3, then open`, async () => {
-        const html = readFileSync(
-            new URL(`../examples/${name}/index.html`, import.meta.url),
-            "utf8",
-        );
-        const motes = name === "particles" || name === "volumetric-fog";
-        const entry =
-            name === "physics"
-                ? readFileSync(new URL("../examples/physics/src/main.ts", import.meta.url), "utf8")
-                : html;
-        const entryPlugins = entry
-            .match(/plugins:\s*\[([^\]]*)\]/)?.[1]
-            ?.split(",")
-            .map((plugin) => plugin.trim());
-        expect(entryPlugins).toContain(motes ? "MotesPlugin" : "AppPlugin");
-        const module = await import(`../examples/${name}/src/${motes ? "motes" : "app"}.ts`);
-        const plugins = composition(motes ? module.MotesPlugin : module.AppPlugin);
-        expect(plugins.has(DiagnosticsOverlayPlugin)).toBe(true);
-        expect(plugins.has(ProfilePlugin)).toBe(true);
-        if (name === "particles") {
-            expect([...plugins].some((plugin) => plugin.name === "Fog")).toBe(false);
+        const root = new URL(`../examples/${name}/`, import.meta.url);
+        const html = readFileSync(new URL("index.html", root), "utf8");
+        const script = html.match(/<script\b([^>]*\btype="module"[^>]*)>([\s\S]*?)<\/script>/);
+        expect(script).not.toBeNull();
+        const src = script![1]!.match(/\bsrc="([^"]+)"/)?.[1];
+        const entry = src ? new URL(src.replace(/^\//, ""), root) : new URL("index.html", root);
+        const source = src ? readFileSync(entry, "utf8") : script![2]!;
+        const imports = new Map<string, { path: string; name: string }>();
+        for (const node of parse(source, { sourceType: "module", plugins: ["typescript"] }).program
+            .body) {
+            if (node.type !== "ImportDeclaration") continue;
+            for (const specifier of node.specifiers)
+                if (
+                    specifier.type === "ImportSpecifier" &&
+                    specifier.imported.type === "Identifier"
+                )
+                    imports.set(specifier.local.name, {
+                        path: node.source.value,
+                        name: specifier.imported.name,
+                    });
+        }
+        const lists = [...source.matchAll(/\bplugins:\s*\[([^\]]*)\]/g)];
+        expect(lists.length).toBeGreaterThan(0);
+        for (const [, list] of lists) {
+            const plugins = new Set<Plugin>();
+            for (const item of list!.split(",")) {
+                const binding = imports.get(item.trim());
+                if (!binding) continue;
+                const module = await import(
+                    binding.path.startsWith(".") ? new URL(binding.path, entry).href : binding.path
+                );
+                composition(module[binding.name], plugins);
+            }
+            expect(plugins.has(DiagnosticsOverlayPlugin)).toBe(true);
+            expect(plugins.has(ProfilePlugin)).toBe(true);
+            if (name === "particles") {
+                expect([...plugins].some((plugin) => plugin.name === "Fog")).toBe(false);
+            }
         }
 
         const world = new World();

@@ -61,6 +61,25 @@ async function expectCopyFeedback(page: Page, button: Locator) {
     await expect(announcement).toHaveCount(0);
 }
 
+async function expectProfilerToggle(page: Page, advance: () => Promise<void>) {
+    const profiler = page.locator("[data-shallot-profile]");
+    await expect(profiler).toBeHidden();
+    await page.keyboard.press("F3");
+    await expect
+        .poll(async () => {
+            await advance();
+            return profiler.isVisible();
+        })
+        .toBe(true);
+    await page.keyboard.press("F3");
+    await expect
+        .poll(async () => {
+            await advance();
+            return profiler.isVisible();
+        })
+        .toBe(false);
+}
+
 async function expectEntryRoute(page: Page) {
     const { width, height } = page.viewportSize()!;
     await expect
@@ -209,6 +228,7 @@ for (const phone of [false, true]) {
                 ).toBeGreaterThanOrEqual(8);
             await expect(action(page, "Jump")).toBeHidden();
             await expectEntryRoute(page);
+            if (!phone) await expectProfilerToggle(page, frames.run);
             await expect(create).toHaveCSS("background-color", raised);
             if (!phone) {
                 const trigger = await box(create);
@@ -239,6 +259,7 @@ for (const phone of [false, true]) {
             );
             await expect(page.locator("#status")).toBeHidden();
             await expect(action(page, "Copy room code")).toBeHidden();
+            if (!phone) await expectProfilerToggle(page, frames.run);
             await noFocus(page);
             const before = await seatBoxes(page);
             const [first] = before;
