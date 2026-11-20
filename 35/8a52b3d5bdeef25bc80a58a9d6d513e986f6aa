@@ -1,0 +1,2 @@
+stage: 3
+finding: Reconnection tokens are not consumed across successive drops: when the replacement socket closes the original token is held again, and a second socket can use that spent credential to take over the retained entity. A complete room-A credential is also accepted on an explicit room-B join URL because resume bypasses room selection. With reconnectMs unset, client() accepts resume-shaped text that previously caused a binary-only protocol close. Independently reproduced all three in disposable cheap loopback tests.
