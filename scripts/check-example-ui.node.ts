@@ -891,7 +891,9 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
             if (
                 p === "rotate" &&
                 v === "180deg" &&
-                /\bbutton\[aria-expanded=['"]true['"]\] > svg\[data-icon=['"]chevron['"]\]$/.test(s)
+                /(?:^|\s)button\[aria-expanded=['"]true['"]\] > svg\[data-icon=['"]chevron['"]\]$/.test(
+                    s,
+                )
             )
                 continue;
             if (
@@ -1627,6 +1629,7 @@ test("room controls inset names and code input, and turn only the expanded chevr
         chevron.replace("180deg", "90deg"),
         chevron.replace("true", "false"),
         chevron.replace("button", "div"),
+        '.ec .button[aria-expanded="true"] > svg[data-icon="chevron"] { rotate: 180deg; }',
     ])
         expect(controlViolations({ sheets: [sheet], lists: [] })).not.toEqual([]);
 });
