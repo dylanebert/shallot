@@ -22,11 +22,11 @@ export class ServerWebSocketConnection implements Connection {
         return this._closed || this.socket.readyState !== 1;
     }
 
-    close(): void {
+    close(code?: number, reason?: string): void {
         if (this._closed) return;
         this._closed = true;
         this._messages = [];
-        this.socket.close();
+        this.socket.close(code, reason);
     }
 
     /** Bun owns queued writes; a dropped write closes the peer rather than silently losing bytes.
@@ -56,13 +56,17 @@ export function serveWebSocket(options: {
     port: number;
     connect: (connection: ServerWebSocketConnection, url?: URL) => void;
     disconnect: (connection: ServerWebSocketConnection) => void;
+    fetch?: (request: Request) => Response | undefined;
 }) {
     return Bun.serve<SocketData>({
         hostname: options.hostname,
         port: options.port,
         fetch(request, server) {
             if (server.upgrade(request, { data: { url: new URL(request.url) } })) return;
-            return new Response("WebSocket upgrade required", { status: 426 });
+            return (
+                options.fetch?.(request) ??
+                new Response("WebSocket upgrade required", { status: 426 })
+            );
         },
         websocket: {
             open(socket) {
@@ -124,52 +128,14 @@ export async function serveGame(
     const recorder = options.recording && new SessionRecorder(game, "server", options.recording);
     const app = await createServerApp(game, recorder);
     recorder?.attachServer();
-    const authority = app.world.resource(ServerSession).server!;
-    const entities = new WeakMap<ServerWebSocketConnection, number>();
-    let endpoint: ReturnType<typeof serveWebSocket>;
     try {
-        endpoint = serveWebSocket({
-            ...options,
-            connect(connection) {
-                const eid = authority.connect(connection);
-                if (eid === undefined) connection.socket.close(1013, "Peer limit reached");
-                else entities.set(connection, eid);
-            },
-            disconnect(connection) {
-                const eid = entities.get(connection);
-                if (
-                    eid !== undefined &&
-                    authority.peers.get(eid)?.connection ===
-                        (recorder?.connection(connection) ?? connection)
-                )
-                    authority.disconnect(eid);
-                entities.delete(connection);
-            },
-        });
+        const host = hostRooms(game, options, app, recorder);
+        app.world.onDispose(host.stop);
+        return { ...host, world: app.world };
     } catch (error) {
         app.dispose();
         throw error;
     }
-    let stopped = false;
-    const stopClock = startClock(() => app.world.tick());
-    const stop = () => {
-        if (stopped) return;
-        stopped = true;
-        stopClock();
-        process.off("SIGTERM", stop);
-        try {
-            recorder?.finish();
-        } finally {
-            try {
-                endpoint.stop(true);
-            } finally {
-                app.dispose();
-            }
-        }
-    };
-    app.world.onDispose(stop);
-    process.on("SIGTERM", stop);
-    return { port: endpoint.port, world: app.world, stop };
 }
 
 interface Room {
@@ -177,27 +143,65 @@ interface Room {
     private: boolean;
     seats: Map<ServerWebSocketConnection, number | undefined>;
     app?: App;
+    claimBy?: number;
 }
 
-/** Hosts independent authoritative Worlds of one game. On the WebSocket URL, use
- * `?intent=joinOrCreate` to fill a public room, `?intent=create&code=…` to start
- * a private room, or `?intent=join&code=…` to enter an existing room. A creator
- * supplies a random URL-safe code (for example a UUID) and shares it out of band;
- * an already active code is refused. Admission failures close the socket without
- * sending a game image. A room owns its World only while it has seats, including
- * seats reserved during startup. stop closes all rooms and is idempotent. */
+const CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+const CLAIM_MS = 60_000;
+
+/** Hosts independent authoritative Worlds of one game. POST /rooms returns 201
+ * and JSON { code } for a private room. Share the code out of band and claim it
+ * within 60 seconds with `?intent=join&code=…`. A code is 10 case-insensitive
+ * Crockford Base32 characters (no I, L, O or U). Codes are unique among live
+ * rooms and may be randomly issued again after retirement.
+ * A socket cannot create a private room with a client-supplied code.
+ * `?intent=joinOrCreate` fills an available public room before making another.
+ * Refusals send no game image: 1013 means full, 1008 means unknown/expired code
+ * or invalid intent, and 1011 means server initialization failed.
+ * The first seat starts the World. Pending seats count toward maxClients but
+ * are not admitted before startup succeeds. Last leave or stop retires the room
+ * immediately; an in-flight build is not canceled, but disposes on success
+ * without admitting anyone. A rejected build cleans up its partial World and
+ * retires the code, closing any seats still waiting. stop is idempotent. */
 export function serveRooms(game: Game, options: { hostname?: string; port: number }) {
+    return hostRooms(game, options);
+}
+
+function hostRooms(
+    game: Game,
+    options: { hostname?: string; port: number },
+    pinnedApp?: App,
+    recorder?: SessionRecorder,
+) {
     if (!Number.isSafeInteger(game.maxClients) || game.maxClients < 1)
         throw new Error("maxClients must be a positive integer");
     const rooms = new Map<string, Room>();
     const memberships = new WeakMap<ServerWebSocketConnection, Room>();
+    const pinned: Room | undefined = pinnedApp && {
+        code: "",
+        private: true,
+        seats: new Map(),
+        app: pinnedApp,
+    };
+    if (pinned) rooms.set(pinned.code, pinned);
     let stopped = false;
 
-    function retire(room: Room) {
+    function createRoom(isPrivate: boolean): Room {
+        let code: string;
+        do {
+            const bytes = crypto.getRandomValues(new Uint8Array(10));
+            code = Array.from(bytes, (byte) => CODE_ALPHABET[byte & 31]).join("");
+        } while (rooms.has(code));
+        const room: Room = { code, private: isPrivate, seats: new Map() };
+        rooms.set(code, room);
+        return room;
+    }
+
+    function retire(room: Room, code?: number, reason?: string) {
         rooms.delete(room.code);
         for (const connection of room.seats.keys()) {
             memberships.delete(connection);
-            connection.close();
+            connection.close(code, reason);
         }
         room.seats.clear();
         room.app?.dispose();
@@ -205,16 +209,20 @@ export function serveRooms(game: Game, options: { hostname?: string; port: numbe
 
     function leave(connection: ServerWebSocketConnection) {
         const room = memberships.get(connection);
-        if (!room) return;
+        if (!room || stopped) return;
         memberships.delete(connection);
         const eid = room.seats.get(connection);
         room.seats.delete(connection);
         const authority = room.app?.world.resource(ServerSession).server;
         try {
-            if (eid !== undefined && authority?.peers.get(eid)?.connection === connection)
-                authority.disconnect(eid);
+            if (
+                eid !== undefined &&
+                authority?.peers.get(eid)?.connection ===
+                    (recorder?.connection(connection) ?? connection)
+            )
+                authority?.disconnect(eid);
         } finally {
-            if (!room.seats.size) retire(room);
+            if (room !== pinned && !room.seats.size) retire(room);
         }
     }
 
@@ -225,14 +233,14 @@ export function serveRooms(game: Game, options: { hostname?: string; port: numbe
         }
         try {
             const eid = room.app!.world.resource(ServerSession).server!.connect(connection);
-            if (eid === undefined) connection.socket.close(1013, "Room full");
+            if (eid === undefined) refuseFull(connection);
             else {
                 room.seats.set(connection, eid);
                 return;
             }
         } catch (error) {
             console.error(error);
-            connection.close();
+            connection.close(1011, "Admission failed");
         }
         leave(connection);
     }
@@ -243,7 +251,7 @@ export function serveRooms(game: Game, options: { hostname?: string; port: numbe
             app = await createServerApp(game);
         } catch (error) {
             console.error(error);
-            if (rooms.get(room.code) === room) retire(room);
+            if (rooms.get(room.code) === room) retire(room, 1011, "Room initialization failed");
             return;
         }
         if (rooms.get(room.code) !== room) {
@@ -254,53 +262,70 @@ export function serveRooms(game: Game, options: { hostname?: string; port: numbe
         for (const connection of room.seats.keys()) admit(room, connection);
     }
 
+    function refuseFull(connection: ServerWebSocketConnection) {
+        connection.close(1013, pinned ? "Peer limit reached" : "Room full");
+    }
+
+    function selectRoom(url?: URL) {
+        const intent = url?.searchParams.get("intent");
+        const code = url?.searchParams.get("code");
+        if (intent === "joinOrCreate" && code === null) {
+            for (const room of rooms.values()) {
+                if (!room.private && room.seats.size < game.maxClients) return room;
+            }
+            return createRoom(false);
+        }
+        if (intent === "join" && code) {
+            const room = rooms.get(code.toUpperCase());
+            if (room?.claimBy !== undefined && performance.now() >= room.claimBy) {
+                retire(room);
+                return;
+            }
+            return room;
+        }
+    }
+
     const endpoint = serveWebSocket({
         ...options,
+        fetch(request) {
+            if (pinned || request.method !== "POST" || new URL(request.url).pathname !== "/rooms")
+                return;
+            if (stopped) return new Response(null, { status: 503 });
+            const room = createRoom(true);
+            room.claimBy = performance.now() + CLAIM_MS;
+            return Response.json({ code: room.code }, { status: 201 });
+        },
         connect(connection, url) {
-            const intent = url?.searchParams.get("intent");
-            const code = url?.searchParams.get("code");
-            let room: Room | undefined;
-            let newCode: string | undefined;
             if (stopped) {
-                connection.close();
+                connection.close(1001, "Server stopping");
                 return;
             }
-            if (intent === "joinOrCreate" && code === null) {
-                for (const candidate of rooms.values()) {
-                    if (!candidate.private && candidate.seats.size < game.maxClients) {
-                        room = candidate;
-                        break;
-                    }
-                }
-                if (!room) {
-                    do newCode = crypto.randomUUID();
-                    while (rooms.has(newCode));
-                }
-            } else if (code && /^[\w-]{1,64}$/.test(code)) {
-                if (intent === "join") room = rooms.get(code);
-                if (intent === "create" && !rooms.has(code)) newCode = code;
-            }
-            if (newCode !== undefined) {
-                room = { code: newCode, private: intent === "create", seats: new Map() };
-                rooms.set(newCode, room);
-            }
+            const room = pinned ?? selectRoom(url);
             if (!room) {
-                connection.socket.close(1008, "Room admission refused");
+                connection.close(1008, "Unknown room or invalid intent");
                 return;
+            }
+            if (pinned) {
+                for (const peer of room.seats.keys()) if (peer.closed) leave(peer);
             }
             if (room.seats.size >= game.maxClients) {
-                connection.socket.close(1013, "Room full");
+                refuseFull(connection);
                 return;
             }
+            room.claimBy = undefined;
             room.seats.set(connection, undefined);
             memberships.set(connection, room);
-            if (newCode !== undefined) void start(room);
-            else if (room.app) admit(room, connection);
+            if (room.app) admit(room, connection);
+            else if (room.seats.size === 1) void start(room);
         },
         disconnect: leave,
     });
     const stopClock = startClock(() => {
-        for (const room of rooms.values()) room.app?.world.tick();
+        const now = performance.now();
+        for (const room of rooms.values()) {
+            if (room.claimBy !== undefined && now >= room.claimBy) retire(room);
+            else room.app?.world.tick();
+        }
     });
     const stop = () => {
         if (stopped) return;
@@ -308,9 +333,13 @@ export function serveRooms(game: Game, options: { hostname?: string; port: numbe
         stopClock();
         process.off("SIGTERM", stop);
         try {
-            endpoint.stop(true);
+            recorder?.finish();
         } finally {
-            for (const room of rooms.values()) retire(room);
+            try {
+                for (const room of rooms.values()) retire(room, 1001, "Server stopping");
+            } finally {
+                endpoint.stop(true);
+            }
         }
     };
     process.on("SIGTERM", stop);

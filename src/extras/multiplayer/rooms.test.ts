@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { expectError } from "../../../scripts/test-console";
 import { component, u32, World } from "../../engine";
 import { Replicate, ReplicationReceiver, WebSocketConnection } from ".";
 import { serveRooms } from "./bun";
@@ -9,6 +10,22 @@ const RoomValue = component("RoomValue", { value: u32 });
 
 async function until(predicate: () => boolean) {
     while (!predicate()) await Bun.sleep(1);
+}
+
+async function privateCode(port: number | undefined) {
+    const response = await fetch(`http://127.0.0.1:${port}/rooms`, { method: "POST" });
+    expect(response.status).toBe(201);
+    const { code } = (await response.json()) as { code: string };
+    expect(code).toMatch(/^[0-9A-HJKMNP-TV-Z]{10}$/);
+    return code;
+}
+
+function roomSocket(port: number | undefined, query: string) {
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/?intent=${query}`);
+    const closed = new Promise<CloseEvent>((resolve) =>
+        socket.addEventListener("close", resolve, { once: true }),
+    );
+    return { socket, closed };
 }
 
 test("room sockets reserve seats, isolate images and release empty Worlds", async () => {
@@ -37,10 +54,7 @@ test("room sockets reserve seats, isolate images and release empty Worlds", asyn
     const host = serveRooms(game, { hostname: "127.0.0.1", port: 0 });
     const clients: { socket: WebSocket; world: World }[] = [];
     function connect(query: string) {
-        const socket = new WebSocket(`ws://127.0.0.1:${host.port}/?intent=${query}`);
-        const closed = new Promise<CloseEvent>((resolve) =>
-            socket.addEventListener("close", resolve, { once: true }),
-        );
+        const { socket, closed } = roomSocket(host.port, query);
         const world = new World();
         clients.push({ socket, world });
         const connection = new WebSocketConnection(socket);
@@ -63,18 +77,19 @@ test("room sockets reserve seats, isolate images and release empty Worlds", asyn
         };
     }
     try {
+        const code = await privateCode(host.port);
         expect(worlds).toEqual([]);
-        const owner = connect("create&code=friend");
+        expect((await connect("create&code=friend").closed).code).toBe(1008);
+        const owner = connect(`join&code=${code.toLowerCase()}`);
         await owner.sees(1);
         const a = connect("joinOrCreate");
         const b = connect("joinOrCreate");
         await a.sees(2);
         await b.sees(2);
         expect(worlds).toHaveLength(2);
-        const friend = connect("join&code=friend");
+        const friend = connect(`join&code=${code}`);
         await friend.sees(1);
-        expect((await connect("join&code=friend").closed).code).toBe(1013);
-        expect((await connect("create&code=friend").closed).code).toBe(1008);
+        expect((await connect(`join&code=${code}`).closed).code).toBe(1013);
         const overflow = connect("joinOrCreate");
         await overflow.sees(3);
 
@@ -87,8 +102,8 @@ test("room sockets reserve seats, isolate images and release empty Worlds", asyn
             expect(transport.closed).toBe(true);
             expect(transport.receive()).toEqual([]);
         }
-        expect((await connect("join&code=friend").closed).code).toBe(1008);
-        const replacement = connect("create&code=friend");
+        expect((await connect(`join&code=${code}`).closed).code).toBe(1008);
+        const replacement = connect(`join&code=${await privateCode(host.port)}`);
         await replacement.sees(4);
         await a.close();
         await until(() => transports.get(worlds[1]!)![0]!.closed === true);
@@ -96,8 +111,8 @@ test("room sockets reserve seats, isolate images and release empty Worlds", asyn
         await refill.sees(2);
         expect(worlds).toHaveLength(4);
         host.stop();
-        await Promise.all([b.closed, overflow.closed, replacement.closed, refill.closed]);
         expect(disposed).toEqual(new Set(worlds));
+        await Promise.all([b.closed, overflow.closed, replacement.closed, refill.closed]);
     } finally {
         host.stop();
         for (const { socket, world } of clients) {
@@ -106,3 +121,79 @@ test("room sockets reserve seats, isolate images and release empty Worlds", asyn
         }
     }
 });
+
+test.each(["last leave", "stop", "failure"] as const)(
+    "a pending initialization retires on %s without admitting its seat or affecting a new room",
+    async (event) => {
+        const gate = Promise.withResolvers<void>();
+        const initializing = Promise.withResolvers<World>();
+        const replacementJoined = Promise.withResolvers<World>();
+        const disposed: World[] = [];
+        const joined: World[] = [];
+        let builds = 0;
+        const game: Game = {
+            plugins: [
+                {
+                    name: "Gated room",
+                    recovery: "stateless",
+                    async initialize(world) {
+                        world.onDispose(() => disposed.push(world));
+                        if (++builds !== 1) return;
+                        initializing.resolve(world);
+                        await gate.promise;
+                        if (event === "failure") throw new Error("gated initializer failed");
+                    },
+                },
+            ],
+            schema: [],
+            maxClients: 1,
+            rules: () => [],
+            onJoin(world) {
+                joined.push(world);
+                replacementJoined.resolve(world);
+            },
+            validateIntent: () => false,
+            applyIntent() {},
+        };
+        const options = { hostname: "127.0.0.1", port: 0 };
+        const host = serveRooms(game, options);
+        let replacementHost = host;
+        try {
+            const code = await privateCode(host.port);
+            const pending = roomSocket(host.port, `join&code=${code}`);
+            const oldWorld = await initializing.promise;
+            expect(joined).toEqual([]);
+            expect(disposed).toEqual([]);
+            expect((await roomSocket(host.port, `join&code=${code}`).closed).code).toBe(1013);
+            if (event === "last leave") {
+                pending.socket.close();
+                await pending.closed;
+            } else if (event === "stop") {
+                host.stop();
+                await pending.closed;
+                replacementHost = serveRooms(game, options);
+            } else {
+                expectError(/gated initializer failed/);
+                gate.resolve();
+                expect((await pending.closed).code).toBe(1011);
+            }
+            if (event !== "stop") {
+                expect((await roomSocket(host.port, `join&code=${code}`).closed).code).toBe(1008);
+            }
+            const nextCode = await privateCode(replacementHost.port);
+            const replacement = roomSocket(replacementHost.port, `join&code=${nextCode}`);
+            gate.resolve();
+            const nextWorld = await replacementJoined.promise;
+            expect(nextWorld).not.toBe(oldWorld);
+            expect(joined).toEqual([nextWorld]);
+            expect(disposed).toEqual([oldWorld]);
+            replacementHost.stop();
+            expect(disposed).toEqual([oldWorld, nextWorld]);
+            await replacement.closed;
+        } finally {
+            host.stop();
+            replacementHost.stop();
+            gate.resolve();
+        }
+    },
+);
