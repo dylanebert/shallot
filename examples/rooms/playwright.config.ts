@@ -4,7 +4,6 @@ import type { PlaywrightTestConfig } from "playwright/test";
 export default {
     ...BROWSER_CONFIG,
     testDir: "tests",
-    testMatch: "*.e2e.ts",
     use: { ...BROWSER_CONFIG.use, baseURL: "http://127.0.0.1:4391" },
     webServer: {
         ...WEB_SERVER_CONFIG,
