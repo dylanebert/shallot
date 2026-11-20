@@ -10,6 +10,33 @@ const plus = (page: Page, seat: number) => action(page, `Open actions for seat $
 const box = async (locator: Locator) => (await locator.boundingBox())!;
 const seatBoxes = async (page: Page) => Promise.all((await players(page).all()).map(box));
 const noFocus = async (page: Page) => expect(page.locator(".ec :focus")).toHaveCount(0);
+
+async function expectSidePopup(page: Page, slot: number) {
+    const panes = await seatBoxes(page);
+    const seat = panes[slot - 1]!;
+    const group = page.getByRole("group", { name: `Seat ${slot} actions` });
+    const popup = await box(group);
+    const right = await box(page.locator("#room-actions"));
+    const { width, height } = page.viewportSize()!;
+    const inset = width <= 480 ? 16 : 24;
+    expect(popup.x).toBe(seat.x + seat.width + 8);
+    expect([popup.width, popup.height]).not.toEqual([seat.width, seat.height]);
+    for (const pane of [...panes, right])
+        expect(
+            popup.x >= pane.x + pane.width ||
+                popup.x + popup.width <= pane.x ||
+                popup.y >= pane.y + pane.height ||
+                popup.y + popup.height <= pane.y,
+        ).toBe(true);
+    expect(popup.y).toBeGreaterThanOrEqual(inset);
+    expect(popup.x + popup.width).toBeLessThanOrEqual(width - inset);
+    expect(popup.y + popup.height).toBeLessThanOrEqual(height - inset);
+    await expect(group).toHaveCSS("display", "grid");
+    await expect(group).toHaveCSS("padding-left", "8px");
+    await expect(plus(page, slot)).toHaveCSS("border-top-color", "rgb(212, 149, 96)");
+    expect(await box(plus(page, slot))).toEqual(seat);
+    return popup;
+}
 const raised = "rgb(60, 50, 44)";
 const line = "rgb(42, 36, 32)";
 const muted = "rgb(160, 140, 120)";
@@ -214,7 +241,7 @@ for (const phone of [false, true]) {
             await expect(action(page, "Copy room code")).toBeHidden();
             await noFocus(page);
             const before = await seatBoxes(page);
-            const [first, , , last] = before;
+            const [first] = before;
             expect(first!.x).toBe(phone ? 16 : 24);
             for (const [index, rect] of before.entries()) {
                 expect([rect.x, rect.width, rect.height]).toEqual([
@@ -254,7 +281,10 @@ for (const phone of [false, true]) {
             expect(right.x).toBeGreaterThan(first!.x + first!.width);
             expect(right.x + right.width).toBe(phone ? 390 - 16 : 1280 - 24);
 
+            await use(plus(page, 2));
+            await expectSidePopup(page, 2);
             await use(plus(page, 3));
+            await expectSidePopup(page, 3);
             await noFocus(page);
             await expect(plus(page, 3)).toHaveAttribute("aria-expanded", "true");
             const add = action(page, "Add bot");
@@ -281,12 +311,7 @@ for (const phone of [false, true]) {
 
             await use(plus(page, 4));
             const menu = page.getByRole("group", { name: "Seat 4 actions" });
-            const popup = await box(add);
-            expect(popup.x).toBe(last!.x);
-            expect(popup.width).toBe(last!.width);
-            expect(popup.y).toBe(last!.y + last!.height + 4);
-            await expect(menu).toHaveCSS("display", "grid");
-            expect(await box(plus(page, 4))).toEqual(last);
+            const popup = await expectSidePopup(page, 4);
             await frames.run(2);
             await expectBotClear(page);
             await capture(page, `in-tab-${size}`);
@@ -299,7 +324,7 @@ for (const phone of [false, true]) {
                 });
                 expect(await name.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
                 expect(await seatBoxes(page)).toEqual(before);
-                expect(await box(add)).toEqual(popup);
+                expect(await box(menu)).toEqual(popup);
                 expect(await box(page.locator("#room-actions"))).toEqual(right);
                 await touchTargets(page);
             }
@@ -381,6 +406,11 @@ for (const phone of [false, true]) {
                 expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(code);
                 await expectCopyFeedback(page, page.locator("#copy"));
                 await noFocus(page);
+                await use(plus(page, 2));
+                await expectSidePopup(page, 2);
+                if (phone) await touchTargets(page);
+                await page.keyboard.press("Escape");
+                await expect(action(page, "Copy code")).toBeHidden();
                 const friend = await context.newPage();
                 const friendFrames = await holdFrames(friend, twoMembers);
                 await friend.goto(host.address);
@@ -396,6 +426,7 @@ for (const phone of [false, true]) {
                 await expect(plus(friend, 4)).toHaveAttribute("aria-expanded", "true");
                 const fallback = players(friend).nth(3).getByRole("button", { name: "Copy code" });
                 await expect(fallback).toBeVisible();
+                await expectSidePopup(friend, 4);
                 await expect(action(friend, "Add bot")).toBeHidden();
                 await expect(
                     friend.getByText(code, { exact: true }).filter({ visible: true }),
@@ -432,28 +463,17 @@ for (const phone of [false, true]) {
                         return players(friend).allInnerTexts();
                     })
                     .toEqual(["", "You", "", ""]);
-                if (phone) {
-                    for (const slot of [1, 3, 4]) {
-                        await use(plus(friend, slot));
-                        const seat = await box(players(friend).nth(slot - 1));
-                        const choice = action(friend, "Copy code");
-                        const menu = await box(choice);
-                        expect(
-                            await choice.evaluate(
-                                (button) => button.scrollWidth <= button.clientWidth,
-                            ),
-                        ).toBe(true);
-                        const right = await box(friend.locator("#room-actions"));
-                        expect(menu.x).toBe(seat.x);
-                        expect(menu.width).toBe(seat.width);
-                        expect(menu.y).toBe(seat.y + seat.height + 4);
-                        expect(await box(plus(friend, slot))).toEqual(seat);
-                        expect(menu.x + menu.width).toBeLessThan(right.x);
-                        await touchTargets(friend);
-                        if (slot === 1) await capture(friend, "server-seat-one-phone");
-                        await friend.keyboard.press("Escape");
-                        await expect(choice).toBeHidden();
-                    }
+                for (const slot of [1, 3, 4]) {
+                    await use(plus(friend, slot));
+                    const choice = action(friend, "Copy code");
+                    await expectSidePopup(friend, slot);
+                    expect(
+                        await choice.evaluate((button) => button.scrollWidth <= button.clientWidth),
+                    ).toBe(true);
+                    if (phone) await touchTargets(friend);
+                    if (slot === 1) await capture(friend, `server-seat-one-${size}`);
+                    await friend.keyboard.press("Escape");
+                    await expect(choice).toBeHidden();
                 }
             } finally {
                 await host.stop();
