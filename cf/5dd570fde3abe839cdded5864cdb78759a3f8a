@@ -1,0 +1,2 @@
+stage: 1
+finding: Private admission accepts trivially guessable and reusable caller codes (the loopback test admits `friend`), although the code is the only access check. Pending World ownership is unproven and stop/last leave do not cancel or drain an in-flight build: a gated initializer remains live after stop until released, and createApp serializes later builds behind it. The loopback check stays green with the stale-completion guard or failed-start retirement removed; add gated lifecycle coverage.
