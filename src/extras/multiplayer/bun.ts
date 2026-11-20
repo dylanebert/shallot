@@ -173,10 +173,15 @@ function hostRooms(
     pinnedApp?: App,
     recorder?: SessionRecorder,
 ) {
+    const announce = new WeakSet<ServerWebSocketConnection>();
     const host = roomHost<ServerWebSocketConnection>(
         game,
         {
             ...options,
+            sendRoom(connection, code) {
+                if (announce.has(connection) && connection.socket.sendText(`room:${code}`) === 0)
+                    connection.close(1011, "Write failed");
+            },
             sendToken(connection, id, token) {
                 if (connection.socket.sendText(`resume:${id}:${token}`) === 0)
                     connection.close(1011, "Write failed");
@@ -201,6 +206,7 @@ function hostRooms(
         },
         connect(connection, url) {
             const query = url?.searchParams;
+            if (query?.get("announceRoom") === "1") announce.add(connection);
             host.connect(connection, {
                 intent: query?.get("intent"),
                 code: query?.get("code"),

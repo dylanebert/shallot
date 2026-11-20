@@ -51,6 +51,7 @@ export function roomHost<
         reservationNow?: () => number;
         reconnectNow?: () => number;
         sendToken(connection: C, id: string, token: string): void;
+        sendRoom?(connection: C, code: string): void;
     },
     pinnedApp?: App,
     recorder?: SessionRecorder,
@@ -178,6 +179,7 @@ export function roomHost<
             if (eid === undefined) refuseFull(connection);
             else {
                 room.seats.set(connection, eid);
+                if (room.code) options.sendRoom?.(connection, room.code);
                 if (reconnectMs && resumable.has(connection)) {
                     const token = crypto.randomUUID();
                     const seat = {

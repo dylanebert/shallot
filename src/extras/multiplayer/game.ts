@@ -275,6 +275,8 @@ export function client(
     options: {
         url: string;
         onError?: (error: Error) => void;
+        /** Receives the server-selected room code on admission to serveRooms. */
+        onRoom?: (code: string) => void;
         recording?: RecordingOptions;
         /** Schedule a retry in milliseconds, returning its cancellation function. */
         retryAfter?: (delay: number, retry: () => void) => () => void;
@@ -286,7 +288,13 @@ export function client(
         name: "MultiplayerClient",
         dependencies: [...(recorder ? [recorder.plugin] : []), ...game.plugins],
         async initialize(world) {
-            const socket = new WebSocket(options.url);
+            let url = options.url;
+            if (options.onRoom) {
+                const endpoint = new URL(url, globalThis.location?.href);
+                endpoint.searchParams.set("announceRoom", "1");
+                url = endpoint.href;
+            }
+            const socket = new WebSocket(url);
             let seat: string | undefined;
             let token: string | undefined;
             let generation = 0;
@@ -321,6 +329,11 @@ export function client(
                     delay = Math.min(1000, delay * 2);
                 });
                 return new WebSocketConnection(socket, (message) => {
+                    const room = options.onRoom && /^room:([0-9A-HJKMNP-TV-Z]{10})$/.exec(message);
+                    if (room) {
+                        options.onRoom?.(room[1]!);
+                        return true;
+                    }
                     if (!game.reconnectMs) return false;
                     const match = /^resume:([0-9a-f-]{36}):([0-9a-f-]{36})$/.exec(message);
                     if (!match) return false;

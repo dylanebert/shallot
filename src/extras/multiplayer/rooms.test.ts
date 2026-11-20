@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import { expectError } from "../../../scripts/test-console";
-import { component, u32, World } from "../../engine";
+import { component, createApp, u32, World } from "../../engine";
 import { Replicate, ReplicationReceiver, WebSocketConnection } from ".";
 import { serveRooms } from "./bun";
-import type { Game } from "./game";
+import { client, type Game } from "./game";
 import type { Connection } from "./link";
 
 const RoomValue = component("RoomValue", { value: u32 });
@@ -31,6 +31,39 @@ function roomSocket(port: number | undefined, query: string) {
     );
     return { socket, closed };
 }
+
+test("quick join announces the admitted room code without requiring reconnection", async () => {
+    const game: Game = {
+        plugins: [],
+        schema: [],
+        maxClients: 2,
+        rules: () => [],
+        validateIntent: () => false,
+        applyIntent() {},
+    };
+    const host = serveRooms(game, { hostname: "127.0.0.1", port: 0 });
+    try {
+        const room = Promise.withResolvers<string>();
+        const app = await createApp({
+            defaults: false,
+            plugins: [
+                client(game, {
+                    url: `ws://127.0.0.1:${host.port}/?intent=joinOrCreate`,
+                    onRoom: room.resolve,
+                }),
+            ],
+        });
+        try {
+            const code = await room.promise;
+            const listing = await fetch(`http://127.0.0.1:${host.port}/rooms`);
+            expect(await listing.json()).toEqual([{ code, clients: 1, maxClients: 2 }]);
+        } finally {
+            app.dispose();
+        }
+    } finally {
+        host.stop();
+    }
+});
 
 test("room sockets isolate Worlds and discovery follows public seats only", async () => {
     const worlds: World[] = [];
