@@ -1,12 +1,20 @@
 import { expect, test } from "bun:test";
 import { component, createApp, u32, type World } from "../../engine";
-import { ClientPrediction, PredictionPlugin, Replicate } from ".";
+import { ClientPrediction, IntentSender, PredictionPlugin, Replicate } from ".";
 import { serveRooms, serveWebSocket } from "./bun";
 import { ClientOf, client, type Game } from "./game";
 import { createProxy } from "./proxy";
 import { replaySession, type SessionRecording } from "./recording";
 
-const Player = component("ReconnectPlayer", { value: u32 });
+const Player = component("ReconnectPlayer", { value: u32, input: u32 });
+
+const apply: Game["applyIntent"] = (world, eid, tick, records, input) => {
+    const row = world.storage(Player);
+    if (input) row.input.set(eid, input.values[0]!);
+    for (const record of records) {
+        if (record.tick === tick) row.value.set(eid, row.value.get(eid) + record.values[0]!);
+    }
+};
 
 function fixture() {
     let now = 0;
@@ -108,24 +116,124 @@ test("held seats count toward capacity, reject another seat's token, and expire 
     }
 });
 
+test("a held seat spends its token on one concurrent resume and issues a new one", async () => {
+    const f = fixture();
+    try {
+        const original = peer(f.url);
+        const [, seat, token] = (await original.token).split(":");
+        original.socket.close();
+        await original.closed;
+        const resume = `${f.url}&seat=${seat}&resume=`;
+        const contenders = [peer(resume + token), peer(resume + token)];
+        const outcomes = await Promise.all(contenders.map((p) => p.outcome));
+        expect(outcomes.filter((outcome) => outcome === 1008)).toHaveLength(1);
+        const winner = outcomes.findIndex((outcome) => typeof outcome === "string");
+        expect(winner).toBeGreaterThanOrEqual(0);
+        const [, sameSeat, nextToken] = (outcomes[winner] as string).split(":");
+        expect(sameSeat).toBe(seat);
+        contenders[winner]!.socket.close();
+        await contenders[winner]!.closed;
+        expect(await peer(resume + token).outcome).toBe(1008);
+        expect(await peer(resume + nextToken).outcome).toStartWith(`resume:${seat}:`);
+        expect(f.joined).toHaveLength(1);
+    } finally {
+        f.host.stop();
+    }
+});
+
+test("a resume credential cannot override the requested room code", async () => {
+    const f = fixture();
+    try {
+        const join = async () => {
+            const response = await fetch(`http://127.0.0.1:${f.host.port}/rooms`, {
+                method: "POST",
+            });
+            const { code } = (await response.json()) as { code: string };
+            return `${f.url.replace("joinOrCreate", "join")}&code=${code.toLowerCase()}`;
+        };
+        const firstRoom = await join();
+        const secondRoom = await join();
+        const first = peer(firstRoom);
+        const [, seat, token] = (await first.token).split(":");
+        await peer(secondRoom).token;
+        first.socket.close();
+        await first.closed;
+        const credential = `&seat=${seat}&resume=${token}`;
+        expect(await peer(secondRoom + credential).outcome).toBe(1008);
+        expect(await peer(firstRoom + credential).outcome).toStartWith(`resume:${seat}:`);
+        expect(f.joined).toHaveLength(2);
+    } finally {
+        f.host.stop();
+    }
+});
+
+test("a client without reconnection rejects resume text as non-binary", async () => {
+    const { game, host: rooms } = fixture();
+    rooms.stop();
+    delete game.reconnectMs;
+    let closed: number | undefined;
+    const host = Bun.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        fetch(request, server) {
+            if (server.upgrade(request)) return;
+            return new Response(null, { status: 426 });
+        },
+        websocket: {
+            message() {},
+            open(socket) {
+                socket.sendText(`resume:${crypto.randomUUID()}:${crypto.randomUUID()}`);
+            },
+            close(_socket, code) {
+                closed = code;
+            },
+        },
+    });
+    try {
+        const app = await createApp({
+            defaults: false,
+            plugins: [
+                client(game, {
+                    url: `ws://127.0.0.1:${host.port}`,
+                }),
+            ],
+        });
+        try {
+            await until(() => closed !== undefined, "client accepted a text frame");
+            expect(closed).toBe(1003);
+        } finally {
+            app.dispose();
+        }
+    } finally {
+        host.stop(true);
+    }
+});
+
 test("client backs off after a TCP cut and its running prediction confirms the same seat at a fresh image", async () => {
     const f = fixture();
     const proxy = await createProxy(f.host.port!, 1);
     let prediction!: ClientPrediction;
+    let sender!: IntentSender;
     let setups = 0;
     let retry: (() => void) | undefined;
     const delays: number[] = [];
     const errors: Error[] = [];
     let recording!: SessionRecording;
     f.game.plugins = [...f.game.plugins, PredictionPlugin];
+    f.game.applyIntent = apply;
+    f.game.validateIntent = () => true;
     f.game.onClient = (world, connection) => {
         setups++;
+        sender = new IntentSender(connection);
         prediction = new ClientPrediction(
             world,
             f.game.schema,
             connection,
             (_world, entities) => entities.get(f.eid),
-            () => {},
+            (world, tick, records, input) => {
+                const avatar = prediction.receiver.entities.get(f.eid);
+                if (avatar !== undefined) apply(world, avatar, tick, records, input);
+            },
         );
     };
     const app = await createApp({
@@ -158,25 +266,56 @@ test("client backs off after a TCP cut and its running prediction confirms the s
         const receiver = prediction.receiver;
         const eid = f.eid;
         const local = receiver.entities.get(eid)!;
+        const submit = (operation: number, input: number, expected: number) => {
+            const tick = app.world.time.fixedTick + 1;
+            prediction.accept([
+                sender.record(tick, "operation", [operation]),
+                sender.record(tick, "input", [input]),
+            ]);
+            app.world.tick();
+            expect(app.world.get(local, Player)).toEqual({ value: expected, input });
+            sender.flush();
+        };
+        submit(7, 3, 49);
+        await until(() => {
+            f.world.tick();
+            return f.world.get(eid, Player)?.value === 49;
+        }, "first operation was not applied");
+        expect(f.world.get(eid, Player)?.input).toBe(3);
         const confirmed = receiver.confirmed;
-        app.world.tick();
         expect(app.world.time.fixedTick).toBeGreaterThan(confirmed);
         proxy.controls.resetPeer();
         await until(() => !!retry, "close did not schedule retry");
         expect(delays).toEqual([50]);
         expect(f.left).toEqual([]);
         expect(f.world.has(eid, ClientOf)).toBe(true);
-        f.world.storage(Player).value.set(eid, 99);
         for (let i = 0; i < 12; i++) f.world.tick();
         f.advance(50);
         retry!();
         await until(() => {
             app.world.step(1 / 60);
-            return receiver.confirmed > confirmed + 1 && app.world.get(local, Player)?.value === 99;
+            return receiver.confirmed > confirmed + 1;
         }, "replacement image was not confirmed by the running prediction");
         expect(prediction.receiver).toBe(receiver);
         expect(receiver.entities.get(eid)).toBe(local);
         expect(prediction.predicted(local)).toBe(true);
+        expect(app.world.get(local, Player)).toEqual({ value: 49, input: 3 });
+        // Never fed the first acknowledgement to the sender: its first operation repeats
+        // on the replacement socket along with the new operation and sampled input.
+        expect(sender.records.size).toBe(1);
+        submit(11, 5, 60);
+        await until(() => {
+            f.world.tick();
+            const row = f.world.get(eid, Player);
+            return row?.input === 5 && row.value >= 60;
+        }, "replacement input and operation were not applied");
+        expect(f.world.get(eid, Player)?.value).toBe(60);
+        const applied = f.world.time.fixedTick;
+        await until(() => {
+            app.world.step(1 / 60);
+            return receiver.confirmed >= applied;
+        }, "replacement operation was not confirmed");
+        expect(app.world.get(local, Player)).toEqual({ value: 60, input: 5 });
         expect(setups).toBe(1);
         expect(f.joined).toEqual([eid]);
         expect(f.left).toEqual([]);

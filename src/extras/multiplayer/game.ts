@@ -320,6 +320,7 @@ export function client(
                     delay = Math.min(1000, delay * 2);
                 });
                 return new WebSocketConnection(socket, (message) => {
+                    if (!game.reconnectMs) return false;
                     const match = /^resume:([0-9a-f-]{36}):([0-9a-f-]{36})$/.exec(message);
                     if (!match) return false;
                     [, seat, token] = match;

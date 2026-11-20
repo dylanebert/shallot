@@ -178,7 +178,8 @@ const MAX_UNCLAIMED_CODES = 128;
  * or invalid intent, and 1011 means server initialization failed.
  * With `game.reconnectMs`, admission sends a WebSocket text control message
  * `resume:<seat>:<token>` beside the binary stream. Resume with `?seat=…&resume=…`;
- * an invalid or expired pair closes with 1008. Use WSS and omit resume query
+ * a successful resume replaces the token. Invalid, expired, spent, or wrong-room
+ * credentials close with 1008. Use WSS and omit resume query
  * credentials from access logs. The first seat starts the World. Pending seats count toward maxClients but
  * are not admitted before startup succeeds. Last leave or stop retires the room
  * immediately; an in-flight build is not canceled, but disposes on success
@@ -447,6 +448,8 @@ function hostRooms(
                 if (
                     !seat ||
                     seat.id !== id ||
+                    (url?.searchParams.get("intent") === "join" &&
+                        url.searchParams.get("code")?.toUpperCase() !== seat.room.code) ||
                     authority?.peers.get(seat.eid)?.connection !== seat.connection
                 ) {
                     connection.close(1008, "Invalid or expired reconnection token");
@@ -459,6 +462,7 @@ function hostRooms(
                 seats.set(connection, seat);
                 try {
                     authority.resume(seat.eid);
+                    seat.token = crypto.randomUUID();
                     sendToken(connection, seat);
                 } catch (error) {
                     console.error(error);
