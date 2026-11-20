@@ -126,7 +126,8 @@ test("room sockets reserve seats, isolate images and release empty Worlds", asyn
     }
 });
 
-test("private code reservations are bounded host-wide and claiming one frees a slot", async () => {
+test("private code reservations are bounded host-wide and claim or expiry frees a slot", async () => {
+    let now = 0;
     const joined = Promise.withResolvers<void>();
     const host = serveRooms(
         {
@@ -138,20 +139,40 @@ test("private code reservations are bounded host-wide and claiming one frees a s
             validateIntent: () => false,
             applyIntent() {},
         },
-        { hostname: "127.0.0.1", port: 0 },
+        { hostname: "127.0.0.1", port: 0, reservationNow: () => now },
     );
     try {
-        const codes = new Set<string>();
-        for (let i = 0; i < 128; i++) codes.add(await privateCode(host.port));
+        const expiring = await privateCode(host.port);
+        now = 1000;
+        const claimable = await privateCode(host.port);
+        const codes = new Set([expiring, claimable]);
+        for (let i = 2; i < 128; i++) codes.add(await privateCode(host.port));
         expect(codes.size).toBe(128);
         const refused = await requestCode(host.port);
         expect(refused.status).toBe(503);
         expect(refused.headers.get("Retry-After")).toBe("60");
 
-        const claim = roomSocket(host.port, `join&code=${codes.values().next().value}`);
+        const claim = roomSocket(host.port, `join&code=${claimable}`);
         await joined.promise;
         expect(codes.has(await privateCode(host.port))).toBe(false);
         expect((await requestCode(host.port)).status).toBe(503);
+
+        now = 60_001;
+        const expired = roomSocket(host.port, `join&code=${expiring}`);
+        const outcome = await Promise.race([
+            expired.closed.then((event) => event.code),
+            new Promise((resolve) =>
+                expired.socket.addEventListener("message", () => resolve("admitted"), {
+                    once: true,
+                }),
+            ),
+        ]);
+        expect(outcome).toBe(1008);
+        await privateCode(host.port);
+        expect((await requestCode(host.port)).status).toBe(503);
+
+        now = 61_001;
+        await privateCode(host.port);
         host.stop();
         await claim.closed;
     } finally {

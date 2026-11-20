@@ -155,8 +155,9 @@ const MAX_UNCLAIMED_CODES = 128;
  * Crockford Base32 characters (no I, L, O or U). Codes are unique among live
  * rooms and may be randomly issued again after retirement. The host holds at
  * most 128 unclaimed codes to allow concurrent invitations without unbounded
- * idle records or timers. At capacity, POST returns 503 with Retry-After: 60
- * (seconds); claim or expiry frees a slot. Reservations do not run on the game clock.
+ * idle records. At capacity, POST returns 503 with Retry-After: 60 (seconds).
+ * Claim or expiry frees a slot; expired codes are pruned on admission requests,
+ * not on the game clock.
  * A socket cannot create a private room with a client-supplied code.
  * `?intent=joinOrCreate` fills an available public room before making another.
  * Refusals send no game image: 1013 means full, 1008 means unknown/expired code
@@ -166,13 +167,20 @@ const MAX_UNCLAIMED_CODES = 128;
  * immediately; an in-flight build is not canceled, but disposes on success
  * without admitting anyone. A rejected build cleans up its partial World and
  * retires the code, closing any seats still waiting. stop is idempotent. */
-export function serveRooms(game: Game, options: { hostname?: string; port: number }) {
+export function serveRooms(game: Game, options: RoomHostOptions) {
     return hostRooms(game, options);
+}
+
+interface RoomHostOptions {
+    hostname?: string;
+    port: number;
+    /** Test-only monotonic time in milliseconds for code expiry; defaults to performance.now. */
+    reservationNow?: () => number;
 }
 
 function hostRooms(
     game: Game,
-    options: { hostname?: string; port: number },
+    options: RoomHostOptions,
     pinnedApp?: App,
     recorder?: SessionRecorder,
 ) {
@@ -180,10 +188,8 @@ function hostRooms(
         throw new Error("maxClients must be a positive integer");
     const rooms = new Map<string, Room>();
     const active = new Set<App>();
-    const unclaimed = new Map<
-        string,
-        { timer: ReturnType<typeof setTimeout>; expiresAt: number }
-    >();
+    const unclaimed = new Map<string, number>();
+    const reservationNow = options.reservationNow ?? (() => performance.now());
     const memberships = new WeakMap<ServerWebSocketConnection, Room>();
     const pinned: Room | undefined = pinnedApp && {
         code: "",
@@ -196,6 +202,13 @@ function hostRooms(
         active.add(pinnedApp);
     }
     let stopped = false;
+
+    function expireCodes(now: number) {
+        for (const [code, expiresAt] of unclaimed) {
+            if (expiresAt > now) break;
+            unclaimed.delete(code);
+        }
+    }
 
     function issueCode(): string {
         let code: string;
@@ -295,15 +308,9 @@ function hostRooms(
             return createRoom(issueCode(), false);
         }
         if (intent === "join" && code) {
+            expireCodes(reservationNow());
             const key = code.toUpperCase();
-            const reservation = unclaimed.get(key);
-            if (reservation !== undefined) {
-                clearTimeout(reservation.timer);
-                unclaimed.delete(key);
-                if (performance.now() < reservation.expiresAt) return createRoom(key, true);
-                return;
-            }
-            return rooms.get(key);
+            return unclaimed.delete(key) ? createRoom(key, true) : rooms.get(key);
         }
     }
 
@@ -313,6 +320,8 @@ function hostRooms(
             if (pinned || request.method !== "POST" || new URL(request.url).pathname !== "/rooms")
                 return;
             if (stopped) return new Response(null, { status: 503 });
+            const now = reservationNow();
+            expireCodes(now);
             if (unclaimed.size >= MAX_UNCLAIMED_CODES) {
                 return new Response(null, {
                     status: 503,
@@ -320,10 +329,7 @@ function hostRooms(
                 });
             }
             const code = issueCode();
-            unclaimed.set(code, {
-                expiresAt: performance.now() + CLAIM_MS,
-                timer: setTimeout(() => unclaimed.delete(code), CLAIM_MS),
-            });
+            unclaimed.set(code, now + CLAIM_MS);
             return Response.json({ code }, { status: 201 });
         },
         connect(connection, url) {
@@ -358,7 +364,6 @@ function hostRooms(
         stopped = true;
         stopClock();
         process.off("SIGTERM", stop);
-        for (const { timer } of unclaimed.values()) clearTimeout(timer);
         unclaimed.clear();
         try {
             recorder?.finish();
