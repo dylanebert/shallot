@@ -33,6 +33,7 @@
     pointer-events: none;
 }
 .ec #room-actions { display: flex; gap: 8px; }
+.ec #copy-feedback { position: absolute; clip-path: inset(50%); }
 .ec #players {
     list-style: none;
     margin: 0;
@@ -48,7 +49,8 @@
     min-width: 0;
     pointer-events: auto;
 }
-.ec .vacant { justify-items: center; }
+.ec .vacant { display: flex; justify-content: center; }
+.ec .vacant:has(.slot-actions:not([hidden])) { justify-content: space-between; }
 .ec .vacant::before {
     content: '';
     position: absolute;
@@ -73,13 +75,9 @@
     white-space: nowrap;
     text-overflow: ellipsis;
 }
-.ec .slot-actions {
-    position: absolute;
-    left: calc(100% + 8px);
-    top: 0;
-    z-index: 1;
-    white-space: nowrap;
-}
+.ec .slot-actions { flex: 1; min-width: 0; white-space: nowrap; }
+.ec .slot-actions > button { width: 100%; }
+.ec .vacant > button { flex: none; }
 .ec #status {
     position: absolute;
     z-index: 1;

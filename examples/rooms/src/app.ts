@@ -21,19 +21,18 @@ import {
     TextPlugin,
 } from "@dylanebert/shallot/extras";
 import { Anchor } from "@dylanebert/shallot/rendering";
-import { Tint } from "./demo";
+import { Demo, Tint } from "./demo";
 import { ClientControls, ClientSession, scene } from "./network";
 import { LocalControls, LocalPlayer, UpdatePlayerControlSystem } from "./player";
 export const RoomFrame = { create: (): { pump?: (delta: number) => void } => ({}) };
 
 const RoomView = { create: () => ({ avatar: 0 }) };
 
-export const AppPlugin: Plugin = {
-    name: "RoomsApp",
-    dependencies: [ClientControls, TextPlugin, DiagnosticsOverlayPlugin],
+const RouteView: Plugin = {
+    name: "RouteView",
+    dependencies: [Demo],
     recovery: "stateless",
     initialize(world) {
-        world.resource(LocalControls).enabled = true;
         const ambient = world.resource(GlobalAmbientLight);
         ambient.color = 0xd8e4ff;
         ambient.brightness = 380;
@@ -47,15 +46,9 @@ export const AppPlugin: Plugin = {
             shadowNormalBias: 1.8,
         });
         world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
-        const avatarMesh = world.resource(Meshes).add({ name: "Avatar", ...capsule(0.3, 1.2) });
-        world.resource(RoomView).avatar = avatarMesh;
-        for (const [slot, { eye }] of scene(world).players.entries()) {
-            world.add(eye, Camera, { fov: 70, clearColor: 0x191816, order: slot });
-            world.add(eye, StandardRenderer);
-        }
         const players = scene(world).players.map(({ player }) => player);
         for (const eid of world.query([Tint])) {
-            world.add(eid, MeshInstance, players.includes(eid) ? { mesh: avatarMesh } : undefined);
+            if (!players.includes(eid)) world.add(eid, MeshInstance);
             world.add(
                 eid,
                 MeshMaterial,
@@ -63,6 +56,38 @@ export const AppPlugin: Plugin = {
                     .resource(Materials)
                     .add(StandardMaterial({ baseColor: world.get(eid, Tint)!.color })),
             );
+        }
+    },
+};
+
+export const EntryView: Plugin = {
+    name: "RoomsEntry",
+    dependencies: [RouteView],
+    recovery: "stateless",
+    initialize(world) {
+        const camera = world.create();
+        world.add(camera, Transform, {
+            translation: [0, 4, 13],
+            rotation: lookAtRotation(0, 4, 13, 0, 1, -3),
+        });
+        world.add(camera, Camera, { fov: 70, clearColor: 0x191816 });
+        world.add(camera, StandardRenderer);
+    },
+};
+
+export const AppPlugin: Plugin = {
+    name: "RoomsApp",
+    dependencies: [ClientControls, RouteView, TextPlugin, DiagnosticsOverlayPlugin],
+    recovery: "stateless",
+    initialize(world) {
+        world.resource(LocalControls).enabled = true;
+        world.resource(RoomView).avatar = world.resource(Meshes).add({
+            name: "Avatar",
+            ...capsule(0.3, 1.2),
+        });
+        for (const [slot, { eye }] of scene(world).players.entries()) {
+            world.add(eye, Camera, { fov: 70, clearColor: 0x191816, order: slot });
+            world.add(eye, StandardRenderer);
         }
         const hint = world.create();
         world.add(hint, Transform, {

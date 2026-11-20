@@ -22,6 +22,46 @@ async function capture(page: Page, name: string) {
     await page.screenshot({ path: `${directory}/${name}.png`, scale: "css" });
 }
 
+async function expectCopyFeedback(page: Page, button: Locator) {
+    await expect(button).toHaveAccessibleName("Room code copied");
+    await expect(button.locator("svg")).toHaveAttribute("data-icon", "check");
+    await expect(page.locator("#status")).toBeHidden();
+    const announcement = page.getByText("Room code copied", { exact: true });
+    await expect(announcement).toHaveCount(1);
+    await expect(announcement).toHaveAttribute("role", "status");
+    await expect(announcement).toHaveCSS("clip-path", "inset(50%)");
+    await expect(button.locator("svg")).toHaveAttribute("data-icon", "copy");
+    await expect(announcement).toHaveCount(0);
+}
+
+async function expectEntryRoute(page: Page) {
+    const { width, height } = page.viewportSize()!;
+    await expect
+        .poll(async () => {
+            const png = await page.screenshot({
+                clip: { x: width / 2, y: height / 2, width: 16, height: height / 2 },
+            });
+            return page.evaluate(
+                async (bytes) => {
+                    const bitmap = await createImageBitmap(
+                        new Blob([Uint8Array.from(bytes)], { type: "image/png" }),
+                    );
+                    const context = new OffscreenCanvas(bitmap.width, bitmap.height).getContext(
+                        "2d",
+                    )!;
+                    context.drawImage(bitmap, 0, 0);
+                    const { data } = context.getImageData(0, 0, bitmap.width, bitmap.height);
+                    const colors = new Set<number>();
+                    for (let i = 0; i < data.length; i += 4)
+                        colors.add((data[i]! << 16) | (data[i + 1]! << 8) | data[i + 2]!);
+                    return colors.size;
+                },
+                [...png],
+            );
+        })
+        .toBeGreaterThan(2);
+}
+
 async function server() {
     const child = spawn("bun", ["server.ts", "--port", "0"], {
         cwd: new URL("..", import.meta.url),
@@ -93,6 +133,8 @@ for (const phone of [false, true]) {
                 "Enter code",
             ]);
             await expect(input).toBeHidden();
+            await expect(action(page, "Jump")).toBeHidden();
+            await expectEntryRoute(page);
             await expect(enter).toHaveAttribute("aria-expanded", "false");
             const trigger = await box(enter);
             const label = await box(enter.getByText("Enter code"));
@@ -197,10 +239,9 @@ for (const phone of [false, true]) {
 
             await use(plus(page, 2));
             const popup = await box(add);
-            expect(popup.x).toBeGreaterThan(second!.x + second!.width);
-            expect(popup.y).toBeGreaterThanOrEqual(second!.y);
-            expect(popup.y + popup.height).toBeLessThanOrEqual(second!.y + second!.height);
-            expect(popup.y).toBeGreaterThanOrEqual(right.y + right.height);
+            expect(popup.x).toBeGreaterThanOrEqual(second!.x);
+            expect(popup.x + popup.width).toBeLessThanOrEqual(second!.x + second!.width);
+            expect(popup.y).toBe(second!.y);
             await frames.run(2);
             await capture(page, `in-tab-${size}`);
             if (phone) {
@@ -259,7 +300,14 @@ for (const phone of [false, true]) {
             await expect(plus(page, 2)).toBeEnabled();
             await noFocus(page);
             await use(leave);
-            await expect(action(page, "Quick join")).toBeVisible();
+            await expect
+                .poll(async () => {
+                    await frames.run(3);
+                    return action(page, "Quick join").isVisible();
+                })
+                .toBe(true);
+            await frames.run(3);
+            await expectEntryRoute(page);
             await noFocus(page);
         });
 
@@ -271,7 +319,7 @@ for (const phone of [false, true]) {
             try {
                 await context.grantPermissions(["clipboard-read", "clipboard-write"]);
                 const twoMembers = "#players li:nth-child(2) .member";
-                const frames = await holdFrames(page, twoMembers);
+                await holdFrames(page, twoMembers);
                 await page.goto(host.address);
                 await use(action(page, "Create private room"));
                 await expect(players(page)).toHaveText(["You", "", "", ""]);
@@ -282,6 +330,7 @@ for (const phone of [false, true]) {
                 await expect(codeButton).toHaveAccessibleDescription(code);
                 await use(codeButton);
                 expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(code);
+                await expectCopyFeedback(page, page.locator("#copy"));
                 await noFocus(page);
                 const friend = await context.newPage();
                 const friendFrames = await holdFrames(friend, twoMembers);
@@ -321,16 +370,39 @@ for (const phone of [false, true]) {
                 await friend.evaluate(() => navigator.clipboard.writeText(""));
                 await use(fallback);
                 expect(await friend.evaluate(() => navigator.clipboard.readText())).toBe(code);
-                await expect(fallback).toBeHidden();
-                await expect(players(friend)).toHaveText(["Player 1", "You", "", ""]);
+                await expectCopyFeedback(
+                    friend,
+                    players(friend).nth(2).locator(".slot-actions button"),
+                );
+                await expect(players(friend)).toHaveText(["Player 1", "You", "Copy code", ""]);
                 await noFocus(friend);
-                await use(action(friend, "Leave"));
+                await use(action(page, "Leave"));
+                await friend.keyboard.press("Escape");
                 await expect
                     .poll(async () => {
-                        await frames.run(4);
-                        return players(page).allInnerTexts();
+                        await friendFrames.run(4);
+                        return players(friend).allInnerTexts();
                     })
-                    .toEqual(["You", "", "", ""]);
+                    .toEqual(["", "You", "", ""]);
+                if (phone) {
+                    for (const slot of [1, 3, 4]) {
+                        await use(plus(friend, slot));
+                        const seat = await box(players(friend).nth(slot - 1));
+                        const choice = action(friend, "Copy code");
+                        const menu = await box(choice);
+                        expect(
+                            await choice.evaluate(
+                                (button) => button.scrollWidth <= button.clientWidth,
+                            ),
+                        ).toBe(true);
+                        const right = await box(friend.locator("#room-actions"));
+                        expect(menu.x).toBeGreaterThanOrEqual(seat.x);
+                        expect(menu.x + menu.width).toBeLessThanOrEqual(seat.x + seat.width);
+                        expect(menu.x + menu.width).toBeLessThan(right.x);
+                        await touchTargets(friend);
+                        if (slot === 1) await capture(friend, "server-seat-one-phone");
+                    }
+                }
             } finally {
                 await host.stop();
             }

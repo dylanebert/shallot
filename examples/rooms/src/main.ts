@@ -1,6 +1,6 @@
 import { type App, type Plugin, runApp } from "@dylanebert/shallot";
 import { client, local } from "@dylanebert/shallot/multiplayer";
-import { AppPlugin, RoomFrame } from "./app";
+import { AppPlugin, EntryView, RoomFrame } from "./app";
 import { icon } from "./icons";
 import { ClientSession, GAME } from "./network";
 
@@ -35,12 +35,14 @@ const session = element("session");
 const status = element("status");
 const list = element("players");
 const copy = element<HTMLButtonElement>("copy");
+const copyFeedback = element("copy-feedback");
 const drop = element<HTMLButtonElement>("drop");
 const leaveButton = element<HTMLButtonElement>("leave");
 const enter = element<HTMLButtonElement>("enter");
 const form = element<HTMLFormElement>("join");
 const codeInput = element<HTMLInputElement>("code");
 let app: App | undefined;
+let entry: App | undefined;
 let seat: Seat | undefined;
 let roomCode = "";
 let busy = false;
@@ -52,6 +54,7 @@ let generation: number | undefined;
 let openSlot = -1;
 let seed = 0;
 let feedbackTimer: ReturnType<typeof setTimeout> | undefined;
+let resetCopy: (() => void) | undefined;
 
 drop.hidden = !!url;
 drop.innerHTML = icon("drop");
@@ -124,19 +127,34 @@ async function act(action: () => Promise<void> | void) {
 }
 
 function showCode(code: string) {
+    if (roomCode !== code) resetCopy?.();
     roomCode = code;
     element("room-code").textContent = code;
     copy.hidden = !url || !code;
     buttons();
 }
 
-async function copyCode() {
+async function copyCode(button: HTMLButtonElement, label: string) {
     await navigator.clipboard.writeText(roomCode);
-    closeSlot();
-    message("Room code copied.", true);
+    resetCopy?.();
+    const glyph = button.querySelector("svg")!;
+    glyph.outerHTML = icon("check");
+    const confirmation = "Room code copied";
+    button.setAttribute("aria-label", confirmation);
+    button.title = confirmation;
+    copyFeedback.textContent = confirmation;
+    const timer = setTimeout(() => resetCopy?.(), 1500);
+    resetCopy = () => {
+        clearTimeout(timer);
+        button.querySelector("svg")?.replaceWith(glyph);
+        button.setAttribute("aria-label", label);
+        button.title = label;
+        copyFeedback.textContent = "";
+        resetCopy = undefined;
+    };
 }
 
-copy.onclick = () => void act(copyCode);
+copy.onclick = () => void act(() => copyCode(copy, "Copy room code"));
 
 function slotButton(label: string, glyph: Parameters<typeof icon>[0], text = false) {
     const button = document.createElement("button");
@@ -196,7 +214,9 @@ function renderParty() {
                 const choice = host
                     ? slotButton("Add bot", "bot", true)
                     : slotButton("Copy code", "copy", true);
-                choice.onclick = () => void act(host ? () => addBot(slot) : copyCode);
+                if (!host) choice.title = "Copy code";
+                choice.onclick = () =>
+                    void act(host ? () => addBot(slot) : () => copyCode(choice, "Copy code"));
                 actions.append(choice);
             }
             row.append(plus, actions);
@@ -265,8 +285,14 @@ async function join(code?: string) {
             onRoom: showCode,
             onError() {
                 refused = true;
-                if (app) leave();
-                message("The room closed or refused the connection. Check the code and try again.");
+                const problem =
+                    "The room closed or refused the connection. Check the code and try again.";
+                if (app)
+                    void leave().then(
+                        () => message(problem),
+                        () => message(problem),
+                    );
+                else message(problem);
             },
         });
     } else {
@@ -274,6 +300,8 @@ async function join(code?: string) {
         plugin = seat.plugin;
         showCode(seat.code);
     }
+    entry?.dispose();
+    entry = undefined;
     try {
         app = await runApp({
             plugins: [plugin, AppPlugin, RoomPanel],
@@ -284,10 +312,11 @@ async function join(code?: string) {
     } catch (error) {
         seat?.leave();
         seat = undefined;
+        await showEntry();
         throw error;
     }
     if (refused) {
-        leave();
+        await leave();
         throw new Error("The room refused the connection. Check the code and try again.");
     }
     lobby.hidden = true;
@@ -299,7 +328,11 @@ async function join(code?: string) {
     renderParty();
 }
 
-function leave() {
+async function showEntry() {
+    entry = await runApp({ plugins: [EntryView] });
+}
+
+async function leave() {
     for (const bot of bots.values()) bot.remove();
     bots.clear();
     if (document.pointerLockElement) document.exitPointerLock();
@@ -312,9 +345,10 @@ function leave() {
     generation = undefined;
     list.replaceChildren();
     session.hidden = true;
-    lobby.hidden = false;
     showCode("");
     message("");
+    await showEntry();
+    lobby.hidden = false;
 }
 
 element("quick").onclick = () => void act(() => join());
@@ -341,7 +375,7 @@ form.onsubmit = (event) => {
 };
 leaveButton.onclick = () => void act(leave);
 drop.onclick = () =>
-    void act(() => {
+    void act(async () => {
         if (!seat) return;
         if (!dropped) {
             seat.cut();
@@ -352,15 +386,17 @@ drop.onclick = () =>
             rejoining = true;
             message("Rejoining…");
         } else {
-            leave();
+            await leave();
             message("Your seat expired. Join again to play.");
         }
     });
 
 window.addEventListener("pagehide", (event) => {
     if (event.persisted) return;
+    entry?.dispose();
     app?.dispose();
     host?.dispose();
 });
+await showEntry();
 chrome?.removeAttribute("hidden");
 document.querySelector("[data-shallot-bootstrap]")?.remove();
