@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { component, u32, World } from "../../engine";
 import {
+    type Connection,
     type Game,
     IntentSender,
     Replicate,
@@ -33,18 +34,38 @@ async function room(
 
 type Peer = ReturnType<ReturnType<typeof fixture>["peer"]>;
 
-function fixture() {
+function fixture(botStartup?: Promise<void>) {
     const worlds: World[] = [];
+    const botStarted = Promise.withResolvers<World>();
+    const retired = Promise.withResolvers<void>();
+    let authority: World | undefined;
+    let botLink: Connection | undefined;
+    let now = 0;
     const results: Promise<boolean>[] = [];
     let joined = 0;
     let botInputs = 0;
     const game: Game = {
-        plugins: [{ name: "BotTestMember", components: schema }],
+        plugins: [
+            {
+                name: "BotTestMember",
+                components: schema,
+                initialize(world) {
+                    if (!authority || !botStartup) return;
+                    botStarted.resolve(world);
+                    return botStartup;
+                },
+            },
+        ],
         schema,
         maxClients: 3,
         reconnectMs: 100,
         rules: (_world, recipient) => [new Map([[recipient, schema]])],
-        onJoin(world, eid) {
+        onCreate(world) {
+            authority = world;
+            world.onDispose(() => retired.resolve());
+        },
+        onJoin(world, eid, transport) {
+            if (world.has(eid, RoomBot)) botLink = transport;
             world.add(eid, Member, { order: ++joined });
             world.add(eid, Replicate, { rule: 0 });
         },
@@ -72,7 +93,7 @@ function fixture() {
             }
         },
     };
-    const host = serveRooms(game, { hostname: "127.0.0.1", port: 0, reconnectNow: () => 0 });
+    const host = serveRooms(game, { hostname: "127.0.0.1", port: 0, reconnectNow: () => now });
     const origin = `127.0.0.1:${host.port}`;
 
     function open(intent: string) {
@@ -121,6 +142,13 @@ function fixture() {
                 else check();
             });
         }
+        async function beginRequest(...values: number[]) {
+            const index = results.length;
+            sender.record(receiver.confirmed, "operation", values);
+            sender.flush();
+            await until(() => results.length > index);
+            return { result: results[index]! };
+        }
         return {
             admitted: admission.promise,
             sees(seats: number, bots: number[], leader: number) {
@@ -136,12 +164,9 @@ function fixture() {
                     );
                 });
             },
+            beginRequest,
             async request(...values: number[]) {
-                const result = results.length;
-                sender.record(receiver.confirmed, "operation", values);
-                sender.flush();
-                await until(() => results.length > result);
-                return results[result];
+                return (await beginRequest(...values)).result;
             },
             close(code?: number) {
                 socket.close(code);
@@ -153,6 +178,17 @@ function fixture() {
     return {
         peer,
         botInputs: () => botInputs,
+        botStarted: botStarted.promise,
+        retired: retired.promise,
+        get botLink() {
+            return botLink;
+        },
+        get authority() {
+            return authority;
+        },
+        expireHold() {
+            now += game.reconnectMs!;
+        },
         async refused(code: string) {
             return (await open(`join&code=${code}`).closed).code;
         },
@@ -212,3 +248,57 @@ test("the bot survives leader reconnect and the successor may remove it", () =>
         expect(await successor.request(3)).toBe(true);
         await successor.sees(1, [], 4);
     }));
+
+test.each(["leaves", "expires"] as const)(
+    "the last human %s: the room retires, disposing its World and closing its bot link",
+    async (event) => {
+        const host = fixture();
+        try {
+            const leader = host.peer("joinOrCreate");
+            const { code } = await leader.admitted;
+            await leader.sees(1, [], 1);
+            expect(await leader.request()).toBe(true);
+            await leader.sees(2, [2], 1);
+            const authority = host.authority!;
+            const bot = host.botLink!;
+            expect(bot.closed).toBe(false);
+            await leader.close(event === "leaves" ? LEAVE_CLOSE_CODE : undefined);
+            if (event === "expires") {
+                expect(await host.occupancy()).toBe(2);
+                expect(authority.disposed).toBe(false);
+                expect(bot.closed).toBe(false);
+                host.expireHold();
+            }
+            await host.retired;
+            expect(authority.disposed).toBe(true);
+            expect(bot.closed).toBe(true);
+            expect(await host.occupancy()).toBeUndefined();
+            expect(await host.refused(code)).toBe(1008);
+        } finally {
+            host.stop();
+        }
+    },
+);
+
+test("bot construction cannot admit a bot after its requester loses leadership", async () => {
+    const gate = Promise.withResolvers<void>();
+    const host = fixture(gate.promise);
+    try {
+        const leader = host.peer("joinOrCreate");
+        const { code } = await leader.admitted;
+        const successor = host.peer(`join&code=${code}`);
+        await Promise.all([leader.sees(2, [], 1), successor.sees(2, [], 1)]);
+        const { result } = await leader.beginRequest();
+        const botWorld = await host.botStarted;
+        await leader.close(LEAVE_CLOSE_CODE);
+        await successor.sees(1, [], 2);
+        gate.resolve();
+        expect(await result).toBe(false);
+        expect(botWorld.disposed).toBe(true);
+        expect(host.botLink).toBeUndefined();
+        expect(await host.occupancy()).toBe(1);
+    } finally {
+        gate.resolve();
+        host.stop();
+    }
+});

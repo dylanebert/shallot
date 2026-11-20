@@ -132,7 +132,7 @@ export async function serveGame(
  * `?intent=join&code=…&creator=…`; share only the code. Until the creator is admitted
  * or 30 seconds pass, other joins close with 4001. GET /rooms returns a fresh JSON array
  * of public rooms with { code, clients, maxClients }. `clients`
- * counts occupied seats, including pending startup and held reconnections. Share a private code out of
+ * counts occupied seats, including bots, pending startup and held reconnections. Share a private code out of
  * band and claim it within 60 seconds with `?intent=join&code=…`.
  * A code is 10 case-insensitive
  * Crockford Base32 characters (no I, L, O or U). Codes are unique among live
@@ -150,8 +150,8 @@ export async function serveGame(
  * a successful resume replaces the token. Invalid, expired, spent, or wrong-room
  * credentials close with 1008. Use WSS and omit creator and resume query
  * credentials from access logs. The first seat starts the World. Pending seats count toward maxClients but
- * are not admitted before startup succeeds. Last leave or stop retires the room
- * immediately; an in-flight build is not canceled, but disposes on success
+ * are not admitted before startup succeeds. The room and its bots retire on stop or
+ * when their last human seat leaves or expires. An in-flight build is not canceled, but disposes on success
  * without admitting anyone. A rejected build cleans up its partial World and
  * retires the code, closing any seats still waiting. stop is idempotent. */
 export function serveRooms(game: Game, options: RoomHostOptions) {

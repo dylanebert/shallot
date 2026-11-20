@@ -96,7 +96,8 @@ export function roomHost<
     const now = options.reconnectNow ?? (() => performance.now());
     const seats = new WeakMap<C, Seat<C>>();
     const held = new Map<string, Seat<C>>();
-    const count = (room: Room<C>) => room.seats.size + room.bots.size + (room.held ?? 0);
+    const humans = (room: Room<C>) => room.seats.size + (room.held ?? 0);
+    const count = (room: Room<C>) => humans(room) + room.bots.size;
     const rooms = new Map<string, Room<C>>();
     const active = new Map<App, Room<C>>();
     let botTime = 0;
@@ -182,7 +183,7 @@ export function roomHost<
             )
                 authority?.disconnect(eid);
         } finally {
-            if (room !== pinned && !count(room)) retire(room);
+            if (room !== pinned && !humans(room)) retire(room);
         }
     }
 
@@ -336,8 +337,6 @@ export function roomHost<
                             if (authority.peers.get(eid) === peer) authority.disconnect(eid);
                         } finally {
                             dispose();
-                            if (room !== pinned && rooms.get(room.code) === room && !count(room))
-                                retire(room);
                         }
                     },
                     dispose,
@@ -368,7 +367,7 @@ export function roomHost<
             if (authority.peers.get(seat.eid)?.connection === seat.connection)
                 authority.disconnect(seat.eid);
         } finally {
-            if (seat.room !== pinned && !count(seat.room)) retire(seat.room);
+            if (seat.room !== pinned && !humans(seat.room)) retire(seat.room);
         }
     }
 
