@@ -13,6 +13,9 @@ import { IntentSender } from "./intent";
 import { type Connection, type LinkFaults, MAX_MESSAGE_BYTES, seededLink } from "./link";
 import type { SessionRecorder } from "./recording";
 import { ROOM_AUTH_REFUSED_CLOSE_CODE } from "./room-protocol";
+import { isApplicationClose } from "./websocket";
+
+const KICK_CLOSE_CODE = 4003;
 
 export function createServerApp(game: Game, recorder?: SessionRecorder) {
     return createApp({
@@ -286,8 +289,9 @@ export function roomHost<
                 get closed() {
                     return this.stream.closed;
                 },
-                close() {
-                    this.stream.close();
+                close(code?: number, reason?: string) {
+                    if (code !== undefined && isApplicationClose(code)) seats.delete(this.stream);
+                    this.stream.close(code, reason);
                 },
                 send(bytes: Uint8Array) {
                     this.stream.send(bytes);
@@ -392,10 +396,8 @@ export function roomHost<
                 if (peer.playerId !== undefined) (room.excluded ??= new Set()).add(peer.playerId);
                 if (offline) expireSeat(offline);
                 else if (live !== undefined) {
-                    // Forget the grant before closing: the close handler must not hold this seat.
-                    seats.delete(live);
                     try {
-                        live.close(1008, "Kicked from room");
+                        authority.disconnect(target, KICK_CLOSE_CODE, "Kicked from room");
                     } finally {
                         leave(live, false);
                     }

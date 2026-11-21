@@ -1,7 +1,14 @@
 import { expect, test } from "bun:test";
 import { createConnection, createServer, type Socket } from "node:net";
 import { component, createApp, DiagnosticsStore, u32, type World } from "../../engine";
-import { ClientPrediction, IntentSender, PredictionPlugin, Replicate } from ".";
+import {
+    ClientPrediction,
+    IntentSender,
+    PredictionPlugin,
+    Replicate,
+    ReplicationReceiver,
+    RoomModeration,
+} from ".";
 import { serveGame, serveRooms, serveWebSocket } from "./bun";
 import { ClientOf, client, type Game, ServerSession } from "./game";
 import { createProxy } from "./proxy";
@@ -95,6 +102,82 @@ test("disposing a connected client leaves immediately, without advancing the rec
         }
         await until(() => f.left.length === 1, "explicit leave held the seat");
     } finally {
+        f.host.stop();
+    }
+});
+
+test("replacement and kick report final closes without retry; a dropped seat still resumes", async () => {
+    const f = fixture();
+    const leader = peer(f.url);
+    try {
+        await leader.token;
+        const server = f.world.resource(ServerSession).server!;
+        for (const closure of ["replace", "kick"] as const) {
+            const proxy = await createProxy(f.host.port!, 1);
+            const errors: Error[] = [];
+            const retries: (() => void)[] = [];
+            let receiver: ReplicationReceiver | undefined;
+            f.game.onClient = (world, connection) => {
+                receiver = new ReplicationReceiver(world, f.game.schema, connection);
+            };
+            try {
+                const app = await createApp({
+                    defaults: false,
+                    plugins: [
+                        client(f.game, {
+                            url: f.url.replace(String(f.host.port), String(proxy.port)),
+                            onError: (error) => errors.push(error),
+                            retryAfter(_delay, retry) {
+                                retries.push(retry);
+                                return () => {};
+                            },
+                        }),
+                    ],
+                });
+                try {
+                    const eid = f.eid;
+                    const target = server.peers.get(eid)!;
+                    await until(() => {
+                        app.world.step(1 / 60);
+                        receiver?.flush();
+                        return !!receiver?.entities.has(eid);
+                    }, "target did not receive its image after the resume grant");
+                    if (closure === "kick") {
+                        proxy.controls.resetPeer();
+                        await until(
+                            () => retries.length === 1 && !!target.held,
+                            "drop did not hold the seat",
+                        );
+                        retries.shift()!();
+                        await until(() => !target.held, "dropped seat did not resume");
+                        expect(server.entity(target.clientId)).toBe(eid);
+                        expect(errors).toEqual([]);
+                    }
+                    const code = closure === "replace" ? 4999 : 4003;
+                    const reason =
+                        closure === "replace"
+                            ? "Replaced by another session — signed in elsewhere"
+                            : "Kicked from room";
+                    if (closure === "replace") server.disconnect(target.clientId, code, reason);
+                    else {
+                        const moderation = f.world.resource(RoomModeration).controller!;
+                        expect(moderation.kick(server.leader!, target.clientId)).toBe(true);
+                    }
+                    await until(() => errors.length === 1, "final close did not reach onError");
+                    expect(errors[0]).toMatchObject({ code, reason });
+                    expect(retries).toEqual([]);
+                    expect(server.entity(target.clientId)).toBeUndefined();
+                } finally {
+                    app.dispose();
+                }
+            } finally {
+                proxy.stop();
+            }
+        }
+        expect(f.joined).toHaveLength(3);
+        expect(f.left).toEqual([42, 42]);
+    } finally {
+        leader.socket.close();
         f.host.stop();
     }
 });

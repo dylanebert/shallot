@@ -32,7 +32,7 @@ import { type Connection, type LinkFaults, MAX_MESSAGE_BYTES, seededLink } from 
 import { type RecordingOptions, SessionRecorder, type SessionRecording } from "./recording";
 import { createServerApp, roomHost } from "./room-host";
 import { encodeServerMessage, type ServerMessage } from "./server-message";
-import { LEAVE_CLOSE_CODE, WebSocketConnection } from "./websocket";
+import { isApplicationClose, LEAVE_CLOSE_CODE, WebSocketConnection } from "./websocket";
 
 /** A live server-side connection entity. Its transport and histories live outside ECS storage. */
 export const ClientOf = component("ClientOf", {});
@@ -253,8 +253,13 @@ class GameServer {
         }
     }
     /** Idempotent. Explicit leave runs onLeave before despawning; transport closure and history
-     * release still run if the hook throws. */
-    disconnect(clientId: ClientId): void {
+     * release still run if the hook throws. An application code (4000–4999) marks a final
+     * close, revoking resume. The public reason must fit in 123 UTF-8 bytes. */
+    disconnect(clientId: ClientId, code?: number, reason?: string): void {
+        if (code !== undefined && !isApplicationClose(code))
+            throw new RangeError("Expected an application close code (4000–4999).");
+        if (reason !== undefined && new TextEncoder().encode(reason).length > 123)
+            throw new RangeError("Close reason exceeds 123 UTF-8 bytes.");
         const eid = this.entity(clientId);
         if (eid === undefined) return;
         const peer = this._peers.get(eid)!;
@@ -276,8 +281,11 @@ class GameServer {
             }
             this.game.onLeave?.(this.world, eid, peer.clientId, peer.playerId);
         } finally {
-            peer.connection.close();
-            this.world.destroy(eid);
+            try {
+                peer.connection.close(code, reason);
+            } finally {
+                this.world.destroy(eid);
+            }
         }
     }
     /** Sends once on each target's live stream, in call order on reliable ordered transports.
@@ -431,14 +439,16 @@ export function clientStartup(game: Game, connection: (world: World) => Connecti
 
 /** Connects a caller-owned client app. Initialization awaits the socket; disposal closes it.
  * An admitted reconnectable seat retries on close, from 50 ms up to 1 second between attempts.
- * Initial failure, a refused token, or an undecodable replication packet reaches onError. */
+ * Application closes are final. Initial failure, a refused token, or an undecodable
+ * replication packet also reaches onError. */
 export function client(
     game: Game,
     options: {
         url: string;
         /** Sent only on the initial upgrade. Use WSS and omit credentials from access logs. */
         credential?: string;
-        onError?: (error: Error) => void;
+        /** A WebSocket close with a received status carries its original code and reason. */
+        onError?: (error: Error & { code?: number; reason?: string }) => void;
         /** Receives the server-selected room code on admission to serveRooms. */
         onRoom?: (code: string) => void;
         recording?: RecordingOptions;
@@ -483,8 +493,11 @@ export function client(
             const refusal = (code: number, reason: string) =>
                 code === 1006
                     ? failure()
-                    : new Error(
-                          `${endpoint} closed the connection (${code}${reason ? `: ${reason}` : ""}).`,
+                    : Object.assign(
+                          new Error(
+                              `${endpoint} closed the connection (${code}${reason ? `: ${reason}` : ""}).`,
+                          ),
+                          { code, reason },
                       );
             const schedule =
                 options.retryAfter ??
@@ -495,7 +508,8 @@ export function client(
             function attach(socket: WebSocket) {
                 socket.addEventListener("close", ({ code, reason }) => {
                     if (disposed || world.signal.aborted) return;
-                    if (!token || code === 1008) {
+                    // A policy violation also ends retries, including a refused resume.
+                    if (!token || isApplicationClose(code) || code === 1008) {
                         failed = true;
                         options.onError?.(refusal(code, reason));
                         return;

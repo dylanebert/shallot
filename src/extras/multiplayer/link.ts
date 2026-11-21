@@ -13,8 +13,9 @@ export interface Connection {
     /** Changes when a replacement stream starts, before any of its bytes are delivered. */
     readonly generation?: number;
     /** Idempotent, non-throwing release: close the transport, discard queued bytes and refuse
-     * future delivery. Closing either end of a seeded link closes both ends. */
-    close(): void;
+     * future delivery. WebSocket transports carry valid close codes and reasons to the peer.
+     * Closing either end of a seeded link closes both ends. */
+    close(code?: number, reason?: string): void;
     /** Reports a terminal protocol error after the receiver closes this connection. */
     onError?(error: Error): void;
     send(bytes: Uint8Array): void;
