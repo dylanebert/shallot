@@ -986,12 +986,23 @@ try{const deadline=Date.now()+10000;for(;;){try{assertFlySocketsClosed(observati
                     }),
                 );
                 const idle = performance.now();
+                // Fly does not promise an idle interval; leave room for another stop loop
+                // beyond the slowest observed stop (406.8 seconds).
+                const idleLimitMinutes = 12;
                 let idleMachine = machine(personal);
                 while (idleMachine.state !== "stopped") {
-                    if (performance.now() - idle > 7 * 60_000) {
+                    if (performance.now() - idle > idleLimitMinutes * 60_000) {
+                        const lastObservedSocketClosedAt = Math.max(
+                            ...socketObservations
+                                .filter((row) => row.kind === "socket-closed")
+                                .map((row) => row.at),
+                        );
+                        const msSinceLastObservedSocketClose =
+                            Date.now() - lastObservedSocketClosedAt;
                         for (const args of [
-                            ["logs", "--app", name, "--no-tail"],
+                            // Machine status includes Fly's event log.
                             ["machine", "status", idleMachine.id, "--app", name],
+                            ["logs", "--app", name, "--no-tail"],
                             ["machine", "list", "--app", name, "--json"],
                         ]) {
                             try {
@@ -1009,7 +1020,7 @@ try{const deadline=Date.now()+10000;for(;;){try{assertFlySocketsClosed(observati
                             }
                         }
                         throw new Error(
-                            `Fly did not auto-stop within seven minutes: ${JSON.stringify({ state: idleMachine.state, services: idleMachine.config.services })}`,
+                            `Fly did not auto-stop within ${idleLimitMinutes} minutes: ${JSON.stringify({ state: idleMachine.state, services: idleMachine.config.services, msSinceLastObservedSocketClose })}`,
                         );
                     }
                     await Bun.sleep(5000);
