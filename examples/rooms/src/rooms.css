@@ -108,8 +108,7 @@
 .ec .vacant > button { width: 100%; background: #2a2420; }
 .ec button:enabled { cursor: pointer; }
 .ec button:disabled, .ec input:disabled { background: #1c1917; color: #a08c78; }
-.ec :where(.slot-actions) button { justify-content: flex-start; background: transparent; border: 0; border-radius: 0; }
-.ec :where(.slot-actions) button:hover:not(:disabled) { background: #3c322c; }
+.ec .slot-actions button { justify-content: flex-start; }
 .ec button:hover:not(:disabled), .ec input:hover:not(:disabled) { border-color: #a08c78; }
 .ec button:active:not(:disabled), .ec input:active:not(:disabled) { background: #2a2420; }
 .ec button[aria-pressed='true'], .ec .row > button[aria-expanded='true'],

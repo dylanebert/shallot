@@ -32,6 +32,23 @@ const raised = "rgb(60, 50, 44)";
 const line = "rgb(42, 36, 32)";
 const muted = "rgb(160, 140, 120)";
 
+async function expectRaisedRow(page: Page, row: Locator, phone: boolean) {
+    await page.mouse.move(0, 0);
+    const bounds = await box(row);
+    await expect(row).toHaveCSS("background-color", raised);
+    if (!phone) {
+        await row.hover();
+        await expect(row).toHaveCSS("border-top", `1px solid ${muted}`);
+        expect(await box(row)).toEqual(bounds);
+        await page.mouse.down();
+        await expect(row).toHaveCSS("background-color", line);
+        expect(await box(row)).toEqual(bounds);
+        // Release beside the row without clicking it or dismissing its menu.
+        await page.mouse.move(bounds.x - 1, bounds.y + bounds.height / 2);
+        await page.mouse.up();
+    }
+}
+
 async function capture(page: Page, name: string) {
     const directory = process.env.SHALLOT_CONTROLS_CAPTURE_DIR;
     if (!directory) return;
@@ -220,18 +237,8 @@ for (const phone of [false, true]) {
             await expect(action(page, "Jump")).toBeHidden();
             await expectEntryRoute(page);
             if (!phone) await expectProfilerToggle(page, frames.run);
-            await expect(create).toHaveCSS("background-color", raised);
-            if (!phone) {
-                const trigger = await box(create);
-                await create.hover();
-                await expect(create).toHaveAttribute("title", "Only people with the code can join");
-                await expect(create).toHaveCSS("border-top-color", muted);
-                await page.mouse.down();
-                await expect(create).toHaveCSS("background-color", line);
-                expect(await box(create)).toEqual(trigger);
-                await page.mouse.move(0, 0);
-                await page.mouse.up();
-            }
+            await expect(create).toHaveAttribute("title", "Only people with the code can join");
+            await expectRaisedRow(page, create, phone);
             await noFocus(page);
             await page.keyboard.press("Tab");
             await noFocus(page);
@@ -434,9 +441,9 @@ for (const phone of [false, true]) {
                 await leaderFrames.run(3);
                 await use(plus(page, 3));
                 await expectSeatPopup(page, 3);
-                await expect(
-                    page.getByRole("group", { name: "Seat 3 actions" }).getByRole("button"),
-                ).toHaveText(["Add bot", "Copy code"]);
+                const rows = page.locator("#seat-3-actions button");
+                await expect(rows).toHaveText(["Add bot", "Copy code"]);
+                for (const row of await rows.all()) await expectRaisedRow(page, row, phone);
                 await expectBotClear(page);
                 await capture(page, `server-${size}`);
                 await page.keyboard.press("Escape");

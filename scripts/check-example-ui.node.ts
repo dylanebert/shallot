@@ -882,7 +882,6 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
             if (
                 background &&
                 v === "transparent" &&
-                s !== ".ec :where(.slot-actions) button" &&
                 /button|select|checkbox|controls|section-title/.test(s)
             )
                 fail("state role");
@@ -1618,16 +1617,13 @@ test("seat popups use flush rows and share the expanded trigger's border", () =>
     const panel = ".ec .slot-actions { background: #1c1917; }";
     const trigger = ".ec .row > button[aria-expanded='true']";
     const border = `${trigger}, ${trigger} + .slot-actions { border-color: #d49560; }`;
-    const rows = ".ec :where(.slot-actions) button { background: transparent; }";
-    expect(controlViolations({ sheets: [controlFixture, panel, border, rows], lists: [] })).toEqual(
-        [],
-    );
+    expect(controlViolations({ sheets: [controlFixture, panel, border], lists: [] })).toEqual([]);
     for (const rule of [
         panel.replace("background", "padding: 8px; background"),
         panel.replace("#1c1917", "#3c322c"),
         border.replaceAll("true", "false"),
         border.replaceAll("row", "ordinary"),
-        rows.replace("slot-actions", "ordinary"),
+        ".ec .slot-actions button { background: transparent; }",
     ])
         expect(controlViolations({ sheets: [controlFixture, rule], lists: [] })).not.toEqual([]);
 });
