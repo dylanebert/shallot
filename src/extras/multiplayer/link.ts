@@ -1,5 +1,9 @@
 import { stampReceipt, transportClock } from "./diagnostics";
 
+/** Largest message a client sends, in bytes: Colyseus's Bun transport default, which
+ * serveGame and serveRooms refuse beyond. */
+export const MAX_MESSAGE_BYTES = 4 * 1024;
+
 /** A byte transport. Admission transfers its lifetime to the server connection entity. */
 export interface Connection {
     /** URL supplying received bytes; wrappers preserve it, in-process and replayed links omit it. */

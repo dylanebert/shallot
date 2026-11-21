@@ -23,7 +23,7 @@ export {
     type ThinClient,
 } from "./game";
 export { ClientInterpolation, InterpolationPlugin, InterpolationTarget } from "./interpolation";
-export { type Connection, type LinkFaults, seededLink } from "./link";
+export { type Connection, type LinkFaults, MAX_MESSAGE_BYTES, seededLink } from "./link";
 export {
     ClientPrediction,
     contactOutputKey,
@@ -543,6 +543,8 @@ export class ReplicationReceiver {
     private _versions = new Map<number, ReplicatedRows>();
     private _pending = new Map<number, Uint8Array>();
     private _newest = -1;
+    private _ackTick: number;
+    private readonly _start: number;
     private _generation?: number;
     readonly world: World;
     readonly schema: ReplicationSchema;
@@ -578,12 +580,15 @@ export class ReplicationReceiver {
         this.connection = connection;
         this.confirm = confirm;
         this.reconcile = reconcile;
+        this._start = this._ackTick = world.time.fixedTick;
         world.resource(PredictionRecording).receiver?.(this);
     }
     /** Applies confirmations and returns other message kinds for application routing.
      * "latest" reconciles once, passing preceding ordered states to that callback. It must
      * deliver their intents and apply each before the latest state. Every applied state
-     * still notifies confirm, so only recovery/replay work is coalesced, not observations. */
+     * still notifies confirm, so only recovery/replay work is coalesced, not observations.
+     * Acknowledges once per fixed tick of its World, or, while that World has not ticked, once
+     * per drain that received a replication packet; never per call. */
     flush(confirmations: "all" | "latest" = "all"): Uint8Array[] {
         const generation = this.connection.generation;
         if (this._generation !== generation) {
@@ -599,6 +604,7 @@ export class ReplicationReceiver {
         let latest: ReturnType<typeof decode> | undefined;
         let latestTick = -1;
         const preceding: ReplicationConfirmation[] = [];
+        let arrived = false;
         for (const bytes of this.connection.receive()) {
             const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
             const kind = bytes.length >= 4 ? view.getUint32(0, true) : 0;
@@ -607,6 +613,7 @@ export class ReplicationReceiver {
                 continue;
             }
             if (bytes.length < 24) throw new Error("Truncated replication packet");
+            arrived = true;
             const tick = view.getUint32(8, true);
             this._newest = Math.max(this._newest, tick);
             if (tick <= this.confirmed) continue;
@@ -668,7 +675,12 @@ export class ReplicationReceiver {
                 tick: this.confirmed,
                 endpoint: this.connection.endpoint,
             });
-        if (this.confirmed >= 0) {
+        // A ticking World acknowledges once per fixed tick, even with nothing new, which
+        // repairs a lost acknowledgement while the server is idle; one that never ticks
+        // acknowledges each drain that received replication.
+        const tick = this.world.time.fixedTick;
+        if (this.confirmed >= 0 && (tick !== this._ackTick || (arrived && tick === this._start))) {
+            this._ackTick = tick;
             let held = 0;
             for (const tick of this._pending.keys()) {
                 const offset = tick - this.confirmed - 1;

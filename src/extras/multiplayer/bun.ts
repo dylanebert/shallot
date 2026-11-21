@@ -2,19 +2,19 @@ import type { ServerWebSocket } from "bun";
 import { type App, Time } from "../../engine";
 import { stampReceipt } from "./diagnostics";
 import { type Game, isClientMessage } from "./game";
-import type { Connection } from "./link";
+import { type Connection, MAX_MESSAGE_BYTES } from "./link";
 import { type RecordingOptions, SessionRecorder } from "./recording";
 import { createServerApp, ROOM_CODE_CLAIM_MS, roomHost } from "./room-host";
 import { LEAVE_CLOSE_CODE } from "./websocket";
 
-// Colyseus's Bun transport default. Bun refuses a longer frame with 1009 before buffering it.
-const MaxFrame = 4 * 1024;
 // Paper's default packet limiter: 500 messages a second averaged over 7 seconds. A stall's
 // backlog arrives at once, so the window, not the rate, decides which stalls survive.
 const IngressRate = 500 / 1000;
 const IngressBurst = 500 * 7;
-// Bytes held between drains; without it a full burst of maximum frames holds 14 MiB.
-const MaxQueued = 64 * MaxFrame;
+// Bytes held between drains; without it a full burst of maximum frames holds 14 MiB. Client
+// acknowledgements are cumulative and operations resend until resolved, so dropping the oldest
+// costs at most stale input ticks and ping samples, and a client the server stalled stays open.
+const MaxQueued = 64 * MAX_MESSAGE_BYTES;
 
 type SocketData = { url: URL } | ServerWebSocketConnection | undefined;
 
@@ -64,7 +64,8 @@ export class ServerWebSocketConnection implements Connection {
     }
 
     /** @internal Copies and queues a binary frame, or closes the connection: 1003 for text,
-     * 1008 past the ingress budget or queue, 1002 when validate refuses it. */
+     * 1008 past the ingress budget, 1002 when validate refuses it. Past the queue bound the
+     * oldest queued messages are dropped. */
     push(bytes: Uint8Array | string, validate?: (bytes: Uint8Array) => boolean): void {
         if (this.closed) return;
         if (typeof bytes === "string") {
@@ -74,7 +75,7 @@ export class ServerWebSocketConnection implements Connection {
         const now = performance.now();
         this._budget = Math.min(IngressBurst, this._budget + (now - this._receipt) * IngressRate);
         this._receipt = now;
-        if (this._budget < 1 || this._queued + bytes.length > MaxQueued) {
+        if (this._budget < 1) {
             this._end(1008, "Ingress budget exceeded");
             return;
         }
@@ -84,6 +85,9 @@ export class ServerWebSocketConnection implements Connection {
             return;
         }
         this._queued += bytes.length;
+        let dropped = 0;
+        while (this._queued > MaxQueued) this._queued -= this._messages[dropped++]!.length;
+        if (dropped) this._messages.splice(0, dropped);
         this._messages.push(stampReceipt(bytes.slice(), now));
     }
 }
@@ -91,8 +95,8 @@ export class ServerWebSocketConnection implements Connection {
 /** Self-hosted binary endpoint. Every upgrade gets a distinct connection; callbacks run once
  * at open and close. Authentication and routing belong in the application/reverse proxy.
  * Each connection may send 500 messages a second averaged over 7 seconds, in binary frames of
- * at most 4 KiB, with at most 256 KiB queued between receive calls; validate refuses a message
- * before it is queued. Each refusal closes only that connection. */
+ * at most MAX_MESSAGE_BYTES; past 256 KiB queued between receive calls the oldest are dropped.
+ * validate refuses a message before it is queued. Each refusal closes only that connection. */
 export function serveWebSocket(options: {
     hostname?: string;
     port: number;
@@ -112,7 +116,8 @@ export function serveWebSocket(options: {
             );
         },
         websocket: {
-            maxPayloadLength: MaxFrame,
+            // Bun refuses a longer frame with 1009 before buffering it.
+            maxPayloadLength: MAX_MESSAGE_BYTES,
             open(socket) {
                 const data = socket.data;
                 const connection = new ServerWebSocketConnection(socket);

@@ -4,8 +4,8 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 setDefaultTimeout(TIMEOUT.node);
 
 import { World } from "../../engine";
-import { IntentMessageKind, ReplicationReceiver, WebSocketConnection } from ".";
-import { serveRooms } from "./bun";
+import { IntentMessageKind, MAX_MESSAGE_BYTES, ReplicationReceiver, WebSocketConnection } from ".";
+import { ServerWebSocketConnection, serveRooms } from "./bun";
 import type { Game } from "./game";
 import { encodeInputs, encodeIntent } from "./intent";
 
@@ -45,12 +45,7 @@ const malformed = [
     words(7, 1, 0),
     words(99, 0),
 ];
-// Four ticks of 126 lanes: a valid 4072-byte packet, under the frame cap.
-const largest = encodeInputs(
-    [0, 1, 2, 3].map((tick) => ({ tick, values: Array<number>(126).fill(tick) })),
-);
-
-test("invalid, oversized and excess client frames close only their own connection while peers in two rooms keep confirming", async () => {
+test("invalid, oversized and excessive client frames close only their own connection while peers in two rooms keep confirming", async () => {
     const host = serveRooms(game, { hostname: "127.0.0.1", port: 0 });
     const base = `ws://127.0.0.1:${host.port}/?intent=`;
     const reserve = async () => {
@@ -98,9 +93,6 @@ test("invalid, oversized and excess client frames close only their own connectio
         await attack(room, 1008, (socket) => {
             for (let id = 0; id < 4000; id++) socket.send(words(6, id));
         });
-        await attack(room, 1008, (socket) => {
-            for (let i = 0; i < 200; i++) socket.send(largest.slice());
-        });
         await confirming();
     } finally {
         running = false;
@@ -108,4 +100,20 @@ test("invalid, oversized and excess client frames close only their own connectio
         for (const peer of peers) peer.socket.close();
         host.stop();
     }
+});
+
+test("past the queue bound a connection drops its oldest messages and stays open", () => {
+    const socket = { readyState: 1, close() {}, sendBinary: () => 1 };
+    const connection = new ServerWebSocketConnection(socket as never);
+    const frame = new Uint8Array(MAX_MESSAGE_BYTES);
+    for (let i = 0; i < 100; i++) {
+        new DataView(frame.buffer).setUint32(0, i, true);
+        connection.push(frame);
+    }
+    const queued = connection.receive();
+    expect(connection.closed).toBe(false);
+    expect(queued.reduce((sum, bytes) => sum + bytes.length, 0)).toBeLessThanOrEqual(256 * 1024);
+    expect(queued.map((bytes) => new DataView(bytes.buffer).getUint32(0, true))).toEqual(
+        Array.from({ length: 64 }, (_, i) => 36 + i),
+    );
 });

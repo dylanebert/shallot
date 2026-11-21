@@ -130,7 +130,7 @@ test("each applied frame equals the server's replicated state through loss, retr
     let stale: Uint8Array | undefined;
     const sendAck = link.b.send.bind(link.b);
     link.b.send = (bytes) => {
-        if (clock === 30) stale = bytes.slice();
+        if (clock >= 30 && !stale) stale = bytes.slice();
         sendAck(bytes);
     };
     const receive = link.a.receive.bind(link.a);

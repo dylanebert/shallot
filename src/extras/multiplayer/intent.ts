@@ -1,4 +1,4 @@
-import type { Connection } from "./link";
+import { type Connection, MAX_MESSAGE_BYTES } from "./link";
 
 /** Records and Accepted carry kind, count and cumulative resolved-ID watermark as u32s.
  * Records carry operations and a zero watermark. Inputs carry kind and tick count only. */
@@ -288,21 +288,28 @@ export class IntentReceiver {
     }
 }
 
-/** Unresolved operations repeat on every flush. Acceptance removes their IDs;
- * the cumulative watermark also removes refused operations. Inputs instead repeat
- * the last four ticks in one packet on the first flush after a new sample. */
+/** A new operation goes on the next flush; unresolved ones repeat once per tick, oldest first
+ * in one packet of at most MAX_MESSAGE_BYTES, the rest on later ticks.
+ * Acceptance removes their IDs; the cumulative watermark also removes refused operations.
+ * Inputs instead repeat the newest of the last four ticks that fit in one packet on the first
+ * flush after a new sample. Flushing more than once per tick adds only the first send of each
+ * new operation. */
 export class IntentSender {
     readonly records = new Map<number, OperationRecord>();
     /** Last four sampled ticks, independent of round trip and acceptance. */
     readonly inputs = new Map<number, TickInput>();
     private _inputDirty = false;
     private _latestInput = -1;
+    private _tick = -1;
+    private _recordsSent = -1;
+    private _unsent = false;
     private _next = 1;
     readonly connection: Connection;
     constructor(connection: Connection) {
         this.connection = connection;
     }
-    /** Copies values. A repeated input tick replaces its sample; decreasing ticks throw.
+    /** Copies values. A repeated input tick replaces its sample; decreasing ticks throw, and so
+     * does a record that cannot fit in a packet of MAX_MESSAGE_BYTES on its own.
      * Flush after sampling. Each tick sends at most one input packet; replacements before
      * that flush are included. Inputs never enter the operation ID log. */
     record(tick: number, kind: "input", values: number[]): InputRecord;
@@ -310,6 +317,9 @@ export class IntentSender {
     record(tick: number, kind: IntentRecord["kind"], values: number[]): IntentRecord {
         if (!Number.isInteger(tick) || tick < 0 || tick >= 0xffffffff)
             throw new Error("Invalid intent tick");
+        if ((kind === "input" ? 16 : 36) + values.length * 8 > MAX_MESSAGE_BYTES)
+            throw new Error(`Intent values exceed a ${MAX_MESSAGE_BYTES}-byte message`);
+        this._tick = tick;
         if (kind === "input") {
             if (tick < this._latestInput) throw new Error("Input ticks must not decrease");
             if (tick > this._latestInput) this._inputDirty = true;
@@ -320,12 +330,15 @@ export class IntentSender {
             return input;
         }
         if (this._next >= 0xffffffff) throw new Error("Operation IDs exhausted");
+        this._unsent = true;
         const record = { id: this._next++, tick, kind, values: values.slice() };
         this.records.set(record.id, record);
         return record;
     }
-    /** Route messages returned by ReplicationReceiver.flush here; resolved records stop repeating. */
-    flush(messages: readonly Uint8Array[] = []): Uint8Array[] {
+    /** Route messages returned by ReplicationReceiver.flush here; resolved records stop repeating.
+     * now is the resend clock in ticks, by default the latest recorded tick; a caller that keeps
+     * flushing after it stops recording passes its tick. */
+    flush(messages: readonly Uint8Array[] = [], now = this._tick): Uint8Array[] {
         const unhandled: Uint8Array[] = [];
         for (const bytes of messages) {
             if (
@@ -343,13 +356,24 @@ export class IntentSender {
             for (const id of this.records.keys()) if (id <= watermark) this.records.delete(id);
         }
         if (this._inputDirty) {
-            this.connection.send(encodeInputs([...this.inputs.values()]));
+            const inputs = [...this.inputs.values()];
+            let size = 8 + inputs.reduce((sum, input) => sum + 8 + input.values.length * 8, 0);
+            while (size > MAX_MESSAGE_BYTES) size -= 8 + inputs.shift()!.values.length * 8;
+            this.connection.send(encodeInputs(inputs));
             this._inputDirty = false;
         }
-        if (this.records.size)
-            this.connection.send(
-                encodeIntent(IntentMessageKind.Records, [...this.records.values()]),
-            );
+        if (this.records.size && (this._unsent || now !== this._recordsSent)) {
+            const records: OperationRecord[] = [];
+            let size = 12;
+            for (const record of this.records.values()) {
+                size += 24 + record.values.length * 8;
+                if (size > MAX_MESSAGE_BYTES) break;
+                records.push(record);
+            }
+            this.connection.send(encodeIntent(IntentMessageKind.Records, records));
+            this._recordsSent = now;
+            this._unsent = false;
+        }
         return unhandled;
     }
 }

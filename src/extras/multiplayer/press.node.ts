@@ -46,7 +46,7 @@ test("a press whose first message is dropped survives as one accepted operation 
         receiver.receive(link.a.receive(), 61);
         expect(receiver.records.size).toBe(0);
         world.tick();
-        sender.flush();
+        sender.flush([], 62);
         receiver.receive(link.a.receive(), 62);
         sender.flush(link.b.receive());
         const accepted = [...receiver.records.values()];
