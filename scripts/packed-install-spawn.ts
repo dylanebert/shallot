@@ -51,7 +51,7 @@ export function packedInstall(args: string[], cwd: string, label: string): strin
     const lock = Bun.JSONC.parse(readFileSync(join(import.meta.dir, "../bun.lock"), "utf8")) as {
         lockfileVersion: number;
         workspaces: Record<string, unknown>;
-        packages: Record<string, unknown>;
+        packages: Record<string, unknown[]>;
     };
     if (lock.lockfileVersion !== 1) {
         throw new Error(`unsupported Bun lockfileVersion ${lock.lockfileVersion}`);
@@ -105,7 +105,30 @@ export function packedInstall(args: string[], cwd: string, label: string): strin
         metadata,
         `sha512-${createHash("sha512").update(bytes).digest("base64")}`,
     ];
-    writeFileSync(join(cwd, "bun.lock"), `${JSON.stringify(lock, null, 2)}\n`);
+    const lockPath = join(cwd, "bun.lock");
+    writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`);
+    // Bun prunes and re-hoists the checkout graph for this smaller workspace before it can be frozen.
+    spawnPackedInstall(
+        {
+            cmd: [
+                "bun",
+                "install",
+                "--offline",
+                "--lockfile-only",
+                "--ignore-scripts",
+                ...args.slice(1),
+            ],
+        },
+        cwd,
+        `${label}: project the checkout lockfile`,
+    );
+    const identity = (entry: unknown[]) => JSON.stringify([entry[0], entry.at(-1)]);
+    const pinned = new Set(Object.values(lock.packages).map(identity));
+    const projected = Bun.JSONC.parse(readFileSync(lockPath, "utf8")) as typeof lock;
+    for (const entry of Object.values(projected.packages)) {
+        if (!pinned.has(identity(entry)))
+            throw new Error(`${label}: ${entry[0]} was not pinned by the checkout lockfile`);
+    }
     const output = spawnPackedInstall(
         // Lifecycle scripts re-enter Bun by executable path, without inheriting argv0.
         // A copy named node.exe interprets Bun's internal `exec` command as a script.
