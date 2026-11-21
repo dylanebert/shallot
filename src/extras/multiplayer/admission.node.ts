@@ -1,4 +1,8 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
+
+setDefaultTimeout(TIMEOUT.node);
+
 import { type App, createApp, type World } from "../../engine";
 import { type ClientId, client, type Game, type PlayerId, ServerSession } from ".";
 import { serveRooms } from "./bun";
