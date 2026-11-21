@@ -155,9 +155,9 @@ class NetworkDiagnostics {
             this._pending = undefined;
             return messages;
         };
-        connection.close = () => {
+        connection.close = (code, reason) => {
             try {
-                this._close();
+                this._close(code, reason);
             } finally {
                 this.remove();
             }

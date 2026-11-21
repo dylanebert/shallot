@@ -40,7 +40,6 @@ export class ServerWebSocketConnection implements Connection {
         this._end(code, reason);
     }
 
-    // Refusals bypass close, which session wrappers replace without forwarding its code.
     private _end(code?: number, reason?: string): void {
         if (this._closed) return;
         this._closed = true;
