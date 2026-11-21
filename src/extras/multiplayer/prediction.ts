@@ -140,7 +140,8 @@ export class ClientPrediction {
     readonly inputs = new Map<number, InputRecord>();
     readonly outputs = new FixedOutputs();
     /** Samples each original predicted fixed tick before gameplay, never during replay.
-     * Return that tick's input; replay uses the retained copy. */
+     * Return that tick's input; replay uses the retained copy. IntentSender.record throws for an
+     * input of more than 510 values, and the throw leaves the tick. */
     sampleInput: (tick: number) => InputRecord | undefined = () => undefined;
     /** Routes non-replication packets drained at preFixed, for example to IntentSender.flush. */
     onMessages: (messages: Uint8Array[]) => void = () => {};

@@ -1,4 +1,8 @@
+import { Time } from "../../engine";
+import { transportClock } from "./diagnostics";
 import { type Connection, MAX_MESSAGE_BYTES } from "./link";
+
+type TimedConnection = Connection & { [transportClock]?: () => number };
 
 /** Records and Accepted carry kind, count and cumulative resolved-ID watermark as u32s.
  * Records carry operations and a zero watermark. Inputs carry kind and tick count only. */
@@ -288,12 +292,14 @@ export class IntentReceiver {
     }
 }
 
-/** A new operation goes on the next flush; unresolved ones repeat once per tick, oldest first
- * in one packet of at most MAX_MESSAGE_BYTES, the rest on later ticks.
+/** Unresolved operations, new ones included, go in one packet of at most MAX_MESSAGE_BYTES,
+ * oldest first, the rest in later packets. A packet goes on the first flush after flush's now
+ * changes or, failing that, one fixed step of the transport clock (performance.now unless the
+ * connection supplies one) after the last packet: recording or flushing more often sends no
+ * more, and resending never waits on the caller.
  * Acceptance removes their IDs; the cumulative watermark also removes refused operations.
  * Inputs instead repeat the newest of the last four ticks that fit in one packet on the first
- * flush after a new sample. Flushing more than once per tick adds only the first send of each
- * new operation. */
+ * flush after a new sample. */
 export class IntentSender {
     readonly records = new Map<number, OperationRecord>();
     /** Last four sampled ticks, independent of round trip and acceptance. */
@@ -301,15 +307,18 @@ export class IntentSender {
     private _inputDirty = false;
     private _latestInput = -1;
     private _tick = -1;
-    private _recordsSent = -1;
-    private _unsent = false;
+    private _recordsTick = -1;
+    private _recordsAt = -Infinity;
+    private readonly _clock: () => number;
     private _next = 1;
     readonly connection: Connection;
     constructor(connection: Connection) {
         this.connection = connection;
+        this._clock = (connection as TimedConnection)[transportClock] ?? (() => performance.now());
     }
-    /** Copies values. A repeated input tick replaces its sample; decreasing ticks throw, and so
-     * does a record that cannot fit in a packet of MAX_MESSAGE_BYTES on its own.
+    /** Copies values. A repeated input tick replaces its sample; decreasing ticks throw. A record
+     * that cannot fit one MAX_MESSAGE_BYTES packet alone, an input of more than 510 values or an
+     * operation of more than 507, is a programming error and throws.
      * Flush after sampling. Each tick sends at most one input packet; replacements before
      * that flush are included. Inputs never enter the operation ID log. */
     record(tick: number, kind: "input", values: number[]): InputRecord;
@@ -330,14 +339,12 @@ export class IntentSender {
             return input;
         }
         if (this._next >= 0xffffffff) throw new Error("Operation IDs exhausted");
-        this._unsent = true;
         const record = { id: this._next++, tick, kind, values: values.slice() };
         this.records.set(record.id, record);
         return record;
     }
     /** Route messages returned by ReplicationReceiver.flush here; resolved records stop repeating.
-     * now is the resend clock in ticks, by default the latest recorded tick; a caller that keeps
-     * flushing after it stops recording passes its tick. */
+     * now is the caller's tick, by default the latest recorded one. */
     flush(messages: readonly Uint8Array[] = [], now = this._tick): Uint8Array[] {
         const unhandled: Uint8Array[] = [];
         for (const bytes of messages) {
@@ -362,7 +369,11 @@ export class IntentSender {
             this.connection.send(encodeInputs(inputs));
             this._inputDirty = false;
         }
-        if (this.records.size && (this._unsent || now !== this._recordsSent)) {
+        const time = this._clock();
+        if (
+            this.records.size &&
+            (now !== this._recordsTick || time - this._recordsAt >= Time.FIXED_DT * 1000)
+        ) {
             const records: OperationRecord[] = [];
             let size = 12;
             for (const record of this.records.values()) {
@@ -371,8 +382,8 @@ export class IntentSender {
                 records.push(record);
             }
             this.connection.send(encodeIntent(IntentMessageKind.Records, records));
-            this._recordsSent = now;
-            this._unsent = false;
+            this._recordsTick = now;
+            this._recordsAt = time;
         }
         return unhandled;
     }

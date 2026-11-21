@@ -86,3 +86,51 @@ test("a pending batch over the message cap goes oldest first in packets within i
     }
     expect(ids).toEqual(Array.from({ length: 100 }, (_, i) => i + 1));
 });
+
+function counting() {
+    const link = seededLink(1, faults);
+    const sent: number[][] = [];
+    let drop = 0;
+    const send = link.b.send.bind(link.b);
+    link.b.send = (bytes) => {
+        if (new DataView(bytes.buffer, bytes.byteOffset).getUint32(0, true) !== 4)
+            return send(bytes);
+        if (drop > 0) {
+            drop--;
+            return;
+        }
+        sent.push(decodeIntent(bytes).map((record) => record.id));
+        send(bytes);
+    };
+    return { link, sent, dropNext: () => drop++, intent: new IntentSender(link.b) };
+}
+
+test("many operations recorded and flushed in one tick send one packet, and the next tick's carries them all", () => {
+    const { sent, intent } = counting();
+    for (let i = 0; i < 20; i++) {
+        intent.record(5, "operation", [i]);
+        intent.flush();
+    }
+    expect(sent).toEqual([[1]]);
+    intent.record(6, "input", [0]);
+    intent.flush();
+    intent.flush();
+    expect(sent).toEqual([[1], Array.from({ length: 20 }, (_, i) => i + 1)]);
+});
+
+test("a dropped operation packet is resent each fixed step of transport time while the caller's tick never moves", () => {
+    const { link, sent, dropNext, intent } = counting();
+    intent.record(5, "operation", [1]);
+    dropNext();
+    intent.flush();
+    for (let ms = 1; ms < 16; ms++) {
+        link.advance(ms);
+        intent.flush();
+    }
+    expect(sent).toEqual([]);
+    for (let ms = 17; ms <= 50; ms++) {
+        link.advance(ms);
+        intent.flush();
+    }
+    expect(sent).toEqual([[1], [1]]);
+});

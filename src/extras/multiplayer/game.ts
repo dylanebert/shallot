@@ -450,6 +450,8 @@ export interface ThinClient {
     seed: number;
     /** Server-side admission before onJoin; may set game-owned seat data or refuse admission. */
     admit?(world: World, eid: number): boolean;
+    /** IntentSender.record throws for an input of more than 510 values or an operation of more
+     * than 507, and the throw leaves the room's tick. */
     input(world: World, sender: IntentSender, tick: number): void;
 }
 
