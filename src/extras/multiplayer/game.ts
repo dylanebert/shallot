@@ -9,13 +9,17 @@ import {
 } from "../../engine";
 import {
     MultiplayerPlugin,
+    ReplicationMessageKind,
     type ReplicationRules,
     type ReplicationSchema,
     ReplicationSender,
 } from ".";
-import { observeNetwork, transportClock } from "./diagnostics";
+import { diagnosticKind, observeNetwork, transportClock } from "./diagnostics";
 import {
+    decodeInputs,
+    decodeIntent,
     type InputRecord,
+    IntentMessageKind,
     IntentReceiver,
     type IntentRecord,
     type IntentSender,
@@ -246,6 +250,23 @@ class GameServer {
             );
             peer.sender.flush();
         }
+    }
+}
+
+/** @internal Whether GameServer.receive consumes these client bytes without throwing: a ping or
+ * pong, an acknowledgement, operation records or tick inputs. */
+export function isClientMessage(bytes: Uint8Array): boolean {
+    if (diagnosticKind(bytes)) return true;
+    if (bytes.length < 4) return false;
+    const kind = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0, true);
+    try {
+        if (kind === ReplicationMessageKind.Acknowledgement) return bytes.length === 12;
+        if (kind === IntentMessageKind.Inputs) decodeInputs(bytes);
+        else if (kind === IntentMessageKind.Records) decodeIntent(bytes);
+        else return false;
+        return true;
+    } catch {
+        return false;
     }
 }
 

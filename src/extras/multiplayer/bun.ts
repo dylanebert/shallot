@@ -1,11 +1,20 @@
 import type { ServerWebSocket } from "bun";
 import { type App, Time } from "../../engine";
 import { stampReceipt } from "./diagnostics";
-import type { Game } from "./game";
+import { type Game, isClientMessage } from "./game";
 import type { Connection } from "./link";
 import { type RecordingOptions, SessionRecorder } from "./recording";
 import { createServerApp, ROOM_CODE_CLAIM_MS, roomHost } from "./room-host";
 import { LEAVE_CLOSE_CODE } from "./websocket";
+
+// Colyseus's Bun transport default. Bun refuses a longer frame with 1009 before buffering it.
+const MaxFrame = 4 * 1024;
+// Paper's default packet limiter: 500 messages a second averaged over 7 seconds. A stall's
+// backlog arrives at once, so the window, not the rate, decides which stalls survive.
+const IngressRate = 500 / 1000;
+const IngressBurst = 500 * 7;
+// Bytes held between drains; without it a full burst of maximum frames holds 14 MiB.
+const MaxQueued = 64 * MaxFrame;
 
 type SocketData = { url: URL } | ServerWebSocketConnection | undefined;
 
@@ -13,6 +22,9 @@ type SocketData = { url: URL } | ServerWebSocketConnection | undefined;
 export class ServerWebSocketConnection implements Connection {
     private _messages: Uint8Array[] = [];
     private _closed = false;
+    private _queued = 0;
+    private _budget = IngressBurst;
+    private _receipt = performance.now();
     readonly socket: ServerWebSocket<SocketData>;
 
     constructor(socket: ServerWebSocket<SocketData>) {
@@ -24,9 +36,15 @@ export class ServerWebSocketConnection implements Connection {
     }
 
     close(code?: number, reason?: string): void {
+        this._end(code, reason);
+    }
+
+    // Refusals bypass close, which session wrappers replace without forwarding its code.
+    private _end(code?: number, reason?: string): void {
         if (this._closed) return;
         this._closed = true;
         this._messages = [];
+        this._queued = 0;
         this.socket.close(code, reason);
     }
 
@@ -41,21 +59,45 @@ export class ServerWebSocketConnection implements Connection {
     receive(): Uint8Array[] {
         const messages = this._messages;
         this._messages = [];
+        this._queued = 0;
         return messages;
     }
 
-    /** @internal */
-    push(bytes: Uint8Array): void {
-        if (!this.closed) this._messages.push(stampReceipt(bytes.slice(), performance.now()));
+    /** @internal Copies and queues a binary frame, or closes the connection: 1003 for text,
+     * 1008 past the ingress budget or queue, 1002 when validate refuses it. */
+    push(bytes: Uint8Array | string, validate?: (bytes: Uint8Array) => boolean): void {
+        if (this.closed) return;
+        if (typeof bytes === "string") {
+            this._end(1003, "Binary messages required");
+            return;
+        }
+        const now = performance.now();
+        this._budget = Math.min(IngressBurst, this._budget + (now - this._receipt) * IngressRate);
+        this._receipt = now;
+        if (this._budget < 1 || this._queued + bytes.length > MaxQueued) {
+            this._end(1008, "Ingress budget exceeded");
+            return;
+        }
+        this._budget--;
+        if (validate && !validate(bytes)) {
+            this._end(1002, "Invalid game message");
+            return;
+        }
+        this._queued += bytes.length;
+        this._messages.push(stampReceipt(bytes.slice(), now));
     }
 }
 
 /** Self-hosted binary endpoint. Every upgrade gets a distinct connection; callbacks run once
- * at open and close. Authentication and routing belong in the application/reverse proxy. */
+ * at open and close. Authentication and routing belong in the application/reverse proxy.
+ * Each connection may send 500 messages a second averaged over 7 seconds, in binary frames of
+ * at most 4 KiB, with at most 256 KiB queued between receive calls; validate refuses a message
+ * before it is queued. Each refusal closes only that connection. */
 export function serveWebSocket(options: {
     hostname?: string;
     port: number;
     connect: (connection: ServerWebSocketConnection, url?: URL) => void;
+    validate?: (bytes: Uint8Array) => boolean;
     disconnect: (connection: ServerWebSocketConnection, code: number) => void;
     fetch?: (request: Request) => Response | undefined;
 }) {
@@ -70,6 +112,7 @@ export function serveWebSocket(options: {
             );
         },
         websocket: {
+            maxPayloadLength: MaxFrame,
             open(socket) {
                 const data = socket.data;
                 const connection = new ServerWebSocketConnection(socket);
@@ -77,11 +120,8 @@ export function serveWebSocket(options: {
                 options.connect(connection, data && "url" in data ? data.url : undefined);
             },
             message(socket, message) {
-                if (typeof message === "string") {
-                    socket.close(1003, "Binary messages required");
-                    return;
-                }
-                if (socket.data instanceof ServerWebSocketConnection) socket.data.push(message);
+                if (socket.data instanceof ServerWebSocketConnection)
+                    socket.data.push(message, options.validate);
             },
             close(socket, code) {
                 if (!(socket.data instanceof ServerWebSocketConnection)) return;
@@ -197,6 +237,7 @@ function hostRooms(
     );
     const endpoint = serveWebSocket({
         ...options,
+        validate: isClientMessage,
         fetch(request) {
             if (pinnedApp || new URL(request.url).pathname !== "/rooms")
                 return options.fetch?.(request);

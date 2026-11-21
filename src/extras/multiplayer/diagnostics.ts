@@ -26,6 +26,14 @@ function word(bytes: Uint8Array, offset: number): number {
 // f64 remote receipt-to-reply milliseconds. Neither message carries a remote clock epoch.
 const Ping = 6;
 const Pong = 7;
+/** @internal Ping or Pong when the bytes are one, else 0. poll consumes these before any other
+ * decoder reads the message, so an 8-byte kind 6 is always a ping. */
+export function diagnosticKind(bytes: Uint8Array): number {
+    const kind = bytes.length >= 4 ? word(bytes, 0) : 0;
+    if (kind === Ping && bytes.length === 8) return Ping;
+    if (kind === Pong && bytes.length === 16) return Pong;
+    return 0;
+}
 const Interval = 100;
 const Capacity = 1024;
 const Observers = {
@@ -166,12 +174,12 @@ class NetworkDiagnostics {
             this._received = true;
             this._bytesReceived += bytes.byteLength;
             this._messagesReceived++;
-            const kind = bytes.length >= 4 ? word(bytes, 0) : 0;
-            if (kind === Ping && bytes.length === 8) {
+            const kind = diagnosticKind(bytes);
+            if (kind === Ping) {
                 this._pongView.setUint32(4, word(bytes, 4), true);
                 this._pongView.setFloat64(8, Math.max(0, this._clock() - arrived), true);
                 this.connection.send(this._pong);
-            } else if (kind === Pong && bytes.length === 16) {
+            } else if (kind === Pong) {
                 const id = word(bytes, 4);
                 const slot = id % Capacity;
                 this._incoming.set(bytes);
