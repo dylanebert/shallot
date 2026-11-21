@@ -932,18 +932,28 @@ export class ReplicationReceiver {
             if (!this.entities.has(id)) this.entities.set(id, this.world.create());
         for (const [id, row] of rows) {
             const eid = this.entities.get(id)!;
+            let written: Set<number> | undefined;
+            let writePrepared: ((component: Component) => boolean) | undefined;
             this.schema.forEach((c, index) => {
                 const values = row.get(index);
                 if (!values) {
                     this.world.remove(eid, c);
                     return;
                 }
-                const encoded = prepared?.get(values);
-                if (this.world.has(eid, c)) this._writeComponent(eid, index, values, encoded);
-                else
-                    this.world.addPrepared(eid, c, () =>
-                        this._writeComponent(eid, index, values, encoded),
-                    );
+                if (written?.has(index)) return;
+                if (this.world.has(eid, c)) {
+                    this._writeComponent(eid, index, values, prepared?.get(values));
+                } else {
+                    writePrepared ??= (component) => {
+                        const index = this.schema.indexOf(component);
+                        const values = row.get(index);
+                        if (!values) return false;
+                        this._writeComponent(eid, index, values, prepared?.get(values));
+                        (written ??= new Set()).add(index);
+                        return true;
+                    };
+                    this.world.addPrepared(eid, c, writePrepared);
+                }
             });
         }
     }

@@ -1,5 +1,5 @@
 import { test } from "bun:test";
-import { type ComponentRecord, component, text, World } from "../../engine";
+import { component, text, World } from "../../engine";
 import {
     type AcceptedIntent,
     type Connection,
@@ -27,6 +27,33 @@ const Payload = component("ReceiverModelPayload", {
     },
 });
 
+const Companion = component(
+    "ReceiverModelCompanion",
+    { label: text(4) },
+    {
+        defaults: () => ({ label: "too long" }),
+    },
+);
+const Trigger = component("ReceiverModelTrigger", {}, { requires: [Companion] });
+
+function readRow(world: World, eid: number) {
+    return {
+        ...world.get(eid, Payload)!,
+        trigger: world.has(eid, Trigger),
+        companion: world.get(eid, Companion)?.label,
+    };
+}
+type Row = ReturnType<typeof readRow>;
+
+function sameRow(a: Row, b: Row): boolean {
+    return (
+        a.number === b.number &&
+        a.label === b.label &&
+        a.trigger === b.trigger &&
+        a.companion === b.companion
+    );
+}
+
 function require(condition: unknown, message: string): asserts condition {
     if (!condition) throw new Error(message);
 }
@@ -39,13 +66,17 @@ function model(seed: number, mode: "all" | "latest") {
     };
     const authority = new World();
     const replica = new World();
+    for (const world of [authority, replica]) {
+        world.registry.register(Companion);
+        world.registry.register(Trigger);
+    }
     const eid = authority.create();
     authority.add(eid, Replicate);
     authority.add(eid, Payload);
     const field = authority.storage(Payload);
-    const schema = [Payload];
+    const schema = [Payload, Trigger, Companion];
     const rules = [new Map([[1, schema]])];
-    const sent = new Map<number, { bytes: Uint8Array; number: number; label: string }>();
+    const sent = new Map<number, Row & { bytes: Uint8Array }>();
     const operation = (tick: number): AcceptedIntent => ({
         id: tick + 1,
         tick,
@@ -59,7 +90,7 @@ function model(seed: number, mode: "all" | "latest") {
     const produce = (start: number, count: number) => {
         acknowledgements = [];
         const transmitted: number[] = [];
-        const states: ComponentRecord<typeof Payload>[] = [];
+        const states: Row[] = [];
         const send: Connection = {
             close() {},
             receive() {
@@ -81,7 +112,14 @@ function model(seed: number, mode: "all" | "latest") {
         const record = (tick: number) => {
             field.number.set(eid, draw(254));
             field.label.set(eid, `é${draw(4096)}`);
-            states.push(authority.get(eid, Payload)!);
+            if (seed % 4 === 0 && tick !== start && tick % 4 !== 0) {
+                authority.add(eid, Companion, { label: `c${tick % 100}` });
+                if (!authority.has(eid, Trigger)) authority.add(eid, Trigger);
+            } else {
+                authority.remove(eid, Trigger);
+                authority.remove(eid, Companion);
+            }
+            states.push(readRow(authority, eid));
             sender.record(tick, [operation(tick)]);
         };
         let clock = 0;
@@ -121,7 +159,7 @@ function model(seed: number, mode: "all" | "latest") {
             errors++;
         },
     };
-    const observed: { tick: number; applied: number; number: number; label: string }[] = [];
+    const observed: (Row & { tick: number; applied: number })[] = [];
     const reconciled: { tick: number; intents: readonly AcceptedIntent[] }[] = [];
     const batches: number[] = [];
     const checkIntent = (records: readonly AcceptedIntent[], tick: number) => {
@@ -145,7 +183,7 @@ function model(seed: number, mode: "all" | "latest") {
         schema,
         connection,
         (tick) => {
-            const row = replica.get([...receiver.entities.values()][0]!, Payload)!;
+            const row = readRow(replica, [...receiver.entities.values()][0]!);
             observed.push({ tick, applied: receiver.confirmed, ...row });
         },
         (tick, _rows, intents, apply, preceding) => {
@@ -176,18 +214,16 @@ function model(seed: number, mode: "all" | "latest") {
             require(row.tick === tick &&
                 row.applied ===
                     tick, `confirmation ${row.applied} did not match applied tick ${tick}`);
-            require(row.number === source.number &&
-                row.label === source.label, `state at ${tick} was not sent`);
+            require(sameRow(row, source), `state at ${tick} was not sent`);
             require(confirmation.tick === tick, `wrong reconciliation tick at ${tick}`);
             checkIntent(confirmation.intents, tick);
         }
         applied = expected.at(-1) ?? applied;
         require(receiver.confirmed === applied, "confirmed passed applied state");
         if (applied >= 0) {
-            const live = replica.get([...receiver.entities.values()][0]!, Payload);
+            const live = readRow(replica, [...receiver.entities.values()][0]!);
             const source = sent.get(applied)!;
-            require(live?.number === source.number &&
-                live.label === source.label, `live replica differs from confirmed tick ${applied}`);
+            require(sameRow(live, source), `live replica differs from confirmed tick ${applied}`);
         }
         require(actualBatches.join() ===
             expectedBatches.join(), `reconciled [${actualBatches}], expected [${expectedBatches}]`);
@@ -297,8 +333,13 @@ function model(seed: number, mode: "all" | "latest") {
             0, "rejected packet escaped receiver");
         require(closed === 1 &&
             errors === 1, `refusal must close and report once, got ${closed}/${errors}`);
-        drain([], []);
+        produce(terminal + 2, 2);
+        const accepted = encodeIntent(IntentMessageKind.Accepted, [operation(terminal + 2)]);
+        require(drain([terminal + 2, terminal + 3], [], [accepted]).length ===
+            0, "terminal receiver routed a valid packet");
+        require(drain([], [], [bad]).length === 0, "terminal receiver routed a malformed packet");
         require(closed === 1 && errors === 1, "terminal flush repeated the failure");
+        require(acknowledgements.length === 0, "terminal receiver acknowledged a packet");
     } catch (cause) {
         throw new Error(
             `receiver model seed=${seed} mode=${mode}: ${String(cause)}; replay with SHALLOT_MULTIPLAYER_SEED=${seed}`,

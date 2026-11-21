@@ -924,8 +924,9 @@ export class World {
         this._add(eid, component as Component, values);
     }
 
-    /** @internal Attach with all field values already validated. Skips component defaults. */
-    addPrepared(eid: number, component: Component, write: () => void): void {
+    /** @internal Attach a component and its requirements. When write supplies a component's
+     * validated fields and returns true, that component's defaults are not applied. */
+    addPrepared(eid: number, component: Component, write: (component: Component) => boolean): void {
         this._add(eid, component, undefined, write);
     }
 
@@ -933,15 +934,14 @@ export class World {
         eid: number,
         component: Component,
         values?: Record<string, unknown>,
-        write?: () => void,
+        write?: (component: Component) => boolean,
     ): void {
         const storage = this.storage(component);
         const id = idOf(component as Component);
         const fields = this._storage.get(id)!.fields;
         if (!this._components.add(eid, component)) {
             for (const field of fields.values()) field.clear(eid);
-            if (write) write();
-            else {
+            if (!write?.(component)) {
                 this.registry.applyDefaults(this, component, eid, values);
                 if (values) writeValues(storage, eid, values);
             }
@@ -969,13 +969,13 @@ export class World {
         }
         this._queries.onComponentChanged(id, eid, this._components);
         try {
-            if (write) write();
-            else {
+            if (!write?.(component)) {
                 this.registry.applyDefaults(this, component, eid, values);
                 if (values) writeValues(storage, eid, values);
             }
-            for (const required of this.registry.getRequirements(component as Component)) {
-                if (!this._components.has(eid, required)) this.add(eid, required);
+            for (const required of this.registry.getRequirements(component)) {
+                if (!this._components.has(eid, required))
+                    this._add(eid, required, undefined, write);
             }
         } catch (error) {
             // An attachment that did not complete is undone unannounced; companions already added stay.

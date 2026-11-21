@@ -145,6 +145,34 @@ test("an attachment that throws is undone without notifying", () => {
     expect(notified).toEqual([]);
 });
 
+test("prepared insertion supplies transitive requirements before their membership notification", () => {
+    const Middle = component(
+        "prepared-middle",
+        { v: f32 },
+        {
+            defaults: () => ({ v: 5 }),
+            requires: [Failing],
+        },
+    );
+    const Root = component("prepared-root", { v: f32 }, { requires: [Middle, Companion] });
+    const world = registered();
+    for (const c of [Root, Middle, Failing]) world.registry.register(c);
+    const eid = world.create();
+    const observed: number[] = [];
+    world.observeMembership(Failing, (id) => observed.push(world.storage(Failing).v.get(id)));
+    world.addPrepared(eid, Root, (c) => {
+        if (c === Root) world.storage(Root).v.set(eid, 8);
+        else if (c === Failing) world.storage(Failing).v.set(eid, 13);
+        else return false;
+        return true;
+    });
+    expect(world.get(eid, Root)).toEqual({ v: 8 });
+    expect(world.get(eid, Middle)).toEqual({ v: 5 });
+    expect(world.get(eid, Companion)).toEqual({ v: 2 });
+    expect(observed).toEqual([13]);
+    world.dispose();
+});
+
 test("a change completes for every observer when an observer's error propagates", () => {
     for (const end of ["remove", "destroy"] as const) {
         const world = registered();
