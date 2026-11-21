@@ -80,5 +80,22 @@ test("a single-room host keeps page verification, but an unreachable host cannot
     } finally {
         host.stop();
     }
-    await expect(verifyPublishedRooms(url)).rejects.toThrow("Server verification failed");
+    await expect(verifyPublishedRooms(url, 50)).rejects.toThrow("Server verification failed");
+});
+
+test("an unknown rooms header version leaves verification to the page", async () => {
+    let requests = 0;
+    const host = await serveGame(game, {
+        ...local,
+        fetch() {
+            requests++;
+            return Response.json([], { headers: { [ROOMS_LIST_HEADER]: "2" } });
+        },
+    });
+    try {
+        expect(await verifyPublishedRooms(endpoint(host))).toBe(false);
+        expect(requests).toBe(1);
+    } finally {
+        host.stop();
+    }
 });

@@ -43,7 +43,11 @@ export {
     sessionRecording,
 } from "./recording";
 export { RoomBots, RoomModeration } from "./room-host";
-export { ROOM_AUTH_REFUSED_CLOSE_CODE, ROOMS_LIST_HEADER } from "./room-protocol";
+export {
+    ROOM_AUTH_REFUSED_CLOSE_CODE,
+    ROOMS_LIST_HEADER,
+    ROOMS_LIST_VERSION,
+} from "./room-protocol";
 export type { ServerMessage } from "./server-message";
 export { LEAVE_CLOSE_CODE, WebSocketConnection } from "./websocket";
 

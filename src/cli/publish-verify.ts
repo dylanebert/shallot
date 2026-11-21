@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import type { APIResponse, Browser, BrowserType, Page } from "playwright";
@@ -8,6 +9,7 @@ import {
     LEAVE_CLOSE_CODE,
     ROOM_AUTH_REFUSED_CLOSE_CODE,
     ROOMS_LIST_HEADER,
+    ROOMS_LIST_VERSION,
 } from "../extras/multiplayer";
 import { CROSS_ORIGIN_ISOLATION, contentType } from "../project";
 import { installDev } from "./publish-dependencies";
@@ -294,7 +296,53 @@ export async function verifyPublishedGame(
     }
 }
 
-/** Verify a rooms host without credentials. False leaves single-room verification to the page. */
+async function fetchRoomListing(url: URL, signal: AbortSignal): Promise<Response> {
+    // Observed Fly cold starts took up to 10.3 seconds. Bound classification separately.
+    const startup = AbortSignal.any([signal, AbortSignal.timeout(20_000)]);
+    let failure: unknown;
+    try {
+        for (let delay = 250; ; delay = Math.min(delay * 2, 2000)) {
+            let response: Response | undefined;
+            try {
+                response = await fetch(url, { signal: startup, redirect: "manual" });
+            } catch (error) {
+                failure = error;
+            }
+            if (response) {
+                if (response.status < 500 || response.status > 599) return response;
+                failure = new Error(`GET /rooms returned ${response.status}.`);
+                await response.body?.cancel();
+            }
+            await sleep(delay, undefined, { signal: startup });
+        }
+    } catch (cause) {
+        throw new Error("GET /rooms did not become available within the startup budget.", {
+            cause: failure ?? cause,
+        });
+    }
+}
+
+async function reservePublishedRoom(url: URL, signal: AbortSignal, deadline: number) {
+    for (;;) {
+        const response = await fetch(url, { method: "POST", signal, redirect: "error" });
+        if (response.status === 201) return response.json();
+        await response.body?.cancel();
+        if (response.status !== 503)
+            throw new Error(`POST /rooms returned ${response.status}, expected 201.`);
+        const retryAfter = response.headers.get("Retry-After") ?? "";
+        const wait = /^\d+$/.test(retryAfter)
+            ? Number(retryAfter) * 1000
+            : Date.parse(retryAfter) - Date.now();
+        const delay = Number.isNaN(wait) ? 1000 : Math.max(250, wait);
+        if (delay >= deadline - performance.now())
+            throw new Error(
+                "POST /rooms returned 503; Retry-After exceeds the verification budget.",
+            );
+        await sleep(delay, undefined, { signal });
+    }
+}
+
+/** Verify a rooms host without credentials within timeout milliseconds. False leaves single-room verification to the page. */
 export async function verifyPublishedRooms(
     endpoint: string,
     timeout: number = TIMEOUT.startup,
@@ -302,10 +350,11 @@ export async function verifyPublishedRooms(
     const socketUrl = new URL(endpoint);
     const roomsUrl = new URL("/rooms", endpoint);
     roomsUrl.protocol = socketUrl.protocol === "wss:" ? "https:" : "http:";
+    const deadline = performance.now() + timeout;
     const signal = AbortSignal.timeout(timeout);
     try {
-        const listing = await fetch(roomsUrl, { signal, redirect: "manual" });
-        if (!listing.headers.has(ROOMS_LIST_HEADER)) {
+        const listing = await fetchRoomListing(roomsUrl, signal);
+        if (listing.headers.get(ROOMS_LIST_HEADER) !== ROOMS_LIST_VERSION) {
             await listing.body?.cancel();
             return false;
         }
@@ -326,12 +375,7 @@ export async function verifyPublishedRooms(
             throw new Error("GET /rooms did not return a room listing.");
 
         // Claim an isolated room, rather than spend a seat in an existing public room.
-        const reservation = await fetch(roomsUrl, { method: "POST", signal, redirect: "error" });
-        if (reservation.status !== 201) {
-            await reservation.body?.cancel();
-            throw new Error(`POST /rooms returned ${reservation.status}, expected 201.`);
-        }
-        const { code, creator } = await reservation.json();
+        const { code, creator } = await reservePublishedRoom(roomsUrl, signal, deadline);
         if (typeof code !== "string" || !code || typeof creator !== "string" || !creator)
             throw new Error("POST /rooms did not return a room reservation.");
         socketUrl.search = new URLSearchParams({

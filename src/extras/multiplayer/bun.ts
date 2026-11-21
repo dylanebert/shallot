@@ -5,7 +5,7 @@ import { type Game, isClientMessage } from "./game";
 import { type Connection, MAX_MESSAGE_BYTES } from "./link";
 import { type RecordingOptions, SessionRecorder } from "./recording";
 import { createServerApp, ROOM_CODE_CLAIM_MS, roomHost } from "./room-host";
-import { ROOMS_LIST_HEADER } from "./room-protocol";
+import { ROOMS_LIST_HEADER, ROOMS_LIST_VERSION } from "./room-protocol";
 import { LEAVE_CLOSE_CODE } from "./websocket";
 
 // Paper's default packet limiter: 500 messages a second averaged over 7 seconds. A stall's
@@ -176,8 +176,8 @@ export async function serveGame(
 /** Hosts independent authoritative Worlds of one game. POST /rooms returns 201
  * and JSON { code, creator } for a private room. Join first with
  * `?intent=join&code=…&creator=…`; share only the code. Until the creator is admitted
- * or 30 seconds pass, other joins close with 4001. GET /rooms returns a fresh JSON array
- * of public rooms with { code, clients, maxClients }. `clients`
+ * or 30 seconds pass, other joins close with 4001. GET /rooms returns `Shallot-Rooms: 1`
+ * and a fresh JSON array of public rooms with { code, clients, maxClients }. `clients`
  * counts occupied seats, including bots, pending startup and held reconnections. Share a private code out of
  * band and claim it within 60 seconds with `?intent=join&code=…`.
  * A code is 10 case-insensitive
@@ -252,7 +252,7 @@ function hostRooms(
             if (options.roomsOrigin)
                 headers.set("Access-Control-Allow-Origin", options.roomsOrigin);
             if (request.method === "GET") {
-                headers.set(ROOMS_LIST_HEADER, "1");
+                headers.set(ROOMS_LIST_HEADER, ROOMS_LIST_VERSION);
                 return Response.json(host.list(), { headers });
             }
             if (request.method !== "POST") return;
