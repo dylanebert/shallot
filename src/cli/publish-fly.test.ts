@@ -35,6 +35,20 @@ test("Fly config places its idle Machine in the spike's primary region", () => {
     expect(config().primary_region).toBe("iad");
 });
 
+test("Fly mounts one minimum-size volume at the server data directory", () => {
+    expect(config().mounts).toEqual({
+        source: "shallot_data",
+        destination: "/data",
+        ["initial_size"]: "1GB",
+        ["scheduled_snapshots"]: false,
+    });
+    expect(config().env.SHALLOT_DATA_DIR).toBe(config().mounts.destination);
+});
+
+test("Fly delivers the shutdown signal handled by the Bun room host", () => {
+    expect(config().kill_signal).toBe("SIGTERM");
+});
+
 test("Fly config counts WebSocket connections for proxy load and autostop", () => {
     expect(config().http_service.concurrency.type).toBe("connections");
     expect(config().http_service.concurrency.soft_limit).toBe(20);

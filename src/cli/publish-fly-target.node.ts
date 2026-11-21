@@ -11,7 +11,20 @@ setDefaultTimeout(TIMEOUT.node);
 const root = mkdtempSync(join(tmpdir(), "shallot-fly-target-"));
 const cli = join(root, process.platform === "win32" ? "fly.exe" : "fly");
 const guest = { ["cpu_kind"]: "shared", cpus: 1, ["memory_mb"]: 256 };
-const machines = [{ config: { guest } }];
+const volume = {
+    id: "vol_fixture",
+    name: "shallot_data",
+    ["size_gb"]: 1,
+    region: "iad",
+    ["attached_machine_id"]: "machine-fixture",
+};
+const machines = [
+    {
+        id: volume.attached_machine_id,
+        region: volume.region,
+        config: { guest, mounts: [{ volume: volume.id, path: "/data" }] },
+    },
+];
 const ips = [{ Type: "shared_v4" }, { Type: "v6" }];
 const commands = join(root, "commands.jsonl");
 beforeAll(async () => {
@@ -26,11 +39,14 @@ if(args[0]==='auth'&&args[1]==='whoami'&&readFileSync(join(root,'login'),'utf8')
 if(args[0]==='apps'&&args[1]==='list')console.log(JSON.stringify([{Name:'occupied'}]));
 else if(args[0]==='machine'&&args[1]==='list')console.log(readFileSync(join(root,'machines.json'),'utf8'));
 else if(args[0]==='ips'&&args[1]==='list')console.log(readFileSync(join(root,'ips.json'),'utf8'));
+else if(args[0]==='volumes'&&args[1]==='list')console.log(readFileSync(join(root,'volumes.json'),'utf8'));
 else if(args[0]==='orgs')console.log('{"personal":"Personal"}');`,
     );
     writeFileSync(join(root, "server.ts"), "export const state = 1;");
+    writeFileSync(join(root, "login"), "present");
     writeFileSync(join(root, "machines.json"), JSON.stringify(machines));
     writeFileSync(join(root, "ips.json"), JSON.stringify(ips));
+    writeFileSync(join(root, "volumes.json"), JSON.stringify([volume]));
     const result = await Bun.build({ entrypoints: [source], compile: { outfile: cli } });
     if (!result.success) throw new Error(result.logs.join("\n"));
 });
@@ -94,6 +110,7 @@ test("an authorized existing app inside the envelope deploys without allocating 
             "apps list",
             "machine list",
             "ips list",
+            "volumes list",
             "deploy --app",
         ]);
     } finally {
@@ -199,6 +216,40 @@ for (const [label, inventory, addresses, reason, inspect] of [
         }
     });
 }
+
+test("an existing app with missing, extra, or mismatched storage is not redeployed", async () => {
+    const work = mkdtempSync(join(tmpdir(), "shallot-fly-volume-refuse-"));
+    try {
+        for (const volumes of [
+            [],
+            [volume, volume],
+            [{ ...volume, ["size_gb"]: 2 }],
+            [{ ...volume, name: "other" }],
+            [{ ...volume, region: "ord" }],
+            [{ ...volume, ["attached_machine_id"]: null }],
+            [{ ...volume, id: "vol_other" }],
+        ]) {
+            writeFileSync(join(root, "volumes.json"), JSON.stringify(volumes));
+            writeFileSync(commands, "");
+            await expect(
+                deployFlyServer(
+                    root,
+                    work,
+                    { target: "fly", app: "occupied" },
+                    false,
+                    true,
+                    ask,
+                    cli,
+                ),
+            ).rejects.toThrow("expected one 1 GB shallot_data volume in iad mounted at /data");
+            expect(existsSync(join(work, "fly.toml"))).toBe(false);
+            expect(readFileSync(commands, "utf8")).not.toContain('"deploy"');
+        }
+    } finally {
+        writeFileSync(join(root, "volumes.json"), JSON.stringify([volume]));
+        await removeTestDirectory(work);
+    }
+});
 
 test("server links retain Fly and reject malformed targets and app names", () => {
     const path = join(root, "package.json");

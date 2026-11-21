@@ -19,6 +19,11 @@ export interface FlyLink {
     app: string;
 }
 
+const flyRegion = "iad";
+const volumeName = "shallot_data";
+const volumeSize = 1;
+const dataPath = "/data";
+
 export const FLY_VERSION = "0.5.12";
 export const FLY_ARCHIVES: Record<string, string> = Object.fromEntries([
     ["macOS_arm64", "a3cbaa5b089e851150443806ecc33f9ad2dca236666db48edbd1059fc4b8d8b5"],
@@ -161,8 +166,11 @@ export async function deployFlyServer(
             );
         };
         const machines: {
+            id?: string;
+            region?: string;
             config?: {
                 guest?: Record<string, unknown>;
+                mounts?: { volume?: string; path?: string }[];
             };
         }[] = JSON.parse(runFly(cli, machineArgs, work));
         if (!Array.isArray(machines)) refuse("unrecognized Machine inventory", machineArgs);
@@ -190,6 +198,29 @@ export async function deployFlyServer(
             );
         if (ips.filter((ip) => ip?.Type === "shared_v4").length !== 1)
             refuse("IP inventory must contain one shared IPv4", ipArgs);
+        const volumeArgs = ["volumes", "list", "--app", link.app, "--json"];
+        const volumes = JSON.parse(runFly(cli, volumeArgs, work));
+        const volume = Array.isArray(volumes) && volumes.length === 1 ? volumes[0] : null;
+        const machine = machines[0];
+        const mounts = machine?.config?.mounts;
+        if (
+            !volume ||
+            typeof volume.id !== "string" ||
+            volume.name !== volumeName ||
+            volume.size_gb !== volumeSize ||
+            volume.region !== flyRegion ||
+            machine?.region !== flyRegion ||
+            typeof machine.id !== "string" ||
+            volume.attached_machine_id !== machine.id ||
+            !Array.isArray(mounts) ||
+            mounts.length !== 1 ||
+            mounts[0]?.volume !== volume.id ||
+            mounts[0]?.path !== dataPath
+        )
+            refuse(
+                `expected one ${volumeSize} GB ${volumeName} volume in ${flyRegion} mounted at ${dataPath}`,
+                volumeArgs,
+            );
     }
     await buildFlyServer(project, work, link.app);
     if (!exists) {
@@ -254,9 +285,16 @@ export async function buildFlyServer(
 
 export function flyConfig(app: string): string {
     return `app = ${JSON.stringify(app)}
-primary_region = "iad"
+primary_region = "${flyRegion}"
+kill_signal = "SIGTERM"
 [env]
   PORT = "8080"
+  SHALLOT_DATA_DIR = "${dataPath}"
+[mounts]
+  source = "${volumeName}"
+  destination = "${dataPath}"
+  initial_size = "${volumeSize}GB"
+  scheduled_snapshots = false
 [http_service]
   internal_port = 8080
   force_https = true
