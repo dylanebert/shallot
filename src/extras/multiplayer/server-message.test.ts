@@ -1,6 +1,7 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { type App, createApp, type World } from "../../engine";
 import {
+    type ClientId,
     type Connection,
     client,
     type Game,
@@ -41,14 +42,14 @@ async function until(ready: () => boolean, reason: string) {
     throw new Error(reason);
 }
 
-test("client systems read private and room messages once in order, with no replay on resume", async () => {
-    const seats: { world: World; eid: number }[] = [];
+test("private messages stay in their room and retain their target across resume without replay", async () => {
+    const seats: { world: World; eid: number; id: ClientId }[] = [];
     const receivers = new Map<World, ReplicationReceiver>();
     const game: Game = {
         ...emptyGame,
         reconnectMs: 100,
-        onJoin(world, eid) {
-            seats.push({ world, eid });
+        onJoin(world, eid, _transport, id) {
+            seats.push({ world, eid, id });
         },
         onClient(world, connection) {
             receivers.set(world, new ReplicationReceiver(world, [], connection));
@@ -115,8 +116,10 @@ test("client systems read private and room messages once in order, with no repla
             values: [first!.eid, topic + 0.5],
             text: `catch 🐟 ${topic}`,
         }));
-        const target = first!.world.ref(first!.eid);
+        const target = first!.id;
         for (const message of burst) server.sendMessage(target, message);
+        expect(elsewhere!.eid).toBe(first!.eid);
+        other.sendMessage(target, { topic: 97, values: [123] });
         const broadcast = { topic: 16, values: [first!.eid] };
         server.sendMessage("all", broadcast);
         other.sendMessage("all", broadcast);
@@ -131,13 +134,15 @@ test("client systems read private and room messages once in order, with no repla
         server.sendMessage("all", held);
         retry!();
         await until(() => server.peers.get(first!.eid)?.held === false, "seat did not resume");
+        const privateAfterResume = { topic: 98, values: [first!.eid] };
+        server.sendMessage(target, privateAfterResume);
         const resumed = { topic: 18, values: [first!.eid], text: "" };
         server.sendMessage("all", resumed);
         other.sendMessage("all", resumed);
         await readThrough(resumed);
         poll();
         expect(received).toEqual([
-            [...burst, broadcast, resumed],
+            [...burst, broadcast, privateAfterResume, resumed],
             [broadcast, held, resumed],
             [broadcast, resumed],
         ]);
@@ -150,15 +155,19 @@ test("client systems read private and room messages once in order, with no repla
 });
 
 test("a departed private target never reaches the replacement reusing its eid", async () => {
-    const joined: number[] = [];
+    const joined: { eid: number; id: ClientId }[] = [];
+    let departed: ClientId | undefined;
     let authority!: World;
     let wire!: Connection;
     const host = await local(
         {
             ...emptyGame,
-            onJoin(world, eid) {
+            onJoin(world, eid, _transport, id) {
                 authority = world;
-                joined.push(eid);
+                joined.push({ eid, id });
+            },
+            onLeave(_world, _eid, id) {
+                departed = id;
             },
             onClient(_world, connection) {
                 wire = connection;
@@ -171,14 +180,23 @@ test("a departed private target never reaches the replacement reusing its eid", 
         const first = await host.join();
         await host.join(first.code);
         const server = authority.resource(ServerSession).server!;
-        const oldTarget = authority.ref(joined[0]!);
+        const oldTarget = joined[0]!.id;
         first.leave();
+        expect(departed).toBe(oldTarget);
+        // Wrap the ECS generation without admitting any new seats.
+        const warn = spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            for (let i = 0; i < 2 ** 21 - 1; i++) authority.destroy(authority.create());
+            expect(warn).toHaveBeenCalledTimes(1);
+        } finally {
+            warn.mockRestore();
+        }
         const replacement = await host.join(first.code);
-        expect(joined[2]).toBe(joined[0]);
+        expect(joined[2]!.eid).toBe(joined[0]!.eid);
         app = await createApp({ defaults: false, plugins: [replacement.plugin] });
         app.world.step(0);
         server.sendMessage(oldTarget, { topic: 1, values: [123] });
-        server.sendMessage(authority.ref(joined[2]!), { topic: 2, values: [] });
+        server.sendMessage(joined[2]!.id, { topic: 2, values: [] });
         host.pump(0);
         expect(messageTopics(wire.receive())).toEqual([2]);
     } finally {
@@ -228,7 +246,7 @@ test("a bot discards one-off messages after each flush, including private sends 
             input() {},
         });
         const server = authority.resource(ServerSession).server!;
-        const bot = authority.ref(botEid);
+        const bot = server.peers.get(botEid)!.clientId;
         for (let topic = 0; topic < 6; topic += 2) {
             server.sendMessage(bot, { topic, values: [] });
             server.sendMessage("all", { topic: topic + 1, values: [] });

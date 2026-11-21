@@ -2,6 +2,7 @@ import { test } from "bun:test";
 import { component, text, World } from "../../engine";
 import {
     type AcceptedIntent,
+    type ClientId,
     type Connection,
     IntentMessageKind,
     Replicate,
@@ -233,9 +234,9 @@ function model(seed: number, mode: "all" | "latest") {
             close() {},
         })!;
         outbox.length = 0; // Admission image is not a one-off message.
-        return authority.ref(id);
+        return runtime.peers.get(id)!.clientId;
     });
-    const missing = authority.ref(0);
+    const missing = 0 as ClientId;
     const routedBurst = () => {
         const expected: ServerMessage[][] = [[], []];
         const count = 4 + draw(8);

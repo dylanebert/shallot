@@ -13,6 +13,7 @@ import { encodeText, fields, readText, writeText } from "../../engine/ecs";
 import { reportStartup } from "../../engine/runtime";
 
 export {
+    type ClientId,
     ClientOf,
     client,
     type Game,

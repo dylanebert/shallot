@@ -2,7 +2,6 @@ import {
     type App,
     component,
     DiagnosticsStore,
-    type EntityRef,
     type Plugin,
     type System,
     Time,
@@ -45,8 +44,18 @@ export const RoomLeader = component("RoomLeader", {});
 /** Server-owned kind marker. Disclose on seat entities through Replicate. */
 export const RoomBot = component("RoomBot", {});
 
-/** Shared protocol and game policy. Connection arguments are server eids, not client-supplied IDs.
- * Hooks borrow runtime handles; capture world.ref(connection) before retaining a seat across hooks.
+/** Server-issued seat identity, unique across rooms for the lifetime of the server process. */
+export type ClientId = number & { readonly __clientId: unique symbol };
+
+let lastClientId = 0;
+
+function issueClientId(): ClientId {
+    if (lastClientId === Number.MAX_SAFE_INTEGER) throw new Error("Client ids exhausted");
+    return ++lastClientId as ClientId;
+}
+
+/** Shared protocol and game policy. Connection arguments are borrowed server eids, not identities.
+ * Retain the client id, not the eid, for addressing messages. Resume keeps the same client id.
  * Explicit disconnect calls onLeave before despawning.
  * Direct ECS removal may already have removed the entity's other components.
  * onClient installs game-specific prediction or routing at the client's first stepped preFixed
@@ -63,8 +72,8 @@ export interface Game {
     reconnectMs?: number;
     rules(world: World, connection: number): ReplicationRules;
     onCreate?(world: World): void;
-    onJoin?(world: World, connection: number, transport: Connection): void;
-    onLeave?(world: World, connection: number): void;
+    onJoin?(world: World, connection: number, transport: Connection, clientId: ClientId): void;
+    onLeave?(world: World, connection: number, clientId: ClientId): void;
     validateIntent(world: World, connection: number, record: IntentRecord): boolean;
     /** Borrows accepted operations and this tick's held input before gameplay.
      * Input keeps its requested tick, which may precede tick after loss or late arrival. */
@@ -75,11 +84,12 @@ export interface Game {
         records: readonly OperationRecord[],
         input?: InputRecord,
     ): void;
-    onSend?(world: World, connection: number, transport: Connection): void;
+    onSend?(world: World, connection: number, transport: Connection, clientId: ClientId): void;
     onClient?(world: World, transport: Connection): void;
 }
 
 interface Peer {
+    readonly clientId: ClientId;
     diagnostics: ReturnType<typeof observeNetwork>;
     connection: Connection;
     sender: ReplicationSender;
@@ -145,7 +155,8 @@ class GameServer {
                 this.world.destroy(eid);
                 return undefined;
             }
-            this.game.onJoin?.(this.world, eid, connection);
+            const clientId = issueClientId();
+            this.game.onJoin?.(this.world, eid, connection, clientId);
             const sender = new ReplicationSender(
                 this.world,
                 this.game.schema,
@@ -154,6 +165,7 @@ class GameServer {
                 connection,
             );
             this._peers.set(eid, {
+                clientId,
                 connection,
                 sender,
                 intent: new IntentReceiver(connection),
@@ -193,24 +205,21 @@ class GameServer {
                 const successor = this.leader;
                 if (successor !== undefined) this.world.add(successor, RoomLeader);
             }
-            this.game.onLeave?.(this.world, eid);
+            this.game.onLeave?.(this.world, eid, peer.clientId);
         } finally {
             peer.connection.close();
             this.world.destroy(eid);
         }
     }
     /** Sends once on each target's live stream, in call order on reliable ordered transports.
-     * A private target is a reference from this server World; "all" targets this room.
-     * Stale, held and closed seats are skipped; nothing is retained for resume. Invalid payloads throw. */
-    sendMessage(target: EntityRef | "all", message: ServerMessage): void {
+     * "all" targets this room. Missing, held and closed seats are skipped; nothing is retained
+     * for resume. Invalid payloads throw. */
+    sendMessage(target: ClientId | "all", message: ServerMessage): void {
         const bytes = encodeServerMessage(message);
-        if (target === "all") {
-            for (const peer of this._peers.values()) {
-                if (!peer.held && !peer.connection.closed) peer.connection.send(bytes);
-            }
-        } else {
-            const peer = this._peers.get(this.world.resolve(target));
-            if (peer && !peer.held && !peer.connection.closed) peer.connection.send(bytes);
+        for (const peer of this._peers.values()) {
+            if (target !== "all" && target !== peer.clientId) continue;
+            if (!peer.held && !peer.connection.closed) peer.connection.send(bytes);
+            if (target !== "all") break;
         }
     }
     /** @internal Keep the entity and intent history, but stop stepping this peer. */
@@ -262,7 +271,7 @@ class GameServer {
     send(): void {
         for (const [eid, peer] of this.peers) {
             if (peer.held) continue;
-            this.game.onSend?.(this.world, eid, peer.connection);
+            this.game.onSend?.(this.world, eid, peer.connection, peer.clientId);
             peer.sender.record(
                 this.world.time.fixedTick,
                 [...peer.intent.records.values()],

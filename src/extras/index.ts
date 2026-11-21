@@ -47,6 +47,7 @@ export {
 } from "./lines";
 export {
     type AcceptedIntent,
+    type ClientId,
     ClientOf,
     ClientPrediction,
     type Connection,
