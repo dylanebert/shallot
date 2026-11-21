@@ -1,8 +1,37 @@
 import { expect, test } from "bun:test";
 import { type App, createApp, type World } from "../../engine";
-import { client, type Game, ReplicationReceiver, type ServerMessage, ServerSession } from ".";
+import {
+    type Connection,
+    client,
+    type Game,
+    local,
+    ReplicationReceiver,
+    type ServerMessage,
+    ServerSession,
+} from ".";
 import { serveRooms } from "./bun";
 import { createProxy } from "./proxy";
+import { PredictionRecording } from "./recording-hooks";
+import { ServerMessageKind } from "./server-message";
+
+const emptyGame: Game = {
+    plugins: [],
+    schema: [],
+    maxClients: 2,
+    rules: () => [],
+    validateIntent: () => false,
+    applyIntent() {},
+};
+const faults = { minDelay: 0, maxDelay: 0, loss: 0, duplication: 0 };
+
+function messageTopics(packets: Uint8Array[]): number[] {
+    const topics: number[] = [];
+    for (const bytes of packets) {
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        if (view.getUint32(0, true) === ServerMessageKind) topics.push(view.getUint32(4, true));
+    }
+    return topics;
+}
 
 async function until(ready: () => boolean, reason: string) {
     for (let i = 0; i < 100; i++) {
@@ -16,19 +45,14 @@ test("client systems read private and room messages once in order, with no repla
     const seats: { world: World; eid: number }[] = [];
     const receivers = new Map<World, ReplicationReceiver>();
     const game: Game = {
-        plugins: [],
-        schema: [],
-        maxClients: 2,
+        ...emptyGame,
         reconnectMs: 100,
-        rules: () => [],
         onJoin(world, eid) {
             seats.push({ world, eid });
         },
         onClient(world, connection) {
             receivers.set(world, new ReplicationReceiver(world, [], connection));
         },
-        validateIntent: () => false,
-        applyIntent() {},
     };
     const host = serveRooms(game, { hostname: "127.0.0.1", port: 0, reconnectNow: () => 0 });
     const apps: App[] = [];
@@ -91,7 +115,8 @@ test("client systems read private and room messages once in order, with no repla
             values: [first!.eid, topic + 0.5],
             text: `catch 🐟 ${topic}`,
         }));
-        for (const message of burst) server.sendMessage(first!.eid, message);
+        const target = first!.world.ref(first!.eid);
+        for (const message of burst) server.sendMessage(target, message);
         const broadcast = { topic: 16, values: [first!.eid] };
         server.sendMessage("all", broadcast);
         other.sendMessage("all", broadcast);
@@ -102,7 +127,7 @@ test("client systems read private and room messages once in order, with no repla
         proxy.controls.resetPeer();
         await until(() => !!retry && !!server.peers.get(first!.eid)?.held, "seat was not held");
         const held = { topic: 17, values: [first!.eid] };
-        server.sendMessage(first!.eid, { topic: 99, values: [] });
+        server.sendMessage(target, { topic: 99, values: [] });
         server.sendMessage("all", held);
         retry!();
         await until(() => server.peers.get(first!.eid)?.held === false, "seat did not resume");
@@ -121,5 +146,97 @@ test("client systems read private and room messages once in order, with no repla
         for (const app of apps) app.dispose();
         proxy?.stop();
         host.stop();
+    }
+});
+
+test("a departed private target never reaches the replacement reusing its eid", async () => {
+    const joined: number[] = [];
+    let authority!: World;
+    let wire!: Connection;
+    const host = await local(
+        {
+            ...emptyGame,
+            onJoin(world, eid) {
+                authority = world;
+                joined.push(eid);
+            },
+            onClient(_world, connection) {
+                wire = connection;
+            },
+        },
+        { rooms: true, seed: 1, faults },
+    );
+    let app: App | undefined;
+    try {
+        const first = await host.join();
+        await host.join(first.code);
+        const server = authority.resource(ServerSession).server!;
+        const oldTarget = authority.ref(joined[0]!);
+        first.leave();
+        const replacement = await host.join(first.code);
+        expect(joined[2]).toBe(joined[0]);
+        app = await createApp({ defaults: false, plugins: [replacement.plugin] });
+        app.world.step(0);
+        server.sendMessage(oldTarget, { topic: 1, values: [123] });
+        server.sendMessage(authority.ref(joined[2]!), { topic: 2, values: [] });
+        host.pump(0);
+        expect(messageTopics(wire.receive())).toEqual([2]);
+    } finally {
+        app?.dispose();
+        host.dispose();
+    }
+});
+
+test("a bot discards one-off messages after each flush, including private sends and broadcasts", async () => {
+    let authority!: World;
+    let botEid!: number;
+    let receiver!: ReplicationReceiver;
+    const topics: number[] = [];
+    const host = await local(
+        {
+            ...emptyGame,
+            onCreate(world) {
+                authority = world;
+            },
+            plugins: [
+                {
+                    name: "ObserveBotMessageWire",
+                    initialize(world) {
+                        world.resource(PredictionRecording).receiver = (observed) => {
+                            receiver = observed;
+                            const receive = observed.connection.receive.bind(observed.connection);
+                            observed.connection.receive = () => {
+                                const packets = receive();
+                                topics.push(...messageTopics(packets));
+                                return packets;
+                            };
+                        };
+                    },
+                },
+            ],
+        },
+        { rooms: true, seed: 1, faults },
+    );
+    try {
+        const human = await host.join();
+        await human.addBot({
+            seed: 2,
+            admit(_world, eid) {
+                botEid = eid;
+                return true;
+            },
+            input() {},
+        });
+        const server = authority.resource(ServerSession).server!;
+        const bot = authority.ref(botEid);
+        for (let topic = 0; topic < 6; topic += 2) {
+            server.sendMessage(bot, { topic, values: [] });
+            server.sendMessage("all", { topic: topic + 1, values: [] });
+            host.pump(0);
+            expect(topics).toEqual(Array.from({ length: topic + 2 }, (_, i) => i));
+            expect(receiver.readMessages()).toEqual([]);
+        }
+    } finally {
+        host.dispose();
     }
 });

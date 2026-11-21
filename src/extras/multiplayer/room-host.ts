@@ -330,6 +330,7 @@ export function roomHost<
                         if (link.a.closed) return bot.remove();
                         link.advance(time);
                         sender.flush(receiver.flush());
+                        receiver.readMessages(); // Thin clients have no game message reader.
                     },
                     input(tick) {
                         if (link.a.closed) return;

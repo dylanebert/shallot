@@ -233,8 +233,9 @@ function model(seed: number, mode: "all" | "latest") {
             close() {},
         })!;
         outbox.length = 0; // Admission image is not a one-off message.
-        return id;
+        return authority.ref(id);
     });
+    const missing = authority.ref(0);
     const routedBurst = () => {
         const expected: ServerMessage[][] = [[], []];
         const count = 4 + draw(8);
@@ -250,7 +251,7 @@ function model(seed: number, mode: "all" | "latest") {
             const message =
                 i % 3 === 0 ? { topic, values } : { topic, values, text: "🐟".repeat(draw(257)) };
             runtime.sendMessage(
-                recipient === 2 ? "all" : (recipients[recipient] ?? 0xffffffff),
+                recipient === 2 ? "all" : (recipients[recipient] ?? missing),
                 message,
             );
             for (let side = 0; side < 2; side++)

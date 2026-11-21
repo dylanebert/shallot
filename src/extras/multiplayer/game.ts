@@ -2,6 +2,7 @@ import {
     type App,
     component,
     DiagnosticsStore,
+    type EntityRef,
     type Plugin,
     type System,
     Time,
@@ -45,7 +46,8 @@ export const RoomLeader = component("RoomLeader", {});
 export const RoomBot = component("RoomBot", {});
 
 /** Shared protocol and game policy. Connection arguments are server eids, not client-supplied IDs.
- * Hooks borrow runtime handles; explicit disconnect calls onLeave before despawning.
+ * Hooks borrow runtime handles; capture world.ref(connection) before retaining a seat across hooks.
+ * Explicit disconnect calls onLeave before despawning.
  * Direct ECS removal may already have removed the entity's other components.
  * onClient installs game-specific prediction or routing at the client's first stepped preFixed
  * boundary, after app warm-up, where prediction may capture its initial World snapshot.
@@ -198,16 +200,16 @@ class GameServer {
         }
     }
     /** Sends once on each target's live stream, in call order on reliable ordered transports.
-     * A target is a server connection eid or all connected clients in this World. Held,
-     * closed and absent seats are skipped; nothing is retained for resume. Invalid payloads throw. */
-    sendMessage(target: number | "all", message: ServerMessage): void {
+     * A private target is a reference from this server World; "all" targets this room.
+     * Stale, held and closed seats are skipped; nothing is retained for resume. Invalid payloads throw. */
+    sendMessage(target: EntityRef | "all", message: ServerMessage): void {
         const bytes = encodeServerMessage(message);
         if (target === "all") {
             for (const peer of this._peers.values()) {
                 if (!peer.held && !peer.connection.closed) peer.connection.send(bytes);
             }
         } else {
-            const peer = this._peers.get(target);
+            const peer = this._peers.get(this.world.resolve(target));
             if (peer && !peer.held && !peer.connection.closed) peer.connection.send(bytes);
         }
     }
