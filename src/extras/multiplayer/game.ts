@@ -615,6 +615,7 @@ function localHost(game: Game, options: LocalOptions, pinned?: App) {
         const close = endpoint.close;
         let final = false;
         endpoint.close = (code, reason) => {
+            if (endpoint.closed) return;
             final ||= isFinalClose(code);
             links.delete(link);
             close(code, reason);

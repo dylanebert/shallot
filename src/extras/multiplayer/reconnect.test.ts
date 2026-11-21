@@ -113,7 +113,7 @@ test("replacement and kick report final closes without retry; a dropped seat sti
     try {
         await leader.token;
         const server = f.world.resource(ServerSession).server!;
-        for (const closure of ["replace", "kick"] as const) {
+        for (const closure of ["replace", "kick", "held kick"] as const) {
             const proxy = await createProxy(f.host.port!, 1);
             const errors: Error[] = [];
             const retries: (() => void)[] = [];
@@ -143,12 +143,14 @@ test("replacement and kick report final closes without retry; a dropped seat sti
                         receiver?.flush();
                         return !!receiver?.entities.has(eid);
                     }, "target did not receive its image after the resume grant");
-                    if (closure === "kick") {
+                    if (closure !== "replace") {
                         proxy.controls.resetPeer();
                         await until(
                             () => retries.length === 1 && !!target.held,
                             "drop did not hold the seat",
                         );
+                    }
+                    if (closure === "kick") {
                         retries.shift()!();
                         await until(() => !target.held, "dropped seat did not resume");
                         expect(server.entity(target.clientId)).toBe(eid);
@@ -164,6 +166,7 @@ test("replacement and kick report final closes without retry; a dropped seat sti
                         const moderation = f.world.resource(RoomModeration).controller!;
                         expect(moderation.kick(server.leader!, target.clientId)).toBe(true);
                     }
+                    if (closure === "held kick") retries.shift()!();
                     await until(() => errors.length === 1, "final close did not reach onError");
                     expect(errors[0]).toMatchObject({ code, reason });
                     expect(retries).toEqual([]);
@@ -175,8 +178,8 @@ test("replacement and kick report final closes without retry; a dropped seat sti
                 proxy.stop();
             }
         }
-        expect(f.joined).toHaveLength(3);
-        expect(f.left).toEqual([42, 42]);
+        expect(f.joined).toHaveLength(4);
+        expect(f.left).toEqual([42, 42, 42]);
 
         // Close the transport while its authority entity still exists. Otherwise a leaked
         // grant would also be refused because the entity is already gone.
@@ -191,9 +194,14 @@ test("replacement and kick report final closes without retry; a dropped seat sti
     }
 });
 
-test.each(["replace", "kick"] as const)(
+test.each([
+    ["live replacement", false, false],
+    ["live kick", true, false],
+    ["held replacement", false, true],
+    ["held kick", true, true],
+] as const)(
     "a local %s reports its final close and cannot resume",
-    async (kind) => {
+    async (_scenario, kick, held) => {
         const f = fixture();
         f.host.stop();
         const errors: Error[] = [];
@@ -215,9 +223,13 @@ test.each(["replace", "kick"] as const)(
                 app.world.step(1 / 60);
                 const server = f.world.resource(ServerSession).server!;
                 const id = server.peers.get(f.eid)!.clientId;
-                const code = kind === "kick" ? 4003 : 4999;
-                const reason = kind === "kick" ? "Kicked from room" : "Replaced by another session";
-                if (kind === "kick") {
+                const code = kick ? 4003 : 4999;
+                const reason = kick ? "Kicked from room" : "Replaced by another session";
+                if (held) {
+                    target.cut();
+                    expect(server.peers.get(f.eid)!.held).toBe(true);
+                }
+                if (kick) {
                     const moderation = f.world.resource(RoomModeration).controller!;
                     expect(moderation.kick(server.leader!, id)).toBe(true);
                 } else server.disconnect(id, code, reason);
@@ -225,7 +237,9 @@ test.each(["replace", "kick"] as const)(
                 await Promise.resolve();
                 expect(errors).toHaveLength(1);
                 expect(errors[0]).toMatchObject({ code, reason });
-                expect(generation()).toBeUndefined();
+                expect(target.resume()).toBe(false);
+                expect(server.entity(id)).toBeUndefined();
+                if (!held) expect(generation()).toBeUndefined();
             } finally {
                 app.dispose();
             }
@@ -251,8 +265,9 @@ test("a final disconnect frees an already held grant before the next host operat
             receive: () => [],
         };
     }
+    let now = 0;
     const host = roomHost<ReturnType<typeof endpoint>>(f.game, {
-        reconnectNow: () => 0,
+        reconnectNow: () => now,
         sendToken(connection, seat, resume) {
             connection.grant = { seat, resume };
         },
@@ -279,7 +294,11 @@ test("a final disconnect frees an already held grant before the next host operat
         expect(host.list()[0]!.clients).toBe(2);
         const stale = endpoint();
         host.connect(stale, { ...join, ...grant });
-        expect(stale.code).toBe(1008);
+        expect(stale.code).toBe(4999);
+        now = f.game.reconnectMs!;
+        const expired = endpoint();
+        host.connect(expired, { ...join, ...grant });
+        expect(expired.code).toBe(1008);
 
         for (const stream of [leader, fresh]) {
             stream.close();

@@ -136,6 +136,10 @@ export function roomHost<
     const now = options.reconnectNow ?? (() => performance.now());
     const seats = new WeakMap<C, Seat<C>>();
     const held = new Map<string, Seat<C>>();
+    const ended = new Map<
+        string,
+        { id: string; roomCode: string; expiresAt: number; code: number; reason?: string }
+    >();
     const humans = (room: Room<C>) => room.seats.size + (room.held ?? 0);
     const count = (room: Room<C>) => humans(room) + room.bots.size;
     const rooms = new Map<string, Room<C>>();
@@ -295,7 +299,8 @@ export function roomHost<
                     return this.stream.closed;
                 },
                 close(code?: number, reason?: string) {
-                    if (code !== undefined && isApplicationClose(code)) forgetGrant(this.stream);
+                    if (code !== undefined && isApplicationClose(code))
+                        forgetGrant(this.stream, code, reason);
                     this.stream.close(code, reason);
                 },
                 send(bytes: Uint8Array) {
@@ -399,13 +404,10 @@ export function roomHost<
                     [...held.values()].find((seat) => seat.clientId === target);
                 if (live === undefined && !offline) return false;
                 if (peer.playerId !== undefined) (room.excluded ??= new Set()).add(peer.playerId);
-                if (offline) expireSeat(offline);
-                else if (live !== undefined) {
-                    try {
-                        authority.disconnect(target, KICK_CLOSE_CODE, "Kicked from room");
-                    } finally {
-                        leave(live, false);
-                    }
+                try {
+                    authority.disconnect(target, KICK_CLOSE_CODE, "Kicked from room");
+                } finally {
+                    if (live !== undefined) leave(live, false);
                 }
                 return true;
             },
@@ -502,12 +504,15 @@ export function roomHost<
         seat.room.held!--;
     }
 
-    function forgetGrant(connection: C) {
+    function forgetGrant(connection: C, code: number, reason?: string) {
         const seat = seats.get(connection);
         seats.delete(connection);
         if (!seat || held.get(seat.token) !== seat) return;
         release(seat);
         const { room } = seat;
+        const expiresAt = seat.expiresAt!;
+        if (expiresAt > now())
+            ended.set(seat.token, { id: seat.id, roomCode: room.code, expiresAt, code, reason });
         if (room === pinned || humans(room)) return;
         // The authority must finish despawning the seat before its World can be disposed.
         queueMicrotask(() => {
@@ -527,6 +532,7 @@ export function roomHost<
 
     function expireSeats() {
         const time = now();
+        for (const [token, close] of ended) if (close.expiresAt <= time) ended.delete(token);
         for (const seat of held.values()) {
             const authority = seat.room.app!.world.resource(ServerSession).server!;
             const owns = authority.entity(seat.clientId) !== undefined;
@@ -637,7 +643,17 @@ export function roomHost<
             return;
         }
         if (token !== null || id !== null) {
-            if (token !== null && !held.has(token)) replaceStaleSeat(token, id, intent, code);
+            if (token !== null) {
+                const close = ended.get(token);
+                if (
+                    close?.id === id &&
+                    (intent !== "join" || code?.toUpperCase() === close.roomCode)
+                ) {
+                    connection.close(close.code, close.reason);
+                    return;
+                }
+                if (!held.has(token)) replaceStaleSeat(token, id, intent, code);
+            }
             const seat = token === null ? undefined : held.get(token);
             const authority = seat?.room.app?.world.resource(ServerSession).server;
             if (
@@ -739,6 +755,7 @@ export function roomHost<
         stopped = true;
         unclaimed.clear();
         held.clear();
+        ended.clear();
         for (const room of rooms.values()) retire(room, 1001, "Server stopping");
     }
     return { connect, leave, sweep, advanceBots, tick, stop, list, reserve, addBot };
