@@ -568,27 +568,19 @@ test("a dropped server seat stays occupied for its peer and resumes", async ({ p
         const frames = await holdFrames(page, twoMembers);
         const observer = await context.newPage();
         const observerFrames = await holdFrames(observer, twoMembers);
+        let drop: (() => Promise<void>) | undefined;
         let reconnect: (() => void) | undefined;
-        let attempts = 0;
         await page.routeWebSocket("**/*", (route) => {
-            if (++attempts === 1) route.connectToServer();
-            else
+            if (!drop) {
+                const server = route.connectToServer();
+                drop = async () => {
+                    await server.close();
+                    await route.close();
+                };
+            } else
                 reconnect = () => {
                     route.connectToServer();
                 };
-        });
-        await page.addInitScript(() => {
-            const sockets: WebSocket[] = [];
-            const NativeSocket = WebSocket;
-            window.WebSocket = class extends NativeSocket {
-                constructor(url: string | URL, protocols?: string | string[]) {
-                    super(url, protocols);
-                    sockets.push(this);
-                }
-            };
-            Object.assign(window, {
-                dropRoomSocket: () => sockets.at(-1)!.close(4001, "Test cut"),
-            });
         });
         await page.goto(host.query);
         await action(page, "Quick join").click();
@@ -601,9 +593,7 @@ test("a dropped server seat stays occupied for its peer and resumes", async ({ p
         await expect(players(observer)).toHaveText(["Player 1", "You", "", ""]);
         await expect(players(page)).toHaveText(["You", "Player 2", "", ""]);
         const before = await seatBoxes(observer);
-        await page.evaluate(() =>
-            (window as Window & { dropRoomSocket?: () => void }).dropRoomSocket!(),
-        );
+        await drop!();
         await expect.poll(() => reconnect !== undefined).toBe(true);
         await observerFrames.run(8);
         await expect(players(observer)).toHaveText(["Player 1", "You", "", ""]);
