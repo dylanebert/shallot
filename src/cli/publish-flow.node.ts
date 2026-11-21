@@ -46,10 +46,10 @@ if(args[0]==='apps'&&args[1]==='list')console.log(JSON.stringify(state.flyCollis
 else if(args[0]==='orgs')console.log('{"personal":"Personal"}');
 else if(args[0]==='machine'&&args[1]==='list'){
 if(state.hangMachineList)Bun.sleepSync(22000);
-console.log(JSON.stringify(!state.flyFail&&fs.existsSync('fly.toml')?[{id:'machine-fixture'}]:[]));
+console.log(JSON.stringify(!state.flyFail&&fs.existsSync('fly.toml')?[{id:'7591857c12836d'}]:[]));
 }
 else if(args[0]==='ips'&&args[1]==='list')console.log('[{"Type":"shared_v4"}]');
-else if(args[0]==='volumes'&&args[1]==='list')console.log(JSON.stringify([{id:'vol_fixture',name:'shallot_data',size_gb:1,region:'iad',host_status:state.flyHostStatus,auto_backup_enabled:false,attached_machine_id:null,attached_alloc_id:null}]));
+else if(args[0]==='volumes'&&args[1]==='list')console.log(JSON.stringify([{id:'vol_2n0l9vl2l9pr635d',name:'shallot_data',size_gb:1,region:'iad',host_status:state.flyHostStatus,auto_backup_enabled:false,attached_machine_id:null,attached_alloc_id:null}]));
 else if(args[0]==='deploy'){
 if(state.holdFly&&fs.readFileSync(path.join(root,'commands.jsonl'),'utf8').match(/fly deploy /g)?.length===1){
 const end=Date.now()+10000;
@@ -423,7 +423,7 @@ test("a timed-out post-deploy list reports known storage and releases the publis
         const failed = await f.run(undefined, true);
         expect(failed.code).toBe(1);
         expect(failed.stderr).toContain("machine list: timed out after 15 seconds");
-        expect(failed.stderr).toContain("vol_fixture: $0.15/month");
+        expect(failed.stderr).toContain("vol_2n0l9vl2l9pr635d: $0.15/month");
         expect(readdirSync(f.project)).not.toContain(".shallot-fly-publish.lock");
     } finally {
         await f.close();

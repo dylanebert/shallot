@@ -12,11 +12,11 @@ const root = mkdtempSync(join(tmpdir(), "shallot-fly-target-"));
 const cli = join(root, process.platform === "win32" ? "fly.exe" : "fly");
 const guest = { ["cpu_kind"]: "shared", cpus: 1, ["memory_mb"]: 256 };
 const volume = {
-    id: "vol_fixture",
+    id: "vol_2n0l9vl2l9pr635d",
     name: "shallot_data",
     ["size_gb"]: 1,
     region: "iad",
-    ["attached_machine_id"]: "machine-fixture",
+    ["attached_machine_id"]: "7591857c12836d",
     ["auto_backup_enabled"]: false,
 };
 const machines = [
@@ -133,34 +133,46 @@ for (const [label, inventory, addresses, reason, inspect] of [
     ["zero Machines", [], ips, "Machine count 0", "machine list"],
     [
         "dedicated CPU",
-        [{ config: { guest: { ...guest, ["cpu_kind"]: "performance" } } }],
+        [{ ...machines[0], config: { guest: { ...guest, ["cpu_kind"]: "performance" } } }],
         ips,
         "Machine size",
         "machine list",
     ],
     [
         "extra CPU",
-        [{ config: { guest: { ...guest, cpus: 2 } } }],
+        [{ ...machines[0], config: { guest: { ...guest, cpus: 2 } } }],
         ips,
         "Machine size",
         "machine list",
     ],
     [
         "extra memory",
-        [{ config: { guest: { ...guest, ["memory_mb"]: 512 } } }],
+        [{ ...machines[0], config: { guest: { ...guest, ["memory_mb"]: 512 } } }],
         ips,
         "Machine size",
         "machine list",
     ],
-    ["GPU", [{ config: { guest: { ...guest, gpus: 1 } } }], ips, "Machine size", "machine list"],
+    [
+        "GPU",
+        [{ ...machines[0], config: { guest: { ...guest, gpus: 1 } } }],
+        ips,
+        "Machine size",
+        "machine list",
+    ],
     [
         "GPU kind",
-        [{ config: { guest: { ...guest, ["gpu_kind"]: "a100" } } }],
+        [{ ...machines[0], config: { guest: { ...guest, ["gpu_kind"]: "a100" } } }],
         ips,
         "Machine size",
         "machine list",
     ],
-    ["missing Machine config", [{}], ips, "Machine size", "machine list"],
+    [
+        "missing Machine config",
+        [{ id: volume.attached_machine_id }],
+        ips,
+        "Machine size",
+        "machine list",
+    ],
     [
         "unmanaged Machine",
         [{ ...machines[0], config: { ...machines[0]!.config, metadata: {} } }],
@@ -276,7 +288,7 @@ test("an existing app with missing, extra, or mismatched storage is not redeploy
             [{ ...volume, name: "other" }],
             [{ ...volume, region: "ord" }],
             [{ ...volume, ["attached_machine_id"]: null }],
-            [{ ...volume, id: "vol_other" }],
+            [{ ...volume, id: "vol_2n0l9vl2l9pr635a" }],
         ]) {
             writeFileSync(join(root, "volumes.json"), JSON.stringify(volumes));
             writeFileSync(commands, "");
@@ -307,12 +319,12 @@ test.each([false, true])(
         writeFileSync(commands, "");
         writeFileSync(
             join(root, "volumes.json"),
-            JSON.stringify([volume, { ...volume, id: "vol_extra" }]),
+            JSON.stringify([volume, { ...volume, id: "vol_2n0l9vl2l9pr635f" }]),
         );
         if (extraMachine)
             writeFileSync(
                 join(root, "machines.json"),
-                JSON.stringify([...machines, { ...machines[0], id: "machine-extra" }]),
+                JSON.stringify([...machines, { ...machines[0], id: "7591857c12836e" }]),
             );
         try {
             const deployed = deployFlyServer(
@@ -324,12 +336,14 @@ test.each([false, true])(
                 ask,
                 cli,
             );
-            await expect(deployed).rejects.toThrow("vol_extra: $0.15/month");
-            await expect(deployed).rejects.toThrow("volumes destroy vol_extra --app occupied");
+            await expect(deployed).rejects.toThrow("vol_2n0l9vl2l9pr635f: $0.15/month");
+            await expect(deployed).rejects.toThrow(
+                "volumes destroy vol_2n0l9vl2l9pr635f --app occupied",
+            );
             if (extraMachine) {
-                await expect(deployed).rejects.toThrow("machine-extra: about $2.19/month");
+                await expect(deployed).rejects.toThrow("7591857c12836e: about $2.19/month");
                 await expect(deployed).rejects.toThrow(
-                    "machine destroy machine-extra --app occupied",
+                    "machine destroy 7591857c12836e --app occupied",
                 );
             }
             expect(existsSync(join(work, "fly.toml"))).toBe(false);
@@ -398,7 +412,7 @@ test.each([false, true])(
         if (failed) writeFileSync(failFlag, "");
         writeFileSync(
             join(root, "volumes.json"),
-            JSON.stringify([volume, { ...volume, id: "vol_extra" }]),
+            JSON.stringify([volume, { ...volume, id: "vol_2n0l9vl2l9pr635f" }]),
         );
         try {
             const deployed = deployFlyServer(
@@ -411,10 +425,14 @@ test.each([false, true])(
                 cli,
             );
             await expect(deployed).rejects.toThrow("2 volumes");
-            await expect(deployed).rejects.toThrow("vol_fixture: $0.15/month");
-            await expect(deployed).rejects.toThrow("vol_extra: $0.15/month");
-            await expect(deployed).rejects.toThrow("volumes destroy vol_fixture --app scratch-app");
-            await expect(deployed).rejects.toThrow("volumes destroy vol_extra --app scratch-app");
+            await expect(deployed).rejects.toThrow("vol_2n0l9vl2l9pr635d: $0.15/month");
+            await expect(deployed).rejects.toThrow("vol_2n0l9vl2l9pr635f: $0.15/month");
+            await expect(deployed).rejects.toThrow(
+                "volumes destroy vol_2n0l9vl2l9pr635d --app scratch-app",
+            );
+            await expect(deployed).rejects.toThrow(
+                "volumes destroy vol_2n0l9vl2l9pr635f --app scratch-app",
+            );
             if (failed) await expect(deployed).rejects.toThrow("recorded deployment failed");
             const calls = readFileSync(commands, "utf8")
                 .trim()
@@ -435,8 +453,8 @@ test.each([false, true])(
 );
 
 test.each([
-    ["machine", "vol_fixture", "vol_extra"],
-    ["volumes", "machine-fixture", "machine-extra"],
+    ["machine", "vol_2n0l9vl2l9pr635d", "vol_2n0l9vl2l9pr635f"],
+    ["volumes", "7591857c12836d", "7591857c12836e"],
 ])(
     "a failed %s list still reports both resources from the other list",
     async (failed, first, second) => {
@@ -445,11 +463,11 @@ test.each([
         writeFileSync(failFlag, "");
         writeFileSync(
             join(root, "volumes.json"),
-            JSON.stringify([volume, { ...volume, id: "vol_extra" }]),
+            JSON.stringify([volume, { ...volume, id: "vol_2n0l9vl2l9pr635f" }]),
         );
         writeFileSync(
             join(root, "machines.json"),
-            JSON.stringify([...machines, { ...machines[0], id: "machine-extra" }]),
+            JSON.stringify([...machines, { ...machines[0], id: "7591857c12836e" }]),
         );
         try {
             const deployed = deployFlyServer(
@@ -473,11 +491,49 @@ test.each([
     },
 );
 
+test.each([
+    ["machine", [null]],
+    ["volumes", [volume, { ...volume, id: "vol_2n0l9vl2l9pr635e", ["size_gb"]: -1 }]],
+    ["volumes", [volume, { ...volume, id: "arbitrary-token" }]],
+    ["machine", [...machines, { ...machines[0], id: "arbitrary-token" }]],
+] as const)(
+    "malformed %s rows make the count unknown without hiding valid rows (%j)",
+    async (kind, rows) => {
+        const work = mkdtempSync(join(tmpdir(), "shallot-fly-post-deploy-"));
+        const path = join(root, kind === "machine" ? "machines.json" : "volumes.json");
+        const original = readFileSync(path, "utf8");
+        writeFileSync(path, JSON.stringify(rows));
+        try {
+            const deployed = deployFlyServer(
+                root,
+                work,
+                { target: "fly", app: "scratch-app" },
+                false,
+                false,
+                ask,
+                cli,
+            );
+            const error = await deployed.then(
+                () => "",
+                (error: unknown) => String(error),
+            );
+            expect(error).toContain(`${kind === "machine" ? "Machine" : "volume"} count unknown`);
+            expect(error).toContain(`${volume.id}: $0.15/month`);
+            if (rows[0] !== null) expect(error).toContain(`${machines[0]!.id}: about $2.19/month`);
+            expect(error).not.toContain("$-0.15");
+            expect(error).not.toContain("destroy arbitrary-token");
+        } finally {
+            writeFileSync(path, original);
+            await removeTestDirectory(work);
+        }
+    },
+);
+
 test("a Fly deploy that leaves two Machines names both and the always-on cost", async () => {
     const work = mkdtempSync(join(tmpdir(), "shallot-fly-post-deploy-"));
     writeFileSync(
         join(root, "machines.json"),
-        JSON.stringify([...machines, { ...machines[0], id: "machine-extra" }]),
+        JSON.stringify([...machines, { ...machines[0], id: "7591857c12836e" }]),
     );
     try {
         const deployed = deployFlyServer(
@@ -490,10 +546,10 @@ test("a Fly deploy that leaves two Machines names both and the always-on cost", 
             cli,
         );
         await expect(deployed).rejects.toThrow("2 Machines");
-        await expect(deployed).rejects.toThrow("machine-fixture: about $2.19/month");
-        await expect(deployed).rejects.toThrow("machine-extra: about $2.19/month");
-        await expect(deployed).rejects.toThrow("machine destroy machine-fixture --app scratch-app");
-        await expect(deployed).rejects.toThrow("machine destroy machine-extra --app scratch-app");
+        await expect(deployed).rejects.toThrow("7591857c12836d: about $2.19/month");
+        await expect(deployed).rejects.toThrow("7591857c12836e: about $2.19/month");
+        await expect(deployed).rejects.toThrow("machine destroy 7591857c12836d --app scratch-app");
+        await expect(deployed).rejects.toThrow("machine destroy 7591857c12836e --app scratch-app");
     } finally {
         writeFileSync(join(root, "machines.json"), JSON.stringify(machines));
         await removeTestDirectory(work);

@@ -144,7 +144,7 @@ export function flyOrganizations(output: string): string[] {
 }
 
 interface FlyMachine {
-    id?: string;
+    id: string;
     region?: string;
     state?: string;
     config?: {
@@ -165,25 +165,65 @@ interface FlyVolume {
     ["host_status"]?: string;
 }
 
+function record(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function integerAtLeast(value: unknown, minimum: number): boolean {
+    return typeof value === "number" && Number.isSafeInteger(value) && value >= minimum;
+}
+
+function isFlyVolume(row: unknown): row is FlyVolume {
+    return (
+        record(row) &&
+        typeof row.id === "string" &&
+        /^vol_[a-z0-9]{16}$/.test(row.id) &&
+        integerAtLeast(row.size_gb, 1)
+    );
+}
+
+function isFlyMachine(row: unknown): row is FlyMachine {
+    if (!record(row) || typeof row.id !== "string" || !/^[a-f0-9]{14}$/.test(row.id)) return false;
+    if (row.region !== undefined && typeof row.region !== "string") return false;
+    if (row.config === undefined) return true;
+    if (!record(row.config)) return false;
+    const guest = row.config.guest;
+    if (guest === undefined) return true;
+    return (
+        record(guest) &&
+        (guest.cpu_kind === undefined || typeof guest.cpu_kind === "string") &&
+        (guest.cpus === undefined || integerAtLeast(guest.cpus, 1)) &&
+        (guest.memory_mb === undefined || integerAtLeast(guest.memory_mb, 1)) &&
+        (guest.gpus === undefined || integerAtLeast(guest.gpus, 0)) &&
+        (guest.gpu_kind === undefined || typeof guest.gpu_kind === "string")
+    );
+}
+
 function readFlyInventory(cli: string, work: string, app: string) {
     const errors: string[] = [];
     const timeout = 15_000;
-    function list<T>(kind: string): T[] | undefined {
+    function list<T>(kind: string, valid: (row: unknown) => row is T) {
+        const parsed: T[] = [];
         const args = [kind, "list", "--app", app, "--json"];
         try {
             const rows: unknown = JSON.parse(runFly(cli, args, work, false, timeout));
-            if (rows === null) return [];
+            if (rows === null) return { rows: parsed, count: 0 };
             if (!Array.isArray(rows))
                 throw new Error(`expected an inventory array from ${args.join(" ")}`);
-            return rows;
+            for (const [index, row] of rows.entries()) {
+                if (valid(row)) parsed.push(row);
+                else errors.push(`${kind} list: invalid row ${index + 1}`);
+            }
+            return { rows: parsed, count: parsed.length === rows.length ? rows.length : undefined };
         } catch (error) {
             errors.push(
                 `${kind} list: ${error instanceof Error && "code" in error && error.code === "ETIMEDOUT" ? `timed out after ${timeout / 1000} seconds` : String(error)}`,
             );
+            return { rows: parsed, count: undefined };
         }
     }
-    const volumes = list<FlyVolume>("volumes");
-    const machines = list<FlyMachine>("machine");
+    const volumes = list("volumes", isFlyVolume);
+    const machines = list("machine", isFlyMachine);
     return { volumes, machines, errors };
 }
 
@@ -193,31 +233,26 @@ function refuseFlyInventory(
     { volumes, machines, errors }: ReturnType<typeof readFlyInventory>,
     phase: "before deploy" | "after deploy",
 ): never {
-    const resource = (id: string | undefined, kind: string, cost: string) =>
-        id && /^[a-z0-9_-]+$/.test(id)
-            ? `  ${id}: ${cost}. Delete with "${cli}" ${kind} destroy ${id} --app ${app}`
-            : `  Unrecognized ${kind} ID; inspect the app in Fly before deleting anything.`;
+    const resource = (id: string, kind: string, cost: string) =>
+        `  ${id}: ${cost}. Delete with "${cli}" ${kind} destroy ${id} --app ${app}`;
     const count = (n: number | undefined, noun: string) => {
         if (n === undefined) return `${noun} count unknown`;
         if (n === 0 && phase === "after deploy") return `missing ${noun}`;
         return `${n} ${noun}${n === 1 ? "" : "s"}`;
     };
     const report = [
-        `Fly app "${app}" failed its inventory check ${phase}: ${count(volumes?.length, "volume")}, ${count(machines?.length, "Machine")}. Publish requires one of each after deploy.`,
+        `Fly app "${app}" failed its inventory check ${phase}: ${count(volumes.count, "volume")}, ${count(machines.count, "Machine")}. Publish requires one of each after deploy.`,
         ...errors,
         "Confirm with the person which resources to keep before deleting any. Publish did not delete anything.",
     ];
-    for (const volume of volumes ?? []) {
-        const size = volume?.size_gb;
-        const cost = Number.isFinite(size)
-            ? `${volumeMonthlyCost(size)} for provisioned storage`
-            : `$${volumeUSDPerGBMonth}/GB per month of provisioned storage`;
-        report.push(resource(volume?.id, "volumes", cost));
+    for (const volume of volumes.rows) {
+        const cost = `${volumeMonthlyCost(volume.size_gb)} for provisioned storage`;
+        report.push(resource(volume.id, "volumes", cost));
     }
-    for (const machine of machines ?? []) {
-        const guest = machine?.config?.guest;
+    for (const machine of machines.rows) {
+        const guest = machine.config?.guest;
         const cost =
-            machine?.region === flyRegion &&
+            machine.region === flyRegion &&
             guest?.cpu_kind === "shared" &&
             guest.cpus === 1 &&
             guest.memory_mb === 256 &&
@@ -225,7 +260,7 @@ function refuseFlyInventory(
             !guest.gpu_kind
                 ? "about $2.19/month if running continuously, plus storage and transfer"
                 : "monthly compute depends on size, region and uptime; see https://fly.io/docs/about/pricing/";
-        report.push(resource(machine?.id, "machine", cost));
+        report.push(resource(machine.id, "machine", cost));
     }
     throw new Error(report.join("\n"));
 }
@@ -273,12 +308,17 @@ export async function deployFlyServer(
         };
         const inventory = readFlyInventory(cli, work, link.app);
         const { volumes, machines } = inventory;
-        if (!volumes || !machines || volumes.length > 1 || machines.length > 1)
+        if (
+            volumes.count === undefined ||
+            machines.count === undefined ||
+            volumes.count > 1 ||
+            machines.count > 1
+        )
             refuseFlyInventory(cli, link.app, inventory, "before deploy");
-        const initializing = recovery?.pending && machines.length === 0;
-        if (!initializing && machines.length !== 1)
-            refuse(`Machine count ${machines.length}; expected one`, machineArgs);
-        const machine = machines[0];
+        const initializing = recovery?.pending && machines.count === 0;
+        if (!initializing && machines.count !== 1)
+            refuse(`Machine count ${machines.count}; expected one`, machineArgs);
+        const machine = machines.rows[0];
         if (!initializing) {
             const guest = machine?.config?.guest;
             if (
@@ -318,10 +358,10 @@ export async function deployFlyServer(
         if (!needsSharedIP && shared !== 1)
             refuse("IP inventory must contain one shared IPv4", ipArgs);
         const volumeArgs = ["volumes", "list", "--app", link.app, "--json"];
-        const volume = volumes[0];
+        const volume = volumes.rows[0];
         const mounts = machine?.config?.mounts;
         // First deploy counts existing unattached volumes by name and region before provisioning.
-        if (!(initializing && volumes.length === 0)) {
+        if (!(initializing && volumes.count === 0)) {
             if (volume && volume.auto_backup_enabled !== false)
                 refuse("scheduled snapshots must be off", volumeArgs);
             if (
@@ -383,7 +423,7 @@ export async function deployFlyServer(
     }
     try {
         const inventory = readFlyInventory(cli, work, link.app);
-        if (inventory.volumes?.length !== 1 || inventory.machines?.length !== 1)
+        if (inventory.volumes.count !== 1 || inventory.machines.count !== 1)
             refuseFlyInventory(cli, link.app, inventory, "after deploy");
     } catch (error) {
         if (deployFailure)
