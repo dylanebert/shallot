@@ -256,7 +256,8 @@ for (const [label, inventory, addresses, reason, inspect] of [
                 cli,
             );
             await expect(result).rejects.toThrow(reason);
-            await expect(result).rejects.toThrow(`${inspect} --app occupied --json`);
+            if (inspect === "ips list" || reason === "expected an inventory array")
+                await expect(result).rejects.toThrow(`${inspect} --app occupied --json`);
             expect(
                 readFileSync(commands, "utf8")
                     .trim()
@@ -302,7 +303,7 @@ test("an existing app with missing, extra, or mismatched storage is not redeploy
                     ask,
                     cli,
                 ),
-            ).rejects.toThrow("expected one 1 GB shallot_data volume in iad mounted at /data");
+            ).rejects.toThrow(/expected one 1 GB shallot_data volume in iad|only mount at \/data/);
             expect(existsSync(join(work, "fly.toml"))).toBe(false);
             expect(readFileSync(commands, "utf8")).not.toContain('"deploy"');
         }
@@ -378,6 +379,69 @@ test.each([
             );
             if (missingVolume) await expect(deployed).rejects.toThrow("missing volume");
             if (missingMachine) await expect(deployed).rejects.toThrow("missing Machine");
+        } finally {
+            writeFileSync(join(root, "volumes.json"), JSON.stringify([volume]));
+            writeFileSync(join(root, "machines.json"), JSON.stringify(machines));
+            await removeTestDirectory(work);
+        }
+    },
+);
+
+test.each([
+    [
+        "oversized volume",
+        { ...volume, ["size_gb"]: 10 },
+        machines[0],
+        "10 GB",
+        "$1.50/month",
+        `volumes destroy ${volume.id}`,
+    ],
+    [
+        "snapshots on",
+        { ...volume, ["auto_backup_enabled"]: true },
+        machines[0],
+        "scheduled snapshots must be off",
+        "$0.15/month",
+        `volumes destroy ${volume.id}`,
+    ],
+    [
+        "unattached volume",
+        { ...volume, ["attached_machine_id"]: null },
+        machines[0],
+        `attached to Machine ${machines[0]!.id} as its only mount at /data`,
+        "$0.15/month",
+        `volumes destroy ${volume.id}`,
+    ],
+    [
+        "wrong Machine size",
+        volume,
+        {
+            ...machines[0],
+            config: { ...machines[0]!.config, guest: { ...guest, ["memory_mb"]: 512 } },
+        },
+        "Machine size",
+        "$3.69/month",
+        `machine destroy ${machines[0]!.id}`,
+    ],
+] as const)(
+    "successful deploy refuses an envelope mismatch: %s",
+    async (_label, volumeRow, machine, difference, cost, command) => {
+        const work = mkdtempSync(join(tmpdir(), "shallot-fly-post-deploy-"));
+        writeFileSync(join(root, "volumes.json"), JSON.stringify([volumeRow]));
+        writeFileSync(join(root, "machines.json"), JSON.stringify([machine]));
+        try {
+            const deployed = deployFlyServer(
+                root,
+                work,
+                { target: "fly", app: "scratch-app" },
+                false,
+                false,
+                ask,
+                cli,
+            );
+            await expect(deployed).rejects.toThrow(difference);
+            await expect(deployed).rejects.toThrow(cost);
+            await expect(deployed).rejects.toThrow(`${command} --app scratch-app`);
         } finally {
             writeFileSync(join(root, "volumes.json"), JSON.stringify([volume]));
             writeFileSync(join(root, "machines.json"), JSON.stringify(machines));

@@ -46,10 +46,10 @@ if(args[0]==='apps'&&args[1]==='list')console.log(JSON.stringify(state.flyCollis
 else if(args[0]==='orgs')console.log('{"personal":"Personal"}');
 else if(args[0]==='machine'&&args[1]==='list'){
 if(state.hangMachineList)Bun.sleepSync(22000);
-console.log(JSON.stringify(!state.flyFail&&fs.existsSync('fly.toml')?[{id:'7591857c12836d'}]:[]));
+console.log(JSON.stringify(!state.flyFail&&fs.existsSync('fly.toml')?[{id:'7591857c12836d',region:'iad',config:{guest:{cpu_kind:'shared',cpus:1,memory_mb:256},metadata:{fly_platform_version:'v2',fly_process_group:'app'},mounts:[{volume:'vol_2n0l9vl2l9pr635d',path:'/data'}]}}]:[]));
 }
 else if(args[0]==='ips'&&args[1]==='list')console.log('[{"Type":"shared_v4"}]');
-else if(args[0]==='volumes'&&args[1]==='list')console.log(JSON.stringify([{id:'vol_2n0l9vl2l9pr635d',name:'shallot_data',size_gb:1,region:'iad',host_status:state.flyHostStatus,auto_backup_enabled:false,attached_machine_id:null,attached_alloc_id:null}]));
+else if(args[0]==='volumes'&&args[1]==='list')console.log(JSON.stringify([{id:'vol_2n0l9vl2l9pr635d',name:'shallot_data',size_gb:1,region:'iad',host_status:state.flyHostStatus,auto_backup_enabled:false,attached_machine_id:!state.flyFail&&fs.existsSync('fly.toml')?'7591857c12836d':null,attached_alloc_id:null}]));
 else if(args[0]==='deploy'){
 if(state.holdFly&&fs.readFileSync(path.join(root,'commands.jsonl'),'utf8').match(/fly deploy /g)?.length===1){
 const end=Date.now()+10000;
@@ -407,7 +407,7 @@ test("failed Fly deploy leaves a retryable server link, cost and confirmed delet
         f.save();
         const unsafe = await f.run(undefined, true, false);
         expect(unsafe.code).toBe(1);
-        expect(unsafe.stderr).toContain("unattached on a healthy host");
+        expect(unsafe.stderr).toContain("expected an unattached volume on a healthy host");
         expect(f.commands().filter((row) => row.command.startsWith("fly deploy"))).toHaveLength(2);
     } finally {
         await f.close();
