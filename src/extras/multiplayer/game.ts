@@ -72,6 +72,8 @@ interface Peer {
     sender: ReplicationSender;
     intent: IntentReceiver;
     held?: boolean;
+    /** Tick of admission or the latest resume. */
+    since: number;
     kind: "human" | "bot";
 }
 
@@ -143,6 +145,7 @@ class GameServer {
                 sender,
                 intent: new IntentReceiver(connection),
                 diagnostics,
+                since: this.world.time.fixedTick,
                 kind,
             });
             if (this.game.schema.includes(RoomLeader) && this.leader === eid)
@@ -199,7 +202,8 @@ class GameServer {
             eid,
             peer.connection,
         );
-        peer.sender.record(this.world.time.fixedTick);
+        peer.since = this.world.time.fixedTick;
+        peer.sender.record(peer.since);
         peer.sender.flush();
         peer.held = false;
     }
@@ -518,10 +522,11 @@ function localHost(game: Game, options: LocalOptions, pinned?: App, recorder?: S
                 current.endpoint.close();
                 host.leave(current.endpoint);
             },
-            /** Starts a fresh stream on the same seat, or returns false if it cannot resume. */
+            /** Starts a fresh stream on the same seat after cut() or a host close, or returns
+             * false if it cannot resume. */
             resume() {
                 const credentials = current.endpoint.credentials;
-                if (!cut || left || !credentials) return false;
+                if (!(cut || current.endpoint.closed) || left || !credentials) return false;
                 current = stream(clientSeed);
                 cut = false;
                 generation++;

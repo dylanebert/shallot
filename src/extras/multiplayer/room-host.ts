@@ -1,4 +1,4 @@
-import { type App, createApp } from "../../engine";
+import { type App, createApp, Time } from "../../engine";
 import { MultiplayerPlugin, ReplicationReceiver } from ".";
 import { observeNetwork, transportClock } from "./diagnostics";
 import { type Game, ServerSession, server, type ThinClient } from "./game";
@@ -70,6 +70,12 @@ const CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 export const ROOM_CODE_CLAIM_MS = 60_000;
 const CREATOR_HOLD_MS = 30_000;
 const MAX_UNCLAIMED_CODES = 128;
+/** A seat whose oldest unconfirmed frame is this many ticks older than the current tick, counted
+ * from admission or resume, is closed and leaves, or is held under Game.reconnectMs, whether or
+ * not acknowledgements arrive: its sender retains every unconfirmed frame, and a client this far
+ * behind re-images through resume rather than replaying. Unity Transport's 30 s disconnect
+ * timeout; counting from admission spares a client still warming up after its socket opens. */
+const UNCONFIRMED_SEAT_TICKS = Math.round(30 / Time.FIXED_DT);
 
 export function roomHost<
     C extends Connection & {
@@ -525,7 +531,23 @@ export function roomHost<
         for (const { bots } of active.values()) for (const bot of bots.values()) bot.advance(time);
     }
 
+    function closeUnconfirmedSeats() {
+        for (const room of active.values()) {
+            const authority = room.app!.world.resource(ServerSession).server!;
+            const tick = room.app!.world.time.fixedTick;
+            for (const [connection, eid] of room.seats) {
+                const peer = eid === undefined ? undefined : authority.peers.get(eid);
+                if (!peer || peer.held) continue;
+                if (tick - Math.max(peer.sender.acknowledged, peer.since) < UNCONFIRMED_SEAT_TICKS)
+                    continue;
+                connection.close(1013, "Replication unacknowledged");
+                leave(connection);
+            }
+        }
+    }
+
     function tick() {
+        closeUnconfirmedSeats();
         for (const [app, { bots }] of active) {
             for (const bot of bots.values()) bot.input(app.world.time.fixedTick);
             app.world.tick();
