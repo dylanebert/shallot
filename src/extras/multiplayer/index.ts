@@ -347,7 +347,8 @@ const AckWindow = 32;
 const FastResend = 2;
 
 interface PendingFrame {
-    version: Version;
+    /** Tick of the state bytes was encoded against. */
+    base: number;
     bytes: Uint8Array;
     /** Tick of the latest send; -1 until first sent. */
     sent: number;
@@ -366,7 +367,8 @@ interface PendingFrame {
  * (fast retransmit) or after the retransmission timeout, which doubles after each timeout. The
  * timeout follows RFC 6298 from round trips of newly reported frames that were never retried
  * (Karn's rule), within the RTO bounds, so a reliable link resends almost nothing and a lossy
- * one still recovers. */
+ * one still recovers. A pending frame retains only its bytes; an acknowledgement decodes them
+ * against their base, as the receiver did, so the baseline is the receiver's state. */
 export class ReplicationSender {
     private _identities = new Map<EntityRef, number>();
     private _next = { value: 1 };
@@ -376,6 +378,10 @@ export class ReplicationSender {
         return this._acknowledged?.tick ?? -1;
     }
     private _pending = new Map<number, PendingFrame>();
+    /** Exactly the states some pending frame names as its base, plus the acknowledged state the
+     * next record encodes against; before the first acknowledgement, only the image. */
+    private _bases = new Map<number, ReplicatedRows>();
+    private readonly _layout: FieldType[][];
     private _last = -1;
     private _smoothed = -1;
     private _variance = 0;
@@ -397,6 +403,7 @@ export class ReplicationSender {
         this.rules = rules;
         this.recipient = recipient;
         this.connection = connection;
+        this._layout = layout(schema);
     }
     /** Include this recipient's accepted operations through tick. Inputs never enter frames.
      * commandAge is the server's smoothed tick minus newest received input tick, in fixed ticks;
@@ -418,20 +425,20 @@ export class ReplicationSender {
             this._next,
         );
         const image = this._last < 0;
-        const baseline = this._acknowledged;
         // Until the image is acknowledged subsequent frames use its rows, not an empty baseline.
-        const base = baseline ?? this._pending.values().next().value?.version;
+        if (image) this._bases.set(tick, rows);
+        const base = image ? tick : (this._acknowledged?.tick ?? this._bases.keys().next().value!);
         const packet = {
             tick,
             rows,
             image,
             intents: intents.filter((r) => r.kind === "operation" && r.tick <= tick),
             commandAge,
-            base: image ? tick : base!.tick,
+            base,
         };
-        const bytes = encode(packet, image ? new Map() : base!.rows, layout(this.schema));
+        const bytes = encode(packet, image ? new Map() : this._bases.get(base)!, this._layout);
         this._pending.set(tick, {
-            version: { tick, rows },
+            base,
             bytes,
             sent: -1,
             first: -1,
@@ -471,8 +478,13 @@ export class ReplicationSender {
             if (sample) this._sample(now - sample.sent);
             const frame = this._pending.get(tick);
             if (!frame) continue;
-            this._acknowledged = frame.version;
+            const rows = decode(frame.bytes, this._bases, this._layout).rows;
+            this._acknowledged = { tick, rows };
+            this._bases.set(tick, rows);
             for (const old of this._pending.keys()) if (old <= tick) this._pending.delete(old);
+            const named = new Set([tick]);
+            for (const pending of this._pending.values()) named.add(pending.base);
+            for (const old of this._bases.keys()) if (!named.has(old)) this._bases.delete(old);
         }
         // First sends of held frames, newest first. A frame is fast-resent once FastResend frames
         // first sent after its latest send are held, so it never fires on an in-order link that loses nothing.
