@@ -50,7 +50,8 @@ const commandUsage = {
 
   Build with the project's Vite config, preflight the target's limits, publish,
   wait until the upload is live and verify the public link anonymously with
-  Playwright. stdout is the stable play link; progress and verification go to
+  Playwright. Publish verification needs the page to start runApp without
+  interaction. stdout is the stable play link; progress and verification go to
   stderr. The target is saved in package.json's shallot.publish.
   Missing Wrangler or Playwright is added to devDependencies only when the
   project's nearest lockfile is bun.lock. Otherwise publish names the dependency

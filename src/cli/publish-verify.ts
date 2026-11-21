@@ -265,18 +265,35 @@ export async function verifyPublishedGame(
                 await page.goto(url, { waitUntil: "load", timeout: TIMEOUT.startup });
                 if (!(await page.evaluate(() => crossOriginIsolated)))
                     throw new Error("The published page is not cross-origin isolated.");
-                await page.waitForFunction(
-                    () => {
-                        const status = (window as unknown as { __shallotPublish: BrowserStartup })
-                            .__shallotPublish;
-                        return (
-                            status.artifact === "single" ||
-                            (status.started && status.adapter !== undefined)
-                        );
-                    },
-                    undefined,
-                    { timeout: startupTimeout },
-                );
+                await page
+                    .waitForFunction(
+                        () => {
+                            const status = (
+                                window as unknown as { __shallotPublish: BrowserStartup }
+                            ).__shallotPublish;
+                            return (
+                                status.artifact === "single" ||
+                                (status.started && status.adapter !== undefined)
+                            );
+                        },
+                        undefined,
+                        { timeout: startupTimeout },
+                    )
+                    .catch(async (error: unknown) => {
+                        if (error instanceof Error && error.name === "TimeoutError") {
+                            const started = await page.evaluate(
+                                () =>
+                                    (window as unknown as { __shallotPublish: BrowserStartup })
+                                        .__shallotPublish.started,
+                            );
+                            if (!started)
+                                throw new Error(
+                                    `The published page sent no shallot:startup app event within ${startupTimeout} ms. Publish verification needs the page to start runApp without interaction.`,
+                                    { cause: error },
+                                );
+                        }
+                        throw error;
+                    });
                 const status = await page.evaluate(
                     () =>
                         (window as unknown as { __shallotPublish: BrowserStartup })

@@ -88,7 +88,10 @@ for (const [fault, failure] of [
     ["wrong MIME", "game.js: expected application/javascript, got text/plain"],
     ["SPA fallback", "A missing path answered 200, not 404"],
     ["absent isolation", "The published page is not cross-origin isolated"],
-    ["no startup observation", `waitForFunction: Timeout ${TIMEOUT.cheap}ms exceeded`],
+    [
+        "no startup observation",
+        `The published page sent no shallot:startup app event within ${TIMEOUT.cheap} ms. Publish verification needs the page to start runApp without interaction.`,
+    ],
     [
         "single physics artifact before app startup",
         "Physics initialized the single artifact, not shared.",
