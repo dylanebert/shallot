@@ -5,6 +5,7 @@ import {
     entity,
     type FieldType,
     type Plugin,
+    type TypedArray,
     u32,
     type World,
 } from "../../engine";
@@ -665,7 +666,8 @@ export interface ReplicationConfirmation {
     apply: () => void;
 }
 
-class FrameApplyError extends Error {}
+type PreparedRows = Map<ReplicatedValue[], (TypedArray | undefined)[]>;
+type PreparedPacket = Packet & { prepared?: PreparedRows };
 
 /** Ordered confirmations, including the initial image. Application callbacks may retain rows but not mutate them. */
 export class ReplicationReceiver {
@@ -681,6 +683,8 @@ export class ReplicationReceiver {
     private readonly _start: number;
     private _generation?: number;
     private readonly _layout: FieldType[][];
+    private readonly _fields: ReturnType<typeof fields>[];
+    private readonly _needsPreparation: boolean;
     readonly world: World;
     readonly schema: ReplicationSchema;
     readonly connection: Connection;
@@ -713,6 +717,10 @@ export class ReplicationReceiver {
         this.world = world;
         this.schema = schema;
         this._layout = layout(schema);
+        this._fields = schema.map(fields);
+        this._needsPreparation = this._fields.some((component) =>
+            component.some(({ field }) => field.encode || field.byteCapacity !== undefined),
+        );
         this.connection = connection;
         this.confirm = confirm;
         this.reconcile = reconcile;
@@ -732,6 +740,7 @@ export class ReplicationReceiver {
         const generation = this.connection.generation;
         if (this._generation !== generation) {
             this._generation = generation;
+            this._ackTick = -1;
             this.confirmed = -1;
             this._newest = -1;
             this._pending.clear();
@@ -741,7 +750,7 @@ export class ReplicationReceiver {
         const previous = this.confirmed;
         const latestOnly = confirmations === "latest";
         const unhandled: Uint8Array[] = [];
-        let latest: Packet | undefined;
+        let latest: PreparedPacket | undefined;
         let decoded = this.confirmed;
         let failure: Error | undefined;
         const preceding: ReplicationConfirmation[] = [];
@@ -771,21 +780,18 @@ export class ReplicationReceiver {
         for (let frame = this._nextFrame(decoded); frame; frame = this._nextFrame(decoded)) {
             const { tick } = frame;
             const baseline = frame.image ? undefined : this._versions.get(frame.base);
-            let rows: ReplicatedRows;
+            let packet: PreparedPacket;
             try {
-                rows = applyFrame(frame, baseline, this._layout);
+                const rows = applyFrame(frame, baseline, this._layout);
+                const prepared = this._needsPreparation ? this._prepare(rows) : undefined;
+                packet = { ...frame, rows, prepared };
             } catch (cause) {
-                failure ??= new Error(`Could not interpret replication tick ${tick}`, { cause });
+                failure ??= new Error(`Could not prepare replication tick ${tick}`, { cause });
                 break;
             }
-            const packet = { ...frame, rows };
             if (packet.commandAge !== undefined) this.onCommandAge(tick, packet.commandAge);
             if (!latestOnly) {
-                const error = this._reconcile(packet, []);
-                if (error) {
-                    failure ??= error;
-                    break;
-                }
+                this.reconcile(tick, packet.rows, packet.intents, () => this._apply(packet), []);
             } else if (latest) {
                 const previous = latest;
                 preceding.push({
@@ -810,9 +816,15 @@ export class ReplicationReceiver {
             if (!latestOnly) this.confirm(tick, packet.rows);
         }
         if (latestOnly && latest) {
-            const error = this._reconcile(latest, preceding);
-            if (error) failure ??= error;
-            else this.confirm(latest.tick, latest.rows);
+            const packet = latest;
+            this.reconcile(
+                packet.tick,
+                packet.rows,
+                packet.intents,
+                () => this._apply(packet),
+                preceding,
+            );
+            this.confirm(packet.tick, packet.rows);
         }
         if (failure) {
             this._pending.clear();
@@ -880,32 +892,37 @@ export class ReplicationReceiver {
         }
         return image;
     }
-    private _reconcile(
-        packet: Packet,
-        preceding: readonly ReplicationConfirmation[],
-    ): FrameApplyError | undefined {
-        try {
-            this.reconcile(
-                packet.tick,
-                packet.rows,
-                packet.intents,
-                () => this._apply(packet),
-                preceding,
-            );
-        } catch (error) {
-            if (!(error instanceof FrameApplyError)) throw error;
-            return error;
-        }
-    }
-    private _apply(packet: Packet): void {
-        try {
-            this._write(packet.rows);
-        } catch (cause) {
-            throw new FrameApplyError(`Could not apply replication tick ${packet.tick}`, { cause });
-        }
+    private _apply(packet: PreparedPacket): void {
+        this._write(packet.rows, packet.prepared);
         this.confirmed = packet.tick;
     }
-    private _write(rows: ReplicatedRows) {
+    /** Fallible field conversions finish before creating, destroying or writing any entity. */
+    private _prepare(rows: ReplicatedRows): PreparedRows {
+        const prepared: PreparedRows = new Map();
+        for (const row of rows.values()) {
+            for (const [index, values] of row) {
+                let encoded: (TypedArray | undefined)[] | undefined;
+                let lane = 0;
+                for (const { field } of this._fields[index]!) {
+                    if (field.byteCapacity !== undefined) {
+                        const text = encodeText(values[lane] as string, field.byteCapacity);
+                        const storage = new Uint8Array(field.lanes);
+                        writeText(new DataView(storage.buffer), 0, text);
+                        (encoded ??= [])[lane] = storage;
+                    } else if (field.encode) {
+                        const storage = new field.ctor(field.lanes);
+                        for (let i = 0; i < field.lanes; i++)
+                            storage[i] = field.encode((values[lane + i] as number) ?? 0);
+                        (encoded ??= [])[lane] = storage;
+                    }
+                    lane += wireLanes(field);
+                }
+                if (encoded) prepared.set(values, encoded);
+            }
+        }
+        return prepared;
+    }
+    private _write(rows: ReplicatedRows, prepared?: PreparedRows) {
         for (const [id, eid] of this.entities)
             if (!rows.has(id)) {
                 this.world.destroy(eid);
@@ -921,19 +938,40 @@ export class ReplicationReceiver {
                     this.world.remove(eid, c);
                     return;
                 }
-                if (!this.world.has(eid, c)) this.world.add(eid, c);
-                const storage = this.world.storage(c) as Record<
-                    string,
-                    { set(eid: number, ...values: ReplicatedValue[]): void }
-                >;
-                let lane = 0;
-                for (const { name, field } of fields(c)) {
-                    const value = values.slice(lane, lane + wireLanes(field));
-                    lane += value.length;
-                    if (field === entity) value[0] = this.entities.get(value[0] as number) ?? 0;
-                    storage[name]!.set(eid, ...value);
-                }
+                const encoded = prepared?.get(values);
+                if (this.world.has(eid, c)) this._writeComponent(eid, index, values, encoded);
+                else
+                    this.world.addPrepared(eid, c, () =>
+                        this._writeComponent(eid, index, values, encoded),
+                    );
             });
+        }
+    }
+    private _writeComponent(
+        eid: number,
+        index: number,
+        values: ReplicatedValue[],
+        encoded: (TypedArray | undefined)[] | undefined,
+    ): void {
+        const component = this.schema[index]!;
+        const storage = this.world.storage(component) as Record<
+            string,
+            { set(eid: number, ...values: ReplicatedValue[]): void }
+        >;
+        let lane = 0;
+        for (const { name, field } of this._fields[index]!) {
+            const raw = encoded?.[lane];
+            const width = wireLanes(field);
+            if (raw) {
+                const column = this.world.fieldStorage(component, name);
+                column.markChanged(eid);
+                column.column.set(raw, eid * field.lanes);
+            } else if (field === entity) {
+                storage[name]!.set(eid, this.entities.get(values[lane] as number) ?? 0);
+            } else {
+                storage[name]!.set(eid, ...values.slice(lane, lane + width));
+            }
+            lane += width;
         }
     }
 }

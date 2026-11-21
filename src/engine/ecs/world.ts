@@ -921,13 +921,30 @@ export class World {
      * attachment. Every write goes through field setters, publishing changes.
      */
     add<T>(eid: number, component: T, values?: ComponentValues<NoInfer<T>>): void {
-        const storage = this.storage(component as Component);
+        this._add(eid, component as Component, values);
+    }
+
+    /** @internal Attach with all field values already validated. Skips component defaults. */
+    addPrepared(eid: number, component: Component, write: () => void): void {
+        this._add(eid, component, undefined, write);
+    }
+
+    private _add(
+        eid: number,
+        component: Component,
+        values?: Record<string, unknown>,
+        write?: () => void,
+    ): void {
+        const storage = this.storage(component);
         const id = idOf(component as Component);
         const fields = this._storage.get(id)!.fields;
         if (!this._components.add(eid, component)) {
             for (const field of fields.values()) field.clear(eid);
-            this.registry.applyDefaults(this, component as Component, eid, values);
-            if (values) writeValues(storage, eid, values);
+            if (write) write();
+            else {
+                this.registry.applyDefaults(this, component, eid, values);
+                if (values) writeValues(storage, eid, values);
+            }
             return;
         }
         for (const field of fields.values()) field.ensure(eid + 1);
@@ -952,8 +969,11 @@ export class World {
         }
         this._queries.onComponentChanged(id, eid, this._components);
         try {
-            this.registry.applyDefaults(this, component as Component, eid, values);
-            if (values) writeValues(storage, eid, values);
+            if (write) write();
+            else {
+                this.registry.applyDefaults(this, component, eid, values);
+                if (values) writeValues(storage, eid, values);
+            }
             for (const required of this.registry.getRequirements(component as Component)) {
                 if (!this._components.has(eid, required)) this.add(eid, required);
             }
