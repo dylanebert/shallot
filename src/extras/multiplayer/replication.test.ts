@@ -8,6 +8,8 @@ import {
     seededLink,
 } from ".";
 
+import { encodeIntent, IntentMessageKind } from "./intent";
+
 const Position = component("NetworkTestPosition", { value: vec3, count: u32 });
 const Target = component("NetworkTestTarget", { target: entity });
 const Secret = component("NetworkTestSecret", { value: f32 });
@@ -314,7 +316,7 @@ test("input before the image cannot acknowledge an unconfirmed tick", () => {
         const unhandled = sender.flush();
         expect(unhandled).toContainEqual(legacyInput);
         expect(unhandled).toContainEqual(input);
-        const operation = new Uint8Array([5, 0, 0, 0, 42]);
+        const operation = encodeIntent(IntentMessageKind.Accepted, [], 42);
         link.a.send(operation);
         expect(receiver.flush()).toEqual([operation]);
         expect(receiver.confirmed).toBe(0);

@@ -1,7 +1,12 @@
 import { Time } from "../../engine";
 import { encodeText, readText, writeText } from "../../engine/ecs/utf8";
 import { transportClock } from "./diagnostics";
-import { type Connection, MAX_MESSAGE_BYTES } from "./link";
+import {
+    type Connection,
+    failServerConnection,
+    MAX_MESSAGE_BYTES,
+    serverConnectionFailed,
+} from "./link";
 
 type TimedConnection = Connection & { [transportClock]?: () => number };
 
@@ -131,9 +136,27 @@ function operationSize(values: readonly number[], text?: Uint8Array): number {
     return 24 + values.length * 8 + (text === undefined ? 0 : 2 + text.length);
 }
 
-/** Cumulative ID resolved by acceptance or refusal. Call after decoding the packet. */
-export function intentWatermark(bytes: Uint8Array): number {
-    return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(8, true);
+/** @internal Recognize the kind even when the body is truncated. */
+export function isAccepted(bytes: Uint8Array): boolean {
+    return (
+        bytes.length >= 4 &&
+        new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0, true) ===
+            IntentMessageKind.Accepted
+    );
+}
+
+/** @internal Read accepted operations and the cumulative resolved ID. */
+export function decodeAccepted(bytes: Uint8Array): {
+    records: AcceptedIntent[];
+    watermark: number;
+} {
+    if (!isAccepted(bytes)) throw new Error("Expected accepted operations");
+    const records = decodeIntent(bytes);
+    const watermark = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(
+        8,
+        true,
+    );
+    return { records, watermark };
 }
 
 export function decodeIntent(bytes: Uint8Array): AcceptedIntent[] {
@@ -385,21 +408,26 @@ export class IntentSender {
     }
     /** Route messages returned by ReplicationReceiver.flush here; resolved records stop repeating. */
     flush(messages: readonly Uint8Array[] = []): Uint8Array[] {
+        if (serverConnectionFailed(this.connection)) return [];
         const unhandled: Uint8Array[] = [];
         for (const bytes of messages) {
-            if (
-                bytes.length < 8 ||
-                new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(
-                    0,
-                    true,
-                ) !== IntentMessageKind.Accepted
-            ) {
+            if (!isAccepted(bytes)) {
                 unhandled.push(bytes);
                 continue;
             }
-            for (const record of decodeIntent(bytes)) this.records.delete(record.id);
-            const watermark = intentWatermark(bytes);
-            for (const id of this.records.keys()) if (id <= watermark) this.records.delete(id);
+            let accepted: ReturnType<typeof decodeAccepted>;
+            try {
+                accepted = decodeAccepted(bytes);
+            } catch (error) {
+                failServerConnection(
+                    this.connection,
+                    new Error("Could not decode server message", { cause: error }),
+                );
+                return [];
+            }
+            for (const record of accepted.records) this.records.delete(record.id);
+            for (const id of this.records.keys())
+                if (id <= accepted.watermark) this.records.delete(id);
         }
         if (this._inputDirty) {
             const inputs = [...this.inputs.values()];

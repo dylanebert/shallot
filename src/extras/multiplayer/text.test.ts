@@ -5,6 +5,7 @@ import {
     IntentSender,
     MAX_MESSAGE_BYTES,
     Replicate,
+    ReplicationMessageKind,
     ReplicationReceiver,
     ReplicationSender,
     seededLink,
@@ -80,7 +81,7 @@ for (const defect of ["invalid UTF-8", "over-capacity text", "truncated frame"] 
         const eid = server.create();
         server.add(eid, WiderLabel, { text: "initial", count: 9 });
         server.add(eid, Replicate);
-        const { a, b } = link();
+        const { a, b, advance } = link();
         const sender = new ReplicationSender(
             server,
             [WiderLabel],
@@ -118,9 +119,12 @@ for (const defect of ["invalid UTF-8", "over-capacity text", "truncated frame"] 
         field.set(eid, defect === "over-capacity text" ? "123456789" : "a");
         sender.record(3);
         sender.flush();
-        for (const frame of b.receive()) {
+        const tickOf = (bytes: Uint8Array) => new DataView(bytes.buffer).getUint32(8, true);
+        for (const frame of b.receive().sort((a, b) => tickOf(a) - tickOf(b))) {
             const view = new DataView(frame.buffer);
-            if (view.getUint32(8, true) !== 3) {
+            const tick = tickOf(frame);
+            advance(tick);
+            if (tick !== 3) {
                 a.send(frame);
                 continue;
             }
@@ -143,6 +147,74 @@ for (const defect of ["invalid UTF-8", "over-capacity text", "truncated frame"] 
         server.dispose();
     });
 }
+
+for (const mode of ["all", "latest"] as const) {
+    for (const defect of ["header-only first frame", "invalid standalone Accepted"] as const) {
+        test(`${mode}: ${defect} is refused before queueing or forwarding`, () => {
+            const server = new World();
+            const client = new World();
+            const { a, b } = link();
+            const errors: Error[] = [];
+            let closes = 0;
+            const connection = {
+                ...b,
+                close() {
+                    closes++;
+                    b.close();
+                },
+                onError(error: Error) {
+                    errors.push(error);
+                },
+            };
+            const receiver = new ReplicationReceiver(client, [Label], connection);
+            const intent = new IntentSender(connection);
+            if (defect === "header-only first frame") {
+                const header = new Uint8Array(12);
+                new DataView(header.buffer).setUint32(0, ReplicationMessageKind.Frame, true);
+                a.send(header);
+                receiver.flush(mode);
+                const sender = new ReplicationSender(server, [Label], [], 1, a);
+                sender.record(1);
+                sender.flush();
+            } else {
+                const accepted = encodeIntent(IntentMessageKind.Accepted, [
+                    { id: 1, tick: 0, kind: "operation", values: [], text: "a" },
+                ]);
+                accepted[accepted.length - 1] = 0xff;
+                a.send(accepted);
+                const messages = receiver.flush(mode);
+                expect(messages).toEqual([]);
+                expect(() => intent.flush(messages)).not.toThrow();
+            }
+            expect(receiver.flush(mode)).toEqual([]);
+            expect(receiver.confirmed).toBe(-1);
+            expect(b.closed).toBe(true);
+            expect(closes).toBe(1);
+            expect(errors).toHaveLength(1);
+            server.dispose();
+            client.dispose();
+        });
+    }
+}
+
+test("IntentSender rejects malformed Accepted when called without a receiver", () => {
+    const { a, b } = link();
+    const errors: Error[] = [];
+    const connection = { ...b, onError: (error: Error) => errors.push(error) };
+    const intent = new IntentSender(connection);
+    const record = intent.record(0, "operation", []);
+    const accepted = encodeIntent(
+        IntentMessageKind.Accepted,
+        [{ ...record, text: "a" }],
+        record.id,
+    );
+    accepted[accepted.length - 1] = 0xff;
+    for (let i = 0; i < 2; i++) expect(intent.flush([accepted])).toEqual([]);
+    expect(intent.records.has(record.id)).toBe(true);
+    expect(a.closed).toBe(true);
+    expect(errors).toHaveLength(1);
+    expect(a.receive()).toEqual([]);
+});
 
 test("operation text is byte-bounded, validates at ingress and counts toward upstream pacing", () => {
     const { a, b } = link();

@@ -43,9 +43,10 @@ export {
 export { RoomBots } from "./room-host";
 export { WebSocketConnection } from "./websocket";
 
-import { networkDiagnostics } from "./diagnostics";
-import { type AcceptedIntent, decodeIntent, encodeIntent, IntentMessageKind } from "./intent";
+import { diagnosticKind, networkDiagnostics } from "./diagnostics";
+import { type AcceptedIntent, decodeAccepted, encodeIntent, IntentMessageKind } from "./intent";
 import type { Connection } from "./link";
+import { failServerConnection, serverConnectionFailed } from "./link";
 import { PredictionRecording } from "./recording-hooks";
 
 export {
@@ -287,11 +288,11 @@ function encode(packet: Packet, base: ReplicatedRows, types: FieldType[][]): Uin
     return bytes;
 }
 
-function decode(
-    bytes: Uint8Array,
-    versions: Map<number, ReplicatedRows>,
-    types: FieldType[][],
-): Packet {
+type Changes = Map<number, Map<number, ReplicatedValue[] | null> | null>;
+type DecodedFrame = Omit<Packet, "rows"> & { changes: Changes };
+
+/** Decode independently of the baseline: an early or out-of-order frame must already be valid. */
+function decodeFrame(bytes: Uint8Array, types: FieldType[][]): DecodedFrame {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     const kind = view.getUint32(0, true);
     const count = view.getUint32(4, true);
@@ -309,30 +310,26 @@ function decode(
     const commandAge = age === 0x80000000 ? undefined : (age | 0) / 256;
     if (kind !== ReplicationMessageKind.Image && kind !== ReplicationMessageKind.Frame)
         throw new Error("Invalid replication packet");
-    const baseline = kind === ReplicationMessageKind.Image ? new Map() : versions.get(base);
-    if (!baseline) throw new Error("Missing replication baseline");
-    const rows: ReplicatedRows = new Map(baseline);
+    const updates: Changes = new Map();
     for (let e = 0; e < entities; e++) {
         const id = word(),
             components = word();
         if (components === Removed) {
-            rows.delete(id);
+            updates.set(id, null);
             continue;
         }
-        const row = new Map<number, ReplicatedValue[]>(baseline.get(id));
+        const row = new Map<number, ReplicatedValue[] | null>();
         for (let c = 0; c < components; c++) {
             const index = word(),
                 changes = word();
             const componentTypes = types[index];
             if (componentTypes === undefined) throw new Error("Unknown replicated component");
             if (changes === Removed) {
-                row.delete(index);
+                row.set(index, null);
                 continue;
             }
             const size = componentTypes.length;
-            const values =
-                baseline.get(id)?.get(index)?.slice() ??
-                componentTypes.map((field) => (field.byteCapacity === undefined ? 0 : ""));
+            const values: ReplicatedValue[] = [];
             for (let f = 0; f < changes; f++) {
                 const lane = word();
                 if (lane >= size) throw new Error("Invalid replicated field");
@@ -347,12 +344,62 @@ function decode(
             }
             row.set(index, values);
         }
-        rows.set(id, row);
+        updates.set(id, row);
     }
     if (offset !== 4 + count * 4 || valueOffset > bytes.length)
         throw new Error("Invalid replication size");
-    const intents = valueOffset < bytes.length ? decodeIntent(bytes.subarray(valueOffset)) : [];
-    return { tick, base, rows, intents, commandAge, image: kind === ReplicationMessageKind.Image };
+    const intents =
+        valueOffset < bytes.length ? decodeAccepted(bytes.subarray(valueOffset)).records : [];
+    return {
+        tick,
+        base,
+        changes: updates,
+        intents,
+        commandAge,
+        image: kind === ReplicationMessageKind.Image,
+    };
+}
+
+function applyFrame(
+    frame: DecodedFrame,
+    baseline: ReplicatedRows | undefined,
+    types: FieldType[][],
+): ReplicatedRows {
+    const rows: ReplicatedRows = new Map(baseline);
+    for (const [id, updates] of frame.changes) {
+        if (updates === null) {
+            rows.delete(id);
+            continue;
+        }
+        const previous = baseline?.get(id);
+        const row = new Map(previous);
+        for (const [index, changes] of updates) {
+            if (changes === null) {
+                row.delete(index);
+                continue;
+            }
+            const before = previous?.get(index);
+            row.set(
+                index,
+                types[index]!.map(
+                    (field, lane) =>
+                        changes[lane] ??
+                        before?.[lane] ??
+                        (field.byteCapacity === undefined ? 0 : ""),
+                ),
+            );
+        }
+        rows.set(id, row);
+    }
+    return rows;
+}
+
+function decodeServerMessage(bytes: Uint8Array, types: FieldType[][]): DecodedFrame | undefined {
+    if (diagnosticKind(bytes)) return;
+    const kind = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0, true);
+    if (kind === ReplicationMessageKind.Image || kind === ReplicationMessageKind.Frame)
+        return decodeFrame(bytes, types);
+    decodeAccepted(bytes);
 }
 
 /** Retransmission timeout bounds in ticks of `Time.FIXED_DT` (1/60 s). The initial timeout is
@@ -499,7 +546,12 @@ export class ReplicationSender {
             if (sample) this._sample(now - sample.sent);
             const frame = this._pending.get(tick);
             if (!frame) continue;
-            const rows = decode(frame.bytes, this._bases, this._layout).rows;
+            const decoded = decodeFrame(frame.bytes, this._layout);
+            const rows = applyFrame(
+                decoded,
+                decoded.image ? undefined : this._bases.get(decoded.base),
+                this._layout,
+            );
             this._acknowledged = { tick, rows };
             this._bases.set(tick, rows);
             for (const old of this._pending.keys()) if (old <= tick) this._pending.delete(old);
@@ -562,12 +614,12 @@ export class ReplicationReceiver {
     onCommandAge: (tick: number, age: number) => void = () => {};
     readonly entities = new Map<number, number>();
     private _versions = new Map<number, ReplicatedRows>();
-    private _pending = new Map<number, Uint8Array>();
+    private _pending = new Map<number, DecodedFrame>();
     private _newest = -1;
     private _ackTick: number;
     private readonly _start: number;
     private _generation?: number;
-    private _failed = false;
+    private readonly _layout: FieldType[][];
     readonly world: World;
     readonly schema: ReplicationSchema;
     readonly connection: Connection;
@@ -599,6 +651,7 @@ export class ReplicationReceiver {
     ) {
         this.world = world;
         this.schema = schema;
+        this._layout = layout(schema);
         this.connection = connection;
         this.confirm = confirm;
         this.reconcile = reconcile;
@@ -609,11 +662,12 @@ export class ReplicationReceiver {
      * "latest" reconciles once, passing preceding ordered states to that callback. It must
      * deliver their intents and apply each before the latest state. Every applied state
      * still notifies confirm, so only recovery/replay work is coalesced, not observations.
-     * An undecodable replication packet closes the connection after applying the valid prefix.
+     * Validates server messages before queueing or routing them. A refusal closes the connection
+     * after applying the contiguous state already validated in this drain.
      * Acknowledges once per fixed tick of its World, or, while that World has not ticked, once
      * per drain that received a replication packet; never per call. */
     flush(confirmations: "all" | "latest" = "all"): Uint8Array[] {
-        if (this._failed) return [];
+        if (serverConnectionFailed(this.connection)) return [];
         const generation = this.connection.generation;
         if (this._generation !== generation) {
             this._generation = generation;
@@ -625,43 +679,37 @@ export class ReplicationReceiver {
         const previous = this.confirmed;
         const latestOnly = confirmations === "latest";
         const unhandled: Uint8Array[] = [];
-        let latest: ReturnType<typeof decode> | undefined;
+        let latest: Packet | undefined;
         let decoded = this.confirmed;
         let failure: Error | undefined;
         const preceding: ReplicationConfirmation[] = [];
         let arrived = false;
         for (const bytes of this.connection.receive()) {
-            const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-            const kind = bytes.length >= 4 ? view.getUint32(0, true) : 0;
-            if (kind !== ReplicationMessageKind.Image && kind !== ReplicationMessageKind.Frame) {
+            let frame: DecodedFrame | undefined;
+            try {
+                frame = decodeServerMessage(bytes, this._layout);
+            } catch (error) {
+                failure = new Error("Could not decode server message", { cause: error });
+                break;
+            }
+            if (!frame) {
                 unhandled.push(bytes);
                 continue;
             }
-            if (bytes.length < 12) {
-                failure = new Error("Truncated replication header");
-                break;
-            }
             arrived = true;
-            const tick = view.getUint32(8, true);
-            this._newest = Math.max(this._newest, tick);
-            if (tick <= this.confirmed) continue;
-            this._pending.set(tick, bytes);
+            this._newest = Math.max(this._newest, frame.tick);
+            if (frame.tick > this.confirmed) this._pending.set(frame.tick, frame);
         }
         while (this._pending.size) {
             const tick = decoded < 0 ? Math.min(...this._pending.keys()) : decoded + 1;
-            const bytes = this._pending.get(tick);
-            if (!bytes) break;
-            const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-            if (decoded < 0 && view.getUint32(0, true) !== ReplicationMessageKind.Image) break;
-            let packet: Packet;
-            try {
-                packet = decode(bytes, this._versions, layout(this.schema));
-            } catch (error) {
-                failure = new Error(`Could not decode replication at tick ${tick}`, {
-                    cause: error,
-                });
+            const frame = this._pending.get(tick);
+            if (!frame || (decoded < 0 && !frame.image)) break;
+            const baseline = frame.image ? undefined : this._versions.get(frame.base);
+            if (!frame.image && !baseline) {
+                failure ??= new Error(`Missing replication baseline at tick ${tick}`);
                 break;
             }
+            const packet = { ...frame, rows: applyFrame(frame, baseline, this._layout) };
             if (packet.commandAge !== undefined) this.onCommandAge(tick, packet.commandAge);
             if (!latestOnly)
                 this.reconcile(tick, packet.rows, packet.intents, () => this._apply(packet), []);
@@ -696,11 +744,9 @@ export class ReplicationReceiver {
             this.confirm(packet.tick, packet.rows);
         }
         if (failure) {
-            this._failed = true;
             this._pending.clear();
             this._versions.clear();
-            this.connection.close();
-            this.connection.onError?.(failure);
+            failServerConnection(this.connection, failure);
             return [];
         }
         if (this.confirmed > previous && typeof window !== "undefined")

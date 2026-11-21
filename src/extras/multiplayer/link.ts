@@ -21,6 +21,21 @@ export interface Connection {
     receive(): Uint8Array[];
 }
 
+const failedServerConnections = new WeakSet<Connection>();
+
+/** @internal A protocol failure is terminal, including on reconnectable transports. */
+export function serverConnectionFailed(connection: Connection): boolean {
+    return failedServerConnections.has(connection);
+}
+
+/** @internal Close and report a server protocol failure at most once. */
+export function failServerConnection(connection: Connection, error: Error): void {
+    if (serverConnectionFailed(connection)) return;
+    failedServerConnections.add(connection);
+    connection.close();
+    connection.onError?.(error);
+}
+
 export interface LinkFaults {
     /** Delay in caller-supplied clock units. */
     minDelay: number;

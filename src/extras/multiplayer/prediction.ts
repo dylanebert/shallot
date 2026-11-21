@@ -28,11 +28,10 @@ import {
 import { type ReplicationConfirmation, ReplicationReceiver, type ReplicationSchema } from ".";
 import {
     type AcceptedIntent,
-    decodeIntent,
+    decodeAccepted,
     type InputRecord,
-    IntentMessageKind,
     type IntentRecord,
-    intentWatermark,
+    isAccepted,
     type OperationRecord,
 } from "./intent";
 import {
@@ -250,15 +249,11 @@ export class ClientPrediction {
         work.finish = () => this._finish();
         work.confirm = () => {
             const messages = this.receiver.flush("latest");
-            for (const bytes of messages)
-                if (
-                    bytes.length >= 8 &&
-                    new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(
-                        0,
-                        true,
-                    ) === IntentMessageKind.Accepted
-                )
-                    this.accept(decodeIntent(bytes), intentWatermark(bytes));
+            for (const bytes of messages) {
+                if (!isAccepted(bytes)) continue;
+                const { records, watermark } = decodeAccepted(bytes);
+                this.accept(records, watermark);
+            }
             this.onMessages(messages);
             const lead = world.time.fixedTick + world.time.fixedAlpha - this._confirmedTick;
             const scale = Math.max(0.8, Math.min(1.5, 1 + (this._lead - lead) * 0.1));
