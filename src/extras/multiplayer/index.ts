@@ -567,6 +567,7 @@ export class ReplicationReceiver {
     private _ackTick: number;
     private readonly _start: number;
     private _generation?: number;
+    private _failed = false;
     readonly world: World;
     readonly schema: ReplicationSchema;
     readonly connection: Connection;
@@ -608,9 +609,11 @@ export class ReplicationReceiver {
      * "latest" reconciles once, passing preceding ordered states to that callback. It must
      * deliver their intents and apply each before the latest state. Every applied state
      * still notifies confirm, so only recovery/replay work is coalesced, not observations.
+     * An undecodable replication packet closes the connection after applying the valid prefix.
      * Acknowledges once per fixed tick of its World, or, while that World has not ticked, once
      * per drain that received a replication packet; never per call. */
     flush(confirmations: "all" | "latest" = "all"): Uint8Array[] {
+        if (this._failed) return [];
         const generation = this.connection.generation;
         if (this._generation !== generation) {
             this._generation = generation;
@@ -623,7 +626,8 @@ export class ReplicationReceiver {
         const latestOnly = confirmations === "latest";
         const unhandled: Uint8Array[] = [];
         let latest: ReturnType<typeof decode> | undefined;
-        let latestTick = -1;
+        let decoded = this.confirmed;
+        let failure: Error | undefined;
         const preceding: ReplicationConfirmation[] = [];
         let arrived = false;
         for (const bytes of this.connection.receive()) {
@@ -633,7 +637,10 @@ export class ReplicationReceiver {
                 unhandled.push(bytes);
                 continue;
             }
-            if (bytes.length < 24) throw new Error("Truncated replication packet");
+            if (bytes.length < 12) {
+                failure = new Error("Truncated replication header");
+                break;
+            }
             arrived = true;
             const tick = view.getUint32(8, true);
             this._newest = Math.max(this._newest, tick);
@@ -641,54 +648,60 @@ export class ReplicationReceiver {
             this._pending.set(tick, bytes);
         }
         while (this._pending.size) {
-            const tick =
-                this.confirmed < 0 ? Math.min(...this._pending.keys()) : this.confirmed + 1;
+            const tick = decoded < 0 ? Math.min(...this._pending.keys()) : decoded + 1;
             const bytes = this._pending.get(tick);
             if (!bytes) break;
             const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-            if (this.confirmed < 0 && view.getUint32(0, true) !== ReplicationMessageKind.Image)
+            if (decoded < 0 && view.getUint32(0, true) !== ReplicationMessageKind.Image) break;
+            let packet: Packet;
+            try {
+                packet = decode(bytes, this._versions, layout(this.schema));
+            } catch (error) {
+                failure = new Error(`Could not decode replication at tick ${tick}`, {
+                    cause: error,
+                });
                 break;
-            const packet = decode(bytes, this._versions, layout(this.schema));
+            }
             if (packet.commandAge !== undefined) this.onCommandAge(tick, packet.commandAge);
             if (!latestOnly)
-                this.reconcile(
-                    tick,
-                    packet.rows,
-                    packet.intents,
-                    () => this._write(packet.rows),
-                    [],
-                );
+                this.reconcile(tick, packet.rows, packet.intents, () => this._apply(packet), []);
             else if (latest) {
                 const previous = latest;
-                const previousTick = latestTick;
                 preceding.push({
-                    tick: previousTick,
+                    tick: previous.tick,
                     intents: previous.intents,
                     apply: () => {
-                        this._write(previous.rows);
-                        this.confirm(previousTick, previous.rows);
+                        this._apply(previous);
+                        this.confirm(previous.tick, previous.rows);
                     },
                 });
             }
             latest = packet;
-            latestTick = tick;
+            decoded = tick;
             this._versions.set(tick, packet.rows);
             for (const old of this._versions.keys())
                 if (old < packet.base) this._versions.delete(old);
-            this.confirmed = tick;
             this._pending.delete(tick);
             if (!latestOnly) this.confirm(tick, packet.rows);
         }
         if (latestOnly && latest) {
             const packet = latest;
             this.reconcile(
-                latestTick,
+                packet.tick,
                 packet.rows,
                 packet.intents,
-                () => this._write(packet.rows),
+                () => this._apply(packet),
                 preceding,
             );
-            this.confirm(latestTick, packet.rows);
+            this.confirm(packet.tick, packet.rows);
+        }
+        if (failure) {
+            this._failed = true;
+            this._pending.clear();
+            this._versions.clear();
+            this.connection.close();
+            this.connection.onError?.(failure);
+            return [];
         }
         if (this.confirmed > previous && typeof window !== "undefined")
             reportStartup({
@@ -719,6 +732,10 @@ export class ReplicationReceiver {
             Math.max(0, this._newest - this.confirmed),
         );
         return unhandled;
+    }
+    private _apply(packet: Packet): void {
+        this._write(packet.rows);
+        this.confirmed = packet.tick;
     }
     private _write(rows: ReplicatedRows) {
         for (const [id, eid] of this.entities)

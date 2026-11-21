@@ -15,6 +15,8 @@ export interface Connection {
     /** Idempotent, non-throwing release: close the transport, discard queued bytes and refuse
      * future delivery. Closing either end of a seeded link closes both ends. */
     close(): void;
+    /** Reports a terminal protocol error after the receiver closes this connection. */
+    onError?(error: Error): void;
     send(bytes: Uint8Array): void;
     receive(): Uint8Array[];
 }

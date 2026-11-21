@@ -33,8 +33,14 @@ test("bounded text columns restore and replicate whole UTF-8 values alongside nu
     server.add(eid, Replicate);
     const field = server.storage(Label).text;
     const saved = server.snapshot();
+    const row = () => [
+        ...server.fieldStorage(Label, "text").column.slice(eid * 10, (eid + 1) * 10),
+    ];
+    const original = [8, 0, 0xef, 0xbb, 0xbf, 0, 0xf0, 0x9f, 0x90, 0x9f];
+    expect(row()).toEqual(original);
     field.set(eid, "a");
     expect(field.get(eid)).toBe("a");
+    expect(row()).toEqual([1, 0, 97, 0, 0, 0, 0, 0, 0, 0]);
     expect(() => field.set(eid, `${exact}!`)).toThrow();
     expect(() => field.set(eid, "\ud800")).toThrow();
     expect(field.get(eid)).toBe("a");
@@ -42,6 +48,7 @@ test("bounded text columns restore and replicate whole UTF-8 values alongside nu
     expect(field.get(eid)).toBe("");
     server.restore(saved);
     expect(server.get(eid, Label)).toEqual({ text: exact, count: 9 });
+    expect(row()).toEqual(original);
 
     const { a, b } = link();
     const sender = new ReplicationSender(server, [Label], [new Map([[1, [Label]]])], 1, a);
@@ -50,17 +57,6 @@ test("bounded text columns restore and replicate whole UTF-8 values alongside nu
     sender.flush();
     const [image] = b.receive();
     expect(image).toBeDefined();
-    const valueOffset = 4 + new DataView(image!.buffer).getUint32(4, true) * 4;
-    for (const [offset, bad] of [
-        [valueOffset, 9],
-        [valueOffset + 2, 0xff],
-    ] as const) {
-        const malformed = image!.slice();
-        malformed[offset] = bad;
-        const isolated = link();
-        isolated.a.send(malformed);
-        expect(() => new ReplicationReceiver(client, [Label], isolated.b).flush()).toThrow();
-    }
     a.send(image!);
     receiver.flush();
     const remote = [...receiver.entities.values()][0]!;
@@ -74,6 +70,79 @@ test("bounded text columns restore and replicate whole UTF-8 values alongside nu
     client.dispose();
     server.dispose();
 });
+
+const WiderLabel = component("WiderTextLabel", { text: text(9), count: u8 });
+
+for (const defect of ["invalid UTF-8", "over-capacity text", "truncated frame"] as const) {
+    test(`${defect} closes the receiver once without confirming unapplied state`, () => {
+        const server = new World();
+        const client = new World();
+        const eid = server.create();
+        server.add(eid, WiderLabel, { text: "initial", count: 9 });
+        server.add(eid, Replicate);
+        const { a, b } = link();
+        const sender = new ReplicationSender(
+            server,
+            [WiderLabel],
+            [new Map([[1, [WiderLabel]]])],
+            1,
+            a,
+        );
+        const errors: Error[] = [];
+        let closes = 0;
+        const applied: number[] = [];
+        const connection = {
+            ...b,
+            close() {
+                closes++;
+                b.close();
+            },
+            onError(error: Error) {
+                errors.push(error);
+            },
+        };
+        const receiver = new ReplicationReceiver(client, [Label], connection, (tick) => {
+            expect(receiver.confirmed).toBe(tick);
+            applied.push(tick);
+        });
+        sender.record(0);
+        sender.flush();
+        receiver.flush("latest");
+        expect(receiver.confirmed).toBe(0);
+
+        const field = server.storage(WiderLabel).text;
+        field.set(eid, "first");
+        sender.record(1);
+        field.set(eid, "good");
+        sender.record(2);
+        field.set(eid, defect === "over-capacity text" ? "123456789" : "a");
+        sender.record(3);
+        sender.flush();
+        for (const frame of b.receive()) {
+            const view = new DataView(frame.buffer);
+            if (view.getUint32(8, true) !== 3) {
+                a.send(frame);
+                continue;
+            }
+            const offset = 4 + view.getUint32(4, true) * 4;
+            if (defect === "invalid UTF-8") frame[offset + 2] = 0xff;
+            a.send(defect === "truncated frame" ? frame.subarray(0, 12) : frame);
+        }
+        expect(() => receiver.flush("latest")).not.toThrow();
+        expect(applied).toEqual([0, 1, 2]);
+        expect(receiver.confirmed).toBe(2);
+        expect(client.get([...receiver.entities.values()][0]!, Label)).toEqual({
+            text: "good",
+            count: 9,
+        });
+        expect(b.closed).toBe(true);
+        expect(() => receiver.flush("latest")).not.toThrow();
+        expect(closes).toBe(1);
+        expect(errors).toHaveLength(1);
+        client.dispose();
+        server.dispose();
+    });
+}
 
 test("operation text is byte-bounded, validates at ingress and counts toward upstream pacing", () => {
     const { a, b } = link();
@@ -105,8 +174,11 @@ test("operation text is byte-bounded, validates at ingress and counts toward ups
     const prefix = 36 + operation.values.length * 8;
     const invalid = bytes.slice();
     invalid[prefix + 2] = 0xff;
-    const oversized = bytes.slice();
-    oversized[prefix] = 1;
+    // Supply every declared byte and stay below the packet cap, so only capacity rejects it.
+    const textOnly = encodeIntent(IntentMessageKind.Records, [{ ...operation, values: [] }]);
+    const oversized = new Uint8Array(textOnly.length + 1);
+    oversized.set(textOnly);
+    oversized[36] = 1;
     for (const bad of [invalid, oversized, bytes.subarray(0, -1)]) {
         expect(() => decodeIntent(bad)).toThrow();
         expect(isClientMessage(bad)).toBe(false);

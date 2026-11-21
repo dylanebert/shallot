@@ -327,7 +327,7 @@ export function clientStartup(game: Game, connection: (world: World) => Connecti
 
 /** Connects a caller-owned client app. Initialization awaits the socket; disposal closes it.
  * An admitted reconnectable seat retries on close, from 50 ms up to 1 second between attempts.
- * Initial failure or a refused token is reported to onError. */
+ * Initial failure, a refused token, or an undecodable replication packet reaches onError. */
 export function client(
     game: Game,
     options: {
@@ -416,7 +416,9 @@ export function client(
                 get closed() {
                     return disposed || failed || (!token && current.closed);
                 },
+                onError: options.onError,
                 close() {
+                    if (disposed) return;
                     disposed = true;
                     cancel?.();
                     current.close(game.reconnectMs ? LEAVE_CLOSE_CODE : undefined);
