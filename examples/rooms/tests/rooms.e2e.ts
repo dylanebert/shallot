@@ -392,9 +392,10 @@ for (const phone of [false, true]) {
             const resume = action(page, "Resume connection");
             await expect(resume).toHaveAttribute("aria-pressed", "true");
             await use(resume);
+            // One frame per read: the notice clears 2.5 s after the frame that shows it.
             await expect
                 .poll(async () => {
-                    await frames.run(4);
+                    await frames.run();
                     return page.locator("#status").textContent();
                 })
                 .toBe("Rejoined as the same player.");
@@ -604,9 +605,10 @@ test("a dropped server seat stays occupied for its peer and resumes", async ({ p
         await expect(plus(observer, 1)).toHaveCount(0);
         expect(await seatBoxes(observer)).toEqual(before);
         reconnect!();
+        // One frame per read: the notice clears 2.5 s after the frame that shows it.
         await expect
             .poll(async () => {
-                await frames.run(4);
+                await frames.run();
                 return page.locator("#status").textContent();
             })
             .toBe("Rejoined as the same player.");
