@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { createConnection, createServer, type Socket } from "node:net";
 import { component, createApp, DiagnosticsStore, u32, type World } from "../../engine";
 import {
@@ -249,29 +249,34 @@ test.each([
     },
 );
 
-test("a final disconnect frees an already held grant before the next host operation", async () => {
-    const f = fixture();
-    f.host.stop();
-    function endpoint() {
-        return {
-            closed: false,
-            code: undefined as number | undefined,
-            grant: undefined as { seat: string; resume: string } | undefined,
-            close(code?: number) {
-                this.closed = true;
-                this.code ??= code;
-            },
-            send() {},
-            receive: () => [],
-        };
-    }
-    let now = 0;
-    const host = roomHost<ReturnType<typeof endpoint>>(f.game, {
-        reconnectNow: () => now,
+function endpoint() {
+    return {
+        closed: false,
+        code: undefined as number | undefined,
+        grant: undefined as { seat: string; resume: string } | undefined,
+        close(code?: number) {
+            this.closed = true;
+            this.code ??= code;
+        },
+        send() {},
+        receive: () => [],
+    };
+}
+
+function reconnectHost(game: Game, reconnectNow: () => number) {
+    return roomHost<ReturnType<typeof endpoint>>(game, {
+        reconnectNow,
         sendToken(connection, seat, resume) {
             connection.grant = { seat, resume };
         },
     });
+}
+
+test("a final disconnect frees an already held grant before the next host operation", async () => {
+    const f = fixture();
+    f.host.stop();
+    let now = 0;
+    const host = reconnectHost(f.game, () => now);
     try {
         const leader = endpoint();
         await host.connect(leader, { intent: "joinOrCreate" })!.ready;
@@ -308,6 +313,65 @@ test("a final disconnect frees an already held grant before the next host operat
         await Promise.resolve();
         expect(host.list()).toEqual([]);
     } finally {
+        host.stop();
+    }
+});
+
+test("held final closes retain only the newest maxClients tokens under churn", async () => {
+    const f = fixture();
+    f.host.stop();
+    const host = reconnectHost(f.game, () => 0);
+    try {
+        await host.connect(endpoint(), { intent: "joinOrCreate" })!.ready;
+        const join = { intent: "join", code: host.list()[0]!.code };
+        const server = f.world.resource(ServerSession).server!;
+        const grants = [];
+        for (let i = 0; i < f.game.maxClients + 2; i++) {
+            const stream = endpoint();
+            host.connect(stream, join);
+            grants.push(stream.grant!);
+            stream.close();
+            host.leave(stream);
+            server.disconnect(server.peers.get(f.eid)!.clientId, 4999, "Session ended");
+        }
+        expect(host.list()[0]!.clients).toBe(1);
+        expect(
+            grants.map((grant) => {
+                const resumed = endpoint();
+                host.connect(resumed, { ...join, ...grant });
+                return resumed.code;
+            }),
+        ).toEqual([1008, 1008, 4999, 4999]);
+    } finally {
+        host.stop();
+    }
+});
+
+test("retiring a room forgets its held final closes even if its code is reused", async () => {
+    const f = fixture();
+    f.host.stop();
+    const host = reconnectHost(f.game, () => 0);
+    const random = spyOn(crypto, "getRandomValues").mockReturnValue(new Uint8Array(10));
+    try {
+        const stream = endpoint();
+        await host.connect(stream, { intent: "joinOrCreate" })!.ready;
+        const join = { intent: "join", code: host.list()[0]!.code };
+        const grant = stream.grant!;
+        const server = f.world.resource(ServerSession).server!;
+        stream.close();
+        host.leave(stream);
+        server.disconnect(server.peers.get(f.eid)!.clientId, 4999, "Session ended");
+        await Promise.resolve();
+        expect(host.list()).toEqual([]);
+        const retired = endpoint();
+        host.connect(retired, { ...join, ...grant });
+        await host.connect(endpoint(), { intent: "joinOrCreate" })!.ready;
+        expect(host.list()[0]!.code).toBe(join.code);
+        const reused = endpoint();
+        host.connect(reused, { ...join, ...grant });
+        expect([retired.code, reused.code]).toEqual([1008, 1008]);
+    } finally {
+        random.mockRestore();
         host.stop();
     }
 });

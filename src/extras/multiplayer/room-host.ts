@@ -90,6 +90,7 @@ interface Room<C> {
     app?: App;
     ready?: Promise<void>;
     held?: number;
+    ended?: Map<string, { id: string; expiresAt: number; code: number; reason?: string }>;
     reservation?: Reservation;
 }
 
@@ -136,10 +137,6 @@ export function roomHost<
     const now = options.reconnectNow ?? (() => performance.now());
     const seats = new WeakMap<C, Seat<C>>();
     const held = new Map<string, Seat<C>>();
-    const ended = new Map<
-        string,
-        { id: string; roomCode: string; expiresAt: number; code: number; reason?: string }
-    >();
     const humans = (room: Room<C>) => room.seats.size + (room.held ?? 0);
     const count = (room: Room<C>) => humans(room) + room.bots.size;
     const rooms = new Map<string, Room<C>>();
@@ -186,6 +183,7 @@ export function roomHost<
 
     function retire(room: Room<C>, code?: number, reason?: string) {
         rooms.delete(room.code);
+        room.ended = undefined;
         for (const connection of room.seats.keys()) {
             memberships.delete(connection);
             cancelAdmission(connection);
@@ -511,8 +509,14 @@ export function roomHost<
         release(seat);
         const { room } = seat;
         const expiresAt = seat.expiresAt!;
-        if (expiresAt > now())
-            ended.set(seat.token, { id: seat.id, roomCode: room.code, expiresAt, code, reason });
+        const time = now();
+        if (expiresAt > time) {
+            pruneEnded(room, time);
+            const ended = (room.ended ??= new Map());
+            // Keep enough reasons for one full room of seats, not every turnover in the window.
+            if (ended.size >= game.maxClients) ended.delete(ended.keys().next().value!);
+            ended.set(seat.token, { id: seat.id, expiresAt, code, reason });
+        }
         if (room === pinned || humans(room)) return;
         // The authority must finish despawning the seat before its World can be disposed.
         queueMicrotask(() => {
@@ -530,9 +534,28 @@ export function roomHost<
         }
     }
 
+    function pruneEnded(room: Room<C>, time: number) {
+        if (!room.ended) return;
+        for (const [token, close] of room.ended)
+            if (close.expiresAt <= time) room.ended.delete(token);
+    }
+
+    function endedClose(
+        token: string,
+        id: string | null,
+        intent: string | null,
+        code: string | null,
+    ) {
+        const time = now();
+        for (const room of rooms.values()) {
+            if (intent === "join" && code?.toUpperCase() !== room.code) continue;
+            const close = room.ended?.get(token);
+            if (close?.id === id && close.expiresAt > time) return close;
+        }
+    }
+
     function expireSeats() {
         const time = now();
-        for (const [token, close] of ended) if (close.expiresAt <= time) ended.delete(token);
         for (const seat of held.values()) {
             const authority = seat.room.app!.world.resource(ServerSession).server!;
             const owns = authority.entity(seat.clientId) !== undefined;
@@ -644,11 +667,8 @@ export function roomHost<
         }
         if (token !== null || id !== null) {
             if (token !== null) {
-                const close = ended.get(token);
-                if (
-                    close?.id === id &&
-                    (intent !== "join" || code?.toUpperCase() === close.roomCode)
-                ) {
+                const close = endedClose(token, id, intent, code);
+                if (close) {
                     connection.close(close.code, close.reason);
                     return;
                 }
@@ -716,8 +736,11 @@ export function roomHost<
     }
 
     function sweep() {
-        for (const room of rooms.values())
+        const time = now();
+        for (const room of rooms.values()) {
             for (const peer of room.seats.keys()) if (peer.closed) leave(peer);
+            pruneEnded(room, time);
+        }
         expireSeats();
     }
 
@@ -755,7 +778,6 @@ export function roomHost<
         stopped = true;
         unclaimed.clear();
         held.clear();
-        ended.clear();
         for (const room of rooms.values()) retire(room, 1001, "Server stopping");
     }
     return { connect, leave, sweep, advanceBots, tick, stop, list, reserve, addBot };
