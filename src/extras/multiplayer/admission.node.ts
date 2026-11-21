@@ -1,8 +1,18 @@
 import { expect, test } from "bun:test";
 import { type App, createApp, type World } from "../../engine";
 import { type ClientId, client, type Game, type PlayerId, ServerSession } from ".";
-import { serveRooms } from "./bun";
-import { MAX_MESSAGE_BYTES } from "./link";
+import { serveRooms, serveWebSocket } from "./bun";
+import { MAX_MESSAGE_BYTES, seededLink } from "./link";
+import { createServerApp, roomHost } from "./room-host";
+
+const emptyGame: Game = {
+    plugins: [],
+    schema: [],
+    maxClients: 2,
+    rules: () => [],
+    validateIntent: () => false,
+    applyIntent() {},
+};
 
 async function until(ready: () => boolean, reason: string) {
     const deadline = performance.now() + 600;
@@ -17,13 +27,8 @@ test("auth refuses before publication, reserves only its seat, and preserves ide
     const credentials: (string | null)[] = [];
     const slow = Promise.withResolvers<{ playerId: PlayerId }>();
     const game: Game = {
-        plugins: [],
-        schema: [],
-        maxClients: 2,
+        ...emptyGame,
         reconnectMs: 100,
-        rules: () => [],
-        validateIntent: () => false,
-        applyIntent() {},
         async onAuth(credential) {
             credentials.push(credential);
             if (credential === "slow + 🐟") return slow.promise;
@@ -134,5 +139,113 @@ test("auth refuses before publication, reserves only its seat, and preserves ide
         app?.dispose();
         for (const socket of sockets) socket.close();
         host.stop();
+    }
+});
+
+test("a second join on the same connection cannot replace the pending or held seat", async () => {
+    let old = Promise.withResolvers<{ playerId: PlayerId }>();
+    let next = Promise.withResolvers<{ playerId: PlayerId }>();
+    const joined: (PlayerId | undefined)[] = [];
+    const started: (string | null)[] = [];
+    const signals: AbortSignal[] = [];
+    const game: Game = {
+        ...emptyGame,
+        reconnectMs: 100,
+        onAuth(credential, signal) {
+            started.push(credential);
+            signals.push(signal);
+            return credential === "old" ? old.promise : next.promise;
+        },
+        onJoin(_world, _eid, _transport, _id, playerId) {
+            joined.push(playerId);
+        },
+    };
+    const app = await createServerApp(game);
+    const host = roomHost(game, { sendToken() {} }, app);
+    const faults = { minDelay: 0, maxDelay: 0, loss: 0, duplication: 0 };
+    const connection = seededLink(0, faults).a;
+    try {
+        const first = host.connect(connection, { credential: "old" });
+        const duplicate = host.connect(connection, { credential: "new" });
+        old.resolve({ playerId: "old" });
+        await first?.ready;
+        expect(joined).toEqual(["old"]);
+        next.resolve({ playerId: "new" });
+        await duplicate?.ready;
+        expect(joined).toEqual(["old"]);
+        expect(duplicate).toBeUndefined();
+
+        host.leave(connection);
+        expect(host.connect(connection, { credential: "new" })).toBeUndefined();
+        expect(started).toEqual(["old"]);
+
+        old = Promise.withResolvers();
+        next = Promise.withResolvers();
+        const reused = seededLink(1, faults).a;
+        const abandoned = host.connect(reused, { credential: "old" });
+        host.leave(reused);
+        const retry = host.connect(reused, { credential: "new" });
+        old.resolve({ playerId: "abandoned" });
+        await abandoned?.ready;
+        expect(signals[1]?.aborted).toBe(true);
+        expect(signals[2]?.aborted).toBe(false);
+        expect(joined).toEqual(["old"]);
+        next.resolve({ playerId: "new" });
+        await retry?.ready;
+        expect(joined).toEqual(["old", "new"]);
+    } finally {
+        host.stop();
+    }
+});
+
+test("invalid WebSocket schemes never expose the admission credential in initialization errors", async () => {
+    const credential = "private-invalid-scheme-pass";
+    for (const options of [
+        { url: `ftp://localhost/?credential=${credential}` },
+        { url: "ftp://localhost/", credential },
+        { url: `http://[invalid/?credential=${credential}` },
+    ]) {
+        const error = await createApp({
+            defaults: false,
+            plugins: [client(emptyGame, options)],
+        }).then(
+            (app) => {
+                app.dispose();
+                return undefined;
+            },
+            (error: unknown) => error,
+        );
+        expect(error).toBeInstanceOf(Error);
+        expect(String(error)).not.toContain(credential);
+    }
+});
+
+test("a close reason reflecting the upgrade URL cannot expose the credential through onError", async () => {
+    const host = serveWebSocket({
+        hostname: "127.0.0.1",
+        port: 0,
+        connect(connection, url) {
+            connection.close(1008, `Refused ${url}`);
+        },
+        disconnect() {},
+    });
+    const errors: Error[] = [];
+    let app: App | undefined;
+    try {
+        app = await createApp({
+            defaults: false,
+            plugins: [
+                client(emptyGame, {
+                    url: `ws://127.0.0.1:${host.port}/?%63redential=secret%2Bpass`,
+                    onError: (error) => errors.push(error),
+                }),
+            ],
+        });
+        await until(() => errors.length > 0, "close reason did not reach onError");
+        expect(errors[0]!.message).not.toContain("secret");
+        expect(errors[0]!.message).toContain("1008");
+    } finally {
+        app?.dispose();
+        host.stop(true);
     }
 });

@@ -153,7 +153,7 @@ export function roomHost<
         rooms.delete(room.code);
         for (const connection of room.seats.keys()) {
             memberships.delete(connection);
-            authorizing.get(connection)?.abort();
+            cancelAdmission(connection);
             connection.close(code, reason);
         }
         room.seats.clear();
@@ -163,6 +163,12 @@ export function roomHost<
             active.delete(room.app);
             room.app.dispose();
         }
+    }
+
+    function cancelAdmission(connection: C) {
+        const attempt = authorizing.get(connection);
+        authorizing.delete(connection);
+        attempt?.abort();
     }
 
     function leave(connection: C, hold = true) {
@@ -175,9 +181,9 @@ export function roomHost<
             return;
         }
         memberships.delete(connection);
-        authorizing.get(connection)?.abort();
         const eid = room.seats.get(connection);
         room.seats.delete(connection);
+        cancelAdmission(connection);
         const authority = room.app?.world.resource(ServerSession).server;
         const seat = seats.get(connection);
         if (hold && seat && authority?.peers.get(seat.eid)?.connection === seat.connection) {
@@ -199,10 +205,17 @@ export function roomHost<
         }
     }
 
-    async function authorize(room: Room<C>, connection: C, credential: string | null) {
-        if (memberships.get(connection) !== room || connection.closed) return;
-        const controller = new AbortController();
-        authorizing.set(connection, controller);
+    async function authorize(
+        room: Room<C>,
+        connection: C,
+        credential: string | null,
+        controller: AbortController,
+    ) {
+        const ownsReservation = () =>
+            authorizing.get(connection) === controller &&
+            memberships.get(connection) === room &&
+            !connection.closed;
+        if (!ownsReservation()) return;
         const timeout = setTimeout(() => controller.abort(), AUTH_TIMEOUT_MS);
         let result: Awaited<ReturnType<NonNullable<Game["onAuth"]>>> | undefined;
         try {
@@ -216,9 +229,9 @@ export function roomHost<
             // Hook errors may contain credentials. Only explicit, public refusal reasons go out.
         } finally {
             clearTimeout(timeout);
-            authorizing.delete(connection);
         }
-        if (memberships.get(connection) !== room || connection.closed) return;
+        if (!ownsReservation()) return;
+        authorizing.delete(connection);
         if (!controller.signal.aborted && result && "playerId" in result) {
             admit(room, connection, result.playerId);
             return;
@@ -546,6 +559,14 @@ export function roomHost<
             connection.close(1001, "Server stopping");
             return;
         }
+        expireSeats();
+        const existing = seats.get(connection);
+        if (
+            connection.closed ||
+            memberships.has(connection) ||
+            (existing?.transport.stream === connection && held.get(existing.token) === existing)
+        )
+            return;
         if (
             credential !== null &&
             (credential.length > MAX_MESSAGE_BYTES ||
@@ -554,7 +575,6 @@ export function roomHost<
             connection.close(1008, "Invalid credential");
             return;
         }
-        expireSeats();
         if (token !== null || id !== null) {
             if (token !== null && !held.has(token)) replaceStaleSeat(token, id, intent, code);
             const seat = token === null ? undefined : held.get(token);
@@ -606,9 +626,10 @@ export function roomHost<
         memberships.set(connection, room);
         if (!room.app) room.ready ??= start(room);
         if (game.onAuth) {
-            const ready = room.app
-                ? authorize(room, connection, credential)
-                : room.ready!.then(() => authorize(room, connection, credential));
+            const attempt = new AbortController();
+            authorizing.set(connection, attempt);
+            const run = () => authorize(room, connection, credential, attempt);
+            const ready = room.app ? run() : room.ready!.then(run);
             return { room, ready };
         }
         if (room.app) admit(room, connection);

@@ -406,13 +406,27 @@ export function client(
         name: "MultiplayerClient",
         dependencies: [...(recorder ? [recorder.plugin] : []), ...game.plugins],
         async initialize(world) {
-            const url = new URL(options.url, globalThis.location?.href);
+            let url: URL;
+            try {
+                url = new URL(options.url, globalThis.location?.href);
+            } catch {
+                throw new Error("Invalid multiplayer WebSocket URL.");
+            }
             if (options.onRoom) url.searchParams.set("announceRoom", "1");
             if (options.credential !== undefined)
                 url.searchParams.set("credential", options.credential);
-            const socket = new WebSocket(url);
-            url.searchParams.delete("credential");
-            const endpoint = url.href;
+            const credentials = url.searchParams.getAll("credential").filter(Boolean);
+            if (credentials.length) url.search = url.searchParams.toString();
+            const publicUrl = new URL(url);
+            publicUrl.searchParams.delete("credential");
+            const endpoint = publicUrl.href;
+            let socket: WebSocket;
+            try {
+                socket = new WebSocket(url);
+            } catch {
+                // A native constructor error can quote the entire upgrade URL.
+                throw new Error("Cannot open a WebSocket with the supplied URL.");
+            }
             let seat: string | undefined;
             let token: string | undefined;
             let generation = 0;
@@ -422,12 +436,17 @@ export function client(
             let failed = false;
             const failure = () =>
                 new Error(`No server answered at ${endpoint}. The connection failed or closed.`);
-            const refusal = (code: number, reason: string) =>
-                code === 1006
-                    ? failure()
-                    : new Error(
-                          `${endpoint} closed the connection (${code}${reason ? `: ${reason}` : ""}).`,
-                      );
+            const refusal = (code: number, reason: string) => {
+                if (code === 1006) return failure();
+                if (
+                    /credential=/i.test(reason) ||
+                    credentials.some((value) => reason.includes(value))
+                )
+                    reason = "";
+                return new Error(
+                    `${endpoint} closed the connection (${code}${reason ? `: ${reason}` : ""}).`,
+                );
+            };
             const schedule =
                 options.retryAfter ??
                 ((ms: number, retry: () => void) => {
