@@ -295,8 +295,8 @@ export class IntentReceiver {
 /** Unresolved operations, new ones included, go in one packet of at most MAX_MESSAGE_BYTES,
  * oldest first, the rest in later packets. A packet goes on the first flush in each fixed step
  * of the transport clock (performance.now unless the connection supplies one), so a new
- * operation waits at most one step and a flush, recording or flushing more often sends no
- * more, and the same steps resend unresolved operations without the caller's tick.
+ * operation that fits behind older ones waits at most one step and a flush, recording or
+ * flushing more often sends no more, and the same steps resend unresolved operations without the caller's tick.
  * Acceptance removes their IDs; the cumulative watermark also removes refused operations.
  * Inputs instead repeat the newest of the last four ticks that fit in one packet on the first
  * flush after a new sample. */
