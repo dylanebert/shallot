@@ -665,6 +665,8 @@ export interface ReplicationConfirmation {
     apply: () => void;
 }
 
+class FrameApplyError extends Error {}
+
 /** Ordered confirmations, including the initial image. Application callbacks may retain rows but not mutate them. */
 export class ReplicationReceiver {
     confirmed = -1;
@@ -769,11 +771,22 @@ export class ReplicationReceiver {
         for (let frame = this._nextFrame(decoded); frame; frame = this._nextFrame(decoded)) {
             const { tick } = frame;
             const baseline = frame.image ? undefined : this._versions.get(frame.base);
-            const packet = { ...frame, rows: applyFrame(frame, baseline, this._layout) };
+            let rows: ReplicatedRows;
+            try {
+                rows = applyFrame(frame, baseline, this._layout);
+            } catch (cause) {
+                failure ??= new Error(`Could not interpret replication tick ${tick}`, { cause });
+                break;
+            }
+            const packet = { ...frame, rows };
             if (packet.commandAge !== undefined) this.onCommandAge(tick, packet.commandAge);
-            if (!latestOnly)
-                this.reconcile(tick, packet.rows, packet.intents, () => this._apply(packet), []);
-            else if (latest) {
+            if (!latestOnly) {
+                const error = this._reconcile(packet, []);
+                if (error) {
+                    failure ??= error;
+                    break;
+                }
+            } else if (latest) {
                 const previous = latest;
                 preceding.push({
                     tick: previous.tick,
@@ -797,15 +810,9 @@ export class ReplicationReceiver {
             if (!latestOnly) this.confirm(tick, packet.rows);
         }
         if (latestOnly && latest) {
-            const packet = latest;
-            this.reconcile(
-                packet.tick,
-                packet.rows,
-                packet.intents,
-                () => this._apply(packet),
-                preceding,
-            );
-            this.confirm(packet.tick, packet.rows);
+            const error = this._reconcile(latest, preceding);
+            if (error) failure ??= error;
+            else this.confirm(latest.tick, latest.rows);
         }
         if (failure) {
             this._pending.clear();
@@ -865,12 +872,37 @@ export class ReplicationReceiver {
                 this._discarded.add(tick);
             }
         }
-        // A full image can establish a baseline across a gap; deltas alone cannot.
-        if (!image && decoded < 0) this._pending.clear();
+        // A full image can establish a baseline across a gap. While it is in flight, keep
+        // the earliest deltas within the acknowledgement window; the sender can retry the rest.
+        if (!image && decoded < 0 && this._pending.size > AckWindow) {
+            const ticks = [...this._pending.keys()].sort((a, b) => a - b);
+            for (let i = AckWindow; i < ticks.length; i++) this._pending.delete(ticks[i]!);
+        }
         return image;
     }
+    private _reconcile(
+        packet: Packet,
+        preceding: readonly ReplicationConfirmation[],
+    ): FrameApplyError | undefined {
+        try {
+            this.reconcile(
+                packet.tick,
+                packet.rows,
+                packet.intents,
+                () => this._apply(packet),
+                preceding,
+            );
+        } catch (error) {
+            if (!(error instanceof FrameApplyError)) throw error;
+            return error;
+        }
+    }
     private _apply(packet: Packet): void {
-        this._write(packet.rows);
+        try {
+            this._write(packet.rows);
+        } catch (cause) {
+            throw new FrameApplyError(`Could not apply replication tick ${packet.tick}`, { cause });
+        }
         this.confirmed = packet.tick;
     }
     private _write(rows: ReplicatedRows) {

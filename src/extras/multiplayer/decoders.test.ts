@@ -288,6 +288,23 @@ for (const mode of ["all", "latest"] as const) {
     });
 }
 
+test("a delayed first image keeps the earliest delta window and lets overflow retry", () => {
+    const world = new World();
+    const { a, b } = seededLink(1, faults);
+    const receiver = new ReplicationReceiver(world, schema, b);
+    const frame = (tick: number) => words(ReplicationMessageKind.Frame, 5, tick, 0, 0, 0x80000000);
+    for (let tick = 40; tick >= 1; tick--) a.send(frame(tick));
+    receiver.flush("latest");
+    expect(receiver.confirmed).toBe(-1);
+    a.send(words(ReplicationMessageKind.Image, 5, 0, 0, 0, 0x80000000));
+    receiver.flush("latest");
+    expect(receiver.confirmed).toBe(32);
+    for (let tick = 33; tick <= 40; tick++) a.send(frame(tick));
+    receiver.flush("latest");
+    expect(receiver.confirmed).toBe(40);
+    world.dispose();
+});
+
 test("structural frame validation does not rerun authored codecs", () => {
     let origin = 0;
     const Local = component("LocalCodec", {
