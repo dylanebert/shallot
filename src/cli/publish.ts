@@ -45,6 +45,7 @@ import {
     validItchName,
     waitForItchBuild,
 } from "./publish-itch";
+import { acquireFlyPublishLock } from "./publish-lock";
 import { publishProgress } from "./publish-output";
 import {
     type PublishAsset,
@@ -536,8 +537,27 @@ export async function publishProject(
         throw new Error(
             `Unknown publish target: ${targetName}. Available: ${Object.keys(targets).join(", ")}.`,
         );
+    const release =
+        serverTarget || pendingFlyLink(projectDir) || readPublishLink(projectDir)?.server
+            ? acquireFlyPublishLock(projectDir)
+            : undefined;
+    try {
+        await publishToTargets(projectDir, targetName, serverTarget, !!release);
+    } finally {
+        release?.();
+    }
+}
+
+async function publishToTargets(
+    projectDir: string,
+    targetName: string | undefined,
+    serverTarget: string | undefined,
+    flyLocked: boolean,
+): Promise<void> {
     const linked = readPublishLink(projectDir);
     const pending = pendingFlyLink(projectDir);
+    if (!flyLocked && (pending || linked?.server))
+        throw new Error("A Fly link appeared during publish setup. Retry publish to use it.");
     const chosen = (targetName ?? linked?.target ?? "cloudflare") as keyof typeof targets;
     const saved = linked?.target && linked.target === chosen ? linked : undefined;
     const target = targets[chosen] as PublishTarget<PublishLink>;

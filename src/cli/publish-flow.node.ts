@@ -47,7 +47,13 @@ else if(args[0]==='orgs')console.log('{"personal":"Personal"}');
 else if(args[0]==='machine'&&args[1]==='list')console.log('[]');
 else if(args[0]==='ips'&&args[1]==='list')console.log('[{"Type":"shared_v4"}]');
 else if(args[0]==='volumes'&&args[1]==='list')console.log(JSON.stringify([{id:'vol_fixture',name:'shallot_data',size_gb:1,region:'iad',host_status:state.flyHostStatus,auto_backup_enabled:false,attached_machine_id:null,attached_alloc_id:null}]));
-else if(args[0]==='deploy'&&state.flyFail){console.error('recorded Fly deploy failure');process.exit(1);}
+else if(args[0]==='deploy'){
+if(state.holdFly&&fs.readFileSync(path.join(root,'commands.jsonl'),'utf8').match(/fly deploy /g)?.length===1){
+const end=Date.now()+10000;
+while(!fs.existsSync(path.join(process.env.FIXTURE_PROJECT,'release-fly'))&&Date.now()<end)Bun.sleepSync(10);
+}
+if(state.flyFail){console.error('recorded Fly deploy failure');process.exit(1);}
+}
 process.exit(0); }
 if(path.basename(process.execPath).replace(/\\.exe$/, '')==='bun') {
 if(args[0]==='--version'){console.log('1.3.3');process.exit(0);} if(args[0]==='build'){record({command:'server build'});fs.writeFileSync(args[args.indexOf('--outfile')+1],'');process.exit(0);}
@@ -103,6 +109,7 @@ async function fixture() {
         flyCollision: false,
         flyFail: false,
         flyHostStatus: "ok",
+        holdFly: false,
     };
     const save = () => writeFileSync(statePath, JSON.stringify(state));
     save();
@@ -399,6 +406,55 @@ test("failed Fly deploy leaves a retryable server link, cost and confirmed delet
         expect(unsafe.stderr).toContain("unattached on a healthy host");
         expect(f.commands().filter((row) => row.command.startsWith("fly deploy"))).toHaveLength(2);
     } finally {
+        await f.close();
+    }
+});
+
+test("overlapping Fly retries of one project reach volume provisioning only once", async () => {
+    const f = await fixture();
+    let first: ReturnType<typeof f.run> | undefined;
+    try {
+        writeFileSync(join(f.project, "server.ts"), "");
+        writeFileSync(
+            f.packagePath,
+            JSON.stringify({
+                ...f.manifest,
+                shallot: { publishServer: { target: "fly", app: "fixture-game" } },
+            }),
+        );
+        f.state.flyCollision = true;
+        f.state.flyFail = true;
+        f.state.holdFly = true;
+        f.save();
+        first = f.run(undefined, true, false);
+        const deadline = Date.now() + 7000;
+        const deploys = () => f.commands().filter((row) => row.command.startsWith("fly deploy "));
+        while (!deploys().length && Date.now() < deadline) await Bun.sleep(10);
+        expect(deploys()).toHaveLength(1);
+        const second = await f.run(undefined, true, false);
+        expect(second.code).toBe(1);
+        expect(deploys()).toHaveLength(1);
+        expect(second.stderr).toMatch(/Fly publish is already running.*PID \d+/);
+        writeFileSync(join(f.project, "release-fly"), "");
+        expect((await first).stderr).toContain("recorded Fly deploy failure");
+        const lock = join(f.project, ".shallot-fly-publish.lock");
+        expect(readdirSync(f.project)).not.toContain(".shallot-fly-publish.lock");
+        const exited = Bun.spawn({
+            ...bunChild(["-e", ""]),
+            stdin: "ignore",
+            stdout: "ignore",
+            stderr: "ignore",
+        });
+        expect(await exited.exited).toBe(0);
+        mkdirSync(lock);
+        writeFileSync(join(lock, `${exited.pid}-stale1`), "");
+        const retry = await f.run(undefined, true, false);
+        expect(retry.stderr).toContain("recorded Fly deploy failure");
+        expect(deploys()).toHaveLength(2);
+        expect(readdirSync(f.project)).not.toContain(".shallot-fly-publish.lock");
+    } finally {
+        writeFileSync(join(f.project, "release-fly"), "");
+        await first;
         await f.close();
     }
 });
