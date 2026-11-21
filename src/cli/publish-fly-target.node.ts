@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
@@ -36,7 +36,7 @@ beforeAll(async () => {
     const source = join(root, "fake.ts");
     writeFileSync(
         source,
-        `import {appendFileSync,readFileSync} from 'node:fs';
+        `import {appendFileSync,existsSync,readFileSync} from 'node:fs';
 import {join,dirname} from 'node:path';
 const root=dirname(process.execPath);const args=process.argv.slice(2);
 appendFileSync(join(root,'commands.jsonl'),JSON.stringify(args)+'\\n');
@@ -45,7 +45,8 @@ if(args[0]==='apps'&&args[1]==='list')console.log(JSON.stringify([{Name:'occupie
 else if(args[0]==='machine'&&args[1]==='list')console.log(readFileSync(join(root,'machines.json'),'utf8'));
 else if(args[0]==='ips'&&args[1]==='list')console.log(readFileSync(join(root,'ips.json'),'utf8'));
 else if(args[0]==='volumes'&&args[1]==='list')console.log(readFileSync(join(root,'volumes.json'),'utf8'));
-else if(args[0]==='orgs')console.log('{"personal":"Personal"}');`,
+else if(args[0]==='orgs')console.log('{"personal":"Personal"}');
+else if(args[0]==='deploy'&&existsSync(join(root,'fail-deploy'))){console.error('recorded deployment failed');process.exit(1);}`,
     );
     writeFileSync(join(root, "server.ts"), "export const state = 1;");
     writeFileSync(join(root, "login"), "present");
@@ -117,6 +118,8 @@ test("an authorized existing app inside the envelope deploys without allocating 
             "ips list",
             "volumes list",
             "deploy --app",
+            "volumes list",
+            "machine list",
         ]);
     } finally {
         await removeTestDirectory(work);
@@ -309,6 +312,78 @@ test("an attached volume with scheduled snapshots enabled refuses before deploy"
         expect(existsSync(join(work, "fly.toml"))).toBe(false);
     } finally {
         writeFileSync(join(root, "volumes.json"), JSON.stringify([volume]));
+        await removeTestDirectory(work);
+    }
+});
+
+test.each([false, true])(
+    "a Fly deploy that leaves two volumes reports both, bill and deletion commands (deploy failure: %s)",
+    async (failed) => {
+        const work = mkdtempSync(join(tmpdir(), "shallot-fly-post-deploy-"));
+        writeFileSync(commands, "");
+        const failFlag = join(root, "fail-deploy");
+        if (failed) writeFileSync(failFlag, "");
+        writeFileSync(
+            join(root, "volumes.json"),
+            JSON.stringify([volume, { ...volume, id: "vol_extra" }]),
+        );
+        try {
+            const deployed = deployFlyServer(
+                root,
+                work,
+                { target: "fly", app: "scratch-app" },
+                false,
+                false,
+                ask,
+                cli,
+            );
+            await expect(deployed).rejects.toThrow("2 volumes");
+            await expect(deployed).rejects.toThrow("vol_fixture: $0.15/month");
+            await expect(deployed).rejects.toThrow("vol_extra: $0.15/month");
+            await expect(deployed).rejects.toThrow("volumes destroy vol_fixture --app scratch-app");
+            await expect(deployed).rejects.toThrow("volumes destroy vol_extra --app scratch-app");
+            if (failed) await expect(deployed).rejects.toThrow("recorded deployment failed");
+            const calls = readFileSync(commands, "utf8")
+                .trim()
+                .split("\n")
+                .map((line) => JSON.parse(line));
+            expect(calls.slice(-3).map((args) => args[0])).toEqual([
+                "deploy",
+                "volumes",
+                "machine",
+            ]);
+            expect(calls.some((args) => args.includes("destroy"))).toBe(false);
+        } finally {
+            rmSync(failFlag, { force: true });
+            writeFileSync(join(root, "volumes.json"), JSON.stringify([volume]));
+            await removeTestDirectory(work);
+        }
+    },
+);
+
+test("a Fly deploy that leaves two Machines names both and the always-on cost", async () => {
+    const work = mkdtempSync(join(tmpdir(), "shallot-fly-post-deploy-"));
+    writeFileSync(
+        join(root, "machines.json"),
+        JSON.stringify([...machines, { ...machines[0], id: "machine-extra" }]),
+    );
+    try {
+        const deployed = deployFlyServer(
+            root,
+            work,
+            { target: "fly", app: "scratch-app" },
+            false,
+            false,
+            ask,
+            cli,
+        );
+        await expect(deployed).rejects.toThrow("2 Machines");
+        await expect(deployed).rejects.toThrow("machine-fixture: about $2.19/month");
+        await expect(deployed).rejects.toThrow("machine-extra: about $2.19/month");
+        await expect(deployed).rejects.toThrow("machine destroy machine-fixture --app scratch-app");
+        await expect(deployed).rejects.toThrow("machine destroy machine-extra --app scratch-app");
+    } finally {
+        writeFileSync(join(root, "machines.json"), JSON.stringify(machines));
         await removeTestDirectory(work);
     }
 });

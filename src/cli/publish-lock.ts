@@ -31,6 +31,7 @@ function removeHolder(lock: string, holder?: string): void {
 
 export function acquireFlyPublishLock(project: string): () => void {
     const lock = join(project, ".shallot-fly-publish.lock");
+    const recovery = `Only after confirming no publish or flyctl process for this project is running, remove the lock directory: ${lock}`;
     const staging = mkdtempSync(join(project, ".shallot-fly-publish-"));
     const holder = `${process.pid}-${basename(staging).slice(-6)}`;
     try {
@@ -47,7 +48,7 @@ export function acquireFlyPublishLock(project: string): () => void {
             let entries: string[];
             try {
                 if (!lstatSync(lock).isDirectory())
-                    throw new Error(`Invalid Fly publish lock: ${lock}`);
+                    throw new Error(`Invalid Fly publish lock. ${recovery}`);
                 entries = readdirSync(lock);
             } catch (error) {
                 if (code(error) === "ENOENT") continue;
@@ -60,7 +61,7 @@ export function acquireFlyPublishLock(project: string): () => void {
             const owner = entries[0]!;
             const pid = Number(/^([1-9]\d*)-[a-zA-Z0-9]{6}$/.exec(owner)?.[1]);
             if (entries.length !== 1 || !Number.isSafeInteger(pid) || pid > 0x7fffffff)
-                throw new Error(`Invalid Fly publish lock: ${lock}`);
+                throw new Error(`Invalid Fly publish lock. ${recovery}`);
             try {
                 process.kill(pid, 0);
             } catch (error) {
@@ -71,7 +72,7 @@ export function acquireFlyPublishLock(project: string): () => void {
                 if (code(error) !== "EPERM") throw error;
             }
             throw new Error(
-                `Fly publish is already running for this project (PID ${pid}; ${lock}).`,
+                `Fly publish is already running for this project (PID ${pid}). ${recovery}`,
             );
         }
     } finally {

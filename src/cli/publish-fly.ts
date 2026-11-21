@@ -23,6 +23,11 @@ const flyRegion = "iad";
 const volumeName = "shallot_data";
 const volumeSize = 1;
 const dataPath = "/data";
+const volumeUSDPerGBMonth = 0.15;
+
+function volumeMonthlyCost(size: number): string {
+    return `$${(size * volumeUSDPerGBMonth).toFixed(2)}/month`;
+}
 
 export const FLY_VERSION = "0.5.12";
 export const FLY_ARCHIVES: Record<string, string> = Object.fromEntries([
@@ -39,7 +44,7 @@ export function flyCommands(cli: string, app: string): string {
 }
 
 export function flyRetainedApp(cli: string, app: string): string {
-    return `Fly app "${app}" is not deleted by publish. Its ${volumeSize} GB volume, if provisioned, costs $0.15/month even while stopped. Confirm with the person before deleting it: "${cli}" apps destroy ${app}`;
+    return `Fly app "${app}" is not deleted by publish. Its ${volumeSize} GB volume, if provisioned, costs ${volumeMonthlyCost(volumeSize)} even while stopped. Confirm with the person before deleting it: "${cli}" apps destroy ${app}`;
 }
 
 export function validFlyApp(app: string): boolean {
@@ -130,6 +135,58 @@ export function flyOrganizations(output: string): string[] {
     return Object.keys(orgs);
 }
 
+interface FlyMachine {
+    id?: string;
+    region?: string;
+    state?: string;
+    config?: {
+        guest?: Record<string, unknown>;
+        metadata?: Record<string, unknown>;
+        mounts?: { volume?: string; path?: string }[];
+    };
+}
+
+function verifyFlyInventory(cli: string, work: string, app: string): void {
+    const args = ["list", "--app", app, "--json"];
+    const volumes: ({ id: string } & Record<"size_gb", number>)[] =
+        JSON.parse(runFly(cli, ["volumes", ...args], work)) ?? [];
+    const machines: FlyMachine[] = JSON.parse(runFly(cli, ["machine", ...args], work)) ?? [];
+    if (!Array.isArray(volumes) || !Array.isArray(machines))
+        throw new Error(`Unrecognized post-deploy inventory for Fly app "${app}".`);
+    if (volumes.length <= 1 && machines.length <= 1) return;
+
+    const resource = (id: string | undefined, kind: string, cost: string) =>
+        id && /^[a-z0-9_-]+$/.test(id)
+            ? `  ${id}: ${cost}. Delete with "${cli}" ${kind} destroy ${id} --app ${app}`
+            : `  Unrecognized ${kind} ID; inspect the app in Fly before deleting anything.`;
+    const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
+    const report = [
+        `Fly app "${app}" is over its limit after deploy: ${count(volumes.length, "volume")}, ${count(machines.length, "Machine")}. Publish allows one of each.`,
+        "Confirm with the person which resources to keep before deleting any. Publish did not delete anything.",
+    ];
+    for (const volume of volumes) {
+        const size = volume?.size_gb;
+        const cost = Number.isFinite(size)
+            ? `${volumeMonthlyCost(size)} for provisioned storage`
+            : `$${volumeUSDPerGBMonth}/GB per month of provisioned storage`;
+        report.push(resource(volume?.id, "volumes", cost));
+    }
+    for (const machine of machines) {
+        const guest = machine?.config?.guest;
+        const cost =
+            machine?.region === flyRegion &&
+            guest?.cpu_kind === "shared" &&
+            guest.cpus === 1 &&
+            guest.memory_mb === 256 &&
+            !guest.gpus &&
+            !guest.gpu_kind
+                ? "about $2.19/month if running continuously, plus storage and transfer"
+                : "monthly compute depends on size, region and uptime; see https://fly.io/docs/about/pricing/";
+        report.push(resource(machine?.id, "machine", cost));
+    }
+    throw new Error(report.join("\n"));
+}
+
 export async function deployFlyServer(
     project: string,
     work: string,
@@ -171,16 +228,7 @@ export async function deployFlyServer(
                 `Fly app "${link.app}" is outside publish's spend envelope: ${reason}. Inspect with "${cli}" ${args.join(" ")}. Publish did not change the app.`,
             );
         };
-        const machines: {
-            id?: string;
-            region?: string;
-            state?: string;
-            config?: {
-                guest?: Record<string, unknown>;
-                metadata?: Record<string, unknown>;
-                mounts?: { volume?: string; path?: string }[];
-            };
-        }[] = JSON.parse(runFly(cli, machineArgs, work)) ?? [];
+        const machines: FlyMachine[] = JSON.parse(runFly(cli, machineArgs, work)) ?? [];
         if (!Array.isArray(machines)) refuse("unrecognized Machine inventory", machineArgs);
         const initializing = recovery?.pending && machines.length === 0;
         if (!initializing && machines.length !== 1)
@@ -270,20 +318,33 @@ export async function deployFlyServer(
         recovery?.created();
     }
     if (needsSharedIP) runFly(cli, ["ips", "allocate-v4", "--shared", "--app", link.app], work);
-    runFly(
-        cli,
-        [
-            "deploy",
-            "--app",
-            link.app,
-            "--config",
-            join(work, "fly.toml"),
-            "--remote-only",
-            "--ha=false",
-            "--yes",
-        ],
-        work,
-    );
+    let deployFailure: unknown;
+    try {
+        runFly(
+            cli,
+            [
+                "deploy",
+                "--app",
+                link.app,
+                "--config",
+                join(work, "fly.toml"),
+                "--remote-only",
+                "--ha=false",
+                "--yes",
+            ],
+            work,
+        );
+    } catch (error) {
+        deployFailure = error;
+    }
+    try {
+        verifyFlyInventory(cli, work, link.app);
+    } catch (error) {
+        if (deployFailure)
+            throw new Error(`${String(deployFailure)}\n${String(error)}`, { cause: deployFailure });
+        throw error;
+    }
+    if (deployFailure) throw deployFailure;
 }
 
 export async function buildFlyServer(

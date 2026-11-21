@@ -438,6 +438,8 @@ test("overlapping Fly retries of one project reach volume provisioning only once
         writeFileSync(join(f.project, "release-fly"), "");
         expect((await first).stderr).toContain("recorded Fly deploy failure");
         const lock = join(f.project, ".shallot-fly-publish.lock");
+        expect(second.stderr).toContain("Only after confirming no publish or flyctl process");
+        expect(second.stderr).toContain(lock);
         expect(readdirSync(f.project)).not.toContain(".shallot-fly-publish.lock");
         const exited = Bun.spawn({
             ...bunChild(["-e", ""]),
