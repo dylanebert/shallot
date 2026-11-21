@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { bunChild } from "../../scripts/bun-child";
@@ -556,7 +556,7 @@ for (const trial of ["personal", "CI"] as const) {
             const personal = trial === "personal";
             if (personal && (!process.stdin.isTTY || !process.stdout.isTTY))
                 throw new Error(
-                    "Run the personal Fly trial from the person's terminal to judge login and play.",
+                    "Run the personal Fly trial from the person's terminal for Cloudflare login and the play judgment.",
                 );
             if (!personal) {
                 if (process.stdin.isTTY || process.stdout.isTTY)
@@ -626,8 +626,11 @@ for (const trial of ["personal", "CI"] as const) {
                 if (result.error) throw result.error;
                 expect(result.status).toBe(0);
             };
-            console.info(`Oracle project and clean login: ${root}`);
-            if (personal) terminal([cli, "auth", "login"]);
+            console.info(`Oracle project and clean Cloudflare login: ${root}`);
+            if (personal) {
+                env.FLY_CONFIG_DIR = process.env.FLY_CONFIG_DIR ?? join(homedir(), ".fly");
+                run([cli, "auth", "whoami"]);
+            }
             const fly = (args: string[], quiet = false) =>
                 run([cli, ...args], root, false, quiet).stdout.trim();
             const inventory = () => {
@@ -658,6 +661,8 @@ for (const trial of ["personal", "CI"] as const) {
                 workerOwned = false;
             let machineStart = 0,
                 runningMs = 0;
+            const volumeInventory = () =>
+                JSON.parse(fly(["volumes", "list", "--app", name, "--json"])) ?? [];
             const machine = (quiet = false) => {
                 const rows = JSON.parse(fly(["machine", "list", "--app", name, "--json"], quiet));
                 expect(rows).toHaveLength(1);
@@ -726,6 +731,45 @@ for (const trial of ["personal", "CI"] as const) {
                     expect(identity.accounts).toHaveLength(1);
                     env.CLOUDFLARE_ACCOUNT_ID = identity.accounts[0].id;
                 }
+                const probePath = `/${crypto.randomUUID()}`;
+                const probe = `https://${name}.fly.dev${probePath}`;
+                const serverPath = join(project, "server.ts");
+                const server = readFileSync(serverPath, "utf8");
+                const instrumented = server.replace(
+                    "{ hostname: values.host, port }",
+                    `{ hostname: values.host, port, fetch: persistenceProbe }`,
+                );
+                expect(instrumented).not.toBe(server);
+                writeFileSync(
+                    serverPath,
+                    `import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+const dir = process.env.SHALLOT_DATA_DIR;
+if (!dir) throw Error('Missing server data directory');
+const baseline = join(dir, 'baseline.json');
+const shutdown = join(dir, 'shutdown.json');
+const load = path => existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : null;
+const restored = { baseline: load(baseline), shutdown: load(shutdown) };
+let timer, dirty;
+function persistenceProbe(request) {
+    if (new URL(request.url).pathname !== ${JSON.stringify(probePath)}) return;
+    if (request.method === 'POST' && !timer && !restored.baseline) {
+        const record = { id: crypto.randomUUID(), writtenAt: Date.now() };
+        writeFileSync(baseline, JSON.stringify(record));
+        const markDirty = () => { dirty = { id: record.id, dirtiedAt: Date.now() }; };
+        markDirty();
+        timer = setInterval(markDirty, 250);
+        return Response.json(record);
+    }
+    return Response.json(restored);
+}
+${instrumented}
+server.world.onDispose(() => {
+    clearInterval(timer);
+    if (dirty) writeFileSync(shutdown, JSON.stringify({ ...dirty, flushedAt: Date.now() }));
+});
+`,
+                );
                 const journal = join(root, "browser-sockets.jsonl");
                 writeFileSync(journal, "");
                 const deployJournal = join(root, "deploy-finished.jsonl");
@@ -851,6 +895,19 @@ observeFlyBrowser(projectRequire('playwright').chromium, row => appendFileSync($
                     ),
                 ).toBe(true);
                 const deployedMachine = machine();
+                const volumes = volumeInventory();
+                expect(volumes).toHaveLength(1);
+                expect(volumes[0]).toMatchObject({
+                    name: "shallot_data",
+                    ["size_gb"]: 1,
+                    region: "iad",
+                    ["attached_machine_id"]: deployedMachine.id,
+                });
+                expect(deployedMachine.config.mounts).toHaveLength(1);
+                expect(deployedMachine.config.mounts[0]).toMatchObject({
+                    volume: volumes[0].id,
+                    path: "/data",
+                });
                 console.info(
                     "Deployed Machine services:",
                     JSON.stringify(deployedMachine.config.services),
@@ -908,6 +965,13 @@ try{const deadline=Date.now()+10000;for(;;){try{assertFlySocketsClosed(observati
                         ),
                     };
                 };
+                const recorded = await fetch(probe, {
+                    method: "POST",
+                    signal: AbortSignal.timeout(15_000),
+                });
+                expect(recorded.ok).toBe(true);
+                const baseline = await recorded.json();
+                expect(baseline.id).toBeString();
                 clients("hot");
                 assertFlySocketsClosed(socketObservations);
                 if (personal)
@@ -951,6 +1015,7 @@ try{const deadline=Date.now()+10000;for(;;){try{assertFlySocketsClosed(observati
                     await Bun.sleep(5000);
                     idleMachine = machine(personal);
                 }
+                const idleObservedAt = Date.now();
                 const stoppedAt = performance.now();
                 runningMs += stoppedAt - machineStart;
                 machineStart = 0;
@@ -979,12 +1044,49 @@ try{const deadline=Date.now()+10000;for(;;){try{assertFlySocketsClosed(observati
                     }),
                 );
                 expect(machine().state).toBe("started");
+                const response = await fetch(probe, { signal: AbortSignal.timeout(15_000) });
+                expect(response.ok).toBe(true);
+                const restored = await response.json();
+                console.info("Records loaded on cold start:", JSON.stringify(restored));
+                expect(restored.baseline).toEqual(baseline);
+                expect(restored.shutdown.id).toBe(baseline.id);
+                expect(restored.shutdown.dirtiedAt).toBeGreaterThan(idleStartedAt);
+                expect(restored.shutdown.flushedAt).toBeLessThanOrEqual(idleObservedAt);
+                expect(
+                    restored.shutdown.flushedAt - restored.shutdown.dirtiedAt,
+                ).toBeGreaterThanOrEqual(0);
+                expect(restored.shutdown.flushedAt - restored.shutdown.dirtiedAt).toBeLessThan(
+                    1000,
+                );
             } catch (error) {
                 failures.push(error);
             } finally {
                 if (owned) {
                     try {
-                        fly(["apps", "destroy", name, "--yes"]);
+                        if (inventory().some((row) => row.Name === name)) {
+                            try {
+                                for (const volume of volumeInventory()) {
+                                    if (volume.attached_machine_id)
+                                        fly([
+                                            "machine",
+                                            "destroy",
+                                            volume.attached_machine_id,
+                                            "--app",
+                                            name,
+                                            "--force",
+                                        ]);
+                                    fly(["volumes", "destroy", volume.id, "--app", name, "--yes"]);
+                                }
+                                const remaining = volumeInventory();
+                                expect(remaining).toEqual([]);
+                                console.info(
+                                    "Cleanup Fly volume inventory:",
+                                    JSON.stringify(remaining),
+                                );
+                            } finally {
+                                fly(["apps", "destroy", name, "--yes"]);
+                            }
+                        }
                         if (machineStart) runningMs += performance.now() - machineStart;
                         await waitForApp(false);
                         console.info("Cleanup Fly inventory:", JSON.stringify(inventory()));
@@ -993,7 +1095,8 @@ try{const deadline=Date.now()+10000;for(;;){try{assertFlySocketsClosed(observati
                         console.info(
                             JSON.stringify({
                                 machineSecondsUpperBound: seconds,
-                                costUSDUpperBound: seconds * 8.3e-7,
+                                computeCostUSDUpperBound: seconds * 8.3e-7,
+                                volumeCostUSDPerHour: 0.15 / (30 * 24),
                             }),
                         );
                     } catch (error) {
