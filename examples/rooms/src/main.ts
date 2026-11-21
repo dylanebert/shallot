@@ -1,5 +1,5 @@
 import { type App, type Plugin, runApp } from "@dylanebert/shallot";
-import { client, local, RoomBot, RoomLeader } from "@dylanebert/shallot/multiplayer";
+import { type ClientId, client, local, RoomBot, RoomLeader } from "@dylanebert/shallot/multiplayer";
 import { AppPlugin, EntryView, RoomFrame } from "./app";
 import { icon } from "./icons";
 import { ClientSession, ConnectionSlot, GAME, thinBot } from "./network";
@@ -50,7 +50,7 @@ let dropped = false;
 let rejoining = false;
 let ownSlot = -1;
 let roster = 0;
-let botSlots = 0;
+let botSeats = new Map<number, ClientId>();
 let leader: number | undefined;
 let generation: number | undefined;
 let openSlot = -1;
@@ -179,7 +179,7 @@ function slotButton(label: string, glyph: Parameters<typeof icon>[0], text = fal
     return button;
 }
 
-function requestBot(slot: number, remove = false) {
+function requestBot(slot: number, remove?: ClientId) {
     const peer = app?.world.resource(ClientSession).client;
     if (peer) peer.requestBot(peer.prediction.receiver.confirmed, slot, remove);
 }
@@ -192,7 +192,8 @@ function renderParty() {
         row.className = "row";
         const you = slot === ownSlot;
         const localBot = bots.get(slot);
-        const bot = url ? botSlots & (1 << slot) : localBot;
+        const botId = botSeats.get(slot);
+        const bot = url ? botId !== undefined : !!localBot;
         const occupied = you || bot || (url && roster & (1 << slot));
         let trigger: HTMLButtonElement | undefined;
         if (occupied) {
@@ -247,7 +248,7 @@ function renderParty() {
                             localBot.remove();
                             bots.delete(slot);
                             renderParty();
-                        } else requestBot(slot, !!bot);
+                        } else requestBot(slot, botId);
                     });
                 actions.append(choice);
             }
@@ -301,21 +302,24 @@ const RoomPanel: Plugin = {
                     leaderEid === undefined
                         ? undefined
                         : world.get(leaderEid, ConnectionSlot)?.slot;
-                let kinds = 0;
+                const currentBots = new Map<number, ClientId>();
                 if (url) {
-                    for (const eid of world.query([RoomBot, ConnectionSlot]))
-                        kinds |= 1 << world.get(eid, ConnectionSlot)!.slot;
+                    for (const eid of world.query([RoomBot, ConnectionSlot])) {
+                        const { slot, clientId } = world.get(eid, ConnectionSlot)!;
+                        currentBots.set(slot, Number(clientId) as ClientId);
+                    }
                 }
                 if (
                     peer.slot !== ownSlot ||
                     peer.roster !== roster ||
                     leaderSlot !== leader ||
-                    kinds !== botSlots
+                    currentBots.size !== botSeats.size ||
+                    [...currentBots].some(([slot, id]) => botSeats.get(slot) !== id)
                 ) {
                     ownSlot = peer.slot;
                     roster = peer.roster;
                     leader = leaderSlot;
-                    botSlots = kinds;
+                    botSeats = currentBots;
                     renderParty();
                 }
             },
@@ -393,7 +397,8 @@ async function leave() {
     seat = undefined;
     dropped = rejoining = false;
     ownSlot = openSlot = -1;
-    roster = botSlots = 0;
+    roster = 0;
+    botSeats.clear();
     leader = undefined;
     generation = undefined;
     list.replaceChildren();

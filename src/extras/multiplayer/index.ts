@@ -42,7 +42,7 @@ export {
     type SessionRecording,
     sessionRecording,
 } from "./recording";
-export { RoomBots } from "./room-host";
+export { RoomBots, RoomModeration } from "./room-host";
 export type { ServerMessage } from "./server-message";
 export { WebSocketConnection } from "./websocket";
 

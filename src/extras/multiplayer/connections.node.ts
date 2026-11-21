@@ -52,16 +52,21 @@ test("join spawns one connection entity and keys its runtime handle by that enti
     }
 });
 
-test("leave despawns the entity and releases its runtime handle exactly once", async () => {
+test("disconnect releases each seat once and a stale ClientId cannot disconnect its eid replacement", async () => {
     const { app, runtime, leaves } = await session();
     try {
         const eid = runtime.connect(connection())!;
-        runtime.disconnect(eid);
-        runtime.disconnect(eid);
+        const id = runtime.peers.get(eid)!.clientId;
+        runtime.disconnect(id);
+        const replacement = runtime.connect(connection())!;
+        expect(replacement).toBe(eid);
+        runtime.disconnect(id);
+        expect(runtime.peers.has(replacement)).toBe(true);
+        runtime.disconnect(runtime.peers.get(replacement)!.clientId);
         expect(app.world.exists(eid)).toBe(false);
         expect([...app.world.query([ClientOf])]).toEqual([]);
         expect(runtime.peers.has(eid)).toBe(false);
-        expect(leaves).toEqual([17]);
+        expect(leaves).toEqual([17, 17]);
     } finally {
         app.dispose();
     }
@@ -94,7 +99,7 @@ test("departure clears queued socket bytes and ignores callbacks arriving after 
     try {
         const eid = runtime.connect(transport)!;
         transport.push(new Uint8Array([1]));
-        runtime.disconnect(eid);
+        runtime.disconnect(runtime.peers.get(eid)!.clientId);
         transport.push(new Uint8Array([2]));
         expect(transport.closed).toBe(true);
         expect(transport.receive()).toEqual([]);

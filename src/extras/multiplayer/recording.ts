@@ -388,8 +388,16 @@ export class SessionRecorder {
         const disconnect = authority.disconnect.bind(authority);
         const hold = authority.hold.bind(authority);
         const resume = authority.resume.bind(authority);
-        authority.hold = (eid) => this.invoke("holdSeat", [eid], () => hold(eid));
-        authority.resume = (eid) => this.invoke("resumeSeat", [eid], () => resume(eid));
+        // The recording addresses the reconstructed entity, not a process-local ClientId.
+        authority.hold = (id) => {
+            const eid = authority.entity(id);
+            if (eid !== undefined) this.invoke("holdSeat", [eid], () => hold(id));
+        };
+        authority.resume = (id) => {
+            const eid = authority.entity(id);
+            if (eid === undefined) return resume(id);
+            this.invoke("resumeSeat", [eid], () => resume(id));
+        };
         authority.connect = (connection, kind = "human") => {
             const wrapped = this._identities.has(connection)
                 ? connection
@@ -399,7 +407,10 @@ export class SessionRecorder {
                 connect(wrapped, kind),
             );
         };
-        authority.disconnect = (eid) => this.invoke("disconnect", [eid], () => disconnect(eid));
+        authority.disconnect = (id) => {
+            const eid = authority.entity(id);
+            if (eid !== undefined) this.invoke("disconnect", [eid], () => disconnect(id));
+        };
     }
     finish(): void {
         if (!this._active) return;
@@ -435,14 +446,16 @@ export class SessionRecorder {
                     break;
                 }
                 case "disconnect":
-                    this._world.resource(ServerSession).server!.disconnect(args[0] as number);
-                    break;
                 case "holdSeat":
-                case "resumeSeat":
-                    this._world
-                        .resource(ServerSession)
-                        .server![call.kind === "holdSeat" ? "hold" : "resume"](args[0] as number);
+                case "resumeSeat": {
+                    const authority = this._world.resource(ServerSession).server!;
+                    const id = authority.peers.get(args[0] as number)?.clientId;
+                    if (id === undefined) throw new Error("Recorded seat is missing");
+                    if (call.kind === "disconnect") authority.disconnect(id);
+                    else if (call.kind === "holdSeat") authority.hold(id);
+                    else authority.resume(id);
                     break;
+                }
                 case "generation":
                     void this._connections.get(args[0] as number)!.generation;
                     break;

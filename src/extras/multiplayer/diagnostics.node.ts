@@ -99,7 +99,7 @@ test("departed connection rows are removed before its eid is recycled", async ()
         const prefix = `network/connections/${first}/`;
         expect(row(app.world, prefix + "bytes_sent").value()).toBeGreaterThan(0);
         expect(row(app.world, "network/peer_count").value()).toBe(1);
-        runtime.disconnect(first);
+        runtime.disconnect(runtime.peers.get(first)!.clientId);
         expect(
             [...app.world.resource(DiagnosticsStore).iter()].some((d) =>
                 d.path.path.startsWith(prefix),

@@ -6,10 +6,12 @@ import {
     type Plugin,
     Shape,
     Transform,
+    text,
     u32,
     type World,
 } from "@dylanebert/shallot";
 import {
+    type ClientId,
     ClientPrediction,
     type Connection,
     type Game,
@@ -24,13 +26,14 @@ import {
     RoomBot,
     RoomBots,
     RoomLeader,
+    ServerSession,
     type ThinClient,
 } from "@dylanebert/shallot/multiplayer";
 import { Demo, Route } from "./demo";
 import { PlayerMotion } from "./motion";
 import { LocalPlayer, LocalPlayerInputSystem, Player, PlayerInput } from "./player";
 
-export const ConnectionSlot = component("ConnectionSlot", { slot: u32 });
+export const ConnectionSlot = component("ConnectionSlot", { slot: u32, clientId: text(16) });
 /** Marks a client's own connection entity; disclosed only to that client, as lightyear's Controlled. */
 const OwnSeat = component("OwnSeat", {});
 const PARTY = [ConnectionSlot, RoomLeader, RoomBot];
@@ -117,13 +120,13 @@ export const GAME: Game = {
         for (const [slot, { player }] of scene(world).players.entries())
             world.storage(Replicate).rule.set(player, slot + 1);
     },
-    onJoin(world, eid) {
+    onJoin(world, eid, _connection, clientId) {
         const occupied = [...world.query([ConnectionSlot])].map(
             (eid) => world.get(eid, ConnectionSlot)!.slot,
         );
         const slot =
             world.get(eid, ConnectionSlot)?.slot ?? SLOTS.find((slot) => !occupied.includes(slot))!;
-        if (!world.has(eid, ConnectionSlot)) world.add(eid, ConnectionSlot, { slot });
+        world.add(eid, ConnectionSlot, { slot, clientId: String(clientId) });
         world.add(eid, OwnSeat);
         world.add(eid, Replicate, { rule: SLOTS.length + 1 + slot });
         world.storage(Body).isEnabled.set(scene(world).players[slot]!.player, 1);
@@ -145,27 +148,25 @@ export const GAME: Game = {
     },
     validateIntent(world, eid, record) {
         if (record.kind === "input") return validIntent(record);
+        const [remove, target] = record.values;
+        const requester = world.resource(ServerSession).server!.peers.get(eid)!.clientId;
         return (
             record.values.length === 2 &&
-            (record.values[0] === 0 || record.values[0] === 1) &&
-            SLOTS.some((slot) => slot === record.values[1]) &&
-            !!world.resource(RoomBots).controller?.canManage(eid)
+            (remove === 0
+                ? SLOTS.some((slot) => slot === target)
+                : remove === 1 && Number.isSafeInteger(target) && target! > 0) &&
+            !!world.resource(RoomBots).controller?.canManage(requester)
         );
     },
     applyIntent(world, eid, tick, records, input) {
         const bots = world.resource(RoomBots).controller;
         if (bots) {
+            const requester = world.resource(ServerSession).server!.peers.get(eid)!.clientId;
             for (const command of records) {
                 if (command.tick !== tick) continue;
-                const [remove, slot] = command.values;
-                if (!remove) {
-                    void bots.add(eid, thinBot(tick, slot)).catch(console.error);
-                } else {
-                    const target = [...world.query([RoomBot, ConnectionSlot])].find(
-                        (bot) => world.get(bot, ConnectionSlot)!.slot === slot,
-                    );
-                    if (target !== undefined) bots.remove(eid, target);
-                }
+                const [remove, target] = command.values;
+                if (remove) bots.remove(requester, target as ClientId);
+                else void bots.add(requester, thinBot(tick, target)).catch(console.error);
             }
         }
         const slot = world.get(eid, ConnectionSlot)!.slot;
@@ -233,8 +234,8 @@ export class GameClient {
     record(values: number[]) {
         this._values = values.slice();
     }
-    requestBot(tick: number, slot: number, remove: boolean) {
-        this.intent.record(tick, "operation", [Number(remove), slot]);
+    requestBot(tick: number, slot: number, remove?: ClientId) {
+        this.intent.record(tick, "operation", remove === undefined ? [0, slot] : [1, remove]);
         this.intent.flush();
     }
 }

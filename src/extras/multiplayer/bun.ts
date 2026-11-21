@@ -239,7 +239,6 @@ function hostRooms(
             },
         },
         pinnedApp,
-        recorder,
     );
     const endpoint = serveWebSocket({
         ...options,

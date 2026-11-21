@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { component, u32, World } from "../../engine";
 import {
+    type ClientId,
     type Connection,
     type Game,
     IntentSender,
@@ -9,6 +10,7 @@ import {
     RoomBot,
     RoomBots,
     RoomLeader,
+    ServerSession,
     WebSocketConnection,
 } from ".";
 import { serveRooms } from "./bun";
@@ -42,6 +44,7 @@ function fixture(botStartup?: Promise<void>) {
     let botLink: Connection | undefined;
     let now = 0;
     const results: Promise<boolean>[] = [];
+    const ids = new Map<number, ClientId>();
     let joined = 0;
     let botInputs = 0;
     const game: Game = {
@@ -64,21 +67,23 @@ function fixture(botStartup?: Promise<void>) {
             authority = world;
             world.onDispose(() => retired.resolve());
         },
-        onJoin(world, eid, transport) {
+        onJoin(world, eid, transport, clientId) {
             if (world.has(eid, RoomBot)) botLink = transport;
             if (!world.has(eid, Member)) world.add(eid, Member, { order: ++joined });
+            ids.set(world.get(eid, Member)!.order, clientId);
             world.add(eid, Replicate, { rule: 0 });
         },
         validateIntent: () => true,
         applyIntent(world, eid, tick, records, input) {
             if (input && world.has(eid, RoomBot)) botInputs++;
             const bots = world.resource(RoomBots).controller!;
+            const requester = world.resource(ServerSession).server!.peers.get(eid)!.clientId;
             for (const record of records) {
                 if (record.tick !== tick) continue;
                 if (record.values.length !== 1) {
                     const slot = record.values[0];
                     results.push(
-                        bots.add(eid, {
+                        bots.add(requester, {
                             seed: 41,
                             admit(world, bot) {
                                 if (slot === undefined) return true;
@@ -93,10 +98,9 @@ function fixture(botStartup?: Promise<void>) {
                         }),
                     );
                 } else {
-                    const target = [...world.query([Member])].find(
-                        (member) => world.get(member, Member)!.order === record.values[0],
+                    results.push(
+                        Promise.resolve(bots.remove(requester, record.values[0] as ClientId)),
                     );
-                    results.push(Promise.resolve(target !== undefined && bots.remove(eid, target)));
                 }
             }
         },
@@ -152,7 +156,11 @@ function fixture(botStartup?: Promise<void>) {
         }
         async function beginRequest(...values: number[]) {
             const index = results.length;
-            sender.record(receiver.confirmed, "operation", values);
+            sender.record(
+                receiver.confirmed,
+                "operation",
+                values.length === 1 ? [ids.get(values[0]!)!] : values,
+            );
             sender.flush();
             await until(() => results.length > index);
             return { result: results[index]! };
@@ -219,6 +227,11 @@ test("leader adds and removes a thin client every human sees", () =>
         await leader.until(() => host.botInputs() > 0);
         expect(await leader.request(3)).toBe(true);
         await Promise.all([leader.sees(2, [], 1), friend.sees(2, [], 1)]);
+        expect(await leader.request()).toBe(true);
+        await leader.sees(3, [4], 1);
+        expect(await leader.request(3)).toBe(false);
+        await friend.sees(3, [4], 1);
+        expect(await leader.request(4)).toBe(true);
     }));
 
 test("a non-leader cannot add or remove a bot", () =>

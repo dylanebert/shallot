@@ -52,7 +52,7 @@ for (const departure of ["disconnect", "destroy", "world", "shutdown"] as const)
             const closed = new Promise<void>((resolve) =>
                 socket.addEventListener("close", () => resolve(), { once: true }),
             );
-            if (departure === "disconnect") runtime.disconnect(eid);
+            if (departure === "disconnect") runtime.disconnect(runtime.peers.get(eid)!.clientId);
             else if (departure === "destroy") host.world.destroy(eid);
             else if (departure === "world") host.world.dispose();
             else host.stop();
@@ -84,7 +84,7 @@ for (const departure of ["disconnect", "destroy", "world", "app"] as const) {
         try {
             const eid = runtime.connect(link.a)!;
             for (let i = 0; i < 5; i++) link.b.send(new Uint8Array([i]));
-            if (departure === "disconnect") runtime.disconnect(eid);
+            if (departure === "disconnect") runtime.disconnect(runtime.peers.get(eid)!.clientId);
             else if (departure === "destroy") app.world.destroy(eid);
             else if (departure === "world") app.world.dispose();
             else app.dispose();

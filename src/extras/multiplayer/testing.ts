@@ -1,7 +1,13 @@
 import { type App, createApp, type Plugin, Time, type World } from "../../engine";
 import { MultiplayerPlugin, ReplicationReceiver } from ".";
 import { observeNetwork } from "./diagnostics";
-import { clientStartup, type Game, ServerSession, server as serverRole } from "./game";
+import {
+    type ClientId,
+    clientStartup,
+    type Game,
+    ServerSession,
+    server as serverRole,
+} from "./game";
 import { IntentSender } from "./intent";
 import { type Connection, type LinkFaults, seededLink } from "./link";
 import type { PeerProxy } from "./proxy";
@@ -100,24 +106,19 @@ export async function createSession(
         peers.push(server);
         if (transport === "websocket") {
             const { serveWebSocket } = await import("./bun");
-            const entities = new WeakMap<Connection, number>();
+            const seats = new WeakMap<Connection, ClientId>();
             endpoint = serveWebSocket({
                 hostname: "127.0.0.1",
                 port: 0,
                 connect(connection) {
                     const eid = authority.connect(connection);
                     if (eid === undefined) connection.close();
-                    else entities.set(connection, eid);
+                    else seats.set(connection, authority.peers.get(eid)!.clientId);
                 },
                 disconnect(connection) {
-                    const eid = entities.get(connection);
-                    if (
-                        eid !== undefined &&
-                        authority.peers.get(eid)?.connection ===
-                            (recorder?.connection(connection) ?? connection)
-                    )
-                        authority.disconnect(eid);
-                    entities.delete(connection);
+                    const id = seats.get(connection);
+                    if (id !== undefined) authority.disconnect(id);
+                    seats.delete(connection);
                 },
             });
         }

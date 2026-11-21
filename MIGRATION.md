@@ -13,6 +13,10 @@ Remove the deprecated `@dylanebert/shallot-gltf` dependency (`bun remove @dylane
 ### Web builds name their files relative to the page
 
 `shallot()` now builds with Vite's `base: "./"` unless your config sets `base`, so the output loads under any path, as itch.io and a subpath host serve it. A game that serves its page at nested routes through the History API sets `base: "/"` in its Vite config to keep root-absolute URLs.
+## Multiplayer
+
+`ServerSession.server.disconnect` takes a `ClientId`, not a connection entity id. Retain the `clientId` argument supplied to `Game.onJoin` rather than the entity id. To disconnect the seat in a synchronous server intent callback, read `server.peers.get(eid)?.clientId` while that entity still belongs to the requester.
+
 ## Rendering
 
 ### A second camera and the first canvas

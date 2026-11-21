@@ -58,7 +58,7 @@ function issueClientId(): ClientId {
 }
 
 /** Shared protocol and game policy. Connection arguments are borrowed server eids, not identities.
- * Retain the client id, not the eid, for addressing messages. Resume keeps the same client id.
+ * Retain the ClientId, not the eid, for addressing a seat. Resume keeps the same ClientId.
  * Explicit disconnect calls onLeave before despawning.
  * Direct ECS removal may already have removed the entity's other components.
  * onClient installs game-specific prediction or routing at the client's first stepped preFixed
@@ -130,13 +130,44 @@ interface Peer {
  * Use the server role plugin; tick the World normally, including through World.step. */
 class GameServer {
     private readonly _peers = new Map<number, Peer>();
+    private readonly _entities = new Map<ClientId, number>();
     get peers(): ReadonlyMap<number, Peer> {
         return this._peers;
     }
-    /** Earliest admitted human seat, including seats held for rejoin. */
-    get leader(): number | undefined {
-        for (const [eid, peer] of this._peers) if (peer.kind === "human") return eid;
-        return undefined;
+    private _leader?: ClientId;
+    /** Current leader, including while held for rejoin. */
+    get leader(): ClientId | undefined {
+        return this._leader;
+    }
+    /** Resolves a seat to its current, borrowed server entity. Do not retain the eid. */
+    entity(clientId: ClientId): number | undefined {
+        return this._entities.get(clientId);
+    }
+    private setLeader(clientId: ClientId | undefined) {
+        const previous = this._leader === undefined ? undefined : this.entity(this._leader);
+        this._leader = clientId;
+        if (!this.game.schema.includes(RoomLeader)) return;
+        if (previous !== undefined && this.world.has(previous, RoomLeader))
+            this.world.remove(previous, RoomLeader);
+        const next = clientId === undefined ? undefined : this.entity(clientId);
+        if (next !== undefined) this.world.add(next, RoomLeader);
+    }
+    /** Transfers leadership only from the connected leader to another connected human. */
+    promote(requester: ClientId, target: ClientId): boolean {
+        if (requester !== this._leader || requester === target) return false;
+        const from = this._peers.get(this.entity(requester)!);
+        const to = this._peers.get(this.entity(target)!);
+        if (
+            !from ||
+            from.held ||
+            from.connection.closed ||
+            to?.kind !== "human" ||
+            to.held ||
+            to.connection.closed
+        )
+            return false;
+        this.setLeader(target);
+        return true;
     }
     readonly world: World;
     readonly game: Game;
@@ -149,10 +180,13 @@ class GameServer {
         const diagnostics = world.resource(DiagnosticsStore);
         this._diagnostics = diagnostics;
         const unobserve = world.observeMembership(ClientOf, (eid, present) => {
-            if (!present) this.disconnect(eid);
+            const peer = this._peers.get(eid);
+            if (!present && peer) this.disconnect(peer.clientId);
         });
         world.onDispose(() => {
             unobserve();
+            this._entities.clear();
+            this._leader = undefined;
             for (const [eid, peer] of this._peers) {
                 this._peers.delete(eid);
                 peer.diagnostics.remove();
@@ -200,8 +234,8 @@ class GameServer {
                 since: this.world.time.fixedTick,
                 kind,
             });
-            if (this.game.schema.includes(RoomLeader) && this.leader === eid)
-                this.world.add(eid, RoomLeader);
+            this._entities.set(clientId, eid);
+            if (kind === "human" && this._leader === undefined) this.setLeader(clientId);
             this._diagnostics.record("network/peer_count", this._peers.size);
             sender.record(this.world.time.fixedTick);
             sender.flush();
@@ -209,7 +243,8 @@ class GameServer {
         } catch (error) {
             diagnostics.remove();
             try {
-                this.disconnect(eid);
+                const peer = this._peers.get(eid);
+                if (peer) this.disconnect(peer.clientId);
             } finally {
                 connection.close();
                 this.world.destroy(eid);
@@ -219,18 +254,25 @@ class GameServer {
     }
     /** Idempotent. Explicit leave runs onLeave before despawning; transport closure and history
      * release still run if the hook throws. */
-    disconnect(eid: number): void {
-        const peer = this._peers.get(eid);
-        if (!peer) return;
-        const wasLeader = this.leader === eid;
+    disconnect(clientId: ClientId): void {
+        const eid = this.entity(clientId);
+        if (eid === undefined) return;
+        const peer = this._peers.get(eid)!;
+        const wasLeader = this.leader === clientId;
         this._peers.delete(eid);
+        this._entities.delete(clientId);
         peer.diagnostics.remove();
         this._diagnostics.record("network/peer_count", this._peers.size);
         try {
-            if (wasLeader && this.game.schema.includes(RoomLeader)) {
+            if (wasLeader) {
                 if (this.world.has(eid, RoomLeader)) this.world.remove(eid, RoomLeader);
-                const successor = this.leader;
-                if (successor !== undefined) this.world.add(successor, RoomLeader);
+                let successor: ClientId | undefined;
+                for (const candidate of this._peers.values()) {
+                    if (candidate.kind !== "human") continue;
+                    successor = candidate.clientId;
+                    break;
+                }
+                this.setLeader(successor);
             }
             this.game.onLeave?.(this.world, eid, peer.clientId, peer.playerId);
         } finally {
@@ -250,14 +292,16 @@ class GameServer {
         }
     }
     /** @internal Keep the entity and intent history, but stop stepping this peer. */
-    hold(eid: number): void {
-        const peer = this._peers.get(eid);
+    hold(clientId: ClientId): void {
+        const peer = this._peers.get(this.entity(clientId)!);
         if (peer) peer.held = true;
     }
     /** @internal Start a fresh replication history for a held peer. */
-    resume(eid: number): void {
-        const peer = this._peers.get(eid);
-        if (!peer?.held) throw new Error("Seat is not held");
+    resume(clientId: ClientId): void {
+        const eid = this.entity(clientId);
+        if (eid === undefined) throw new Error("Seat is not held");
+        const peer = this._peers.get(eid)!;
+        if (!peer.held) throw new Error("Seat is not held");
         peer.sender = new ReplicationSender(
             this.world,
             this.game.schema,
@@ -276,7 +320,7 @@ class GameServer {
         for (const [eid, peer] of this.peers) {
             if (peer.held) continue;
             if (peer.connection.closed) {
-                this.disconnect(eid);
+                this.disconnect(peer.clientId);
                 continue;
             }
             const messages = peer.sender.flush();
@@ -345,7 +389,8 @@ export function server(game: Game): Plugin {
         dispose(world) {
             if (world.signal.aborted) return;
             const runtime = world.resource(ServerSession).server;
-            if (runtime) for (const eid of runtime.peers.keys()) runtime.disconnect(eid);
+            if (runtime)
+                for (const peer of runtime.peers.values()) runtime.disconnect(peer.clientId);
         },
         systems: [
             {
@@ -530,7 +575,7 @@ export interface ThinClient {
     input(world: World, sender: IntentSender, tick: number): void;
 }
 
-function localHost(game: Game, options: LocalOptions, pinned?: App, recorder?: SessionRecorder) {
+function localHost(game: Game, options: LocalOptions, pinned?: App) {
     type Endpoint = Connection & { credentials?: { id: string; token: string } };
     let clock = 0;
     let accumulator = 0;
@@ -547,7 +592,6 @@ function localHost(game: Game, options: LocalOptions, pinned?: App, recorder?: S
             },
         },
         pinned,
-        recorder,
     );
     function stream(seed: number) {
         const link = seededLink(seed, options.faults);
@@ -722,7 +766,7 @@ export async function local(game: Game, options: LegacyLocalOptions & { rooms?: 
     let host: LocalHost | undefined;
     try {
         serverRecorder?.attachServer();
-        host = localHost(game, options, app, serverRecorder);
+        host = localHost(game, options, app);
         const seat = await host.join(undefined, undefined, undefined, clientRecorder);
         for (const thin of options.thinClients ?? []) await seat.addBot(thin);
         return {

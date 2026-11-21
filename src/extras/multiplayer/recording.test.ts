@@ -326,7 +326,7 @@ test("frame deltas, admission, explicit departure and transport closure are repl
         session.clients[0]!.world.step(1 / 30);
         await session.advance(3);
         const authority = session.server.world.resource(ServerSession).server!;
-        authority.disconnect([...authority.peers.keys()][1]!);
+        authority.disconnect([...authority.peers.values()][1]!.clientId);
         session.clients[0]!.connection!.close();
         await session.advance(3);
     } finally {

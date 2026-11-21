@@ -1,7 +1,14 @@
 import { type App, createApp, Time } from "../../engine";
 import { MultiplayerPlugin, ReplicationReceiver } from ".";
 import { observeNetwork, transportClock } from "./diagnostics";
-import { type Game, type PlayerId, ServerSession, server, type ThinClient } from "./game";
+import {
+    type ClientId,
+    type Game,
+    type PlayerId,
+    ServerSession,
+    server,
+    type ThinClient,
+} from "./game";
 import { IntentSender } from "./intent";
 import { type Connection, type LinkFaults, MAX_MESSAGE_BYTES, seededLink } from "./link";
 import type { SessionRecorder } from "./recording";
@@ -25,14 +32,29 @@ interface Bot {
     dispose(): void;
 }
 
-/** Room authority for game-defined bot operations. Pass the requester entity supplied by
- * the server intent hook, not an ID from the operation. Only room-mode authorities have a controller. */
+/** Room authority for game-defined bot operations. Resolve the requester from the server's
+ * intent callback, never from the operation payload. Only room-mode authorities have a controller. */
 export const RoomBots = {
     create: (): {
         controller?: {
-            canManage(requester: number): boolean;
-            add(requester: number, thin: ThinClient): Promise<boolean>;
-            remove(requester: number, bot: number): boolean;
+            canManage(requester: ClientId): boolean;
+            add(requester: ClientId, thin: ThinClient): Promise<boolean>;
+            remove(requester: ClientId, bot: ClientId): boolean;
+        };
+    } => ({}),
+};
+
+/** Owner-only room operations. Resolve the requester from the server's intent callback,
+ * never from the operation payload. Only room-mode authorities have a controller. */
+export const RoomModeration = {
+    create: (): {
+        controller?: {
+            /** Transfer leadership to another connected human. */
+            promote(requester: ClientId, target: ClientId): boolean;
+            /** Remove another human (including a held seat) and revoke their resume grant.
+             * With onAuth, the PlayerId is excluded until the room retires. Without it,
+             * only the anonymous seat can be excluded: a fresh join has no verified identity. */
+            kick(requester: ClientId, target: ClientId): boolean;
         };
     } => ({}),
 };
@@ -41,19 +63,20 @@ const NO_FAULTS: LinkFaults = { minDelay: 0, maxDelay: 0, loss: 0, duplication: 
 
 interface Seat<C> {
     room: Room<C>;
-    eid: number;
+    clientId: ClientId;
+    playerId?: PlayerId;
     id: string;
     token: string;
     transport: { stream: C } & Connection;
-    connection: Connection;
     expiresAt?: number;
 }
 
 interface Room<C> {
     code: string;
     private: boolean;
-    seats: Map<C, number | undefined>;
-    bots: Map<number, Bot>;
+    seats: Map<C, ClientId | undefined>;
+    bots: Map<ClientId, Bot>;
+    excluded?: Set<PlayerId>;
     buildingBots?: number;
     app?: App;
     ready?: Promise<void>;
@@ -95,7 +118,6 @@ export function roomHost<
         sendRoom?(connection: C, code: string): void;
     },
     pinnedApp?: App,
-    recorder?: SessionRecorder,
 ) {
     if (!Number.isSafeInteger(game.maxClients) || game.maxClients < 1)
         throw new Error("maxClients must be a positive integer");
@@ -181,25 +203,20 @@ export function roomHost<
             return;
         }
         memberships.delete(connection);
-        const eid = room.seats.get(connection);
+        const clientId = room.seats.get(connection);
         room.seats.delete(connection);
         cancelAdmission(connection);
         const authority = room.app?.world.resource(ServerSession).server;
         const seat = seats.get(connection);
-        if (hold && seat && authority?.peers.get(seat.eid)?.connection === seat.connection) {
-            authority.hold(seat.eid);
+        if (hold && seat && authority && authority.entity(seat.clientId) !== undefined) {
+            authority.hold(seat.clientId);
             seat.expiresAt = now() + reconnectMs;
             held.set(seat.token, seat);
             room.held = (room.held ?? 0) + 1;
             return;
         }
         try {
-            if (
-                eid !== undefined &&
-                authority?.peers.get(eid)?.connection ===
-                    (seat?.connection ?? recorder?.connection(connection) ?? connection)
-            )
-                authority?.disconnect(eid);
+            if (clientId !== undefined) authority?.disconnect(clientId);
         } finally {
             if (room !== pinned && !humans(room)) retire(room);
         }
@@ -254,6 +271,11 @@ export function roomHost<
             leave(connection);
             return;
         }
+        if (playerId !== undefined && room.excluded?.has(playerId)) {
+            connection.close(1008, "Kicked from room");
+            leave(connection, false);
+            return;
+        }
         try {
             const transport: Seat<C>["transport"] & { [transportClock]: () => number } = {
                 stream: connection,
@@ -271,28 +293,28 @@ export function roomHost<
                     return this.stream.receive();
                 },
             };
-            const eid = room
-                .app!.world.resource(ServerSession)
-                .server!.connect(
-                    reconnectMs ? transport : connection,
-                    "human",
-                    undefined,
-                    playerId,
-                );
+            const authority = room.app!.world.resource(ServerSession).server!;
+            const eid = authority.connect(
+                reconnectMs ? transport : connection,
+                "human",
+                undefined,
+                playerId,
+            );
             if (eid === undefined) refuseFull(connection);
             else {
-                room.seats.set(connection, eid);
+                const { clientId } = authority.peers.get(eid)!;
+                room.seats.set(connection, clientId);
                 room.reservation = undefined;
                 if (room.code) options.sendRoom?.(connection, room.code);
                 if (reconnectMs) {
                     const token = crypto.randomUUID();
                     const seat = {
                         room,
-                        eid,
+                        clientId,
+                        playerId,
                         id: crypto.randomUUID(),
                         token,
                         transport,
-                        connection: recorder?.connection(transport) ?? transport,
                     };
                     seats.set(connection, seat);
                     sendToken(connection, seat);
@@ -328,8 +350,8 @@ export function roomHost<
         active.set(app, room);
         if (room === pinned) return;
         const authority = app.world.resource(ServerSession).server!;
-        const canManage = (requester: number) => {
-            const peer = authority.peers.get(requester);
+        const canManage = (requester: ClientId) => {
+            const peer = authority.peers.get(authority.entity(requester)!);
             return (
                 room === rooms.get(room.code) &&
                 authority.leader === requester &&
@@ -342,17 +364,39 @@ export function roomHost<
             canManage,
             async add(requester, thin) {
                 if (!canManage(requester)) return false;
-                const peer = authority.peers.get(requester);
-                return !!(await addBot(
-                    room,
-                    thin,
-                    () => authority.peers.get(requester) === peer && canManage(requester),
-                ));
+                return !!(await addBot(room, thin, () => canManage(requester)));
             },
-            remove(requester, eid) {
-                const bot = room.bots.get(eid);
+            remove(requester, target) {
+                const bot = room.bots.get(target);
                 if (!bot || !canManage(requester)) return false;
                 bot.remove();
+                return true;
+            },
+        };
+        app.world.resource(RoomModeration).controller = {
+            promote(requester, target) {
+                return canManage(requester) && authority.promote(requester, target);
+            },
+            kick(requester, target) {
+                if (requester === target || !canManage(requester)) return false;
+                const peer = authority.peers.get(authority.entity(target)!);
+                if (peer?.kind !== "human") return false;
+                const live = [...room.seats].find(([, id]) => id === target)?.[0];
+                const offline =
+                    live === undefined &&
+                    [...held.values()].find((seat) => seat.clientId === target);
+                if (live === undefined && !offline) return false;
+                if (peer.playerId !== undefined) (room.excluded ??= new Set()).add(peer.playerId);
+                if (offline) expireSeat(offline);
+                else if (live !== undefined) {
+                    // Forget the grant before closing: the close handler must not hold this seat.
+                    seats.delete(live);
+                    try {
+                        live.close(1008, "Kicked from room");
+                    } finally {
+                        leave(live, false);
+                    }
+                }
                 return true;
             },
         };
@@ -384,8 +428,7 @@ export function roomHost<
             observeNetwork(app.world, link.b);
             const eid = authority.connect(link.a, "bot", thin.admit);
             if (eid !== undefined) {
-                const peer = authority.peers.get(eid);
-                room.bots.get(eid)?.dispose();
+                const { clientId } = authority.peers.get(eid)!;
                 const bot: Bot = {
                     advance(time) {
                         if (link.a.closed) return bot.remove();
@@ -399,17 +442,16 @@ export function roomHost<
                         sender.flush();
                     },
                     remove() {
-                        if (room.bots.get(eid) !== bot) return;
-                        room.bots.delete(eid);
+                        if (!room.bots.delete(clientId)) return;
                         try {
-                            if (authority.peers.get(eid) === peer) authority.disconnect(eid);
+                            authority.disconnect(clientId);
                         } finally {
                             dispose();
                         }
                     },
                     dispose,
                 };
-                room.bots.set(eid, bot);
+                room.bots.set(clientId, bot);
                 return { remove: bot.remove };
             }
         } catch (error) {
@@ -433,6 +475,7 @@ export function roomHost<
             for (const connection of room.seats.keys()) {
                 const seat = seats.get(connection);
                 if (seat?.token !== token || seat.id !== id) continue;
+                if (seat.playerId !== undefined && room.excluded?.has(seat.playerId)) return;
                 connection.close(1008, "Seat resumed by another connection");
                 leave(connection);
                 return;
@@ -453,8 +496,7 @@ export function roomHost<
         const authority = seat.room.app!.world.resource(ServerSession).server!;
         release(seat);
         try {
-            if (authority.peers.get(seat.eid)?.connection === seat.connection)
-                authority.disconnect(seat.eid);
+            authority.disconnect(seat.clientId);
         } finally {
             if (seat.room !== pinned && !humans(seat.room)) retire(seat.room);
         }
@@ -464,7 +506,7 @@ export function roomHost<
         const time = now();
         for (const seat of held.values()) {
             const authority = seat.room.app!.world.resource(ServerSession).server!;
-            const owns = authority.peers.get(seat.eid)?.connection === seat.connection;
+            const owns = authority.entity(seat.clientId) !== undefined;
             if (seat.expiresAt! > time && owns) continue;
             expireSeat(seat);
         }
@@ -514,7 +556,7 @@ export function roomHost<
             .map((room) => ({
                 code: room.code,
                 clients: game.onAuth
-                    ? [...room.seats.values()].filter((eid) => eid !== undefined).length +
+                    ? [...room.seats.values()].filter((id) => id !== undefined).length +
                       (room.held ?? 0) +
                       room.bots.size
                     : count(room),
@@ -579,18 +621,20 @@ export function roomHost<
                 !seat ||
                 seat.id !== id ||
                 (intent === "join" && code?.toUpperCase() !== seat.room.code) ||
-                authority?.peers.get(seat.eid)?.connection !== seat.connection
+                (seat.playerId !== undefined && seat.room.excluded?.has(seat.playerId)) ||
+                !authority ||
+                authority.entity(seat.clientId) === undefined
             ) {
                 connection.close(1008, "Invalid or expired reconnection token");
                 return;
             }
             release(seat);
             seat.transport.stream = connection;
-            seat.room.seats.set(connection, seat.eid);
+            seat.room.seats.set(connection, seat.clientId);
             memberships.set(connection, seat.room);
             seats.set(connection, seat);
             try {
-                authority.resume(seat.eid);
+                authority.resume(seat.clientId);
                 seat.token = crypto.randomUUID();
                 sendToken(connection, seat);
             } catch (error) {
@@ -598,7 +642,7 @@ export function roomHost<
                 seats.delete(connection);
                 connection.close(1011, "Resumption failed");
                 try {
-                    authority.disconnect(seat.eid);
+                    authority.disconnect(seat.clientId);
                 } finally {
                     leave(connection);
                 }
@@ -647,8 +691,9 @@ export function roomHost<
         for (const room of active.values()) {
             const authority = room.app!.world.resource(ServerSession).server!;
             const tick = room.app!.world.time.fixedTick;
-            for (const [connection, eid] of room.seats) {
-                const peer = eid === undefined ? undefined : authority.peers.get(eid);
+            for (const [connection, id] of room.seats) {
+                const peer =
+                    id === undefined ? undefined : authority.peers.get(authority.entity(id)!);
                 if (!peer || peer.held) continue;
                 if (tick - Math.max(peer.sender.acknowledged, peer.since) < UNCONFIRMED_SEAT_TICKS)
                     continue;

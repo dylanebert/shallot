@@ -473,7 +473,7 @@ for (const host of ["serveRooms", "serveGame"] as const) {
             expect(f.joined).toEqual([eid]);
             expect(f.left).toEqual([]);
             expect(f.world.get(eid, Player)?.value).toBe(42);
-            expect(authority.leader).toBe(eid);
+            expect(authority.leader).toBe(authority.peers.get(eid)!.clientId);
             if (host === "serveRooms") {
                 const listing = await fetch(`http://127.0.0.1:${active.port}/rooms`);
                 expect(((await listing.json()) as { clients: number }[])[0]?.clients).toBe(1);
