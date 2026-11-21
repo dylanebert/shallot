@@ -848,13 +848,12 @@ observeFlyBrowser(projectRequire('playwright').chromium, row => appendFileSync($
                 // Absence was checked for both scratch names; partial publish failures also reach cleanup.
                 workerOwned = true;
                 machineStart = performance.now();
-                let result: ReturnType<typeof run> | undefined;
-                if (personal) terminal(publish, project);
-                else result = run(publish, project);
-                if (result)
-                    expect(result.stderr).toContain(
-                        "Published page confirmed server state through the Fly endpoint.",
-                    );
+                // Login is complete. Without a TTY, publish uses package.json's name
+                // for both first links without treating either as an existing link.
+                const result = run(publish, project);
+                expect(result.stderr).toContain(
+                    "Published page confirmed server state through the Fly endpoint.",
+                );
                 const deployTiming = JSON.parse(readFileSync(deployJournal, "utf8").trim());
                 expect(deployTiming.status).toBe(0);
                 expect(Number.isFinite(deployTiming.deployFinishedAt)).toBe(true);
@@ -877,11 +876,12 @@ observeFlyBrowser(projectRequire('playwright').chromium, row => appendFileSync($
                 assertFlySocketsClosed(socketObservations);
                 const link = JSON.parse(readFileSync(manifestPath, "utf8")).shallot.publish;
                 expect(link.server).toEqual({ target: "fly", app: name });
-                if (result) expect(new URL(result.stdout.trim()).hostname).toStartWith(`${name}.`);
+                const url = result.stdout.trim();
+                expect(new URL(url).hostname).toStartWith(`${name}.`);
                 if (personal)
                     await confirmPlay(
-                        null,
-                        "Open the play link printed above in a fresh anonymous browser session. Close it before answering so the two server slots are free.",
+                        url,
+                        "Open this play link in a fresh anonymous browser session. Close it before answering so the two server slots are free.",
                     );
                 wrangler = join(project, "node_modules/wrangler/bin/wrangler.js");
                 writeFileSync(
