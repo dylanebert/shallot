@@ -41,7 +41,10 @@ export const RoomBot = component("RoomBot", {});
  * Direct ECS removal may already have removed the entity's other components.
  * onClient installs game-specific prediction or routing at the client's first stepped preFixed
  * boundary, after app warm-up, where prediction may capture its initial World snapshot.
- * Replay composes only the game's plugins and onClient, not the tab's controls or presentation. */
+ * Replay composes only the game's plugins and onClient, not the tab's controls or presentation;
+ * a client's hash keys entities by wire ID, so entities only the tab creates change no tick hash.
+ * Predicted entities without a wire ID hash as an unordered set, and a reference to one only as
+ * present. */
 export interface Game {
     plugins: readonly Plugin[];
     schema: ReplicationSchema;

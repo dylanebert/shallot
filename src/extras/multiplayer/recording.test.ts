@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { component, createApp, type Plugin, u32, type World } from "../../engine";
+import { component, createApp, entity, type Plugin, u32, type World } from "../../engine";
 import {
     type Game,
     Replicate,
@@ -356,4 +356,46 @@ test("frame deltas, admission, explicit departure and transport closure are repl
     await expect(replaySession(game, "counter-1", delta)).rejects.toThrow(
         `fixed tick ${frame.tick + 1}`,
     );
+});
+
+test("a client World's own entities shift no hashed row of entities its receiver created", async () => {
+    const Link = component("RecordedLink", { target: entity });
+    const linked: Game = {
+        ...game,
+        plugins: [plugin, { name: "RecordedLinks", components: [Link] }],
+        schema: [Count, Link],
+        onCreate(world) {
+            const [a, b] = [world.create(), world.create()];
+            for (const eid of [a, b]) world.add(eid, Replicate);
+            world.add(a, Count);
+            world.add(b, Link, { target: a });
+        },
+        rules: (_world, eid) => [new Map([[eid, [Count, Link]]])],
+        onClient(world, connection) {
+            world.resource(Runtime).receiver = new ReplicationReceiver(
+                world,
+                [Count, Link],
+                connection,
+            );
+        },
+    };
+    let recording: SessionRecording | undefined;
+    const session = await createSession(linked, {
+        clients: 1,
+        seed: 23,
+        recording: (role) =>
+            role === "server"
+                ? undefined
+                : { gameVersion: "counter-1", write: (value) => void (recording = value) },
+    });
+    try {
+        // A tab creates its own entities, such as lights and text, that replay never composes.
+        session.clients[0]!.world.create();
+        await session.advance(20);
+        const receiver = session.clients[0]!.world.resource(Runtime).receiver!;
+        expect(receiver.entities.size).toBe(2);
+    } finally {
+        await session.dispose();
+    }
+    await replaySession(linked, "counter-1", JSON.parse(JSON.stringify(recording)));
 });

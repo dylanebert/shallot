@@ -1,13 +1,14 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { Body, BodyType, GlobalTransform, Transform } from "../../core";
-import { component, type Plugin, u32 } from "../../engine";
+import { component, type Plugin, u32, type World } from "../../engine";
 import {
     ClientPrediction,
     type Game,
     IntentSender,
     PredictionMotion,
     PredictionPlugin,
+    PredictionTarget,
     Replicate,
     replaySession,
     type SessionRecording,
@@ -215,4 +216,75 @@ test("removing a recorded sample, local operation or body switch reds at its ent
             `fixed tick ${removed.tick}`,
         );
     }
+});
+
+test("a tab-freed eid that the game's next predicted entity reuses changes no tick hash", async () => {
+    const Mark = component("RecordedPredictedMark", { value: u32 });
+    const marked = (world: World, value: number) =>
+        [...world.query([Mark])].some((eid) => world.get(eid, Mark)!.value === value);
+    const spawns: Plugin = {
+        name: "RecordedPredictedSpawns",
+        recovery: "stateless",
+        dependencies: [PredictionPlugin],
+        components: [Mark],
+        systems: [
+            {
+                group: "fixed",
+                update(world) {
+                    for (const [value, tick] of [
+                        [1, 2],
+                        [2, 30],
+                    ] as const) {
+                        if (world.time.fixedTick < tick || marked(world, value)) continue;
+                        const eid = world.create();
+                        world.add(eid, Mark, { value });
+                        world.add(eid, PredictionTarget, { enabled: 1 });
+                    }
+                },
+            },
+        ],
+    };
+    const subject: Game = {
+        plugins: [spawns],
+        schema: [Mark],
+        maxClients: 1,
+        rules: () => [],
+        validateIntent: () => true,
+        applyIntent() {},
+        onClient(world, connection) {
+            new ClientPrediction(
+                world,
+                [Mark],
+                connection,
+                () => undefined,
+                () => {},
+            );
+        },
+    };
+    let recording: SessionRecording | undefined;
+    const session = await createSession(subject, {
+        clients: 1,
+        seed: 29,
+        recording: (role) =>
+            role === "server"
+                ? undefined
+                : { gameVersion: "spawns-1", write: (value) => void (recording = value) },
+    });
+    try {
+        const world = session.clients[0]!.world;
+        // A tab entity takes the lowest free eid and frees it after the game's first spawn.
+        const tab = world.create();
+        await session.waitFor(session.clients[0]!, () => marked(world, 1), 30, "first spawn");
+        world.destroy(tab);
+        // Rollback restores the allocator too, so the free survives only past a confirmation
+        // ahead of the client's head, which jumps without restoring.
+        await session.step(session.server, 40);
+        await session.waitFor(session.clients[0]!, () => marked(world, 2), 30, "second spawn");
+        const second = [...world.query([Mark])].find((eid) => world.get(eid, Mark)!.value === 2);
+        expect(second).toBe(tab);
+        await session.advance(10);
+    } finally {
+        await session.dispose();
+    }
+    await replaySession(subject, "spawns-1", JSON.parse(JSON.stringify(recording)));
 });

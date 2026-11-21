@@ -1,6 +1,6 @@
 import pkg from "../../../package.json" with { type: "json" };
 import { createApp, type Plugin, Time, type World } from "../../engine";
-import { fields } from "../../engine/ecs";
+import { entity, fields } from "../../engine/ecs";
 import { MultiplayerPlugin, Replicate, type ReplicationReceiver } from ".";
 import { transportClock } from "./diagnostics";
 import type { Game } from "./game";
@@ -54,31 +54,68 @@ function javascriptRuntime(): SessionRecording["javascript"] {
     return { engine, version: agent };
 }
 
-/** Hashes schema fields in entity/component/field order, including membership and entity IDs.
- * Covers replication membership and local prediction, not presentation-only schema rows. */
-function hashReplicatedRows(world: World, game: Game, selected: Iterable<number>): string {
-    let hash = 2166136261;
+/** Hashes schema fields in key/component/field order, including membership and entity keys.
+ * Covers replication membership and local prediction, not presentation-only schema rows.
+ * Each key is a run-independent identity for an eid, so an entity only one run creates
+ * shifts no other row. Unkeyed rows, predicted entities without a wire ID, hash as an unordered
+ * multiset, so no allocation order reaches the hash; two of them exchanging states hash equal.
+ * Entity reference fields hash the referenced key, or a server's eid; on a client, a live
+ * entity without a key hashes as one unkeyed token, distinct from 0 for none. */
+function hashReplicatedRows(
+    world: World,
+    game: Game,
+    keys: ReadonlyMap<number, number[]>,
+    unkeyed: readonly number[],
+    server: boolean,
+): string {
     const bytes = new Uint8Array(8);
     const view = new DataView(bytes.buffer);
+    let hash = 0;
     const number = (value: number) => {
         view.setFloat64(0, value, true);
         for (const byte of bytes) hash = Math.imul(hash ^ byte, 16777619) >>> 0;
     };
-    const entities = new Set(selected);
-    for (const eid of [...entities].sort((a, b) => a - b)) {
-        number(eid);
+    const key = (eid: number) => {
+        const values = keys.get(eid) ?? (server && eid ? [0, eid] : undefined);
+        if (values) {
+            number(values.length);
+            for (const value of values) number(value);
+        } else number(eid ? -1 : 0);
+    };
+    const row = (eid: number) => {
         for (const [index, component] of game.schema.entries()) {
             number(index);
             number(Number(world.has(eid, component)));
             if (!world.has(eid, component)) continue;
-            const row = world.get(eid, component)! as Record<string, number | number[]>;
-            for (const { name } of fields(component)) {
-                const value = row[name]!;
-                if (typeof value === "number") number(value);
+            const values = world.get(eid, component)! as Record<string, number | number[]>;
+            for (const { name, field } of fields(component)) {
+                const value = values[name]!;
+                if (field === entity) key(value as number);
+                else if (typeof value === "number") number(value);
                 else for (const item of value) number(item);
             }
         }
+    };
+    const order = (a: number[], b: number[]) => {
+        for (let i = 0; i < Math.min(a.length, b.length); i++)
+            if (a[i] !== b[i]) return a[i]! - b[i]!;
+        return a.length - b.length;
+    };
+    const rows = unkeyed
+        .map((eid) => {
+            hash = 2166136261;
+            row(eid);
+            return hash;
+        })
+        .sort((a, b) => a - b);
+    hash = 2166136261;
+    for (const [eid, values] of [...keys].sort((a, b) => order(a[1], b[1]))) {
+        number(values.length);
+        for (const value of values) number(value);
+        row(eid);
     }
+    number(rows.length);
+    for (const value of rows) number(value);
     return hash.toString(16).padStart(8, "0");
 }
 
@@ -229,22 +266,36 @@ export class SessionRecorder {
                 update: () =>
                     this.invoke("hash", [], () => {
                         const world = this._world;
-                        const entities =
-                            this.recording.role === "server"
-                                ? world.query([Replicate])
-                                : [
-                                      ...this._receivers.flatMap((receiver) => [
-                                          ...receiver.entities.values(),
-                                      ]),
-                                      ...[...world.query([PredictionTarget])].filter((eid) =>
-                                          this._prediction?.predicted(eid),
-                                      ),
-                                  ];
-                        return hashReplicatedRows(world, this._game, entities);
+                        const { keys, unkeyed } = this.keys();
+                        return hashReplicatedRows(
+                            world,
+                            this._game,
+                            keys,
+                            unkeyed,
+                            this.recording.role === "server",
+                        );
                     }),
             },
         ],
     };
+    /** A server's eids are deterministic in its replay, since replay composes the same server.
+     * A client keys replicated entities by receiver and wire ID; predicted entities without
+     * one stay unkeyed, so neither depends on what else the tab allocated. */
+    private keys(): { keys: Map<number, number[]>; unkeyed: number[] } {
+        const world = this._world;
+        const keys = new Map<number, number[]>();
+        if (this.recording.role === "server") {
+            for (const eid of world.query([Replicate])) keys.set(eid, [0, eid]);
+            return { keys, unkeyed: [] };
+        }
+        this._receivers.forEach((receiver, index) => {
+            for (const [id, eid] of receiver.entities) keys.set(eid, [1, index, id]);
+        });
+        const unkeyed = [...world.query([PredictionTarget])].filter(
+            (eid) => !keys.has(eid) && this._prediction?.predicted(eid),
+        );
+        return { keys, unkeyed };
+    }
     connection(connection: Connection): Connection {
         const existing = this._wrapped.get(connection);
         if (existing) return existing;
