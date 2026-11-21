@@ -241,7 +241,14 @@ function model(seed: number, mode: "all" | "latest") {
         for (let i = 0; i < count; i++) {
             const recipient = (i + seed) % 4;
             const topic = draw(0x100000000);
-            const message = i % 3 === 0 ? { topic } : { topic, text: "🐟".repeat(draw(257)) };
+            const values = [
+                [],
+                [seed, topic / 8],
+                [NaN, Infinity, -Infinity, -0],
+                [Number.MIN_VALUE, Number.MAX_VALUE],
+            ][(i + seed) % 4]!;
+            const message =
+                i % 3 === 0 ? { topic, values } : { topic, values, text: "🐟".repeat(draw(257)) };
             runtime.sendMessage(
                 recipient === 2 ? "all" : (recipients[recipient] ?? 0xffffffff),
                 message,
@@ -339,10 +346,17 @@ function model(seed: number, mode: "all" | "latest") {
             const messages = deliver([start], [accepted, ...burst.packets]);
             require(messages.length ===
                 1, "standalone Accepted was lost or a one-off message escaped routing");
-            require(JSON.stringify(receiver.readMessages()) ===
-                JSON.stringify(
-                    burst.expected,
-                ), "receiver delivered a misaddressed, missing or reordered message");
+            const delivered = receiver.readMessages();
+            require(delivered.length === burst.expected.length &&
+                delivered.every((message, i) => {
+                    const wanted = burst.expected[i]!;
+                    return (
+                        message.topic === wanted.topic &&
+                        message.text === wanted.text &&
+                        message.values.length === wanted.values.length &&
+                        message.values.every((value, lane) => Object.is(value, wanted.values[lane]))
+                    );
+                }), "receiver delivered a misaddressed, missing, reordered or altered message");
             require(receiver.readMessages().length === 0, "receiver read a one-off message twice");
             const { records, watermark } = decodeAccepted(messages[0]!);
             require(watermark === start + 1, "standalone Accepted watermark was altered");
@@ -380,7 +394,10 @@ function model(seed: number, mode: "all" | "latest") {
             require(newest.getUint32(12, true) ===
                 next - 1, "sender did not encode against the acknowledged baseline");
             replica.jumpToTick(replica.time.fixedTick + 1);
-            deliver([next], start === 8 ? [encodeServerMessage({ topic: start })] : []);
+            deliver(
+                [next],
+                start === 8 ? [encodeServerMessage({ topic: start, values: [seed] })] : [],
+            );
             peer.flush(1);
         }
 
@@ -388,21 +405,32 @@ function model(seed: number, mode: "all" | "latest") {
         produce(terminal, 1);
         produce(terminal + 1, 1);
         let bad: Uint8Array = sent.get(terminal + 1)!.bytes.slice();
-        switch (seed % 8) {
+        switch (seed % 16) {
             case 4: // Trailing byte after otherwise valid text.
-                bad = new Uint8Array([...encodeServerMessage({ topic: terminal, text: "" }), 0]);
+                bad = new Uint8Array([
+                    ...encodeServerMessage({ topic: terminal, values: [], text: "" }),
+                    0,
+                ]);
                 break;
             case 5:
-                bad = encodeServerMessage({ topic: terminal, text: "x" });
-                bad[10] = 0xff;
+                bad = encodeServerMessage({ topic: terminal, values: [], text: "x" });
+                bad[12] = 0xff;
                 break;
             case 6:
             case 7: {
-                bad = new Uint8Array(seed % 8 === 6 ? 1035 : 4097);
-                bad.set(encodeServerMessage({ topic: terminal, text: "" }));
-                new DataView(bad.buffer).setUint16(8, bad.length - 10, true);
+                bad = new Uint8Array(seed % 16 === 6 ? 1037 : 4097);
+                bad.set(encodeServerMessage({ topic: terminal, values: [], text: "" }));
+                new DataView(bad.buffer).setUint16(10, bad.length - 12, true);
                 break;
             }
+            case 8: // NaN with a noncanonical payload bit.
+                bad = encodeServerMessage({ topic: terminal, values: [NaN] });
+                bad[10] = 1;
+                break;
+            case 9: // Lane count exceeds the available bytes.
+                bad = encodeServerMessage({ topic: terminal, values: [] });
+                new DataView(bad.buffer).setUint16(8, 0xffff, true);
+                break;
             case 0:
                 bad = bad.subarray(0, 12);
                 break;
@@ -417,7 +445,7 @@ function model(seed: number, mode: "all" | "latest") {
                 bad[first + 2 + view.getUint16(first, true)] = seed % 4 === 2 ? 255 : 254;
             }
         }
-        const oneOff = encodeServerMessage({ topic: terminal, text: "valid" });
+        const oneOff = encodeServerMessage({ topic: terminal, values: [seed], text: "valid" });
         require(drain([terminal], [terminal], [oneOff, bad]).length ===
             0, "rejected packet escaped receiver");
         require(receiver.readMessages().length === 0, "refused drain exposed one-off messages");

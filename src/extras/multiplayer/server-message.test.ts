@@ -88,10 +88,11 @@ test("client systems read private and room messages once in order, with no repla
         const other = elsewhere!.world.resource(ServerSession).server!;
         const burst = Array.from({ length: 16 }, (_, topic) => ({
             topic,
+            values: [first!.eid, topic + 0.5],
             text: `catch 🐟 ${topic}`,
         }));
         for (const message of burst) server.sendMessage(first!.eid, message);
-        const broadcast = { topic: 16 };
+        const broadcast = { topic: 16, values: [first!.eid] };
         server.sendMessage("all", broadcast);
         other.sendMessage("all", broadcast);
         await readThrough(broadcast);
@@ -100,12 +101,12 @@ test("client systems read private and room messages once in order, with no repla
 
         proxy.controls.resetPeer();
         await until(() => !!retry && !!server.peers.get(first!.eid)?.held, "seat was not held");
-        const held = { topic: 17 };
-        server.sendMessage(first!.eid, { topic: 99 });
+        const held = { topic: 17, values: [first!.eid] };
+        server.sendMessage(first!.eid, { topic: 99, values: [] });
         server.sendMessage("all", held);
         retry!();
         await until(() => server.peers.get(first!.eid)?.held === false, "seat did not resume");
-        const resumed = { topic: 18, text: "" };
+        const resumed = { topic: 18, values: [first!.eid], text: "" };
         server.sendMessage("all", resumed);
         other.sendMessage("all", resumed);
         await readThrough(resumed);

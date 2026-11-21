@@ -6,6 +6,7 @@ import {
     encodeAcknowledgement,
     encodeFrame,
     IntentMessageKind,
+    MAX_MESSAGE_BYTES,
     Replicate,
     ReplicationMessageKind,
     ReplicationReceiver,
@@ -74,7 +75,7 @@ const serverSeeds = [
     encodeIntent(IntentMessageKind.Accepted, [operation], 1),
     diagnostic(2),
     diagnostic(5, 0.25),
-    encodeServerMessage({ topic: 7, text: "🪝" }),
+    encodeServerMessage({ topic: 7, values: [3, NaN, -0], text: "🪝" }),
 ];
 const boundaries = [0, 1, 2, 4, 5, 6, 7, 12, 0x7fffffff, 0x80000000, 0xfffffffe, 0xffffffff];
 
@@ -172,16 +173,22 @@ test("all emitted message kinds and the accepted seeded corpus re-encode byte-ex
     expect([...serverKinds].sort()).toEqual([1, 2, 5, 6, 7, 8]);
 });
 
-test("server message encoding refuses invalid topics and text beyond 1024 UTF-8 bytes", () => {
+test("server messages bound the whole frame and the UTF-8 payload independently", () => {
     const text = "🐟".repeat(256);
-    const bytes = encodeServerMessage({ topic: 0xffffffff, text });
-    expect(bytes).toHaveLength(1034);
-    expect(decodeServerMessage(bytes, layout)).toEqual({ topic: 0xffffffff, text });
+    const message = { topic: 0xffffffff, values: [5], text };
+    const bytes = encodeServerMessage(message);
+    expect(decodeServerMessage(bytes, layout)).toEqual(message);
     expect(isClientMessage(bytes)).toBe(false);
-    expect(() => encodeServerMessage({ topic: 0, text: `${text}a` })).toThrow();
-    expect(() => encodeServerMessage({ topic: 0, text: "\ud800" })).toThrow();
+    expect(() => encodeServerMessage({ ...message, text: `${text}a` })).toThrow();
+    expect(() => encodeServerMessage({ ...message, text: "\ud800" })).toThrow();
     for (const topic of [-1, 0.5, 0x100000000, NaN])
-        expect(() => encodeServerMessage({ topic })).toThrow();
+        expect(() => encodeServerMessage({ ...message, topic })).toThrow();
+
+    const full = { topic: 1, values: Array<number>(510).fill(2), text: "🐟" };
+    const frame = encodeServerMessage(full);
+    expect(frame).toHaveLength(MAX_MESSAGE_BYTES);
+    expect(decodeServerMessage(frame, layout)).toEqual(full);
+    expect(() => encodeServerMessage({ ...full, text: `${full.text}a` })).toThrow();
 });
 
 for (const mode of ["all", "latest"] as const) {
