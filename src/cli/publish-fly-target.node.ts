@@ -17,12 +17,17 @@ const volume = {
     ["size_gb"]: 1,
     region: "iad",
     ["attached_machine_id"]: "machine-fixture",
+    ["auto_backup_enabled"]: false,
 };
 const machines = [
     {
         id: volume.attached_machine_id,
         region: volume.region,
-        config: { guest, mounts: [{ volume: volume.id, path: "/data" }] },
+        config: {
+            guest,
+            metadata: { ["fly_platform_version"]: "v2", ["fly_process_group"]: "app" },
+            mounts: [{ volume: volume.id, path: "/data" }],
+        },
     },
 ];
 const ips = [{ Type: "shared_v4" }, { Type: "v6" }];
@@ -153,6 +158,46 @@ for (const [label, inventory, addresses, reason, inspect] of [
         "machine list",
     ],
     ["missing Machine config", [{}], ips, "Machine size", "machine list"],
+    [
+        "unmanaged Machine",
+        [{ ...machines[0], config: { ...machines[0]!.config, metadata: {} } }],
+        ips,
+        "not managed by Fly Launch",
+        "machine list",
+    ],
+    [
+        "different process group",
+        [
+            {
+                ...machines[0],
+                config: {
+                    ...machines[0]!.config,
+                    metadata: { ["fly_platform_version"]: "v2", ["fly_process_group"]: "other" },
+                },
+            },
+        ],
+        ips,
+        "not managed by Fly Launch",
+        "machine list",
+    ],
+    [
+        "legacy release command Machine",
+        [
+            {
+                ...machines[0],
+                config: {
+                    ...machines[0]!.config,
+                    metadata: {
+                        ...machines[0]!.config.metadata,
+                        ["process_group"]: "release_command",
+                    },
+                },
+            },
+        ],
+        ips,
+        "not managed by Fly Launch",
+        "machine list",
+    ],
     ["invalid Machine inventory", {}, ips, "unrecognized Machine inventory", "machine list"],
     ["invalid IP inventory", machines, {}, "unrecognized IP inventory", "ips list"],
     ["dedicated IPv4", machines, [...ips, { Type: "v4" }], "IP inventory contains v4", "ips list"],
@@ -245,6 +290,23 @@ test("an existing app with missing, extra, or mismatched storage is not redeploy
             expect(existsSync(join(work, "fly.toml"))).toBe(false);
             expect(readFileSync(commands, "utf8")).not.toContain('"deploy"');
         }
+    } finally {
+        writeFileSync(join(root, "volumes.json"), JSON.stringify([volume]));
+        await removeTestDirectory(work);
+    }
+});
+
+test("an attached volume with scheduled snapshots enabled refuses before deploy", async () => {
+    const work = mkdtempSync(join(tmpdir(), "shallot-fly-snapshots-"));
+    writeFileSync(
+        join(root, "volumes.json"),
+        JSON.stringify([{ ...volume, ["auto_backup_enabled"]: true }]),
+    );
+    try {
+        await expect(
+            deployFlyServer(root, work, { target: "fly", app: "occupied" }, false, true, ask, cli),
+        ).rejects.toThrow("scheduled snapshots must be off");
+        expect(existsSync(join(work, "fly.toml"))).toBe(false);
     } finally {
         writeFileSync(join(root, "volumes.json"), JSON.stringify([volume]));
         await removeTestDirectory(work);

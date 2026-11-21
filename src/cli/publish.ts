@@ -23,6 +23,7 @@ import {
     ensureFly,
     type FlyLink,
     flyCommands,
+    flyRetainedApp,
     refuseFlyConfig,
     validFlyApp,
 } from "./publish-fly";
@@ -89,6 +90,27 @@ export function savePublishLink(projectDir: string, link: PublishLink): void {
     const path = join(projectDir, "package.json");
     const manifest = JSON.parse(readFileSync(path, "utf8"));
     manifest.shallot = { ...manifest.shallot, publish: link };
+    if (link.server?.app === manifest.shallot.publishServer?.app)
+        delete manifest.shallot.publishServer;
+    writeFileSync(path, `${JSON.stringify(manifest, null, 4)}\n`);
+}
+
+// Keep Fly ownership separate until the web provider has deployed successfully.
+function pendingFlyLink(projectDir: string): FlyLink | undefined {
+    const manifest = JSON.parse(readFileSync(join(projectDir, "package.json"), "utf8"));
+    const server = manifest.shallot?.publishServer;
+    if (server === undefined) return;
+    if (server?.target !== "fly" || typeof server.app !== "string" || !validFlyApp(server.app))
+        throw new Error(
+            'Invalid shallot.publishServer: expected { target: "fly", app: "<name>" }.',
+        );
+    return server;
+}
+
+function savePendingFlyLink(projectDir: string, server: FlyLink): void {
+    const path = join(projectDir, "package.json");
+    const manifest = JSON.parse(readFileSync(path, "utf8"));
+    manifest.shallot = { ...manifest.shallot, publishServer: server };
     writeFileSync(path, `${JSON.stringify(manifest, null, 4)}\n`);
 }
 
@@ -515,12 +537,15 @@ export async function publishProject(
             `Unknown publish target: ${targetName}. Available: ${Object.keys(targets).join(", ")}.`,
         );
     const linked = readPublishLink(projectDir);
+    const pending = pendingFlyLink(projectDir);
     const chosen = (targetName ?? linked?.target ?? "cloudflare") as keyof typeof targets;
     const saved = linked?.target && linked.target === chosen ? linked : undefined;
     const target = targets[chosen] as PublishTarget<PublishLink>;
     if (!targetName && !linked?.target) publishProgress("Using publish target cloudflare.");
     const work = mkdtempSync(join(tmpdir(), "shallot-publish-"));
     let playUrl: string;
+    let flyctl: string | undefined;
+    let created = false;
     try {
         const directory = join(work, "web");
         const interactive = publishInteraction(
@@ -529,7 +554,7 @@ export async function publishProject(
         );
         const setup = await target.setup(projectDir, work, interactive, saved);
         resolveProjectPlaywright(projectDir);
-        let server = linked?.server;
+        let server = pending ?? linked?.server;
         if (serverTarget && !server) {
             const defaultName = publishName(projectDir);
             const app = interactive ? await ask("Fly app name", defaultName) : defaultName;
@@ -540,8 +565,8 @@ export async function publishProject(
             if (!interactive) publishProgress(`Using project name ${app} as the Fly app name.`);
             server = { target: "fly", app };
         }
-        let flyctl: string | undefined;
         if (server) {
+            const flyLink = server;
             refuseFlyConfig(projectDir);
             flyctl = await ensureFly();
             await deployFlyServer(
@@ -549,9 +574,17 @@ export async function publishProject(
                 work,
                 server,
                 interactive,
-                !!linked?.target && !!linked.server,
+                !!pending || !!linked?.server,
                 ask,
                 flyctl,
+                {
+                    pending: !!pending,
+                    created() {
+                        created = true;
+                        publishProgress(flyRetainedApp(flyctl!, flyLink.app));
+                        savePendingFlyLink(projectDir, flyLink);
+                    },
+                },
             );
             setup.link.server = server;
         }
@@ -592,6 +625,9 @@ export async function publishProject(
             await browser.close();
         }
         playUrl = deployed.url;
+    } catch (error) {
+        if (pending && !created) publishProgress(flyRetainedApp(flyctl ?? "flyctl", pending.app));
+        throw error;
     } finally {
         rmSync(work, { recursive: true, force: true });
     }

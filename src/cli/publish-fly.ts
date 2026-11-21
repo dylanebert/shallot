@@ -38,6 +38,10 @@ export function flyCommands(cli: string, app: string): string {
     return `Fly CLI: "${cli}"\nServer logs: "${cli}" logs --app ${app}\nServer rollback: check out an earlier commit, then bunx shallot publish\nConfirm with the person before deleting the server.\nServer deletion: "${cli}" apps destroy ${app}`;
 }
 
+export function flyRetainedApp(cli: string, app: string): string {
+    return `Fly app "${app}" is not deleted by publish. Its ${volumeSize} GB volume, if provisioned, costs $0.15/month even while stopped. Confirm with the person before deleting it: "${cli}" apps destroy ${app}`;
+}
+
 export function validFlyApp(app: string): boolean {
     return /^[a-z][a-z0-9-]{0,61}[a-z0-9]$/.test(app);
 }
@@ -134,6 +138,7 @@ export async function deployFlyServer(
     authorized: boolean,
     ask: (question: string) => Promise<string>,
     cli: string,
+    recovery?: { pending: boolean; created: () => void },
 ): Promise<void> {
     refuseFlyConfig(project);
     if (!process.env.FLY_API_TOKEN) {
@@ -157,6 +162,7 @@ export async function deployFlyServer(
         throw new Error(
             `Fly app "${link.app}" already exists; refusing a first link. A hand-written server link authorizes updating it.`,
         );
+    let needsSharedIP = !exists;
     if (exists) {
         const machineArgs = ["machine", "list", "--app", link.app, "--json"];
         const ipArgs = ["ips", "list", "--app", link.app, "--json"];
@@ -168,27 +174,45 @@ export async function deployFlyServer(
         const machines: {
             id?: string;
             region?: string;
+            state?: string;
             config?: {
                 guest?: Record<string, unknown>;
+                metadata?: Record<string, unknown>;
                 mounts?: { volume?: string; path?: string }[];
             };
-        }[] = JSON.parse(runFly(cli, machineArgs, work));
+        }[] = JSON.parse(runFly(cli, machineArgs, work)) ?? [];
         if (!Array.isArray(machines)) refuse("unrecognized Machine inventory", machineArgs);
-        if (machines.length !== 1)
+        const initializing = recovery?.pending && machines.length === 0;
+        if (!initializing && machines.length !== 1)
             refuse(`Machine count ${machines.length}; expected one`, machineArgs);
-        const guest = machines[0]?.config?.guest;
-        if (
-            guest?.cpu_kind !== "shared" ||
-            guest.cpus !== 1 ||
-            guest.memory_mb !== 256 ||
-            guest.gpus ||
-            guest.gpu_kind
-        )
-            refuse(
-                `Machine size ${JSON.stringify(guest)}; expected shared-cpu-1x 256 MB without GPUs`,
-                machineArgs,
-            );
-        const ips: Record<"Type", string>[] = JSON.parse(runFly(cli, ipArgs, work));
+        const machine = machines[0];
+        if (!initializing) {
+            const guest = machine?.config?.guest;
+            if (
+                guest?.cpu_kind !== "shared" ||
+                guest.cpus !== 1 ||
+                guest.memory_mb !== 256 ||
+                guest.gpus ||
+                guest.gpu_kind
+            )
+                refuse(
+                    `Machine size ${JSON.stringify(guest)}; expected shared-cpu-1x 256 MB without GPUs`,
+                    machineArgs,
+                );
+            const metadata = machine?.config?.metadata;
+            if (
+                metadata?.fly_platform_version !== "v2" ||
+                metadata.fly_process_group !== "app" ||
+                metadata.process_group === "release_command" ||
+                machine?.state === "destroying" ||
+                machine?.state === "destroyed"
+            )
+                refuse(
+                    "Machine is not managed by Fly Launch in the app process group; deploy could create another Machine and volume",
+                    machineArgs,
+                );
+        }
+        const ips: Record<"Type", string>[] = JSON.parse(runFly(cli, ipArgs, work)) ?? [];
         if (!Array.isArray(ips)) refuse("unrecognized IP inventory", ipArgs);
         const outside = ips.filter((ip) => ip?.Type !== "shared_v4" && ip?.Type !== "v6");
         if (outside.length)
@@ -196,31 +220,41 @@ export async function deployFlyServer(
                 `IP inventory contains ${outside.map((ip) => ip?.Type ?? "unknown").join(", ")}; only shared IPv4 and free IPv6 are supported`,
                 ipArgs,
             );
-        if (ips.filter((ip) => ip?.Type === "shared_v4").length !== 1)
+        const shared = ips.filter((ip) => ip?.Type === "shared_v4").length;
+        needsSharedIP = !!initializing && shared === 0;
+        if (!needsSharedIP && shared !== 1)
             refuse("IP inventory must contain one shared IPv4", ipArgs);
         const volumeArgs = ["volumes", "list", "--app", link.app, "--json"];
-        const volumes = JSON.parse(runFly(cli, volumeArgs, work));
+        const volumes = JSON.parse(runFly(cli, volumeArgs, work)) ?? [];
         const volume = Array.isArray(volumes) && volumes.length === 1 ? volumes[0] : null;
-        const machine = machines[0];
         const mounts = machine?.config?.mounts;
-        if (
-            !volume ||
-            typeof volume.id !== "string" ||
-            volume.name !== volumeName ||
-            volume.size_gb !== volumeSize ||
-            volume.region !== flyRegion ||
-            machine?.region !== flyRegion ||
-            typeof machine.id !== "string" ||
-            volume.attached_machine_id !== machine.id ||
-            !Array.isArray(mounts) ||
-            mounts.length !== 1 ||
-            mounts[0]?.volume !== volume.id ||
-            mounts[0]?.path !== dataPath
-        )
-            refuse(
-                `expected one ${volumeSize} GB ${volumeName} volume in ${flyRegion} mounted at ${dataPath}`,
-                volumeArgs,
-            );
+        // First deploy counts existing unattached volumes by name and region before provisioning.
+        if (!(initializing && Array.isArray(volumes) && volumes.length === 0)) {
+            if (volume && volume.auto_backup_enabled !== false)
+                refuse("scheduled snapshots must be off", volumeArgs);
+            if (
+                !volume ||
+                typeof volume.id !== "string" ||
+                volume.name !== volumeName ||
+                volume.size_gb !== volumeSize ||
+                volume.region !== flyRegion ||
+                (initializing
+                    ? volume.attached_machine_id !== null ||
+                      volume.attached_alloc_id !== null ||
+                      volume.host_status !== "ok"
+                    : machine?.region !== flyRegion ||
+                      typeof machine?.id !== "string" ||
+                      volume.attached_machine_id !== machine.id ||
+                      !Array.isArray(mounts) ||
+                      mounts.length !== 1 ||
+                      mounts[0]?.volume !== volume.id ||
+                      mounts[0]?.path !== dataPath)
+            )
+                refuse(
+                    `expected one ${volumeSize} GB ${volumeName} volume in ${flyRegion}${initializing ? " unattached on a healthy host" : ` mounted at ${dataPath}`}`,
+                    volumeArgs,
+                );
+        }
     }
     await buildFlyServer(project, work, link.app);
     if (!exists) {
@@ -233,8 +267,9 @@ export async function deployFlyServer(
             orgs.length === 1 ? orgs[0]! : await ask(`Fly organization (${orgs.join(", ")})`);
         if (!orgs.includes(org)) throw new Error("Fly organization is not accessible");
         runFly(cli, ["apps", "create", link.app, "--org", org], work);
-        runFly(cli, ["ips", "allocate-v4", "--shared", "--app", link.app], work);
+        recovery?.created();
     }
+    if (needsSharedIP) runFly(cli, ["ips", "allocate-v4", "--shared", "--app", link.app], work);
     runFly(
         cli,
         [

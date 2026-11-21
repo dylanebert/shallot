@@ -38,7 +38,17 @@ beforeAll(async () => {
         source,
         `const fs=require('node:fs'),path=require('node:path'); const root=path.dirname(path.dirname(process.execPath)); ${RECORD}
 const args=process.argv.slice(2);
-if(path.basename(process.execPath).replace(/\\.exe$/, '')==='flyctl') { record({command:'fly '+args.join(' ')}); const state=JSON.parse(fs.readFileSync(path.join(root,'answers.json')));if(args[0]==='auth'&&args[1]==='whoami'&&state.flyLogin===false)process.exit(1);if(args[0]==='apps'&&args[1]==='list')console.log(JSON.stringify(state.flyCollision?[{Name:'fixture-game'}]:[]));else if(args[0]==='orgs')console.log('{"personal":"Personal"}');process.exit(0); }
+if(path.basename(process.execPath).replace(/\\.exe$/, '')==='flyctl') {
+record({command:'fly '+args.join(' '), pending: JSON.parse(fs.readFileSync(path.join(process.env.FIXTURE_PROJECT,'package.json'))).shallot.publishServer});
+const state=JSON.parse(fs.readFileSync(path.join(root,'answers.json')));
+if(args[0]==='auth'&&args[1]==='whoami'&&state.flyLogin===false)process.exit(1);
+if(args[0]==='apps'&&args[1]==='list')console.log(JSON.stringify(state.flyCollision?[{Name:'fixture-game'}]:[]));
+else if(args[0]==='orgs')console.log('{"personal":"Personal"}');
+else if(args[0]==='machine'&&args[1]==='list')console.log('[]');
+else if(args[0]==='ips'&&args[1]==='list')console.log('[{"Type":"shared_v4"}]');
+else if(args[0]==='volumes'&&args[1]==='list')console.log(JSON.stringify([{id:'vol_fixture',name:'shallot_data',size_gb:1,region:'iad',host_status:state.flyHostStatus,auto_backup_enabled:false,attached_machine_id:null,attached_alloc_id:null}]));
+else if(args[0]==='deploy'&&state.flyFail){console.error('recorded Fly deploy failure');process.exit(1);}
+process.exit(0); }
 if(path.basename(process.execPath).replace(/\\.exe$/, '')==='bun') {
 if(args[0]==='--version'){console.log('1.3.3');process.exit(0);} if(args[0]==='build'){record({command:'server build'});fs.writeFileSync(args[args.indexOf('--outfile')+1],'');process.exit(0);}
 if(JSON.stringify(args)!==JSON.stringify(['add','--dev','wrangler@${WRANGLER_VERSION}']))throw Error('Unexpected install');
@@ -91,6 +101,8 @@ async function fixture() {
         collision: false,
         flyLogin: true,
         flyCollision: false,
+        flyFail: false,
+        flyHostStatus: "ok",
     };
     const save = () => writeFileSync(statePath, JSON.stringify(state));
     save();
@@ -166,6 +178,7 @@ export const chromium={async launch(){const browser=await publishTestChromium(),
                 ...env,
                 PATH: `${bin}${delimiter}${process.env.PATH}`,
                 CI: "true",
+                FIXTURE_PROJECT: project,
                 XDG_CACHE_HOME: join(root, "cache"),
                 FLY_API_TOKEN: fly ? "fixture-token" : "",
                 SHALLOT_TEST_CHROMIUM: chromium.executablePath(),
@@ -343,6 +356,48 @@ test("Fly deploy precedes the client build, which receives the public endpoint",
         const saved = await f.run(undefined, true, false);
         expect(saved.stderr).toContain("recorded deploy failure");
         expect(f.commands().filter((row) => row.command.startsWith("fly deploy "))).toHaveLength(2);
+    } finally {
+        await f.close();
+    }
+});
+
+test("failed Fly deploy leaves a retryable server link, cost and confirmed deletion command", async () => {
+    const f = await fixture();
+    try {
+        writeFileSync(join(f.project, "server.ts"), "");
+        f.state.flyFail = true;
+        f.save();
+        const failed = await f.run(undefined, true);
+        expect(failed.code).toBe(1);
+        expect(failed.stderr).toContain("recorded Fly deploy failure");
+        const server = { target: "fly", app: "fixture-game" };
+        expect(
+            f.commands().find((row) => row.command.startsWith("fly ips allocate"))?.pending,
+        ).toEqual(server);
+        const manifest = JSON.parse(readFileSync(f.packagePath, "utf8"));
+        expect(manifest.shallot.publishServer).toEqual(server);
+        expect(manifest.shallot.publish).toBeUndefined();
+        expect(failed.stderr).toContain("$0.15/month");
+        expect(failed.stderr).toContain("apps destroy fixture-game");
+        expect(failed.stderr).toContain("Confirm with the person");
+        f.state.flyFail = false;
+        f.state.flyCollision = true;
+        f.state.fail = true;
+        f.save();
+        const retry = await f.run(undefined, true, false);
+        expect(retry.stderr).toContain("recorded deploy failure");
+        expect(retry.stderr).toContain("apps destroy fixture-game");
+        const commands = f.commands().map((row) => row.command);
+        expect(commands.filter((row) => row.startsWith("fly apps create"))).toHaveLength(1);
+        expect(commands.filter((row) => row.startsWith("fly deploy"))).toHaveLength(2);
+        expect(commands.filter((row) => row.startsWith("fly ips allocate"))).toHaveLength(1);
+        expect(commands.some((row) => row.startsWith("fly apps destroy"))).toBe(false);
+        f.state.flyHostStatus = "unreachable";
+        f.save();
+        const unsafe = await f.run(undefined, true, false);
+        expect(unsafe.code).toBe(1);
+        expect(unsafe.stderr).toContain("unattached on a healthy host");
+        expect(f.commands().filter((row) => row.command.startsWith("fly deploy"))).toHaveLength(2);
     } finally {
         await f.close();
     }
