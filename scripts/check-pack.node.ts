@@ -57,8 +57,8 @@ test("the npm package contains only declared files and required consumers", asyn
         "!**/*.oracle.ts",
         "!src/**/*.node.ts",
         "!src/**/*.e2e.ts",
-        ...PROJECT_OUTPUT.map(
-            (directory) => `!examples/${directory === "test-results" ? "**" : "*"}/${directory}`,
+        ...PROJECT_OUTPUT.map((directory) =>
+            directory === "test-results" ? "!**/test-results" : `!examples/*/${directory}`,
         ),
     ];
     const missingNegations = requiredNegations.filter((entry) => !packageFiles.includes(entry));
