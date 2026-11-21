@@ -43,7 +43,7 @@ export {
 export { RoomBots } from "./room-host";
 export { WebSocketConnection } from "./websocket";
 
-import { requireCanonical, writeFloat64 } from "./canonical";
+import { requireCanonical } from "./canonical";
 import { diagnosticKind, networkDiagnostics } from "./diagnostics";
 import {
     type AcceptedIntent,
@@ -137,11 +137,10 @@ function writeField(view: DataView, offset: number, field: FieldType, value: num
     const raw = field.encode ? field.encode(value) : value;
     switch (field.ctor) {
         case Float32Array:
-            if (Number.isNaN(raw)) view.setUint32(offset, 0x7fc00000, true);
-            else view.setFloat32(offset, raw, true);
+            view.setFloat32(offset, raw, true);
             break;
         case Float64Array:
-            writeFloat64(view, offset, raw);
+            view.setFloat64(offset, raw, true);
             break;
         case Int32Array:
             view.setInt32(offset, raw, true);
@@ -234,11 +233,12 @@ function capture(
 // A membership record with this count removes its entity or component from the baseline.
 const Removed = 0xffffffff;
 
-type Changes = Map<number, Map<number, ReplicatedValue[] | null> | null>;
-type DecodedFrame = Omit<Packet, "rows"> & { changes: Changes };
+type Changes<T> = Map<number, Map<number, T[] | null> | null>;
+type WireFrame<T> = Omit<Packet, "rows"> & { changes: Changes<T> };
+type DecodedFrame = WireFrame<Uint8Array>;
 
-function diff(rows: ReplicatedRows, base: ReplicatedRows): Changes {
-    const changes: Changes = new Map();
+function diff(rows: ReplicatedRows, base: ReplicatedRows): Changes<ReplicatedValue> {
+    const changes: Changes<ReplicatedValue> = new Map();
     for (const [id, row] of rows) {
         const before = base.get(id);
         const updates = new Map<number, ReplicatedValue[] | null>();
@@ -261,7 +261,10 @@ function diff(rows: ReplicatedRows, base: ReplicatedRows): Changes {
 }
 
 /** @internal Encode the sender's sparse delta in schema-lane order. */
-export function encodeFrame(packet: DecodedFrame, types: FieldType[][]): Uint8Array {
+export function encodeFrame(
+    packet: WireFrame<ReplicatedValue | Uint8Array>,
+    types: FieldType[][],
+): Uint8Array {
     const words: number[] = [
         packet.image ? ReplicationMessageKind.Image : ReplicationMessageKind.Frame,
         packet.tick,
@@ -269,7 +272,7 @@ export function encodeFrame(packet: DecodedFrame, types: FieldType[][]): Uint8Ar
         packet.changes.size,
         packet.commandAge === undefined ? 0x80000000 : Math.round(packet.commandAge * 256),
     ];
-    const values: { value: number | Uint8Array; field: FieldType }[] = [];
+    const values: { lane: number | Uint8Array; field: FieldType }[] = [];
     let valueBytes = 0;
     for (const [id, row] of packet.changes) {
         if (!row && packet.image) throw new Error("An image cannot remove an entity");
@@ -292,13 +295,17 @@ export function encodeFrame(packet: DecodedFrame, types: FieldType[][]): Uint8Ar
                 count++;
                 words.push(i);
                 const field = fields[i]!;
-                const value =
-                    field.byteCapacity === undefined
-                        ? (lane as number)
-                        : encodeText(lane as string, field.byteCapacity);
-                values.push({ value, field });
-                valueBytes +=
-                    typeof value === "number" ? field.ctor.BYTES_PER_ELEMENT : 2 + value.length;
+                if (typeof lane === "string") {
+                    const text = encodeText(lane, field.byteCapacity!);
+                    const bytes = new Uint8Array(2 + text.length);
+                    writeText(new DataView(bytes.buffer), 0, text);
+                    values.push({ lane: bytes, field });
+                    valueBytes += bytes.length;
+                } else {
+                    values.push({ lane, field });
+                    valueBytes +=
+                        typeof lane === "number" ? field.ctor.BYTES_PER_ELEMENT : lane.length;
+                }
             }
             if (packet.image ? count !== fields.length : !count && fields.length)
                 throw new Error("Incomplete replication fields");
@@ -314,13 +321,13 @@ export function encodeFrame(packet: DecodedFrame, types: FieldType[][]): Uint8Ar
     view.setUint32(4, words.length, true);
     for (let i = 1; i < words.length; i++) view.setUint32(4 + i * 4, words[i]!, true);
     let offset = 4 + words.length * 4;
-    for (const { value, field } of values) {
-        if (typeof value === "number") {
-            writeField(view, offset, field, value);
+    for (const { lane, field } of values) {
+        if (typeof lane === "number") {
+            writeField(view, offset, field, lane);
             offset += field.ctor.BYTES_PER_ELEMENT;
         } else {
-            writeText(view, offset, value);
-            offset += 2 + value.length;
+            bytes.set(lane, offset);
+            offset += lane.length;
         }
     }
     bytes.set(intents, offset);
@@ -348,7 +355,7 @@ function decodeFrame(bytes: Uint8Array, types: FieldType[][]): DecodedFrame {
         throw new Error("Invalid replication packet");
     if (kind === ReplicationMessageKind.Frame && base >= tick)
         throw new Error("Replication baseline must precede its frame");
-    const updates: Changes = new Map();
+    const updates: Changes<Uint8Array> = new Map();
     for (let e = 0; e < entities; e++) {
         const id = word(),
             components = word();
@@ -356,7 +363,7 @@ function decodeFrame(bytes: Uint8Array, types: FieldType[][]): DecodedFrame {
             updates.set(id, null);
             continue;
         }
-        const row = new Map<number, ReplicatedValue[] | null>();
+        const row = new Map<number, Uint8Array[] | null>();
         for (let c = 0; c < components; c++) {
             const index = word(),
                 changes = word();
@@ -367,18 +374,20 @@ function decodeFrame(bytes: Uint8Array, types: FieldType[][]): DecodedFrame {
                 continue;
             }
             const size = componentTypes.length;
-            const values: ReplicatedValue[] = [];
+            const values: Uint8Array[] = [];
             for (let f = 0; f < changes; f++) {
                 const lane = word();
                 if (lane >= size) throw new Error("Invalid replicated field");
                 const field = componentTypes[lane]!;
+                const start = valueOffset;
                 if (field.byteCapacity === undefined) {
-                    values[lane] = readField(view, valueOffset, field);
                     valueOffset += field.ctor.BYTES_PER_ELEMENT;
+                    if (valueOffset > bytes.length) throw new Error("Truncated replication field");
                 } else {
-                    values[lane] = readText(view, valueOffset, field.byteCapacity);
+                    readText(view, valueOffset, field.byteCapacity);
                     valueOffset += 2 + view.getUint16(valueOffset, true);
                 }
+                values[lane] = bytes.subarray(start, valueOffset);
             }
             row.set(index, values);
         }
@@ -419,12 +428,15 @@ function applyFrame(
             const before = previous?.get(index);
             row.set(
                 index,
-                types[index]!.map(
-                    (field, lane) =>
-                        changes[lane] ??
-                        before?.[lane] ??
-                        (field.byteCapacity === undefined ? 0 : ""),
-                ),
+                types[index]!.map((field, lane) => {
+                    const bytes = changes[lane];
+                    if (!bytes)
+                        return before?.[lane] ?? (field.byteCapacity === undefined ? 0 : "");
+                    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+                    return field.byteCapacity === undefined
+                        ? readField(view, 0, field)
+                        : readText(view, 0, field.byteCapacity);
+                }),
             );
         }
         rows.set(id, row);
@@ -661,6 +673,7 @@ export class ReplicationReceiver {
     readonly entities = new Map<number, number>();
     private _versions = new Map<number, ReplicatedRows>();
     private _pending = new Map<number, DecodedFrame>();
+    private readonly _discarded = new Set<number>();
     private _newest = -1;
     private _ackTick: number;
     private readonly _start: number;
@@ -720,6 +733,7 @@ export class ReplicationReceiver {
             this.confirmed = -1;
             this._newest = -1;
             this._pending.clear();
+            this._discarded.clear();
             this._versions.clear();
         }
         const previous = this.confirmed;
@@ -744,17 +758,17 @@ export class ReplicationReceiver {
             }
             arrived = true;
             this._newest = Math.max(this._newest, frame.tick);
-            if (frame.tick > this.confirmed) this._pending.set(frame.tick, frame);
-        }
-        while (this._pending.size) {
-            const tick = decoded < 0 ? Math.min(...this._pending.keys()) : decoded + 1;
-            const frame = this._pending.get(tick);
-            if (!frame || (decoded < 0 && !frame.image)) break;
-            const baseline = frame.image ? undefined : this._versions.get(frame.base);
-            if (!frame.image && !baseline) {
-                failure ??= new Error(`Missing replication baseline at tick ${tick}`);
-                break;
+            if (frame.tick <= this.confirmed) continue;
+            if (frame.image) {
+                this._discarded.delete(frame.tick);
+                this._pending.set(frame.tick, frame);
+            } else if (!this._discarded.has(frame.tick) && !this._pending.get(frame.tick)?.image) {
+                this._pending.set(frame.tick, frame);
             }
+        }
+        for (let frame = this._nextFrame(decoded); frame; frame = this._nextFrame(decoded)) {
+            const { tick } = frame;
+            const baseline = frame.image ? undefined : this._versions.get(frame.base);
             const packet = { ...frame, rows: applyFrame(frame, baseline, this._layout) };
             if (packet.commandAge !== undefined) this.onCommandAge(tick, packet.commandAge);
             if (!latestOnly)
@@ -776,6 +790,10 @@ export class ReplicationReceiver {
             for (const old of this._versions.keys())
                 if (old < packet.base) this._versions.delete(old);
             this._pending.delete(tick);
+            if (frame.image) {
+                for (const old of this._pending.keys()) if (old < tick) this._pending.delete(old);
+            }
+            for (const old of this._discarded) if (old <= tick) this._discarded.delete(old);
             if (!latestOnly) this.confirm(tick, packet.rows);
         }
         if (latestOnly && latest) {
@@ -791,6 +809,7 @@ export class ReplicationReceiver {
         }
         if (failure) {
             this._pending.clear();
+            this._discarded.clear();
             this._versions.clear();
             failServerConnection(this.connection, failure);
             return [];
@@ -819,6 +838,36 @@ export class ReplicationReceiver {
             Math.max(0, this._newest - this.confirmed),
         );
         return unhandled;
+    }
+    private _nextFrame(decoded: number): DecodedFrame | undefined {
+        let next = decoded + 1;
+        if (decoded >= 0) {
+            // Do not wait for an immutable delta that names a baseline already passed or discarded.
+            for (; ; next++) {
+                if (this._discarded.has(next)) continue;
+                const frame = this._pending.get(next);
+                if (!frame) break;
+                if (frame.image || this._versions.has(frame.base)) return frame;
+                this._pending.delete(next);
+                this._discarded.add(next);
+            }
+        }
+        let image: DecodedFrame | undefined;
+        for (const [tick, frame] of this._pending) {
+            if (frame.image) {
+                if (!image || tick < image.tick) image = frame;
+            } else if (
+                decoded >= 0 &&
+                ((frame.base < next && !this._versions.has(frame.base)) ||
+                    this._discarded.has(frame.base))
+            ) {
+                this._pending.delete(tick);
+                this._discarded.add(tick);
+            }
+        }
+        // A full image can establish a baseline across a gap; deltas alone cannot.
+        if (!image && decoded < 0) this._pending.clear();
+        return image;
     }
     private _apply(packet: Packet): void {
         this._write(packet.rows);

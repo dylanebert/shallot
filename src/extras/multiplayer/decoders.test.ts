@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { component, createApp, text, u32, World } from "../../engine";
+import { component, createApp, f32, text, u32, World } from "../../engine";
 import {
     type AcceptedIntent,
     decodeServerMessage,
@@ -237,6 +237,105 @@ for (const mode of ["all", "latest"] as const) {
         });
     }
 }
+
+for (const mode of ["all", "latest"] as const) {
+    test(`${mode}: an orphan delta cannot hide the first image`, () => {
+        const world = new World();
+        const { a, b } = seededLink(1, faults);
+        const applied: number[] = [];
+        const receiver = new ReplicationReceiver(world, schema, b, (tick) => applied.push(tick));
+        a.send(words(ReplicationMessageKind.Frame, 5, 1, 0, 0, 0x80000000));
+        receiver.flush(mode);
+        const sender = new ReplicationSender(world, schema, [], 1, a);
+        sender.record(2);
+        sender.flush();
+        receiver.flush(mode);
+        expect(applied).toEqual([2]);
+        expect(receiver.confirmed).toBe(2);
+        expect(b.closed).toBe(false);
+        world.dispose();
+    });
+
+    test(`${mode}: waits for a future baseline but skips a discarded baseline`, () => {
+        const world = new World();
+        const { a, b } = seededLink(1, faults);
+        const applied: number[] = [];
+        const receiver = new ReplicationReceiver(world, schema, b, (tick) => applied.push(tick));
+        const image = (tick: number) =>
+            words(ReplicationMessageKind.Image, 5, tick, tick, 0, 0x80000000);
+        const frame = (tick: number, base: number) =>
+            words(ReplicationMessageKind.Frame, 5, tick, base, 0, 0x80000000);
+        a.send(image(2));
+        receiver.flush(mode);
+        a.send(frame(4, 3));
+        receiver.flush(mode);
+        expect(applied).toEqual([2]);
+        a.send(frame(3, 2));
+        receiver.flush(mode);
+        expect(applied).toEqual([2, 3, 4]);
+        a.send(frame(5, 0));
+        a.send(frame(6, 5));
+        receiver.flush(mode);
+        expect(receiver.confirmed).toBe(4);
+        a.send(frame(7, 4));
+        receiver.flush(mode);
+        a.send(image(9));
+        receiver.flush(mode);
+        expect(applied).toEqual([2, 3, 4, 7, 9]);
+        expect(receiver.confirmed).toBe(9);
+        expect(b.closed).toBe(false);
+        world.dispose();
+    });
+}
+
+test("structural frame validation does not rerun authored codecs", () => {
+    let origin = 0;
+    const Local = component("LocalCodec", {
+        value: {
+            name: "local",
+            ctor: Uint8Array,
+            lanes: 1 as const,
+            encode: (value: number) => value + origin,
+            decode: (raw: number) => Math.max(0, raw - origin),
+        },
+    });
+    const server = new World();
+    const client = new World();
+    const eid = server.create();
+    server.add(eid, Local, { value: 7 });
+    server.add(eid, Replicate);
+    const { a, b } = seededLink(1, faults);
+    const sender = new ReplicationSender(server, [Local], [new Map([[1, [Local]]])], 1, a);
+    sender.record(0);
+    sender.flush();
+    origin = 10;
+    const receiver = new ReplicationReceiver(client, [Local], b);
+    receiver.flush();
+    expect(receiver.confirmed).toBe(0);
+    expect(b.closed).toBe(false);
+    expect(client.get([...receiver.entities.values()][0]!, Local)).toEqual({ value: 0 });
+    server.dispose();
+    client.dispose();
+});
+
+test("structural comparison preserves a float lane's NaN payload bits", () => {
+    const bytes = words(
+        ReplicationMessageKind.Image,
+        10,
+        0,
+        0,
+        1,
+        0x80000000,
+        1,
+        1,
+        0,
+        1,
+        0,
+        0x7fc12345,
+    );
+    const frame = decodeServerMessage(bytes, [[f32]])!;
+    expect(encodeFrame(frame, [[f32]])).toEqual(bytes);
+});
 
 test("client ingress refuses a nonzero Records watermark before routing", () => {
     const bytes = encodeIntent(IntentMessageKind.Records, [operation]);
