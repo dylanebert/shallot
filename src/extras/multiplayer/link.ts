@@ -13,13 +13,30 @@ export interface Connection {
     /** Changes when a replacement stream starts, before any of its bytes are delivered. */
     readonly generation?: number;
     /** Idempotent, non-throwing release: close the transport, discard queued bytes and refuse
-     * future delivery. WebSocket transports carry valid close codes and reasons to the peer.
+     * future delivery. WebSockets and seeded links carry final close codes and reasons to the peer.
      * Closing either end of a seeded link closes both ends. */
     close(code?: number, reason?: string): void;
-    /** Reports a terminal protocol error after the receiver closes this connection. */
-    onError?(error: Error): void;
+    /** Reports a terminal protocol error or final peer close. A close carries its code and reason. */
+    onError?(error: Error & { code?: number; reason?: string }): void;
     send(bytes: Uint8Array): void;
     receive(): Uint8Array[];
+}
+
+/** RFC 6455 §7.4.2 private-use codes mark application closes in Shallot. */
+export function isApplicationClose(code: number): boolean {
+    return Number.isInteger(code) && code >= 4000 && code <= 4999;
+}
+
+export function isFinalClose(code?: number): boolean {
+    // Policy violations, including refused resume credentials, also stop retries.
+    return code !== undefined && (isApplicationClose(code) || code === 1008);
+}
+
+export function closeError(code: number, reason = "", endpoint = "The peer") {
+    return Object.assign(
+        new Error(`${endpoint} closed the connection (${code}${reason ? `: ${reason}` : ""}).`),
+        { code, reason },
+    );
 }
 
 const failedServerConnections = new WeakSet<Connection>();
@@ -71,10 +88,14 @@ export function seededLink(seed: number, faults: LinkFaults) {
         get closed() {
             return closed;
         },
-        close() {
+        close(code?: number, reason?: string) {
+            if (closed) return;
             closed = true;
             queues[0]!.length = 0;
             queues[1]!.length = 0;
+            if (code !== undefined && isFinalClose(code)) {
+                queueMicrotask(() => ends[1 - side]!.onError?.(closeError(code, reason)));
+            }
         },
         send(bytes: Uint8Array) {
             if (closed) return;

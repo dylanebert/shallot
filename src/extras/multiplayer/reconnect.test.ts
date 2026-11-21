@@ -10,9 +10,10 @@ import {
     RoomModeration,
 } from ".";
 import { serveGame, serveRooms, serveWebSocket } from "./bun";
-import { ClientOf, client, type Game, ServerSession } from "./game";
+import { ClientOf, client, type Game, local, ServerSession } from "./game";
 import { createProxy } from "./proxy";
 import { replaySession, type SessionRecording } from "./recording";
+import { roomHost } from "./room-host";
 
 const Player = component("ReconnectPlayer", { value: u32, input: u32 });
 
@@ -187,6 +188,108 @@ test("replacement and kick report final closes without retry; a dropped seat sti
     } finally {
         leader.socket.close();
         f.host.stop();
+    }
+});
+
+test.each(["replace", "kick"] as const)(
+    "a local %s reports its final close and cannot resume",
+    async (kind) => {
+        const f = fixture();
+        f.host.stop();
+        const errors: Error[] = [];
+        let generation!: () => number | undefined;
+        f.game.onClient = (_world, connection) => {
+            connection.onError = (error) => errors.push(error);
+            generation = () => connection.generation;
+        };
+        const host = await local(f.game, {
+            rooms: true,
+            seed: 1,
+            faults: { minDelay: 0, maxDelay: 0, loss: 0, duplication: 0 },
+        });
+        try {
+            const leader = await host.join();
+            const target = await host.join(leader.code);
+            const app = await createApp({ defaults: false, plugins: [target.plugin] });
+            try {
+                app.world.step(1 / 60);
+                const server = f.world.resource(ServerSession).server!;
+                const id = server.peers.get(f.eid)!.clientId;
+                const code = kind === "kick" ? 4003 : 4999;
+                const reason = kind === "kick" ? "Kicked from room" : "Replaced by another session";
+                if (kind === "kick") {
+                    const moderation = f.world.resource(RoomModeration).controller!;
+                    expect(moderation.kick(server.leader!, id)).toBe(true);
+                } else server.disconnect(id, code, reason);
+                expect(target.resume()).toBe(false);
+                await Promise.resolve();
+                expect(errors).toHaveLength(1);
+                expect(errors[0]).toMatchObject({ code, reason });
+                expect(generation()).toBeUndefined();
+            } finally {
+                app.dispose();
+            }
+        } finally {
+            host.dispose();
+        }
+    },
+);
+
+test("a final disconnect frees an already held grant before the next host operation", async () => {
+    const f = fixture();
+    f.host.stop();
+    function endpoint() {
+        return {
+            closed: false,
+            code: undefined as number | undefined,
+            grant: undefined as { seat: string; resume: string } | undefined,
+            close(code?: number) {
+                this.closed = true;
+                this.code ??= code;
+            },
+            send() {},
+            receive: () => [],
+        };
+    }
+    const host = roomHost<ReturnType<typeof endpoint>>(f.game, {
+        reconnectNow: () => 0,
+        sendToken(connection, seat, resume) {
+            connection.grant = { seat, resume };
+        },
+    });
+    try {
+        const leader = endpoint();
+        await host.connect(leader, { intent: "joinOrCreate" })!.ready;
+        const code = host.list()[0]!.code;
+        const join = { intent: "join", code };
+        const old = endpoint();
+        host.connect(old, join);
+        const grant = old.grant!;
+        const server = f.world.resource(ServerSession).server!;
+        const peer = server.peers.get(f.eid)!;
+        old.close();
+        host.leave(old);
+        expect(peer.held).toBe(true);
+        expect(host.list()[0]!.clients).toBe(2);
+        server.disconnect(peer.clientId, 4999, "Replaced by another session");
+        expect(host.list()[0]!.clients).toBe(1);
+        const fresh = endpoint();
+        host.connect(fresh, join);
+        expect(fresh.grant).toBeDefined();
+        expect(host.list()[0]!.clients).toBe(2);
+        const stale = endpoint();
+        host.connect(stale, { ...join, ...grant });
+        expect(stale.code).toBe(1008);
+
+        for (const stream of [leader, fresh]) {
+            stream.close();
+            host.leave(stream);
+        }
+        for (const { clientId } of server.peers.values()) server.disconnect(clientId, 4999);
+        await Promise.resolve();
+        expect(host.list()).toEqual([]);
+    } finally {
+        host.stop();
     }
 });
 

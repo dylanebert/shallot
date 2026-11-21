@@ -4,11 +4,6 @@ import type { Connection } from "./link";
 /** Client disposed its app rather than losing its transport. */
 export const LEAVE_CLOSE_CODE = 4000;
 
-/** RFC 6455 §7.4.2 application close codes mark final closes in Shallot. */
-export function isApplicationClose(code: number): boolean {
-    return Number.isInteger(code) && code >= 4000 && code <= 4999;
-}
-
 /** One socket lifetime. Reconnect with a new socket and new replication/intent histories;
  * the server's first record supplies the new late-join image. No messages cross lifetimes. */
 export class WebSocketConnection implements Connection {

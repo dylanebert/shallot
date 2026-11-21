@@ -7,6 +7,7 @@ import {
     replaySession,
     ServerSession,
     type SessionRecording,
+    seededLink,
 } from ".";
 import { type RecordingCall, SessionRecorder } from "./recording";
 import { createServerApp } from "./room-host";
@@ -59,6 +60,21 @@ test("recording preserves the live byte endpoint but playback never claims it as
     expect(live.connection(transport).endpoint).toBe(transport.endpoint);
     const playback = new SessionRecorder(game, "client", options, live.recording);
     expect(playback.connection(transport).endpoint).toBeUndefined();
+});
+
+test("a recorded local connection's error handler receives its peer's final close once", async () => {
+    const recorder = new SessionRecorder(game, "client", {
+        gameVersion: "final-close",
+        write() {},
+    });
+    const link = seededLink(1, { minDelay: 0, maxDelay: 0, loss: 0, duplication: 0 });
+    const errors: Error[] = [];
+    recorder.connection(link.b).onError = (error) => errors.push(error);
+    link.a.close(4999, "Replaced by another session");
+    link.a.close(4003, "Kicked from room");
+    await Promise.resolve();
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({ code: 4999, reason: "Replaced by another session" });
 });
 
 test("replay reproduces direct and nested final transport closes with their reasons", async () => {

@@ -10,10 +10,15 @@ import {
     type ThinClient,
 } from "./game";
 import { IntentSender } from "./intent";
-import { type Connection, type LinkFaults, MAX_MESSAGE_BYTES, seededLink } from "./link";
+import {
+    type Connection,
+    isApplicationClose,
+    type LinkFaults,
+    MAX_MESSAGE_BYTES,
+    seededLink,
+} from "./link";
 import type { SessionRecorder } from "./recording";
 import { ROOM_AUTH_REFUSED_CLOSE_CODE } from "./room-protocol";
-import { isApplicationClose } from "./websocket";
 
 const KICK_CLOSE_CODE = 4003;
 
@@ -290,7 +295,7 @@ export function roomHost<
                     return this.stream.closed;
                 },
                 close(code?: number, reason?: string) {
-                    if (code !== undefined && isApplicationClose(code)) seats.delete(this.stream);
+                    if (code !== undefined && isApplicationClose(code)) forgetGrant(this.stream);
                     this.stream.close(code, reason);
                 },
                 send(bytes: Uint8Array) {
@@ -495,6 +500,19 @@ export function roomHost<
     function release(seat: Seat<C>) {
         held.delete(seat.token);
         seat.room.held!--;
+    }
+
+    function forgetGrant(connection: C) {
+        const seat = seats.get(connection);
+        seats.delete(connection);
+        if (!seat || held.get(seat.token) !== seat) return;
+        release(seat);
+        const { room } = seat;
+        if (room === pinned || humans(room)) return;
+        // The authority must finish despawning the seat before its World can be disposed.
+        queueMicrotask(() => {
+            if (rooms.get(room.code) === room && !humans(room)) retire(room);
+        });
     }
 
     function expireSeat(seat: Seat<C>) {

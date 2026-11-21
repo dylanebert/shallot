@@ -28,11 +28,19 @@ import {
     type IntentSender,
     type OperationRecord,
 } from "./intent";
-import { type Connection, type LinkFaults, MAX_MESSAGE_BYTES, seededLink } from "./link";
+import {
+    type Connection,
+    closeError,
+    isApplicationClose,
+    isFinalClose,
+    type LinkFaults,
+    MAX_MESSAGE_BYTES,
+    seededLink,
+} from "./link";
 import { type RecordingOptions, SessionRecorder, type SessionRecording } from "./recording";
 import { createServerApp, roomHost } from "./room-host";
 import { encodeServerMessage, type ServerMessage } from "./server-message";
-import { isApplicationClose, LEAVE_CLOSE_CODE, WebSocketConnection } from "./websocket";
+import { LEAVE_CLOSE_CODE, WebSocketConnection } from "./websocket";
 
 /** A live server-side connection entity. Its transport and histories live outside ECS storage. */
 export const ClientOf = component("ClientOf", {});
@@ -448,7 +456,7 @@ export function client(
         /** Sent only on the initial upgrade. Use WSS and omit credentials from access logs. */
         credential?: string;
         /** A WebSocket close with a received status carries its original code and reason. */
-        onError?: (error: Error & { code?: number; reason?: string }) => void;
+        onError?: Connection["onError"];
         /** Receives the server-selected room code on admission to serveRooms. */
         onRoom?: (code: string) => void;
         recording?: RecordingOptions;
@@ -491,14 +499,7 @@ export function client(
             const failure = () =>
                 new Error(`No server answered at ${endpoint}. The connection failed or closed.`);
             const refusal = (code: number, reason: string) =>
-                code === 1006
-                    ? failure()
-                    : Object.assign(
-                          new Error(
-                              `${endpoint} closed the connection (${code}${reason ? `: ${reason}` : ""}).`,
-                          ),
-                          { code, reason },
-                      );
+                code === 1006 ? failure() : closeError(code, reason, endpoint);
             const schedule =
                 options.retryAfter ??
                 ((ms: number, retry: () => void) => {
@@ -508,10 +509,9 @@ export function client(
             function attach(socket: WebSocket) {
                 socket.addEventListener("close", ({ code, reason }) => {
                     if (disposed || world.signal.aborted) return;
-                    // A policy violation also ends retries, including a refused resume.
-                    if (!token || isApplicationClose(code) || code === 1008) {
+                    if (!token || isFinalClose(code)) {
                         failed = true;
-                        options.onError?.(refusal(code, reason));
+                        connection.onError?.(refusal(code, reason));
                         return;
                     }
                     cancel = schedule(delay, () => {
@@ -613,11 +613,19 @@ function localHost(game: Game, options: LocalOptions, pinned?: App) {
         links.add(link);
         const endpoint: Endpoint = link.a;
         const close = endpoint.close;
-        endpoint.close = () => {
+        let final = false;
+        endpoint.close = (code, reason) => {
+            final ||= isFinalClose(code);
             links.delete(link);
-            close();
+            close(code, reason);
         };
-        return { endpoint, client: link.b };
+        return {
+            endpoint,
+            client: link.b,
+            get final() {
+                return final;
+            },
+        };
     }
     async function join(
         code?: string,
@@ -664,6 +672,10 @@ function localHost(game: Game, options: LocalOptions, pinned?: App) {
                 return current.client.receive();
             },
         };
+        const reportError: NonNullable<Connection["onError"]> = (error) => {
+            if (!left && !disposed) connection.onError?.(error);
+        };
+        current.client.onError = reportError;
         const plugin: Plugin = {
             name: "MultiplayerLocalClient",
             dependencies: [...(clientRecorder ? [clientRecorder.plugin] : []), ...game.plugins],
@@ -697,8 +709,10 @@ function localHost(game: Game, options: LocalOptions, pinned?: App) {
              * false if it cannot resume. */
             resume() {
                 const credentials = current.endpoint.credentials;
-                if (!(cut || current.endpoint.closed) || left || !credentials) return false;
+                if (!(cut || current.endpoint.closed) || current.final || left || !credentials)
+                    return false;
                 current = stream(clientSeed);
+                current.client.onError = reportError;
                 cut = false;
                 generation++;
                 host.connect(current.endpoint, {
@@ -755,7 +769,8 @@ type LocalRooms = Omit<LocalHost, "join"> & {
  * Build a caller-owned client app with the joined seat's plugin; disposing it leaves the seat.
  * Leave explicitly if the build fails. Dispose the host to release all rooms and bots.
  * Pump frame deltas in seconds; delays and reconnect windows are milliseconds of pumped time.
- * After cut(), call resume() explicitly; without a reconnect window the drop is permanent. */
+ * After cut(), call resume() explicitly; without a reconnect window the drop is permanent.
+ * A final close cannot resume. Set the client Connection's onError in Game.onClient to observe it. */
 export function local(game: Game, options: LocalOptions & { rooms: true }): Promise<LocalRooms>;
 /** Same-process single-room shortcut. Dispose if the client app fails to build; a built client
  * World owns session disposal. Thin clients receive and acknowledge without ticking their Worlds. */

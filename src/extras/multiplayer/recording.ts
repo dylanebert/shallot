@@ -320,7 +320,12 @@ export class SessionRecorder {
         const thisRecorder = this;
         const wrapped: Connection & { [transportClock]: () => number } = {
             endpoint: playback ? undefined : connection.endpoint,
-            onError: connection.onError && ((error) => connection.onError?.(error)),
+            get onError() {
+                return connection.onError;
+            },
+            set onError(handler) {
+                connection.onError = handler;
+            },
             get generation() {
                 if (playback) {
                     const parent = thisRecorder._stack.at(-1)!;
