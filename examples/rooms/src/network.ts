@@ -31,6 +31,8 @@ import { PlayerMotion } from "./motion";
 import { LocalPlayer, LocalPlayerInputSystem, Player, PlayerInput } from "./player";
 
 export const ConnectionSlot = component("ConnectionSlot", { slot: u32 });
+/** Marks a client's own connection entity; disclosed only to that client, as lightyear's Controlled. */
+const OwnSeat = component("OwnSeat", {});
 const PARTY = [ConnectionSlot, RoomLeader, RoomBot];
 export const SCHEMA = [
     Transform,
@@ -43,9 +45,10 @@ export const SCHEMA = [
     PlayerMotion,
     PredictionMotion,
     ...PARTY,
+    OwnSeat,
 ];
 const PUBLIC = [Transform, GlobalTransform, Body, Shape, PredictionMotion];
-const Connections: Plugin = { name: "GameConnections", components: PARTY };
+const Connections: Plugin = { name: "GameConnections", components: [...PARTY, OwnSeat] };
 export const GAME_PLUGINS = [Demo, PredictionPlugin, MultiplayerPlugin, Connections];
 export function scene(world: World) {
     const result = world.resource(Route).entities;
@@ -104,14 +107,6 @@ export function thinBot(seed: number, slot?: number): ThinClient {
     };
 }
 
-const ASSIGNMENT = 100;
-function assignment(world: World, slot: number) {
-    let roster = 0;
-    for (const peer of world.query([ConnectionSlot]))
-        roster |= 1 << world.get(peer, ConnectionSlot)!.slot;
-    const words = new Uint32Array([ASSIGNMENT, slot, roster]);
-    return new Uint8Array(words.buffer);
-}
 export const GAME: Game = {
     plugins: GAME_PLUGINS,
     schema: SCHEMA,
@@ -129,7 +124,8 @@ export const GAME: Game = {
         const slot =
             world.get(eid, ConnectionSlot)?.slot ?? SLOTS.find((slot) => !occupied.includes(slot))!;
         if (!world.has(eid, ConnectionSlot)) world.add(eid, ConnectionSlot, { slot });
-        world.add(eid, Replicate, { rule: SLOTS.length + 1 });
+        world.add(eid, OwnSeat);
+        world.add(eid, Replicate, { rule: SLOTS.length + 1 + slot });
         world.storage(Body).isEnabled.set(scene(world).players[slot]!.player, 1);
     },
     rules(world, eid) {
@@ -137,7 +133,7 @@ export const GAME: Game = {
         return [
             new Map([[eid, SCHEMA]]),
             ...SLOTS.map((owner) => new Map([[eid, owner === slot ? SCHEMA : PUBLIC]])),
-            new Map([[eid, PARTY]]),
+            ...SLOTS.map((owner) => new Map([[eid, owner === slot ? [...PARTY, OwnSeat] : PARTY]])),
         ];
     },
     onLeave(world, eid) {
@@ -175,50 +171,27 @@ export const GAME: Game = {
         const slot = world.get(eid, ConnectionSlot)!.slot;
         applyIntent(world, scene(world).players[slot]!.player, tick, records, input);
     },
-    onSend(world, eid, connection) {
-        connection.send(assignment(world, world.get(eid, ConnectionSlot)!.slot));
-    },
     onClient(world, connection) {
         const client = new GameClient(world, connection);
         world.resource(ClientSession).client = client;
     },
 };
 export class GameClient {
-    slot = -1;
-    roster = 0;
     readonly prediction: ClientPrediction;
     readonly intent: IntentSender;
     readonly connection: Connection;
     private _values = [0, 0, 0, 0, 0, 0];
+    readonly world: World;
     constructor(world: World, connection: Connection) {
+        this.world = world;
         this.connection = connection;
-        const routed: Connection = {
-            endpoint: connection.endpoint,
-            get generation() {
-                return connection.generation;
-            },
-            get closed() {
-                return connection.closed;
-            },
-            close: () => connection.close(),
-            send: (bytes) => connection.send(bytes),
-            receive: () =>
-                connection.receive().filter((bytes) => {
-                    if (bytes.length !== 12) return true;
-                    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-                    if (view.getUint32(0, true) !== ASSIGNMENT) return true;
-                    this.slot = view.getUint32(4, true);
-                    this.roster = view.getUint32(8, true);
-                    return false;
-                }),
-        };
-        this.intent = new IntentSender(routed);
+        this.intent = new IntentSender(connection);
         // The lift's trajectory is tick-derived gameplay, so the rider predicts it too.
         world.add(scene(world).lift, PredictionTarget);
         this.prediction = new ClientPrediction(
             world,
             SCHEMA,
-            routed,
+            connection,
             () => (this.slot < 0 ? undefined : scene(world).players[this.slot]!.player),
             (_world, tick, records, input) => {
                 if (this.slot >= 0)
@@ -244,6 +217,18 @@ export class GameClient {
         this.prediction.onMessages = (messages) => {
             this.intent.flush(messages);
         };
+    }
+    /** This client's slot, from the connection entity disclosed with OwnSeat; -1 before it arrives. */
+    get slot() {
+        const [seat] = this.world.query([OwnSeat, ConnectionSlot]);
+        return seat === undefined ? -1 : this.world.get(seat, ConnectionSlot)!.slot;
+    }
+    /** Occupied slots as bits, from every replicated connection entity, held seats and bots included. */
+    get roster() {
+        let roster = 0;
+        for (const seat of this.world.query([ConnectionSlot]))
+            roster |= 1 << this.world.get(seat, ConnectionSlot)!.slot;
+        return roster;
     }
     record(values: number[]) {
         this._values = values.slice();

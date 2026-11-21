@@ -26,7 +26,7 @@ import { Demo, Route } from "./demo";
 import { PlayerMotion } from "./motion";
 import { LocalPlayer, LocalPlayerInputSystem, Player, PlayerInput } from "./player";
 
-export const SCHEMA = [
+const AVATAR = [
     Transform,
     GlobalTransform,
     Body,
@@ -39,7 +39,11 @@ export const SCHEMA = [
 ];
 const PUBLIC = [Transform, GlobalTransform, Body, Shape, PredictionMotion];
 const ConnectionSlot = component("ConnectionSlot", { slot: u32 });
-const Connections: Plugin = { name: "GameConnections", components: [ConnectionSlot] };
+/** Marks a client's own connection entity; disclosed only to that client, as lightyear's Controlled. */
+const OwnSeat = component("OwnSeat", {});
+export const SCHEMA = [...AVATAR, ConnectionSlot, OwnSeat];
+const SLOTS = [0, 1] as const;
+const Connections: Plugin = { name: "GameConnections", components: [ConnectionSlot, OwnSeat] };
 export const GAME_PLUGINS = [Demo, PredictionPlugin, MultiplayerPlugin, Connections];
 export function scene(world: World) {
     const result = world.resource(Route).entities;
@@ -79,11 +83,6 @@ export function applyIntent(
     input.sprint.set(player, v[4]!);
     input.jumpPresses.set(player, v[5]!);
 }
-const ASSIGNMENT = 100;
-function assignment(slot: number) {
-    const words = new Uint32Array([ASSIGNMENT, slot]);
-    return new Uint8Array(words.buffer);
-}
 export const GAME: Game = {
     plugins: GAME_PLUGINS,
     schema: SCHEMA,
@@ -93,19 +92,24 @@ export const GAME: Game = {
         for (const [slot, { player }] of scene(world).players.entries())
             world.storage(Replicate).rule.set(player, slot + 1);
     },
-    onJoin(world, eid, connection) {
+    onJoin(world, eid) {
         const occupied = [...world.query([ConnectionSlot])].map(
             (eid) => world.get(eid, ConnectionSlot)!.slot,
         );
-        const slot = [0, 1].find((slot) => !occupied.includes(slot))!;
+        const slot = SLOTS.find((slot) => !occupied.includes(slot))!;
         world.add(eid, ConnectionSlot, { slot });
-        connection.send(assignment(slot));
+        world.add(eid, OwnSeat);
+        world.add(eid, Replicate, { rule: SLOTS.length + 1 + slot });
     },
     rules(world, eid) {
         const slot = world.get(eid, ConnectionSlot)!.slot;
         return [
-            new Map([[eid, SCHEMA]]),
-            ...[0, 1].map((owner) => new Map([[eid, owner === slot ? SCHEMA : PUBLIC]])),
+            new Map([[eid, AVATAR]]),
+            ...SLOTS.map((owner) => new Map([[eid, owner === slot ? AVATAR : PUBLIC]])),
+            ...SLOTS.map(
+                (owner) =>
+                    new Map([[eid, owner === slot ? [ConnectionSlot, OwnSeat] : [ConnectionSlot]]]),
+            ),
         ];
     },
     onLeave(world, eid) {
@@ -119,9 +123,6 @@ export const GAME: Game = {
         const slot = world.get(eid, ConnectionSlot)!.slot;
         applyIntent(world, scene(world).players[slot]!.player, tick, records, input);
     },
-    onSend(world, eid, connection) {
-        connection.send(assignment(world.get(eid, ConnectionSlot)!.slot));
-    },
     onClient(world, connection) {
         const client = new GameClient(world, connection);
         world.resource(ClientSession).client = client;
@@ -133,36 +134,19 @@ export const GAME: Game = {
     },
 };
 export class GameClient {
-    slot = -1;
     readonly prediction: ClientPrediction;
     readonly intent: IntentSender;
     readonly world: World;
     private _values = [0, 0, 0, 0, 0, 0];
     constructor(world: World, connection: Connection) {
         this.world = world;
-        const routed: Connection = {
-            endpoint: connection.endpoint,
-            get closed() {
-                return connection.closed;
-            },
-            close: () => connection.close(),
-            send: (bytes) => connection.send(bytes),
-            receive: () =>
-                connection.receive().filter((bytes) => {
-                    if (bytes.length !== 8) return true;
-                    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-                    if (view.getUint32(0, true) !== ASSIGNMENT) return true;
-                    this.slot = view.getUint32(4, true);
-                    return false;
-                }),
-        };
-        this.intent = new IntentSender(routed);
+        this.intent = new IntentSender(connection);
         // The lift's trajectory is tick-derived gameplay, so the rider predicts it too.
         world.add(scene(world).lift, PredictionTarget);
         this.prediction = new ClientPrediction(
             world,
             SCHEMA,
-            routed,
+            connection,
             () => (this.slot < 0 ? undefined : scene(world).players[this.slot]!.player),
             (_world, tick, records, input) => {
                 if (this.slot >= 0)
@@ -188,6 +172,11 @@ export class GameClient {
         this.prediction.onMessages = (messages) => {
             this.intent.flush(messages);
         };
+    }
+    /** This client's slot, from the connection entity disclosed with OwnSeat; -1 before it arrives. */
+    get slot() {
+        const [seat] = this.world.query([OwnSeat, ConnectionSlot]);
+        return seat === undefined ? -1 : this.world.get(seat, ConnectionSlot)!.slot;
     }
     record(values: number[]) {
         this._values = values.slice();
