@@ -118,7 +118,8 @@ export interface PublishHost {
  * Load anonymously, checking build bytes and actual startup. `url` is the build's root or its `.html`
  * document, beside which its files are served, and its query is sent with each file; `host` says how the host serves each file. startupTimeout bounds observation
  * waiting after navigation, in milliseconds. availabilityTimeout bounds retries of asset 404/5xx
- * answers and stale bytes across all assets from the first check, in milliseconds (default 120 seconds).
+ * answers and stale bytes across all assets from the first check, in milliseconds (default 120 seconds);
+ * each asset's first request is bounded as a page load is.
  * serverEndpoint requires this same page to connect there and announce advancing applied server state.
  */
 export async function verifyPublishedGame(
@@ -151,7 +152,12 @@ export async function verifyPublishedGame(
                 try {
                     response = await context.request.get(
                         at(asset.path.split("/").map(encodeURIComponent).join("/")),
-                        { timeout: Math.max(1, deadline - performance.now()) },
+                        // Only retries spend the availability wait; a first request gets a load's bound.
+                        {
+                            timeout: lastAnswer
+                                ? Math.max(1, deadline - performance.now())
+                                : TIMEOUT.startup,
+                        },
                     );
                 } catch (error) {
                     if (lastAnswer && performance.now() >= deadline)

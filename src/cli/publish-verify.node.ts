@@ -20,12 +20,18 @@ let requests = 0;
 let unavailableStatus = 404;
 let stale = 0;
 let documentRequests = 0;
+let firstAnswerDelay = 0;
 const SUBPATH = "/html/19938966-2182067/";
 let browser: Awaited<ReturnType<typeof publishTestChromium>>;
 const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
-    fetch(request) {
+    async fetch(request) {
+        if (firstAnswerDelay) {
+            const delay = firstAnswerDelay;
+            firstAnswerDelay = 0;
+            await Bun.sleep(delay);
+        }
         // A build is also served from the subpath, as an HTML host's upload directory.
         const path = new URL(request.url).pathname.replace(SUBPATH, "/");
         const headers: Record<string, string> = { ...CROSS_ORIGIN_ISOLATION };
@@ -183,6 +189,24 @@ test("asset availability retries transient 404s and 5xx, but bounds persistent 4
     );
     expect(performance.now() - start).toBeLessThan(1500);
     expect(requests).toBeGreaterThanOrEqual(2);
+});
+
+test("a first answer slower than the availability wait is not a retry", async () => {
+    // Models a cold Windows runner, whose first request outlasted a 600 ms availability wait.
+    control = "positive";
+    writeFileSync(join(directory, "index.html"), html);
+    firstAnswerDelay = 700;
+    expect(
+        await verifyPublishedGame(
+            browser,
+            server.url.href,
+            directory,
+            [{ path: "index.html", size: Buffer.byteLength(html) }],
+            TIMEOUT.cheap,
+            undefined,
+            600,
+        ),
+    ).toMatchObject({ hardware: false, adapter: "No GPU required" });
 });
 
 test("republish retries stale index bytes and bounds a permanently wrong deploy", async () => {
