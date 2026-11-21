@@ -342,6 +342,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
                 );
             }
             const descriptor = component[componentName] as FieldType;
+            if (descriptor?.byteCapacity !== undefined) throw new Error("Text fields are CPU-only");
             if (!isType(descriptor)) {
                 throw new Error(
                     `GpuTable "${this.name}": component field "${componentName}" is not a field schema`,

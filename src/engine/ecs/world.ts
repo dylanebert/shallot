@@ -998,9 +998,13 @@ export class World {
      */
     get<T>(eid: number, component: T): ComponentRecord<T> | undefined {
         if (!this._components.has(eid, component)) return undefined;
-        const record: Record<string, number | number[]> = {};
+        const record: Record<string, string | number | number[]> = {};
         for (const [name, field] of this._storage.get(idOf(component as Component))!.fields) {
             const type = field.type;
+            if (type.byteCapacity !== undefined) {
+                record[name] = field.getText(eid);
+                continue;
+            }
             if (type.lanes === 1) {
                 record[name] = field.get(eid);
                 continue;
@@ -1172,7 +1176,9 @@ function writeValues(
         const value = values[name];
         if (value === undefined) continue;
         const field = storage[name] as ScalarField | Vector2Field | Vector4Field;
-        if (typeof value === "number") (field as ScalarField).set(eid, value);
+        if (typeof value === "string")
+            (storage[name] as { set(eid: number, value: string): void }).set(eid, value);
+        else if (typeof value === "number") (field as ScalarField).set(eid, value);
         else {
             const lanes = value as readonly number[];
             field.set(eid, lanes[0], lanes[1], lanes[2], lanes[3]);

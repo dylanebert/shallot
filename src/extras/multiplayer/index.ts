@@ -9,6 +9,7 @@ import {
     type World,
 } from "../../engine";
 import { fields } from "../../engine/ecs";
+import { encodeText, readText, writeText } from "../../engine/ecs/utf8";
 import { reportStartup } from "../../engine/runtime";
 
 export {
@@ -84,7 +85,8 @@ export const MultiplayerPlugin: Plugin = { name: "Multiplayer", components: [Rep
 export type ReplicationRules = readonly ReadonlyMap<number, readonly Component[]>[];
 /** Both ends must use the same ordered component schemas and engine version. */
 export type ReplicationSchema = readonly Component[];
-export type ReplicatedRows = Map<number, Map<number, number[]>>;
+type ReplicatedValue = number | string;
+export type ReplicatedRows = Map<number, Map<number, ReplicatedValue[]>>;
 interface Version {
     tick: number;
     rows: ReplicatedRows;
@@ -101,10 +103,14 @@ interface Packet extends Version {
  * receiver holds tick confirmed + 1 + i. */
 export const ReplicationMessageKind = { Image: 1, Frame: 2, Acknowledgement: 3 } as const;
 
+function wireLanes(field: FieldType): number {
+    return field.byteCapacity === undefined ? (field.components ?? field.lanes) : 1;
+}
+
 function layout(schema: ReplicationSchema) {
     return schema.map((c) =>
         fields(c).flatMap(({ field }) =>
-            Array<FieldType>(field.components ?? field.lanes).fill(field === entity ? u32 : field),
+            Array<FieldType>(wireLanes(field)).fill(field === entity ? u32 : field),
         ),
     );
 }
@@ -186,17 +192,17 @@ function capture(
     }
     const rows: ReplicatedRows = new Map();
     for (const [eid, components] of selected) {
-        const row = new Map<number, number[]>();
+        const row = new Map<number, ReplicatedValue[]>();
         for (const c of components) {
             const index = schema.indexOf(c);
             if (index < 0) throw new Error("Disclosure component missing from replication schema");
             if (!world.has(eid, c)) continue;
-            const record = world.get(eid, c)! as Record<string, number | number[]>;
-            const values: number[] = [];
+            const record = world.get(eid, c)! as Record<string, ReplicatedValue | number[]>;
+            const values: ReplicatedValue[] = [];
             for (const { name, field } of fields(c)) {
-                const value = record[name] as number | number[];
+                const value = record[name]!;
                 if (field === entity) values.push(ids.get(value as number) ?? 0);
-                else if (typeof value === "number") values.push(value);
+                else if (!Array.isArray(value)) values.push(value);
                 else values.push(...value);
             }
             row.set(index, values);
@@ -217,7 +223,8 @@ function encode(packet: Packet, base: ReplicatedRows, types: FieldType[][]): Uin
         0,
         packet.commandAge === undefined ? 0x80000000 : Math.round(packet.commandAge * 256),
     ];
-    const values: { value: number; field: FieldType }[] = [];
+    const values: { value: number | Uint8Array; field: FieldType }[] = [];
+    let valueBytes = 0;
     let entities = 0;
     for (const [id, row] of packet.rows) {
         const previousRow = base.get(id);
@@ -233,7 +240,14 @@ function encode(packet: Packet, base: ReplicatedRows, types: FieldType[][]): Uin
             changes++;
             for (const i of changed) {
                 components.push(i);
-                values.push({ value: fields[i]!, field: types[c]![i]! });
+                const field = types[c]![i]!;
+                const value =
+                    field.byteCapacity === undefined
+                        ? (fields[i] as number)
+                        : encodeText(fields[i] as string, field.byteCapacity);
+                values.push({ value, field });
+                valueBytes +=
+                    typeof value === "number" ? field.ctor.BYTES_PER_ELEMENT : 2 + value.length;
             }
         }
         for (const c of previousRow?.keys() ?? []) {
@@ -254,20 +268,20 @@ function encode(packet: Packet, base: ReplicatedRows, types: FieldType[][]): Uin
     const intents = packet.intents.length
         ? encodeIntent(IntentMessageKind.Accepted, packet.intents)
         : new Uint8Array();
-    const bytes = new Uint8Array(
-        4 +
-            words.length * 4 +
-            values.reduce((size, v) => size + v.field.ctor.BYTES_PER_ELEMENT, 0) +
-            intents.length,
-    );
+    const bytes = new Uint8Array(4 + words.length * 4 + valueBytes + intents.length);
     const view = new DataView(bytes.buffer);
     view.setUint32(0, words[0]!, true);
     view.setUint32(4, words.length, true);
     for (let i = 1; i < words.length; i++) view.setUint32(4 + i * 4, words[i]!, true);
     let offset = 4 + words.length * 4;
     for (const { value, field } of values) {
-        writeField(view, offset, field, value);
-        offset += field.ctor.BYTES_PER_ELEMENT;
+        if (typeof value === "number") {
+            writeField(view, offset, field, value);
+            offset += field.ctor.BYTES_PER_ELEMENT;
+        } else {
+            writeText(view, offset, value);
+            offset += 2 + value.length;
+        }
     }
     bytes.set(intents, offset);
     return bytes;
@@ -305,7 +319,7 @@ function decode(
             rows.delete(id);
             continue;
         }
-        const row = new Map<number, number[]>(baseline.get(id));
+        const row = new Map<number, ReplicatedValue[]>(baseline.get(id));
         for (let c = 0; c < components; c++) {
             const index = word(),
                 changes = word();
@@ -316,13 +330,20 @@ function decode(
                 continue;
             }
             const size = componentTypes.length;
-            const values = baseline.get(id)?.get(index)?.slice() ?? Array<number>(size).fill(0);
+            const values =
+                baseline.get(id)?.get(index)?.slice() ??
+                componentTypes.map((field) => (field.byteCapacity === undefined ? 0 : ""));
             for (let f = 0; f < changes; f++) {
                 const lane = word();
                 if (lane >= size) throw new Error("Invalid replicated field");
                 const field = componentTypes[lane]!;
-                values[lane] = readField(view, valueOffset, field);
-                valueOffset += field.ctor.BYTES_PER_ELEMENT;
+                if (field.byteCapacity === undefined) {
+                    values[lane] = readField(view, valueOffset, field);
+                    valueOffset += field.ctor.BYTES_PER_ELEMENT;
+                } else {
+                    values[lane] = readText(view, valueOffset, field.byteCapacity);
+                    valueOffset += 2 + view.getUint16(valueOffset, true);
+                }
             }
             row.set(index, values);
         }
@@ -718,13 +739,13 @@ export class ReplicationReceiver {
                 if (!this.world.has(eid, c)) this.world.add(eid, c);
                 const storage = this.world.storage(c) as Record<
                     string,
-                    { set(eid: number, ...values: number[]): void }
+                    { set(eid: number, ...values: ReplicatedValue[]): void }
                 >;
                 let lane = 0;
                 for (const { name, field } of fields(c)) {
-                    const value = values.slice(lane, lane + (field.components ?? field.lanes));
+                    const value = values.slice(lane, lane + wireLanes(field));
                     lane += value.length;
-                    if (field === entity) value[0] = this.entities.get(value[0]!) ?? 0;
+                    if (field === entity) value[0] = this.entities.get(value[0] as number) ?? 0;
                     storage[name]!.set(eid, ...value);
                 }
             });

@@ -87,12 +87,15 @@ function hashReplicatedRows(
             number(index);
             number(Number(world.has(eid, component)));
             if (!world.has(eid, component)) continue;
-            const values = world.get(eid, component)! as Record<string, number | number[]>;
+            const values = world.get(eid, component)! as Record<string, string | number | number[]>;
             for (const { name, field } of fields(component)) {
                 const value = values[name]!;
                 if (field === entity) key(value as number);
                 else if (typeof value === "number") number(value);
-                else for (const item of value) number(item);
+                else if (typeof value === "string") {
+                    number(value.length);
+                    for (let i = 0; i < value.length; i++) number(value.charCodeAt(i));
+                } else for (const item of value) number(item);
             }
         }
     };

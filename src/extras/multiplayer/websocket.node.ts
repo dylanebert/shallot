@@ -52,7 +52,7 @@ test("binary sockets carry images, burst frames and isolated inputs; reconnect r
         const confirmed: { tick: number; value: number }[] = [];
         const receiver = new ReplicationReceiver(world, [Value], connection, (tick, rows) => {
             expect(rows.size).toBe(1);
-            confirmed.push({ tick, value: [...rows.values()][0]!.get(0)![0]! });
+            confirmed.push({ tick, value: [...rows.values()][0]!.get(0)![0] as number });
         });
         return { socket, connection, receiver, confirmed, intent: new IntentSender(connection) };
     }

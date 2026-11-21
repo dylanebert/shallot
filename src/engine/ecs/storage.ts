@@ -2,21 +2,25 @@ import {
     entity,
     type FieldType,
     type ScalarField,
+    type TextType,
     type TypedArray,
     type Vector2Field,
     type Vector3Field,
     type Vector4Field,
 } from "./component";
 import type { EntityRef } from "./entity";
+import { encodeText, readText, writeText } from "./utf8";
 import type { World } from "./world";
 
-export type FieldStorage<T extends FieldType> = T["lanes"] extends 1
-    ? ScalarField
-    : T["lanes"] extends 2
-      ? Vector2Field
-      : T extends { readonly components: 3 }
-        ? Vector3Field
-        : Vector4Field;
+export type FieldStorage<T extends FieldType> = T extends TextType
+    ? import("./component").TextField
+    : T["lanes"] extends 1
+      ? ScalarField
+      : T["lanes"] extends 2
+        ? Vector2Field
+        : T extends { readonly components: 3 }
+          ? Vector3Field
+          : Vector4Field;
 
 type Column = {
     array: TypedArray;
@@ -248,7 +252,38 @@ export class WorldField<T extends FieldType = FieldType> {
         return this.#column.latest;
     }
 
+    /** @internal Read a text row; an unallocated row is empty. */
+    getText(eid: number): string {
+        const { array } = this.#column;
+        const offset = eid * this.type.lanes;
+        if (offset >= array.length) return "";
+        return readText(
+            new DataView(array.buffer, array.byteOffset, array.byteLength),
+            offset,
+            this.type.byteCapacity!,
+        );
+    }
+
     bind(): FieldStorage<T> {
+        const byteCapacity = this.type.byteCapacity;
+        if (byteCapacity !== undefined) {
+            return {
+                type: this.type,
+                get: (eid: number) => this.getText(eid),
+                set: (eid: number, value: string) => {
+                    const bytes = encodeText(value, byteCapacity);
+                    const offset = eid * this.type.lanes;
+                    this.markChanged(eid);
+                    const { array } = this.#column;
+                    array.fill(0, offset, offset + this.type.lanes);
+                    writeText(
+                        new DataView(array.buffer, array.byteOffset, array.byteLength),
+                        offset,
+                        bytes,
+                    );
+                },
+            } as unknown as FieldStorage<T>;
+        }
         const field = this;
         if (!this.type.encode && !this.type.decode && this.type !== entity)
             return this.bindIdentity();

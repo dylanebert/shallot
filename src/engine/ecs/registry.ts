@@ -8,9 +8,8 @@ interface Entry {
     /** Components added when missing on insertion; removing this component removes nothing. */
     requires?: Component[];
     /**
-     * default field values, applied on `world.add`. Values are scalars for
-     * ScalarField fields and per-lane arrays for direct `Vector2Field`/`Vector4Field`
-     * fields (`{ translation: [0, 0, 0] }`); an omitted lane is 0.
+     * Default field values applied on `world.add`: numbers, text, and per-lane arrays
+     * for vectors. An omitted vector lane is 0.
      */
     defaults?: (world: World) => ComponentValues<Component>;
     /** lazy-compiled defaults writer. undefined = unbuilt, null = no defaults. */
@@ -80,7 +79,7 @@ function compilePlan(entry: Entry, world: World): DefaultsPlan | null {
     if (!defaults) return null;
     const dict = defaults(world);
     const schema = entry.component as Record<string, unknown>;
-    const fields = new Map<string, number[]>();
+    const fields = new Map<string, number[] | string>();
 
     for (const [key, value] of Object.entries(dict)) {
         const target = schema[key];
@@ -89,13 +88,18 @@ function compilePlan(entry: Entry, world: World): DefaultsPlan | null {
                 `defaults key "${key}" on component "${entry.key}" does not match a typed field`,
             );
         }
+        if (target.byteCapacity !== undefined) {
+            if (typeof value !== "string") throw new Error(`Default for "${key}" must be text`);
+            fields.set(key, value);
+            continue;
+        }
         const width = lanes(target);
         if (Array.isArray(value)) {
             const values = new Array(width).fill(0);
             for (let lane = 0; lane < width; lane++) values[lane] = value[lane] ?? 0;
             fields.set(key, values);
         } else if (typeof value === "number") {
-            const values = fields.get(key) ?? new Array(width).fill(0);
+            const values = new Array(width).fill(0);
             values[0] = value;
             fields.set(key, values);
         } else {
@@ -108,11 +112,13 @@ function compilePlan(entry: Entry, world: World): DefaultsPlan | null {
     if (fields.size === 0) return null;
     const storage = world.storage(entry.component) as Record<
         string,
-        { set(eid: number, x: number, y?: number, z?: number, w?: number): void }
+        { set(eid: number, x: number | string, y?: number, z?: number, w?: number): void }
     >;
     return {
         fields: [...fields].map(([name, values]) => {
             const field = storage[name];
+            if (typeof values === "string")
+                return { name, write: (eid: number) => field.set(eid, values) };
             const [x, y, z, w] = values;
             const write =
                 values.length === 1

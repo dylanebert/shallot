@@ -36,6 +36,8 @@ async function open(url: string) {
 
 const operation = { id: 1, tick: 1, kind: "operation" as const, values: [] };
 const inputs = encodeInputs([{ tick: 1, values: [1] }]);
+const invalidText = encodeIntent(IntentMessageKind.Records, [{ ...operation, text: "a" }]);
+invalidText[invalidText.length - 1] = 0xff;
 const malformed = [
     words(IntentMessageKind.Inputs).subarray(0, 3),
     inputs.subarray(0, inputs.length - 1),
@@ -44,6 +46,7 @@ const malformed = [
     encodeIntent(IntentMessageKind.Accepted, [operation]),
     words(7, 1, 0),
     words(99, 0),
+    invalidText,
 ];
 test("invalid, oversized and excessive client frames close only their own connection while peers in two rooms keep confirming", async () => {
     const host = serveRooms(game, { hostname: "127.0.0.1", port: 0 });

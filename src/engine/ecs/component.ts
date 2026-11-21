@@ -7,26 +7,30 @@ export type Component = Record<string, unknown>;
 /** Optional starting values for a component's declared fields. */
 export type ComponentValues<T> = {
     [K in keyof T as T[K] extends FieldType ? K : never]?: T[K] extends FieldType
-        ? T[K]["lanes"] extends 1
-            ? number
-            : T[K]["lanes"] extends 2
-              ? readonly [number, number]
-              : T[K] extends { readonly components: 3 }
-                ? readonly [number, number, number] | readonly [number, number, number, number]
-                : readonly [number, number, number, number]
+        ? T[K] extends TextType
+            ? string
+            : T[K]["lanes"] extends 1
+              ? number
+              : T[K]["lanes"] extends 2
+                ? readonly [number, number]
+                : T[K] extends { readonly components: 3 }
+                  ? readonly [number, number, number] | readonly [number, number, number, number]
+                  : readonly [number, number, number, number]
         : never;
 };
 
 /** Every declared field's value, as `World.get` returns it; vectors are arrays of their authored length. */
 export type ComponentRecord<T> = {
     [K in keyof T as T[K] extends FieldType ? K : never]-?: T[K] extends FieldType
-        ? T[K]["lanes"] extends 1
-            ? number
-            : T[K]["lanes"] extends 2
-              ? [number, number]
-              : T[K] extends { readonly components: 3 }
-                ? [number, number, number]
-                : [number, number, number, number]
+        ? T[K] extends TextType
+            ? string
+            : T[K]["lanes"] extends 1
+              ? number
+              : T[K]["lanes"] extends 2
+                ? [number, number]
+                : T[K] extends { readonly components: 3 }
+                  ? [number, number, number]
+                  : [number, number, number, number]
         : never;
 };
 
@@ -45,7 +49,11 @@ export function isType(value: unknown): value is FieldType {
     return (
         typeof type.ctor === "function" &&
         typeof type.ctor.BYTES_PER_ELEMENT === "number" &&
-        (type.lanes === 1 || type.lanes === 2 || type.lanes === 4) &&
+        (type.byteCapacity === undefined
+            ? type.lanes === 1 || type.lanes === 2 || type.lanes === 4
+            : type.ctor === Uint8Array &&
+              validTextCapacity(type.byteCapacity) &&
+              type.lanes === type.byteCapacity + 2) &&
         typeof type.name === "string"
     );
 }
@@ -68,8 +76,10 @@ export interface FieldType<TArray extends TypedArray = TypedArray> {
         readonly BYTES_PER_ELEMENT: number;
         new (length: number): TArray;
     };
-    /** scalar = 1, vec2 = 2, vec4 = 4. stride into the backing array per eid */
-    readonly lanes: 1 | 2 | 4;
+    /** Stride into the backing array per eid. */
+    readonly lanes: number;
+    /** UTF-8 payload capacity of a text field, excluding its length prefix. */
+    readonly byteCapacity?: number;
     /** Values an entity authors when fewer than `lanes`: 3 for {@link vec3}. Layout ignores it. */
     readonly components?: 3;
     /** Debug label; it selects no behavior. */
@@ -78,6 +88,26 @@ export interface FieldType<TArray extends TypedArray = TypedArray> {
     readonly encode?: (v: number) => number;
     /** array-slot value → JS number. omit for identity-mapped types */
     readonly decode?: (raw: number) => number;
+}
+
+export interface TextType extends FieldType<Uint8Array> {
+    readonly byteCapacity: number;
+}
+
+/** CPU-only UTF-8 field. Capacity is 1–65535 bytes; invalid or oversized writes throw. */
+export function text(byteCapacity: number): TextType {
+    if (!validTextCapacity(byteCapacity)) throw new Error("Invalid text byte capacity");
+    return { ctor: Uint8Array, lanes: byteCapacity + 2, byteCapacity, name: "text" };
+}
+
+function validTextCapacity(bytes: number): boolean {
+    return Number.isInteger(bytes) && bytes >= 1 && bytes <= 0xffff;
+}
+
+export interface TextField {
+    readonly type: TextType;
+    get(eid: number): string;
+    set(eid: number, value: string): void;
 }
 
 /** 32-bit IEEE float. */
@@ -120,6 +150,7 @@ export function sameTypeLayout(a: FieldType, b: FieldType): boolean {
         a.ctor !== b.ctor ||
         a.ctor.BYTES_PER_ELEMENT !== b.ctor.BYTES_PER_ELEMENT ||
         a.lanes !== b.lanes ||
+        a.byteCapacity !== b.byteCapacity ||
         a.encode !== b.encode ||
         a.decode !== b.decode
     ) {
@@ -291,14 +322,19 @@ export interface Vector4Field {
 }
 
 /**
- * Lane count of a bare storage descriptor or structurally recognized field handle; 0 otherwise.
+ * Numeric lane count of a bare storage descriptor or field handle; 0 otherwise.
  * A vector's scalar lane handle reports 1, not its parent's `type.lanes`.
  */
 export function lanes(value: unknown): 0 | 1 | 2 | 4 {
-    if (isType(value)) return value.lanes;
+    if (isType(value)) {
+        if (value.byteCapacity !== undefined) return 0;
+        const width = value.lanes;
+        return width === 1 || width === 2 || width === 4 ? width : 0;
+    }
     if (!value || typeof value !== "object") return 0;
     const v = value as Record<string, unknown>;
-    if (typeof v.set !== "function") return 0;
+    if (typeof v.set !== "function" || (isType(v.type) && v.type.byteCapacity !== undefined))
+        return 0;
     // Classify by an actual lane handle, not just a property name.
     if (v.z != null && v.w != null) return 4;
     if (v.x != null && v.y != null) return 2;

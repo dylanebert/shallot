@@ -1,11 +1,13 @@
 import { Time } from "../../engine";
+import { encodeText, readText, writeText } from "../../engine/ecs/utf8";
 import { transportClock } from "./diagnostics";
 import { type Connection, MAX_MESSAGE_BYTES } from "./link";
 
 type TimedConnection = Connection & { [transportClock]?: () => number };
 
 /** Records and Accepted carry kind, count and cumulative resolved-ID watermark as u32s.
- * Records carry operations and a zero watermark. Inputs carry kind and tick count only. */
+ * Records carry operations and a zero watermark. Inputs carry kind and tick count only.
+ * Operation tag 1 carries numeric values; tag 2 appends a u16 length and UTF-8 bytes. */
 export const IntentMessageKind = { Records: 4, Accepted: 5, Inputs: 6 } as const;
 
 /** One sampled fixed tick; values belong to the game. No operation identity. */
@@ -68,7 +70,11 @@ export interface OperationRecord {
     tick: number;
     kind: "operation";
     values: number[];
+    /** Optional UTF-8 payload of at most 1024 bytes. */
+    text?: string;
 }
+const OperationTextCapacity = 1024;
+
 export type IntentRecord = InputRecord | OperationRecord;
 export interface AcceptedIntent extends OperationRecord {
     /** Assigned tick minus requested tick, in fixed ticks. */
@@ -83,19 +89,24 @@ export function encodeIntent(
     records: readonly OperationRecord[],
     watermark = 0,
 ): Uint8Array {
-    const bytes = new Uint8Array(
-        12 + records.reduce((size, r) => size + 24 + r.values.length * 8, 0),
+    const texts = records.map((r) =>
+        r.text === undefined ? undefined : encodeText(r.text, OperationTextCapacity),
     );
+    const size = 12 + records.reduce((size, r, i) => size + operationSize(r.values, texts[i]), 0);
+    if (kind === IntentMessageKind.Records && size > MAX_MESSAGE_BYTES)
+        throw new Error("Operation packet exceeds message capacity");
+    const bytes = new Uint8Array(size);
     const view = new DataView(bytes.buffer);
     view.setUint32(0, kind, true);
     view.setUint32(4, records.length, true);
     view.setUint32(8, watermark, true);
     let offset = 12;
-    for (const r of records) {
+    for (const [i, r] of records.entries()) {
+        const text = texts[i];
         const words = [
             r.id,
             r.tick,
-            Number(r.kind === "operation"),
+            text === undefined ? Number(r.kind === "operation") : 2,
             (r as AcceptedIntent).lateness ?? 0,
             r.values.length,
             (r as AcceptedIntent).slack === undefined ? 0 : (r as AcceptedIntent).slack! + 1,
@@ -108,9 +119,18 @@ export function encodeIntent(
             view.setFloat64(offset, value, true);
             offset += 8;
         }
+        if (text !== undefined) {
+            writeText(view, offset, text);
+            offset += 2 + text.length;
+        }
     }
     return bytes;
 }
+
+function operationSize(values: readonly number[], text?: Uint8Array): number {
+    return 24 + values.length * 8 + (text === undefined ? 0 : 2 + text.length);
+}
+
 /** Cumulative ID resolved by acceptance or refusal. Call after decoding the packet. */
 export function intentWatermark(bytes: Uint8Array): number {
     return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(8, true);
@@ -121,14 +141,15 @@ export function decodeIntent(bytes: Uint8Array): AcceptedIntent[] {
     const kind = bytes.length >= 12 ? view.getUint32(0, true) : 0;
     if (kind !== IntentMessageKind.Records && kind !== IntentMessageKind.Accepted)
         throw new Error("Invalid intent packet");
+    if (kind === IntentMessageKind.Records && bytes.length > MAX_MESSAGE_BYTES)
+        throw new Error("Operation packet exceeds message capacity");
     const records: AcceptedIntent[] = [];
     let offset = 12;
     for (let i = 0; i < view.getUint32(4, true); i++) {
         const id = view.getUint32(offset, true),
             tick = view.getUint32(offset + 4, true);
         const tag = view.getUint32(offset + 8, true);
-        if (tag > 1) throw new Error("Invalid intent kind");
-        if (tag !== 1) throw new Error("Inputs do not belong in the operation log");
+        if (tag !== 1 && tag !== 2) throw new Error("Invalid operation kind");
         const kind = "operation";
         const lateness = view.getUint32(offset + 12, true),
             count = view.getUint32(offset + 16, true);
@@ -139,6 +160,8 @@ export function decodeIntent(bytes: Uint8Array): AcceptedIntent[] {
             values.push(view.getFloat64(offset, true));
             offset += 8;
         }
+        const text = tag === 2 ? readText(view, offset, OperationTextCapacity) : undefined;
+        if (tag === 2) offset += 2 + view.getUint16(offset, true);
         records.push({
             id,
             tick,
@@ -146,6 +169,7 @@ export function decodeIntent(bytes: Uint8Array): AcceptedIntent[] {
             lateness,
             values,
             ...(arrival ? { slack: arrival - 1 } : {}),
+            ...(text === undefined ? {} : { text }),
         });
     }
     if (offset !== bytes.length) throw new Error("Invalid intent size");
@@ -315,16 +339,29 @@ export class IntentSender {
         this._clock = (connection as TimedConnection)[transportClock] ?? (() => performance.now());
     }
     /** Copies values. A repeated input tick replaces its sample; decreasing ticks throw. A record
-     * that cannot fit one MAX_MESSAGE_BYTES packet alone, an input of more than 510 values or an
-     * operation of more than 507, is a programming error and throws.
+     * that cannot fit one MAX_MESSAGE_BYTES packet alone throws. Operation text must be valid
+     * Unicode and fit in 1024 UTF-8 bytes, including when the record would fit the packet.
      * Flush after sampling. Each tick sends at most one input packet; replacements before
      * that flush are included. Inputs never enter the operation ID log. */
     record(tick: number, kind: "input", values: number[]): InputRecord;
-    record(tick: number, kind: "operation", values: number[]): OperationRecord;
-    record(tick: number, kind: IntentRecord["kind"], values: number[]): IntentRecord {
+    record(tick: number, kind: "operation", values: number[], text?: string): OperationRecord;
+    record(
+        tick: number,
+        kind: IntentRecord["kind"],
+        values: number[],
+        text?: string,
+    ): IntentRecord {
         if (!Number.isInteger(tick) || tick < 0 || tick >= 0xffffffff)
             throw new Error("Invalid intent tick");
-        if ((kind === "input" ? 16 : 36) + values.length * 8 > MAX_MESSAGE_BYTES)
+        const size =
+            kind === "input"
+                ? 16 + values.length * 8
+                : 12 +
+                  operationSize(
+                      values,
+                      text === undefined ? undefined : encodeText(text, OperationTextCapacity),
+                  );
+        if (size > MAX_MESSAGE_BYTES)
             throw new Error(`Intent values exceed a ${MAX_MESSAGE_BYTES}-byte message`);
         if (kind === "input") {
             if (tick < this._latestInput) throw new Error("Input ticks must not decrease");
@@ -336,7 +373,13 @@ export class IntentSender {
             return input;
         }
         if (this._next >= 0xffffffff) throw new Error("Operation IDs exhausted");
-        const record = { id: this._next++, tick, kind, values: values.slice() };
+        const record = {
+            id: this._next++,
+            tick,
+            kind,
+            values: values.slice(),
+            ...(text === undefined ? {} : { text }),
+        };
         this.records.set(record.id, record);
         return record;
     }
@@ -371,7 +414,12 @@ export class IntentSender {
             const records: OperationRecord[] = [];
             let size = 12;
             for (const record of this.records.values()) {
-                size += 24 + record.values.length * 8;
+                size += operationSize(
+                    record.values,
+                    record.text === undefined
+                        ? undefined
+                        : encodeText(record.text, OperationTextCapacity),
+                );
                 if (size > MAX_MESSAGE_BYTES) break;
                 records.push(record);
             }
