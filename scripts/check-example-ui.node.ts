@@ -785,11 +785,9 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
                                 ? "0px 8px"
                                 : /button|select|input\[type=['"]text['"]\]/.test(s)
                                   ? "4px 8px"
-                                  : s === ".ec .slot-actions"
-                                    ? "8px"
-                                    : s === ".ec .member"
-                                      ? "0px 8px"
-                                      : "0px";
+                                  : s === ".ec .member"
+                                    ? "0px 8px"
+                                    : "0px";
                 if (
                     !spacingMatches(p, v, expected) &&
                     !/^0(?:px)?(?: 0(?:px)?)*$/.test(v) &&
@@ -816,7 +814,9 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
             const pressed = /:active/.test(s);
             const selected =
                 /aria-(?:pressed|current|selected|checked)=['"]?true|\.selected\b/.test(s) ||
-                /^\.ec \.row > button\[aria-expanded=['"]true['"]\]$/.test(s);
+                /^\.ec \.row > button\[aria-expanded=['"]true['"]\](?: \+ \.slot-actions)?$/.test(
+                    s,
+                );
             const check = /checkbox/.test(s);
             const thumb = /slider-thumb|range-thumb/.test(s);
             const track = /slider-runnable-track|range-track/.test(s);
@@ -882,6 +882,7 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
             if (
                 background &&
                 v === "transparent" &&
+                s !== ".ec :where(.slot-actions) button" &&
                 /button|select|checkbox|controls|section-title/.test(s)
             )
                 fail("state role");
@@ -1613,15 +1614,20 @@ test("audited screen queries, explicit type longhands and nested safe fallbacks 
         ).toBeGreaterThan(0);
 });
 
-test("seat popups use an inset panel and mark only the expanded trigger", () => {
-    const panel = ".ec .slot-actions { padding: 8px; background: #1c1917; }";
-    const trigger = ".ec .row > button[aria-expanded='true'] { border-color: #d49560; }";
-    expect(controlViolations({ sheets: [controlFixture, panel, trigger], lists: [] })).toEqual([]);
+test("seat popups use flush rows and share the expanded trigger's border", () => {
+    const panel = ".ec .slot-actions { background: #1c1917; }";
+    const trigger = ".ec .row > button[aria-expanded='true']";
+    const border = `${trigger}, ${trigger} + .slot-actions { border-color: #d49560; }`;
+    const rows = ".ec :where(.slot-actions) button { background: transparent; }";
+    expect(controlViolations({ sheets: [controlFixture, panel, border, rows], lists: [] })).toEqual(
+        [],
+    );
     for (const rule of [
-        panel.replace("8px", "4px"),
+        panel.replace("background", "padding: 8px; background"),
         panel.replace("#1c1917", "#3c322c"),
-        trigger.replace("true", "false"),
-        trigger.replace("row", "ordinary"),
+        border.replaceAll("true", "false"),
+        border.replaceAll("row", "ordinary"),
+        rows.replace("slot-actions", "ordinary"),
     ])
         expect(controlViolations({ sheets: [controlFixture, rule], lists: [] })).not.toEqual([]);
 });

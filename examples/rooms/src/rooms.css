@@ -69,15 +69,14 @@
     z-index: 1;
     top: 100%;
     left: 0;
-    width: max-content;
+    right: 0;
     display: grid;
-    padding: 8px;
     border: 1px solid #2a2420;
-    border-radius: 2px;
+    border-top-width: 0;
     background: #1c1917;
     white-space: nowrap;
 }
-.ec .slot-actions.above { top: auto; bottom: 100%; }
+.ec .slot-actions.above { top: auto; bottom: 100%; border-top-width: 1px; border-bottom-width: 0; }
 .ec #status {
     position: absolute;
     z-index: 1;
@@ -109,9 +108,13 @@
 .ec .vacant > button { width: 100%; background: #2a2420; }
 .ec button:enabled { cursor: pointer; }
 .ec button:disabled, .ec input:disabled { background: #1c1917; color: #a08c78; }
+.ec :where(.slot-actions) button { justify-content: flex-start; background: transparent; border: 0; border-radius: 0; }
+.ec :where(.slot-actions) button:hover:not(:disabled) { background: #3c322c; }
 .ec button:hover:not(:disabled), .ec input:hover:not(:disabled) { border-color: #a08c78; }
 .ec button:active:not(:disabled), .ec input:active:not(:disabled) { background: #2a2420; }
-.ec button[aria-pressed='true'], .ec .row > button[aria-expanded='true'] { border-color: #d49560; }
+.ec button[aria-pressed='true'], .ec .row > button[aria-expanded='true'],
+.ec .row > button[aria-expanded='true'] + .slot-actions { border-color: #d49560; }
+.ec .row > button[aria-expanded='true'] { border-radius: 0; }
 .ec [hidden] { display: none !important; }
 
 @media (pointer: coarse), (max-width: 480px) {

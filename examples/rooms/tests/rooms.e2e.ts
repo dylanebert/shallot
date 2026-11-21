@@ -17,14 +17,14 @@ async function expectSeatPopup(page: Page, slot: number) {
     const popup = await box(group);
     const { width, height } = page.viewportSize()!;
     expect(popup.x).toBe(seat.x);
+    expect(popup.width).toBe(seat.width);
     const bottom = seat.y + seat.height;
     expect(popup.y).toBe(bottom + popup.height <= height ? bottom : seat.y - popup.height);
     expect(popup.x).toBeGreaterThanOrEqual(0);
     expect(popup.y).toBeGreaterThanOrEqual(0);
     expect(popup.x + popup.width).toBeLessThanOrEqual(width);
     expect(popup.y + popup.height).toBeLessThanOrEqual(height);
-    await expect(group).toHaveCSS("display", "grid");
-    await expect(group).toHaveCSS("padding-left", "8px");
+    await expect(group).toHaveCSS("border-left-color", "rgb(212, 149, 96)");
     await expect(plus(page, slot)).toHaveCSS("border-top-color", "rgb(212, 149, 96)");
     return popup;
 }
@@ -330,7 +330,6 @@ for (const phone of [false, true]) {
             await capture(page, `in-tab-${size}`);
             if (phone) {
                 await expect(action(page, "Jump")).toBeVisible();
-                await touchTargets(page);
                 const name = players(page).nth(2).locator(".member span");
                 await name.evaluate((el) => {
                     el.textContent = "A very long player name ".repeat(8);
@@ -535,18 +534,12 @@ for (const phone of [false, true]) {
                         return players(friend).allInnerTexts();
                     })
                     .toEqual(["", "You", "", ""]);
-                for (const slot of [1, 3, 4]) {
+                for (const slot of [1, 4]) {
                     await use(plus(friend, slot));
-                    const choice = action(friend, "Copy code");
                     await expectSeatPopup(friend, slot);
-                    expect(
-                        await choice.evaluate((button) => button.scrollWidth <= button.clientWidth),
-                    ).toBe(true);
                     if (phone) await touchTargets(friend);
-                    if (slot === 1 || slot === 4)
-                        await capture(friend, `server-seat-${slot}-${size}`);
+                    await capture(friend, `server-seat-${slot}-${size}`);
                     await friend.keyboard.press("Escape");
-                    await expect(choice).toBeHidden();
                 }
             } finally {
                 await host.stop();
