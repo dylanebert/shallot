@@ -1,6 +1,6 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { parseArgs } from "node:util";
 import { serveRooms } from "@dylanebert/shallot/multiplayer/bun";
 import { build } from "vite";
@@ -24,9 +24,10 @@ await build({
     build: { outDir: site },
     logLevel: "error",
 });
+// Glob entries use the host separator; request paths use "/".
 const files = new Map(
     Array.from(new Bun.Glob("**/*").scanSync({ cwd: site }), (path) => [
-        `/${path}`,
+        `/${path.split(sep).join("/")}`,
         Bun.file(join(site, path)),
     ]),
 );
