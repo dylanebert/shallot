@@ -9,6 +9,7 @@ import {
     type SessionRecording,
 } from ".";
 import { type RecordingCall, SessionRecorder } from "./recording";
+import { createServerApp } from "./room-host";
 import { createSession } from "./testing";
 
 const Count = component("RecordedCount", { value: u32 });
@@ -58,6 +59,46 @@ test("recording preserves the live byte endpoint but playback never claims it as
     expect(live.connection(transport).endpoint).toBe(transport.endpoint);
     const playback = new SessionRecorder(game, "client", options, live.recording);
     expect(playback.connection(transport).endpoint).toBeUndefined();
+});
+
+test("replay reproduces direct and nested final transport closes with their reasons", async () => {
+    const recorder = new SessionRecorder(game, "server", {
+        gameVersion: "final-close",
+        write() {},
+    });
+    const app = await createServerApp(game, recorder);
+    const closed: unknown[][] = [];
+    try {
+        recorder.attachServer();
+        const authority = app.world.resource(ServerSession).server!;
+        const eid = authority.connect({
+            close: (...args) => {
+                closed.push(args);
+            },
+            send() {},
+            receive: () => [],
+        })!;
+        const peer = authority.peers.get(eid)!;
+        peer.connection.close(4998, "Direct close");
+        authority.disconnect(peer.clientId, 4999, "Replaced by another session");
+    } finally {
+        recorder.finish();
+        app.dispose();
+    }
+    const recording: SessionRecording = JSON.parse(JSON.stringify(recorder.recording));
+    expect(closed).toEqual([
+        [4998, "Direct close"],
+        [4999, "Replaced by another session"],
+    ]);
+    expect(
+        calls(recording)
+            .filter((call) => call.kind === "close")
+            .map((call) => call.args.slice(1)),
+    ).toEqual(closed);
+    await replaySession(game, "final-close", recording);
+    const disconnect = recording.calls.find((call) => call.kind === "disconnect")!;
+    disconnect.args[2] = "Different reason";
+    await expect(replaySession(game, "final-close", recording)).rejects.toThrow("got close");
 });
 
 for (const role of ["server", "client"] as const) {

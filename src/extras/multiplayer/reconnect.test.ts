@@ -176,9 +176,66 @@ test("replacement and kick report final closes without retry; a dropped seat sti
         }
         expect(f.joined).toHaveLength(3);
         expect(f.left).toEqual([42, 42]);
+
+        // Close the transport while its authority entity still exists. Otherwise a leaked
+        // grant would also be refused because the entity is already gone.
+        const old = peer(f.url);
+        const [, seat, token] = (await old.token).split(":");
+        server.peers.get(f.eid)!.connection.close(4999, "Session ended");
+        expect(await old.closed).toBe(4999);
+        expect(await peer(`${f.url}&seat=${seat}&resume=${token}`).outcome).toBe(1008);
     } finally {
         leader.socket.close();
         f.host.stop();
+    }
+});
+
+test("a recorded server delivers its final close reason without scheduling a resume", async () => {
+    const f = fixture();
+    f.host.stop();
+    const host = await serveGame(f.game, {
+        hostname: "127.0.0.1",
+        port: 0,
+        recording: { gameVersion: "final-close", write() {} },
+    });
+    let receiver: ReplicationReceiver | undefined;
+    f.game.onClient = (world, connection) => {
+        receiver = new ReplicationReceiver(world, f.game.schema, connection);
+    };
+    const errors: Error[] = [];
+    let retries = 0;
+    try {
+        const app = await createApp({
+            defaults: false,
+            plugins: [
+                client(f.game, {
+                    url: `ws://127.0.0.1:${host.port}`,
+                    onError: (error) => errors.push(error),
+                    retryAfter() {
+                        retries++;
+                        return () => {};
+                    },
+                }),
+            ],
+        });
+        try {
+            await until(() => {
+                app.world.step(1 / 60);
+                receiver?.flush();
+                return !!receiver?.entities.has(f.eid);
+            }, "recorded server did not send its image after the resume grant");
+            const authority = host.world.resource(ServerSession).server!;
+            const reason = "Replaced by another session";
+            authority.disconnect(authority.peers.get(f.eid)!.clientId, 4999, reason);
+            await until(() => errors.length + retries > 0, "client did not observe the close");
+            expect(retries).toBe(0);
+            expect(errors).toHaveLength(1);
+            expect(errors[0]).toMatchObject({ code: 4999, reason });
+        } finally {
+            app.dispose();
+        }
+    } finally {
+        host.stop();
     }
 });
 

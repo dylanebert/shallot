@@ -35,6 +35,11 @@ export interface RecordingOptions {
 
 const ActiveRecording = { create: (): { value?: SessionRecording } => ({}) };
 
+function closeArgs(id: number, code?: number, reason?: string): unknown[] {
+    if (reason !== undefined) return [id, code ?? null, reason];
+    return code === undefined ? [id] : [id, code];
+}
+
 /** Borrows the opt-in recording accumulated so far; serialize it before the next step. */
 export function sessionRecording(world: World): SessionRecording | undefined {
     return world.resource(ActiveRecording).value;
@@ -308,7 +313,7 @@ export class SessionRecorder {
             (() => performance.now());
         let sending = 0;
         let closing = false;
-        let close = () => connection.close();
+        let close: Connection["close"] = (code, reason) => connection.close(code, reason);
         let lastClosed: boolean | undefined;
         let send = (bytes: Uint8Array) => connection.send(bytes);
         const playback = !!this._playback;
@@ -331,11 +336,13 @@ export class SessionRecorder {
             },
             get close() {
                 const current = close;
-                return () => {
-                    if (closing) return current();
+                return (code?: number, reason?: string) => {
+                    if (closing) return current(code, reason);
                     closing = true;
                     try {
-                        thisRecorder.invoke("close", [id], current);
+                        thisRecorder.invoke("close", closeArgs(id, code, reason), () =>
+                            current(code, reason),
+                        );
                     } finally {
                         closing = false;
                     }
@@ -407,9 +414,12 @@ export class SessionRecorder {
                 connect(wrapped, kind),
             );
         };
-        authority.disconnect = (id) => {
+        authority.disconnect = (id, code, reason) => {
             const eid = authority.entity(id);
-            if (eid !== undefined) this.invoke("disconnect", [eid], () => disconnect(id));
+            if (eid !== undefined)
+                this.invoke("disconnect", closeArgs(eid, code, reason), () =>
+                    disconnect(id, code, reason),
+                );
         };
     }
     finish(): void {
@@ -451,7 +461,12 @@ export class SessionRecorder {
                     const authority = this._world.resource(ServerSession).server!;
                     const id = authority.peers.get(args[0] as number)?.clientId;
                     if (id === undefined) throw new Error("Recorded seat is missing");
-                    if (call.kind === "disconnect") authority.disconnect(id);
+                    if (call.kind === "disconnect")
+                        authority.disconnect(
+                            id,
+                            (args[1] ?? undefined) as number | undefined,
+                            args[2] as string | undefined,
+                        );
                     else if (call.kind === "holdSeat") authority.hold(id);
                     else authority.resume(id);
                     break;
@@ -478,7 +493,12 @@ export class SessionRecorder {
                     this._connections.get(args[0] as number)!.receive();
                     break;
                 case "close":
-                    this._connections.get(args[0] as number)!.close();
+                    this._connections
+                        .get(args[0] as number)!
+                        .close(
+                            (args[1] ?? undefined) as number | undefined,
+                            args[2] as string | undefined,
+                        );
                     break;
                 default:
                     this.fail(`unstepped ${call.kind}`);
