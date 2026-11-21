@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { type App, createApp, type World } from "../../engine";
 import { type ClientId, client, type Game, type PlayerId, ServerSession } from ".";
-import { serveRooms, serveWebSocket } from "./bun";
+import { serveRooms } from "./bun";
 import { MAX_MESSAGE_BYTES, seededLink } from "./link";
 import { createServerApp, roomHost } from "./room-host";
 
@@ -22,7 +22,8 @@ async function until(ready: () => boolean, reason: string) {
     }
 }
 
-test("auth refuses before publication, reserves only its seat, and preserves identity on resume", async () => {
+test("auth forwards the game's refusal verbatim, reserves only its seat, and preserves identity on resume", async () => {
+    const reason = "Pass expired — credential=expired";
     const joined: { world: World; eid: number; clientId: ClientId; playerId?: PlayerId }[] = [];
     const credentials: (string | null)[] = [];
     const slow = Promise.withResolvers<{ playerId: PlayerId }>();
@@ -34,7 +35,7 @@ test("auth refuses before publication, reserves only its seat, and preserves ide
             if (credential === "slow + 🐟") return slow.promise;
             if (credential === "primary" || credential === "elsewhere")
                 return { playerId: credential };
-            return { reason: "Pass expired" };
+            return { reason };
         },
         onJoin(world, eid, _transport, clientId, playerId) {
             joined.push({ world, eid, clientId, playerId });
@@ -69,7 +70,9 @@ test("auth refuses before publication, reserves only its seat, and preserves ide
             ],
         });
         await until(() => errors.length > 0, "refusal did not reach onError");
-        expect(errors[0]!.message).toContain("Pass expired");
+        expect(errors[0]!.message).toBe(
+            `ws://${base}/?intent=joinOrCreate closed the connection (1008: ${reason}).`,
+        );
         expect(errors[0]!.message).not.toContain("private-expired-pass");
         expect(joined).toHaveLength(0);
         expect(await (await fetch(`http://${base}/rooms`)).json()).toEqual([]);
@@ -217,35 +220,5 @@ test("invalid WebSocket schemes never expose the admission credential in initial
         );
         expect(error).toBeInstanceOf(Error);
         expect(String(error)).not.toContain(credential);
-    }
-});
-
-test("a close reason reflecting the upgrade URL cannot expose the credential through onError", async () => {
-    const host = serveWebSocket({
-        hostname: "127.0.0.1",
-        port: 0,
-        connect(connection, url) {
-            connection.close(1008, `Refused ${url}`);
-        },
-        disconnect() {},
-    });
-    const errors: Error[] = [];
-    let app: App | undefined;
-    try {
-        app = await createApp({
-            defaults: false,
-            plugins: [
-                client(emptyGame, {
-                    url: `ws://127.0.0.1:${host.port}/?%63redential=secret%2Bpass`,
-                    onError: (error) => errors.push(error),
-                }),
-            ],
-        });
-        await until(() => errors.length > 0, "close reason did not reach onError");
-        expect(errors[0]!.message).not.toContain("secret");
-        expect(errors[0]!.message).toContain("1008");
-    } finally {
-        app?.dispose();
-        host.stop(true);
     }
 });

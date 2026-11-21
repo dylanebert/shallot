@@ -237,16 +237,12 @@ export function roomHost<
             return;
         }
         const reason = result && "reason" in result ? result.reason : "";
-        const publicReason =
-            reason &&
-            reason.length <= 123 &&
-            utf8.encode(reason).length <= 123 &&
-            (!credential || !reason.includes(credential));
+        const fitsCloseFrame = reason && reason.length <= 123 && utf8.encode(reason).length <= 123;
         connection.close(
             1008,
             controller.signal.aborted
                 ? "Admission timed out"
-                : publicReason
+                : fitsCloseFrame
                   ? reason
                   : "Admission refused",
         );

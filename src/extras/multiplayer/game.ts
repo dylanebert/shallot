@@ -76,8 +76,9 @@ export interface Game {
     rules(world: World, connection: number): ReplicationRules;
     onCreate?(world: World): void;
     /** Room hosts call this before publishing a human seat, never on resume. The signal
-     * aborts on disconnect, shutdown or after 15 seconds. A refusal reason is public and
-     * must fit in 123 UTF-8 bytes; never include secrets. Throws refuse without details. */
+     * aborts on disconnect, shutdown or after 15 seconds. A nonempty refusal reason of at most
+     * 123 UTF-8 bytes reaches the client verbatim. Do not include the credential or other secrets.
+     * Throws and reasons outside that bound refuse without details. */
     onAuth?(
         credential: string | null,
         signal: AbortSignal,
@@ -415,8 +416,6 @@ export function client(
             if (options.onRoom) url.searchParams.set("announceRoom", "1");
             if (options.credential !== undefined)
                 url.searchParams.set("credential", options.credential);
-            const credentials = url.searchParams.getAll("credential").filter(Boolean);
-            if (credentials.length) url.search = url.searchParams.toString();
             const publicUrl = new URL(url);
             publicUrl.searchParams.delete("credential");
             const endpoint = publicUrl.href;
@@ -436,17 +435,12 @@ export function client(
             let failed = false;
             const failure = () =>
                 new Error(`No server answered at ${endpoint}. The connection failed or closed.`);
-            const refusal = (code: number, reason: string) => {
-                if (code === 1006) return failure();
-                if (
-                    /credential=/i.test(reason) ||
-                    credentials.some((value) => reason.includes(value))
-                )
-                    reason = "";
-                return new Error(
-                    `${endpoint} closed the connection (${code}${reason ? `: ${reason}` : ""}).`,
-                );
-            };
+            const refusal = (code: number, reason: string) =>
+                code === 1006
+                    ? failure()
+                    : new Error(
+                          `${endpoint} closed the connection (${code}${reason ? `: ${reason}` : ""}).`,
+                      );
             const schedule =
                 options.retryAfter ??
                 ((ms: number, retry: () => void) => {
