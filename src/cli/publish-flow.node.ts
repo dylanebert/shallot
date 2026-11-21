@@ -42,7 +42,7 @@ const args=process.argv.slice(2);
 if(path.basename(process.execPath).replace(/\\.exe$/, '')==='flyctl') {
 record({command:'fly '+args.join(' '), pending: JSON.parse(fs.readFileSync(path.join(process.env.FIXTURE_PROJECT,'package.json'))).shallot.publishServer});
 const state=JSON.parse(fs.readFileSync(path.join(root,'answers.json')));
-const inventory=${JSON.stringify(flyInventory)}, deployed=!state.flyFail&&fs.existsSync('fly.toml');
+const inventory=${JSON.stringify(flyInventory).replaceAll("registry.fly.io/example:", "registry.fly.io/fixture-game:").replace('"repository":"example"', '"repository":"fixture-game"')}, deployed=!state.flyFail&&fs.existsSync('fly.toml');
 if(args[0]==='auth'&&args[1]==='whoami'&&state.flyLogin===false)process.exit(1);
 if(args[0]==='apps'&&args[1]==='list')console.log(JSON.stringify(state.flyCollision?[{Name:'fixture-game'}]:[]));
 else if(args[0]==='orgs')console.log('{"personal":"Personal"}');
@@ -58,6 +58,7 @@ const end=Date.now()+10000;
 while(!fs.existsSync(path.join(process.env.FIXTURE_PROJECT,'release-fly'))&&Date.now()<end)Bun.sleepSync(10);
 }
 if(state.flyFail){console.error('recorded Fly deploy failure');process.exit(1);}
+console.error('image: '+inventory.machine.config.image);
 }
 process.exit(0); }
 if(path.basename(process.execPath).replace(/\\.exe$/, '')==='bun') {

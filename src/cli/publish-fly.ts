@@ -102,13 +102,13 @@ export async function ensureFly(
     return path;
 }
 
-export function runFly(
+function runFly(
     cli: string,
     args: string[],
     cwd: string,
     terminal = false,
     timeout?: number,
-): string {
+): { stdout: string; stderr: string } {
     const result = spawnSync(cli, args, {
         cwd,
         timeout,
@@ -121,7 +121,7 @@ export function runFly(
         throw new Error(
             `fly ${args.join(" ")} failed:\n${result.stderr ?? ""}${result.stdout ?? ""}`,
         );
-    return result.stdout?.trim() ?? "";
+    return { stdout: result.stdout?.trim() ?? "", stderr: result.stderr ?? "" };
 }
 
 /** Refuse project-owned configuration before authentication or a remote mutation. */
@@ -151,7 +151,9 @@ interface FlyMachine {
     id: string;
     region?: string;
     state?: string;
+    ["image_ref"]?: unknown;
     config?: {
+        image?: unknown;
         guest?: Record<string, unknown>;
     };
 }
@@ -203,7 +205,7 @@ function readFlyInventory(cli: string, work: string, app: string) {
         const parsed: T[] = [];
         const args = [kind, "list", "--app", app, "--json"];
         try {
-            const rows: unknown = JSON.parse(runFly(cli, args, work, false, timeout));
+            const rows: unknown = JSON.parse(runFly(cli, args, work, false, timeout).stdout);
             if (rows === null) return { rows: parsed, count: 0 };
             if (!Array.isArray(rows))
                 throw new Error(`expected an inventory array from ${args.join(" ")}`);
@@ -268,12 +270,10 @@ function refuseFlyInventory(
 }
 
 const flyAssignedFields = new Set([
-    // Machine identity, network address and deployment artifact.
+    // Machine identity and network address.
     "machine.id",
     "machine.name",
     "machine.private_ip",
-    "machine.image_ref",
-    "machine.config.image",
     // Lifecycle and allocation observations, not Machine configuration.
     "machine.instance_id",
     "machine.version",
@@ -281,7 +281,6 @@ const flyAssignedFields = new Set([
     "machine.updated_at",
     "machine.events",
     "machine.state",
-    "machine.cordoned",
     // Fly Launch stamps this metadata; the platform and process group remain checked.
     "machine.config.metadata.fly_builder_id",
     "machine.config.metadata.fly_flyctl_version",
@@ -387,16 +386,51 @@ function canonicalFlyVolume(machine: FlyMachine | undefined) {
     };
 }
 
+function deployedFlyTag(stderr: string, app: string): string {
+    // Pinned flyctl's deploy build summary prints the same img.Tag passed to Machine deployment.
+    const prefix = `image: registry.fly.io/${app}:`;
+    const tags = stderr.split(/\r?\n/).filter((line) => line.startsWith(prefix));
+    const tag = tags.length === 1 ? tags[0]?.slice(prefix.length) : undefined;
+    if (!tag || !/^deployment-[0-9A-HJKMNP-TV-Z]{26}$/.test(tag))
+        throw new Error(`Fly deploy did not report one release image for "${app}".`);
+    return tag;
+}
+
+function compareFlyImage(
+    app: string,
+    tag: string,
+    machine: FlyMachine,
+    report: (difference: string) => void,
+): void {
+    const registry = "registry.fly.io";
+    const image = `${registry}/${app}:${tag}`;
+    compareFlyFields(image, machine.config?.image, "machine.config.image", report);
+    const ref = machine.image_ref;
+    const expected = { registry, repository: app, tag };
+    compareFlyFields(
+        expected,
+        record(ref) ? { registry: ref.registry, repository: ref.repository, tag: ref.tag } : ref,
+        "machine.image_ref",
+        report,
+    );
+    if (
+        record(ref) &&
+        (typeof ref.digest !== "string" || !/^sha256:[a-f0-9]{64}$/.test(ref.digest))
+    )
+        report(
+            `machine.image_ref.digest: expected a resolved SHA-256 digest, got ${JSON.stringify(ref.digest) ?? "absent"}`,
+        );
+}
+
 function verifyFlyEnvelope(
     cli: string,
     work: string,
     app: string,
-    phase: "before deploy" | "after deploy",
-    pending = false,
+    gate: { phase: "before deploy"; pending?: boolean } | { phase: "after deploy"; tag?: string },
 ): boolean {
     const inventory = readFlyInventory(cli, work, app);
     const { machines, volumes } = inventory;
-    const initializing = phase === "before deploy" && pending && machines.count === 0;
+    const initializing = gate.phase === "before deploy" && !!gate.pending && machines.count === 0;
     const differences: string[] = [];
     const machine = machines.rows[0];
     const volume = volumes.rows[0];
@@ -406,13 +440,23 @@ function verifyFlyEnvelope(
             report(
                 `machine.state: expected a retained Machine, got ${JSON.stringify(machine.state)}`,
             );
-        if (volumes.count === 1 && volume)
+        if (volumes.count === 1 && volume) {
+            const { image_ref: _ref, config, ...fields } = machine;
+            const { image: _image, ...settings } = config ?? {};
             compareFlyFields(
-                { region: flyRegion, ["host_status"]: "ok", config: canonicalFlyMachine(volume) },
-                machine,
+                {
+                    region: flyRegion,
+                    ["host_status"]: "ok",
+                    cordoned: false,
+                    config: canonicalFlyMachine(volume),
+                },
+                { ...fields, config: config && settings },
                 "machine",
                 report,
             );
+        }
+        if (gate.phase === "after deploy" && gate.tag)
+            compareFlyImage(app, gate.tag, machine, report);
     }
     if (volumes.count === 1 && volume && (initializing || machines.count === 1))
         compareFlyFields(canonicalFlyVolume(machine), volume, "volume", (difference) =>
@@ -424,7 +468,7 @@ function verifyFlyEnvelope(
         (initializing ? volumes.count > 1 : machines.count !== 1 || volumes.count !== 1) ||
         differences.length
     )
-        refuseFlyInventory(cli, app, inventory, phase, differences);
+        refuseFlyInventory(cli, app, inventory, gate.phase, differences);
     return initializing;
 }
 
@@ -451,7 +495,7 @@ export async function deployFlyServer(
         }
     }
     const apps: Record<"Name", string>[] = JSON.parse(
-        runFly(cli, ["apps", "list", "--json"], work),
+        runFly(cli, ["apps", "list", "--json"], work).stdout,
     );
     if (!Array.isArray(apps) || apps.some((row) => typeof row.Name !== "string"))
         throw new Error("Unrecognized fly apps list output");
@@ -468,14 +512,11 @@ export async function deployFlyServer(
                 `Fly app "${link.app}" is outside publish's spend envelope: ${reason}. Inspect with "${cli}" ${args.join(" ")}. Publish did not change the app.`,
             );
         };
-        const initializing = verifyFlyEnvelope(
-            cli,
-            work,
-            link.app,
-            "before deploy",
-            recovery?.pending,
-        );
-        const ips: Record<"Type", string>[] = JSON.parse(runFly(cli, ipArgs, work)) ?? [];
+        const initializing = verifyFlyEnvelope(cli, work, link.app, {
+            phase: "before deploy",
+            pending: recovery?.pending,
+        });
+        const ips: Record<"Type", string>[] = JSON.parse(runFly(cli, ipArgs, work).stdout) ?? [];
         if (!Array.isArray(ips)) refuse("unrecognized IP inventory", ipArgs);
         const outside = ips.filter((ip) => ip?.Type !== "shared_v4" && ip?.Type !== "v6");
         if (outside.length)
@@ -490,7 +531,7 @@ export async function deployFlyServer(
     }
     await buildFlyServer(project, work, link.app);
     if (!exists) {
-        const orgs = flyOrganizations(runFly(cli, ["orgs", "list", "--json"], work));
+        const orgs = flyOrganizations(runFly(cli, ["orgs", "list", "--json"], work).stdout);
         if (orgs.length > 1 && !interactive)
             throw new Error(
                 "More than one Fly organization is accessible; publish in a terminal to choose one.",
@@ -503,8 +544,9 @@ export async function deployFlyServer(
     }
     if (needsSharedIP) runFly(cli, ["ips", "allocate-v4", "--shared", "--app", link.app], work);
     let deployFailure: unknown;
+    let tag: string | undefined;
     try {
-        runFly(
+        const { stderr } = runFly(
             cli,
             [
                 "deploy",
@@ -518,11 +560,12 @@ export async function deployFlyServer(
             ],
             work,
         );
+        tag = deployedFlyTag(stderr, link.app);
     } catch (error) {
         deployFailure = error;
     }
     try {
-        verifyFlyEnvelope(cli, work, link.app, "after deploy");
+        verifyFlyEnvelope(cli, work, link.app, { phase: "after deploy", tag });
     } catch (error) {
         if (deployFailure)
             throw new Error(`${String(deployFailure)}\n${String(error)}`, { cause: deployFailure });

@@ -23,15 +23,23 @@ beforeAll(async () => {
         `import {appendFileSync,existsSync,readFileSync} from 'node:fs';
 import {join,dirname} from 'node:path';
 const root=dirname(process.execPath);const args=process.argv.slice(2);
+const app=args[args.indexOf('--app')+1];
+const deployedImage='registry.fly.io/'+app+':'+${JSON.stringify(machine.image_ref.tag)};
 appendFileSync(join(root,'commands.jsonl'),JSON.stringify(args)+'\\n');
 if(args[1]==='list'&&existsSync(join(root,'fail-'+args[0]))){console.error('recorded '+args[0]+' list failure');process.exit(1);}
 if(args[0]==='auth'&&args[1]==='whoami'&&readFileSync(join(root,'login'),'utf8')==='missing')process.exit(1);
 if(args[0]==='apps'&&args[1]==='list')console.log(JSON.stringify([{Name:'occupied'}]));
-else if(args[0]==='machine'&&args[1]==='list')console.log(readFileSync(join(root,'machines.json'),'utf8'));
+else if(args[0]==='machine'&&args[1]==='list'){
+const rows=readFileSync(join(root,'machines.json'),'utf8');
+console.log(existsSync('fly.toml')?rows.replaceAll(${JSON.stringify(machine.config.image)},deployedImage).replaceAll('"repository":"example"','"repository":"'+app+'"'):rows);
+}
 else if(args[0]==='ips'&&args[1]==='list')console.log(readFileSync(join(root,'ips.json'),'utf8'));
 else if(args[0]==='volumes'&&args[1]==='list')console.log(readFileSync(join(root,'volumes.json'),'utf8'));
 else if(args[0]==='orgs')console.log('{"personal":"Personal"}');
-else if(args[0]==='deploy'&&existsSync(join(root,'fail-deploy'))){console.error('recorded deployment failed');process.exit(1);}`,
+else if(args[0]==='deploy'){
+if(existsSync(join(root,'fail-deploy'))){console.error('recorded deployment failed');process.exit(1);}
+if(!existsSync(join(root,'omit-image')))console.error('image: '+deployedImage);
+}`,
     );
     writeFileSync(join(root, "server.ts"), "export const state = 1;");
     writeFileSync(join(root, "login"), "present");
@@ -468,6 +476,84 @@ test.each([
         }
     } finally {
         writeFileSync(join(root, "machines.json"), JSON.stringify(machines));
+        await removeTestDirectory(work);
+    }
+});
+
+test.each(["occupied", "scratch-app"])(
+    "publish refuses a stopped cordoned Machine on %s",
+    async (app) => {
+        const work = mkdtempSync(join(tmpdir(), "shallot-fly-cordoned-"));
+        const existing = app === "occupied";
+        writeFileSync(commands, "");
+        writeFileSync(
+            join(root, "machines.json"),
+            JSON.stringify([{ ...machine, state: "stopped", cordoned: true }]),
+        );
+        try {
+            await expect(
+                deployFlyServer(root, work, { target: "fly", app }, false, existing, ask, cli),
+            ).rejects.toThrow(`${machine.id}: machine.cordoned: expected false, got true`);
+            expect(readFileSync(commands, "utf8").includes('"deploy"')).toBe(!existing);
+        } finally {
+            writeFileSync(join(root, "machines.json"), JSON.stringify(machines));
+            await removeTestDirectory(work);
+        }
+    },
+);
+
+test.each([
+    [
+        "config.image",
+        {
+            ...machine,
+            config: { ...machine.config, image: "registry.fly.io/other-app:other-server" },
+        },
+    ],
+    ["image_ref", { ...machine, ["image_ref"]: null }],
+    [
+        "image_ref.tag",
+        { ...machine, ["image_ref"]: { ...machine.image_ref, tag: "unrelated-release" } },
+    ],
+] as const)("post-deploy refuses a Machine with mismatched %s", async (field, row) => {
+    const work = mkdtempSync(join(tmpdir(), "shallot-fly-release-image-"));
+    writeFileSync(join(root, "machines.json"), JSON.stringify([row]));
+    try {
+        await expect(
+            deployFlyServer(
+                root,
+                work,
+                { target: "fly", app: "scratch-app" },
+                false,
+                false,
+                ask,
+                cli,
+            ),
+        ).rejects.toThrow(`${machine.id}: machine.${field}: expected`);
+    } finally {
+        writeFileSync(join(root, "machines.json"), JSON.stringify(machines));
+        await removeTestDirectory(work);
+    }
+});
+
+test("post-deploy refuses missing release image evidence", async () => {
+    const work = mkdtempSync(join(tmpdir(), "shallot-fly-release-image-"));
+    const flag = join(root, "omit-image");
+    writeFileSync(flag, "");
+    try {
+        await expect(
+            deployFlyServer(
+                root,
+                work,
+                { target: "fly", app: "scratch-app" },
+                false,
+                false,
+                ask,
+                cli,
+            ),
+        ).rejects.toThrow('Fly deploy did not report one release image for "scratch-app"');
+    } finally {
+        rmSync(flag, { force: true });
         await removeTestDirectory(work);
     }
 });

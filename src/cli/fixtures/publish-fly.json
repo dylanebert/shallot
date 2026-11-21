@@ -4,6 +4,13 @@
         "state": "started",
         "region": "iad",
         "host_status": "ok",
+        "cordoned": false,
+        "image_ref": {
+            "registry": "registry.fly.io",
+            "repository": "example",
+            "tag": "deployment-01M00000000000000000000000",
+            "digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        },
         "config": {
             "env": { "FLY_PROCESS_GROUP": "app", "PORT": "8080", "PRIMARY_REGION": "iad", "SHALLOT_DATA_DIR": "/data" },
             "init": {},
@@ -27,7 +34,7 @@
                 "concurrency": { "type": "connections", "soft_limit": 20 },
                 "force_instance_key": null
             }],
-            "image": "registry.fly.io/example:deployment-test",
+            "image": "registry.fly.io/example:deployment-01M00000000000000000000000",
             "restart": { "policy": "no" },
             "stop_config": { "signal": "SIGTERM" }
         }
