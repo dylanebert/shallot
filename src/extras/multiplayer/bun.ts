@@ -147,7 +147,8 @@ export async function serveGame(
  * or invalid intent, and 1011 means server initialization failed.
  * With `game.reconnectMs`, admission sends a WebSocket text control message
  * `resume:<seat>:<token>` beside the binary stream. Resume with `?seat=…&resume=…`;
- * a successful resume replaces the token. Invalid, expired, spent, or wrong-room
+ * a successful resume replaces the token, and resuming a seat whose socket is still open
+ * closes that socket with 1008. Invalid, expired, spent, or wrong-room
  * credentials close with 1008. Use WSS and omit creator and resume query
  * credentials from access logs. The first seat starts the World. Pending seats count toward maxClients but
  * are not admitted before startup succeeds. The room and its bots retire on stop or

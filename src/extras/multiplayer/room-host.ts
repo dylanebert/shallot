@@ -357,6 +357,27 @@ export function roomHost<
         dispose();
     }
 
+    /** A live seat's own credential means its client saw a drop its server has not, as after a
+     * route change; hold the seat so the resume proceeds, after Colyseus's
+     * checkReconnectionToken. The stale socket's later close finds no membership. */
+    function replaceStaleSeat(
+        token: string,
+        id: string | null,
+        intent: string | null,
+        code: string | null,
+    ) {
+        for (const room of rooms.values()) {
+            if (intent === "join" && code?.toUpperCase() !== room.code) continue;
+            for (const connection of room.seats.keys()) {
+                const seat = seats.get(connection);
+                if (seat?.token !== token || seat.id !== id) continue;
+                connection.close(1008, "Seat resumed by another connection");
+                leave(connection);
+                return;
+            }
+        }
+    }
+
     function sendToken(connection: C, seat: Seat<C>) {
         options.sendToken(connection, seat.id, seat.token);
     }
@@ -468,6 +489,7 @@ export function roomHost<
         }
         expireSeats();
         if (token !== null || id !== null) {
+            if (token !== null && !held.has(token)) replaceStaleSeat(token, id, intent, code);
             const seat = token === null ? undefined : held.get(token);
             const authority = seat?.room.app?.world.resource(ServerSession).server;
             if (

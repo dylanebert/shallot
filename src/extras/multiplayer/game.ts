@@ -338,6 +338,12 @@ export function client(
             let failed = false;
             const failure = () =>
                 new Error(`No server answered at ${options.url}. The connection failed or closed.`);
+            const refusal = (code: number, reason: string) =>
+                code === 1006
+                    ? failure()
+                    : new Error(
+                          `${options.url} closed the connection (${code}${reason ? `: ${reason}` : ""}).`,
+                      );
             const schedule =
                 options.retryAfter ??
                 ((ms: number, retry: () => void) => {
@@ -345,11 +351,11 @@ export function client(
                     return () => clearTimeout(timer);
                 });
             function attach(socket: WebSocket) {
-                socket.addEventListener("close", ({ code }) => {
+                socket.addEventListener("close", ({ code, reason }) => {
                     if (disposed || world.signal.aborted) return;
                     if (!token || code === 1008) {
                         failed = true;
-                        options.onError?.(failure());
+                        options.onError?.(refusal(code, reason));
                         return;
                     }
                     cancel = schedule(delay, () => {
