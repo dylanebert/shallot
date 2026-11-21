@@ -422,6 +422,9 @@ function compareFlyImage(
         );
 }
 
+// flyctl 0.5.12 uses fly-go 0.12.1's Machine states. Proxy autostart wakes stopped or suspended Machines.
+const routableMachineStates = ["started", "stopped", "suspended"];
+
 function verifyFlyEnvelope(
     cli: string,
     work: string,
@@ -436,9 +439,9 @@ function verifyFlyEnvelope(
     const volume = volumes.rows[0];
     if (machines.count === 1 && machine) {
         const report = (difference: string) => differences.push(`${machine.id}: ${difference}`);
-        if (machine.state === "destroying" || machine.state === "destroyed")
+        if (!routableMachineStates.includes(machine.state ?? ""))
             report(
-                `machine.state: expected a retained Machine, got ${JSON.stringify(machine.state)}`,
+                `machine.state: expected one of ${routableMachineStates.join(", ")}, got ${JSON.stringify(machine.state) ?? "absent"}`,
             );
         if (volumes.count === 1 && volume) {
             const { image_ref: _ref, config, ...fields } = machine;

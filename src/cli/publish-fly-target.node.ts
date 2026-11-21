@@ -503,6 +503,59 @@ test.each(["occupied", "scratch-app"])(
 );
 
 test.each([
+    ["occupied", "failed"],
+    ["scratch-app", "failed"],
+    ["occupied", "future-state"],
+    ["scratch-app", "future-state"],
+] as const)("publish refuses non-routable lifecycle state on %s: %s", async (app, state) => {
+    const work = mkdtempSync(join(tmpdir(), "shallot-fly-machine-state-"));
+    const existing = app === "occupied";
+    writeFileSync(commands, "");
+    writeFileSync(join(root, "machines.json"), JSON.stringify([{ ...machine, state }]));
+    try {
+        const deployed = deployFlyServer(
+            root,
+            work,
+            { target: "fly", app },
+            false,
+            existing,
+            ask,
+            cli,
+        );
+        await expect(deployed).rejects.toThrow(
+            `${machine.id}: machine.state: expected one of started, stopped, suspended, got "${state}"`,
+        );
+        await expect(deployed).rejects.toThrow(`machine destroy ${machine.id} --app ${app}`);
+        expect(readFileSync(commands, "utf8").includes('"deploy"')).toBe(!existing);
+    } finally {
+        writeFileSync(join(root, "machines.json"), JSON.stringify(machines));
+        await removeTestDirectory(work);
+    }
+});
+
+test.each(["stopped", "suspended"])(
+    "publish accepts proxy-wakeable Machine state: %s",
+    async (state) => {
+        const work = mkdtempSync(join(tmpdir(), "shallot-fly-machine-state-"));
+        writeFileSync(join(root, "machines.json"), JSON.stringify([{ ...machine, state }]));
+        try {
+            await deployFlyServer(
+                root,
+                work,
+                { target: "fly", app: "occupied" },
+                false,
+                true,
+                ask,
+                cli,
+            );
+        } finally {
+            writeFileSync(join(root, "machines.json"), JSON.stringify(machines));
+            await removeTestDirectory(work);
+        }
+    },
+);
+
+test.each([
     [
         "config.image",
         {
