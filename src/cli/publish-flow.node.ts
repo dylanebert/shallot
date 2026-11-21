@@ -44,7 +44,7 @@ const state=JSON.parse(fs.readFileSync(path.join(root,'answers.json')));
 if(args[0]==='auth'&&args[1]==='whoami'&&state.flyLogin===false)process.exit(1);
 if(args[0]==='apps'&&args[1]==='list')console.log(JSON.stringify(state.flyCollision?[{Name:'fixture-game'}]:[]));
 else if(args[0]==='orgs')console.log('{"personal":"Personal"}');
-else if(args[0]==='machine'&&args[1]==='list')console.log('[]');
+else if(args[0]==='machine'&&args[1]==='list'){if(state.hangMachineList)Bun.sleepSync(22000);console.log('[]');}
 else if(args[0]==='ips'&&args[1]==='list')console.log('[{"Type":"shared_v4"}]');
 else if(args[0]==='volumes'&&args[1]==='list')console.log(JSON.stringify([{id:'vol_fixture',name:'shallot_data',size_gb:1,region:'iad',host_status:state.flyHostStatus,auto_backup_enabled:false,attached_machine_id:null,attached_alloc_id:null}]));
 else if(args[0]==='deploy'){
@@ -110,6 +110,7 @@ async function fixture() {
         flyFail: false,
         flyHostStatus: "ok",
         holdFly: false,
+        hangMachineList: false,
     };
     const save = () => writeFileSync(statePath, JSON.stringify(state));
     save();
@@ -405,6 +406,22 @@ test("failed Fly deploy leaves a retryable server link, cost and confirmed delet
         expect(unsafe.code).toBe(1);
         expect(unsafe.stderr).toContain("unattached on a healthy host");
         expect(f.commands().filter((row) => row.command.startsWith("fly deploy"))).toHaveLength(2);
+    } finally {
+        await f.close();
+    }
+});
+
+test("a timed-out post-deploy list reports known storage and releases the publish lock", async () => {
+    const f = await fixture();
+    try {
+        writeFileSync(join(f.project, "server.ts"), "");
+        f.state.hangMachineList = true;
+        f.save();
+        const failed = await f.run(undefined, true);
+        expect(failed.code).toBe(1);
+        expect(failed.stderr).toContain("machine list: timed out after 15 seconds");
+        expect(failed.stderr).toContain("vol_fixture: $0.15/month");
+        expect(readdirSync(f.project)).not.toContain(".shallot-fly-publish.lock");
     } finally {
         await f.close();
     }

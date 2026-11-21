@@ -40,6 +40,7 @@ beforeAll(async () => {
 import {join,dirname} from 'node:path';
 const root=dirname(process.execPath);const args=process.argv.slice(2);
 appendFileSync(join(root,'commands.jsonl'),JSON.stringify(args)+'\\n');
+if(args[1]==='list'&&existsSync(join(root,'fail-'+args[0]))){console.error('recorded '+args[0]+' list failure');process.exit(1);}
 if(args[0]==='auth'&&args[1]==='whoami'&&readFileSync(join(root,'login'),'utf8')==='missing')process.exit(1);
 if(args[0]==='apps'&&args[1]==='list')console.log(JSON.stringify([{Name:'occupied'}]));
 else if(args[0]==='machine'&&args[1]==='list')console.log(readFileSync(join(root,'machines.json'),'utf8'));
@@ -356,6 +357,45 @@ test.each([false, true])(
         } finally {
             rmSync(failFlag, { force: true });
             writeFileSync(join(root, "volumes.json"), JSON.stringify([volume]));
+            await removeTestDirectory(work);
+        }
+    },
+);
+
+test.each([
+    ["machine", "vol_fixture", "vol_extra"],
+    ["volumes", "machine-fixture", "machine-extra"],
+])(
+    "a failed %s list still reports both resources from the other list",
+    async (failed, first, second) => {
+        const work = mkdtempSync(join(tmpdir(), "shallot-fly-post-deploy-"));
+        const failFlag = join(root, `fail-${failed}`);
+        writeFileSync(failFlag, "");
+        writeFileSync(
+            join(root, "volumes.json"),
+            JSON.stringify([volume, { ...volume, id: "vol_extra" }]),
+        );
+        writeFileSync(
+            join(root, "machines.json"),
+            JSON.stringify([...machines, { ...machines[0], id: "machine-extra" }]),
+        );
+        try {
+            const deployed = deployFlyServer(
+                root,
+                work,
+                { target: "fly", app: "scratch-app" },
+                false,
+                false,
+                ask,
+                cli,
+            );
+            await expect(deployed).rejects.toThrow(`recorded ${failed} list failure`);
+            await expect(deployed).rejects.toThrow(`${first}:`);
+            await expect(deployed).rejects.toThrow(`${second}:`);
+        } finally {
+            rmSync(failFlag, { force: true });
+            writeFileSync(join(root, "volumes.json"), JSON.stringify([volume]));
+            writeFileSync(join(root, "machines.json"), JSON.stringify(machines));
             await removeTestDirectory(work);
         }
     },

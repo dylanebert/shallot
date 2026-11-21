@@ -98,9 +98,17 @@ export async function ensureFly(
     return path;
 }
 
-export function runFly(cli: string, args: string[], cwd: string, terminal = false): string {
+export function runFly(
+    cli: string,
+    args: string[],
+    cwd: string,
+    terminal = false,
+    timeout?: number,
+): string {
     const result = spawnSync(cli, args, {
         cwd,
+        timeout,
+        killSignal: "SIGKILL",
         encoding: "utf8",
         stdio: terminal ? ["inherit", 2, 2] : ["ignore", "pipe", "pipe"],
     });
@@ -147,31 +155,46 @@ interface FlyMachine {
 }
 
 function verifyFlyInventory(cli: string, work: string, app: string): void {
-    const args = ["list", "--app", app, "--json"];
-    const volumes: ({ id: string } & Record<"size_gb", number>)[] =
-        JSON.parse(runFly(cli, ["volumes", ...args], work)) ?? [];
-    const machines: FlyMachine[] = JSON.parse(runFly(cli, ["machine", ...args], work)) ?? [];
-    if (!Array.isArray(volumes) || !Array.isArray(machines))
-        throw new Error(`Unrecognized post-deploy inventory for Fly app "${app}".`);
-    if (volumes.length <= 1 && machines.length <= 1) return;
+    const errors: string[] = [];
+    const timeout = 15_000;
+    function list<T>(kind: string): T[] | undefined {
+        try {
+            const rows: unknown = JSON.parse(
+                runFly(cli, [kind, "list", "--app", app, "--json"], work, false, timeout),
+            );
+            if (rows === null) return [];
+            if (!Array.isArray(rows)) throw new Error("expected an inventory array");
+            return rows;
+        } catch (error) {
+            errors.push(
+                `${kind} list: ${error instanceof Error && "code" in error && error.code === "ETIMEDOUT" ? `timed out after ${timeout / 1000} seconds` : String(error)}`,
+            );
+        }
+    }
+    const volumes = list<{ id: string; ["size_gb"]: number }>("volumes");
+    const machines = list<FlyMachine>("machine");
+    if (volumes && machines && volumes.length <= 1 && machines.length <= 1) return;
 
     const resource = (id: string | undefined, kind: string, cost: string) =>
         id && /^[a-z0-9_-]+$/.test(id)
             ? `  ${id}: ${cost}. Delete with "${cli}" ${kind} destroy ${id} --app ${app}`
             : `  Unrecognized ${kind} ID; inspect the app in Fly before deleting anything.`;
-    const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
+    const count = (n: number | undefined, noun: string) =>
+        n === undefined ? `${noun} count unknown` : `${n} ${noun}${n === 1 ? "" : "s"}`;
+    const finding = errors.length ? "has incomplete inventory" : "is over its limit";
     const report = [
-        `Fly app "${app}" is over its limit after deploy: ${count(volumes.length, "volume")}, ${count(machines.length, "Machine")}. Publish allows one of each.`,
+        `Fly app "${app}" ${finding} after deploy: ${count(volumes?.length, "volume")}, ${count(machines?.length, "Machine")}. Publish allows one of each.`,
+        ...errors,
         "Confirm with the person which resources to keep before deleting any. Publish did not delete anything.",
     ];
-    for (const volume of volumes) {
+    for (const volume of volumes ?? []) {
         const size = volume?.size_gb;
         const cost = Number.isFinite(size)
             ? `${volumeMonthlyCost(size)} for provisioned storage`
             : `$${volumeUSDPerGBMonth}/GB per month of provisioned storage`;
         report.push(resource(volume?.id, "volumes", cost));
     }
-    for (const machine of machines) {
+    for (const machine of machines ?? []) {
         const guest = machine?.config?.guest;
         const cost =
             machine?.region === flyRegion &&
