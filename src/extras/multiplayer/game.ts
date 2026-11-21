@@ -14,10 +14,13 @@ import {
     type ReplicationSchema,
     ReplicationSender,
 } from ".";
+import { requireCanonical } from "./canonical";
 import { diagnosticKind, observeNetwork, transportClock } from "./diagnostics";
 import {
     decodeInputs,
     decodeIntent,
+    encodeInputs,
+    encodeIntent,
     type InputRecord,
     IntentMessageKind,
     IntentReceiver,
@@ -25,7 +28,7 @@ import {
     type IntentSender,
     type OperationRecord,
 } from "./intent";
-import { type Connection, type LinkFaults, seededLink } from "./link";
+import { type Connection, type LinkFaults, MAX_MESSAGE_BYTES, seededLink } from "./link";
 import { type RecordingOptions, SessionRecorder, type SessionRecording } from "./recording";
 import { createServerApp, roomHost } from "./room-host";
 import { LEAVE_CLOSE_CODE, WebSocketConnection } from "./websocket";
@@ -256,13 +259,16 @@ class GameServer {
 /** @internal Whether GameServer.receive consumes these client bytes without throwing: a ping or
  * pong, an acknowledgement, operation records or tick inputs. */
 export function isClientMessage(bytes: Uint8Array): boolean {
+    if (bytes.length < 4 || bytes.length > MAX_MESSAGE_BYTES) return false;
     if (diagnosticKind(bytes)) return true;
-    if (bytes.length < 4) return false;
     const kind = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0, true);
     try {
+        // Every bit in the two fixed-width u32 payload words survives re-encoding.
         if (kind === ReplicationMessageKind.Acknowledgement) return bytes.length === 12;
-        if (kind === IntentMessageKind.Inputs) decodeInputs(bytes);
-        else if (kind === IntentMessageKind.Records) decodeIntent(bytes);
+        if (kind === IntentMessageKind.Inputs)
+            requireCanonical(bytes, encodeInputs(decodeInputs(bytes)));
+        else if (kind === IntentMessageKind.Records)
+            requireCanonical(bytes, encodeIntent(kind, decodeIntent(bytes)));
         else return false;
         return true;
     } catch {

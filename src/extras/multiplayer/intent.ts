@@ -1,5 +1,6 @@
 import { Time } from "../../engine";
 import { encodeText, readText, writeText } from "../../engine/ecs/utf8";
+import { requireCanonical, writeFloat64 } from "./canonical";
 import { transportClock } from "./diagnostics";
 import {
     type Connection,
@@ -37,7 +38,7 @@ export function encodeInputs(inputs: readonly TickInput[]): Uint8Array {
         view.setUint32(offset + 4, input.values.length, true);
         offset += 8;
         for (const value of input.values) {
-            view.setFloat64(offset, value, true);
+            writeFloat64(view, offset, value);
             offset += 8;
         }
     }
@@ -104,7 +105,7 @@ export function encodeIntent(
     const view = new DataView(bytes.buffer);
     view.setUint32(0, kind, true);
     view.setUint32(4, records.length, true);
-    view.setUint32(8, watermark, true);
+    view.setUint32(8, kind === IntentMessageKind.Records ? 0 : watermark, true);
     let offset = 12;
     for (const [i, r] of records.entries()) {
         const text = texts[i];
@@ -121,7 +122,7 @@ export function encodeIntent(
             offset += 4;
         }
         for (const value of r.values) {
-            view.setFloat64(offset, value, true);
+            writeFloat64(view, offset, value);
             offset += 8;
         }
         if (text !== undefined) {
@@ -157,6 +158,16 @@ export function decodeAccepted(bytes: Uint8Array): {
         true,
     );
     return { records, watermark };
+}
+
+/** @internal Validate standalone server operations with their producing encoder. */
+export function validateAccepted(bytes: Uint8Array): ReturnType<typeof decodeAccepted> {
+    const accepted = decodeAccepted(bytes);
+    requireCanonical(
+        bytes,
+        encodeIntent(IntentMessageKind.Accepted, accepted.records, accepted.watermark),
+    );
+    return accepted;
 }
 
 export function decodeIntent(bytes: Uint8Array): AcceptedIntent[] {
@@ -417,7 +428,7 @@ export class IntentSender {
             }
             let accepted: ReturnType<typeof decodeAccepted>;
             try {
-                accepted = decodeAccepted(bytes);
+                accepted = validateAccepted(bytes);
             } catch (error) {
                 failServerConnection(
                     this.connection,

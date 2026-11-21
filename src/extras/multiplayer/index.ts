@@ -43,8 +43,15 @@ export {
 export { RoomBots } from "./room-host";
 export { WebSocketConnection } from "./websocket";
 
+import { requireCanonical, writeFloat64 } from "./canonical";
 import { diagnosticKind, networkDiagnostics } from "./diagnostics";
-import { type AcceptedIntent, decodeAccepted, encodeIntent, IntentMessageKind } from "./intent";
+import {
+    type AcceptedIntent,
+    decodeAccepted,
+    encodeIntent,
+    IntentMessageKind,
+    validateAccepted,
+} from "./intent";
 import type { Connection } from "./link";
 import { failServerConnection, serverConnectionFailed } from "./link";
 import { PredictionRecording } from "./recording-hooks";
@@ -104,6 +111,16 @@ interface Packet extends Version {
  * receiver holds tick confirmed + 1 + i. */
 export const ReplicationMessageKind = { Image: 1, Frame: 2, Acknowledgement: 3 } as const;
 
+/** @internal The two u32 payload words have no alternate encoding. */
+export function encodeAcknowledgement(tick: number, held: number): Uint8Array {
+    const bytes = new Uint8Array(12);
+    const view = new DataView(bytes.buffer);
+    view.setUint32(0, ReplicationMessageKind.Acknowledgement, true);
+    view.setUint32(4, tick, true);
+    view.setUint32(8, held, true);
+    return bytes;
+}
+
 function wireLanes(field: FieldType): number {
     return field.byteCapacity === undefined ? (field.components ?? field.lanes) : 1;
 }
@@ -120,10 +137,11 @@ function writeField(view: DataView, offset: number, field: FieldType, value: num
     const raw = field.encode ? field.encode(value) : value;
     switch (field.ctor) {
         case Float32Array:
-            view.setFloat32(offset, raw, true);
+            if (Number.isNaN(raw)) view.setUint32(offset, 0x7fc00000, true);
+            else view.setFloat32(offset, raw, true);
             break;
         case Float64Array:
-            view.setFloat64(offset, raw, true);
+            writeFloat64(view, offset, raw);
             break;
         case Int32Array:
             view.setInt32(offset, raw, true);
@@ -216,56 +234,77 @@ function capture(
 // A membership record with this count removes its entity or component from the baseline.
 const Removed = 0xffffffff;
 
-function encode(packet: Packet, base: ReplicatedRows, types: FieldType[][]): Uint8Array {
+type Changes = Map<number, Map<number, ReplicatedValue[] | null> | null>;
+type DecodedFrame = Omit<Packet, "rows"> & { changes: Changes };
+
+function diff(rows: ReplicatedRows, base: ReplicatedRows): Changes {
+    const changes: Changes = new Map();
+    for (const [id, row] of rows) {
+        const before = base.get(id);
+        const updates = new Map<number, ReplicatedValue[] | null>();
+        for (const [index, values] of row) {
+            const previous = before?.get(index);
+            if (!previous) {
+                updates.set(index, values);
+                continue;
+            }
+            const lanes: ReplicatedValue[] = [];
+            for (let i = 0; i < values.length; i++)
+                if (!Object.is(values[i], previous[i])) lanes[i] = values[i]!;
+            if (lanes.length) updates.set(index, lanes);
+        }
+        for (const index of before?.keys() ?? []) if (!row.has(index)) updates.set(index, null);
+        if (!before || updates.size) changes.set(id, updates);
+    }
+    for (const id of base.keys()) if (!rows.has(id)) changes.set(id, null);
+    return changes;
+}
+
+/** @internal Encode the sender's sparse delta in schema-lane order. */
+export function encodeFrame(packet: DecodedFrame, types: FieldType[][]): Uint8Array {
     const words: number[] = [
         packet.image ? ReplicationMessageKind.Image : ReplicationMessageKind.Frame,
         packet.tick,
-        packet.base,
-        0,
+        packet.image ? packet.tick : packet.base,
+        packet.changes.size,
         packet.commandAge === undefined ? 0x80000000 : Math.round(packet.commandAge * 256),
     ];
     const values: { value: number | Uint8Array; field: FieldType }[] = [];
     let valueBytes = 0;
-    let entities = 0;
-    for (const [id, row] of packet.rows) {
-        const previousRow = base.get(id);
-        const components: number[] = [];
-        let changes = 0;
-        for (const [c, fields] of row) {
-            const previous = previousRow?.get(c);
-            const changed = fields.flatMap((v, i) =>
-                !previous || !Object.is(v, previous[i]) ? [i] : [],
-            );
-            if (previous && changed.length === 0) continue;
-            components.push(c, changed.length);
-            changes++;
-            for (const i of changed) {
-                components.push(i);
-                const field = types[c]![i]!;
+    for (const [id, row] of packet.changes) {
+        if (!row && packet.image) throw new Error("An image cannot remove an entity");
+        words.push(id, row?.size ?? Removed);
+        if (!row) continue;
+        for (const [c, lanes] of row) {
+            const fields = types[c]!;
+            words.push(c);
+            if (lanes === null) {
+                if (packet.image) throw new Error("An image cannot remove a component");
+                words.push(Removed);
+                continue;
+            }
+            const countOffset = words.length;
+            words.push(0);
+            let count = 0;
+            for (let i = 0; i < lanes.length; i++) {
+                const lane = lanes[i];
+                if (lane === undefined) continue;
+                count++;
+                words.push(i);
+                const field = fields[i]!;
                 const value =
                     field.byteCapacity === undefined
-                        ? (fields[i] as number)
-                        : encodeText(fields[i] as string, field.byteCapacity);
+                        ? (lane as number)
+                        : encodeText(lane as string, field.byteCapacity);
                 values.push({ value, field });
                 valueBytes +=
                     typeof value === "number" ? field.ctor.BYTES_PER_ELEMENT : 2 + value.length;
             }
+            if (packet.image ? count !== fields.length : !count && fields.length)
+                throw new Error("Incomplete replication fields");
+            words[countOffset] = count;
         }
-        for (const c of previousRow?.keys() ?? []) {
-            if (row.has(c)) continue;
-            components.push(c, Removed);
-            changes++;
-        }
-        if (previousRow && changes === 0) continue;
-        words.push(id, changes, ...components);
-        entities++;
     }
-    for (const id of base.keys()) {
-        if (packet.rows.has(id)) continue;
-        words.push(id, Removed);
-        entities++;
-    }
-    words[3] = entities;
     const intents = packet.intents.length
         ? encodeIntent(IntentMessageKind.Accepted, packet.intents)
         : new Uint8Array();
@@ -288,9 +327,6 @@ function encode(packet: Packet, base: ReplicatedRows, types: FieldType[][]): Uin
     return bytes;
 }
 
-type Changes = Map<number, Map<number, ReplicatedValue[] | null> | null>;
-type DecodedFrame = Omit<Packet, "rows"> & { changes: Changes };
-
 /** Decode independently of the baseline: an early or out-of-order frame must already be valid. */
 function decodeFrame(bytes: Uint8Array, types: FieldType[][]): DecodedFrame {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -310,6 +346,8 @@ function decodeFrame(bytes: Uint8Array, types: FieldType[][]): DecodedFrame {
     const commandAge = age === 0x80000000 ? undefined : (age | 0) / 256;
     if (kind !== ReplicationMessageKind.Image && kind !== ReplicationMessageKind.Frame)
         throw new Error("Invalid replication packet");
+    if (kind === ReplicationMessageKind.Frame && base >= tick)
+        throw new Error("Replication baseline must precede its frame");
     const updates: Changes = new Map();
     for (let e = 0; e < entities; e++) {
         const id = word(),
@@ -394,12 +432,19 @@ function applyFrame(
     return rows;
 }
 
-function decodeServerMessage(bytes: Uint8Array, types: FieldType[][]): DecodedFrame | undefined {
+/** @internal Fully validate a server message before queueing or routing it. */
+export function decodeServerMessage(
+    bytes: Uint8Array,
+    types: FieldType[][],
+): DecodedFrame | undefined {
     if (diagnosticKind(bytes)) return;
     const kind = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0, true);
-    if (kind === ReplicationMessageKind.Image || kind === ReplicationMessageKind.Frame)
-        return decodeFrame(bytes, types);
-    decodeAccepted(bytes);
+    if (kind === ReplicationMessageKind.Image || kind === ReplicationMessageKind.Frame) {
+        const frame = decodeFrame(bytes, types);
+        requireCanonical(bytes, encodeFrame(frame, types));
+        return frame;
+    }
+    validateAccepted(bytes);
 }
 
 /** Retransmission timeout bounds in ticks of `Time.FIXED_DT` (1/60 s). The initial timeout is
@@ -504,7 +549,8 @@ export class ReplicationSender {
             commandAge,
             base,
         };
-        const bytes = encode(packet, image ? new Map() : this._bases.get(base)!, this._layout);
+        const changes = diff(rows, image ? new Map() : this._bases.get(base)!);
+        const bytes = encodeFrame({ ...packet, changes }, this._layout);
         this._pending.set(tick, {
             base,
             bytes,
@@ -766,12 +812,7 @@ export class ReplicationReceiver {
                 const offset = tick - this.confirmed - 1;
                 if (offset < AckWindow) held |= 1 << offset;
             }
-            const ack = new Uint8Array(12);
-            const view = new DataView(ack.buffer);
-            view.setUint32(0, ReplicationMessageKind.Acknowledgement, true);
-            view.setUint32(4, this.confirmed, true);
-            view.setUint32(8, held >>> 0, true);
-            this.connection.send(ack);
+            this.connection.send(encodeAcknowledgement(this.confirmed, held));
         }
         networkDiagnostics(this.world, this.connection)?.record(
             "confirmed_tick_lag",

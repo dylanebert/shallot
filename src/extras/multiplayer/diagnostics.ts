@@ -31,9 +31,21 @@ const Pong = 7;
 export function diagnosticKind(bytes: Uint8Array): number {
     const kind = bytes.length >= 4 ? word(bytes, 0) : 0;
     if (kind === Ping && bytes.length === 8) return Ping;
-    if (kind === Pong && bytes.length === 16) return Pong;
+    // Every finite f64 bit pattern, like the u32 IDs, writes back unchanged.
+    if (kind === Pong && bytes.length === 16 && (word(bytes, 12) & 0x7ff00000) !== 0x7ff00000)
+        return Pong;
     return 0;
 }
+/** @internal Write a ping, or a pong with its receipt-to-reply duration. */
+export function writeDiagnostic(view: DataView, id: number, held?: number): void {
+    view.setUint32(0, held === undefined ? Ping : Pong, true);
+    view.setUint32(4, id, true);
+    if (held !== undefined) {
+        if (!Number.isFinite(held)) throw new Error("Invalid pong duration");
+        view.setFloat64(8, held, true);
+    }
+}
+
 const Interval = 100;
 const Capacity = 1024;
 const Observers = {
@@ -116,8 +128,6 @@ class NetworkDiagnostics {
         this._send = connection.send.bind(connection);
         this._receive = connection.receive.bind(connection);
         this._close = connection.close.bind(connection);
-        this._pingView.setUint32(0, Ping, true);
-        this._pongView.setUint32(0, Pong, true);
         for (const [name, suffix] of [
             ["round_trip", "ms"],
             ["bytes_sent", "B"],
@@ -176,8 +186,11 @@ class NetworkDiagnostics {
             this._messagesReceived++;
             const kind = diagnosticKind(bytes);
             if (kind === Ping) {
-                this._pongView.setUint32(4, word(bytes, 4), true);
-                this._pongView.setFloat64(8, Math.max(0, this._clock() - arrived), true);
+                writeDiagnostic(
+                    this._pongView,
+                    word(bytes, 4),
+                    Math.max(0, this._clock() - arrived),
+                );
                 this.connection.send(this._pong);
             } else if (kind === Pong) {
                 const id = word(bytes, 4);
@@ -213,7 +226,7 @@ class NetworkDiagnostics {
             const slot = id % Capacity;
             this._ids[slot] = id;
             this._sent[slot] = this._lastPing = now;
-            this._pingView.setUint32(4, id, true);
+            writeDiagnostic(this._pingView, id);
             this.connection.send(this._ping);
         }
         return count ? messages : this._empty;

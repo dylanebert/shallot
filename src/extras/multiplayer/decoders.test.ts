@@ -1,7 +1,10 @@
 import { expect, test } from "bun:test";
-import { component, createApp, u32, World } from "../../engine";
+import { component, createApp, text, u32, World } from "../../engine";
 import {
     type AcceptedIntent,
+    decodeServerMessage,
+    encodeAcknowledgement,
+    encodeFrame,
     IntentMessageKind,
     Replicate,
     ReplicationMessageKind,
@@ -9,19 +12,22 @@ import {
     ReplicationSender,
     seededLink,
 } from ".";
+import { diagnosticKind, writeDiagnostic } from "./diagnostics";
 import { type Game, isClientMessage, ServerSession, server } from "./game";
-import { decodeInputs, decodeIntent, encodeInputs, encodeIntent } from "./intent";
+import { decodeAccepted, decodeInputs, decodeIntent, encodeInputs, encodeIntent } from "./intent";
 
-const Value = component("DecoderTestValue", { value: u32 });
+const Value = component("DecoderTestValue", { value: u32, label: text(16) });
+const layout = [[u32, Value.label]];
 const schema = [Value];
 const faults = { minDelay: 0, maxDelay: 0, loss: 0, duplication: 0 };
 const operation: AcceptedIntent = {
     id: 1,
     tick: 3,
     kind: "operation",
-    values: [1, -2],
+    values: [1, -2, NaN, -0],
     lateness: 1,
     slack: 0,
+    text: "🐟\0é",
 };
 
 function words(...values: number[]) {
@@ -34,28 +40,33 @@ function words(...values: number[]) {
 function replication() {
     const world = new World();
     const eid = world.create();
-    world.add(eid, Value, { value: 7 });
+    world.add(eid, Value, { value: 7, label: "🐟" });
     world.add(eid, Replicate);
     const link = seededLink(1, faults);
     const sender = new ReplicationSender(world, schema, [new Map([[1, [Value]]])], 1, link.a);
     sender.record(1, [operation]);
     sender.flush();
-    world.get(eid, Value)!.value = 8;
+    world.storage(Value).value.set(eid, 8);
     sender.record(2);
     sender.flush();
-    return link.b.receive();
+    const frames = link.b.receive();
+    world.dispose();
+    return frames;
 }
 
-const pong = new Uint8Array(16);
-new DataView(pong.buffer).setUint32(0, 7, true);
+function diagnostic(id: number, held?: number): Uint8Array {
+    const bytes = new Uint8Array(held === undefined ? 8 : 16);
+    writeDiagnostic(new DataView(bytes.buffer), id, held);
+    return bytes;
+}
 const clientSeeds = [
     encodeInputs([]),
-    encodeInputs([{ tick: 4, values: [] }]),
+    encodeInputs([{ tick: 4, values: [NaN, -0, Infinity] }]),
     encodeInputs([0, 1, 2, 3].map((tick) => ({ tick, values: [tick, 0.5, -1] }))),
     encodeIntent(IntentMessageKind.Records, [operation, { ...operation, id: 2, values: [] }]),
-    words(ReplicationMessageKind.Acknowledgement, 2, 1),
-    words(6, 9),
-    pong,
+    encodeAcknowledgement(2, 1),
+    diagnostic(9),
+    diagnostic(7, 2.25),
 ];
 const seeds = [
     ...clientSeeds,
@@ -110,6 +121,129 @@ function settle<T>(decode: () => T): { value: T } | Error {
         return error;
     }
 }
+
+test("all emitted message kinds and the accepted seeded corpus re-encode byte-exactly", () => {
+    const clientKinds = new Set<number>();
+    const serverKinds = new Set<number>();
+    const serverSeeds = [
+        ...replication(),
+        encodeIntent(IntentMessageKind.Accepted, [operation], 1),
+        diagnostic(2),
+        diagnostic(5, 0.25),
+    ];
+    for (const bytes of clientSeeds) expect(isClientMessage(bytes)).toBe(true);
+    for (const bytes of serverSeeds) expect(() => decodeServerMessage(bytes, layout)).not.toThrow();
+    for (const bytes of [...clientSeeds, ...serverSeeds, ...inputs]) {
+        if (bytes.length < 4) continue;
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        const kind = view.getUint32(0, true);
+        if (isClientMessage(bytes)) {
+            clientKinds.add(kind);
+            if (diagnosticKind(bytes)) {
+                expect(
+                    diagnostic(
+                        view.getUint32(4, true),
+                        kind === 7 ? view.getFloat64(8, true) : undefined,
+                    ),
+                ).toEqual(bytes);
+            } else if (kind === ReplicationMessageKind.Acknowledgement) {
+                expect(
+                    encodeAcknowledgement(view.getUint32(4, true), view.getUint32(8, true)),
+                ).toEqual(bytes);
+            } else if (kind === IntentMessageKind.Inputs) {
+                expect(encodeInputs(decodeInputs(bytes))).toEqual(bytes);
+            } else {
+                expect(encodeIntent(kind, decodeIntent(bytes))).toEqual(bytes);
+            }
+        }
+        const decoded = settle(() => decodeServerMessage(bytes, layout));
+        if (!(decoded instanceof Error)) {
+            serverKinds.add(kind);
+            if (decoded.value) {
+                expect(encodeFrame(decoded.value, layout)).toEqual(bytes);
+            } else if (kind === IntentMessageKind.Accepted) {
+                const { records, watermark } = decodeAccepted(bytes);
+                expect(encodeIntent(kind, records, watermark)).toEqual(bytes);
+            }
+        }
+    }
+    expect([...clientKinds].sort()).toEqual([3, 4, 6, 7]);
+    expect([...serverKinds].sort()).toEqual([1, 2, 5, 6, 7]);
+});
+
+for (const mode of ["all", "latest"] as const) {
+    for (const defect of [
+        "future baseline",
+        "same-tick baseline",
+        "duplicate lanes",
+        "unordered lanes",
+    ] as const) {
+        test(`${mode}: refuses ${defect} before queueing or applying`, () => {
+            const world = new World();
+            const { a, b } = seededLink(1, faults);
+            const errors: Error[] = [];
+            const receiver = new ReplicationReceiver(world, schema, {
+                ...b,
+                onError: (error) => errors.push(error),
+            });
+            if (defect === "future baseline" || defect === "same-tick baseline") {
+                a.send(
+                    words(
+                        ReplicationMessageKind.Frame,
+                        5,
+                        1,
+                        defect === "future baseline" ? 2 : 1,
+                        0,
+                        0x80000000,
+                    ),
+                );
+                receiver.flush(mode);
+                const sender = new ReplicationSender(world, schema, [], 1, a);
+                sender.record(2);
+                sender.flush();
+            } else if (defect === "duplicate lanes") {
+                a.send(
+                    words(
+                        ReplicationMessageKind.Image,
+                        11,
+                        0,
+                        0,
+                        1,
+                        0x80000000,
+                        1,
+                        1,
+                        0,
+                        2,
+                        0,
+                        0,
+                        12,
+                        34,
+                    ),
+                );
+            } else {
+                const bytes = new Uint8Array(54);
+                bytes.set(
+                    words(ReplicationMessageKind.Image, 11, 0, 0, 1, 0x80000000, 1, 1, 0, 2, 1, 0),
+                );
+                new DataView(bytes.buffer).setUint32(50, 34, true);
+                a.send(bytes);
+            }
+            for (let i = 0; i < 2; i++) expect(receiver.flush(mode)).toEqual([]);
+            expect(receiver.confirmed).toBe(-1);
+            expect(receiver.entities.size).toBe(0);
+            expect(b.closed).toBe(true);
+            expect(errors).toHaveLength(1);
+            world.dispose();
+        });
+    }
+}
+
+test("client ingress refuses a nonzero Records watermark before routing", () => {
+    const bytes = encodeIntent(IntentMessageKind.Records, [operation]);
+    new DataView(bytes.buffer).setUint32(8, 1, true);
+    expect(decodeIntent(bytes)).toHaveLength(1);
+    expect(isClientMessage(bytes)).toBe(false);
+});
 
 test("tick input and operation decoders reject invalid bytes or return a result that re-encodes to their length", () => {
     for (const bytes of inputs) {
