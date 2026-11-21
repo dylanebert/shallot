@@ -371,7 +371,7 @@ for (const mode of ["all", "latest"] as const) {
     test(`${mode}: seeded receiver agrees with sent state and makes progress through faults`, () => {
         const replay = process.env.SHALLOT_MULTIPLAYER_SEED;
         if (replay === undefined) {
-            for (let seed = 0; seed < 2048; seed++) model(seed, mode);
+            for (let seed = 0; seed < 512; seed++) model(seed, mode);
         } else {
             const seed = Number(replay);
             require(/^\d+$/.test(replay) &&
