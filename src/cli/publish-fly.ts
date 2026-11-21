@@ -154,16 +154,27 @@ interface FlyMachine {
     };
 }
 
-function verifyFlyInventory(cli: string, work: string, app: string): void {
+interface FlyVolume {
+    id: string;
+    name?: string;
+    ["size_gb"]: number;
+    region?: string;
+    ["auto_backup_enabled"]?: boolean;
+    ["attached_machine_id"]?: string | null;
+    ["attached_alloc_id"]?: string | null;
+    ["host_status"]?: string;
+}
+
+function readFlyInventory(cli: string, work: string, app: string) {
     const errors: string[] = [];
     const timeout = 15_000;
     function list<T>(kind: string): T[] | undefined {
+        const args = [kind, "list", "--app", app, "--json"];
         try {
-            const rows: unknown = JSON.parse(
-                runFly(cli, [kind, "list", "--app", app, "--json"], work, false, timeout),
-            );
+            const rows: unknown = JSON.parse(runFly(cli, args, work, false, timeout));
             if (rows === null) return [];
-            if (!Array.isArray(rows)) throw new Error("expected an inventory array");
+            if (!Array.isArray(rows))
+                throw new Error(`expected an inventory array from ${args.join(" ")}`);
             return rows;
         } catch (error) {
             errors.push(
@@ -171,19 +182,28 @@ function verifyFlyInventory(cli: string, work: string, app: string): void {
             );
         }
     }
-    const volumes = list<{ id: string; ["size_gb"]: number }>("volumes");
+    const volumes = list<FlyVolume>("volumes");
     const machines = list<FlyMachine>("machine");
-    if (volumes && machines && volumes.length <= 1 && machines.length <= 1) return;
+    return { volumes, machines, errors };
+}
 
+function refuseFlyInventory(
+    cli: string,
+    app: string,
+    { volumes, machines, errors }: ReturnType<typeof readFlyInventory>,
+    phase: "before deploy" | "after deploy",
+): never {
     const resource = (id: string | undefined, kind: string, cost: string) =>
         id && /^[a-z0-9_-]+$/.test(id)
             ? `  ${id}: ${cost}. Delete with "${cli}" ${kind} destroy ${id} --app ${app}`
             : `  Unrecognized ${kind} ID; inspect the app in Fly before deleting anything.`;
-    const count = (n: number | undefined, noun: string) =>
-        n === undefined ? `${noun} count unknown` : `${n} ${noun}${n === 1 ? "" : "s"}`;
-    const finding = errors.length ? "has incomplete inventory" : "is over its limit";
+    const count = (n: number | undefined, noun: string) => {
+        if (n === undefined) return `${noun} count unknown`;
+        if (n === 0 && phase === "after deploy") return `missing ${noun}`;
+        return `${n} ${noun}${n === 1 ? "" : "s"}`;
+    };
     const report = [
-        `Fly app "${app}" ${finding} after deploy: ${count(volumes?.length, "volume")}, ${count(machines?.length, "Machine")}. Publish allows one of each.`,
+        `Fly app "${app}" failed its inventory check ${phase}: ${count(volumes?.length, "volume")}, ${count(machines?.length, "Machine")}. Publish requires one of each after deploy.`,
         ...errors,
         "Confirm with the person which resources to keep before deleting any. Publish did not delete anything.",
     ];
@@ -251,8 +271,10 @@ export async function deployFlyServer(
                 `Fly app "${link.app}" is outside publish's spend envelope: ${reason}. Inspect with "${cli}" ${args.join(" ")}. Publish did not change the app.`,
             );
         };
-        const machines: FlyMachine[] = JSON.parse(runFly(cli, machineArgs, work)) ?? [];
-        if (!Array.isArray(machines)) refuse("unrecognized Machine inventory", machineArgs);
+        const inventory = readFlyInventory(cli, work, link.app);
+        const { volumes, machines } = inventory;
+        if (!volumes || !machines || volumes.length > 1 || machines.length > 1)
+            refuseFlyInventory(cli, link.app, inventory, "before deploy");
         const initializing = recovery?.pending && machines.length === 0;
         if (!initializing && machines.length !== 1)
             refuse(`Machine count ${machines.length}; expected one`, machineArgs);
@@ -296,11 +318,10 @@ export async function deployFlyServer(
         if (!needsSharedIP && shared !== 1)
             refuse("IP inventory must contain one shared IPv4", ipArgs);
         const volumeArgs = ["volumes", "list", "--app", link.app, "--json"];
-        const volumes = JSON.parse(runFly(cli, volumeArgs, work)) ?? [];
-        const volume = Array.isArray(volumes) && volumes.length === 1 ? volumes[0] : null;
+        const volume = volumes[0];
         const mounts = machine?.config?.mounts;
         // First deploy counts existing unattached volumes by name and region before provisioning.
-        if (!(initializing && Array.isArray(volumes) && volumes.length === 0)) {
+        if (!(initializing && volumes.length === 0)) {
             if (volume && volume.auto_backup_enabled !== false)
                 refuse("scheduled snapshots must be off", volumeArgs);
             if (
@@ -361,7 +382,9 @@ export async function deployFlyServer(
         deployFailure = error;
     }
     try {
-        verifyFlyInventory(cli, work, link.app);
+        const inventory = readFlyInventory(cli, work, link.app);
+        if (inventory.volumes?.length !== 1 || inventory.machines?.length !== 1)
+            refuseFlyInventory(cli, link.app, inventory, "after deploy");
     } catch (error) {
         if (deployFailure)
             throw new Error(`${String(deployFailure)}\n${String(error)}`, { cause: deployFailure });

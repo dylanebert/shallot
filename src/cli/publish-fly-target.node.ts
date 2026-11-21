@@ -115,9 +115,9 @@ test("an authorized existing app inside the envelope deploys without allocating 
             .map((row) => JSON.parse(row));
         expect(rows.map((row) => row.slice(0, 2).join(" "))).toEqual([
             "apps list",
+            "volumes list",
             "machine list",
             "ips list",
-            "volumes list",
             "deploy --app",
             "volumes list",
             "machine list",
@@ -130,7 +130,6 @@ test("an authorized existing app inside the envelope deploys without allocating 
 });
 
 for (const [label, inventory, addresses, reason, inspect] of [
-    ["two Machines", [...machines, ...machines], ips, "Machine count 2", "machine list"],
     ["zero Machines", [], ips, "Machine count 0", "machine list"],
     [
         "dedicated CPU",
@@ -202,7 +201,7 @@ for (const [label, inventory, addresses, reason, inspect] of [
         "not managed by Fly Launch",
         "machine list",
     ],
-    ["invalid Machine inventory", {}, ips, "unrecognized Machine inventory", "machine list"],
+    ["invalid Machine inventory", {}, ips, "expected an inventory array", "machine list"],
     ["invalid IP inventory", machines, {}, "unrecognized IP inventory", "ips list"],
     ["dedicated IPv4", machines, [...ips, { Type: "v4" }], "IP inventory contains v4", "ips list"],
     [
@@ -252,7 +251,9 @@ for (const [label, inventory, addresses, reason, inspect] of [
                     .split("\n")
                     .map((row) => JSON.parse(row))
                     .every(
-                        (row) => ["apps", "machine", "ips"].includes(row[0]) && row[1] === "list",
+                        (row) =>
+                            ["apps", "machine", "ips", "volumes"].includes(row[0]) &&
+                            row[1] === "list",
                     ),
             ).toBe(true);
             expect(existsSync(join(work, "fly.toml"))).toBe(false);
@@ -271,7 +272,6 @@ test("an existing app with missing, extra, or mismatched storage is not redeploy
     try {
         for (const volumes of [
             [],
-            [volume, volume],
             [{ ...volume, ["size_gb"]: 2 }],
             [{ ...volume, name: "other" }],
             [{ ...volume, region: "ord" }],
@@ -299,6 +299,78 @@ test("an existing app with missing, extra, or mismatched storage is not redeploy
         await removeTestDirectory(work);
     }
 });
+
+test.each([false, true])(
+    "preflight reports excess volumes and any excess Machines (Machines: %s)",
+    async (extraMachine) => {
+        const work = mkdtempSync(join(tmpdir(), "shallot-fly-preflight-"));
+        writeFileSync(commands, "");
+        writeFileSync(
+            join(root, "volumes.json"),
+            JSON.stringify([volume, { ...volume, id: "vol_extra" }]),
+        );
+        if (extraMachine)
+            writeFileSync(
+                join(root, "machines.json"),
+                JSON.stringify([...machines, { ...machines[0], id: "machine-extra" }]),
+            );
+        try {
+            const deployed = deployFlyServer(
+                root,
+                work,
+                { target: "fly", app: "occupied" },
+                false,
+                true,
+                ask,
+                cli,
+            );
+            await expect(deployed).rejects.toThrow("vol_extra: $0.15/month");
+            await expect(deployed).rejects.toThrow("volumes destroy vol_extra --app occupied");
+            if (extraMachine) {
+                await expect(deployed).rejects.toThrow("machine-extra: about $2.19/month");
+                await expect(deployed).rejects.toThrow(
+                    "machine destroy machine-extra --app occupied",
+                );
+            }
+            expect(existsSync(join(work, "fly.toml"))).toBe(false);
+            expect(readFileSync(commands, "utf8")).not.toMatch(/"(?:deploy|destroy)"/);
+        } finally {
+            writeFileSync(join(root, "volumes.json"), JSON.stringify([volume]));
+            writeFileSync(join(root, "machines.json"), JSON.stringify(machines));
+            await removeTestDirectory(work);
+        }
+    },
+);
+
+test.each([
+    [true, true],
+    [true, false],
+    [false, true],
+])(
+    "successful deploy refuses missing resources (volume: %s, Machine: %s)",
+    async (missingVolume, missingMachine) => {
+        const work = mkdtempSync(join(tmpdir(), "shallot-fly-post-deploy-"));
+        if (missingVolume) writeFileSync(join(root, "volumes.json"), "[]");
+        if (missingMachine) writeFileSync(join(root, "machines.json"), "[]");
+        try {
+            const deployed = deployFlyServer(
+                root,
+                work,
+                { target: "fly", app: "scratch-app" },
+                false,
+                false,
+                ask,
+                cli,
+            );
+            if (missingVolume) await expect(deployed).rejects.toThrow("missing volume");
+            if (missingMachine) await expect(deployed).rejects.toThrow("missing Machine");
+        } finally {
+            writeFileSync(join(root, "volumes.json"), JSON.stringify([volume]));
+            writeFileSync(join(root, "machines.json"), JSON.stringify(machines));
+            await removeTestDirectory(work);
+        }
+    },
+);
 
 test("an attached volume with scheduled snapshots enabled refuses before deploy", async () => {
     const work = mkdtempSync(join(tmpdir(), "shallot-fly-snapshots-"));

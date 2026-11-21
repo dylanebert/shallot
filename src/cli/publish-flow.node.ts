@@ -44,7 +44,10 @@ const state=JSON.parse(fs.readFileSync(path.join(root,'answers.json')));
 if(args[0]==='auth'&&args[1]==='whoami'&&state.flyLogin===false)process.exit(1);
 if(args[0]==='apps'&&args[1]==='list')console.log(JSON.stringify(state.flyCollision?[{Name:'fixture-game'}]:[]));
 else if(args[0]==='orgs')console.log('{"personal":"Personal"}');
-else if(args[0]==='machine'&&args[1]==='list'){if(state.hangMachineList)Bun.sleepSync(22000);console.log('[]');}
+else if(args[0]==='machine'&&args[1]==='list'){
+if(state.hangMachineList)Bun.sleepSync(22000);
+console.log(JSON.stringify(!state.flyFail&&fs.existsSync('fly.toml')?[{id:'machine-fixture'}]:[]));
+}
 else if(args[0]==='ips'&&args[1]==='list')console.log('[{"Type":"shared_v4"}]');
 else if(args[0]==='volumes'&&args[1]==='list')console.log(JSON.stringify([{id:'vol_fixture',name:'shallot_data',size_gb:1,region:'iad',host_status:state.flyHostStatus,auto_backup_enabled:false,attached_machine_id:null,attached_alloc_id:null}]));
 else if(args[0]==='deploy'){
