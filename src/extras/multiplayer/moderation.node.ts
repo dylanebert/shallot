@@ -157,7 +157,15 @@ test.each(["live", "held"] as const)(
             }
             expect(await successor.request(true, 3)).toBe(true);
             if (state === "live") expect((await target.closed).reason).toBe("Kicked from room");
-            expect((await host.peer({ ...join, ...grant }).closed).reason).toMatch(/token/i);
+            const resumed = await host.peer({ ...join, ...grant }).closed;
+            if (state === "held") {
+                expect(resumed).toMatchObject({ code: 4003, reason: "Kicked from room" });
+            } else {
+                expect(resumed).toMatchObject({
+                    code: 1008,
+                    reason: "Invalid or expired reconnection token",
+                });
+            }
             expect((await host.peer({ ...join, credential: "target/2" }).closed).reason).toBe(
                 "Kicked from room",
             );
