@@ -75,6 +75,15 @@ chrome?.addEventListener("click", (event) => {
     if (event.target instanceof HTMLButtonElement) event.target.blur();
 });
 
+function placeSlotActions() {
+    const actions = list.querySelector(".slot-actions:not([hidden])");
+    if (!actions) return;
+    actions.classList.remove("above");
+    actions.classList.toggle("above", actions.getBoundingClientRect().bottom > window.innerHeight);
+}
+
+window.addEventListener("resize", placeSlotActions);
+
 function closeSlot() {
     if (openSlot < 0) return;
     openSlot = -1;
@@ -232,22 +241,24 @@ function renderParty() {
                 );
                 choice.onclick = () =>
                     void act(() => {
+                        closeSlot();
                         if (!bot && host) return addBot(slot);
                         if (localBot) {
                             localBot.remove();
                             bots.delete(slot);
-                            closeSlot();
-                        } else {
-                            closeSlot();
-                            requestBot(slot, !!bot);
-                        }
+                            renderParty();
+                        } else requestBot(slot, !!bot);
                     });
                 actions.append(choice);
             }
             if (expanded && url && !occupied) {
                 const choice = slotButton("Copy code", "copy", true);
                 choice.title = "Copy code";
-                choice.onclick = () => void act(() => copyCode(choice, "Copy code"));
+                choice.onclick = () =>
+                    void act(() => {
+                        closeSlot();
+                        return copyCode(copy, "Copy room code");
+                    });
                 actions.append(choice);
             }
             row.append(actions);
@@ -255,6 +266,7 @@ function renderParty() {
         slots.push(row);
     }
     list.replaceChildren(...slots);
+    placeSlotActions();
     buttons();
 }
 
@@ -265,7 +277,6 @@ async function addBot(slot: number) {
     while (used.has(name)) name++;
     const bot = await seat.addBot(thinBot(++seed, slot));
     bots.set(slot, { ...bot, name });
-    openSlot = -1;
     renderParty();
 }
 

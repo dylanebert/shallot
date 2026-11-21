@@ -67,8 +67,8 @@
 .ec .slot-actions {
     position: absolute;
     z-index: 1;
-    top: 0;
-    left: calc(100% + 8px);
+    top: 100%;
+    left: 0;
     width: max-content;
     display: grid;
     padding: 8px;
@@ -77,6 +77,7 @@
     background: #1c1917;
     white-space: nowrap;
 }
+.ec .slot-actions.above { top: auto; bottom: 100%; }
 .ec #status {
     position: absolute;
     z-index: 1;
