@@ -12,6 +12,7 @@ import {
 import { IntentSender } from "./intent";
 import { type Connection, type LinkFaults, MAX_MESSAGE_BYTES, seededLink } from "./link";
 import type { SessionRecorder } from "./recording";
+import { ROOM_AUTH_REFUSED_CLOSE_CODE } from "./room-protocol";
 
 export function createServerApp(game: Game, recorder?: SessionRecorder) {
     return createApp({
@@ -256,7 +257,9 @@ export function roomHost<
         const reason = result && "reason" in result ? result.reason : "";
         const fitsCloseFrame = reason && reason.length <= 123 && utf8.encode(reason).length <= 123;
         connection.close(
-            1008,
+            !pinned && !controller.signal.aborted && result && "reason" in result
+                ? ROOM_AUTH_REFUSED_CLOSE_CODE
+                : 1008,
             controller.signal.aborted
                 ? "Admission timed out"
                 : fitsCloseFrame

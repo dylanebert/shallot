@@ -53,6 +53,7 @@ import {
     projectChromium,
     resolveProjectPlaywright,
     verifyPublishedGame,
+    verifyPublishedRooms,
 } from "./publish-verify";
 
 export type PublishLink = (CloudflareLink | ItchLink) & { server?: FlyLink };
@@ -624,6 +625,10 @@ async function publishToTargets(
         publishProgress(
             `Build: ${deployed.buildUrl}\n${setup.commands}${server ? `\n${flyCommands(flyctl!, server.app)}` : ""}`,
         );
+        const endpoint = server ? `wss://${server.app}.fly.dev` : undefined;
+        const roomsVerified = endpoint ? await verifyPublishedRooms(endpoint) : false;
+        if (roomsVerified)
+            publishProgress("Fly server answered /rooms and reached room admission.");
         const browser = await projectChromium(projectDir, !!server);
         try {
             const verification = await target.verify(
@@ -632,9 +637,9 @@ async function publishToTargets(
                 directory,
                 assets,
                 interactive,
-                server ? `wss://${server.app}.fly.dev` : undefined,
+                roomsVerified ? undefined : endpoint,
             );
-            if (server && verification) {
+            if (endpoint && !roomsVerified && verification) {
                 publishProgress("Published page confirmed server state through the Fly endpoint.");
             }
             if (verification)

@@ -8,6 +8,7 @@ import { type ClientId, client, type Game, type PlayerId, ServerSession } from "
 import { serveRooms } from "./bun";
 import { MAX_MESSAGE_BYTES, seededLink } from "./link";
 import { createServerApp, roomHost } from "./room-host";
+import { ROOM_AUTH_REFUSED_CLOSE_CODE } from "./room-protocol";
 
 const emptyGame: Game = {
     plugins: [],
@@ -75,7 +76,7 @@ test("auth forwards the game's refusal verbatim, reserves only its seat, and pre
         });
         await until(() => errors.length > 0, "refusal did not reach onError");
         expect(errors[0]!.message).toBe(
-            `ws://${base}/?intent=joinOrCreate closed the connection (1008: ${reason}).`,
+            `ws://${base}/?intent=joinOrCreate closed the connection (${ROOM_AUTH_REFUSED_CLOSE_CODE}: ${reason}).`,
         );
         expect(errors[0]!.message).not.toContain("private-expired-pass");
         expect(joined).toHaveLength(0);

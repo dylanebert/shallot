@@ -5,6 +5,7 @@ import { type Game, isClientMessage } from "./game";
 import { type Connection, MAX_MESSAGE_BYTES } from "./link";
 import { type RecordingOptions, SessionRecorder } from "./recording";
 import { createServerApp, ROOM_CODE_CLAIM_MS, roomHost } from "./room-host";
+import { ROOMS_LIST_HEADER } from "./room-protocol";
 import { LEAVE_CLOSE_CODE } from "./websocket";
 
 // Paper's default packet limiter: 500 messages a second averaged over 7 seconds. A stall's
@@ -189,7 +190,8 @@ export async function serveGame(
  * A socket cannot create a private room with a client-supplied code.
  * `?intent=joinOrCreate` fills an available public room before making another.
  * Refusals send no game image: 1013 means full, 1008 means unknown/expired code
- * or invalid intent, and 1011 means server initialization failed.
+ * or invalid intent, 4002 means the game's onAuth explicitly refused admission,
+ * and 1011 means server initialization failed.
  * With `game.reconnectMs`, admission sends a WebSocket text control message
  * `resume:<seat>:<token>` beside the binary stream. Resume with `?seat=…&resume=…`;
  * a successful resume replaces the token, and resuming a seat whose socket is still open
@@ -249,7 +251,10 @@ function hostRooms(
             const headers = new Headers({ "Cache-Control": "no-store" });
             if (options.roomsOrigin)
                 headers.set("Access-Control-Allow-Origin", options.roomsOrigin);
-            if (request.method === "GET") return Response.json(host.list(), { headers });
+            if (request.method === "GET") {
+                headers.set(ROOMS_LIST_HEADER, "1");
+                return Response.json(host.list(), { headers });
+            }
             if (request.method !== "POST") return;
             const reservation = host.reserve();
             if (reservation) return Response.json(reservation, { status: 201, headers });

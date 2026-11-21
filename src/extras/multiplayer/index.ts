@@ -43,8 +43,9 @@ export {
     sessionRecording,
 } from "./recording";
 export { RoomBots, RoomModeration } from "./room-host";
+export { ROOM_AUTH_REFUSED_CLOSE_CODE, ROOMS_LIST_HEADER } from "./room-protocol";
 export type { ServerMessage } from "./server-message";
-export { WebSocketConnection } from "./websocket";
+export { LEAVE_CLOSE_CODE, WebSocketConnection } from "./websocket";
 
 import { requireCanonical } from "./canonical";
 import { diagnosticKind, networkDiagnostics } from "./diagnostics";

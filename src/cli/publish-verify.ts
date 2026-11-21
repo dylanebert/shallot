@@ -4,6 +4,11 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import type { APIResponse, Browser, BrowserType, Page } from "playwright";
+import {
+    LEAVE_CLOSE_CODE,
+    ROOM_AUTH_REFUSED_CLOSE_CODE,
+    ROOMS_LIST_HEADER,
+} from "../extras/multiplayer";
 import { CROSS_ORIGIN_ISOLATION, contentType } from "../project";
 import { installDev } from "./publish-dependencies";
 import { publishProgress } from "./publish-output";
@@ -286,6 +291,79 @@ export async function verifyPublishedGame(
         ]);
     } finally {
         await context.close();
+    }
+}
+
+/** Verify a rooms host without credentials. False leaves single-room verification to the page. */
+export async function verifyPublishedRooms(
+    endpoint: string,
+    timeout: number = TIMEOUT.startup,
+): Promise<boolean> {
+    const socketUrl = new URL(endpoint);
+    const roomsUrl = new URL("/rooms", endpoint);
+    roomsUrl.protocol = socketUrl.protocol === "wss:" ? "https:" : "http:";
+    const signal = AbortSignal.timeout(timeout);
+    try {
+        const listing = await fetch(roomsUrl, { signal, redirect: "manual" });
+        if (!listing.headers.has(ROOMS_LIST_HEADER)) {
+            await listing.body?.cancel();
+            return false;
+        }
+        if (listing.status !== 200) {
+            await listing.body?.cancel();
+            throw new Error(`GET /rooms returned ${listing.status}, expected 200.`);
+        }
+        const rooms: unknown = await listing.json();
+        if (
+            !Array.isArray(rooms) ||
+            !rooms.every(
+                (room) =>
+                    typeof room?.code === "string" &&
+                    Number.isInteger(room.clients) &&
+                    Number.isInteger(room.maxClients),
+            )
+        )
+            throw new Error("GET /rooms did not return a room listing.");
+
+        // Claim an isolated room, rather than spend a seat in an existing public room.
+        const reservation = await fetch(roomsUrl, { method: "POST", signal, redirect: "error" });
+        if (reservation.status !== 201) {
+            await reservation.body?.cancel();
+            throw new Error(`POST /rooms returned ${reservation.status}, expected 201.`);
+        }
+        const { code, creator } = await reservation.json();
+        if (typeof code !== "string" || !code || typeof creator !== "string" || !creator)
+            throw new Error("POST /rooms did not return a room reservation.");
+        socketUrl.search = new URLSearchParams({
+            intent: "join",
+            code,
+            creator,
+            announceRoom: "1",
+        }).toString();
+        signal.throwIfAborted();
+        const socket = new WebSocket(socketUrl);
+        try {
+            await new Promise<void>((resolve, reject) => {
+                signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+                socket.addEventListener("message", ({ data }) => {
+                    if (data === `room:${code}`) resolve();
+                });
+                socket.addEventListener("close", ({ code }) => {
+                    if (code === ROOM_AUTH_REFUSED_CLOSE_CODE) resolve();
+                    else
+                        reject(new Error(`Room WebSocket closed before admission (code ${code}).`));
+                });
+                socket.addEventListener("error", () => reject(new Error("Room WebSocket failed.")));
+            });
+        } finally {
+            socket.close(LEAVE_CLOSE_CODE);
+        }
+        return true;
+    } catch (cause) {
+        throw new Error(
+            `Server verification failed at ${roomsUrl.href}: ${cause instanceof Error ? cause.message : String(cause)}`,
+            { cause },
+        );
     }
 }
 
