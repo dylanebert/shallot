@@ -11,7 +11,7 @@ interface Entry {
      * Default field values applied on `world.add`: numbers, text, and per-lane arrays
      * for vectors. An omitted vector lane is 0.
      */
-    defaults?: (world: World) => ComponentValues<Component>;
+    defaults?: ComponentValues<Component> | ((world: World) => ComponentValues<Component>);
     /** lazy-compiled defaults writer. undefined = unbuilt, null = no defaults. */
     plan?: DefaultsPlan | null;
 }
@@ -77,11 +77,12 @@ export class ComponentRegistry {
 function compilePlan(entry: Entry, world: World): DefaultsPlan | null {
     const defaults = entry.defaults;
     if (!defaults) return null;
-    const dict = defaults(world);
+    const dict = typeof defaults === "function" ? defaults(world) : defaults;
     const schema = entry.component as Record<string, unknown>;
     const fields = new Map<string, number[] | string>();
 
     for (const [key, value] of Object.entries(dict)) {
+        if (value === undefined) continue;
         const target = schema[key];
         if (!isType(target)) {
             throw new Error(

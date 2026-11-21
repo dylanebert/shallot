@@ -666,6 +666,8 @@ export interface ReplicationConfirmation {
     apply: () => void;
 }
 
+class FrameCommitError extends Error {}
+
 type PreparedRows = Map<ReplicatedValue[], (TypedArray | undefined)[]>;
 type PreparedPacket = Packet & { prepared?: PreparedRows };
 
@@ -732,7 +734,9 @@ export class ReplicationReceiver {
      * deliver their intents and apply each before the latest state. Every applied state
      * still notifies confirm, so only recovery/replay work is coalesced, not observations.
      * Validates server messages before queueing or routing them. A refusal closes the connection
-     * after applying the contiguous state already validated in this drain.
+     * after applying the contiguous state already validated in this drain. If game code throws
+     * during a world write (such as a membership observer), the connection closes once. The
+     * world remains as the ECS operation left it; resuming on a new connection re-bases on an image.
      * Acknowledges once per fixed tick of its World, or, while that World has not ticked, once
      * per drain that received a replication packet; never per call. */
     flush(confirmations: "all" | "latest" = "all"): Uint8Array[] {
@@ -791,7 +795,11 @@ export class ReplicationReceiver {
             }
             if (packet.commandAge !== undefined) this.onCommandAge(tick, packet.commandAge);
             if (!latestOnly) {
-                this.reconcile(tick, packet.rows, packet.intents, () => this._apply(packet), []);
+                const error = this._reconcile(packet, []);
+                if (error) {
+                    failure ??= error;
+                    break;
+                }
             } else if (latest) {
                 const previous = latest;
                 preceding.push({
@@ -816,15 +824,9 @@ export class ReplicationReceiver {
             if (!latestOnly) this.confirm(tick, packet.rows);
         }
         if (latestOnly && latest) {
-            const packet = latest;
-            this.reconcile(
-                packet.tick,
-                packet.rows,
-                packet.intents,
-                () => this._apply(packet),
-                preceding,
-            );
-            this.confirm(packet.tick, packet.rows);
+            const error = this._reconcile(latest, preceding);
+            if (error) failure ??= error;
+            else this.confirm(latest.tick, latest.rows);
         }
         if (failure) {
             this._pending.clear();
@@ -892,8 +894,31 @@ export class ReplicationReceiver {
         }
         return image;
     }
+    private _reconcile(
+        packet: PreparedPacket,
+        preceding: readonly ReplicationConfirmation[],
+    ): FrameCommitError | undefined {
+        try {
+            this.reconcile(
+                packet.tick,
+                packet.rows,
+                packet.intents,
+                () => this._apply(packet),
+                preceding,
+            );
+        } catch (error) {
+            if (!(error instanceof FrameCommitError)) throw error;
+            return error;
+        }
+    }
     private _apply(packet: PreparedPacket): void {
-        this._write(packet.rows, packet.prepared);
+        try {
+            this._write(packet.rows, packet.prepared);
+        } catch (cause) {
+            throw new FrameCommitError(`Could not commit replication tick ${packet.tick}`, {
+                cause,
+            });
+        }
         this.confirmed = packet.tick;
     }
     /** Fallible field conversions finish before creating, destroying or writing any entity. */

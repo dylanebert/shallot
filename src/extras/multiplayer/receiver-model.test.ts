@@ -31,7 +31,7 @@ const Companion = component(
     "ReceiverModelCompanion",
     { label: text(4) },
     {
-        defaults: () => ({ label: "too long" }),
+        defaults: { label: "éé" },
     },
 );
 const Trigger = component("ReceiverModelTrigger", {}, { requires: [Companion] });
@@ -159,7 +159,15 @@ function model(seed: number, mode: "all" | "latest") {
             errors++;
         },
     };
-    const observed: (Row & { tick: number; applied: number })[] = [];
+    let attached: number | undefined;
+    replica.observeMembership(Companion, (eid, present) => {
+        if (!present) return;
+        // A consumer drains the attachment's field mark. A second write would publish it again.
+        const dirty = replica.fieldStorage(Companion, "label").dirty;
+        dirty[eid >>> 5] &= ~(1 << (eid & 31));
+        attached = eid;
+    });
+    const observed: (Row & { tick: number; applied: number; duplicateWrite: boolean })[] = [];
     const reconciled: { tick: number; intents: readonly AcceptedIntent[] }[] = [];
     const batches: number[] = [];
     const checkIntent = (records: readonly AcceptedIntent[], tick: number) => {
@@ -184,7 +192,14 @@ function model(seed: number, mode: "all" | "latest") {
         connection,
         (tick) => {
             const row = readRow(replica, [...receiver.entities.values()][0]!);
-            observed.push({ tick, applied: receiver.confirmed, ...row });
+            const duplicateWrite =
+                attached !== undefined &&
+                !!(
+                    replica.fieldStorage(Companion, "label").dirty[attached >>> 5]! &
+                    (1 << (attached & 31))
+                );
+            attached = undefined;
+            observed.push({ tick, applied: receiver.confirmed, duplicateWrite, ...row });
         },
         (tick, _rows, intents, apply, preceding) => {
             batches.push(tick);
@@ -215,6 +230,7 @@ function model(seed: number, mode: "all" | "latest") {
                 row.applied ===
                     tick, `confirmation ${row.applied} did not match applied tick ${tick}`);
             require(sameRow(row, source), `state at ${tick} was not sent`);
+            require(!row.duplicateWrite, `recursively attached companion was written twice at ${tick}`);
             require(confirmation.tick === tick, `wrong reconciliation tick at ${tick}`);
             checkIntent(confirmation.intents, tick);
         }

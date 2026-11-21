@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { resolvePlugins } from "../app/compose";
-import { component, declaration, f32, vec2, vec4 } from "./component";
+import { component, declaration, f32, text, vec2, vec4 } from "./component";
 
 const fields = () => ({ scalarValue: f32, pair: vec2, vectorValue: vec4 });
 
@@ -24,6 +24,13 @@ test("components return their field record with schema-typed defaults off the fi
         // @ts-expect-error vec4 defaults must have four lanes
         defaults: () => ({ vectorValue: [1, 2, 3] }),
     });
+});
+
+test("component declaration refuses over-capacity and ill-formed text defaults", () => {
+    for (const label of ["éé", "\ud800"])
+        expect(() =>
+            component("InvalidTextDefault", { label: text(3) }, { defaults: { label } }),
+        ).toThrow(/Text exceeds byte capacity|Invalid UTF-8 text/);
 });
 
 test("composition refuses an undeclared record naming its plugin and fields", () => {

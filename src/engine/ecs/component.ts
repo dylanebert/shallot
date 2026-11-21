@@ -1,4 +1,5 @@
 import type { Entity } from "./entity";
+import { encodeText } from "./utf8";
 import type { World } from "./world";
 
 /** SoA component schema: each field names a type; worlds own the columns. */
@@ -376,7 +377,7 @@ interface Declaration<C extends Component = Component> {
     component: C;
     requires?: Component[];
     presentation?: boolean;
-    defaults?: (world: World) => ComponentValues<C>;
+    defaults?: ComponentValues<C> | ((world: World) => ComponentValues<C>);
 }
 
 const declarations = new WeakMap<Component, Declaration>();
@@ -395,8 +396,11 @@ export function component<
     key: string,
     fields: C,
     options?: {
-        /** Default scalar values or complete vector lanes, evaluated for each world that registers this record. */
-        defaults?: (world: World) => V & Record<Exclude<keyof V, keyof C>, never>;
+        /** Schemas with text use static defaults checked at declaration. Other schemas
+         * compute defaults once per World. */
+        defaults?: Extract<C[keyof C], TextType> extends never
+            ? (world: World) => V & Record<Exclude<keyof V, keyof C>, never>
+            : V & Record<Exclude<keyof V, keyof C>, never>;
         /** Added when missing on insertion in a world that registers this record; removal leaves companions in place. */
         requires?: Component[];
         /** Exclude membership and fields from recovery. Neither values nor membership may be
@@ -413,8 +417,30 @@ export function component<
     if (previous && previous.key !== key) {
         throw new Error(`component "${previous.key}" cannot also declare "${key}"`);
     }
+    const metadata: Declaration = { key, component: fields, ...options };
+    const defaults = options?.defaults;
+    if (defaults !== undefined) {
+        const hasText = Object.values(fields).some(
+            (field) => isType(field) && field.byteCapacity !== undefined,
+        );
+        if (typeof defaults === "function") {
+            if (hasText) throw new Error(`Text defaults on component "${key}" must be static`);
+        } else {
+            const values = { ...defaults };
+            if (hasText) {
+                for (const [name, value] of Object.entries(values)) {
+                    const field = fields[name];
+                    if (value !== undefined && isType(field) && field.byteCapacity !== undefined)
+                        encodeText(value as string, field.byteCapacity);
+                }
+                // Keep the validated capacities and values stable until insertion.
+                freezeComponent(fields);
+            }
+            metadata.defaults = Object.freeze(values);
+        }
+    }
     intern(fields, key);
-    declarations.set(fields, { key, component: fields, ...options });
+    declarations.set(fields, metadata);
     return fields;
 }
 

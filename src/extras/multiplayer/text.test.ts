@@ -19,11 +19,9 @@ const link = () => seededLink(1, { minDelay: 0, maxDelay: 0, loss: 0, duplicatio
 test("bounded text columns restore and replicate whole UTF-8 values alongside numeric fields", () => {
     const server = new World();
     const client = new World();
-    const defaults = component(
-        "BoundedTextDefaults",
-        { value: text(2) },
-        { defaults: () => ({ value: "é" }) },
-    );
+    const values = { value: "é" };
+    const defaults = component("BoundedTextDefaults", { value: text(2) }, { defaults: values });
+    values.value = "too long";
     server.registry.register(defaults);
     const extra = server.create();
     server.add(extra, defaults);
@@ -70,6 +68,40 @@ test("bounded text columns restore and replicate whole UTF-8 values alongside nu
     expect(client.get(remote, Label)).toEqual({ text: "", count: 9 });
     client.dispose();
     server.dispose();
+});
+
+test("a throwing game membership observer closes the receiver once without undoing ordinary attachment", () => {
+    const server = new World();
+    const client = new World();
+    const eid = server.create();
+    server.add(eid, Replicate);
+    const { a, b } = link();
+    const sender = new ReplicationSender(server, [Label], [new Map([[1, [Label]]])], 1, a);
+    const errors: Error[] = [];
+    const receiver = new ReplicationReceiver(client, [Label], {
+        ...b,
+        onError: (error) => errors.push(error),
+    });
+    sender.record(0);
+    sender.flush();
+    receiver.flush();
+    client.observeMembership(Label, () => {
+        throw new Error("game observer failed");
+    });
+    server.add(eid, Label, { text: "sent", count: 1 });
+    sender.record(1);
+    sender.flush();
+    expect(() => receiver.flush("latest")).not.toThrow();
+    expect(receiver.confirmed).toBe(0);
+    expect(client.get([...receiver.entities.values()][0]!, Label)).toEqual({
+        text: "sent",
+        count: 1,
+    });
+    expect(b.closed).toBe(true);
+    receiver.flush("latest");
+    expect(errors.map((error) => (error.cause as Error).message)).toEqual(["game observer failed"]);
+    server.dispose();
+    client.dispose();
 });
 
 const WiderLabel = component("WiderTextLabel", { text: text(9), count: u8 });
