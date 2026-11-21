@@ -41,6 +41,7 @@ test("a client stepped and flushed eight times per tick sends at most one acknow
         frames.flush();
         Object.assign(sent, { acks: 0, inputs: 0, records: 0 });
         for (let frame = 0; frame < 8; frame++) {
+            link.advance(((tick * 8 + frame) * Time.FIXED_DT * 1000) / 8);
             // One unresolved operation stays pending; the server never drains intents.
             if (tick === 10 && frame === 3) intent.record(tick, "operation", [1]);
             if (frame === 0) {
@@ -82,6 +83,7 @@ test("a pending batch over the message cap goes oldest first in packets within i
         ids.push(...resolved);
         intent.flush([encodeIntent(IntentMessageKind.Accepted, [], ids.at(-1))]);
         link.a.receive();
+        link.advance(tick * 17);
         intent.record(tick, "input", Array<number>(300).fill(tick));
     }
     expect(ids).toEqual(Array.from({ length: 100 }, (_, i) => i + 1));
@@ -105,14 +107,14 @@ function counting() {
     return { link, sent, dropNext: () => drop++, intent: new IntentSender(link.b) };
 }
 
-test("many operations recorded and flushed in one tick send one packet, and the next tick's carries them all", () => {
-    const { sent, intent } = counting();
+test("operations recorded for alternating target ticks and flushed after each send one packet per fixed step", () => {
+    const { link, sent, intent } = counting();
     for (let i = 0; i < 20; i++) {
-        intent.record(5, "operation", [i]);
+        intent.record(5 + (i % 2), "operation", [i]);
         intent.flush();
     }
     expect(sent).toEqual([[1]]);
-    intent.record(6, "input", [0]);
+    link.advance(17);
     intent.flush();
     intent.flush();
     expect(sent).toEqual([[1], Array.from({ length: 20 }, (_, i) => i + 1)]);
@@ -128,7 +130,7 @@ test("a dropped operation packet is resent each fixed step of transport time whi
         intent.flush();
     }
     expect(sent).toEqual([]);
-    for (let ms = 17; ms <= 50; ms++) {
+    for (let ms = 17; ms <= 45; ms++) {
         link.advance(ms);
         intent.flush();
     }

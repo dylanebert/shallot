@@ -293,10 +293,10 @@ export class IntentReceiver {
 }
 
 /** Unresolved operations, new ones included, go in one packet of at most MAX_MESSAGE_BYTES,
- * oldest first, the rest in later packets. A packet goes on the first flush after flush's now
- * changes or, failing that, one fixed step of the transport clock (performance.now unless the
- * connection supplies one) after the last packet: recording or flushing more often sends no
- * more, and resending never waits on the caller.
+ * oldest first, the rest in later packets. A packet goes on the first flush in each fixed step
+ * of the transport clock (performance.now unless the connection supplies one), so a new
+ * operation waits at most one step and a flush, recording or flushing more often sends no
+ * more, and the same steps resend unresolved operations without the caller's tick.
  * Acceptance removes their IDs; the cumulative watermark also removes refused operations.
  * Inputs instead repeat the newest of the last four ticks that fit in one packet on the first
  * flush after a new sample. */
@@ -306,9 +306,7 @@ export class IntentSender {
     readonly inputs = new Map<number, TickInput>();
     private _inputDirty = false;
     private _latestInput = -1;
-    private _tick = -1;
-    private _recordsTick = -1;
-    private _recordsAt = -Infinity;
+    private _recordsDue = -Infinity;
     private readonly _clock: () => number;
     private _next = 1;
     readonly connection: Connection;
@@ -328,7 +326,6 @@ export class IntentSender {
             throw new Error("Invalid intent tick");
         if ((kind === "input" ? 16 : 36) + values.length * 8 > MAX_MESSAGE_BYTES)
             throw new Error(`Intent values exceed a ${MAX_MESSAGE_BYTES}-byte message`);
-        this._tick = tick;
         if (kind === "input") {
             if (tick < this._latestInput) throw new Error("Input ticks must not decrease");
             if (tick > this._latestInput) this._inputDirty = true;
@@ -343,9 +340,8 @@ export class IntentSender {
         this.records.set(record.id, record);
         return record;
     }
-    /** Route messages returned by ReplicationReceiver.flush here; resolved records stop repeating.
-     * now is the caller's tick, by default the latest recorded one. */
-    flush(messages: readonly Uint8Array[] = [], now = this._tick): Uint8Array[] {
+    /** Route messages returned by ReplicationReceiver.flush here; resolved records stop repeating. */
+    flush(messages: readonly Uint8Array[] = []): Uint8Array[] {
         const unhandled: Uint8Array[] = [];
         for (const bytes of messages) {
             if (
@@ -370,10 +366,8 @@ export class IntentSender {
             this._inputDirty = false;
         }
         const time = this._clock();
-        if (
-            this.records.size &&
-            (now !== this._recordsTick || time - this._recordsAt >= Time.FIXED_DT * 1000)
-        ) {
+        const step = Time.FIXED_DT * 1000;
+        if (this.records.size && time >= this._recordsDue) {
             const records: OperationRecord[] = [];
             let size = 12;
             for (const record of this.records.values()) {
@@ -382,8 +376,10 @@ export class IntentSender {
                 records.push(record);
             }
             this.connection.send(encodeIntent(IntentMessageKind.Records, records));
-            this._recordsTick = now;
-            this._recordsAt = time;
+            // Slots keep a one-step grid, so flushes a hair under a step apart still send
+            // every step; after an idle step the grid restarts from now.
+            this._recordsDue =
+                time - this._recordsDue < step ? this._recordsDue + step : time + step;
         }
         return unhandled;
     }

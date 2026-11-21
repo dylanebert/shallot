@@ -34,6 +34,7 @@ test("3000 confirmed ticks bound Accepted, frame intents and every intent store"
             clientRecords = 0,
             predictedRecords = 0;
         for (let tick = 1; tick <= 3000; tick++) {
+            link.advance(tick * 17);
             prediction.accept([sender.record(tick, "operation", [tick])]);
             sender.flush();
             receiver.receive(link.a.receive(), tick);
@@ -130,6 +131,7 @@ test("a refused future operation cannot pin any store or stall later operations 
         const applied: number[] = [],
             samples: number[][] = [];
         for (let tick = 1; tick <= 3000; tick++) {
+            link.advance(tick * 17);
             prediction.accept([sender.record(tick, "operation", [tick])]);
             sender.flush();
             receiver.prune(tick - 1);

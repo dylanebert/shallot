@@ -332,6 +332,7 @@ test("client backs off after a TCP cut and its running prediction confirms the s
         expect(sender.records.size).toBe(1);
         submit(11, 5, 60);
         await until(() => {
+            sender.flush();
             f.world.tick();
             const row = f.world.get(eid, Player);
             return row?.input === 5 && row.value >= 60;

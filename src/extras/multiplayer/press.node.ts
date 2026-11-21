@@ -4,7 +4,7 @@ import { PlayerMotion } from "../../../examples/first-person/src/motion";
 import { Player, PlayerInput, PlayerPlugin } from "../../../examples/first-person/src/player";
 import { Body, BodyType, Shape, ShapeKind } from "../../core/physics";
 import { GlobalTransform, Transform } from "../../core/transform";
-import { createApp } from "../../engine";
+import { createApp, Time } from "../../engine";
 import { Character } from "../../standard/physics";
 import { IntentReceiver, IntentSender, seededLink } from ".";
 
@@ -32,21 +32,20 @@ test("a press whose first message is dropped survives as one accepted operation 
         for (let i = 0; i < 60; i++) world.tick();
         const link = seededLink(1, { minDelay: 0, maxDelay: 0, loss: 0, duplication: 0 });
         let dropped = 0;
-        const sender = new IntentSender({
-            close: link.b.close,
-            receive: link.b.receive,
-            send(bytes) {
-                if (dropped++ === 0) return;
-                link.b.send(bytes);
-            },
-        });
+        const send = link.b.send.bind(link.b);
+        link.b.send = (bytes) => {
+            if (dropped++ === 0) return;
+            send(bytes);
+        };
+        const sender = new IntentSender(link.b);
         const receiver = new IntentReceiver(link.a);
         sender.record(61, "operation", [1]);
         sender.flush();
         receiver.receive(link.a.receive(), 61);
         expect(receiver.records.size).toBe(0);
         world.tick();
-        sender.flush([], 62);
+        link.advance(Time.FIXED_DT * 1000);
+        sender.flush();
         receiver.receive(link.a.receive(), 62);
         sender.flush(link.b.receive());
         const accepted = [...receiver.records.values()];
