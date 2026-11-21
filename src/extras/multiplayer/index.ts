@@ -9,8 +9,7 @@ import {
     u32,
     type World,
 } from "../../engine";
-import { fields } from "../../engine/ecs";
-import { encodeText, readText, writeText } from "../../engine/ecs/utf8";
+import { encodeText, fields, readText, writeText } from "../../engine/ecs";
 import { reportStartup } from "../../engine/runtime";
 
 export {

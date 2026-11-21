@@ -44,4 +44,5 @@ export {
     type TableUploadPath,
     writeLane,
 } from "./table";
+export { encodeText, readText, writeText } from "./utf8";
 export { type Resource, World } from "./world";

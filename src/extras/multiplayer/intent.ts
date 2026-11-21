@@ -1,5 +1,5 @@
 import { Time } from "../../engine";
-import { encodeText, readText, writeText } from "../../engine/ecs/utf8";
+import { encodeText, readText, writeText } from "../../engine/ecs";
 import { requireCanonical, writeFloat64 } from "./canonical";
 import { transportClock } from "./diagnostics";
 import {
