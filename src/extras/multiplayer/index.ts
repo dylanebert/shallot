@@ -41,6 +41,7 @@ export {
     sessionRecording,
 } from "./recording";
 export { RoomBots } from "./room-host";
+export type { ServerMessage } from "./server-message";
 export { WebSocketConnection } from "./websocket";
 
 import { requireCanonical } from "./canonical";
@@ -55,6 +56,7 @@ import {
 import type { Connection } from "./link";
 import { failServerConnection, serverConnectionFailed } from "./link";
 import { PredictionRecording } from "./recording-hooks";
+import { decodeOneOffMessage, type ServerMessage, ServerMessageKind } from "./server-message";
 
 export {
     type AcceptedIntent,
@@ -448,9 +450,11 @@ function applyFrame(
 export function decodeServerMessage(
     bytes: Uint8Array,
     types: FieldType[][],
-): DecodedFrame | undefined {
+): DecodedFrame | ServerMessage | undefined {
     if (diagnosticKind(bytes)) return;
-    const kind = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0, true);
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const kind = view.getUint32(0, true);
+    if (kind === ServerMessageKind) return decodeOneOffMessage(bytes, view);
     if (kind === ReplicationMessageKind.Image || kind === ReplicationMessageKind.Frame) {
         const frame = decodeFrame(bytes, types);
         requireCanonical(bytes, encodeFrame(frame, types));
@@ -683,6 +687,7 @@ export class ReplicationReceiver {
     private _ackTick: number;
     private readonly _start: number;
     private _generation?: number;
+    private _messages: ServerMessage[] = [];
     private readonly _layout: FieldType[][];
     private readonly _fields: ReturnType<typeof fields>[];
     private readonly _needsPreparation: boolean;
@@ -728,7 +733,19 @@ export class ReplicationReceiver {
         this._start = this._ackTick = world.time.fixedTick;
         world.resource(PredictionRecording).receiver?.(this);
     }
-    /** Applies confirmations and returns other message kinds for application routing.
+    /** Drains validated one-off messages in transport order, once across all readers.
+     * Read after flush in a client system. Unread messages expire with the stream. */
+    readMessages(): ServerMessage[] {
+        const messages = this._messages;
+        if (!messages.length) return [];
+        this._messages = [];
+        return this._generation === this.connection.generation &&
+            !this.connection.closed &&
+            !serverConnectionFailed(this.connection)
+            ? messages
+            : [];
+    }
+    /** Applies confirmations, queues one-off messages, and returns other message kinds for routing.
      * "latest" reconciles once, passing preceding ordered states to that callback. It must
      * deliver their intents and apply each before the latest state. Every applied state
      * still notifies confirm, so only recovery/replay work is coalesced, not observations.
@@ -743,6 +760,7 @@ export class ReplicationReceiver {
         const generation = this.connection.generation;
         if (this._generation !== generation) {
             this._generation = generation;
+            this._messages.length = 0;
             this._ackTick = -1;
             this.confirmed = -1;
             this._newest = -1;
@@ -753,13 +771,14 @@ export class ReplicationReceiver {
         const previous = this.confirmed;
         const latestOnly = confirmations === "latest";
         const unhandled: Uint8Array[] = [];
+        let messages: ServerMessage[] | undefined;
         let latest: PreparedPacket | undefined;
         let decoded = this.confirmed;
         let failure: Error | undefined;
         const preceding: ReplicationConfirmation[] = [];
         let arrived = false;
         for (const bytes of this.connection.receive()) {
-            let frame: DecodedFrame | undefined;
+            let frame: DecodedFrame | ServerMessage | undefined;
             try {
                 frame = decodeServerMessage(bytes, this._layout);
             } catch (error) {
@@ -768,6 +787,10 @@ export class ReplicationReceiver {
             }
             if (!frame) {
                 unhandled.push(bytes);
+                continue;
+            }
+            if ("topic" in frame) {
+                (messages ??= []).push(frame);
                 continue;
             }
             arrived = true;
@@ -828,12 +851,14 @@ export class ReplicationReceiver {
             else this.confirm(latest.tick, latest.rows);
         }
         if (failure) {
+            this._messages.length = 0;
             this._pending.clear();
             this._discarded.clear();
             this._versions.clear();
             failServerConnection(this.connection, failure);
             return [];
         }
+        if (messages) for (const message of messages) this._messages.push(message);
         if (this.confirmed > previous && typeof window !== "undefined")
             reportStartup({
                 kind: "server-state",

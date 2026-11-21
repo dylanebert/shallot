@@ -7,8 +7,12 @@ import {
     Replicate,
     ReplicationReceiver,
     ReplicationSender,
+    type ServerMessage,
+    ServerSession,
+    server,
 } from ".";
 import { decodeAccepted, encodeIntent } from "./intent";
+import { encodeServerMessage } from "./server-message";
 
 const Payload = component("ReceiverModelPayload", {
     label: text(12),
@@ -211,6 +215,51 @@ function model(seed: number, mode: "all" | "latest") {
             apply();
         },
     );
+    const outboxes: Uint8Array[][] = [[], []];
+    const role = server({
+        plugins: [],
+        schema: [],
+        maxClients: 2,
+        rules: () => [],
+        validateIntent: () => false,
+        applyIntent() {},
+    });
+    role.initialize!(authority);
+    const runtime = authority.resource(ServerSession).server!;
+    const recipients = outboxes.map((outbox) => {
+        const id = runtime.connect({
+            send: (bytes) => outbox.push(bytes),
+            receive: () => [],
+            close() {},
+        })!;
+        outbox.length = 0; // Admission image is not a one-off message.
+        return id;
+    });
+    const routedBurst = () => {
+        const expected: ServerMessage[][] = [[], []];
+        const count = 4 + draw(8);
+        for (let i = 0; i < count; i++) {
+            const recipient = (i + seed) % 4;
+            const topic = draw(0x100000000);
+            const message = i % 3 === 0 ? { topic } : { topic, text: "🐟".repeat(draw(257)) };
+            runtime.sendMessage(
+                recipient === 2 ? "all" : (recipients[recipient] ?? 0xffffffff),
+                message,
+            );
+            for (let side = 0; side < 2; side++)
+                if (recipient === side || recipient === 2) expected[side]!.push(message);
+        }
+        const other = outboxes[1]!.splice(0);
+        require(other.length === expected[1]!.length &&
+            other.every((bytes, i) => {
+                const wanted = encodeServerMessage(expected[1]![i]!);
+                return (
+                    bytes.length === wanted.length &&
+                    bytes.every((byte, lane) => byte === wanted[lane])
+                );
+            }), "other connection received a misaddressed, missing or reordered message");
+        return { packets: outboxes[0]!.splice(0), expected: expected[0] };
+    };
     let applied = -1;
     const drain = (ticks: number[], expected: number[], extra: Uint8Array[] = []) => {
         const before = observed.length;
@@ -257,6 +306,8 @@ function model(seed: number, mode: "all" | "latest") {
         for (const start of [8, overflow ? 64 : 16]) {
             if (start !== 8) {
                 generation++;
+                require(receiver.readMessages().length ===
+                    0, "resumed stream exposed unread messages");
                 applied = -1;
                 // Reconnect at the same local tick that sent the last generation's ack.
                 replica.jumpToTick(replica.time.fixedTick + Number(seed === 3));
@@ -284,8 +335,15 @@ function model(seed: number, mode: "all" | "latest") {
                 deliver([start + 1, start + 1]);
                 replica.jumpToTick(replica.time.fixedTick);
             }
-            const messages = deliver([start], [accepted]);
-            require(messages.length === 1, "standalone Accepted was lost");
+            const burst = routedBurst();
+            const messages = deliver([start], [accepted, ...burst.packets]);
+            require(messages.length ===
+                1, "standalone Accepted was lost or a one-off message escaped routing");
+            require(JSON.stringify(receiver.readMessages()) ===
+                JSON.stringify(
+                    burst.expected,
+                ), "receiver delivered a misaddressed, missing or reordered message");
+            require(receiver.readMessages().length === 0, "receiver read a one-off message twice");
             const { records, watermark } = decodeAccepted(messages[0]!);
             require(watermark === start + 1, "standalone Accepted watermark was altered");
             checkIntent(records, start);
@@ -322,7 +380,7 @@ function model(seed: number, mode: "all" | "latest") {
             require(newest.getUint32(12, true) ===
                 next - 1, "sender did not encode against the acknowledged baseline");
             replica.jumpToTick(replica.time.fixedTick + 1);
-            deliver([next]);
+            deliver([next], start === 8 ? [encodeServerMessage({ topic: start })] : []);
             peer.flush(1);
         }
 
@@ -330,7 +388,21 @@ function model(seed: number, mode: "all" | "latest") {
         produce(terminal, 1);
         produce(terminal + 1, 1);
         let bad: Uint8Array = sent.get(terminal + 1)!.bytes.slice();
-        switch (seed % 4) {
+        switch (seed % 8) {
+            case 4: // Trailing byte after otherwise valid text.
+                bad = new Uint8Array([...encodeServerMessage({ topic: terminal, text: "" }), 0]);
+                break;
+            case 5:
+                bad = encodeServerMessage({ topic: terminal, text: "x" });
+                bad[10] = 0xff;
+                break;
+            case 6:
+            case 7: {
+                bad = new Uint8Array(seed % 8 === 6 ? 1035 : 4097);
+                bad.set(encodeServerMessage({ topic: terminal, text: "" }));
+                new DataView(bad.buffer).setUint16(8, bad.length - 10, true);
+                break;
+            }
             case 0:
                 bad = bad.subarray(0, 12);
                 break;
@@ -345,14 +417,18 @@ function model(seed: number, mode: "all" | "latest") {
                 bad[first + 2 + view.getUint16(first, true)] = seed % 4 === 2 ? 255 : 254;
             }
         }
-        require(drain([terminal], [terminal], [bad]).length ===
+        const oneOff = encodeServerMessage({ topic: terminal, text: "valid" });
+        require(drain([terminal], [terminal], [oneOff, bad]).length ===
             0, "rejected packet escaped receiver");
+        require(receiver.readMessages().length === 0, "refused drain exposed one-off messages");
         require(closed === 1 &&
             errors === 1, `refusal must close and report once, got ${closed}/${errors}`);
         produce(terminal + 2, 2);
         const accepted = encodeIntent(IntentMessageKind.Accepted, [operation(terminal + 2)]);
-        require(drain([terminal + 2, terminal + 3], [], [accepted]).length ===
+        require(drain([terminal + 2, terminal + 3], [], [accepted, oneOff]).length ===
             0, "terminal receiver routed a valid packet");
+        require(receiver.readMessages().length ===
+            0, "terminal receiver delivered a one-off message");
         require(drain([], [], [bad]).length === 0, "terminal receiver routed a malformed packet");
         require(closed === 1 && errors === 1, "terminal flush repeated the failure");
         require(acknowledgements.length === 0, "terminal receiver acknowledged a packet");

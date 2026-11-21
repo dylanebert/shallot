@@ -44,7 +44,8 @@ export interface LinkFaults {
     duplication: number;
 }
 
-/** Seeded byte transport. advance sets a transport clock, never ticks a World. */
+/** Seeded byte transport. Constant delay with no loss or duplication is FIFO.
+ * advance sets a transport clock, never ticks a World. */
 export function seededLink(seed: number, faults: LinkFaults) {
     if (
         faults.minDelay < 0 ||
@@ -55,6 +56,7 @@ export function seededLink(seed: number, faults: LinkFaults) {
         faults.duplication > 1
     )
         throw new Error("Invalid link faults");
+    const reliable = faults.minDelay === faults.maxDelay && !faults.loss && !faults.duplication;
     let now = 0;
     let closed = false;
     const queues: { due: number; order: number; bytes: Uint8Array }[][] = [[], []];
@@ -85,7 +87,7 @@ export function seededLink(seed: number, faults: LinkFaults) {
             for (let i = 0; i < copies; i++)
                 queues[1 - side]!.push({
                     due: now + faults.minDelay + random() * (faults.maxDelay - faults.minDelay),
-                    order: random(),
+                    order: reliable ? counts.sent : random(),
                     bytes: bytes.slice(),
                 });
         },

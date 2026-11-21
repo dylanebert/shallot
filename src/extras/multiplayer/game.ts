@@ -31,6 +31,7 @@ import {
 import { type Connection, type LinkFaults, MAX_MESSAGE_BYTES, seededLink } from "./link";
 import { type RecordingOptions, SessionRecorder, type SessionRecording } from "./recording";
 import { createServerApp, roomHost } from "./room-host";
+import { encodeServerMessage, type ServerMessage } from "./server-message";
 import { LEAVE_CLOSE_CODE, WebSocketConnection } from "./websocket";
 
 /** A live server-side connection entity. Its transport and histories live outside ECS storage. */
@@ -194,6 +195,20 @@ class GameServer {
         } finally {
             peer.connection.close();
             this.world.destroy(eid);
+        }
+    }
+    /** Sends once on each target's live stream, in call order on reliable ordered transports.
+     * A target is a server connection eid or all connected clients in this World. Held,
+     * closed and absent seats are skipped; nothing is retained for resume. Invalid payloads throw. */
+    sendMessage(target: number | "all", message: ServerMessage): void {
+        const bytes = encodeServerMessage(message);
+        if (target === "all") {
+            for (const peer of this._peers.values()) {
+                if (!peer.held && !peer.connection.closed) peer.connection.send(bytes);
+            }
+        } else {
+            const peer = this._peers.get(target);
+            if (peer && !peer.held && !peer.connection.closed) peer.connection.send(bytes);
         }
     }
     /** @internal Keep the entity and intent history, but stop stepping this peer. */

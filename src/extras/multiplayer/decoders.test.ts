@@ -15,6 +15,7 @@ import {
 import { diagnosticKind, writeDiagnostic } from "./diagnostics";
 import { type Game, isClientMessage, ServerSession, server } from "./game";
 import { decodeAccepted, decodeInputs, decodeIntent, encodeInputs, encodeIntent } from "./intent";
+import { encodeServerMessage } from "./server-message";
 
 const Value = component("DecoderTestValue", { value: u32, label: text(16) });
 const layout = [[u32, Value.label]];
@@ -68,10 +69,12 @@ const clientSeeds = [
     diagnostic(9),
     diagnostic(7, 2.25),
 ];
-const seeds = [
-    ...clientSeeds,
-    encodeIntent(IntentMessageKind.Accepted, [operation], 1),
+const serverSeeds = [
     ...replication(),
+    encodeIntent(IntentMessageKind.Accepted, [operation], 1),
+    diagnostic(2),
+    diagnostic(5, 0.25),
+    encodeServerMessage({ topic: 7, text: "🪝" }),
 ];
 const boundaries = [0, 1, 2, 4, 5, 6, 7, 12, 0x7fffffff, 0x80000000, 0xfffffffe, 0xffffffff];
 
@@ -84,7 +87,7 @@ function invalidInputs(seed: number) {
     };
     const below = (n: number) => Math.floor(random() * n);
     const inputs: Uint8Array[] = [];
-    for (const valid of seeds) {
+    for (const valid of [...clientSeeds, ...serverSeeds]) {
         for (let length = 0; length < valid.length; length++) inputs.push(valid.slice(0, length));
         for (let i = 0; i < 150; i++) {
             const bytes = new Uint8Array(valid.length + (below(4) === 0 ? below(16) : 0));
@@ -106,7 +109,7 @@ function invalidInputs(seed: number) {
         const bytes = new Uint8Array(below(64));
         for (let b = 0; b < bytes.length; b++) bytes[b] = below(256);
         if (bytes.length >= 4 && below(2))
-            new DataView(bytes.buffer).setUint32(0, 1 + below(7), true);
+            new DataView(bytes.buffer).setUint32(0, 1 + below(8), true);
         inputs.push(bytes);
     }
     return inputs;
@@ -125,12 +128,6 @@ function settle<T>(decode: () => T): { value: T } | Error {
 test("all emitted message kinds and the accepted seeded corpus re-encode byte-exactly", () => {
     const clientKinds = new Set<number>();
     const serverKinds = new Set<number>();
-    const serverSeeds = [
-        ...replication(),
-        encodeIntent(IntentMessageKind.Accepted, [operation], 1),
-        diagnostic(2),
-        diagnostic(5, 0.25),
-    ];
     for (const bytes of clientSeeds) expect(isClientMessage(bytes)).toBe(true);
     for (const bytes of serverSeeds) expect(() => decodeServerMessage(bytes, layout)).not.toThrow();
     for (const bytes of [...clientSeeds, ...serverSeeds, ...inputs]) {
@@ -160,7 +157,11 @@ test("all emitted message kinds and the accepted seeded corpus re-encode byte-ex
         if (!(decoded instanceof Error)) {
             serverKinds.add(kind);
             if (decoded.value) {
-                expect(encodeFrame(decoded.value, layout)).toEqual(bytes);
+                expect(
+                    "topic" in decoded.value
+                        ? encodeServerMessage(decoded.value)
+                        : encodeFrame(decoded.value, layout),
+                ).toEqual(bytes);
             } else if (kind === IntentMessageKind.Accepted) {
                 const { records, watermark } = decodeAccepted(bytes);
                 expect(encodeIntent(kind, records, watermark)).toEqual(bytes);
@@ -168,7 +169,19 @@ test("all emitted message kinds and the accepted seeded corpus re-encode byte-ex
         }
     }
     expect([...clientKinds].sort()).toEqual([3, 4, 6, 7]);
-    expect([...serverKinds].sort()).toEqual([1, 2, 5, 6, 7]);
+    expect([...serverKinds].sort()).toEqual([1, 2, 5, 6, 7, 8]);
+});
+
+test("server message encoding refuses invalid topics and text beyond 1024 UTF-8 bytes", () => {
+    const text = "🐟".repeat(256);
+    const bytes = encodeServerMessage({ topic: 0xffffffff, text });
+    expect(bytes).toHaveLength(1034);
+    expect(decodeServerMessage(bytes, layout)).toEqual({ topic: 0xffffffff, text });
+    expect(isClientMessage(bytes)).toBe(false);
+    expect(() => encodeServerMessage({ topic: 0, text: `${text}a` })).toThrow();
+    expect(() => encodeServerMessage({ topic: 0, text: "\ud800" })).toThrow();
+    for (const topic of [-1, 0.5, 0x100000000, NaN])
+        expect(() => encodeServerMessage({ topic })).toThrow();
 });
 
 for (const mode of ["all", "latest"] as const) {
@@ -351,6 +364,7 @@ test("structural comparison preserves a float lane's NaN payload bits", () => {
         0x7fc12345,
     );
     const frame = decodeServerMessage(bytes, [[f32]])!;
+    if ("topic" in frame) throw new Error("Expected a replication frame");
     expect(encodeFrame(frame, [[f32]])).toEqual(bytes);
 });
 
