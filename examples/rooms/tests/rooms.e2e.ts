@@ -302,7 +302,13 @@ for (const phone of [false, true]) {
 
             await use(plus(page, 2));
             await expectSeatPopup(page, 2);
+            await use(action(page, "Add bot"));
+            await frames.run(4);
+            await expect(players(page)).toHaveText(["You", "Bot 1", "", ""]);
+            await expectBotClear(page);
             await use(plus(page, 2));
+            await use(action(page, "Remove bot"));
+            await expect(players(page)).toHaveText(["You", "", "", ""]);
             await use(plus(page, 3));
             await expectSeatPopup(page, 3);
             await noFocus(page);
@@ -445,7 +451,6 @@ for (const phone of [false, true]) {
                 const rows = page.locator("#seat-3-actions button");
                 await expect(rows).toHaveText(["Add bot", "Copy code"]);
                 for (const row of await rows.all()) await expectRaisedRow(page, row, phone);
-                await expectBotClear(page);
                 await capture(page, `server-${size}`);
                 await page.keyboard.press("Escape");
                 await use(plus(page, 2));
