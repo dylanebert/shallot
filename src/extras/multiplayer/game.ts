@@ -47,6 +47,9 @@ export const RoomBot = component("RoomBot", {});
 /** Server-issued seat identity, unique across rooms for the lifetime of the server process. */
 export type ClientId = number & { readonly __clientId: unique symbol };
 
+/** Durable game-owned player identity, independent of the server-issued ClientId. */
+export type PlayerId = string;
+
 let lastClientId = 0;
 
 function issueClientId(): ClientId {
@@ -72,8 +75,22 @@ export interface Game {
     reconnectMs?: number;
     rules(world: World, connection: number): ReplicationRules;
     onCreate?(world: World): void;
-    onJoin?(world: World, connection: number, transport: Connection, clientId: ClientId): void;
-    onLeave?(world: World, connection: number, clientId: ClientId): void;
+    /** Room hosts call this before publishing a human seat, never on resume. The signal
+     * aborts on disconnect, shutdown or after 15 seconds. A refusal reason is public and
+     * must fit in 123 UTF-8 bytes; never include secrets. Throws refuse without details. */
+    onAuth?(
+        credential: string | null,
+        signal: AbortSignal,
+    ): Promise<{ playerId: PlayerId } | { reason: string }>;
+    /** playerId is present for authenticated seats only; ClientId addresses the current seat. */
+    onJoin?(
+        world: World,
+        connection: number,
+        transport: Connection,
+        clientId: ClientId,
+        playerId?: PlayerId,
+    ): void;
+    onLeave?(world: World, connection: number, clientId: ClientId, playerId?: PlayerId): void;
     validateIntent(world: World, connection: number, record: IntentRecord): boolean;
     /** Borrows accepted operations and this tick's held input before gameplay.
      * Input keeps its requested tick, which may precede tick after loss or late arrival. */
@@ -84,12 +101,19 @@ export interface Game {
         records: readonly OperationRecord[],
         input?: InputRecord,
     ): void;
-    onSend?(world: World, connection: number, transport: Connection, clientId: ClientId): void;
+    onSend?(
+        world: World,
+        connection: number,
+        transport: Connection,
+        clientId: ClientId,
+        playerId?: PlayerId,
+    ): void;
     onClient?(world: World, transport: Connection): void;
 }
 
 interface Peer {
     readonly clientId: ClientId;
+    readonly playerId?: PlayerId;
     diagnostics: ReturnType<typeof observeNetwork>;
     connection: Connection;
     sender: ReplicationSender;
@@ -143,6 +167,7 @@ class GameServer {
         connection: Connection,
         kind: Peer["kind"] = "human",
         admit?: ThinClient["admit"],
+        playerId?: PlayerId,
     ): number | undefined {
         if (this.peers.size >= this.game.maxClients) return undefined;
         const eid = this.world.create();
@@ -156,7 +181,7 @@ class GameServer {
                 return undefined;
             }
             const clientId = issueClientId();
-            this.game.onJoin?.(this.world, eid, connection, clientId);
+            this.game.onJoin?.(this.world, eid, connection, clientId, playerId);
             const sender = new ReplicationSender(
                 this.world,
                 this.game.schema,
@@ -166,6 +191,7 @@ class GameServer {
             );
             this._peers.set(eid, {
                 clientId,
+                playerId,
                 connection,
                 sender,
                 intent: new IntentReceiver(connection),
@@ -205,7 +231,7 @@ class GameServer {
                 const successor = this.leader;
                 if (successor !== undefined) this.world.add(successor, RoomLeader);
             }
-            this.game.onLeave?.(this.world, eid, peer.clientId);
+            this.game.onLeave?.(this.world, eid, peer.clientId, peer.playerId);
         } finally {
             peer.connection.close();
             this.world.destroy(eid);
@@ -271,7 +297,7 @@ class GameServer {
     send(): void {
         for (const [eid, peer] of this.peers) {
             if (peer.held) continue;
-            this.game.onSend?.(this.world, eid, peer.connection, peer.clientId);
+            this.game.onSend?.(this.world, eid, peer.connection, peer.clientId, peer.playerId);
             peer.sender.record(
                 this.world.time.fixedTick,
                 [...peer.intent.records.values()],
@@ -364,6 +390,8 @@ export function client(
     game: Game,
     options: {
         url: string;
+        /** Sent only on the initial upgrade. Use WSS and omit credentials from access logs. */
+        credential?: string;
         onError?: (error: Error) => void;
         /** Receives the server-selected room code on admission to serveRooms. */
         onRoom?: (code: string) => void;
@@ -378,13 +406,13 @@ export function client(
         name: "MultiplayerClient",
         dependencies: [...(recorder ? [recorder.plugin] : []), ...game.plugins],
         async initialize(world) {
-            let url = options.url;
-            if (options.onRoom) {
-                const endpoint = new URL(url, globalThis.location?.href);
-                endpoint.searchParams.set("announceRoom", "1");
-                url = endpoint.href;
-            }
+            const url = new URL(options.url, globalThis.location?.href);
+            if (options.onRoom) url.searchParams.set("announceRoom", "1");
+            if (options.credential !== undefined)
+                url.searchParams.set("credential", options.credential);
             const socket = new WebSocket(url);
+            url.searchParams.delete("credential");
+            const endpoint = url.href;
             let seat: string | undefined;
             let token: string | undefined;
             let generation = 0;
@@ -393,12 +421,12 @@ export function client(
             let disposed = false;
             let failed = false;
             const failure = () =>
-                new Error(`No server answered at ${options.url}. The connection failed or closed.`);
+                new Error(`No server answered at ${endpoint}. The connection failed or closed.`);
             const refusal = (code: number, reason: string) =>
                 code === 1006
                     ? failure()
                     : new Error(
-                          `${options.url} closed the connection (${code}${reason ? `: ${reason}` : ""}).`,
+                          `${endpoint} closed the connection (${code}${reason ? `: ${reason}` : ""}).`,
                       );
             const schedule =
                 options.retryAfter ??
@@ -416,7 +444,7 @@ export function client(
                     }
                     cancel = schedule(delay, () => {
                         if (disposed) return;
-                        const url = new URL(socket.url);
+                        const url = new URL(endpoint);
                         url.searchParams.delete("creator");
                         url.searchParams.set("resume", token!);
                         url.searchParams.set("seat", seat!);
@@ -441,7 +469,7 @@ export function client(
             }
             let current = attach(socket);
             const connection: Connection = {
-                endpoint: socket.url,
+                endpoint,
                 get generation() {
                     return generation || undefined;
                 },
@@ -520,13 +548,19 @@ function localHost(game: Game, options: LocalOptions, pinned?: App, recorder?: S
         };
         return { endpoint, client: link.b };
     }
-    async function join(code?: string, creator?: string, clientRecorder?: SessionRecorder) {
+    async function join(
+        code?: string,
+        creator?: string,
+        credential?: string,
+        clientRecorder?: SessionRecorder,
+    ) {
         const clientSeed = seed++;
         let current = stream(clientSeed);
         const result = host.connect(current.endpoint, {
             intent: code === undefined ? "joinOrCreate" : "join",
             code,
             creator,
+            credential,
         });
         await result?.ready;
         if (!result?.room.app || current.endpoint.closed) throw new Error("Local client refused");
@@ -640,7 +674,7 @@ type LegacyLocalOptions = LocalOptions & {
 
 type LocalHost = ReturnType<typeof localHost>;
 type LocalRooms = Omit<LocalHost, "join"> & {
-    join(code?: string, creator?: string): ReturnType<LocalHost["join"]>;
+    join(code?: string, creator?: string, credential?: string): ReturnType<LocalHost["join"]>;
 };
 
 /** Same-process rooms over seeded links. join() quick-joins; join(code) claims or enters a room.
@@ -676,7 +710,7 @@ export async function local(game: Game, options: LegacyLocalOptions & { rooms?: 
     try {
         serverRecorder?.attachServer();
         host = localHost(game, options, app, serverRecorder);
-        const seat = await host.join(undefined, undefined, clientRecorder);
+        const seat = await host.join(undefined, undefined, undefined, clientRecorder);
         for (const thin of options.thinClients ?? []) await seat.addBot(thin);
         return {
             plugin: seat.plugin,

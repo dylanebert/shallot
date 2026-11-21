@@ -194,7 +194,8 @@ export async function serveGame(
  * `resume:<seat>:<token>` beside the binary stream. Resume with `?seat=…&resume=…`;
  * a successful resume replaces the token, and resuming a seat whose socket is still open
  * closes that socket with 1008. Invalid, expired, spent, or wrong-room
- * credentials close with 1008. Use WSS and omit creator and resume query
+ * credentials close with 1008. Send the game credential as `?credential=…` on initial join only.
+ * Use WSS and omit credential, creator and resume query
  * credentials from access logs. The first seat starts the World. Pending seats count toward maxClients but
  * are not admitted before startup succeeds. The room and its bots retire on stop or
  * when their last human seat leaves or expires. An in-flight build is not canceled, but disposes on success
@@ -258,6 +259,10 @@ function hostRooms(
         },
         connect(connection, url) {
             const query = url?.searchParams;
+            if (query && query.getAll("credential").length > 1) {
+                connection.close(1008, "Invalid credential");
+                return;
+            }
             if (query?.get("announceRoom") === "1") announce.add(connection);
             host.connect(connection, {
                 intent: query?.get("intent"),
@@ -265,6 +270,7 @@ function hostRooms(
                 creator: query?.get("creator"),
                 resume: query?.get("resume"),
                 seat: query?.get("seat"),
+                credential: query?.get("credential"),
             });
         },
         disconnect(connection, code) {

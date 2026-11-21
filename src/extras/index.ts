@@ -62,6 +62,7 @@ export {
     type LinkFaults,
     local,
     MultiplayerPlugin,
+    type PlayerId,
     PredictionMotion,
     PredictionPlugin,
     PredictionTarget,

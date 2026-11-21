@@ -1,9 +1,9 @@
 import { type App, createApp, Time } from "../../engine";
 import { MultiplayerPlugin, ReplicationReceiver } from ".";
 import { observeNetwork, transportClock } from "./diagnostics";
-import { type Game, ServerSession, server, type ThinClient } from "./game";
+import { type Game, type PlayerId, ServerSession, server, type ThinClient } from "./game";
 import { IntentSender } from "./intent";
-import { type Connection, type LinkFaults, seededLink } from "./link";
+import { type Connection, type LinkFaults, MAX_MESSAGE_BYTES, seededLink } from "./link";
 import type { SessionRecorder } from "./recording";
 
 export function createServerApp(game: Game, recorder?: SessionRecorder) {
@@ -70,6 +70,9 @@ const CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 export const ROOM_CODE_CLAIM_MS = 60_000;
 const CREATOR_HOLD_MS = 30_000;
 const MAX_UNCLAIMED_CODES = 128;
+// Colyseus defaults to a 15 s seat reservation. Bound the time a stalled auth can hold capacity.
+const AUTH_TIMEOUT_MS = 15_000;
+const utf8 = new TextEncoder();
 /** A seat whose oldest unconfirmed frame is this many ticks older than the current tick, counted
  * from admission or resume, is closed and leaves, or is held under Game.reconnectMs, whether or
  * not acknowledgements arrive: its sender retains every unconfirmed frame, and a client this far
@@ -110,6 +113,7 @@ export function roomHost<
     const unclaimed = new Map<string, Reservation>();
     const reservationNow = options.reservationNow ?? (() => performance.now());
     const memberships = new WeakMap<C, Room<C>>();
+    const authorizing = new WeakMap<C, AbortController>();
     const pinned: Room<C> | undefined = pinnedApp && {
         code: "",
         private: true,
@@ -149,6 +153,7 @@ export function roomHost<
         rooms.delete(room.code);
         for (const connection of room.seats.keys()) {
             memberships.delete(connection);
+            authorizing.get(connection)?.abort();
             connection.close(code, reason);
         }
         room.seats.clear();
@@ -170,6 +175,7 @@ export function roomHost<
             return;
         }
         memberships.delete(connection);
+        authorizing.get(connection)?.abort();
         const eid = room.seats.get(connection);
         room.seats.delete(connection);
         const authority = room.app?.world.resource(ServerSession).server;
@@ -193,7 +199,48 @@ export function roomHost<
         }
     }
 
-    function admit(room: Room<C>, connection: C) {
+    async function authorize(room: Room<C>, connection: C, credential: string | null) {
+        if (memberships.get(connection) !== room || connection.closed) return;
+        const controller = new AbortController();
+        authorizing.set(connection, controller);
+        const timeout = setTimeout(() => controller.abort(), AUTH_TIMEOUT_MS);
+        let result: Awaited<ReturnType<NonNullable<Game["onAuth"]>>> | undefined;
+        try {
+            const aborted = new Promise<undefined>((resolve) => {
+                controller.signal.addEventListener("abort", () => resolve(undefined), {
+                    once: true,
+                });
+            });
+            result = await Promise.race([aborted, game.onAuth!(credential, controller.signal)]);
+        } catch {
+            // Hook errors may contain credentials. Only explicit, public refusal reasons go out.
+        } finally {
+            clearTimeout(timeout);
+            authorizing.delete(connection);
+        }
+        if (memberships.get(connection) !== room || connection.closed) return;
+        if (!controller.signal.aborted && result && "playerId" in result) {
+            admit(room, connection, result.playerId);
+            return;
+        }
+        const reason = result && "reason" in result ? result.reason : "";
+        const publicReason =
+            reason &&
+            reason.length <= 123 &&
+            utf8.encode(reason).length <= 123 &&
+            (!credential || !reason.includes(credential));
+        connection.close(
+            1008,
+            controller.signal.aborted
+                ? "Admission timed out"
+                : publicReason
+                  ? reason
+                  : "Admission refused",
+        );
+        leave(connection);
+    }
+
+    function admit(room: Room<C>, connection: C, playerId?: PlayerId) {
         if (connection.closed) {
             leave(connection);
             return;
@@ -217,7 +264,12 @@ export function roomHost<
             };
             const eid = room
                 .app!.world.resource(ServerSession)
-                .server!.connect(reconnectMs ? transport : connection);
+                .server!.connect(
+                    reconnectMs ? transport : connection,
+                    "human",
+                    undefined,
+                    playerId,
+                );
             if (eid === undefined) refuseFull(connection);
             else {
                 room.seats.set(connection, eid);
@@ -259,7 +311,7 @@ export function roomHost<
             return;
         }
         activate(room, app);
-        for (const connection of room.seats.keys()) admit(room, connection);
+        if (!game.onAuth) for (const connection of room.seats.keys()) admit(room, connection);
     }
 
     function activate(room: Room<C>, app: App) {
@@ -452,7 +504,11 @@ export function roomHost<
             .filter((room) => !room.private)
             .map((room) => ({
                 code: room.code,
-                clients: count(room),
+                clients: game.onAuth
+                    ? [...room.seats.values()].filter((eid) => eid !== undefined).length +
+                      (room.held ?? 0) +
+                      room.bots.size
+                    : count(room),
                 maxClients: game.maxClients,
             }));
     }
@@ -476,16 +532,26 @@ export function roomHost<
             creator = null,
             resume: token = null,
             seat: id = null,
+            credential = null,
         }: {
             intent?: string | null;
             code?: string | null;
             creator?: string | null;
             resume?: string | null;
             seat?: string | null;
+            credential?: string | null;
         } = {},
     ) {
         if (stopped) {
             connection.close(1001, "Server stopping");
+            return;
+        }
+        if (
+            credential !== null &&
+            (credential.length > MAX_MESSAGE_BYTES ||
+                utf8.encode(credential).length > MAX_MESSAGE_BYTES)
+        ) {
+            connection.close(1008, "Invalid credential");
             return;
         }
         expireSeats();
@@ -538,8 +604,14 @@ export function roomHost<
         }
         room.seats.set(connection, undefined);
         memberships.set(connection, room);
+        if (!room.app) room.ready ??= start(room);
+        if (game.onAuth) {
+            const ready = room.app
+                ? authorize(room, connection, credential)
+                : room.ready!.then(() => authorize(room, connection, credential));
+            return { room, ready };
+        }
         if (room.app) admit(room, connection);
-        else room.ready ??= start(room);
         return { room, ready: room.ready };
     }
 

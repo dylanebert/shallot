@@ -18,6 +18,7 @@ export {
     client,
     type Game,
     local,
+    type PlayerId,
     RoomBot,
     RoomLeader,
     ServerSession,
