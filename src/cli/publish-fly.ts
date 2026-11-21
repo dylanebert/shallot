@@ -23,6 +23,10 @@ const flyRegion = "iad";
 const volumeName = "shallot_data";
 const volumeSize = 1;
 const dataPath = "/data";
+const serverPort = 8080;
+const machineMemory = 256;
+const connectionLimit = 20;
+const stopSignal = "SIGTERM";
 const volumeUSDPerGBMonth = 0.15;
 
 function volumeMonthlyCost(size: number): string {
@@ -149,20 +153,13 @@ interface FlyMachine {
     state?: string;
     config?: {
         guest?: Record<string, unknown>;
-        metadata?: Record<string, unknown>;
-        mounts?: { volume?: string; path?: string }[];
     };
 }
 
 interface FlyVolume {
     id: string;
-    name?: string;
     ["size_gb"]: number;
-    region?: string;
     ["auto_backup_enabled"]?: boolean;
-    ["attached_machine_id"]?: string | null;
-    ["attached_alloc_id"]?: string | null;
-    ["host_status"]?: string;
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -242,7 +239,7 @@ function refuseFlyInventory(
         `  ${id}: ${cost}. Delete with "${cli}" ${kind} destroy ${id} --app ${app}`;
     const count = (n: number | undefined, noun: string) => {
         if (n === undefined) return `${noun} count unknown`;
-        if (n === 0 && phase === "after deploy") return `missing ${noun}`;
+        if (n === 0) return `missing ${noun}`;
         return `${n} ${noun}${n === 1 ? "" : "s"}`;
     };
     const report = [
@@ -262,12 +259,132 @@ function refuseFlyInventory(
             machine.region === flyRegion &&
             singleSharedCPU(guest) &&
             typeof memory === "number" &&
-            memory >= 256
-                ? `about $${(2.19 + ((memory - 256) * 6) / 1024).toFixed(2)}/month if running continuously, plus storage and transfer`
+            memory >= machineMemory
+                ? `about $${(2.19 + ((memory - machineMemory) * 6) / 1024).toFixed(2)}/month if running continuously, plus storage and transfer`
                 : "monthly compute depends on size, region and uptime; estimate at https://fly.io/calculator/";
         report.push(resource(machine.id, "machine", cost));
     }
     throw new Error(report.join("\n"));
+}
+
+const flyAssignedFields = new Set([
+    // Machine identity, network address and deployment artifact.
+    "machine.id",
+    "machine.name",
+    "machine.private_ip",
+    "machine.image_ref",
+    "machine.config.image",
+    // Lifecycle and allocation observations, not Machine configuration.
+    "machine.instance_id",
+    "machine.version",
+    "machine.created_at",
+    "machine.updated_at",
+    "machine.events",
+    "machine.state",
+    "machine.cordoned",
+    // Fly Launch stamps this metadata; the platform and process group remain checked.
+    "machine.config.metadata.fly_builder_id",
+    "machine.config.metadata.fly_flyctl_version",
+    "machine.config.metadata.fly_release_id",
+    "machine.config.metadata.fly_release_version",
+    // Volume identity, creation time and physical placement within its checked region.
+    "volume.id",
+    "volume.created_at",
+    "volume.zone",
+]);
+
+function compareFlyFields(
+    expected: unknown,
+    actual: unknown,
+    path: string,
+    report: (difference: string) => void,
+): void {
+    if (flyAssignedFields.has(path) || expected === actual) return;
+    if (record(expected) && record(actual)) {
+        for (const key of new Set([...Object.keys(expected), ...Object.keys(actual)])) {
+            const field = /^[a-zA-Z_][a-zA-Z_0-9]*$/.test(key)
+                ? `.${key}`
+                : `[${JSON.stringify(key)}]`;
+            compareFlyFields(
+                Object.hasOwn(expected, key) ? expected[key] : undefined,
+                Object.hasOwn(actual, key) ? actual[key] : undefined,
+                `${path}${field}`,
+                report,
+            );
+        }
+    } else if (
+        Array.isArray(expected) &&
+        Array.isArray(actual) &&
+        expected.length === actual.length
+    ) {
+        for (const [index, value] of expected.entries())
+            compareFlyFields(value, actual[index], `${path}[${index}]`, report);
+    } else {
+        const display = (value: unknown) => {
+            if (value === undefined) return "absent";
+            if (/^machine\.config\.env(?:[.[]|$)/.test(path) && value === actual)
+                return "present (value withheld)";
+            return JSON.stringify(value);
+        };
+        report(`${path}: expected ${display(expected)}, got ${display(actual)}`);
+    }
+}
+
+// Machine config emitted by Fly Launch for flyConfig with the pinned flyctl.
+function canonicalFlyMachine(volume: FlyVolume) {
+    return {
+        env: {
+            FLY_PROCESS_GROUP: "app",
+            PRIMARY_REGION: flyRegion,
+            PORT: String(serverPort),
+            SHALLOT_DATA_DIR: dataPath,
+        },
+        init: {},
+        guest: { ["cpu_kind"]: "shared", cpus: 1, ["memory_mb"]: machineMemory },
+        metadata: { ["fly_platform_version"]: "v2", ["fly_process_group"]: "app" },
+        mounts: [
+            {
+                encrypted: true,
+                path: dataPath,
+                ["size_gb"]: volumeSize,
+                volume: volume.id,
+                name: volumeName,
+            },
+        ],
+        services: [
+            {
+                protocol: "tcp",
+                ["internal_port"]: serverPort,
+                autostop: true,
+                autostart: true,
+                ["min_machines_running"]: 0,
+                ports: [
+                    { port: 80, handlers: ["http"], ["force_https"]: true },
+                    { port: 443, handlers: ["http", "tls"] },
+                ],
+                concurrency: { type: "connections", ["soft_limit"]: connectionLimit },
+                ["force_instance_key"]: null,
+            },
+        ],
+        restart: { policy: "no" },
+        ["stop_config"]: { signal: stopSignal },
+    };
+}
+
+function canonicalFlyVolume(machine: FlyMachine | undefined) {
+    return {
+        name: volumeName,
+        state: "created",
+        ["size_gb"]: volumeSize,
+        region: flyRegion,
+        encrypted: true,
+        ["attached_machine_id"]: machine?.id ?? null,
+        ["attached_alloc_id"]: null,
+        ["host_dedication_id"]: "",
+        ["snapshot_retention"]: 5,
+        ["auto_backup_enabled"]: false,
+        ["host_status"]: "ok",
+    };
 }
 
 function verifyFlyEnvelope(
@@ -283,70 +400,28 @@ function verifyFlyEnvelope(
     const differences: string[] = [];
     const machine = machines.rows[0];
     const volume = volumes.rows[0];
-    if (machines.count === 0 && !initializing) differences.push("Machine count 0; expected one");
     if (machines.count === 1 && machine) {
-        const guest = machine.config?.guest;
-        if (!singleSharedCPU(guest) || guest?.memory_mb !== 256)
-            differences.push(
-                `${machine.id}: Machine size ${JSON.stringify(guest) ?? "unknown"}; expected shared-cpu-1x 256 MB without GPUs.`,
+        const report = (difference: string) => differences.push(`${machine.id}: ${difference}`);
+        if (machine.state === "destroying" || machine.state === "destroyed")
+            report(
+                `machine.state: expected a retained Machine, got ${JSON.stringify(machine.state)}`,
             );
-        if (machine.region !== flyRegion)
-            differences.push(
-                `${machine.id}: Machine region ${JSON.stringify(machine.region) ?? "unknown"}; expected ${flyRegion}.`,
-            );
-        const metadata = machine.config?.metadata;
-        if (
-            metadata?.fly_platform_version !== "v2" ||
-            metadata.fly_process_group !== "app" ||
-            metadata.process_group === "release_command" ||
-            machine.state === "destroying" ||
-            machine.state === "destroyed"
-        )
-            differences.push(
-                `${machine.id}: Machine is not managed by Fly Launch in the app process group or is being destroyed.`,
+        if (volumes.count === 1 && volume)
+            compareFlyFields(
+                { region: flyRegion, ["host_status"]: "ok", config: canonicalFlyMachine(volume) },
+                machine,
+                "machine",
+                report,
             );
     }
-    const expectedVolume = `expected one ${volumeSize} GB ${volumeName} volume in ${flyRegion}`;
-    if (volumes.count === 0 && !initializing) differences.push(expectedVolume);
-    if (volumes.count === 1 && volume) {
-        if (volume.auto_backup_enabled !== false)
-            differences.push(`${volume.id}: scheduled snapshots must be off.`);
-        if (
-            volume.name !== volumeName ||
-            volume.size_gb !== volumeSize ||
-            volume.region !== flyRegion
-        )
-            differences.push(
-                `${volume.id}: found ${volume.size_gb} GB ${JSON.stringify(volume.name) ?? "unnamed"} volume in ${JSON.stringify(volume.region) ?? "unknown region"}; ${expectedVolume}.`,
-            );
-        if (initializing) {
-            if (
-                volume.attached_machine_id !== null ||
-                volume.attached_alloc_id !== null ||
-                volume.host_status !== "ok"
-            )
-                differences.push(
-                    `${volume.id}: expected an unattached volume on a healthy host before initialization.`,
-                );
-        } else if (machines.count === 1 && machine) {
-            const mounts = machine.config?.mounts;
-            if (
-                volume.attached_machine_id !== machine.id ||
-                !Array.isArray(mounts) ||
-                mounts.length !== 1 ||
-                mounts[0]?.volume !== volume.id ||
-                mounts[0]?.path !== dataPath
-            )
-                differences.push(
-                    `${volume.id}: expected it attached to Machine ${machine.id} as its only mount at ${dataPath}.`,
-                );
-        }
-    }
+    if (volumes.count === 1 && volume && (initializing || machines.count === 1))
+        compareFlyFields(canonicalFlyVolume(machine), volume, "volume", (difference) =>
+            differences.push(`${volume.id}: ${difference}`),
+        );
     if (
         machines.count === undefined ||
         volumes.count === undefined ||
-        machines.count > 1 ||
-        volumes.count > 1 ||
+        (initializing ? volumes.count > 1 : machines.count !== 1 || volumes.count !== 1) ||
         differences.length
     )
         refuseFlyInventory(cli, app, inventory, phase, differences);
@@ -491,9 +566,9 @@ export async function buildFlyServer(
 export function flyConfig(app: string): string {
     return `app = ${JSON.stringify(app)}
 primary_region = "${flyRegion}"
-kill_signal = "SIGTERM"
+kill_signal = "${stopSignal}"
 [env]
-  PORT = "8080"
+  PORT = "${serverPort}"
   SHALLOT_DATA_DIR = "${dataPath}"
 [mounts]
   source = "${volumeName}"
@@ -501,17 +576,17 @@ kill_signal = "SIGTERM"
   initial_size = "${volumeSize}GB"
   scheduled_snapshots = false
 [http_service]
-  internal_port = 8080
+  internal_port = ${serverPort}
   force_https = true
   auto_stop_machines = "stop"
   auto_start_machines = true
   min_machines_running = 0
 [http_service.concurrency]
   type = "connections"
-  soft_limit = 20
+  soft_limit = ${connectionLimit}
 [[vm]]
   size = "shared-cpu-1x"
-  memory = "256mb"
+  memory = "${machineMemory}mb"
 [[restart]]
   policy = "never"
 `;

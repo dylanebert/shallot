@@ -4,32 +4,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { removeTestDirectory } from "../../scripts/test-directory";
+import flyInventory from "./fixtures/publish-fly.json";
 import { readPublishLink } from "./publish";
 import { deployFlyServer, ensureFly, flyOrganizations } from "./publish-fly";
 
 setDefaultTimeout(TIMEOUT.node);
 const root = mkdtempSync(join(tmpdir(), "shallot-fly-target-"));
 const cli = join(root, process.platform === "win32" ? "fly.exe" : "fly");
-const guest = { ["cpu_kind"]: "shared", cpus: 1, ["memory_mb"]: 256 };
-const volume = {
-    id: "vol_2n0l9vl2l9pr635d",
-    name: "shallot_data",
-    ["size_gb"]: 1,
-    region: "iad",
-    ["attached_machine_id"]: "7591857c12836d",
-    ["auto_backup_enabled"]: false,
-};
-const machines = [
-    {
-        id: volume.attached_machine_id,
-        region: volume.region,
-        config: {
-            guest,
-            metadata: { ["fly_platform_version"]: "v2", ["fly_process_group"]: "app" },
-            mounts: [{ volume: volume.id, path: "/data" }],
-        },
-    },
-];
+const { machine, volume } = flyInventory;
+const { guest } = machine.config;
+const machines = [machine];
 const ips = [{ Type: "shared_v4" }, { Type: "v6" }];
 const commands = join(root, "commands.jsonl");
 beforeAll(async () => {
@@ -130,54 +114,54 @@ test("an authorized existing app inside the envelope deploys without allocating 
 });
 
 for (const [label, inventory, addresses, reason, inspect] of [
-    ["zero Machines", [], ips, "Machine count 0", "machine list"],
+    ["zero Machines", [], ips, "missing Machine", "machine list"],
     [
         "dedicated CPU",
         [{ ...machines[0], config: { guest: { ...guest, ["cpu_kind"]: "performance" } } }],
         ips,
-        "Machine size",
+        'config.guest.cpu_kind: expected "shared", got "performance"',
         "machine list",
     ],
     [
         "extra CPU",
         [{ ...machines[0], config: { guest: { ...guest, cpus: 2 } } }],
         ips,
-        "Machine size",
+        "config.guest.cpus: expected 1, got 2",
         "machine list",
     ],
     [
         "extra memory",
         [{ ...machines[0], config: { guest: { ...guest, ["memory_mb"]: 512 } } }],
         ips,
-        "Machine size",
+        "config.guest.memory_mb: expected 256, got 512",
         "machine list",
     ],
     [
         "GPU",
         [{ ...machines[0], config: { guest: { ...guest, gpus: 1 } } }],
         ips,
-        "Machine size",
+        "config.guest.gpus: expected absent, got 1",
         "machine list",
     ],
     [
         "GPU kind",
         [{ ...machines[0], config: { guest: { ...guest, ["gpu_kind"]: "a100" } } }],
         ips,
-        "Machine size",
+        'config.guest.gpu_kind: expected absent, got "a100"',
         "machine list",
     ],
     [
         "missing Machine config",
         [{ id: volume.attached_machine_id }],
         ips,
-        "Machine size",
+        "machine.config: expected",
         "machine list",
     ],
     [
         "unmanaged Machine",
         [{ ...machines[0], config: { ...machines[0]!.config, metadata: {} } }],
         ips,
-        "not managed by Fly Launch",
+        'config.metadata.fly_platform_version: expected "v2", got absent',
         "machine list",
     ],
     [
@@ -192,7 +176,7 @@ for (const [label, inventory, addresses, reason, inspect] of [
             },
         ],
         ips,
-        "not managed by Fly Launch",
+        'config.metadata.fly_process_group: expected "app", got "other"',
         "machine list",
     ],
     [
@@ -210,7 +194,7 @@ for (const [label, inventory, addresses, reason, inspect] of [
             },
         ],
         ips,
-        "not managed by Fly Launch",
+        'config.metadata.process_group: expected absent, got "release_command"',
         "machine list",
     ],
     ["invalid Machine inventory", {}, ips, "expected an inventory array", "machine list"],
@@ -280,17 +264,23 @@ for (const [label, inventory, addresses, reason, inspect] of [
     });
 }
 
-test("an existing app with missing, extra, or mismatched storage is not redeployed", async () => {
+test("an existing app with missing or mismatched storage is not redeployed", async () => {
     const work = mkdtempSync(join(tmpdir(), "shallot-fly-volume-refuse-"));
     try {
-        for (const volumes of [
-            [],
-            [{ ...volume, ["size_gb"]: 2 }],
-            [{ ...volume, name: "other" }],
-            [{ ...volume, region: "ord" }],
-            [{ ...volume, ["attached_machine_id"]: null }],
-            [{ ...volume, id: "vol_2n0l9vl2l9pr635a" }],
-        ]) {
+        for (const [volumes, difference] of [
+            [[], "missing volume"],
+            [[{ ...volume, ["size_gb"]: 2 }], "volume.size_gb: expected 1, got 2"],
+            [[{ ...volume, name: "other" }], 'volume.name: expected "shallot_data", got "other"'],
+            [[{ ...volume, region: "ord" }], 'volume.region: expected "iad", got "ord"'],
+            [
+                [{ ...volume, ["attached_machine_id"]: null }],
+                `volume.attached_machine_id: expected "${machine.id}", got null`,
+            ],
+            [
+                [{ ...volume, id: "vol_2n0l9vl2l9pr635a" }],
+                'config.mounts[0].volume: expected "vol_2n0l9vl2l9pr635a"',
+            ],
+        ] as const) {
             writeFileSync(join(root, "volumes.json"), JSON.stringify(volumes));
             writeFileSync(commands, "");
             await expect(
@@ -303,7 +293,7 @@ test("an existing app with missing, extra, or mismatched storage is not redeploy
                     ask,
                     cli,
                 ),
-            ).rejects.toThrow(/expected one 1 GB shallot_data volume in iad|only mount at \/data/);
+            ).rejects.toThrow(difference);
             expect(existsSync(join(work, "fly.toml"))).toBe(false);
             expect(readFileSync(commands, "utf8")).not.toContain('"deploy"');
         }
@@ -392,7 +382,7 @@ test.each([
         "oversized volume",
         { ...volume, ["size_gb"]: 10 },
         machines[0],
-        "10 GB",
+        "volume.size_gb: expected 1, got 10",
         "$1.50/month",
         `volumes destroy ${volume.id}`,
     ],
@@ -400,7 +390,7 @@ test.each([
         "snapshots on",
         { ...volume, ["auto_backup_enabled"]: true },
         machines[0],
-        "scheduled snapshots must be off",
+        "volume.auto_backup_enabled: expected false, got true",
         "$0.15/month",
         `volumes destroy ${volume.id}`,
     ],
@@ -408,7 +398,7 @@ test.each([
         "unattached volume",
         { ...volume, ["attached_machine_id"]: null },
         machines[0],
-        `attached to Machine ${machines[0]!.id} as its only mount at /data`,
+        `volume.attached_machine_id: expected "${machine.id}", got null`,
         "$0.15/month",
         `volumes destroy ${volume.id}`,
     ],
@@ -419,7 +409,7 @@ test.each([
             ...machines[0],
             config: { ...machines[0]!.config, guest: { ...guest, ["memory_mb"]: 512 } },
         },
-        "Machine size",
+        "config.guest.memory_mb: expected 256, got 512",
         "$3.69/month",
         `machine destroy ${machines[0]!.id}`,
     ],
@@ -450,6 +440,38 @@ test.each([
     },
 );
 
+test.each([
+    ["auto_destroy", true],
+    ["future_provider_field", 42],
+] as const)("successful deploy refuses added Machine config field %s", async (field, value) => {
+    const work = mkdtempSync(join(tmpdir(), "shallot-fly-config-difference-"));
+    writeFileSync(
+        join(root, "machines.json"),
+        JSON.stringify([{ ...machines[0], config: { ...machines[0]!.config, [field]: value } }]),
+    );
+    try {
+        for (const app of ["scratch-app", "occupied"]) {
+            const deployed = deployFlyServer(
+                root,
+                work,
+                { target: "fly", app },
+                false,
+                app === "occupied",
+                ask,
+                cli,
+            );
+            await expect(deployed).rejects.toThrow(
+                `${machine.id}: machine.config.${field}: expected absent, got ${value}`,
+            );
+            await expect(deployed).rejects.toThrow(`${machine.id}: about $2.19/month`);
+            await expect(deployed).rejects.toThrow(`machine destroy ${machine.id} --app ${app}`);
+        }
+    } finally {
+        writeFileSync(join(root, "machines.json"), JSON.stringify(machines));
+        await removeTestDirectory(work);
+    }
+});
+
 test("an attached volume with scheduled snapshots enabled refuses before deploy", async () => {
     const work = mkdtempSync(join(tmpdir(), "shallot-fly-snapshots-"));
     writeFileSync(
@@ -459,7 +481,7 @@ test("an attached volume with scheduled snapshots enabled refuses before deploy"
     try {
         await expect(
             deployFlyServer(root, work, { target: "fly", app: "occupied" }, false, true, ask, cli),
-        ).rejects.toThrow("scheduled snapshots must be off");
+        ).rejects.toThrow("volume.auto_backup_enabled: expected false, got true");
         expect(existsSync(join(work, "fly.toml"))).toBe(false);
     } finally {
         writeFileSync(join(root, "volumes.json"), JSON.stringify([volume]));

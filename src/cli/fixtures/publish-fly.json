@@ -1,0 +1,51 @@
+{
+    "machine": {
+        "id": "7591857c12836d",
+        "state": "started",
+        "region": "iad",
+        "host_status": "ok",
+        "config": {
+            "env": { "FLY_PROCESS_GROUP": "app", "PORT": "8080", "PRIMARY_REGION": "iad", "SHALLOT_DATA_DIR": "/data" },
+            "init": {},
+            "guest": { "cpu_kind": "shared", "cpus": 1, "memory_mb": 256 },
+            "metadata": {
+                "fly_builder_id": "7591857c12836a",
+                "fly_flyctl_version": "0.5.12",
+                "fly_platform_version": "v2",
+                "fly_process_group": "app",
+                "fly_release_id": "rel_example",
+                "fly_release_version": "1"
+            },
+            "mounts": [{ "encrypted": true, "path": "/data", "size_gb": 1, "volume": "vol_2n0l9vl2l9pr635d", "name": "shallot_data" }],
+            "services": [{
+                "protocol": "tcp",
+                "internal_port": 8080,
+                "autostop": true,
+                "autostart": true,
+                "min_machines_running": 0,
+                "ports": [{ "port": 80, "handlers": ["http"], "force_https": true }, { "port": 443, "handlers": ["http", "tls"] }],
+                "concurrency": { "type": "connections", "soft_limit": 20 },
+                "force_instance_key": null
+            }],
+            "image": "registry.fly.io/example:deployment-test",
+            "restart": { "policy": "no" },
+            "stop_config": { "signal": "SIGTERM" }
+        }
+    },
+    "volume": {
+        "id": "vol_2n0l9vl2l9pr635d",
+        "name": "shallot_data",
+        "state": "created",
+        "size_gb": 1,
+        "region": "iad",
+        "zone": "test-zone",
+        "encrypted": true,
+        "attached_machine_id": "7591857c12836d",
+        "attached_alloc_id": null,
+        "created_at": "2000-01-01T00:00:00Z",
+        "host_dedication_id": "",
+        "snapshot_retention": 5,
+        "auto_backup_enabled": false,
+        "host_status": "ok"
+    }
+}

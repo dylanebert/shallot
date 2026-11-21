@@ -14,6 +14,7 @@ import { chromium } from "playwright";
 import { bunChild } from "../../scripts/bun-child";
 import { removeTestDirectory } from "../../scripts/test-directory";
 import { CROSS_ORIGIN_ISOLATION } from "../project/isolation.js";
+import flyInventory from "./fixtures/publish-fly.json";
 import { WRANGLER_VERSION } from "./publish-cloudflare";
 import { FLY_VERSION } from "./publish-fly";
 
@@ -41,15 +42,16 @@ const args=process.argv.slice(2);
 if(path.basename(process.execPath).replace(/\\.exe$/, '')==='flyctl') {
 record({command:'fly '+args.join(' '), pending: JSON.parse(fs.readFileSync(path.join(process.env.FIXTURE_PROJECT,'package.json'))).shallot.publishServer});
 const state=JSON.parse(fs.readFileSync(path.join(root,'answers.json')));
+const inventory=${JSON.stringify(flyInventory)}, deployed=!state.flyFail&&fs.existsSync('fly.toml');
 if(args[0]==='auth'&&args[1]==='whoami'&&state.flyLogin===false)process.exit(1);
 if(args[0]==='apps'&&args[1]==='list')console.log(JSON.stringify(state.flyCollision?[{Name:'fixture-game'}]:[]));
 else if(args[0]==='orgs')console.log('{"personal":"Personal"}');
 else if(args[0]==='machine'&&args[1]==='list'){
 if(state.hangMachineList)Bun.sleepSync(22000);
-console.log(JSON.stringify(!state.flyFail&&fs.existsSync('fly.toml')?[{id:'7591857c12836d',region:'iad',config:{guest:{cpu_kind:'shared',cpus:1,memory_mb:256},metadata:{fly_platform_version:'v2',fly_process_group:'app'},mounts:[{volume:'vol_2n0l9vl2l9pr635d',path:'/data'}]}}]:[]));
+console.log(JSON.stringify(deployed?[inventory.machine]:[]));
 }
 else if(args[0]==='ips'&&args[1]==='list')console.log('[{"Type":"shared_v4"}]');
-else if(args[0]==='volumes'&&args[1]==='list')console.log(JSON.stringify([{id:'vol_2n0l9vl2l9pr635d',name:'shallot_data',size_gb:1,region:'iad',host_status:state.flyHostStatus,auto_backup_enabled:false,attached_machine_id:!state.flyFail&&fs.existsSync('fly.toml')?'7591857c12836d':null,attached_alloc_id:null}]));
+else if(args[0]==='volumes'&&args[1]==='list')console.log(JSON.stringify([{...inventory.volume,host_status:state.flyHostStatus,attached_machine_id:deployed?inventory.machine.id:null}]));
 else if(args[0]==='deploy'){
 if(state.holdFly&&fs.readFileSync(path.join(root,'commands.jsonl'),'utf8').match(/fly deploy /g)?.length===1){
 const end=Date.now()+10000;
@@ -407,7 +409,7 @@ test("failed Fly deploy leaves a retryable server link, cost and confirmed delet
         f.save();
         const unsafe = await f.run(undefined, true, false);
         expect(unsafe.code).toBe(1);
-        expect(unsafe.stderr).toContain("expected an unattached volume on a healthy host");
+        expect(unsafe.stderr).toContain('volume.host_status: expected "ok", got "unreachable"');
         expect(f.commands().filter((row) => row.command.startsWith("fly deploy"))).toHaveLength(2);
     } finally {
         await f.close();
