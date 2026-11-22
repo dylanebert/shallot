@@ -5,6 +5,7 @@ import {
     GlobalTransform,
     type Plugin,
     Shape,
+    setTransform,
     Transform,
     text,
     u32,
@@ -29,7 +30,7 @@ import {
     ServerSession,
     type ThinClient,
 } from "@dylanebert/shallot/multiplayer";
-import { Demo, Route } from "./demo";
+import { Demo, Route, SEAT_SPAWNS } from "./demo";
 import { PlayerMotion } from "./motion";
 import { LocalPlayer, LocalPlayerInputSystem, Player, PlayerInput } from "./player";
 
@@ -129,7 +130,12 @@ export const GAME: Game = {
         world.add(eid, ConnectionSlot, { slot, clientId: String(clientId) });
         world.add(eid, OwnSeat);
         world.add(eid, Replicate, { rule: SLOTS.length + 1 + slot });
-        world.storage(Body).isEnabled.set(scene(world).players[slot]!.player, 1);
+        const player = scene(world).players[slot]!.player;
+        setTransform(world, player, SEAT_SPAWNS[slot]!, [0, 0, 0, 1]);
+        const look = world.storage(Player);
+        look.yaw.set(player, 0);
+        look.pitch.set(player, 0);
+        world.storage(Body).isEnabled.set(player, 1);
     },
     rules(world, eid) {
         const slot = world.get(eid, ConnectionSlot)!.slot;

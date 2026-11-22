@@ -35,11 +35,18 @@ function block(
     world.add(eid, Tint, { color });
     return eid;
 }
-function avatar(world: World, x: number, z: number) {
+export const SEAT_SPAWNS = [
+    [0, 1.45, 12],
+    [-1.1, 1.45, 5.3],
+    [1, 1.45, 5.3],
+    [-1.5, 1.45, 6],
+] as const;
+
+function avatar(world: World, translation: readonly [number, number, number]) {
     const eye = world.create();
     world.add(eye, Transform);
     const player = world.create();
-    world.add(player, Transform, { translation: [x, 1.45, z] });
+    world.add(player, Transform, { translation });
     world.add(player, Body, { type: BodyType.Kinematic, isEnabled: 0 });
     world.add(player, Shape, {
         kind: ShapeKind.Capsule,
@@ -53,12 +60,7 @@ function avatar(world: World, x: number, z: number) {
     return { player, eye };
 }
 export function route(world: World) {
-    const players = [
-        avatar(world, 0, 12),
-        avatar(world, -1.1, 5.3),
-        avatar(world, 1, 5.3),
-        avatar(world, -1.5, 6),
-    ];
+    const players = SEAT_SPAWNS.map((spawn) => avatar(world, spawn));
     block(world, [0, 0, -5], [32, 1, 52], [0.085, 0.08, 0.072, 1]);
     for (const [at, size] of [
         [
