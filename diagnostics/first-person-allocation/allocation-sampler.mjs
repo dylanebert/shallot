@@ -218,6 +218,29 @@ export function warmCollects(i, n, frames, chunk) {
     return n - i <= frames || i % (10 * chunk) === 0;
 }
 
+/**
+ * One live instance of each WebGPU wrapper a frame creates and drops. Dawn's Node binding wraps each object
+ * with a private property, so its map is a transition that only live instances hold; optimized code embeds
+ * that map weakly. Once a frame's wrappers are released, any full collection, the sampler's or V8's own,
+ * clears the map and deoptimizes every function that took one, and they re-optimize in the next frames.
+ * Browser wrappers have no such map, so holding these keeps the Node subject's code as a page's would be.
+ * @param {GPU} gpu
+ */
+export async function anchorFrameWrappers(gpu) {
+    const device = await (await gpu.requestAdapter()).requestDevice();
+    const view = device
+        .createTexture({ size: [1, 1], format: "rgba8unorm", usage: GPUTextureUsage.RENDER_ATTACHMENT })
+        .createView();
+    const encoder = device.createCommandEncoder();
+    const compute = encoder.beginComputePass();
+    compute.end();
+    const render = encoder.beginRenderPass({
+        colorAttachments: [{ view, loadOp: "clear", storeOp: "store" }],
+    });
+    render.end();
+    return [device, encoder, compute, render, encoder.finish()];
+}
+
 /** The result file the sampler writes in its working directory. */
 export const SAMPLE_RESULT = "allocation-result.json";
 
@@ -240,6 +263,8 @@ async function main() {
 
     const session = new Session();
     let gpu;
+    /** held until disposal; see {@link anchorFrameWrappers} */
+    let anchored;
     let subject;
     let connected = false;
     try {
@@ -247,6 +272,7 @@ async function main() {
         Object.assign(globalThis, globals);
         gpu = createGpu([]);
         navigator.gpu = gpu;
+        anchored = await anchorFrameWrappers(gpu);
 
         const bundlePath = realpathSync(bundle);
         const projectRoot = process.env.SHALLOT_PROJECT_ROOT ?? process.cwd();
@@ -450,6 +476,7 @@ async function main() {
         try {
             subject?.dispose();
         } finally {
+            anchored?.[0].destroy();
             try {
                 if (connected) session.disconnect();
             } finally {
