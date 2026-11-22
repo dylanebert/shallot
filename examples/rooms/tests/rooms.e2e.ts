@@ -573,10 +573,10 @@ for (const phone of [false, true]) {
 test("a dropped server seat stays occupied for its peer and resumes", async ({ page, context }) => {
     const host = await server();
     try {
-        const twoMembers = "#players li:nth-child(2) .member";
-        const frames = await holdFrames(page, twoMembers);
+        // The routed socket relays through this process, which a free-running leader starved on Windows.
+        const frames = await holdFrames(page, "#players .member");
         const observer = await context.newPage();
-        const observerFrames = await holdFrames(observer, twoMembers);
+        const observerFrames = await holdFrames(observer, "#players li:nth-child(2) .member");
         let drop: (() => Promise<void>) | undefined;
         let reconnect: (() => void) | undefined;
         await page.routeWebSocket("**/*", (route) => {
@@ -593,14 +593,23 @@ test("a dropped server seat stays occupied for its peer and resumes", async ({ p
         });
         await page.goto(host.query);
         await action(page, "Quick join").click();
-        await expect(players(page)).toHaveText(["You", "", "", ""]);
         const codeButton = action(page, "Copy room code");
-        await expect(codeButton).toHaveText(/^[A-Z0-9]{10}$/);
+        await expect
+            .poll(async () => {
+                await frames.run();
+                return [await players(page).allInnerTexts(), await codeButton.allInnerTexts()];
+            })
+            .toEqual([["You", "", "", ""], [expect.stringMatching(/^[A-Z0-9]{10}$/)]]);
         const code = await codeButton.innerText();
         await observer.goto(host.address);
         await action(observer, "Quick join").click();
         await expect(players(observer)).toHaveText(["Player 1", "You", "", ""]);
-        await expect(players(page)).toHaveText(["You", "Player 2", "", ""]);
+        await expect
+            .poll(async () => {
+                await frames.run(2);
+                return players(page).allInnerTexts();
+            })
+            .toEqual(["You", "Player 2", "", ""]);
         const before = await seatBoxes(observer);
         await drop!();
         await expect.poll(() => reconnect !== undefined).toBe(true);
