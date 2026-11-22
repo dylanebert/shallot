@@ -303,12 +303,21 @@ for (const phone of [false, true]) {
             await use(plus(page, 2));
             await expectSeatPopup(page, 2);
             await use(action(page, "Add bot"));
-            await frames.run(4);
-            await expect(players(page)).toHaveText(["You", "Bot 1", "", ""]);
+            await expect
+                .poll(async () => {
+                    await frames.run(4);
+                    return players(page).allInnerTexts();
+                })
+                .toEqual(["You", "Bot 1", "", ""]);
             await expectBotClear(page);
             await use(plus(page, 2));
             await use(action(page, "Remove bot"));
-            await expect(players(page)).toHaveText(["You", "", "", ""]);
+            await expect
+                .poll(async () => {
+                    await frames.run(4);
+                    return players(page).allInnerTexts();
+                })
+                .toEqual(["You", "", "", ""]);
             await use(plus(page, 3));
             await expectSeatPopup(page, 3);
             await noFocus(page);
