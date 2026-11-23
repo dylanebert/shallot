@@ -125,7 +125,7 @@ interface MeshPreprocessState {
     pipelineKeys: Int32Array;
     /** keys per material batch in pair indices; see {@link pipelineKeyCount} */
     keyCount: number;
-    invalidPairs: Map<number, Map<number, { name: string; cause: string }>>;
+    invalidPairs: Map<number, Map<number, { handle: MeshHandle; name: string; cause: string }>>;
     pairingMeshes: (Mesh | undefined)[][];
     recheckInstances: boolean;
     warnedPairs: Set<string>;
@@ -1008,13 +1008,15 @@ export function publishMeshInstanceDraws(
         for (let index = 0; index < state.meshCount; index++) {
             const handle = meshes.handleAt(index);
             const mesh = handle === undefined ? undefined : meshes.get(handle);
-            if (known[index] === mesh) continue;
+            const previous = rejected?.get(index);
+            if (known[index] === mesh && (!previous || previous.handle === handle)) continue;
             known[index] = mesh;
             const cause = mesh ? materialAttributeError(mesh, definition) : null;
-            if (cause) {
+            if (cause && mesh && handle !== undefined) {
                 if (!rejected) invalidPairs.set(materialType, (rejected = new Map()));
                 rejected.set(index, {
-                    name: `mesh:material:${definition.name}:${mesh!.name}:${index}`,
+                    handle,
+                    name: `mesh:material:${definition.name}:${mesh.name}:${index}`,
                     cause,
                 });
                 state.recheckInstances = true;
@@ -1080,15 +1082,16 @@ function publishProducerDraws(world: World, basePairs: number): void {
 
 function warnInvalidInstance(world: World, eid: number): void {
     if (!world.has(eid, MeshInstance)) return;
-    const { invalidPairs, warnedPairs } = world.resource(meshPreprocessKey);
-    const rejected = invalidPairs
-        .get(world.storage(MeshMaterial).type.get(eid))
-        ?.get(
-            world
-                .resource(meshResourcesKey)
-                .meshes.index(world.storage(MeshInstance).mesh.get(eid))!,
-        );
-    if (!rejected || warnedPairs.has(rejected.name)) return;
+    const { invalidPairs, pairingMeshes, warnedPairs } = world.resource(meshPreprocessKey);
+    const type = world.storage(MeshMaterial).type.get(eid);
+    const handle = world.storage(MeshInstance).mesh.get(eid);
+    const meshes = world.resource(meshResourcesKey).meshes;
+    const index = meshes.index(handle);
+    if (index === undefined) return;
+    const rejected = invalidPairs.get(type)?.get(index);
+    if (rejected?.handle !== handle) return;
+    if (pairingMeshes[type]?.[index] !== meshes.get(rejected.handle)) return;
+    if (warnedPairs.has(rejected.name)) return;
     warnedPairs.add(rejected.name);
     console.warn(`standard: draw "${rejected.name}" skipped — ${rejected.cause}`);
 }

@@ -159,6 +159,35 @@ test("an attribute material and an unrelated mesh draw together without warning 
     ).toBe(false);
 });
 
+test("reusing a rejected mesh slot warns only for a genuinely mismatched instance", () => {
+    const { world } = subjects()[1];
+    const tinted = rebuild(world, [1, 0, 0, 1]);
+    const meshes = world.resource(Meshes);
+    const removed = meshes.add({ name: "removed", vertices, indices });
+    const eid = world.create();
+    world.add(eid, Transform);
+    world.add(eid, MeshInstance, { mesh: tinted });
+    world.add(eid, MeshMaterial, world.resource(StreamMaterial).add({ unused: 0 }));
+    world.step(0);
+
+    meshes.remove(removed);
+    const replacement = meshes.add({
+        name: "replacement",
+        vertices,
+        indices,
+        attributes: { tint: { element: d.vec4f, data: new Float32Array(16).fill(1) } },
+    });
+    world.storage(MeshInstance).mesh.set(eid, replacement);
+    world.step(0);
+    expect([...world.resource(Draws)].some((draw) => draw.mesh === replacement)).toBe(true);
+
+    const missing = meshes.add({ name: "mismatched", vertices, indices });
+    expectWarning(/mesh:material:StreamAttributeMaterial:mismatched:\d+.*attribute "tint"/);
+    world.storage(MeshInstance).mesh.set(eid, missing);
+    world.step(0);
+    world.step(0);
+});
+
 for (const change of ["added-instance", "type", "mesh", "marked-raw-type"] as const)
     test(`${change} pairing changes warn once after draw publication`, () => {
         const { world } = subjects()[1];
