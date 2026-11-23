@@ -4,7 +4,9 @@
     import type { World } from "@dylanebert/shallot";
     import { Crowd, type CrowdMode, crowdCount, leaderCount, setCrowdMode } from "./crowd";
     import { categories, samples, type Scene } from "./scenes";
-    let { scene, select, world }: { scene: Scene; select: (scene: Scene) => void; world: World } = $props();
+    let { scene, select, world, loaded }: { scene: Scene; select: (scene: Scene) => void; world: World; loaded: Promise<void> } = $props();
+    let loading = $state(true);
+    void loaded.then(() => { loading = false; });
     const modes: CrowdMode[] = ["live", "shared", "baked"];
     let mode = $state<CrowdMode>("live");
     let costs = $state<Record<CrowdMode, number | null>>({ live: null, shared: null, baked: null });
@@ -46,7 +48,10 @@
             ))));
             const count = matchMedia("(max-width: 480px)").matches ? 1 : Math.min(categories.length, Math.max(1, Math.floor((available + gap) / (width + gap))));
             columns.style.columnCount = String(count);
-            node.style.width = `${count * width + (count - 1) * gap + chrome}px`;
+            // Balancing can leave trailing columns empty; the box spans only the occupied ones, so it stays centered.
+            const occupied = Math.min(count, new Set(Array.from(columns.querySelectorAll("section"), (section) => Array.from(section.getClientRects(), (rect) => Math.round(rect.left))).flat()).size);
+            columns.style.columnCount = String(occupied);
+            node.style.width = `${occupied * width + (occupied - 1) * gap + chrome}px`;
         }
         const observer = new ResizeObserver(fit);
         observer.observe(picker);
@@ -78,6 +83,7 @@
         <button tabindex="-1" onfocus={(event) => event.currentTarget.blur()} aria-label="Next scene" onclick={() => step(1)}>&gt;</button>
     </nav>
 </section>
+{#if loading}<div class="ec loading" role="status">Loading…</div>{/if}
 {#if scene === "CesiumManCrowd"}
     <details open class="ec controls" aria-label="CesiumManCrowd controls">
         <summary class="panel-title">Crowd</summary>

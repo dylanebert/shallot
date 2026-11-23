@@ -56,11 +56,16 @@ export function frameScene(world: World, aspect: number) {
 export async function selectScene(world: World, scene: Scene, aspect = 1) {
     const viewer = world.resource(Viewer);
     const selection = ++viewer.selection;
-    if (!viewer.models.has(scene)) await (viewer.loads.get(scene) ?? loadScene(world, scene));
-    if (viewer.selection !== selection) return;
+    // The previous model leaves at once, so the canvas never shows it under the new name while this one loads.
     clearCrowd(world);
     for (const eid of viewer.entities) world.destroy(eid);
     for (const eid of viewer.instance?.lightEntities ?? []) world.destroy(eid);
+    viewer.entities = [];
+    viewer.instance = null;
+    viewer.active = null;
+    viewer.bounds = null;
+    if (!viewer.models.has(scene)) await (viewer.loads.get(scene) ?? loadScene(world, scene));
+    if (viewer.selection !== selection) return;
     const lit = viewer.models.get(scene)!.lights.length > 0;
     world.resource(GlobalAmbientLight).brightness = lit ? 0 : 380;
     if (viewer.sun) world.storage(DirectionalLight).illuminance.set(viewer.sun, lit ? 0 : 6000);
@@ -116,13 +121,6 @@ function loadScene(
     );
     viewer.loads.set(scene, load);
     return load;
-}
-
-export function loadRemainingScenes(world: World): void {
-    const viewer = world.resource(Viewer);
-    for (const scene of Object.keys(scenes) as Scene[]) {
-        if (!viewer.loads.has(scene)) void loadScene(world, scene);
-    }
 }
 
 export const AppPlugin: Plugin = {

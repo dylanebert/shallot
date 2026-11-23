@@ -22,7 +22,7 @@
     <script type="module">
         import { runApp, shallotDark } from "@dylanebert/shallot";
         import { flushSync, mount, unmount } from "svelte";
-        import { AppPlugin, frameScene, loadRemainingScenes, selectScene, Viewer } from "./src/app";
+        import { AppPlugin, frameScene, selectScene, Viewer } from "./src/app";
         import Hud from "./src/Hud.svelte";
         import { initialScene, scenes } from "./src/scenes";
         const bootstrap = document.querySelector("[data-shallot-bootstrap]");
@@ -30,31 +30,24 @@
             plugins: [AppPlugin],
             loading: shallotDark({ bootstrap }),
             ui(container, world) {
-                // Let the loading screen finish and the initial frames draw before background fetches begin.
-                let loadFrame = 0;
-                void ready.then(() => {
-                    loadFrame = requestAnimationFrame(() => {
-                        loadFrame = requestAnimationFrame(() => loadRemainingScenes(world));
-                    });
-                });
                 let component;
                 const canvas = document.querySelector("canvas");
                 const resize = new ResizeObserver(() => frameScene(world, canvas.clientWidth / canvas.clientHeight));
                 resize.observe(canvas);
                 function select(scene) {
                     if (component) void unmount(component);
-                    // data-scene names the model the canvas draws; a switch sets it once the model has loaded and spawned.
-                    void selectScene(world, scene, canvas.clientWidth / canvas.clientHeight).then(() => {
+                    // Each model loads on first selection; data-scene names the model the canvas draws once it has spawned.
+                    const loaded = selectScene(world, scene, canvas.clientWidth / canvas.clientHeight).then(() => {
                         canvas.dataset.scene = world.resource(Viewer).active;
                     });
                     const url = new URL(location.href);
                     url.searchParams.set("scene", scene);
                     history.replaceState(null, "", url);
-                    flushSync(() => { component = mount(Hud, { target: container, props: { scene, select, world } }); });
+                    flushSync(() => { component = mount(Hud, { target: container, props: { scene, select, world, loaded } }); });
                 }
                 const requested = new URL(location.href).searchParams.get("scene");
                 select(requested && Object.hasOwn(scenes, requested) ? requested : initialScene);
-                return () => { cancelAnimationFrame(loadFrame); resize.disconnect(); void unmount(component); };
+                return () => { resize.disconnect(); void unmount(component); };
             },
         });
         await ready;

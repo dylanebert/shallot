@@ -49,7 +49,8 @@ export const categories = [
         .map((id) => ({ id, name: id })),
 }));
 export const samples = categories.flatMap((category) => category.scenes);
-export const initialScene = samples[0].id;
+// The first model shown is the smallest one that exercises skinning, animation and compression together.
+export const initialScene: Scene = "BrainStemMeshopt";
 const draco = (scene: Scene) => scene.endsWith("Draco") && scene.slice(0, -"Draco".length);
 export const modelPath = (scene: Scene) =>
     scene === "CesiumManCrowd"

@@ -1,14 +1,14 @@
 import { holdFrames, pipelineWarnings } from "@dylanebert/shallot/testing";
 import { type ElementHandle, expect, type Page, test } from "playwright/test";
-import { categories } from "../src/scenes";
+import { categories, initialScene, modelPath } from "../src/scenes";
 import { scenePixels } from "./scenes";
 
 test.use({ ...pipelineWarnings, deviceScaleFactor: 1 });
 
-for (const [width, height, columns, occupied] of [
-    [1280, 720, 6, 5],
-    [1512, 982, 7, 5],
-    [390, 844, 1, 1],
+for (const [width, height, columns] of [
+    [1280, 720, 5],
+    [1512, 982, 5],
+    [390, 844, 1],
 ]) {
     test.describe(`${width}x${height}`, () => {
         const phone = width === 390;
@@ -21,12 +21,14 @@ for (const [width, height, columns, occupied] of [
             page.on("console", (message) => {
                 if (message.type() === "error") errors.push(message.text());
             });
+            const models: string[] = [];
+            page.on("request", (request) => {
+                if (request.url().endsWith(".gltf")) models.push(new URL(request.url()).pathname);
+            });
             const frames = await holdFrames(page, "[aria-label='Scene']");
             await page.goto("/");
             const picker = page.getByRole("button", { name: "Scene", exact: true });
-            await expect(picker).toHaveText(
-                categories.flatMap((category) => category.scenes)[0].name,
-            );
+            await expect(picker).toHaveText(initialScene);
             await expect
                 .poll(async () => {
                     expect(errors).toEqual([]);
@@ -56,7 +58,7 @@ for (const [width, height, columns, occupied] of [
                     (section) => section.fragments === 1 && section.breakInside === "avoid",
                 ),
             ).toBe(true);
-            expect(new Set(sections.map((section) => section.x)).size).toBe(occupied);
+            expect(new Set(sections.map((section) => section.x)).size).toBe(columns);
             const category = categories[categories.length - 1]!;
             const scene = category.scenes[0]!;
             const choice = page
@@ -72,6 +74,8 @@ for (const [width, height, columns, occupied] of [
                 await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
             ).toBe(true);
             await expect(page.getByRole("slider")).toHaveCount(0);
+            // Each model is fetched on its first selection, never ahead of it.
+            expect(models).toEqual([initialScene, scene.id].map((id) => `/${modelPath(id)}`));
             expect(errors).toEqual([]);
         });
     });
@@ -98,7 +102,7 @@ test.describe("every model switches on the same phone canvas", () => {
         frames = await holdFrames(page, "[aria-label='Scene']");
         await page.goto("/");
         await expect(page.getByRole("button", { name: "Scene", exact: true })).toHaveText(
-            categories.flatMap((category) => category.scenes)[0].name,
+            initialScene,
         );
         canvas = await page.locator("canvas").elementHandle();
     });

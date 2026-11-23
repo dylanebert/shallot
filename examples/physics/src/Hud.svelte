@@ -61,7 +61,10 @@
             ))));
             const count = matchMedia("(max-width: 480px)").matches ? 1 : Math.max(1, Math.floor((available + gap) / (width + gap)));
             columns.style.columnCount = String(count);
-            node.style.width = `${count * width + (count - 1) * gap + chrome}px`;
+            // Balancing can leave trailing columns empty; the box spans only the occupied ones, so it stays centered.
+            const occupied = Math.min(count, new Set(Array.from(columns.querySelectorAll("section"), (section) => Array.from(section.getClientRects(), (rect) => Math.round(rect.left))).flat()).size);
+            columns.style.columnCount = String(occupied);
+            node.style.width = `${occupied * width + (occupied - 1) * gap + chrome}px`;
         }
         const observer = new ResizeObserver(fit);
         observer.observe(picker);

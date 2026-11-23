@@ -86,6 +86,7 @@
 @media (pointer: coarse), (max-width: 480px) {
  .ec .scenes button { min-height: var(--touch); padding: var(--s1) var(--s2); }
 }
+.ec.loading { position: absolute; inset: var(--zero); display: grid; place-items: center; pointer-events: none; }
 .ec.input-help { position: absolute; top: calc(var(--s5) + env(safe-area-inset-top)); left: calc(var(--s5) + env(safe-area-inset-left)); pointer-events: none; }
 @media (pointer: coarse), (max-width: 480px) { .ec.input-help { display: none; } }
 @media (pointer: coarse) { .ec button, .ec select, .ec .toggle { min-height: var(--touch); } .ec nav button { min-width: var(--touch); } }
