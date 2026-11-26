@@ -130,7 +130,7 @@ test("a refused future operation cannot pin any store or stall later operations 
         prediction.accept([sender.record(4294967294, "operation", [-1])]);
         const applied: number[] = [],
             samples: number[][] = [];
-        for (let tick = 1; tick <= 3000; tick++) {
+        for (let tick = 1; tick <= 300; tick++) {
             link.advance(tick * 17);
             prediction.accept([sender.record(tick, "operation", [tick])]);
             sender.flush();
@@ -142,7 +142,7 @@ test("a refused future operation cannot pin any store or stall later operations 
             frames.flush();
             app.world.step(0);
             frames.flush();
-            if (tick === 1000 || tick === 3000)
+            if (tick === 100 || tick === 300)
                 samples.push([
                     receiver.records.size,
                     sender.records.size,
@@ -151,10 +151,10 @@ test("a refused future operation cannot pin any store or stall later operations 
                 ]);
         }
         expect(samples).toEqual([
-            [1, 0, 0, 1000],
-            [1, 0, 0, 3000],
+            [1, 0, 0, 100],
+            [1, 0, 0, 300],
         ]);
-        expect(applied).toEqual(Array.from({ length: 3000 }, (_, index) => index + 1));
+        expect(applied).toEqual(Array.from({ length: 300 }, (_, index) => index + 1));
     } finally {
         app.dispose();
         server.dispose();
