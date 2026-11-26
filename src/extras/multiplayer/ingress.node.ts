@@ -105,6 +105,35 @@ test("invalid, oversized and excessive client frames close only their own connec
     }
 });
 
+test("a peer sending 1200 tick inputs over a live socket stays open while confirmations keep advancing", async () => {
+    const host = serveRooms(game, { hostname: "127.0.0.1", port: 0 });
+    const { socket } = await open(`ws://127.0.0.1:${host.port}/?intent=joinOrCreate`);
+    const receiver = new ReplicationReceiver(
+        new World(),
+        game.schema,
+        new WebSocketConnection(socket),
+    );
+    try {
+        for (let sent = 0; sent < 1200 && socket.readyState === WebSocket.OPEN; sent++) {
+            receiver.flush();
+            socket.send(
+                new Uint8Array(encodeInputs([{ tick: receiver.confirmed + 2, values: [sent] }])),
+            );
+            await Bun.sleep(2);
+        }
+        const from = receiver.confirmed;
+        while (socket.readyState === WebSocket.OPEN && receiver.confirmed < from + 30) {
+            receiver.flush();
+            await Bun.sleep(4);
+        }
+        expect(socket.readyState).toBe(WebSocket.OPEN);
+        expect(receiver.confirmed).toBeGreaterThanOrEqual(from + 30);
+    } finally {
+        socket.close();
+        host.stop();
+    }
+});
+
 test("past the queue bound a connection drops its oldest messages and stays open", () => {
     const socket = { readyState: 1, close() {}, sendBinary: () => 1 };
     const connection = new ServerWebSocketConnection(socket as never);

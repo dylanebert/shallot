@@ -41,7 +41,7 @@ In the engine checkout, replay the downloaded file from this directory:
 bun tests/replay.ts /path/to/multiplayer-recording.json
 ```
 
-Replay reruns the game from creation and checks every recorded tick hash, throwing at its first differing call or hash. It then drops the client's last incoming state and checks that replay fails at that tick, so a pass is not vacuous; it prints both results. Engine and game versions must match. The browser subjects verify these Chromium recordings under Bun; a game's nonportable JavaScript math can still differ between runtimes.
+Replay reruns the game from creation and checks every recorded tick hash, throwing at its first differing call or hash. It then drops the client's last incoming state and checks that replay fails at that tick or the next fixed boundary, so a pass is not vacuous; it prints both results. Engine and game versions must match. The browser subjects verify these Chromium recordings under Bun; a game's nonportable JavaScript math can still differ between runtimes.
 
 ## Composition
 
