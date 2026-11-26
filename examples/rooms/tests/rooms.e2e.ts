@@ -116,9 +116,11 @@ async function expectEntryRoute(page: Page) {
         .toBeGreaterThan(2);
 }
 
-async function expectBotClear(page: Page) {
+type Bounds = { left: number; right: number; bottom: number; width: number; height: number };
+
+async function botBounds(page: Page): Promise<Bounds> {
     const png = await page.screenshot({ scale: "css" });
-    const bounds = await page.evaluate(
+    return page.evaluate(
         async (bytes) => {
             const bitmap = await createImageBitmap(
                 new Blob([Uint8Array.from(bytes)], { type: "image/png" }),
@@ -146,6 +148,25 @@ async function expectBotClear(page: Page) {
         },
         [...png],
     );
+}
+
+/** A thin bot walks from its spawn and leaves a phone view within a few held frames, so this runs one frame
+ * per read and returns the bounds of the first frame that draws the bot once the roster names it. */
+async function firstBotBounds(page: Page, frames: { run(count?: number): Promise<void> }) {
+    let bounds: Bounds | undefined;
+    await expect
+        .poll(async () => {
+            await frames.run();
+            const roster = await players(page).allInnerTexts();
+            if (roster[1] !== "Bot 1") return [roster, false];
+            bounds = await botBounds(page);
+            return [roster, bounds.right >= bounds.left];
+        })
+        .toEqual([["You", "Bot 1", "", ""], true]);
+    return bounds!;
+}
+
+function expectBotClear(bounds: Bounds) {
     expect(bounds.right - bounds.left).toBeGreaterThan(16);
     expect(bounds.left).toBeGreaterThanOrEqual(16);
     expect(bounds.right).toBeLessThan(bounds.width - 16);
@@ -303,13 +324,7 @@ for (const phone of [false, true]) {
             await use(plus(page, 2));
             await expectSeatPopup(page, 2);
             await use(action(page, "Add bot"));
-            await expect
-                .poll(async () => {
-                    await frames.run(4);
-                    return players(page).allInnerTexts();
-                })
-                .toEqual(["You", "Bot 1", "", ""]);
-            await expectBotClear(page);
+            expectBotClear(await firstBotBounds(page, frames));
             await use(plus(page, 2));
             await use(action(page, "Remove bot"));
             await expect
@@ -348,7 +363,7 @@ for (const phone of [false, true]) {
             const menu = page.getByRole("group", { name: "Seat 4 actions" });
             const popup = await expectSeatPopup(page, 4);
             await frames.run(2);
-            await expectBotClear(page);
+            expectBotClear(await botBounds(page));
             await capture(page, `in-tab-${size}`);
             if (phone) {
                 await expect(action(page, "Jump")).toBeVisible();
