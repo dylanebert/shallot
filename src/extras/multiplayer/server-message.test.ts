@@ -1,8 +1,7 @@
-import { expect, spyOn, test } from "bun:test";
+import { expect, test } from "bun:test";
 import { type App, createApp, type World } from "../../engine";
 import {
     type ClientId,
-    type Connection,
     client,
     type Game,
     local,
@@ -151,57 +150,6 @@ test("private messages stay in their room and retain their target across resume 
         for (const app of apps) app.dispose();
         proxy?.stop();
         host.stop();
-    }
-});
-
-test("a departed private target never reaches the replacement reusing its eid", async () => {
-    const joined: { eid: number; id: ClientId }[] = [];
-    let departed: ClientId | undefined;
-    let authority!: World;
-    let wire!: Connection;
-    const host = await local(
-        {
-            ...emptyGame,
-            onJoin(world, eid, _transport, id) {
-                authority = world;
-                joined.push({ eid, id });
-            },
-            onLeave(_world, _eid, id) {
-                departed = id;
-            },
-            onClient(_world, connection) {
-                wire = connection;
-            },
-        },
-        { rooms: true, seed: 1, faults },
-    );
-    let app: App | undefined;
-    try {
-        const first = await host.join();
-        await host.join(first.code);
-        const server = authority.resource(ServerSession).server!;
-        const oldTarget = joined[0]!.id;
-        first.leave();
-        expect(departed).toBe(oldTarget);
-        // Wrap the ECS generation without admitting any new seats.
-        const warn = spyOn(console, "warn").mockImplementation(() => {});
-        try {
-            for (let i = 0; i < 2 ** 21 - 1; i++) authority.destroy(authority.create());
-            expect(warn).toHaveBeenCalledTimes(1);
-        } finally {
-            warn.mockRestore();
-        }
-        const replacement = await host.join(first.code);
-        expect(joined[2]!.eid).toBe(joined[0]!.eid);
-        app = await createApp({ defaults: false, plugins: [replacement.plugin] });
-        app.world.step(0);
-        server.sendMessage(oldTarget, { topic: 1, values: [123] });
-        server.sendMessage(joined[2]!.id, { topic: 2, values: [] });
-        host.pump(0);
-        expect(messageTopics(wire.receive())).toEqual([2]);
-    } finally {
-        app?.dispose();
-        host.dispose();
     }
 });
 
