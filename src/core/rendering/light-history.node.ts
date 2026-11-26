@@ -15,7 +15,7 @@ import { PointLight, SpotLight } from "./lighting";
 setDefaultTimeout(TIMEOUT.node);
 await setupGlobals();
 
-test("unread new and reattached lights snap until fixed capture; read ones match GPU history, as all do across ticks and recovery", async () => {
+test("lights without prior history snap until fixed capture when attached or reattached; lights read before first attaching match GPU history, as all do across ticks and recovery", async () => {
     let x = 0;
     const app = await createTestGpuApp({
         defaults: false,
@@ -39,9 +39,9 @@ test("unread new and reattached lights snap until fixed capture; read ones match
         world.add(camera, Transform);
         attachTexture(world, camera, { width: 8, height: 8 });
         const table = globalTransformTable(world);
-        // Never read before their lights attach, so their lights start without history.
+        // Read only while their lights hold leases, so each attachment starts without history.
         const eids = [world.create(), world.create()];
-        // Read before their lights attach, which enrolls them.
+        // Read before their first light attaches, which enrolls them until GlobalTransform is removed.
         const readEids = [world.create(), world.create()];
         const placed = [...eids, ...readEids];
         for (const eid of placed) world.add(eid, Transform);
@@ -133,6 +133,7 @@ test("unread new and reattached lights snap until fixed capture; read ones match
         attach = true;
         x = 80;
         world.step(Time.FIXED_DT);
+        // Light leases ended with detachment, so these snap; the read enrollment kept history.
         for (const eid of eids) {
             readRenderGlobalTransform(world, eid, out);
             expect(out[0]).toBe(80);
