@@ -68,6 +68,56 @@ test("explicit enrollment captures interpolation before the first read and remov
     expect(runtime.cpuReaders.length).toBe(0);
 });
 
+test("a first read enrolls an unenrolled placement, which interpolates from the next fixed sample", () => {
+    const world = subjects()[0].world;
+    const runtime = world.resource(GlobalTransformHistory);
+    expect(runtime.cpuHistory.has(target)).toBe(false);
+    world.step(Time.FIXED_DT * ((1.5 - world.time.fixedAlpha) % 1));
+    const alpha = world.time.fixedAlpha;
+    expect(alpha).toBeGreaterThan(0.1);
+    expect(alpha).toBeLessThan(0.9);
+    const out = new Float32Array(12);
+    readRenderGlobalTransform(world, target, out);
+    expect(out[0]).toBe(world.storage(GlobalTransform).translation.x.get(target));
+    world.step(Time.FIXED_DT);
+    expect(world.time.fixedAlpha).toBeCloseTo(alpha, 5);
+    readRenderGlobalTransform(world, target, out);
+    expect(out[0]).toBeCloseTo((world.time.fixedTick - 1 + world.time.fixedAlpha) * 10, 5);
+    expect(out[0]).not.toBe(world.storage(GlobalTransform).translation.x.get(target));
+});
+
+test("a read enrollment lasts until GlobalTransform is removed, and a later read enrolls again", () => {
+    const world = subjects()[0].world;
+    const runtime = world.resource(GlobalTransformHistory);
+    const out = new Float32Array(12);
+    readRenderGlobalTransform(world, target, out);
+    world.step(Time.FIXED_DT * 3);
+    expect(runtime.cpuHistory.has(target)).toBe(true);
+    world.remove(target, GlobalTransform);
+    expect(runtime.cpuHistory.has(target)).toBe(false);
+    expect(runtime.cpuRequests.has(target)).toBe(false);
+    world.add(target, GlobalTransform);
+    expect(runtime.cpuHistory.has(target)).toBe(false);
+    readRenderGlobalTransform(world, target, out);
+    expect(runtime.cpuHistory.has(target)).toBe(true);
+    world.remove(target, GlobalTransform);
+    world.add(target, GlobalTransform);
+});
+
+test("a placement holding RenderTransformHistory at read time takes no read enrollment", () => {
+    const world = subjects()[0].world;
+    const runtime = world.resource(GlobalTransformHistory);
+    const out = new Float32Array(12);
+    world.add(target, RenderTransformHistory);
+    readRenderGlobalTransform(world, target, out);
+    world.remove(target, RenderTransformHistory);
+    expect(runtime.cpuHistory.has(target)).toBe(false);
+    readRenderGlobalTransform(world, target, out);
+    expect(runtime.cpuHistory.has(target)).toBe(true);
+    world.remove(target, GlobalTransform);
+    world.add(target, GlobalTransform);
+});
+
 test("leases, explicit enrollment and placement lifetimes remain independent", () => {
     const world = subjects()[0].world;
     const eid = world.create();

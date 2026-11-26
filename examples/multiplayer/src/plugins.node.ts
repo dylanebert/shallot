@@ -1,11 +1,11 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { Body, BodyType, Character, GlobalTransform } from "@dylanebert/shallot";
+import { Body, BodyType, Character, GlobalTransform, Time, Transform } from "@dylanebert/shallot";
 import { InterpolationTarget } from "@dylanebert/shallot/multiplayer";
 import { createSession } from "@dylanebert/shallot/multiplayer/testing";
 import { readRenderGlobalTransform } from "@dylanebert/shallot/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { ClientSession, GAME, scene } from "./network";
-import { Player, PlayerInput } from "./player";
+import { LocalPlayer, Player, PlayerInput } from "./player";
 
 setDefaultTimeout(TIMEOUT.node);
 for (const simulated of [false, true]) {
@@ -64,3 +64,28 @@ for (const simulated of [false, true]) {
         }
     });
 }
+
+test("the local camera follows its avatar's interpolated placement between fixed ticks", async () => {
+    const session = await createSession(GAME, { seed: 10, clients: 1 });
+    try {
+        const peer = session.clients[0]!;
+        peer.world.step(0);
+        const client = peer.world.resource(ClientSession).client!;
+        const { player, eye } = scene(peer.world).players[client.slot]!;
+        peer.world.add(player, LocalPlayer);
+        peer.world.storage(LocalPlayer).camera.set(player, eye);
+        for (let i = 0; i < 60; i++) {
+            client.record([0, 1, 0, 0, 0, 0]);
+            await session.advance();
+        }
+        const z: number[] = [];
+        for (let i = 0; i < 12; i++) {
+            client.record([0, 1, 0, 0, 0, 0]);
+            peer.world.step(Time.FIXED_DT / 2);
+            z.push(peer.world.storage(Transform).translation.z.get(eye));
+        }
+        for (let i = 1; i < z.length; i++) expect(z[i]).toBeLessThan(z[i - 1]!);
+    } finally {
+        await session.dispose();
+    }
+});

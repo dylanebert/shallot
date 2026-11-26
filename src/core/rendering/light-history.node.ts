@@ -15,7 +15,7 @@ import { PointLight, SpotLight } from "./lighting";
 setDefaultTimeout(TIMEOUT.node);
 await setupGlobals();
 
-test("new and reattached lights snap until fixed capture, then match GPU history across ticks and recovery", async () => {
+test("unread new and reattached lights snap until fixed capture; read ones match GPU history, as all do across ticks and recovery", async () => {
     let x = 0;
     const app = await createTestGpuApp({
         defaults: false,
@@ -39,14 +39,18 @@ test("new and reattached lights snap until fixed capture, then match GPU history
         world.add(camera, Transform);
         attachTexture(world, camera, { width: 8, height: 8 });
         const table = globalTransformTable(world);
+        // Never read before their lights attach, so their lights start without history.
         const eids = [world.create(), world.create()];
-        for (const eid of eids) world.add(eid, Transform);
+        // Read before their lights attach, which enrolls them.
+        const readEids = [world.create(), world.create()];
+        const placed = [...eids, ...readEids];
+        for (const eid of placed) world.add(eid, Transform);
         const out = new Float32Array(12);
         world.addSystem(
             {
                 group: "fixed",
                 update(world) {
-                    for (const eid of eids) {
+                    for (const eid of placed) {
                         const storage = world.storage(Transform);
                         storage.translation.set(eid, x, x * 2, -x, 0);
                         storage.rotation.set(eid, 0, Math.sin(x), 0, Math.cos(x));
@@ -57,22 +61,27 @@ test("new and reattached lights snap until fixed capture, then match GPU history
             "LightHistoryWriter",
         );
         world.step(Time.FIXED_DT);
-        readRenderGlobalTransform(world, eids[0]!, out);
-        expect(out[0]).toBe(0);
+        for (const eid of readEids) {
+            readRenderGlobalTransform(world, eid, out);
+            expect(out[0]).toBe(0);
+        }
         let attach = true;
         world.addSystem({
             group: "simulation",
             update(world) {
                 if (!attach) return;
                 attach = false;
-                world.add(eids[0]!, PointLight);
-                world.add(eids[1]!, SpotLight);
+                for (const eid of [eids[0]!, readEids[0]!]) world.add(eid, PointLight);
+                for (const eid of [eids[1]!, readEids[1]!]) world.add(eid, SpotLight);
             },
         });
-        async function matchesGpu() {
+        async function gpuRows() {
             const result = await probeBuffer(world, table.buffer, { size: table.buffer.size });
-            const gpu = new Float32Array(result.bytes);
-            for (const eid of eids) {
+            return new Float32Array(result.bytes);
+        }
+        async function matchesGpu(subjects = placed) {
+            const gpu = await gpuRows();
+            for (const eid of subjects) {
                 readRenderGlobalTransform(world, eid, out);
                 for (const lane of [0, 1, 2, 4, 5, 6, 7, 8, 9, 10])
                     expect(out[lane]).toBeCloseTo(gpu[table.rowIndex(eid) * 12 + lane]!, 5);
@@ -84,10 +93,13 @@ test("new and reattached lights snap until fixed capture, then match GPU history
             readRenderGlobalTransform(world, eid, out);
             expect(out[0]).toBe(20);
         }
-        const gpu = new Float32Array(
-            (await probeBuffer(world, table.buffer, { size: table.buffer.size })).bytes,
-        );
+        const gpu = await gpuRows();
         expect(gpu[table.rowIndex(eids[0]!) * 12]).toBeCloseTo(10, 5);
+        for (const eid of readEids) {
+            readRenderGlobalTransform(world, eid, out);
+            expect(out[0]).toBeCloseTo(10, 5);
+        }
+        await matchesGpu(readEids);
         x = 30;
         world.step(Time.FIXED_DT);
         await matchesGpu();
@@ -114,8 +126,8 @@ test("new and reattached lights snap until fixed capture, then match GPU history
         }
         world.step(0);
         await matchesGpu();
-        world.remove(eids[0]!, PointLight);
-        world.remove(eids[1]!, SpotLight);
+        for (const eid of [eids[0]!, readEids[0]!]) world.remove(eid, PointLight);
+        for (const eid of [eids[1]!, readEids[1]!]) world.remove(eid, SpotLight);
         x = 70;
         world.step(Time.FIXED_DT);
         attach = true;
@@ -125,6 +137,11 @@ test("new and reattached lights snap until fixed capture, then match GPU history
             readRenderGlobalTransform(world, eid, out);
             expect(out[0]).toBe(80);
         }
+        for (const eid of readEids) {
+            readRenderGlobalTransform(world, eid, out);
+            expect(out[0]).not.toBe(80);
+        }
+        await matchesGpu(readEids);
         x = 90;
         world.step(Time.FIXED_DT);
         await matchesGpu();

@@ -30,7 +30,7 @@ import { Xform } from "./xform";
 /** Enrolls CPU rendered-placement history. Add before the first fixed sample a CPU
  * reader needs; remove when that explicit request ends. Automatic readers own separate
  * retainRenderTransformHistory leases and never add or remove this marker.
- * Without enrollment, readRenderGlobalTransform reads current placement plus correction. */
+ * Without it or a lease, readRenderGlobalTransform enrolls the entity on its first read. */
 export const RenderTransformHistory = component("RenderTransformHistory", {});
 const terms = [GlobalTransform];
 const cpuTerms = [GlobalTransform, RenderTransformHistory];
@@ -330,10 +330,11 @@ export function globalTransformTable(world: World): GpuTable<typeof Xform> {
 }
 /** The CPU source of rendered entity placement: a caller-owned 12-float Xform record
  * (position at 0, xyzw quaternion at 4, scale at 8), including VisualCorrection.
- * RenderTransformHistory or retainRenderTransformHistory enrolls fixed samples ahead
- * of the first read; the history plugin
- * works without a GPU. Without enrollment, before capture, or after a frame-authored
- * write, reads use current placement. No GPU readback is performed. */
+ * The first read of a GlobalTransform holding neither RenderTransformHistory nor a
+ * retainRenderTransformHistory lease enrolls it until GlobalTransform is removed; the
+ * marker or a lease taken ahead of the first fixed sample interpolates from the first
+ * read. Before capture or after a frame-authored write, reads use current placement.
+ * The history plugin works without a GPU. No GPU readback is performed. */
 export function readRenderGlobalTransform(world: World, eid: number, out: Float32Array): void {
     const runtime = world.resource(GlobalTransformHistory);
     const { translation, rotation, scale } = world.storage(GlobalTransform);
@@ -342,6 +343,8 @@ export function readRenderGlobalTransform(world: World, eid: number, out: Float3
         q = rotation.column,
         s = scale.column;
     prepareCpuFrame(world, runtime);
+    if (!runtime.cpuHistory.has(eid) && world.has(eid, GlobalTransform))
+        retainRenderTransformHistory(world, eid);
     const history = runtime.cpuHistory.get(eid);
     const source = history?.current;
     const frameWritten =

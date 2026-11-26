@@ -1,9 +1,17 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { Character, createApp, GlobalTransform, Time, type World } from "@dylanebert/shallot";
+import {
+    Character,
+    createApp,
+    GlobalTransform,
+    Time,
+    Transform,
+    type World,
+} from "@dylanebert/shallot";
 import { local } from "@dylanebert/shallot/multiplayer";
+import { createSession } from "@dylanebert/shallot/multiplayer/testing";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { ClientSession, GAME, scene } from "./network";
-import { Player } from "./player";
+import { LocalPlayer, Player } from "./player";
 
 setDefaultTimeout(TIMEOUT.node);
 
@@ -96,5 +104,30 @@ test("a room's roster and avatar survive reconnection and reset a vacated seat f
         expect(host.list()).toEqual([]);
     } finally {
         host.dispose();
+    }
+});
+
+test("the local camera follows its avatar's interpolated placement between fixed ticks", async () => {
+    const session = await createSession(GAME, { seed: 10, clients: 1 });
+    try {
+        const peer = session.clients[0]!;
+        peer.world.step(0);
+        const client = peer.world.resource(ClientSession).client!;
+        const { player, eye } = scene(peer.world).players[client.slot]!;
+        peer.world.add(player, LocalPlayer);
+        peer.world.storage(LocalPlayer).camera.set(player, eye);
+        for (let i = 0; i < 60; i++) {
+            client.record([0, 1, 0, 0, 0, 0]);
+            await session.advance();
+        }
+        const z: number[] = [];
+        for (let i = 0; i < 12; i++) {
+            client.record([0, 1, 0, 0, 0, 0]);
+            peer.world.step(Time.FIXED_DT / 2);
+            z.push(peer.world.storage(Transform).translation.z.get(eye));
+        }
+        for (let i = 1; i < z.length; i++) expect(z[i]).toBeLessThan(z[i - 1]!);
+    } finally {
+        await session.dispose();
     }
 });

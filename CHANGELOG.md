@@ -24,7 +24,7 @@
 - fixed blank scenes on Safari when WebGPU advertises timestamp queries but rejects writes or resolves; the profiler probes both paths before using GPU spans
 - added `registerDebugChord` for F3 shortcuts without toggling the profiler or forwarding the chord to game input
 - added presentation-only component recovery via `component(..., { presentation: true })` and `VisualCorrection` for render offsets that do not change fixed placement
-- added `RenderTransformHistory`, `RenderTransformHistoryPlugin`, `retainRenderTransformHistory` and `observeRenderTransformHistory` to enroll render-history readers, `composeRenderGlobalTransform` to read corrected placement, and `GlobalTransformHistoryStartSystem` and `PrepareGlobalTransformHistorySystem` for ordering render history
+- added `RenderTransformHistory`, `RenderTransformHistoryPlugin`, `retainRenderTransformHistory` and `observeRenderTransformHistory` to enroll render-history readers ahead of their first read, which otherwise enrolls them, `composeRenderGlobalTransform` to read corrected placement, and `GlobalTransformHistoryStartSystem` and `PrepareGlobalTransformHistorySystem` for ordering render history
 - fixed steady glTF deformation cull-bound allocations and physics tick allocations after restore; `getAngularVelocity` accepts an optional caller-owned output
 - added `preFixed` and `postFixed` system groups, `World.jumpToTick`, `World.discardOverstep` and `Time.fixedTickRevision`; `preFixed` can restore and replay before paced ticks
 - added `PointerModifiers`, `PointerMotion`, `PointerWheel` and `TouchEvent` for event-time input; see [MIGRATION.md](https://github.com/dylanebert/shallot/blob/v0.11.0-next.1/MIGRATION.md#manually-built-input-and-time-values) for fixtures and adapters
