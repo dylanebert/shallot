@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuScene } from "../../../scripts/gpu.fixture";
-import type { World } from "../../engine";
+import { Time, type World } from "../../engine";
 import { drawLine, Gizmo, GizmoAsset, LinesPlugin, registerGizmo } from "../../extras/lines";
 import { internText, registerFont, Text, TextPlugin } from "../../extras/text";
 import { isolationFont } from "../../extras/text/font.fixture";
@@ -26,15 +26,40 @@ import {
     TransparentPhases,
     VisualCorrection,
 } from ".";
-import { GlobalTransformHistory, RenderTransformHistory } from "./global-transform";
+import {
+    GlobalTransformHistory,
+    RenderTransformHistory,
+    readRenderGlobalTransform,
+} from "./global-transform";
 
 setDefaultTimeout(TIMEOUT.node);
 let font = 0;
+let mover = -1;
 const subject = gpuScene(
     import.meta.path,
     {
         defaults: false,
-        plugins: [TextPlugin, LinesPlugin, MeshRenderPlugin, StandardRenderingPlugin],
+        plugins: [
+            TextPlugin,
+            LinesPlugin,
+            MeshRenderPlugin,
+            StandardRenderingPlugin,
+            {
+                name: "Mover",
+                recovery: "stateless",
+                systems: [
+                    {
+                        group: "fixed",
+                        update(world) {
+                            if (mover < 0) return;
+                            world
+                                .storage(Transform)
+                                .translation.set(mover, world.time.fixedTick * 10, 0, 0);
+                        },
+                    },
+                ],
+            },
+        ],
         setup(world) {
             font = registerFont(
                 world,
@@ -279,6 +304,42 @@ test("transparent history retires on opacity or unreadability without ending exp
     expect(history.has(eid)).toBe(true);
     world.remove(eid, RenderTransformHistory);
     expect(history.has(eid)).toBe(false);
+});
+
+test("an Add mesh interpolates on its first read after fixed capture and releases its history when opaque", () => {
+    const { world } = subject();
+    const add = world
+        .resource(Materials)
+        .add(StandardMaterial({ baseColor: [1, 1, 1, 0.5], unlit: true }), {
+            alphaMode: AlphaMode.Add,
+        });
+    const opaque = world.resource(Materials).add(StandardMaterial({ unlit: true }));
+    world.step(Time.FIXED_DT * ((1.5 - world.time.fixedAlpha) % 1));
+    const eid = world.create();
+    world.add(eid, Transform);
+    world.add(eid, MeshInstance);
+    world.add(eid, MeshMaterial, add);
+    mover = eid;
+    try {
+        // One fixed tick moves it from the origin; its frame's reads follow that capture.
+        world.step(Time.FIXED_DT);
+        const alpha = world.time.fixedAlpha;
+        expect(alpha).toBeGreaterThan(0.1);
+        expect(alpha).toBeLessThan(0.9);
+        const current = world.storage(GlobalTransform).translation.x.get(eid);
+        expect(current).toBeGreaterThan(0);
+        const out = new Float32Array(12);
+        readRenderGlobalTransform(world, eid, out);
+        expect(out[0]).toBeCloseTo(alpha * current, 4);
+        const history = world.resource(GlobalTransformHistory).cpuHistory;
+        expect(history.has(eid)).toBe(true);
+        world.add(eid, MeshMaterial, opaque);
+        world.step(0);
+        expect(history.has(eid)).toBe(false);
+    } finally {
+        mover = -1;
+        world.destroy(eid);
+    }
 });
 
 test("gizmos of one asset draw once after a transparent mesh regardless of instance depth", async () => {

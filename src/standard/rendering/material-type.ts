@@ -1248,6 +1248,7 @@ const transparentHistory = {
             const readable =
                 mode === AlphaModeCode.Blend ||
                 mode === AlphaModeCode.Premultiplied ||
+                mode === AlphaModeCode.Add ||
                 mode === AlphaModeCode.Multiply;
             if (readable) {
                 if (!readers.has(eid)) readers.set(eid, retainRenderTransformHistory(world, eid));
