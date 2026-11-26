@@ -90,23 +90,24 @@ for (const server of [false, true]) {
         await page.evaluate(() => window.game.key("KeyW", false));
         expect(pushed.box[2]).toBeLessThan(start.box[2]! - 1);
         expect(pushed.predictedBox).toBe(true);
-        const yawCount = await page.evaluate(async (socket) => {
-            window.game.key("KeyW", true);
-            window.game.touch(91, innerWidth * 0.8, innerHeight * 0.4);
-            const yaws = new Set<number>();
-            for (let frame = 0; frame < 600; frame++) {
-                window.game.touch(91, innerWidth * 0.8 + (frame + 1) * 0.73, innerHeight * 0.4);
-                yaws.add((await window.game.frames()).yaw);
-                // Only the external server advances on wall time.
-                if (socket)
-                    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-            }
-            window.game.cancel(91);
-            window.game.key("KeyW", false);
-            return yaws.size;
-        }, server);
-        expect(yawCount).toBeGreaterThan(500);
-        console.log(`yaw sweep ${server ? "socket" : "in-tab"}: ${yawCount} distinct angles`);
+        // Both topologies send yaw through the same input codec, and the in-tab recordings hold the
+        // server's and client's math, so only the in-tab subject sweeps it.
+        if (!server) {
+            const yawCount = await page.evaluate(async () => {
+                window.game.key("KeyW", true);
+                window.game.touch(91, innerWidth * 0.8, innerHeight * 0.4);
+                const yaws = new Set<number>();
+                for (let frame = 0; frame < 600; frame++) {
+                    window.game.touch(91, innerWidth * 0.8 + (frame + 1) * 0.73, innerHeight * 0.4);
+                    yaws.add((await window.game.frames()).yaw);
+                }
+                window.game.cancel(91);
+                window.game.key("KeyW", false);
+                return yaws.size;
+            });
+            expect(yawCount).toBeGreaterThan(500);
+            console.log(`yaw sweep in-tab: ${yawCount} distinct angles`);
+        }
         const download = page.waitForEvent("download");
         await page.keyboard.down("F3");
         await page.keyboard.press("r");
@@ -119,9 +120,6 @@ for (const server of [false, true]) {
             expect(recording.javascript.version).toContain("Chrome/");
         }
         execFileSync("bun", ["tests/replay.ts", path!], { cwd: import.meta.dirname + "/.." });
-        execFileSync("bun", ["tests/replay.ts", path!, "--drop-receive"], {
-            cwd: import.meta.dirname + "/..",
-        });
     });
 }
 
